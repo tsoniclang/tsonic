@@ -193,5 +193,119 @@ namespace Tsonic.Runtime.Tests
         {
             Assert.Equal(expected, Math.trunc(input));
         }
+
+        // New method tests
+
+        [Fact]
+        public void sinh_CalculatesHyperbolicSine()
+        {
+            Assert.Equal(0, Math.sinh(0), 10);
+            Assert.True(Math.sinh(1) > 1);
+        }
+
+        [Fact]
+        public void cosh_CalculatesHyperbolicCosine()
+        {
+            Assert.Equal(1, Math.cosh(0), 10);
+            Assert.True(Math.cosh(1) > 1);
+        }
+
+        [Fact]
+        public void tanh_CalculatesHyperbolicTangent()
+        {
+            Assert.Equal(0, Math.tanh(0), 10);
+            Assert.True(Math.tanh(1) > 0 && Math.tanh(1) < 1);
+        }
+
+        [Fact]
+        public void asinh_CalculatesInverseHyperbolicSine()
+        {
+            Assert.Equal(0, Math.asinh(0), 10);
+            var result = Math.asinh(1);
+            Assert.True(result > 0.88 && result < 0.89);
+        }
+
+        [Fact]
+        public void acosh_CalculatesInverseHyperbolicCosine()
+        {
+            Assert.Equal(0, Math.acosh(1), 10);
+            var result = Math.acosh(2);
+            Assert.True(result > 1.3 && result < 1.4);
+        }
+
+        [Fact]
+        public void atanh_CalculatesInverseHyperbolicTangent()
+        {
+            Assert.Equal(0, Math.atanh(0), 10);
+            var result = Math.atanh(0.5);
+            Assert.True(result > 0.54 && result < 0.56);
+        }
+
+        [Theory]
+        [InlineData(8, 2)]
+        [InlineData(27, 3)]
+        [InlineData(64, 4)]
+        [InlineData(0, 0)]
+        public void cbrt_CalculatesCubeRoot(double input, double expected)
+        {
+            Assert.Equal(expected, Math.cbrt(input), 10);
+        }
+
+        [Fact]
+        public void hypot_CalculatesHypotenuse()
+        {
+            Assert.Equal(5, Math.hypot(3, 4), 10);
+            Assert.Equal(13, Math.hypot(5, 12), 10);
+        }
+
+        [Theory]
+        [InlineData(0, 0)]
+        [InlineData(1, 1.718281828459045)]
+        [InlineData(-1, -0.6321205588285577)]
+        public void expm1_CalculatesExpMinusOne(double input, double expected)
+        {
+            Assert.Equal(expected, Math.expm1(input), 10);
+        }
+
+        [Theory]
+        [InlineData(0, 0)]
+        [InlineData(1, 0.6931471805599453)]
+        [InlineData(2, 1.0986122886681098)]
+        public void log1p_CalculatesLogOnePlus(double input, double expected)
+        {
+            Assert.Equal(expected, Math.log1p(input), 10);
+        }
+
+        [Fact]
+        public void fround_RoundsToFloat32()
+        {
+            var result = Math.fround(1.337);
+            Assert.InRange(result, 1.3369998931884766, 1.3370001068115234);
+        }
+
+        [Theory]
+        [InlineData(2, 3, 6)]
+        [InlineData(5, 12, 60)]
+        [InlineData(-5, 12, -60)]
+        public void imul_Multiplies32BitIntegers(int a, int b, int expected)
+        {
+            Assert.Equal(expected, Math.imul(a, b));
+        }
+
+        [Theory]
+        [InlineData(1, 31)]
+        [InlineData(4, 29)]
+        [InlineData(0, 32)]
+        public void clz32_CountsLeadingZeros(int input, int expected)
+        {
+            Assert.Equal(expected, Math.clz32(input));
+        }
+
+        [Fact]
+        public void f16round_RoundsToFloat16()
+        {
+            var result = Math.f16round(1.5);
+            Assert.Equal(1.5, result, 1);
+        }
     }
 }

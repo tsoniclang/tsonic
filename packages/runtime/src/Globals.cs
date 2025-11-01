@@ -13,6 +13,11 @@ namespace Tsonic.Runtime
     /// </summary>
     public static class Globals
     {
+        // Global constants
+        public const double Infinity = double.PositiveInfinity;
+        public const double NaN = double.NaN;
+        public static readonly object? undefined = null;
+
         /// <summary>
         /// Parse string to integer with optional radix
         /// </summary>
@@ -107,6 +112,75 @@ namespace Tsonic.Runtime
         public static string decodeURI(string uri)
         {
             return Uri.UnescapeDataString(uri);
+        }
+
+        /// <summary>
+        /// Convert value to number
+        /// </summary>
+        public static double Number(object? value)
+        {
+            if (value == null) return 0;
+
+            if (value is double d) return d;
+            if (value is int i) return i;
+            if (value is long l) return l;
+            if (value is float f) return f;
+            if (value is decimal dec) return (double)dec;
+            if (value is bool b) return b ? 1 : 0;
+
+            if (value is string str)
+            {
+                if (string.IsNullOrWhiteSpace(str)) return 0;
+                str = str.Trim();
+                if (str == "Infinity") return double.PositiveInfinity;
+                if (str == "-Infinity") return double.NegativeInfinity;
+                if (double.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out double result))
+                {
+                    return result;
+                }
+                return double.NaN;
+            }
+
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// Convert value to string
+        /// </summary>
+        public static string String(object? value)
+        {
+            if (value == null) return "undefined";
+            if (value is string s) return s;
+            if (value is bool b) return b ? "true" : "false";
+            if (value is double d)
+            {
+                if (double.IsNaN(d)) return "NaN";
+                if (double.IsPositiveInfinity(d)) return "Infinity";
+                if (double.IsNegativeInfinity(d)) return "-Infinity";
+            }
+            return value.ToString() ?? "";
+        }
+
+        /// <summary>
+        /// Convert value to boolean
+        /// </summary>
+        public static bool Boolean(object? value)
+        {
+            if (value == null) return false;
+
+            if (value is bool b) return b;
+            if (value is string s) return s.Length > 0;
+            if (value is double d)
+            {
+                if (double.IsNaN(d)) return false;
+                return d != 0;
+            }
+            if (value is int i) return i != 0;
+            if (value is long l) return l != 0;
+            if (value is float f) return f != 0;
+            if (value is decimal dec) return dec != 0;
+
+            return true; // Objects are truthy
         }
     }
 }
