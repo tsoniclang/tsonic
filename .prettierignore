@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+.tsonic
+out
+*.cs
+package-lock.json
+*.min.js
+*.min.css

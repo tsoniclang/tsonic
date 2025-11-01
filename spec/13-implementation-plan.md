@@ -11,17 +11,18 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Goal:** Establish monorepo structure and basic tooling
 
 **Tasks:**
-1. Initialize monorepo with pnpm workspaces
+1. Initialize monorepo with npm workspaces
 2. Create package directories: cli, frontend, emitter, backend, runtime
-3. Setup TypeScript configuration for all packages
+3. Setup TypeScript configuration with base config
 4. Configure ESLint and Prettier
-5. Setup Jest for testing
+5. Create shell scripts for build orchestration
 6. Create basic package.json for each package
-7. Setup build scripts
+7. Setup test framework (Mocha/Chai)
 
 **Deliverables:**
-- Working monorepo structure
-- `pnpm install` and `pnpm build` work
+- Working monorepo structure with npm workspaces
+- Shell scripts: `build.sh`, `clean.sh`, `install-deps.sh`, `format-all.sh`, `lint-all.sh`
+- `npm install` and `./scripts/build.sh` work
 - Basic CI workflow (GitHub Actions)
 
 ### Phase 1: TypeScript Frontend

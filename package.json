@@ -1,0 +1,57 @@
+{
+  "name": "@tsonic/monorepo",
+  "version": "0.0.1",
+  "description": "TypeScript to C# to NativeAOT compiler",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "./scripts/build.sh",
+    "build:quick": "./scripts/build.sh --no-format",
+    "clean": "./scripts/clean.sh",
+    "clean:all": "./scripts/clean.sh --all",
+    "test": "npm test --workspaces",
+    "test:cli": "cd packages/cli && npm test",
+    "test:frontend": "cd packages/frontend && npm test",
+    "test:emitter": "cd packages/emitter && npm test",
+    "lint": "./scripts/lint-all.sh",
+    "lint:fix": "./scripts/lint-all.sh --fix",
+    "format": "./scripts/format-all.sh",
+    "format:check": "./scripts/format-all.sh --check",
+    "typecheck": "tsc --noEmit"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@types/chai": "5.2.2",
+    "@types/mocha": "10.0.10",
+    "@types/node": "20.14.0",
+    "@typescript-eslint/eslint-plugin": "8.43.0",
+    "@typescript-eslint/parser": "8.43.0",
+    "chai": "5.3.3",
+    "eslint": "9.35.0",
+    "globals": "15.15.0",
+    "mocha": "11.7.2",
+    "prettier": "3.6.2",
+    "typescript": "5.9.2",
+    "typescript-eslint": "^8.45.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git"
+  },
+  "keywords": [
+    "typescript",
+    "csharp",
+    "compiler",
+    "native-aot",
+    "dotnet",
+    "transpiler"
+  ],
+  "author": "Tsonic Project",
+  "license": "MIT"
+}

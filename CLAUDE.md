@@ -263,20 +263,29 @@ const emit = (ir: IrModule): string => { /* ... */ };
 ## Build Commands
 
 ```bash
-# Install dependencies (use pnpm)
-pnpm install
+# Install dependencies
+npm install
 
 # Build all packages
-pnpm build
+./scripts/build.sh
 
 # Run tests
-pnpm test
+npm test
 
 # Run specific test
-pnpm test -- --grep "pattern"
+npm test -- --grep "pattern"
 
 # Clean build artifacts
-pnpm clean
+./scripts/clean.sh
+
+# Clean everything including node_modules
+./scripts/clean.sh --all
+
+# Format code
+./scripts/format-all.sh
+
+# Lint code
+./scripts/lint-all.sh
 ```
 
 ## Git Workflow
