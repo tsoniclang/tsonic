@@ -54,7 +54,7 @@ export const buildIrModule = (
       isStaticContainer,
       imports,
       body: statements,
-      exports
+      exports,
     };
 
     return ok(module);
@@ -68,7 +68,7 @@ export const buildIrModule = (
           file: sourceFile.fileName,
           line: 1,
           column: 1,
-          length: 1
+          length: 1,
         }
       )
     );
@@ -105,10 +105,14 @@ const extractImports = (sourceFile: ts.SourceFile): readonly IrImport[] => {
   const imports: IrImport[] = [];
 
   const visitor = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
       const source = node.moduleSpecifier.text;
       const isLocal = source.startsWith(".") || source.startsWith("/");
-      const isDotNet = !isLocal && !source.includes("/") && /^[A-Z]/.test(source);
+      const isDotNet =
+        !isLocal && !source.includes("/") && /^[A-Z]/.test(source);
       const specifiers = extractImportSpecifiers(node);
 
       imports.push({
@@ -117,7 +121,7 @@ const extractImports = (sourceFile: ts.SourceFile): readonly IrImport[] => {
         isLocal,
         isDotNet,
         specifiers,
-        resolvedNamespace: isDotNet ? source : undefined
+        resolvedNamespace: isDotNet ? source : undefined,
       });
     }
     ts.forEachChild(node, visitor);
@@ -127,7 +131,9 @@ const extractImports = (sourceFile: ts.SourceFile): readonly IrImport[] => {
   return imports;
 };
 
-const extractImportSpecifiers = (node: ts.ImportDeclaration): readonly IrImportSpecifier[] => {
+const extractImportSpecifiers = (
+  node: ts.ImportDeclaration
+): readonly IrImportSpecifier[] => {
   const specifiers: IrImportSpecifier[] = [];
 
   if (node.importClause) {
@@ -135,7 +141,7 @@ const extractImportSpecifiers = (node: ts.ImportDeclaration): readonly IrImportS
     if (node.importClause.name) {
       specifiers.push({
         kind: "default",
-        localName: node.importClause.name.text
+        localName: node.importClause.name.text,
       });
     }
 
@@ -144,14 +150,14 @@ const extractImportSpecifiers = (node: ts.ImportDeclaration): readonly IrImportS
       if (ts.isNamespaceImport(node.importClause.namedBindings)) {
         specifiers.push({
           kind: "namespace",
-          localName: node.importClause.namedBindings.name.text
+          localName: node.importClause.namedBindings.name.text,
         });
       } else if (ts.isNamedImports(node.importClause.namedBindings)) {
-        node.importClause.namedBindings.elements.forEach(spec => {
+        node.importClause.namedBindings.elements.forEach((spec) => {
           specifiers.push({
             kind: "named",
             name: (spec.propertyName ?? spec.name).text,
-            localName: spec.name.text
+            localName: spec.name.text,
           });
         });
       }
@@ -161,24 +167,27 @@ const extractImportSpecifiers = (node: ts.ImportDeclaration): readonly IrImportS
   return specifiers;
 };
 
-const extractExports = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): readonly IrExport[] => {
+const extractExports = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
+): readonly IrExport[] => {
   const exports: IrExport[] = [];
 
   const visitor = (node: ts.Node): void => {
     if (ts.isExportDeclaration(node)) {
       if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        node.exportClause.elements.forEach(spec => {
+        node.exportClause.elements.forEach((spec) => {
           exports.push({
             kind: "named",
             name: spec.name.text,
-            localName: (spec.propertyName ?? spec.name).text
+            localName: (spec.propertyName ?? spec.name).text,
           });
         });
       }
     } else if (ts.isExportAssignment(node)) {
       exports.push({
         kind: "default",
-        expression: convertExpression(node.expression)
+        expression: convertExpression(node.expression),
       });
     } else if (hasExportModifier(node)) {
       const hasDefault = hasDefaultModifier(node);
@@ -188,7 +197,7 @@ const extractExports = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
         if (stmt) {
           exports.push({
             kind: "default",
-            expression: { kind: "identifier", name: "_default" } // placeholder for now
+            expression: { kind: "identifier", name: "_default" }, // placeholder for now
           });
         }
       } else {
@@ -197,7 +206,7 @@ const extractExports = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
         if (stmt) {
           exports.push({
             kind: "declaration",
-            declaration: stmt
+            declaration: stmt,
           });
         }
       }
@@ -209,12 +218,19 @@ const extractExports = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
   return exports;
 };
 
-const extractStatements = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): readonly IrStatement[] => {
+const extractStatements = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
+): readonly IrStatement[] => {
   const statements: IrStatement[] = [];
 
-  sourceFile.statements.forEach(stmt => {
+  sourceFile.statements.forEach((stmt) => {
     // Skip imports and exports (handled separately)
-    if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt) && !ts.isExportAssignment(stmt)) {
+    if (
+      !ts.isImportDeclaration(stmt) &&
+      !ts.isExportDeclaration(stmt) &&
+      !ts.isExportAssignment(stmt)
+    ) {
       const converted = convertStatement(stmt, checker);
       if (converted) {
         statements.push(converted);
@@ -232,12 +248,12 @@ const isExecutableStatement = (stmt: IrStatement): boolean => {
     "classDeclaration",
     "interfaceDeclaration",
     "typeAliasDeclaration",
-    "enumDeclaration"
+    "enumDeclaration",
   ];
 
   // Variable declarations without initializers are not executable
   if (stmt.kind === "variableDeclaration") {
-    return stmt.declarations.some(decl => decl.initializer !== undefined);
+    return stmt.declarations.some((decl) => decl.initializer !== undefined);
   }
 
   // Empty statements are not executable
@@ -251,11 +267,15 @@ const isExecutableStatement = (stmt: IrStatement): boolean => {
 const hasExportModifier = (node: ts.Node): boolean => {
   if (!ts.canHaveModifiers(node)) return false;
   const modifiers = ts.getModifiers(node);
-  return modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+  return (
+    modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
+  );
 };
 
 const hasDefaultModifier = (node: ts.Node): boolean => {
   if (!ts.canHaveModifiers(node)) return false;
   const modifiers = ts.getModifiers(node);
-  return modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+  return (
+    modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false
+  );
 };

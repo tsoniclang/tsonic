@@ -29,18 +29,13 @@ export default [
         { avoidEscape: true, allowTemplateLiterals: true },
       ],
       "@typescript-eslint/no-explicit-any": "error",
-      "@typescript-eslint/explicit-module-boundary-types": "off",
+      "@typescript-eslint/explicit-module-boundary-types": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_" },
       ],
-      "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-non-null-assertion": "error",
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
-      "no-var": "error",
-      "prefer-const": "error",
-      "no-let": "off", // We enforce const-only in code review
-      "no-param-reassign": "error",
-      "no-mutating-methods": "off", // Would need custom rule
     },
   },
   {
@@ -48,6 +43,14 @@ export default [
     languageOptions: {
       globals: {
         ...globals.node,
+      },
+    },
+  },
+  {
+    files: ["**/*.test.ts", "**/*.spec.ts"],
+    languageOptions: {
+      globals: {
+        ...globals.mocha,
       },
     },
   },

@@ -14,8 +14,12 @@ import {
   IrPropertySignature,
   IrMethodSignature,
 } from "./types.js";
+import { convertParameters as convertParametersFromStatement } from "./statement-converter.js";
 
-export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrType => {
+export const convertType = (
+  typeNode: ts.TypeNode,
+  checker: ts.TypeChecker
+): IrType => {
   // Primitive types
   if (ts.isTypeReferenceNode(typeNode)) {
     const typeName = ts.isIdentifier(typeNode.typeName)
@@ -24,17 +28,18 @@ export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrT
 
     // Check for primitive type names
     const primitiveTypes: Record<string, IrPrimitiveType["name"]> = {
-      "string": "string",
-      "number": "number",
-      "boolean": "boolean",
-      "null": "null",
-      "undefined": "undefined",
+      string: "string",
+      number: "number",
+      boolean: "boolean",
+      null: "null",
+      undefined: "undefined",
     };
 
-    if (typeName in primitiveTypes) {
+    const primitiveName = primitiveTypes[typeName];
+    if (primitiveName) {
       return {
         kind: "primitiveType",
-        name: primitiveTypes[typeName]!
+        name: primitiveName,
       };
     }
 
@@ -42,7 +47,9 @@ export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrT
     return {
       kind: "referenceType",
       name: typeName,
-      typeArguments: typeNode.typeArguments?.map(t => convertType(t, checker))
+      typeArguments: typeNode.typeArguments?.map((t) =>
+        convertType(t, checker)
+      ),
     };
   }
 
@@ -78,7 +85,7 @@ export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrT
   if (ts.isArrayTypeNode(typeNode)) {
     return {
       kind: "arrayType",
-      elementType: convertType(typeNode.elementType, checker)
+      elementType: convertType(typeNode.elementType, checker),
     };
   }
 
@@ -96,7 +103,7 @@ export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrT
   if (ts.isUnionTypeNode(typeNode)) {
     return {
       kind: "unionType",
-      types: typeNode.types.map(t => convertType(t, checker))
+      types: typeNode.types.map((t) => convertType(t, checker)),
     };
   }
 
@@ -104,7 +111,7 @@ export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrT
   if (ts.isIntersectionTypeNode(typeNode)) {
     return {
       kind: "intersectionType",
-      types: typeNode.types.map(t => convertType(t, checker))
+      types: typeNode.types.map((t) => convertType(t, checker)),
     };
   }
 
@@ -134,36 +141,47 @@ export const convertType = (typeNode: ts.TypeNode, checker: ts.TypeChecker): IrT
   return { kind: "anyType" };
 };
 
-const convertFunctionType = (node: ts.FunctionTypeNode, checker: ts.TypeChecker): IrFunctionType => {
-  const { convertParameters } = require("./statement-converter.js");
-
+const convertFunctionType = (
+  node: ts.FunctionTypeNode,
+  checker: ts.TypeChecker
+): IrFunctionType => {
   return {
     kind: "functionType",
-    parameters: convertParameters(node.parameters, checker),
-    returnType: convertType(node.type, checker)
+    parameters: convertParametersFromStatement(node.parameters, checker),
+    returnType: convertType(node.type, checker),
   };
 };
 
-const convertObjectType = (node: ts.TypeLiteralNode, checker: ts.TypeChecker): IrObjectType => {
+const convertObjectType = (
+  node: ts.TypeLiteralNode,
+  checker: ts.TypeChecker
+): IrObjectType => {
   const members: IrInterfaceMember[] = [];
 
-  node.members.forEach(member => {
+  node.members.forEach((member) => {
     if (ts.isPropertySignature(member) && member.type) {
       const propSig: IrPropertySignature = {
         kind: "propertySignature",
-        name: member.name && ts.isIdentifier(member.name) ? member.name.text : "[computed]",
+        name:
+          member.name && ts.isIdentifier(member.name)
+            ? member.name.text
+            : "[computed]",
         type: convertType(member.type, checker),
         isOptional: !!member.questionToken,
-        isReadonly: !!member.modifiers?.some(m => m.kind === ts.SyntaxKind.ReadonlyKeyword)
+        isReadonly: !!member.modifiers?.some(
+          (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+        ),
       };
       members.push(propSig);
     } else if (ts.isMethodSignature(member)) {
-      const { convertParameters } = require("./statement-converter.js");
       const methSig: IrMethodSignature = {
         kind: "methodSignature",
-        name: member.name && ts.isIdentifier(member.name) ? member.name.text : "[computed]",
-        parameters: convertParameters(member.parameters, checker),
-        returnType: member.type ? convertType(member.type, checker) : undefined
+        name:
+          member.name && ts.isIdentifier(member.name)
+            ? member.name.text
+            : "[computed]",
+        parameters: convertParametersFromStatement(member.parameters, checker),
+        returnType: member.type ? convertType(member.type, checker) : undefined,
       };
       members.push(methSig);
     }
@@ -176,14 +194,14 @@ export const convertBindingName = (name: ts.BindingName): IrPattern => {
   if (ts.isIdentifier(name)) {
     return {
       kind: "identifierPattern",
-      name: name.text
+      name: name.text,
     };
   }
 
   if (ts.isArrayBindingPattern(name)) {
     return {
       kind: "arrayPattern",
-      elements: name.elements.map(elem => {
+      elements: name.elements.map((elem) => {
         if (ts.isOmittedExpression(elem)) {
           return undefined; // Hole in array pattern
         }
@@ -191,19 +209,19 @@ export const convertBindingName = (name: ts.BindingName): IrPattern => {
           return convertBindingName(elem.name);
         }
         return undefined;
-      })
+      }),
     };
   }
 
   if (ts.isObjectBindingPattern(name)) {
     const properties: IrObjectPatternProperty[] = [];
 
-    name.elements.forEach(elem => {
+    name.elements.forEach((elem) => {
       if (elem.dotDotDotToken) {
         // Rest property
         properties.push({
           kind: "rest",
-          pattern: convertBindingName(elem.name)
+          pattern: convertBindingName(elem.name),
         });
       } else {
         const key = elem.propertyName
@@ -218,20 +236,20 @@ export const convertBindingName = (name: ts.BindingName): IrPattern => {
           kind: "property",
           key,
           value: convertBindingName(elem.name),
-          shorthand: !elem.propertyName
+          shorthand: !elem.propertyName,
         });
       }
     });
 
     return {
       kind: "objectPattern",
-      properties
+      properties,
     };
   }
 
   // Default to identifier pattern (should not reach here normally)
   return {
     kind: "identifierPattern",
-    name: "_unknown"
+    name: "_unknown",
   };
 };
