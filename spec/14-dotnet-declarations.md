@@ -26,6 +26,32 @@ packages/runtime/lib/
 - Matches C# organization
 - Can be auto-generated from .NET metadata
 
+## Generation Tool
+
+The `.d.ts` files in `packages/runtime/lib/` are generated using the **`generatedts`** tool, a C# application that uses reflection to analyze .NET assemblies and produce TypeScript declarations.
+
+**Repository:** `../generatedts` (sibling directory)
+
+**Usage:**
+```bash
+# Generate declarations for a .NET assembly
+cd ../generatedts
+dotnet run --project Src -- /path/to/System.Text.Json.dll --out-dir ../tsonic/packages/runtime/lib/
+
+# Generate for multiple assemblies
+dotnet run --project Src -- System.IO.dll --out-dir ../tsonic/packages/runtime/lib/
+dotnet run --project Src -- System.Collections.Generic.dll --out-dir ../tsonic/packages/runtime/lib/
+```
+
+**Features:**
+- Automatically generates branded types for C# numerics (`int`, `decimal`, etc.)
+- Maps C# types to TypeScript equivalents (`Task<T>` → `Promise<T>`)
+- Filters out private/internal members
+- Supports namespace filtering and custom configuration
+- Generates proper TypeScript namespace declarations
+
+**See:** `../generatedts/README.md` for detailed usage and configuration options.
+
 ## Auto-Inclusion
 
 These declaration files are **automatically included** by the Tsonic compiler. No user configuration needed.
