@@ -20,6 +20,7 @@ packages/runtime/lib/
 ```
 
 **Benefits:**
+
 - Each file is focused and manageable
 - Easy to find types by namespace
 - Scales to any number of .NET namespaces
@@ -33,6 +34,7 @@ The `.d.ts` files in `packages/runtime/lib/` are generated using the **`generate
 **Repository:** `../generatedts` (sibling directory)
 
 **Usage:**
+
 ```bash
 # Generate declarations for a .NET assembly
 cd ../generatedts
@@ -44,6 +46,7 @@ dotnet run --project Src -- System.Collections.Generic.dll --out-dir ../tsonic/p
 ```
 
 **Features:**
+
 - Automatically generates branded types for C# numerics (`int`, `decimal`, etc.)
 - Maps C# types to TypeScript equivalents (`Task<T>` → `Promise<T>`)
 - Filters out private/internal members
@@ -57,28 +60,34 @@ dotnet run --project Src -- System.Collections.Generic.dll --out-dir ../tsonic/p
 These declaration files are **automatically included** by the Tsonic compiler. No user configuration needed.
 
 **Implementation (packages/frontend/src/program.ts):**
+
 ```typescript
 import fs from "node:fs";
 import path from "node:path";
 
-export const createTsonicProgram = (files: string[], options: CompilerOptions) => {
+export const createTsonicProgram = (
+  files: string[],
+  options: CompilerOptions
+) => {
   // Auto-include all .NET declaration files
   const libDir = path.join(import.meta.dirname, "../runtime/lib");
-  const dotnetDeclarations = fs.readdirSync(libDir)
-    .filter(f => f.endsWith(".d.ts"))
-    .map(f => path.join(libDir, f));
+  const dotnetDeclarations = fs
+    .readdirSync(libDir)
+    .filter((f) => f.endsWith(".d.ts"))
+    .map((f) => path.join(libDir, f));
 
   return ts.createProgram({
     rootNames: [...files, ...dotnetDeclarations],
     options: {
       ...options,
       types: [], // Don't auto-include @types/*
-    }
+    },
   });
 };
 ```
 
 **Requirements:**
+
 - Node.js 22+ (uses `import.meta.dirname`)
 - ESM-only project
 

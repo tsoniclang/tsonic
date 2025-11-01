@@ -3,8 +3,21 @@
  * Tsonic CLI - Command-line interface for Tsonic compiler
  */
 
-console.log("Tsonic CLI - TypeScript to C# to NativeAOT compiler");
-console.log("This is a placeholder. Implementation coming soon.");
+import { runCli } from "./cli.js";
 
-// Placeholder to make the package compile
-export {};
+// Run CLI with arguments (skip node and script name)
+const args = process.argv.slice(2);
+
+runCli(args)
+  .then((exitCode) => {
+    process.exit(exitCode);
+  })
+  .catch((error) => {
+    console.error("Fatal error:", error);
+    process.exit(1);
+  });
+
+// Export for testing
+export { runCli } from "./cli.js";
+export * from "./types.js";
+export * from "./config.js";

@@ -616,10 +616,9 @@ TypeScript can call C# instance methods directly when the value comes from a .NE
 import { String } from "System";
 
 const raw: string = getNameFromDotnet();
-const upper1 = raw.toUpperCase();              // JS helper → Tsonic.Runtime.String.toUpperCase
-const upper2 = String.ToUpper(raw);            // Static helper from System.d.ts
+const upper1 = raw.toUpperCase(); // JS helper → Tsonic.Runtime.String.toUpperCase
+const upper2 = String.ToUpper(raw); // Static helper from System.d.ts
 const upper3 = (raw as System.String).ToUpper(); // Instance method after cast
 ```
 
 Both patterns are valid. Use the JavaScript-style call for values you manipulate with Tsonic runtime semantics; use the C# method when you need direct parity with .NET APIs.
-
