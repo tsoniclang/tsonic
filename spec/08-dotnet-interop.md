@@ -39,9 +39,9 @@ var json = JsonSerializer.Serialize(data);
 
 ## TypeScript Declarations for .NET
 
-To enable TypeScript type checking, we provide declaration files:
+To enable TypeScript type checking, we provide declaration files organized by namespace:
 
-### lib.cs.d.ts (Minimal BCL)
+### .NET Type Declarations (Per-Namespace Files)
 
 ```typescript
 // System namespace
@@ -610,14 +610,14 @@ public class FileProcessor
 
 ### Using C# Instance Methods
 
-TypeScript can call C# instance methods directly when the value comes from a .NET API or you cast it to the corresponding type from `lib.cs.d.ts`:
+TypeScript can call C# instance methods directly when the value comes from a .NET API or you cast it to the corresponding type from the .NET declaration files (e.g., `System.d.ts`):
 
 ```typescript
 import { String } from "System";
 
 const raw: string = getNameFromDotnet();
 const upper1 = raw.toUpperCase();              // JS helper → Tsonic.Runtime.String.toUpperCase
-const upper2 = String.ToUpper(raw);            // Static helper defined in lib.cs.d.ts
+const upper2 = String.ToUpper(raw);            // Static helper from System.d.ts
 const upper3 = (raw as System.String).ToUpper(); // Instance method after cast
 ```
 

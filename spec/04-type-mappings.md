@@ -103,7 +103,7 @@ const price = 19.99 as decimal;
 const percentage = 0.15 as float;
 ```
 
-**Note:** Due to type branding, you must use `as` type assertions. See [lib.cs.d.ts](./14-lib-cs-dts.md) for details.
+**Note:** Due to type branding, you must use `as` type assertions. See [.NET Type Declarations](./14-dotnet-declarations.md) for details.
 
 ## Collection Types
 

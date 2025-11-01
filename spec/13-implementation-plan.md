@@ -279,15 +279,19 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 **Tasks:**
 
-1. Create basic lib.cs.d.ts declarations
+1. Create per-namespace .NET declaration files (System.d.ts, System.IO.d.ts, etc.)
 2. Implement .NET namespace detection
 3. Generate proper using statements
 4. Handle Task to Promise mapping
 5. Support common BCL types
+6. Auto-include declaration files in TypeScript program
 
 **Key Files:**
 
-- `runtime/lib.cs.d.ts` - .NET type declarations
+- `runtime/lib/System.d.ts` - Core .NET type declarations
+- `runtime/lib/System.IO.d.ts` - File I/O type declarations
+- `runtime/lib/System.Collections.Generic.d.ts` - Collection type declarations
+- Additional namespace files as needed
 
 **Tests:**
 

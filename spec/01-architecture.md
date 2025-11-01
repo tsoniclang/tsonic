@@ -100,7 +100,7 @@ NativeAOT Executable
 **Key Files**:
 
 - `tsruntime.cs`: Core runtime (Array, String, console, Math, etc.)
-- `lib.cs.d.ts`: TypeScript declarations for .NET types
+- `lib/System.d.ts`, `lib/System.IO.d.ts`, etc.: TypeScript declarations for .NET types (per-namespace)
 
 ## Intermediate Representation (IR)
 

@@ -1,12 +1,64 @@
-# lib.cs.d.ts - C# Type Declarations
+# .NET Type Declarations
 
 ## Overview
 
-`lib.cs.d.ts` provides TypeScript type declarations for C# primitive types and core .NET types that are not available in standard TypeScript. This allows TypeScript code to use specific C# numeric types for precision and interoperability.
+Tsonic provides TypeScript type declarations for C# primitive types and core .NET types, organized per namespace (e.g., `System.d.ts`, `System.IO.d.ts`, `System.Collections.Generic.d.ts`). This allows TypeScript code to use specific C# numeric types for precision and interoperability.
+
+## File Organization
+
+Declaration files are organized by .NET namespace for maintainability and scalability:
+
+```
+packages/runtime/lib/
+├── System.d.ts                      # Core types (String, Int32, Convert, etc.)
+├── System.IO.d.ts                   # File I/O (File, Directory, Path, etc.)
+├── System.Collections.Generic.d.ts  # List<T>, Dictionary<K,V>, HashSet<T>
+├── System.Text.Json.d.ts           # JsonSerializer, JsonDocument
+├── System.Net.Http.d.ts            # HttpClient, HttpRequestMessage
+├── System.Threading.Tasks.d.ts     # Task, Task<T>, TaskCompletionSource
+└── ... (additional namespaces as needed)
+```
+
+**Benefits:**
+- Each file is focused and manageable
+- Easy to find types by namespace
+- Scales to any number of .NET namespaces
+- Matches C# organization
+- Can be auto-generated from .NET metadata
+
+## Auto-Inclusion
+
+These declaration files are **automatically included** by the Tsonic compiler. No user configuration needed.
+
+**Implementation (packages/frontend/src/program.ts):**
+```typescript
+import fs from "node:fs";
+import path from "node:path";
+
+export const createTsonicProgram = (files: string[], options: CompilerOptions) => {
+  // Auto-include all .NET declaration files
+  const libDir = path.join(import.meta.dirname, "../runtime/lib");
+  const dotnetDeclarations = fs.readdirSync(libDir)
+    .filter(f => f.endsWith(".d.ts"))
+    .map(f => path.join(libDir, f));
+
+  return ts.createProgram({
+    rootNames: [...files, ...dotnetDeclarations],
+    options: {
+      ...options,
+      types: [], // Don't auto-include @types/*
+    }
+  });
+};
+```
+
+**Requirements:**
+- Node.js 22+ (uses `import.meta.dirname`)
+- ESM-only project
 
 ## Purpose
 
-TypeScript has limited numeric types (just `number`), but C# has many specialized numeric types with different ranges and precision. `lib.cs.d.ts` exposes these types so TypeScript developers can:
+TypeScript has limited numeric types (just `number`), but C# has many specialized numeric types with different ranges and precision. These declaration files expose C# types so TypeScript developers can:
 
 1. **Use precise numeric types** for specific use cases
 2. **Interop correctly** with .NET libraries expecting specific types
@@ -15,8 +67,10 @@ TypeScript has limited numeric types (just `number`), but C# has many specialize
 
 ## C# Numeric Type Declarations
 
+These branded type definitions are in `System.d.ts`:
+
 ```typescript
-// lib.cs.d.ts
+// System.d.ts
 
 /**
  * 32-bit signed integer (-2,147,483,648 to 2,147,483,647)
