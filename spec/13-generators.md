@@ -2,24 +2,25 @@
 
 ## Overview
 
-TypeScript generators (`function*`) support bidirectional communication: each `yield` pauses execution and the subsequent `next(value)` call resumes the generator with a new input value. C# iterators (`yield return`) only emit values; they cannot receive data between iterations. Tsonic reconciles this gap by emitting a shared exchange object that flows between the iterator and the caller.
+TypeScript and JavaScript generators (`function*`) are **bidirectional coroutines**: each `yield` pauses execution and `next(value)` resumes the generator with a new input value. C# iterators (`yield return`) are **one‑way state machines**—they can yield values but cannot receive data when resumed. C# async generators (`await foreach` / `IAsyncEnumerable<T>`) extend the model to support asynchronous work inside the generator, but they are still one‑way.
+
+To preserve TypeScript semantics, Tsonic emits **shared exchange objects**. Each `yield` returns the same reference object; the caller mutates it (e.g., setting an `Input` property) before resuming, and the generator reads that state after `MoveNext()` (or `await foreach`).
 
 ## Translation Model
 
-| TypeScript Concept    | C# Translation                                                                                  |
-| --------------------- | ----------------------------------------------------------------------------------------------- |
-| `function* name(...)` | Method returning `IEnumerable<Exchange>` (or `IAsyncEnumerable<Exchange>` for async generators) |
-| `yield value`         | Assign to `exchange.Output` then `yield return exchange;`                                       |
-| `next(value)`         | Caller sets `exchange.Input` before `MoveNext()`                                                |
-| `yield* other()`      | `foreach (var item in Other()) yield return item;`                                              |
-| `return value`        | `yield break;` and handle final result outside the iterator                                     |
+| TypeScript Concept        | C# Translation                                                                 |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `function* name(...)`     | Method returning `IEnumerable<Exchange>`                                      |
+| `async function* name()`   | Method returning `IAsyncEnumerable<Exchange>`                                 |
+| `yield value`             | Assign `exchange.Output = value; yield return exchange;`                      |
+| `next(value)`             | Caller sets `exchange.Input = value;` before resuming                         |
+| `yield* otherGenerator()` | `foreach (var item in Other()) yield return item;`                            |
+| `await` inside generator  | Only in async version (`async IAsyncEnumerable<Exchange>`)                    |
+| `return value`            | `yield break;` and handle final result externally                             |
 
-The exchange object carries state in both directions. The generator writes to `Output`, yields, then on resume reads `Input` provided by the caller.
-
-## Example Translation
+## Synchronous Generator Example
 
 ### TypeScript Source
-
 ```typescript
 function* accumulator(start = 0) {
   let total = start;
@@ -31,7 +32,6 @@ function* accumulator(start = 0) {
 ```
 
 ### Emitted C#
-
 ```csharp
 public sealed class accumulator_exchange
 {
@@ -47,50 +47,121 @@ public static IEnumerable<accumulator_exchange> accumulator(double start = 0)
     while (true)
     {
         exchange.Output = total;
-        yield return exchange;
-        total += exchange.Input ?? 0;
+        yield return exchange;           // pause generator
+        total += exchange.Input ?? 0;     // consume caller input
     }
 }
 ```
 
-### Calling Pattern
-
+### Usage
 ```csharp
-var iterator = accumulator(10).GetEnumerator();
-iterator.MoveNext();
-Console.WriteLine(iterator.Current.Output); // 10
+var iter = accumulator(10).GetEnumerator();
+iter.MoveNext();
+Console.WriteLine(iter.Current.Output);  // 10
 
-iterator.Current.Input = 5;
-iterator.MoveNext();
-Console.WriteLine(iterator.Current.Output); // 15
+iter.Current.Input = 5;
+iter.MoveNext();
+Console.WriteLine(iter.Current.Output);  // 15
+
+iter.Current.Input = 3;
+iter.MoveNext();
+Console.WriteLine(iter.Current.Output);  // 18
+```
+
+## Asynchronous Generator Example
+
+### TypeScript Source
+```typescript
+async function* asyncAccumulator(start = 0) {
+  let total = start;
+  while (true) {
+    const value = yield total;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    total += value ?? 0;
+  }
+}
+```
+
+### Emitted C#
+```csharp
+public sealed class asyncAccumulator_exchange
+{
+    public double? Input { get; set; }
+    public double Output { get; set; }
+}
+
+public static async IAsyncEnumerable<asyncAccumulator_exchange> asyncAccumulator(double start = 0)
+{
+    double total = start;
+    var exchange = new asyncAccumulator_exchange();
+
+    while (true)
+    {
+        exchange.Output = total;
+        yield return exchange;                  // yield reference, pause async iterator
+        await Task.Delay(100);                  // perform async work
+        total += exchange.Input ?? 0;           // consume caller input after resume
+    }
+}
+```
+
+### Usage
+```csharp
+await foreach (var ex in asyncAccumulator(10))
+{
+    Console.WriteLine(ex.Output);
+    ex.Input = ex.Output + 5;   // feed next iteration
+}
 ```
 
 ## Why This Works
 
-| C# Limitation                   | Mitigation                                                       |
-| ------------------------------- | ---------------------------------------------------------------- |
-| No `next(value)` channel        | Exchange object supplies an `Input` property                     |
-| `yield` cannot accept arguments | Generator re-reads `exchange.Input` after resuming               |
-| State machine is one-way        | Mutable exchange instance persists across yields                 |
-| Async generators                | Use `IAsyncEnumerable<Exchange>` and coordinate input via awaits |
+| Limitation in C#                          | Mitigation in Conversion                                      |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| No `next(value)` parameter on iterators   | Share a mutable exchange object with `Input`/`Output` fields  |
+| `yield` cannot accept arguments           | Generator re-reads `exchange.Input` after `MoveNext()`        |
+| Async iterators are still one-way         | Same exchange pattern with `IAsyncEnumerable<T>`              |
+| No stackful coroutine semantics           | Rely on compiler-generated state machines (sync & async)      |
+| Need bidirectional communication          | Caller mutates exchange object between iterations             |
 
-## Async Generators
+## Recommended Conversion Rules
 
-For `async function*`, Tsonic emits `IAsyncEnumerable<Exchange>` and uses `await foreach` in the caller. Input is assigned before awaiting the next item. If back-pressure coordination is required, a future runtime helper may wrap `IAsyncEnumerable` with channels or `TaskCompletionSource` objects.
+| TypeScript Construct        | Generated C# Pattern                                                        |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `function*`                 | `IEnumerable<Exchange>`                                                     |
+| `async function*`           | `IAsyncEnumerable<Exchange>`                                                |
+| `yield value`               | `exchange.Output = value; yield return exchange;`                           |
+| `yield* other()`            | `foreach (var item in Other()) yield return item;`                          |
+| `next(value)`               | Caller sets `Current.Input` before `MoveNext()` / `await foreach` resumes   |
+| `return value`              | `yield break;` (final value handled separately if needed)                   |
+| Generator declaration       | Emit typed `Exchange` class/record per generator                            |
+| Async `await` inside body   | Allowed only for async generators (`async IAsyncEnumerable<Exchange>`)      |
+
+## Use Cases
+
+| Scenario                   | TypeScript Behaviour                                  | C# Translation Strategy                            |
+| -------------------------- | ------------------------------------------------------ | --------------------------------------------------- |
+| Stateful accumulators      | Yield totals, accept deltas via `next(value)`          | Exchange object: `Output`/`Input` per iteration     |
+| Interactive pipelines      | Send commands back to generator through `next(value)`  | Exchange carries command/response payloads          |
+| Async event streams        | `async function*` streaming data with `await` delays    | `IAsyncEnumerable<Exchange>` with `await` operations |
+| Delegating generators      | `yield*` re-exports another generator’s values         | `foreach` pass-through in generated C#              |
 
 ## Limitations
 
-- Truly stackful coroutines are not supported; iteration remains pull-based.
-- The shared exchange object introduces mutable state; concurrent callers must synchronize access.
-- Exhausting the iterator (`return value`) requires external handling if the result should be surfaced.
+- No support for true stackful coroutines (multiple entry points). Execution remains caller-driven.
+- Shared exchange instances introduce mutable shared state; consumers must ensure thread-safety.
+- `return value` semantics require external handling (e.g., final value stored on exchange or wrapper).
+- Async iteration remains pull-based (`await foreach` drives the generator).
 
-## Guidance for Callers
+## Summary
 
-Tsonic will ship a small runtime helper that exposes ergonomic `Next(value)` semantics over the generated iterator. Until then, callers should:
+| TypeScript Concept      | C# Equivalent                             |
+| ----------------------- | ----------------------------------------- |
+| Synchronous generator   | `IEnumerable<Exchange>` + shared exchange |
+| Async generator         | `IAsyncEnumerable<Exchange>` + shared exchange |
+| `yield`                 | `yield return exchange`                   |
+| `next(value)`           | Mutate exchange before resuming          |
+| Bidirectional data flow | Maintained via exchange object            |
+| `await` (async generator)| Native `await` inside `IAsyncEnumerable`  |
 
-1. Retrieve the enumerator.
-2. Call `MoveNext()` to advance.
-3. Read `Current.Output`.
-4. Set `Current.Input` before the next `MoveNext()`.
-
-This preserves the bidirectional data flow that TypeScript developers expect from generators.
+This approach preserves the logical behaviour of TypeScript generators while fitting within C#’s iterator and async enumerator models. Each generator gets an auto-generated exchange type to keep payloads strongly typed, and both sync and async patterns rely on the same explicit, shared mutable state.
