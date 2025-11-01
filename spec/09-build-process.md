@@ -8,10 +8,9 @@ The build process transforms TypeScript to a native executable via C# and Native
 
 ```
 1. TypeScript → IR → C#
-2. Generate .csproj
-3. Copy runtime files
-4. dotnet publish (NativeAOT)
-5. Copy output binary
+2. Generate .csproj with Tsonic.Runtime package reference
+3. dotnet publish (NativeAOT)
+4. Copy output binary
 ```
 
 ## Build Directory Structure
@@ -22,7 +21,6 @@ The build process transforms TypeScript to a native executable via C# and Native
     └── <hash>/           # Unique per build
         ├── tsonic.csproj
         ├── Program.cs    # If needed
-        ├── TsonicRuntime.cs
         ├── src/
         │   ├── main.cs
         │   ├── models/
@@ -65,8 +63,11 @@ The build process transforms TypeScript to a native executable via C# and Native
     <RootNamespace>$(TsonicRootNamespace)</RootNamespace>
   </PropertyGroup>
 
-  <!-- NuGet packages if needed -->
+  <!-- NuGet packages -->
   <ItemGroup>
+    <!-- Tsonic runtime - always included -->
+    <PackageReference Include="Tsonic.Runtime" Version="0.0.1" />
+
     <!-- Auto-detected from imports -->
     <PackageReference Include="System.Text.Json" Version="8.0.0" />
     <!-- Add others as needed -->
@@ -120,16 +121,7 @@ function copyGeneratedFiles(
 }
 ```
 
-### Step 3: Copy Runtime
-
-```typescript
-function copyRuntime(buildDir: string) {
-  const runtimePath = path.join(__dirname, "../runtime/TsonicRuntime.cs");
-  copyFileSync(runtimePath, path.join(buildDir, "TsonicRuntime.cs"));
-}
-```
-
-### Step 4: Generate Program.cs
+### Step 3: Generate Program.cs
 
 Only if entry doesn't have Main:
 
@@ -156,10 +148,15 @@ public static class Program
 }
 ```
 
-### Step 5: Generate .csproj
+### Step 4: Generate .csproj
 
 ```typescript
 function generateCsproj(config: BuildConfig, buildDir: string): void {
+  const packages = [
+    { name: "Tsonic.Runtime", version: "0.0.1" }, // Always include runtime
+    ...config.packages,
+  ];
+
   const csproj = `<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -175,7 +172,7 @@ function generateCsproj(config: BuildConfig, buildDir: string): void {
   </PropertyGroup>
 
   <ItemGroup>
-    ${config.packages.map((p) => `<PackageReference Include="${p.name}" Version="${p.version}" />`).join("\n    ")}
+    ${packages.map((p) => `<PackageReference Include="${p.name}" Version="${p.version}" />`).join("\n    ")}
   </ItemGroup>
 </Project>`;
 
@@ -183,7 +180,7 @@ function generateCsproj(config: BuildConfig, buildDir: string): void {
 }
 ```
 
-### Step 6: Execute dotnet publish
+### Step 5: Execute dotnet publish
 
 ```typescript
 import { spawnSync } from "child_process";
@@ -212,7 +209,7 @@ function publishNativeAot(buildDir: string, rid: string): void {
 }
 ```
 
-### Step 7: Copy Output Binary
+### Step 6: Copy Output Binary
 
 ```typescript
 function copyOutputBinary(
@@ -382,9 +379,8 @@ export async function buildNativeAot(
     // 1. Emit C# files
     const emitted = await emitCSharp(entryFile);
 
-    // 2. Copy files to build dir
+    // 2. Copy generated files to build dir
     copyGeneratedFiles(emitted.files, buildDir);
-    copyRuntime(buildDir);
 
     // 3. Generate project files
     if (emitted.entryInfo.needsProgram) {
@@ -403,11 +399,11 @@ export async function buildNativeAot(
       buildDir
     );
 
-    // 4. Build with dotnet
+    // 4. Build with dotnet (will restore Tsonic.Runtime from NuGet)
     const rid = options.rid || detectRid();
     publishNativeAot(buildDir, rid);
 
-    // 5. Copy output
+    // 5. Copy output binary
     const outputPath = options.output || "./tsonic-app";
     copyOutputBinary(buildDir, rid, outputPath);
 
