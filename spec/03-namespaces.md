@@ -12,7 +12,7 @@ namespace = rootNamespace + "." + relative_directory_path
 
 Where:
 
-- `rootNamespace`: From package.json `tsonic.rootNamespace` (default: `Tsonic.Compiled`)
+- `rootNamespace`: From `tsonic.json` `rootNamespace` field (default: `Tsonic.Compiled`)
 - `relative_directory_path`: Directory path from source root, with `/` → `.`
 
 ### Examples

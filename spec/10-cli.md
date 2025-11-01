@@ -100,8 +100,8 @@ tsonic run src/main.ts -- --config prod.json
 | ------------------ | ----- | --------------------------------------- | --------------------- |
 | `--src <dir>`      | `-s`  | Source root directory                   | dirname(entry)        |
 | `--out <path>`     | `-o`  | Output directory (emit) or file (build) | ./out or ./tsonic-app |
-| `--namespace <ns>` | `-n`  | Root namespace override                 | from package.json     |
-| `--config <file>`  | `-c`  | Config file path                        | package.json          |
+| `--namespace <ns>` | `-n`  | Root namespace override                 | from tsonic.json      |
+| `--config <file>`  | `-c`  | Config file path                        | tsonic.json           |
 
 #### build & run only
 
@@ -121,34 +121,9 @@ tsonic run src/main.ts -- --config prod.json
 
 ## Configuration File
 
-### package.json
-
-```json
-{
-  "name": "my-app",
-  "type": "module",
-  "tsonic": {
-    "rootNamespace": "MyApp",
-    "outputName": "myapp",
-    "rid": "linux-x64",
-    "optimize": "size",
-    "packages": [
-      {
-        "name": "Newtonsoft.Json",
-        "version": "13.0.3"
-      }
-    ],
-    "buildOptions": {
-      "stripSymbols": true,
-      "invariantGlobalization": true
-    }
-  }
-}
-```
-
 ### tsonic.json
 
-Alternative standalone config:
+Configuration is defined in `tsonic.json` in the project root:
 
 ```json
 {
@@ -157,14 +132,23 @@ Alternative standalone config:
   "entryPoint": "src/main.ts",
   "sourceRoot": "src",
   "outputDirectory": "dist",
+  "outputName": "myapp",
   "rid": "linux-x64",
-  "packages": [],
+  "optimize": "speed",
+  "packages": [
+    {
+      "name": "Newtonsoft.Json",
+      "version": "13.0.3"
+    }
+  ],
   "buildOptions": {
-    "optimize": "speed",
-    "stripSymbols": false
+    "stripSymbols": false,
+    "invariantGlobalization": true
   }
 }
 ```
+
+**Note:** Tsonic configuration is NOT supported in `package.json`. Use `tsonic.json` only.
 
 ## Exit Codes
 
@@ -232,7 +216,7 @@ Alternative standalone config:
 ### Verbose
 
 ```
-[DEBUG] Loading configuration from package.json
+[DEBUG] Loading configuration from tsonic.json
 [DEBUG] Root namespace: MyApp
 [INFO] Processing entry: src/main.ts
 [DEBUG] Creating TypeScript program
