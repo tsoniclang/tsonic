@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "echo 'Runtime is a C# project - build with dotnet build Tsonic.Runtime.csproj'",
-    "test": "echo 'Runtime tests are C# tests - run with dotnet test'"
+    "test": "dotnet test Tsonic.Runtime.Tests.csproj --verbosity quiet --nologo"
   },
   "engines": {
     "node": ">=18.0.0"
