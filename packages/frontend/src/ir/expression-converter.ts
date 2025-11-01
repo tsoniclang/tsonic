@@ -49,6 +49,99 @@ const getInferredType = (
   }
 };
 
+/**
+ * Extract type arguments from a call or new expression
+ * This captures both explicit type arguments and inferred ones
+ */
+const extractTypeArguments = (
+  node: ts.CallExpression | ts.NewExpression,
+  checker: ts.TypeChecker
+): readonly IrType[] | undefined => {
+  try {
+    // First check for explicit type arguments
+    if (node.typeArguments && node.typeArguments.length > 0) {
+      return node.typeArguments.map((typeArg) => convertType(typeArg, checker));
+    }
+
+    // Try to get inferred type arguments from resolved signature
+    const signature = checker.getResolvedSignature(node);
+    if (!signature) {
+      return undefined;
+    }
+
+    const typeParameters = signature.typeParameters;
+    if (!typeParameters || typeParameters.length === 0) {
+      return undefined;
+    }
+
+    // Get the type arguments inferred by the checker
+    const typeArgs: IrType[] = [];
+    for (const typeParam of typeParameters) {
+      // Try to resolve the instantiated type for this parameter
+      const typeNode = checker.typeToTypeNode(
+        typeParam as ts.Type,
+        node,
+        ts.NodeBuilderFlags.None
+      );
+      if (typeNode) {
+        typeArgs.push(convertType(typeNode, checker));
+      }
+    }
+
+    return typeArgs.length > 0 ? typeArgs : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Check if a call/new expression requires specialization
+ * Returns true for conditional types, infer, variadic generics, this typing
+ */
+const checkIfRequiresSpecialization = (
+  node: ts.CallExpression | ts.NewExpression,
+  checker: ts.TypeChecker
+): boolean => {
+  try {
+    const signature = checker.getResolvedSignature(node);
+    if (!signature || !signature.declaration) {
+      return false;
+    }
+
+    const decl = signature.declaration;
+
+    // Check for conditional return types
+    if (
+      ts.isFunctionDeclaration(decl) ||
+      ts.isMethodDeclaration(decl) ||
+      ts.isFunctionTypeNode(decl)
+    ) {
+      if (decl.type && ts.isConditionalTypeNode(decl.type)) {
+        return true;
+      }
+    }
+
+    // Check for variadic type parameters (rest parameters with generic types)
+    const typeParameters = signature.typeParameters;
+    if (typeParameters) {
+      for (const typeParam of typeParameters) {
+        const constraint = typeParam.getConstraint();
+        if (constraint) {
+          const constraintStr = checker.typeToString(constraint);
+          // Check for unknown[] which indicates variadic
+          if (constraintStr.includes("unknown[]") || constraintStr.includes("any[]")) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 export const convertExpression = (
   node: ts.Expression,
   checker: ts.TypeChecker
@@ -293,6 +386,10 @@ const convertCallExpression = (
   node: ts.CallExpression,
   checker: ts.TypeChecker
 ): IrCallExpression => {
+  // Extract type arguments from the call signature
+  const typeArguments = extractTypeArguments(node, checker);
+  const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
+
   return {
     kind: "call",
     callee: convertExpression(node.expression, checker),
@@ -307,6 +404,8 @@ const convertCallExpression = (
     }),
     isOptional: node.questionDotToken !== undefined,
     inferredType: getInferredType(node, checker),
+    typeArguments,
+    requiresSpecialization,
   };
 };
 
@@ -314,6 +413,10 @@ const convertNewExpression = (
   node: ts.NewExpression,
   checker: ts.TypeChecker
 ): IrNewExpression => {
+  // Extract type arguments from the constructor signature
+  const typeArguments = extractTypeArguments(node, checker);
+  const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
+
   return {
     kind: "new",
     callee: convertExpression(node.expression, checker),
@@ -328,6 +431,8 @@ const convertNewExpression = (
         return convertExpression(arg, checker);
       }) ?? [],
     inferredType: getInferredType(node, checker),
+    typeArguments,
+    requiresSpecialization,
   };
 };
 

@@ -87,6 +87,7 @@ export type IrVariableDeclarator = {
 export type IrFunctionDeclaration = {
   readonly kind: "functionDeclaration";
   readonly name: string;
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly parameters: readonly IrParameter[];
   readonly returnType?: IrType;
   readonly body: IrBlockStatement;
@@ -98,6 +99,7 @@ export type IrFunctionDeclaration = {
 export type IrClassDeclaration = {
   readonly kind: "classDeclaration";
   readonly name: string;
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly superClass?: IrExpression;
   readonly implements: readonly IrType[];
   readonly members: readonly IrClassMember[];
@@ -112,6 +114,7 @@ export type IrClassMember =
 export type IrMethodDeclaration = {
   readonly kind: "methodDeclaration";
   readonly name: string;
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly parameters: readonly IrParameter[];
   readonly returnType?: IrType;
   readonly body?: IrBlockStatement;
@@ -141,6 +144,7 @@ export type IrConstructorDeclaration = {
 export type IrInterfaceDeclaration = {
   readonly kind: "interfaceDeclaration";
   readonly name: string;
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly extends: readonly IrType[];
   readonly members: readonly IrInterfaceMember[];
   readonly isExported: boolean;
@@ -159,6 +163,7 @@ export type IrPropertySignature = {
 export type IrMethodSignature = {
   readonly kind: "methodSignature";
   readonly name: string;
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly parameters: readonly IrParameter[];
   readonly returnType?: IrType;
 };
@@ -179,6 +184,7 @@ export type IrEnumMember = {
 export type IrTypeAliasDeclaration = {
   readonly kind: "typeAliasDeclaration";
   readonly name: string;
+  readonly typeParameters?: readonly IrTypeParameter[];
   readonly type: IrType;
   readonly isExported: boolean;
 };
@@ -364,6 +370,8 @@ export type IrCallExpression = {
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly isOptional: boolean; // true for func?.()
   readonly inferredType?: IrType;
+  readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
+  readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
 };
 
 export type IrNewExpression = {
@@ -371,6 +379,8 @@ export type IrNewExpression = {
   readonly callee: IrExpression;
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly inferredType?: IrType;
+  readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
+  readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
 };
 
 export type IrThisExpression = {
@@ -554,6 +564,16 @@ export type IrNeverType = {
 // ============================================================================
 // Supporting Types
 // ============================================================================
+
+export type IrTypeParameter = {
+  readonly kind: "typeParameter";
+  readonly name: string;
+  readonly constraint?: IrType; // Can reference other type parameters (enables recursion)
+  readonly default?: IrType;
+  readonly variance?: "in" | "out"; // For covariance/contravariance
+  readonly isStructuralConstraint?: boolean; // Flag for { id: number } style constraints
+  readonly structuralMembers?: readonly IrInterfaceMember[]; // Properties for structural constraints
+};
 
 export type IrParameter = {
   readonly kind: "parameter";

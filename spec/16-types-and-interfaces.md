@@ -16,6 +16,12 @@ Document how TypeScript `type` aliases and `interface` declarations—including 
 
 ---
 
+
+## Structural vs Nominal Typing
+
+- TypeScript is structurally typed; C# is nominal. We always generate nominal definitions (classes/interfaces) for structural shapes and wrap or clone incoming values so the C# compiler sees concrete types.
+- This keeps runtime dispatch static and avoids `dynamic`.
+
 ## 2. Interfaces (`interface Foo { ... }`)
 
 ### 2.1 Basic mapping
