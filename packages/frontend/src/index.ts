@@ -24,6 +24,7 @@ export * from "./resolver.js";
 export * from "./validator.js";
 export * from "./symbol-table.js";
 export * from "./dependency-graph.js";
+export * from "./ir/index.js";
 
 import { createProgram, TsonicProgram, CompilerOptions } from "./program.js";
 import { validateProgram } from "./validator.js";
