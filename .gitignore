@@ -125,6 +125,15 @@ dist
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
+# VS Code settings
+.vscode/
+
+# Tsonic build artifacts
+.tsonic/
+out/
+*.cs
+!packages/runtime/*.cs
+
 # yarn v3
 .pnp.*
 .yarn/*
