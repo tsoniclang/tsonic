@@ -299,21 +299,25 @@ export type IrLiteralExpression = {
   readonly kind: "literal";
   readonly value: string | number | boolean | null | undefined;
   readonly raw?: string;
+  readonly inferredType?: IrType;
 };
 
 export type IrIdentifierExpression = {
   readonly kind: "identifier";
   readonly name: string;
+  readonly inferredType?: IrType;
 };
 
 export type IrArrayExpression = {
   readonly kind: "array";
   readonly elements: readonly (IrExpression | IrSpreadExpression | undefined)[]; // undefined for holes
+  readonly inferredType?: IrType;
 };
 
 export type IrObjectExpression = {
   readonly kind: "object";
   readonly properties: readonly IrObjectProperty[];
+  readonly inferredType?: IrType;
 };
 
 export type IrObjectProperty =
@@ -333,6 +337,7 @@ export type IrFunctionExpression = {
   readonly body: IrBlockStatement;
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
+  readonly inferredType?: IrType;
 };
 
 export type IrArrowFunctionExpression = {
@@ -341,6 +346,7 @@ export type IrArrowFunctionExpression = {
   readonly returnType?: IrType;
   readonly body: IrBlockStatement | IrExpression;
   readonly isAsync: boolean;
+  readonly inferredType?: IrType;
 };
 
 export type IrMemberExpression = {
@@ -349,6 +355,7 @@ export type IrMemberExpression = {
   readonly property: IrExpression | string;
   readonly isComputed: boolean; // true for obj[prop], false for obj.prop
   readonly isOptional: boolean; // true for obj?.prop
+  readonly inferredType?: IrType;
 };
 
 export type IrCallExpression = {
@@ -356,16 +363,19 @@ export type IrCallExpression = {
   readonly callee: IrExpression;
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly isOptional: boolean; // true for func?.()
+  readonly inferredType?: IrType;
 };
 
 export type IrNewExpression = {
   readonly kind: "new";
   readonly callee: IrExpression;
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
+  readonly inferredType?: IrType;
 };
 
 export type IrThisExpression = {
   readonly kind: "this";
+  readonly inferredType?: IrType;
 };
 
 export type IrUpdateExpression = {
@@ -373,12 +383,14 @@ export type IrUpdateExpression = {
   readonly operator: "++" | "--";
   readonly prefix: boolean;
   readonly expression: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrUnaryExpression = {
   readonly kind: "unary";
   readonly operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete";
   readonly expression: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrBinaryExpression = {
@@ -386,6 +398,7 @@ export type IrBinaryExpression = {
   readonly operator: IrBinaryOperator;
   readonly left: IrExpression;
   readonly right: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrLogicalExpression = {
@@ -393,6 +406,7 @@ export type IrLogicalExpression = {
   readonly operator: "&&" | "||" | "??";
   readonly left: IrExpression;
   readonly right: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrConditionalExpression = {
@@ -400,6 +414,7 @@ export type IrConditionalExpression = {
   readonly condition: IrExpression;
   readonly whenTrue: IrExpression;
   readonly whenFalse: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrAssignmentExpression = {
@@ -407,22 +422,26 @@ export type IrAssignmentExpression = {
   readonly operator: IrAssignmentOperator;
   readonly left: IrExpression | IrPattern;
   readonly right: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrTemplateLiteralExpression = {
   readonly kind: "templateLiteral";
   readonly quasis: readonly string[];
   readonly expressions: readonly IrExpression[];
+  readonly inferredType?: IrType;
 };
 
 export type IrSpreadExpression = {
   readonly kind: "spread";
   readonly expression: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 export type IrAwaitExpression = {
   readonly kind: "await";
   readonly expression: IrExpression;
+  readonly inferredType?: IrType;
 };
 
 // ============================================================================

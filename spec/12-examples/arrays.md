@@ -31,7 +31,7 @@ export function arrayOperations(): void {
   const sparse: number[] = [];
   sparse[10] = 100;
   console.log(`Sparse length: ${sparse.length}`); // 11
-  console.log(`Sparse[5]: ${sparse[5]}`); // undefined (0 in C#)
+  console.log(`Sparse[5]: ${sparse[5]}`); // undefined in JS, 0 in C# (MVP limitation)
 }
 ```
 
@@ -71,7 +71,7 @@ namespace My.App
             var sparse = new Array<double>();
             sparse[10] = 100;
             console.log($"Sparse length: {sparse.length}");  // 11
-            console.log($"Sparse[5]: {sparse[5]}");  // 0 (default(double))
+            console.log($"Sparse[5]: {sparse[5]}");  // 0 (MVP: holes return default(T), not undefined)
         }
     }
 }
@@ -149,11 +149,11 @@ namespace My.App
             var arr = new Array<double>(1, 2, 3, 4, 5);
 
             // Supported methods
-            var joined = arr.join(new String(", "));
+            var joined = arr.join(", ");
             console.log($"Joined: {joined}");
 
             var sliced = arr.slice(1, 3);
-            console.log($"Sliced: {sliced.join(new String(","))}");
+            console.log($"Sliced: {sliced.join(",")}");
 
             var index = arr.indexOf(3);
             console.log($"Index of 3: {index}");
@@ -195,8 +195,8 @@ namespace My.App
                 sum += n;
             }
 
-            console.log($"Doubled: {doubled.join(new String(","))}");
-            console.log($"Evens: {evens.join(new String(","))}");
+            console.log($"Doubled: {doubled.join(",")}");
+            console.log($"Evens: {evens.join(",")}");
             console.log($"Sum: {sum}");
         }
     }
@@ -277,7 +277,7 @@ namespace My.App
         {
             foreach (var row in this.data)
             {
-                console.log(row.join(new String(" ")));
+                console.log(row.join(" "));
             }
         }
     }

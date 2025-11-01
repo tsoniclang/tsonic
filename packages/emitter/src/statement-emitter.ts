@@ -131,7 +131,8 @@ const emitVariableDeclaration = (
     if (decl.initializer) {
       const [initFrag, newContext] = emitExpression(
         decl.initializer,
-        currentContext
+        currentContext,
+        decl.type // Pass expected type for contextual typing (e.g., array literals)
       );
       currentContext = newContext;
       varDecl += ` = ${initFrag.text}`;

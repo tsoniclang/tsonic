@@ -15,8 +15,8 @@ src/api/v1/endpoints.ts → out/api/v1/endpoints.cs
 // Generated from: {relative_path}
 // Generated at: {timestamp}
 
+using System.Collections.Generic;
 using Tsonic.Runtime;
-using static Tsonic.Runtime.Globals;
 {using_statements}
 
 namespace {namespace}
@@ -29,23 +29,23 @@ namespace {namespace}
 
 ### Order and Grouping
 
-1. System namespaces (alphabetical)
-2. Microsoft namespaces (alphabetical)
-3. Third-party namespaces (alphabetical)
-4. Tsonic.Runtime (always included)
-5. Local project namespaces (alphabetical)
+1. Tsonic.Runtime (always included for Array<T>, String helpers, etc.)
+2. System.Collections.Generic (if using C# List/Dictionary explicitly)
+3. System namespaces (alphabetical)
+4. Microsoft namespaces (alphabetical)
+5. Third-party namespaces (alphabetical)
+6. Local project namespaces (alphabetical)
 
 ### Example
 
 ```csharp
+using Tsonic.Runtime;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using Tsonic.Runtime;
-using static Tsonic.Runtime.Globals;
 using My.App.models;
 using My.App.services;
 ```
@@ -161,7 +161,9 @@ Anonymous objects:
 new { name = "John", age = 30.0 }
 ```
 
-### Function Calls
+### Method Calls and Rewrites
+
+**Regular function/method calls:**
 
 ```typescript
 console.log("Hello");
@@ -170,9 +172,33 @@ user.greet();
 ```
 
 ```csharp
-console.log("Hello");
-Math.max(10, 20);
+Tsonic.Runtime.console.log("Hello");
+Tsonic.Runtime.Math.max(10, 20);
 user.greet();
+```
+
+**String method rewrites:**
+
+```typescript
+name.toUpperCase();
+text.substring(0, 5);
+```
+
+```csharp
+Tsonic.Runtime.String.toUpperCase(name);
+Tsonic.Runtime.String.substring(text, 0, 5);
+```
+
+**Array methods (instance methods on Tsonic.Runtime.Array<T>):**
+
+```typescript
+arr.push(item);
+arr.length;
+```
+
+```csharp
+arr.push(item);  // Instance method on Tsonic.Runtime.Array<T>
+arr.length;      // Property on Tsonic.Runtime.Array<T>
 ```
 
 ### Binary Operators
@@ -195,6 +221,62 @@ user.greet();
 ```typescript
 typeof value === "string";
 value instanceof User;
+```
+
+```csharp
+Tsonic.Runtime.Operators.typeof(value) == "string";
+value is User;
+```
+
+## Working with .NET Libraries
+
+### Using C# Types with C# Methods
+
+When working with .NET libraries, use C# types and C# methods:
+
+```typescript
+import { File } from "System.IO";
+import { List } from "System.Collections.Generic";
+
+// Use C# List, not TypeScript array
+const lines = new List<string>();
+lines.Add("a");
+lines.Add("b");
+lines.Add("c");
+File.WriteAllLines("file.txt", lines.ToArray()); // C# method
+```
+
+```csharp
+using System.IO;
+using System.Collections.Generic;
+
+List<string> lines = new List<string>();
+lines.Add("a");
+lines.Add("b");
+lines.Add("c");
+File.WriteAllLines("file.txt", lines.ToArray());
+```
+
+### Receiving C# Arrays
+
+When receiving `T[]` from .NET, it's a ReadonlyArray in TypeScript - use C# methods:
+
+```typescript
+import { File } from "System.IO";
+import { List } from "System.Collections.Generic";
+
+const lines = File.ReadAllLines("file.txt"); // ReadonlyArray<string> (C# T[])
+const mutable = new List<string>(lines); // C# List
+mutable.Add("new line"); // C# method
+```
+
+```csharp
+using System.IO;
+using System.Collections.Generic;
+
+string[] lines = File.ReadAllLines("file.txt");
+List<string> mutable = new List<string>(lines);
+mutable.Add("new line"); // C# method
 ```
 
 ```csharp
@@ -372,6 +454,10 @@ return;
 return value;
 return;
 ```
+
+## Generator Translation
+
+See `spec/13-generators.md` for the full protocol used to lower TypeScript generators (`function*`) and async generators into C# iterators.
 
 ## Method Generation
 

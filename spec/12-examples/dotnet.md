@@ -73,13 +73,13 @@ namespace My.App
             return backupPath;
         }
 
-        public static object readConfig(string configPath)
+        public static dynamic readConfig(string configPath)
         {
             var content = File.ReadAllText(configPath);
-            return JSON.parse<object>(content);
+            return JSON.parse<dynamic>(content);
         }
 
-        public static void saveConfig(string configPath, object config)
+        public static void saveConfig(string configPath, dynamic config)
         {
             var json = JSON.stringify(config);
             File.WriteAllText(configPath, json);
@@ -169,7 +169,7 @@ namespace My.App
             }
         }
 
-        public static async Task<bool> postData(string url, object data)
+        public static async Task<bool> postData(string url, dynamic data)
         {
             var client = new HttpClient();
             try
@@ -202,7 +202,7 @@ namespace My.App
             return JSON.parse<T>(response);
         }
 
-        public async Task post(string path, object data)
+        public async Task post(string path, dynamic data)
         {
             var json = JSON.stringify(data);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
@@ -302,6 +302,7 @@ namespace My.App
             options.WriteIndented = true;
             options.PropertyNameCaseInsensitive = true;
 
+            // Note: Requires custom JsonConverter for Array<T> or use products.ToArray()
             return JsonSerializer.Serialize(products, options);
         }
 
@@ -409,13 +410,13 @@ namespace My.App
     public class DataStore
     {
         private List<string> users;
-        private Dictionary<string, object> settings;
+        private Dictionary<string, dynamic> settings;
         private HashSet<string> tags;
 
         public DataStore()
         {
             this.users = new List<string>();
-            this.settings = new Dictionary<string, object>();
+            this.settings = new Dictionary<string, dynamic>();
             this.tags = new HashSet<string>();
         }
 
@@ -425,7 +426,7 @@ namespace My.App
             console.log($"User added: {name}");
         }
 
-        public void setSetting(string key, object value)
+        public void setSetting(string key, dynamic value)
         {
             if (this.settings.ContainsKey(key))
             {

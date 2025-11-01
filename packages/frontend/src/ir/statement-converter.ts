@@ -53,14 +53,14 @@ export const convertStatement = (
   if (ts.isExpressionStatement(node)) {
     return {
       kind: "expressionStatement",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
     };
   }
   if (ts.isReturnStatement(node)) {
     return {
       kind: "returnStatement",
       expression: node.expression
-        ? convertExpression(node.expression)
+        ? convertExpression(node.expression, checker)
         : undefined,
     };
   }
@@ -88,7 +88,7 @@ export const convertStatement = (
     }
     return {
       kind: "throwStatement",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
     };
   }
   if (ts.isTryStatement(node)) {
@@ -132,7 +132,7 @@ const convertVariableStatement = (
       name: convertBindingName(decl.name),
       type: decl.type ? convertType(decl.type, checker) : undefined,
       initializer: decl.initializer
-        ? convertExpression(decl.initializer)
+        ? convertExpression(decl.initializer, checker)
         : undefined,
     })),
     isExported: hasExportModifier(node),
@@ -179,7 +179,7 @@ const convertClassDeclaration = (
   return {
     kind: "classDeclaration",
     name: node.name.text,
-    superClass: superClass ? convertExpression(superClass) : undefined,
+    superClass: superClass ? convertExpression(superClass, checker) : undefined,
     implements: implementsTypes,
     members: node.members
       .map((m) => convertClassMember(m, checker))
@@ -198,7 +198,7 @@ const convertClassMember = (
       name: ts.isIdentifier(node.name) ? node.name.text : "[computed]",
       type: node.type ? convertType(node.type, checker) : undefined,
       initializer: node.initializer
-        ? convertExpression(node.initializer)
+        ? convertExpression(node.initializer, checker)
         : undefined,
       isStatic: hasStaticModifier(node),
       isReadonly: hasReadonlyModifier(node),
@@ -261,7 +261,8 @@ const convertInterfaceMember = (
   if (ts.isPropertySignature(node) && node.type) {
     return {
       kind: "propertySignature",
-      name: node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      name:
+        node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
       type: convertType(node.type, checker),
       isOptional: !!node.questionToken,
       isReadonly: hasReadonlyModifier(node),
@@ -271,7 +272,8 @@ const convertInterfaceMember = (
   if (ts.isMethodSignature(node)) {
     return {
       kind: "methodSignature",
-      name: node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      name:
+        node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
       parameters: convertParameters(node.parameters, checker),
       returnType: node.type ? convertType(node.type, checker) : undefined,
     };
@@ -282,7 +284,7 @@ const convertInterfaceMember = (
 
 const convertEnumDeclaration = (
   node: ts.EnumDeclaration,
-  _checker: ts.TypeChecker
+  checker: ts.TypeChecker
 ): IrEnumDeclaration => {
   return {
     kind: "enumDeclaration",
@@ -290,7 +292,9 @@ const convertEnumDeclaration = (
     members: node.members.map((m) => ({
       kind: "enumMember" as const,
       name: ts.isIdentifier(m.name) ? m.name.text : "[computed]",
-      initializer: m.initializer ? convertExpression(m.initializer) : undefined,
+      initializer: m.initializer
+        ? convertExpression(m.initializer, checker)
+        : undefined,
     })),
     isExported: hasExportModifier(node),
   };
@@ -313,11 +317,13 @@ const convertIfStatement = (
   checker: ts.TypeChecker
 ): IrIfStatement => {
   const thenStmt = convertStatement(node.thenStatement, checker);
-  const elseStmt = node.elseStatement ? convertStatement(node.elseStatement, checker) : undefined;
+  const elseStmt = node.elseStatement
+    ? convertStatement(node.elseStatement, checker)
+    : undefined;
 
   return {
     kind: "ifStatement",
-    condition: convertExpression(node.expression),
+    condition: convertExpression(node.expression, checker),
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
   };
@@ -330,7 +336,7 @@ const convertWhileStatement = (
   const body = convertStatement(node.statement, checker);
   return {
     kind: "whileStatement",
-    condition: convertExpression(node.expression),
+    condition: convertExpression(node.expression, checker),
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -345,10 +351,14 @@ const convertForStatement = (
     initializer: node.initializer
       ? ts.isVariableDeclarationList(node.initializer)
         ? convertVariableDeclarationList(node.initializer, checker)
-        : convertExpression(node.initializer)
+        : convertExpression(node.initializer, checker)
       : undefined,
-    condition: node.condition ? convertExpression(node.condition) : undefined,
-    update: node.incrementor ? convertExpression(node.incrementor) : undefined,
+    condition: node.condition
+      ? convertExpression(node.condition, checker)
+      : undefined,
+    update: node.incrementor
+      ? convertExpression(node.incrementor, checker)
+      : undefined,
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -362,16 +372,14 @@ const convertForOfStatement = (
     : undefined;
 
   const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(
-        firstDecl?.name ?? ts.factory.createIdentifier("_")
-      )
+    ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
     : convertBindingName(node.initializer as ts.BindingName);
 
   const body = convertStatement(node.statement, checker);
   return {
     kind: "forOfStatement",
     variable,
-    expression: convertExpression(node.expression),
+    expression: convertExpression(node.expression, checker),
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -400,7 +408,7 @@ const convertSwitchStatement = (
 ): IrSwitchStatement => {
   return {
     kind: "switchStatement",
-    expression: convertExpression(node.expression),
+    expression: convertExpression(node.expression, checker),
     cases: node.caseBlock.clauses.map((clause) =>
       convertSwitchCase(clause, checker)
     ),
@@ -414,7 +422,7 @@ const convertSwitchCase = (
   return {
     kind: "switchCase",
     test: ts.isCaseClause(node)
-      ? convertExpression(node.expression)
+      ? convertExpression(node.expression, checker)
       : undefined,
     statements: node.statements
       .map((s) => convertStatement(s, checker))
@@ -479,7 +487,7 @@ const convertVariableDeclarationList = (
       name: convertBindingName(decl.name),
       type: decl.type ? convertType(decl.type, checker) : undefined,
       initializer: decl.initializer
-        ? convertExpression(decl.initializer)
+        ? convertExpression(decl.initializer, checker)
         : undefined,
     })),
     isExported: false,
@@ -495,7 +503,7 @@ export const convertParameters = (
     pattern: convertBindingName(param.name),
     type: param.type ? convertType(param.type, checker) : undefined,
     initializer: param.initializer
-      ? convertExpression(param.initializer)
+      ? convertExpression(param.initializer, checker)
       : undefined,
     isOptional: !!param.questionToken,
     isRest: !!param.dotDotDotToken,

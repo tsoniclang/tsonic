@@ -2,7 +2,14 @@
 
 ## Overview
 
-Tsonic allows direct importing of .NET namespaces and types, enabling seamless use of the entire .NET ecosystem.
+Tsonic allows direct importing of .NET namespaces and types, enabling seamless use of the entire .NET ecosystem. This is a **core feature** - Tsonic is designed to be a better language for .NET, not a JavaScript runtime.
+
+## Key Principles
+
+1. **C# types stay C# types** - No automatic wrapping or conversion
+2. **Explicit boundaries** - Conversions only happen at call sites
+3. **ReadonlyArray for C# arrays** - Fixed-size arrays exposed as readonly
+4. **Native semantics** - .NET methods behave like .NET, not JavaScript
 
 ## Import Syntax
 
@@ -92,8 +99,8 @@ declare namespace System.IO {
     static Exists(path: string): boolean;
     static ReadAllText(path: string): string;
     static WriteAllText(path: string, contents: string): void;
-    static ReadAllLines(path: string): string[];
-    static WriteAllLines(path: string, contents: string[]): void;
+    static ReadAllLines(path: string): ReadonlyArray<string>; // C# returns T[]
+    static WriteAllLines(path: string, contents: ReadonlyArray<string>): void;
     static Copy(source: string, dest: string, overwrite?: boolean): void;
     static Move(source: string, dest: string): void;
     static Delete(path: string): void;
@@ -102,8 +109,14 @@ declare namespace System.IO {
   class Directory {
     static Exists(path: string): boolean;
     static CreateDirectory(path: string): DirectoryInfo;
-    static GetFiles(path: string, searchPattern?: string): string[];
-    static GetDirectories(path: string, searchPattern?: string): string[];
+    static GetFiles(
+      path: string,
+      searchPattern?: string
+    ): ReadonlyArray<string>;
+    static GetDirectories(
+      path: string,
+      searchPattern?: string
+    ): ReadonlyArray<string>;
     static Delete(path: string, recursive?: boolean): void;
     static Move(source: string, dest: string): void;
   }
@@ -151,26 +164,27 @@ declare namespace System.Collections.Generic {
   class List<T> {
     constructor();
     constructor(capacity: number);
+    constructor(collection: ReadonlyArray<T>);
 
     Count: number;
 
     Add(item: T): void;
-    AddRange(items: T[]): void;
+    AddRange(items: ReadonlyArray<T>): void;
     Clear(): void;
     Contains(item: T): boolean;
     Remove(item: T): boolean;
     RemoveAt(index: number): void;
     IndexOf(item: T): number;
     Insert(index: number, item: T): void;
-    ToArray(): T[];
+    ToArray(): ReadonlyArray<T>;
   }
 
   class Dictionary<TKey, TValue> {
     constructor();
 
     Count: number;
-    Keys: TKey[];
-    Values: TValue[];
+    Keys: ReadonlyArray<TKey>;
+    Values: ReadonlyArray<TValue>;
 
     Add(key: TKey, value: TValue): void;
     ContainsKey(key: TKey): boolean;
@@ -188,8 +202,8 @@ declare namespace System.Collections.Generic {
     Contains(item: T): boolean;
     Remove(item: T): boolean;
     Clear(): void;
-    UnionWith(other: T[]): void;
-    IntersectWith(other: T[]): void;
+    UnionWith(other: ReadonlyArray<T>): void;
+    IntersectWith(other: ReadonlyArray<T>): void;
   }
 }
 
@@ -238,7 +252,7 @@ declare namespace System.Net.Http {
     StatusCode: HttpStatusCode;
     IsSuccessStatusCode: boolean;
     Content: HttpContent;
-    Headers: Map<string, string[]>;
+    Headers: Map<string, ReadonlyArray<string>>;
   }
 
   class HttpContent {
@@ -264,14 +278,29 @@ declare namespace System.Net.Http {
 // System.Linq namespace
 declare namespace System.Linq {
   interface Enumerable {
-    Where<T>(source: T[], predicate: (x: T) => boolean): T[];
-    Select<T, U>(source: T[], selector: (x: T) => U): U[];
-    FirstOrDefault<T>(source: T[], predicate?: (x: T) => boolean): T | null;
-    Any<T>(source: T[], predicate?: (x: T) => boolean): boolean;
-    All<T>(source: T[], predicate: (x: T) => boolean): boolean;
-    Count<T>(source: T[], predicate?: (x: T) => boolean): number;
-    OrderBy<T, K>(source: T[], keySelector: (x: T) => K): T[];
-    OrderByDescending<T, K>(source: T[], keySelector: (x: T) => K): T[];
+    Where<T>(
+      source: ReadonlyArray<T>,
+      predicate: (x: T) => boolean
+    ): ReadonlyArray<T>;
+    Select<T, U>(
+      source: ReadonlyArray<T>,
+      selector: (x: T) => U
+    ): ReadonlyArray<U>;
+    FirstOrDefault<T>(
+      source: ReadonlyArray<T>,
+      predicate?: (x: T) => boolean
+    ): T | null;
+    Any<T>(source: ReadonlyArray<T>, predicate?: (x: T) => boolean): boolean;
+    All<T>(source: ReadonlyArray<T>, predicate: (x: T) => boolean): boolean;
+    Count<T>(source: ReadonlyArray<T>, predicate?: (x: T) => boolean): number;
+    OrderBy<T, K>(
+      source: ReadonlyArray<T>,
+      keySelector: (x: T) => K
+    ): ReadonlyArray<T>;
+    OrderByDescending<T, K>(
+      source: ReadonlyArray<T>,
+      keySelector: (x: T) => K
+    ): ReadonlyArray<T>;
   }
 }
 ```
@@ -356,7 +385,7 @@ import { DbContext, DbSet } from "Microsoft.EntityFrameworkCore";
 export class Blog {
   BlogId: number;
   Url: string;
-  Posts: Post[];
+  Posts: List<Post>; // Use List<T> for mutable collections
 }
 
 export class Post {
@@ -398,10 +427,11 @@ When .NET types are used in TypeScript, they follow these mappings:
 | `bool`                  | `boolean`               | Direct mapping                  |
 | `DateTime`              | `DateTime` class        | Custom class in declarations    |
 | `Guid`                  | `Guid` class            | Custom class in declarations    |
-| `List<T>`               | `List<T>` class         | Not Array (different semantics) |
+| `T[]` (C# array)        | `ReadonlyArray<T>`      | Immutable, prevents .push() etc |
+| `List<T>`               | `List<T>` class         | Mutable .NET collection         |
 | `Dictionary<K,V>`       | `Dictionary<K,V>` class | Not Map (different API)         |
 | `Task<T>`               | `Promise<T>`            | Async interop                   |
-| `IEnumerable<T>`        | `T[]`                   | Simplified for MVP              |
+| `IEnumerable<T>`        | `ReadonlyArray<T>`      | Readonly iteration              |
 
 ## Limitations
 
@@ -460,10 +490,14 @@ dotnet-to-ts generate Microsoft.EntityFrameworkCore --output ef.d.ts
 ## Best Practices
 
 1. **Use .NET for I/O**: File, network, database operations
-2. **Use Tsonic.Runtime for JS semantics**: Arrays, strings with JS methods
-3. **Prefer .NET collections for performance**: When JS semantics not needed
+2. **Use Tsonic.Runtime for JS semantics**: String and array operations
+3. **Use native types**: List<T> for arrays, string for strings, double for numbers
 4. **Handle disposal**: Use try/finally for IDisposable
 5. **Type declarations**: Generate for all used .NET assemblies
+6. **Explicit conversions at boundaries**:
+   - C# T[] → ReadonlyArray<T> in TypeScript
+   - Use `new List<T>(array)` to make mutable
+   - Use `list.ToArray()` when calling C# methods that expect T[]
 
 ## Examples
 
@@ -488,8 +522,10 @@ export class FileProcessor {
   }
 
   processDirectory(dir: string): void {
+    // Directory.GetFiles returns ReadonlyArray<string> (C# T[])
     const files = Directory.GetFiles(dir, "*.txt");
 
+    // Can iterate readonly arrays directly
     for (const file of files) {
       const content = File.ReadAllText(file);
       const processed = this.processContent(content);
@@ -506,12 +542,68 @@ export class FileProcessor {
   }
 
   private processContent(content: string): string {
-    return content.toUpperCase(); // Mix of .NET and JS
+    // String method calls use Tsonic.Runtime.String helpers
+    return content.toUpperCase();
   }
 
   saveResults(): void {
+    // results.ToArray() returns ReadonlyArray<ProcessedFile>
     const json = JsonSerializer.Serialize(this.results.ToArray());
     File.WriteAllText("results.json", json);
   }
+}
+```
+
+**Generated C#:**
+
+```csharp
+using System.IO;
+using System.Text.Json;
+using System.Collections.Generic;
+using Tsonic.Runtime;
+
+public class FileProcessor
+{
+    private List<ProcessedFile> results { get; set; }
+
+    public FileProcessor()
+    {
+        this.results = new List<ProcessedFile>();
+    }
+
+    public void processDirectory(string dir)
+    {
+        // GetFiles returns string[], used directly
+        string[] files = Directory.GetFiles(dir, "*.txt");
+
+        foreach (var file in files)
+        {
+            string content = File.ReadAllText(file);
+            string processed = this.processContent(content);
+
+            this.results.Add(new ProcessedFile
+            {
+                path = file,
+                size = content.Length,
+                processed = DateTime.Now
+            });
+
+            string outputPath = Path.ChangeExtension(file, ".processed");
+            File.WriteAllText(outputPath, processed);
+        }
+    }
+
+    private string processContent(string content)
+    {
+        // String method becomes static helper call
+        return Tsonic.Runtime.String.toUpperCase(content);
+    }
+
+    public void saveResults()
+    {
+        // ToArray() returns T[]
+        string json = JsonSerializer.Serialize(this.results.ToArray());
+        File.WriteAllText("results.json", json);
+    }
 }
 ```

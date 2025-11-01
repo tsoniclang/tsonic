@@ -187,7 +187,7 @@ const extractExports = (
     } else if (ts.isExportAssignment(node)) {
       exports.push({
         kind: "default",
-        expression: convertExpression(node.expression),
+        expression: convertExpression(node.expression, checker),
       });
     } else if (hasExportModifier(node)) {
       const hasDefault = hasDefaultModifier(node);
