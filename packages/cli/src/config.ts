@@ -86,6 +86,7 @@ export const resolveConfig = (
     outputDirectory: config.outputDirectory ?? "generated",
     outputName: cliOptions.out ?? config.outputName ?? "app",
     rid: cliOptions.rid ?? config.rid ?? detectRid(),
+    dotnetVersion: config.dotnetVersion ?? "net10.0",
     optimize: cliOptions.optimize ?? config.optimize ?? "speed",
     packages: config.packages ?? [],
     stripSymbols: cliOptions.noStrip

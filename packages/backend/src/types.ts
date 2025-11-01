@@ -16,6 +16,8 @@ export type NuGetPackage = {
 export type BuildConfig = {
   readonly rootNamespace: string;
   readonly outputName: string;
+  readonly dotnetVersion: string;
+  readonly runtimePath?: string;
   readonly packages: readonly NuGetPackage[];
   readonly invariantGlobalization: boolean;
   readonly stripSymbols: boolean;
@@ -39,6 +41,7 @@ export type EntryInfo = {
 export type BuildOptions = {
   readonly namespace: string;
   readonly outputName?: string;
+  readonly dotnetVersion?: string;
   readonly rid?: string;
   readonly keepTemp?: boolean;
   readonly stripSymbols?: boolean;

@@ -249,7 +249,60 @@ const generateRegularClass = (
   parts.push(`${ind}public class ${module.className}`);
   parts.push(`${ind}{`);
 
-  // Process body statements
+  // If this is an entry point, separate declarations from executable statements
+  if (context.options.isEntryPoint) {
+    const declarations: any[] = [];
+    const executables: any[] = [];
+
+    for (const stmt of module.body) {
+      if (isDeclaration(stmt)) {
+        declarations.push(stmt);
+      } else {
+        executables.push(stmt);
+      }
+    }
+
+    // Emit declarations at class level
+    const declarationParts: string[] = [];
+    let currentContext = bodyContext;
+
+    for (const stmt of declarations) {
+      const [code, newContext] = emitStatement(stmt, currentContext);
+      declarationParts.push(code);
+      currentContext = newContext;
+    }
+
+    if (declarationParts.length > 0) {
+      parts.push(declarationParts.join("\n\n"));
+      parts.push("");
+    }
+
+    // Emit Main method with executable statements
+    if (executables.length > 0) {
+      const mainMethodParts: string[] = [];
+      const methodIndent = getIndent(bodyContext);
+      const mainContext = withStatic(indent(bodyContext), true);
+
+      mainMethodParts.push(
+        `${methodIndent}public static void Main(string[] args)`
+      );
+      mainMethodParts.push(`${methodIndent}{`);
+
+      for (const stmt of executables) {
+        const [code, newContext] = emitStatement(stmt, mainContext);
+        mainMethodParts.push(code);
+        currentContext = newContext;
+      }
+
+      mainMethodParts.push(`${methodIndent}}`);
+      parts.push(mainMethodParts.join("\n"));
+    }
+
+    parts.push(`${ind}}`);
+    return [parts.join("\n"), currentContext];
+  }
+
+  // Non-entry point: emit all statements at class level (original behavior)
   const bodyParts: string[] = [];
   let currentContext = bodyContext;
 
@@ -274,6 +327,19 @@ const generateRegularClass = (
 
   parts.push(`${ind}}`);
   return [parts.join("\n"), currentContext];
+};
+
+/**
+ * Check if a statement is a declaration (can be at class level)
+ */
+const isDeclaration = (stmt: any): boolean => {
+  return (
+    stmt.kind === "functionDeclaration" ||
+    stmt.kind === "classDeclaration" ||
+    stmt.kind === "interfaceDeclaration" ||
+    stmt.kind === "enumDeclaration" ||
+    stmt.kind === "typeAlias"
+  );
 };
 
 /**
@@ -326,7 +392,15 @@ export const emitCSharpFiles = (
 
   for (const module of modules) {
     const outputPath = module.filePath.replace(/\.ts$/, ".cs");
-    const code = emitModule(module, options);
+    // Mark this module as entry point if it matches the entry point path
+    const isEntryPoint = !!(
+      options.entryPointPath && module.filePath === options.entryPointPath
+    );
+    const moduleOptions = {
+      ...options,
+      isEntryPoint,
+    };
+    const code = emitModule(module, moduleOptions);
     results.set(outputPath, code);
   }
 

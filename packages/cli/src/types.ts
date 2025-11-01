@@ -15,6 +15,7 @@ export type TsonicConfig = {
   readonly outputDirectory?: string;
   readonly outputName?: string;
   readonly rid?: string;
+  readonly dotnetVersion?: string;
   readonly optimize?: "size" | "speed";
   readonly packages?: readonly NuGetPackage[];
   readonly buildOptions?: {
@@ -50,6 +51,7 @@ export type ResolvedConfig = {
   readonly outputDirectory: string;
   readonly outputName: string;
   readonly rid: string;
+  readonly dotnetVersion: string;
   readonly optimize: "size" | "speed";
   readonly packages: readonly NuGetPackage[];
   readonly stripSymbols: boolean;

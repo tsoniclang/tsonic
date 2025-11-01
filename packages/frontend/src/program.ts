@@ -28,7 +28,7 @@ export type TsonicProgram = {
 
 const defaultTsConfig: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
-  module: ts.ModuleKind.ES2022,
+  module: ts.ModuleKind.NodeNext,
   moduleResolution: ts.ModuleResolutionKind.NodeNext,
   strict: true,
   esModuleInterop: true,
