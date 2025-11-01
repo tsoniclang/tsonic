@@ -132,7 +132,11 @@ dist
 .tsonic/
 out/
 *.cs
-!packages/runtime/*.cs
+!packages/runtime/**/*.cs
+
+# .NET build artifacts
+**/bin/
+**/obj/
 
 # yarn v3
 .pnp.*

@@ -101,7 +101,7 @@ NativeAOT Executable
 **Key Files**:
 
 - `Tsonic.Runtime.csproj`: C# class library project file
-- `TsonicRuntime.cs`: Core runtime implementation (Array, String, console, Math, etc.)
+- `src/Array.cs`, `src/String.cs`, `src/console.cs`, `src/Math.cs`, etc.: Core runtime implementation (separate C# files)
 - `lib/System.d.ts`, `lib/System.IO.d.ts`, etc.: TypeScript declarations for .NET types (generated via `generatedts` tool)
 
 **Distribution**: Published as NuGet package `Tsonic.Runtime`, consumed via PackageReference in generated projects

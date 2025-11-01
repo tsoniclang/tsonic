@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tsonic.Runtime</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -26,6 +26,11 @@
   <ItemGroup>
     <!-- Required for JSON support -->
     <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude test files from main project -->
+    <Compile Remove="tests/**/*.cs" />
   </ItemGroup>
 
 </Project>

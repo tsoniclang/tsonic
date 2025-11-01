@@ -309,7 +309,14 @@ packages/
 │       └── templates/         # C# code templates
 └── runtime/
     ├── Tsonic.Runtime.csproj  # C# class library project
-    ├── TsonicRuntime.cs       # C# runtime implementation
+    ├── src/                   # C# runtime implementation (separate files)
+    │   ├── Array.cs
+    │   ├── String.cs
+    │   ├── console.cs
+    │   ├── Math.cs
+    │   ├── JSON.cs
+    │   ├── Operators.cs
+    │   └── Globals.cs
     ├── package.json           # npm package (for TypeScript declarations only)
     └── lib/                   # .NET type declarations (per-namespace)
         ├── System.d.ts

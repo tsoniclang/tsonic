@@ -159,7 +159,13 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Key Files:**
 
 - `Tsonic.Runtime.csproj` - Class library project file
-- `TsonicRuntime.cs` - All runtime implementations
+- `src/Array.cs` - Array<T> with sparse array support
+- `src/String.cs` - String static helper methods
+- `src/console.cs` - Console logging functions
+- `src/Math.cs` - Math namespace functions
+- `src/JSON.cs` - JSON parsing and stringification
+- `src/Operators.cs` - typeof and instanceof operators
+- `src/Globals.cs` - Global functions (parseInt, parseFloat, etc.)
 
 **Note:** Generator helpers (for ergonomic `Next(value)` API) will be added in Phase 7 when generator support is implemented.
 
