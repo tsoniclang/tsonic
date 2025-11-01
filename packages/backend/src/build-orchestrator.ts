@@ -12,14 +12,10 @@ import {
   existsSync,
 } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
 import { BuildOptions, BuildResult, BuildConfig, EntryInfo } from "./types.js";
 import { generateCsproj } from "./project-generator.js";
 import { generateProgramCs } from "./program-generator.js";
 import { checkDotnetInstalled, detectRid, publishNativeAot } from "./dotnet.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 /**
  * Create unique build directory
@@ -46,24 +42,6 @@ const copyGeneratedFiles = (
     mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, csContent, "utf-8");
   }
-};
-
-/**
- * Copy runtime file to build directory
- */
-const copyRuntime = (buildDir: string): void => {
-  // Runtime is in packages/runtime/TsonicRuntime.cs
-  // When built, we're in packages/backend/dist
-  // So runtime is at ../../runtime/TsonicRuntime.cs
-  const runtimePath = join(__dirname, "../../runtime/TsonicRuntime.cs");
-
-  if (!existsSync(runtimePath)) {
-    throw new Error(
-      `Runtime file not found at ${runtimePath}. Ensure packages/runtime/TsonicRuntime.cs exists.`
-    );
-  }
-
-  copyFileSync(runtimePath, join(buildDir, "TsonicRuntime.cs"));
 };
 
 /**
@@ -132,9 +110,6 @@ export const buildNativeAot = (
 
     // Copy generated C# files
     copyGeneratedFiles(emittedFiles, buildDir);
-
-    // Copy runtime
-    copyRuntime(buildDir);
 
     // Generate Program.cs if needed
     if (entryInfo.needsProgram) {
