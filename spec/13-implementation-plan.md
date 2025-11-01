@@ -146,20 +146,24 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 1. Implement `Array<T>` with sparse array support
 2. Implement `String` wrapper with JS methods
-3. Implement `console` object
-4. Implement `Math` object
-5. Implement `Date` class
-6. Implement global functions (parseInt, parseFloat)
-7. Implement `JSON` object
+3. Implement `Number` wrapper with JS methods
+4. Implement `console` object
+5. Implement `Math` object
+6. Implement `Date` class
+7. Implement global functions (parseInt, parseFloat)
+8. Implement `JSON` object
 
 **Key File:**
 
 - `TsonicRuntime.cs` - All runtime implementations
 
+**Note:** Generator helpers (for ergonomic `Next(value)` API) will be added in Phase 7 when generator support is implemented.
+
 **Tests:**
 
 - Array sparse behavior
 - String method compatibility
+- Number method compatibility
 - Math function accuracy
 - Date conversions
 
@@ -234,7 +238,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 - Working `tsonic` CLI
 - All three commands functional
 
-### Phase 7: Advanced Types
+### Phase 7: Advanced Types and Language Features
 
 **Goal:** Support more TypeScript features
 
@@ -247,17 +251,27 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 5. Generic functions and classes
 6. Union types (basic two-type unions)
 7. Type assertions and guards
+8. **Generators (function\*)** using Exchange Object pattern:
+   - Generate Exchange class per generator function
+   - Transform `yield value` to `exchange.Output = value; yield return exchange;`
+   - Transform `const x = yield y` to read `exchange.Input` after yield
+   - Support `IEnumerable<Exchange>` for sync generators
+   - Support `IAsyncEnumerable<Exchange>` for async generators
+   - Add runtime helper for ergonomic `Next(value)` API
 
 **Tests:**
 
 - Array method mappings
 - Async method generation
 - Generic preservation
+- Generator bidirectional communication
+- Async generator coordination
 
 **Deliverables:**
 
 - Support for modern TypeScript patterns
 - Async/await working end-to-end
+- Generators with exchange object pattern working
 
 ### Phase 8: .NET Interop
 
@@ -265,15 +279,19 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 **Tasks:**
 
-1. Create basic lib.cs.d.ts declarations
+1. Create per-namespace .NET declaration files (System.d.ts, System.IO.d.ts, etc.)
 2. Implement .NET namespace detection
 3. Generate proper using statements
 4. Handle Task to Promise mapping
 5. Support common BCL types
+6. Auto-include declaration files in TypeScript program
 
 **Key Files:**
 
-- `runtime/lib.cs.d.ts` - .NET type declarations
+- `runtime/lib/System.d.ts` - Core .NET type declarations
+- `runtime/lib/System.IO.d.ts` - File I/O type declarations
+- `runtime/lib/System.Collections.Generic.d.ts` - Collection type declarations
+- Additional namespace files as needed
 
 **Tests:**
 
