@@ -1,0 +1,377 @@
+/**
+ * Tests for IR Builder
+ */
+
+import { describe, it } from "mocha";
+import { expect } from "chai";
+import * as ts from "typescript";
+import { buildIrModule } from "./builder.js";
+
+describe("IR Builder", () => {
+  const createTestProgram = (source: string, fileName = "/test/test.ts") => {
+    const sourceFile = ts.createSourceFile(
+      fileName,
+      source,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+
+    const program = ts.createProgram([fileName], {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ES2022,
+    }, {
+      getSourceFile: (name) => name === fileName ? sourceFile : undefined,
+      writeFile: () => {},
+      getCurrentDirectory: () => "/test",
+      getDirectories: () => [],
+      fileExists: () => true,
+      readFile: () => source,
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+      getDefaultLibFileName: (_options) => "lib.d.ts"
+    });
+
+    return {
+      program,
+      checker: program.getTypeChecker(),
+      options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
+      sourceFiles: [sourceFile]
+    };
+  };
+
+  describe("Module Structure", () => {
+    it("should create IR module with correct namespace and class name", () => {
+      const source = `
+        export function greet(name: string): string {
+          return \`Hello \${name}\`;
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      if (!result.ok) {
+        console.error("Error in test:", result.error);
+      }
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const module = result.value;
+        expect(module.kind).to.equal("module");
+        expect(module.namespace).to.equal("TestApp");
+        expect(module.className).to.equal("test");
+        expect(module.isStaticContainer).to.be.true;
+      }
+    });
+
+    it("should detect top-level code", () => {
+      const source = `
+        console.log("Hello");
+        export const x = 42;
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        expect(result.value.isStaticContainer).to.be.false;
+      }
+    });
+  });
+
+  describe("Import Extraction", () => {
+    it("should extract local imports", () => {
+      const source = `
+        import { User } from "./models/User.ts";
+        import * as utils from "./utils.ts";
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const imports = result.value.imports;
+        expect(imports).to.have.length(2);
+
+        const firstImport = imports[0];
+        const secondImport = imports[1];
+        if (!firstImport || !secondImport) throw new Error("Missing imports");
+
+        expect(firstImport.source).to.equal("./models/User.ts");
+        expect(firstImport.isLocal).to.be.true;
+        expect(firstImport.isDotNet).to.be.false;
+
+        expect(secondImport.source).to.equal("./utils.ts");
+        const firstSpec = secondImport.specifiers[0];
+        if (!firstSpec) throw new Error("Missing specifier");
+        expect(firstSpec.kind).to.equal("namespace");
+      }
+    });
+
+    it("should detect .NET imports", () => {
+      const source = `
+        import { File } from "System.IO";
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const imports = result.value.imports;
+        const firstImport = imports[0];
+        if (!firstImport) throw new Error("Missing import");
+        expect(firstImport.isDotNet).to.be.true;
+        expect(firstImport.resolvedNamespace).to.equal("System.IO");
+      }
+    });
+  });
+
+  describe("Statement Conversion", () => {
+    it("should convert function declarations", () => {
+      const source = `
+        export function add(a: number, b: number): number {
+          return a + b;
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const body = result.value.body;
+        expect(body).to.have.length(1);
+
+        const firstItem = body[0];
+        if (!firstItem) throw new Error("Missing body item");
+        expect(firstItem.kind).to.equal("functionDeclaration");
+
+        const func = firstItem as any;
+        expect(func.name).to.equal("add");
+        expect(func.parameters).to.have.length(2);
+        expect(func.isExported).to.be.true;
+      }
+    });
+
+    it("should convert variable declarations", () => {
+      const source = `
+        const x = 10;
+        let y: string = "hello";
+        export const z = { name: "test" };
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const body = result.value.body;
+        expect(body).to.have.length(3);
+
+        const firstVar = body[0] as any;
+        expect(firstVar.kind).to.equal("variableDeclaration");
+        expect(firstVar.declarationKind).to.equal("const");
+
+        const secondVar = body[1] as any;
+        expect(secondVar.declarationKind).to.equal("let");
+
+        const thirdVar = body[2] as any;
+        expect(thirdVar.isExported).to.be.true;
+      }
+    });
+
+    it("should convert class declarations", () => {
+      const source = `
+        export class User {
+          private name: string;
+          constructor(name: string) {
+            this.name = name;
+          }
+          getName(): string {
+            return this.name;
+          }
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const body = result.value.body;
+        expect(body).to.have.length(1);
+
+        const cls = body[0] as any;
+        expect(cls.kind).to.equal("classDeclaration");
+        expect(cls.name).to.equal("User");
+        expect(cls.isExported).to.be.true;
+        expect(cls.members).to.have.length.greaterThan(0);
+      }
+    });
+  });
+
+  describe("Expression Conversion", () => {
+    it("should convert template literals", () => {
+      const source = `
+        const greeting = \`Hello \${name}\`;
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const varDecl = result.value.body[0] as any;
+        const init = varDecl.declarations[0].initializer;
+        expect(init.kind).to.equal("templateLiteral");
+        expect(init.quasis).to.have.length(2);
+        expect(init.expressions).to.have.length(1);
+      }
+    });
+
+    it("should convert arrow functions", () => {
+      const source = `
+        const double = (x: number) => x * 2;
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const varDecl = result.value.body[0] as any;
+        const init = varDecl.declarations[0].initializer;
+        expect(init.kind).to.equal("arrowFunction");
+        expect(init.parameters).to.have.length(1);
+      }
+    });
+  });
+
+  describe("Export Handling", () => {
+    it("should handle named exports", () => {
+      const source = `
+        const a = 1;
+        const b = 2;
+        export { a, b as c };
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const exports = result.value.exports;
+        expect(exports).to.have.length(2);
+
+        const firstExport = exports[0];
+        if (!firstExport) throw new Error("Missing export");
+        expect(firstExport.kind).to.equal("named");
+        const first = firstExport as any;
+        expect(first.name).to.equal("a");
+        expect(first.localName).to.equal("a");
+
+        const second = exports[1] as any;
+        expect(second.name).to.equal("c");
+        expect(second.localName).to.equal("b");
+      }
+    });
+
+    it("should handle default export", () => {
+      const source = `
+        export default function main() {
+          console.log("Hello");
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(
+        sourceFile,
+        testProgram,
+        { sourceRoot: "/test", rootNamespace: "TestApp" }
+      );
+
+      expect(result.ok).to.be.true;
+      if (result.ok) {
+        const exports = result.value.exports;
+        expect(exports.some(e => e.kind === "default")).to.be.true;
+      }
+    });
+  });
+});
