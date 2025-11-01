@@ -101,7 +101,7 @@ export type CSharpUsing = {
 export const createContext = (options: EmitterOptions): EmitterContext => ({
   indentLevel: 0,
   options,
-  usings: new Set(["Tsonic.Runtime", "static Tsonic.Runtime.Globals"]),
+  usings: new Set(["Tsonic.Runtime"]),
   isStatic: false,
   isAsync: false,
 });
@@ -153,25 +153,25 @@ export const getIndent = (context: EmitterContext): string => {
  */
 export const formatUsings = (usings: ReadonlySet<string>): string => {
   const sorted = Array.from(usings).sort((a, b) => {
-    // System namespaces first
-    const aIsSystem = a.startsWith("System");
-    const bIsSystem = b.startsWith("System");
-    if (aIsSystem && !bIsSystem) return -1;
-    if (!aIsSystem && bIsSystem) return 1;
-
-    // Microsoft namespaces second
-    const aIsMicrosoft = a.startsWith("Microsoft");
-    const bIsMicrosoft = b.startsWith("Microsoft");
-    if (aIsMicrosoft && !bIsMicrosoft) return -1;
-    if (!aIsMicrosoft && bIsMicrosoft) return 1;
-
-    // Tsonic.Runtime always before other Tsonic
+    // Tsonic.Runtime ALWAYS FIRST (per spec/06-code-generation.md)
     const aIsTsonicRuntime =
       a === "Tsonic.Runtime" || a.startsWith("static Tsonic.Runtime");
     const bIsTsonicRuntime =
       b === "Tsonic.Runtime" || b.startsWith("static Tsonic.Runtime");
     if (aIsTsonicRuntime && !bIsTsonicRuntime) return -1;
     if (!aIsTsonicRuntime && bIsTsonicRuntime) return 1;
+
+    // System namespaces second
+    const aIsSystem = a.startsWith("System");
+    const bIsSystem = b.startsWith("System");
+    if (aIsSystem && !bIsSystem) return -1;
+    if (!aIsSystem && bIsSystem) return 1;
+
+    // Microsoft namespaces third
+    const aIsMicrosoft = a.startsWith("Microsoft");
+    const bIsMicrosoft = b.startsWith("Microsoft");
+    if (aIsMicrosoft && !bIsMicrosoft) return -1;
+    if (!aIsMicrosoft && bIsMicrosoft) return 1;
 
     // Alphabetical within groups
     return a.localeCompare(b);

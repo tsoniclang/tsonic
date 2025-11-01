@@ -2,8 +2,20 @@
  * Tsonic Backend - .NET build orchestration
  */
 
-// Placeholder to make the package compile
-export const buildNativeAOT = (csharpCode: string): Promise<void> => {
-  console.log("Backend not yet implemented", csharpCode.length);
-  return Promise.resolve();
-};
+// Export main build function
+export { buildNativeAot } from "./build-orchestrator.js";
+
+// Export types
+export type {
+  BuildOptions,
+  BuildResult,
+  BuildConfig,
+  EntryInfo,
+  NuGetPackage,
+  DotnetResult,
+} from "./types.js";
+
+// Export utilities
+export { checkDotnetInstalled, detectRid } from "./dotnet.js";
+export { generateCsproj } from "./project-generator.js";
+export { generateProgramCs } from "./program-generator.js";

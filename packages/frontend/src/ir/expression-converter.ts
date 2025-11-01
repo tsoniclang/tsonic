@@ -26,10 +26,37 @@ import {
   convertBlockStatement,
 } from "./statement-converter.js";
 import { convertType } from "./type-converter.js";
+import { IrType } from "./types.js";
 
-export const convertExpression = (node: ts.Expression): IrExpression => {
+/**
+ * Helper to get inferred type from TypeScript node
+ */
+const getInferredType = (
+  node: ts.Node,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  try {
+    const tsType = checker.getTypeAtLocation(node);
+    const typeNode = checker.typeToTypeNode(
+      tsType,
+      node,
+      ts.NodeBuilderFlags.None
+    );
+    return typeNode ? convertType(typeNode, checker) : undefined;
+  } catch {
+    // If type extraction fails, return undefined
+    return undefined;
+  }
+};
+
+export const convertExpression = (
+  node: ts.Expression,
+  checker: ts.TypeChecker
+): IrExpression => {
+  const inferredType = getInferredType(node, checker);
+
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
-    return convertLiteral(node);
+    return convertLiteral(node, checker);
   }
   if (
     node.kind === ts.SyntaxKind.TrueKeyword ||
@@ -39,124 +66,139 @@ export const convertExpression = (node: ts.Expression): IrExpression => {
       kind: "literal",
       value: node.kind === ts.SyntaxKind.TrueKeyword,
       raw: node.getText(),
+      inferredType,
     };
   }
   if (node.kind === ts.SyntaxKind.NullKeyword) {
-    return { kind: "literal", value: null, raw: "null" };
+    return { kind: "literal", value: null, raw: "null", inferredType };
   }
   if (
     node.kind === ts.SyntaxKind.UndefinedKeyword ||
     ts.isVoidExpression(node)
   ) {
-    return { kind: "literal", value: undefined, raw: "undefined" };
+    return {
+      kind: "literal",
+      value: undefined,
+      raw: "undefined",
+      inferredType,
+    };
   }
   if (ts.isIdentifier(node)) {
-    return { kind: "identifier", name: node.text };
+    return { kind: "identifier", name: node.text, inferredType };
   }
   if (ts.isArrayLiteralExpression(node)) {
-    return convertArrayLiteral(node);
+    return convertArrayLiteral(node, checker);
   }
   if (ts.isObjectLiteralExpression(node)) {
-    return convertObjectLiteral(node);
+    return convertObjectLiteral(node, checker);
   }
   if (
     ts.isPropertyAccessExpression(node) ||
     ts.isElementAccessExpression(node)
   ) {
-    return convertMemberExpression(node);
+    return convertMemberExpression(node, checker);
   }
   if (ts.isCallExpression(node)) {
-    return convertCallExpression(node);
+    return convertCallExpression(node, checker);
   }
   if (ts.isNewExpression(node)) {
-    return convertNewExpression(node);
+    return convertNewExpression(node, checker);
   }
   if (ts.isBinaryExpression(node)) {
-    return convertBinaryExpression(node);
+    return convertBinaryExpression(node, checker);
   }
   if (ts.isPrefixUnaryExpression(node)) {
-    return convertUnaryExpression(node);
+    return convertUnaryExpression(node, checker);
   }
   if (ts.isPostfixUnaryExpression(node)) {
-    return convertUpdateExpression(node);
+    return convertUpdateExpression(node, checker);
   }
   if (ts.isTypeOfExpression(node)) {
     return {
       kind: "unary",
       operator: "typeof",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
+      inferredType,
     };
   }
   if (ts.isVoidExpression(node)) {
     return {
       kind: "unary",
       operator: "void",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
+      inferredType,
     };
   }
   if (ts.isDeleteExpression(node)) {
     return {
       kind: "unary",
       operator: "delete",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
+      inferredType,
     };
   }
   if (ts.isConditionalExpression(node)) {
-    return convertConditionalExpression(node);
+    return convertConditionalExpression(node, checker);
   }
   if (ts.isFunctionExpression(node)) {
-    return convertFunctionExpression(node);
+    return convertFunctionExpression(node, checker);
   }
   if (ts.isArrowFunction(node)) {
-    return convertArrowFunction(node);
+    return convertArrowFunction(node, checker);
   }
   if (
     ts.isTemplateExpression(node) ||
     ts.isNoSubstitutionTemplateLiteral(node)
   ) {
-    return convertTemplateLiteral(node);
+    return convertTemplateLiteral(node, checker);
   }
   if (ts.isSpreadElement(node)) {
     return {
       kind: "spread",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
+      inferredType,
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
-    return { kind: "this" };
+    return { kind: "this", inferredType };
   }
   if (ts.isAwaitExpression(node)) {
     return {
       kind: "await",
-      expression: convertExpression(node.expression),
+      expression: convertExpression(node.expression, checker),
+      inferredType,
     };
   }
   if (ts.isParenthesizedExpression(node)) {
-    return convertExpression(node.expression);
+    return convertExpression(node.expression, checker);
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Type assertions are ignored in IR (runtime doesn't need them)
     return convertExpression(
-      ts.isAsExpression(node) ? node.expression : node.expression
+      ts.isAsExpression(node) ? node.expression : node.expression,
+      checker
     );
   }
 
   // Fallback - treat as identifier
-  return { kind: "identifier", name: node.getText() };
+  return { kind: "identifier", name: node.getText(), inferredType };
 };
 
 const convertLiteral = (
-  node: ts.StringLiteral | ts.NumericLiteral
+  node: ts.StringLiteral | ts.NumericLiteral,
+  checker: ts.TypeChecker
 ): IrLiteralExpression => {
   return {
     kind: "literal",
     value: ts.isStringLiteral(node) ? node.text : Number(node.text),
     raw: node.getText(),
+    inferredType: getInferredType(node, checker),
   };
 };
 
 const convertArrayLiteral = (
-  node: ts.ArrayLiteralExpression
+  node: ts.ArrayLiteralExpression,
+  checker: ts.TypeChecker
 ): IrArrayExpression => {
   return {
     kind: "array",
@@ -167,23 +209,25 @@ const convertArrayLiteral = (
       if (ts.isSpreadElement(elem)) {
         return {
           kind: "spread" as const,
-          expression: convertExpression(elem.expression),
+          expression: convertExpression(elem.expression, checker),
         };
       }
-      return convertExpression(elem);
+      return convertExpression(elem, checker);
     }),
+    inferredType: getInferredType(node, checker),
   };
 };
 
 const convertObjectLiteral = (
-  node: ts.ObjectLiteralExpression
+  node: ts.ObjectLiteralExpression,
+  checker: ts.TypeChecker
 ): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
 
   node.properties.forEach((prop) => {
     if (ts.isPropertyAssignment(prop)) {
       const key = ts.isComputedPropertyName(prop.name)
-        ? convertExpression(prop.name.expression)
+        ? convertExpression(prop.name.expression, checker)
         : ts.isIdentifier(prop.name)
           ? prop.name.text
           : String(prop.name.text);
@@ -191,7 +235,7 @@ const convertObjectLiteral = (
       properties.push({
         kind: "property",
         key,
-        value: convertExpression(prop.initializer),
+        value: convertExpression(prop.initializer, checker),
         shorthand: false,
       });
     } else if (ts.isShorthandPropertyAssignment(prop)) {
@@ -204,75 +248,95 @@ const convertObjectLiteral = (
     } else if (ts.isSpreadAssignment(prop)) {
       properties.push({
         kind: "spread",
-        expression: convertExpression(prop.expression),
+        expression: convertExpression(prop.expression, checker),
       });
     }
     // Skip getters/setters/methods for now (can add later if needed)
   });
 
-  return { kind: "object", properties };
+  return {
+    kind: "object",
+    properties,
+    inferredType: getInferredType(node, checker),
+  };
 };
 
 const convertMemberExpression = (
-  node: ts.PropertyAccessExpression | ts.ElementAccessExpression
+  node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  checker: ts.TypeChecker
 ): IrMemberExpression => {
   const isOptional = node.questionDotToken !== undefined;
+  const inferredType = getInferredType(node, checker);
 
   if (ts.isPropertyAccessExpression(node)) {
     return {
       kind: "memberAccess",
-      object: convertExpression(node.expression),
+      object: convertExpression(node.expression, checker),
       property: node.name.text,
       isComputed: false,
       isOptional,
+      inferredType,
     };
   } else {
     return {
       kind: "memberAccess",
-      object: convertExpression(node.expression),
-      property: convertExpression(node.argumentExpression),
+      object: convertExpression(node.expression, checker),
+      property: convertExpression(node.argumentExpression, checker),
       isComputed: true,
       isOptional,
+      inferredType,
     };
   }
 };
 
-const convertCallExpression = (node: ts.CallExpression): IrCallExpression => {
+const convertCallExpression = (
+  node: ts.CallExpression,
+  checker: ts.TypeChecker
+): IrCallExpression => {
   return {
     kind: "call",
-    callee: convertExpression(node.expression),
+    callee: convertExpression(node.expression, checker),
     arguments: node.arguments.map((arg) => {
       if (ts.isSpreadElement(arg)) {
         return {
           kind: "spread" as const,
-          expression: convertExpression(arg.expression),
+          expression: convertExpression(arg.expression, checker),
         };
       }
-      return convertExpression(arg);
+      return convertExpression(arg, checker);
     }),
     isOptional: node.questionDotToken !== undefined,
+    inferredType: getInferredType(node, checker),
   };
 };
 
-const convertNewExpression = (node: ts.NewExpression): IrNewExpression => {
+const convertNewExpression = (
+  node: ts.NewExpression,
+  checker: ts.TypeChecker
+): IrNewExpression => {
   return {
     kind: "new",
-    callee: convertExpression(node.expression),
+    callee: convertExpression(node.expression, checker),
     arguments:
       node.arguments?.map((arg) => {
         if (ts.isSpreadElement(arg)) {
           return {
             kind: "spread" as const,
-            expression: convertExpression(arg.expression),
+            expression: convertExpression(arg.expression, checker),
           };
         }
-        return convertExpression(arg);
+        return convertExpression(arg, checker);
       }) ?? [],
+    inferredType: getInferredType(node, checker),
   };
 };
 
-const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
+const convertBinaryExpression = (
+  node: ts.BinaryExpression,
+  checker: ts.TypeChecker
+): IrExpression => {
   const operator = convertBinaryOperator(node.operatorToken);
+  const inferredType = getInferredType(node, checker);
 
   // Handle assignment separately
   if (isAssignmentOperator(node.operatorToken)) {
@@ -281,8 +345,9 @@ const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
       operator: operator as IrAssignmentOperator,
       left: ts.isIdentifier(node.left)
         ? { kind: "identifier", name: node.left.text }
-        : convertExpression(node.left),
-      right: convertExpression(node.right),
+        : convertExpression(node.left, checker),
+      right: convertExpression(node.right, checker),
+      inferredType,
     };
   }
 
@@ -291,8 +356,9 @@ const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
     return {
       kind: "logical",
       operator,
-      left: convertExpression(node.left),
-      right: convertExpression(node.right),
+      left: convertExpression(node.left, checker),
+      right: convertExpression(node.right, checker),
+      inferredType,
     };
   }
 
@@ -300,14 +366,18 @@ const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
   return {
     kind: "binary",
     operator: operator as IrBinaryOperator,
-    left: convertExpression(node.left),
-    right: convertExpression(node.right),
+    left: convertExpression(node.left, checker),
+    right: convertExpression(node.right, checker),
+    inferredType,
   };
 };
 
 const convertUnaryExpression = (
-  node: ts.PrefixUnaryExpression
+  node: ts.PrefixUnaryExpression,
+  checker: ts.TypeChecker
 ): IrUnaryExpression | IrUpdateExpression => {
+  const inferredType = getInferredType(node, checker);
+
   // Check if it's an increment/decrement (++ or --)
   if (
     node.operator === ts.SyntaxKind.PlusPlusToken ||
@@ -317,7 +387,8 @@ const convertUnaryExpression = (
       kind: "update",
       operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
       prefix: true,
-      expression: convertExpression(node.operand),
+      expression: convertExpression(node.operand, checker),
+      inferredType,
     };
   }
 
@@ -342,13 +413,17 @@ const convertUnaryExpression = (
   return {
     kind: "unary",
     operator,
-    expression: convertExpression(node.operand),
+    expression: convertExpression(node.operand, checker),
+    inferredType,
   };
 };
 
 const convertUpdateExpression = (
-  node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression
+  node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression,
+  checker: ts.TypeChecker
 ): IrUpdateExpression => {
+  const inferredType = getInferredType(node, checker);
+
   if (ts.isPrefixUnaryExpression(node)) {
     // Check if it's an increment or decrement
     if (
@@ -359,7 +434,8 @@ const convertUpdateExpression = (
         kind: "update",
         operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
         prefix: true,
-        expression: convertExpression(node.operand),
+        expression: convertExpression(node.operand, checker),
+        inferredType,
       };
     }
   }
@@ -370,26 +446,28 @@ const convertUpdateExpression = (
     kind: "update",
     operator: postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
     prefix: false,
-    expression: convertExpression(postfix.operand),
+    expression: convertExpression(postfix.operand, checker),
+    inferredType,
   };
 };
 
 const convertConditionalExpression = (
-  node: ts.ConditionalExpression
+  node: ts.ConditionalExpression,
+  checker: ts.TypeChecker
 ): IrConditionalExpression => {
   return {
     kind: "conditional",
-    condition: convertExpression(node.condition),
-    whenTrue: convertExpression(node.whenTrue),
-    whenFalse: convertExpression(node.whenFalse),
+    condition: convertExpression(node.condition, checker),
+    whenTrue: convertExpression(node.whenTrue, checker),
+    whenFalse: convertExpression(node.whenFalse, checker),
+    inferredType: getInferredType(node, checker),
   };
 };
 
 const convertFunctionExpression = (
-  node: ts.FunctionExpression
+  node: ts.FunctionExpression,
+  checker: ts.TypeChecker
 ): IrFunctionExpression => {
-  // Note: For now we pass undefined for checker. This should be passed from the builder in a future refactor.
-  const checker = undefined as unknown as ts.TypeChecker;
   return {
     kind: "functionExpression",
     name: node.name?.text,
@@ -402,17 +480,17 @@ const convertFunctionExpression = (
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
     isGenerator: !!node.asteriskToken,
+    inferredType: getInferredType(node, checker),
   };
 };
 
 const convertArrowFunction = (
-  node: ts.ArrowFunction
+  node: ts.ArrowFunction,
+  checker: ts.TypeChecker
 ): IrArrowFunctionExpression => {
-  // Note: For now we pass undefined for checker. This should be passed from the builder in a future refactor.
-  const checker = undefined as unknown as ts.TypeChecker;
   const body = ts.isBlock(node.body)
     ? convertBlockStatement(node.body, checker)
-    : convertExpression(node.body);
+    : convertExpression(node.body, checker);
 
   return {
     kind: "arrowFunction",
@@ -422,17 +500,20 @@ const convertArrowFunction = (
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
+    inferredType: getInferredType(node, checker),
   };
 };
 
 const convertTemplateLiteral = (
-  node: ts.TemplateExpression | ts.NoSubstitutionTemplateLiteral
+  node: ts.TemplateExpression | ts.NoSubstitutionTemplateLiteral,
+  checker: ts.TypeChecker
 ): IrTemplateLiteralExpression => {
   if (ts.isNoSubstitutionTemplateLiteral(node)) {
     return {
       kind: "templateLiteral",
       quasis: [node.text],
       expressions: [],
+      inferredType: getInferredType(node, checker),
     };
   }
 
@@ -440,11 +521,16 @@ const convertTemplateLiteral = (
   const expressions: IrExpression[] = [];
 
   node.templateSpans.forEach((span) => {
-    expressions.push(convertExpression(span.expression));
+    expressions.push(convertExpression(span.expression, checker));
     quasis.push(span.literal.text);
   });
 
-  return { kind: "templateLiteral", quasis, expressions };
+  return {
+    kind: "templateLiteral",
+    quasis,
+    expressions,
+    inferredType: getInferredType(node, checker),
+  };
 };
 
 const convertBinaryOperator = (token: ts.BinaryOperatorToken): string => {

@@ -1,388 +1,896 @@
 # Tsonic.Runtime Specification
 
+**Target:** C# 14 (.NET 10+) - All C# 14 features are available.
+
 ## Design Principles
 
-1. **Exact Names**: JavaScript objects keep their exact names (including case)
-2. **Exact Semantics**: Implement JavaScript behavior precisely
-3. **No Shortcuts**: Don't map to "similar" .NET types if behavior differs
-4. **Incremental Growth**: Add methods as needed, throw clear errors for unsupported
+1. **JavaScript Semantics**: Custom types (like `Tsonic.Runtime.Array<T>`) implement exact JavaScript behavior
+2. **Sparse Array Support**: Arrays must support holes/gaps (e.g., `arr[10] = 42` when `arr.length` was 0)
+3. **Native Types Where Appropriate**: `string` and `double` use native C# types
+4. **Static Helpers for Native Types**: String methods rewritten to static helpers
+5. **Instance Methods for Custom Types**: Array methods are instance methods on `Tsonic.Runtime.Array<T>`
+6. **Clean Separation**: Tsonic types and C# types don't mix - NO automatic conversions
+7. **Explicit Conversions Only**: When interop requires it, use explicit helpers (`.ToArray()`, constructors) - never implicit
 
-## Core Runtime Classes
+**Clarification on conversions:**
 
-### Array<T>
+- ❌ **NO** automatic conversions: `Tsonic.Runtime.Array<T>` is not implicitly convertible to `List<T>` or `T[]`
+- ✅ **Explicit helpers allowed**: Use `.ToArray()` when calling .NET APIs that expect `T[]`
+- ✅ **Constructor conversion**: C# types can be passed to constructors: `new List<T>(csharpArray)`
+- 🎯 **General rule**: If you use C# types (via imports), use C# methods on them. If you use Tsonic types, use JavaScript-style methods.
 
-JavaScript arrays with exact semantics:
+## Runtime Organization
+
+```
+Tsonic.Runtime/
+├── parseInt(string, int?)          - Global functions at root level
+├── parseFloat(string)
+├── isNaN(double)
+├── isFinite(double)
+│
+├── Array<T>                         - Class with instance methods (NOT static)
+│   ├── push(T item)                 - Instance method
+│   ├── pop()                        - Instance method
+│   ├── shift()                      - Instance method
+│   ├── length                       - Property
+│   ├── slice()                      - Returns new Array<T>
+│   └── ...
+│
+├── String                           - Static class for string operations
+│   ├── toUpperCase(string)          - Static helper (string is native C#)
+│   ├── toLowerCase(string)          - Static helper
+│   ├── substring(string, int, int?) - Static helper
+│   ├── split(string, string)        - Returns Tsonic.Runtime.Array<string>
+│   └── ...
+│
+├── Operators                        - Static class for operators
+│   ├── typeof(object?)              - typeof operator implementation
+│   └── instanceof(object?, Type)
+│
+├── Math                             - Static class (namespace object)
+│   ├── floor(double)
+│   ├── random()
+│   └── ...
+│
+├── JSON                             - Static class (namespace object)
+│   ├── parse<T>(string)
+│   └── stringify(object)
+│
+└── console                          - Static class (namespace object)
+    ├── log(params object[])
+    └── ...
+```
+
+## Global Functions
+
+Functions available at `Tsonic.Runtime` root level (NOT in a Globals class):
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public class Array<T>
-    {
-        // Sparse array support
-        private Dictionary<int, T> _sparse = new Dictionary<int, T>();
-        private int _length = 0;
+    // Parsing functions
+    public static double parseInt(string str, int? radix = null);
+    public static double parseFloat(string str);
 
-        // Mutable length (JS feature)
-        public int length { get; set; }
+    // Type checking functions
+    public static bool isNaN(double value);
+    public static bool isFinite(double value);
 
-        // Indexer with JS semantics
-        public T this[int index] { get; set; }
-        public T this[string key] { get; set; }  // JS allows string indices
-
-        // Core methods
-        public int push(params T[] elements);
-        public T pop();
-        public T shift();
-        public int unshift(params T[] elements);
-        public Array<T> slice(int start = 0, int? end = null);
-        public String join(String separator = null);
-        public Array<T> concat(params Array<T>[] arrays);
-        public int indexOf(T searchElement, int fromIndex = 0);
-        public bool includes(T searchElement, int fromIndex = 0);
-        public Array<T> reverse();
-        public Array<T> sort(Func<T, T, int> compareFunction = null);
-
-        // NOT IMPLEMENTED (throw runtime error)
-        public Array<U> map<U>(Func<T, U> callback);
-        public Array<T> filter(Func<T, bool> predicate);
-        public U reduce<U>(Func<U, T, U> callback, U initialValue);
-        public T find(Func<T, bool> predicate);
-        public int findIndex(Func<T, bool> predicate);
-        public bool some(Func<T, bool> predicate);
-        public bool every(Func<T, bool> predicate);
-        public void forEach(Action<T> callback);
-    }
+    // Encoding/decoding
+    public static string encodeURI(string uri);
+    public static string decodeURI(string uri);
+    public static string encodeURIComponent(string component);
+    public static string decodeURIComponent(string component);
 }
 ```
 
-**Key JavaScript Behaviors:**
+**Usage:**
 
-- Sparse arrays: `arr[100] = 'x'` creates holes
-- Mutable length: `arr.length = 5` truncates/extends
-- Negative indices don't wrap (unlike Python)
-- `undefined` (default(T)) for missing elements
+```typescript
+const num = parseInt("42", 10);
+```
 
-### String
+```csharp
+double num = Tsonic.Runtime.parseInt("42", 10);
+```
 
-JavaScript string wrapper (when methods needed):
+## Array Class
+
+`Tsonic.Runtime.Array<T>` is a **class** that implements JavaScript array semantics, including sparse arrays:
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public class String
+    public class Array<T> : IEnumerable<T>
     {
-        public string Value { get; }
-        public int length => Value?.Length ?? 0;
+        // Internal storage - supports sparse arrays
+        private Dictionary<int, T> _items;
+        private int _length;
 
         // Constructors
-        public String(string value);
-        public String(object value);  // JS String() conversion
+        public Array() { _items = new Dictionary<int, T>(); _length = 0; }
+        public Array(params T[] items) { /* initialize from params */ }
 
-        // Methods with JS semantics
-        public String toLowerCase();
-        public String toUpperCase();
-        public String trim();
-        public String trimStart();
-        public String trimEnd();
-        public String substring(int start, int? end = null);
-        public String substr(int start, int? length = null);  // Deprecated but common
-        public String slice(int start, int? end = null);
-        public Array<String> split(String separator, int? limit = null);
-        public int indexOf(String searchString, int position = 0);
-        public int lastIndexOf(String searchString, int? position = null);
-        public bool startsWith(String searchString, int? position = null);
-        public bool endsWith(String searchString, int? length = null);
-        public bool includes(String searchString, int? position = null);
-        public String replace(String search, String replacement);
-        public String repeat(int count);
-        public String padStart(int targetLength, String padString = null);
-        public String padEnd(int targetLength, String padString = null);
-        public char charAt(int index);
-        public double charCodeAt(int index);
+        // Property
+        public int length
+        {
+            get => _length;
+            set { /* Setting length can truncate or expand */ }
+        }
 
-        // Implicit conversions
-        public static implicit operator String(string s);
-        public static implicit operator string(String s);
+        // Indexer - supports sparse arrays
+        // Note: For MVP, holes return default(T) instead of undefined
+        // This means 0 for numbers, null for reference types
+        // TODO: Use Nullable<T> or Option<T> for proper undefined semantics
+        public T this[int index]
+        {
+            get => _items.ContainsKey(index) ? _items[index] : default(T);
+            set
+            {
+                _items[index] = value;
+                if (index >= _length) _length = index + 1;
+            }
+        }
 
-        // Operators
-        public static String operator +(String a, String b);
+        // Instance methods - NOT static!
+        public void push(T item)
+        {
+            _items[_length] = item;
+            _length++;
+        }
+
+        public T pop()
+        {
+            if (_length == 0) return default(T);
+            _length--;
+            T item = _items.ContainsKey(_length) ? _items[_length] : default(T);
+            _items.Remove(_length);
+            return item;
+        }
+
+        public T shift()
+        {
+            if (_length == 0) return default(T);
+            T item = _items.ContainsKey(0) ? _items[0] : default(T);
+            // Shift all items down
+            for (int i = 0; i < _length - 1; i++)
+            {
+                if (_items.ContainsKey(i + 1))
+                    _items[i] = _items[i + 1];
+                else
+                    _items.Remove(i);
+            }
+            _items.Remove(_length - 1);
+            _length--;
+            return item;
+        }
+
+        public void unshift(T item)
+        {
+            // Shift all items up
+            for (int i = _length; i > 0; i--)
+            {
+                if (_items.ContainsKey(i - 1))
+                    _items[i] = _items[i - 1];
+            }
+            _items[0] = item;
+            _length++;
+        }
+
+        public Array<T> slice(int start = 0, int? end = null)
+        {
+            int actualStart = start < 0 ? Math.Max(0, _length + start) : start;
+            int actualEnd = end.HasValue
+                ? (end.Value < 0 ? Math.Max(0, _length + end.Value) : end.Value)
+                : _length;
+
+            var result = new Array<T>();
+            for (int i = actualStart; i < actualEnd && i < _length; i++)
+            {
+                if (_items.ContainsKey(i))
+                    result.push(_items[i]);
+            }
+            return result;
+        }
+
+        public int indexOf(T searchElement, int fromIndex = 0)
+        {
+            for (int i = fromIndex; i < _length; i++)
+            {
+                if (_items.ContainsKey(i) && EqualityComparer<T>.Default.Equals(_items[i], searchElement))
+                    return i;
+            }
+            return -1;
+        }
+
+        public bool includes(T searchElement)
+        {
+            return indexOf(searchElement) >= 0;
+        }
+
+        public string join(string separator = ",")
+        {
+            var parts = new List<string>();
+            for (int i = 0; i < _length; i++)
+            {
+                if (_items.ContainsKey(i))
+                    parts.Add(_items[i]?.ToString() ?? "");
+                else
+                    parts.Add(""); // Sparse array hole
+            }
+            return string.Join(separator, parts);
+        }
+
+        public void reverse()
+        {
+            // Reverse the items in-place
+            var temp = new Dictionary<int, T>();
+            for (int i = 0; i < _length; i++)
+            {
+                if (_items.ContainsKey(i))
+                    temp[_length - 1 - i] = _items[i];
+            }
+            _items = temp;
+        }
+
+        // IEnumerable<T> implementation for foreach, LINQ, JSON serialization
+        public IEnumerator<T> GetEnumerator()
+        {
+            for (int i = 0; i < _length; i++)
+            {
+                yield return _items.ContainsKey(i) ? _items[i] : default(T);
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+
+        // Helper for JSON serialization and .NET interop
+        public T[] ToArray()
+        {
+            var result = new T[_length];
+            for (int i = 0; i < _length; i++)
+            {
+                result[i] = _items.ContainsKey(i) ? _items[i] : default(T);
+            }
+            return result;
+        }
     }
 }
 ```
 
-### Date
+**Important Notes:**
 
-JavaScript Date object:
+- **Instance methods**: Array<T> is a class - methods are called on instances, not static helpers
+- **Sparse array support**: Uses `Dictionary<int, T>` internally to support holes
+- **Holes behavior (MVP)**: Accessing holes returns `default(T)` (0 for numbers, null for references) instead of true undefined. This is a known limitation.
+- **Higher-order methods**: `map`, `filter`, `reduce` require lambda support - planned for Phase 4+
+- **IEnumerable<T>**: Array<T> implements IEnumerable<T> for .NET interop (foreach loops, LINQ compatibility)
+- **JSON serialization**: Use `.ToArray()` when needed: `JsonSerializer.Serialize(arr.ToArray())` or implement custom JsonConverter for direct serialization
+- **C# array interop**: Use `.ToArray()` to convert to `T[]` when calling .NET APIs that expect native arrays
+
+**Usage Examples:**
+
+```typescript
+const arr: number[] = [1, 2, 3];
+arr.push(4);
+const first = arr.shift();
+```
+
+```csharp
+var arr = new Tsonic.Runtime.Array<double>(1, 2, 3);
+arr.push(4);  // Instance method
+double first = arr.shift();  // Instance method
+```
+
+## String Operations
+
+Static helper class that operates on native C# `string`:
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public class Date
+    public static class String
     {
-        private DateTime _value;
+        // Case conversion
+        public static string toUpperCase(string str)
+        {
+            return str.ToUpper();
+        }
 
-        // Constructors (JS Date constructors)
-        public Date();  // Current date/time
-        public Date(long milliseconds);  // Since Unix epoch
-        public Date(string dateString);
-        public Date(int year, int month, int day = 1,
-                   int hours = 0, int minutes = 0,
-                   int seconds = 0, int ms = 0);
+        public static string toLowerCase(string str)
+        {
+            return str.ToLower();
+        }
 
-        // Getters (0-based month!)
-        public int getFullYear();
-        public int getMonth();      // 0-11 in JS!
-        public int getDate();        // Day of month
-        public int getDay();         // Day of week
-        public int getHours();
-        public int getMinutes();
-        public int getSeconds();
-        public int getMilliseconds();
-        public long getTime();       // MS since epoch
+        // Trimming
+        public static string trim(string str)
+        {
+            return str.Trim();
+        }
 
-        // Setters
-        public long setFullYear(int year);
-        public long setMonth(int month);
-        public long setDate(int day);
-        public long setHours(int hours);
+        public static string trimStart(string str)
+        {
+            return str.TrimStart();
+        }
 
-        // Conversion
-        public string toString();
-        public string toISOString();
-        public string toJSON();
-        public string toDateString();
-        public string toTimeString();
-        public string toLocaleString();
+        public static string trimEnd(string str)
+        {
+            return str.TrimEnd();
+        }
 
-        // Static methods
-        public static long now();
-        public static long parse(string dateString);
-        public static long UTC(int year, int month, ...);
+        // Substring operations
+        public static string substring(string str, int start, int? end = null)
+        {
+            int actualEnd = end ?? str.Length;
+            int length = Math.Max(0, actualEnd - start);
+            return str.Substring(start, Math.Min(length, str.Length - start));
+        }
+
+        public static string slice(string str, int start, int? end = null)
+        {
+            int len = str.Length;
+            int actualStart = start < 0 ? Math.Max(0, len + start) : Math.Min(start, len);
+            int actualEnd = end.HasValue
+                ? (end.Value < 0 ? Math.Max(0, len + end.Value) : Math.Min(end.Value, len))
+                : len;
+
+            return str.Substring(actualStart, Math.Max(0, actualEnd - actualStart));
+        }
+
+        // Searching
+        public static int indexOf(string str, string searchString, int position = 0)
+        {
+            return str.IndexOf(searchString, position);
+        }
+
+        public static int lastIndexOf(string str, string searchString, int? position = null)
+        {
+            return position.HasValue
+                ? str.LastIndexOf(searchString, position.Value)
+                : str.LastIndexOf(searchString);
+        }
+
+        public static bool startsWith(string str, string searchString)
+        {
+            return str.StartsWith(searchString);
+        }
+
+        public static bool endsWith(string str, string searchString)
+        {
+            return str.EndsWith(searchString);
+        }
+
+        public static bool includes(string str, string searchString)
+        {
+            return str.Contains(searchString);
+        }
+
+        // Manipulation
+        public static string replace(string str, string search, string replacement)
+        {
+            return str.Replace(search, replacement);
+        }
+
+        public static string repeat(string str, int count)
+        {
+            return string.Concat(Enumerable.Repeat(str, count));
+        }
+
+        public static string padStart(string str, int targetLength, string padString = " ")
+        {
+            return str.PadLeft(targetLength, padString[0]);
+        }
+
+        public static string padEnd(string str, int targetLength, string padString = " ")
+        {
+            return str.PadRight(targetLength, padString[0]);
+        }
+
+        // Character access
+        public static string charAt(string str, int index)
+        {
+            return index >= 0 && index < str.Length ? str[index].ToString() : "";
+        }
+
+        public static double charCodeAt(string str, int index)
+        {
+            return index >= 0 && index < str.Length ? (double)str[index] : double.NaN;
+        }
+
+        // Splitting
+        public static Tsonic.Runtime.Array<string> split(string str, string separator, int? limit = null)
+        {
+            string[] parts = str.Split(new[] { separator }, StringSplitOptions.None);
+            if (limit.HasValue && parts.Length > limit.Value)
+            {
+                string[] limited = new string[limit.Value];
+                System.Array.Copy(parts, limited, limit.Value);
+                return new Tsonic.Runtime.Array<string>(limited);
+            }
+            return new Tsonic.Runtime.Array<string>(parts);
+        }
+
+        // Properties
+        public static int length(string str)
+        {
+            return str.Length;
+        }
     }
 }
 ```
 
-### Global Functions
+**Important Notes:**
+
+- **NOT a class to instantiate**: `Tsonic.Runtime.String` is purely static helpers
+- **Operates on native string**: All methods take `string` as first parameter
+- **Returns native string**: All methods return C# `string`, not wrapper
+
+**Usage Examples:**
+
+```typescript
+const name = "john doe";
+const upper = name.toUpperCase();
+const parts = name.split(" ");
+```
+
+```csharp
+string name = "john doe";
+string upper = Tsonic.Runtime.String.toUpperCase(name);
+List<string> parts = Tsonic.Runtime.String.split(name, " ");
+```
+
+## Operators
+
+JavaScript operators that need runtime support:
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public static class Globals
+    public static class Operators
     {
-        // Parsing
-        public static int parseInt(string str, int radix = 10);
-        public static double parseFloat(string str);
+        // typeof operator
+        public static string typeof(object? value)
+        {
+            if (value == null) return "undefined";
+            if (value is string) return "string";
+            if (value is double || value is int || value is float || value is long) return "number";
+            if (value is bool) return "boolean";
+            if (value is Delegate) return "function";
+            return "object";
+        }
 
-        // Type checking
-        public static bool isNaN(double value);
-        public static bool isFinite(double value);
-        public static bool isInteger(double value);
-
-        // Encoding/Decoding
-        public static string encodeURI(string uri);
-        public static string decodeURI(string uri);
-        public static string encodeURIComponent(string component);
-        public static string decodeURIComponent(string component);
-
-        // Deprecated but common
-        public static string escape(string str);
-        public static string unescape(string str);
+        // instanceof operator
+        public static bool instanceof(object? obj, Type type)
+        {
+            if (obj == null) return false;
+            return type.IsAssignableFrom(obj.GetType());
+        }
     }
 }
 ```
 
-### console
+**Usage:**
+
+```typescript
+if (typeof x === "string") {
+  console.log("It's a string");
+}
+```
+
+```csharp
+if (Tsonic.Runtime.Operators.typeof(x) == "string")
+{
+    Tsonic.Runtime.console.log("It's a string");
+}
+```
+
+## console
+
+Console logging functions (lowercase class name to match JavaScript):
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public static class console  // lowercase!
+    public static class console
     {
-        public static void log(params object[] data);
-        public static void error(params object[] data);
-        public static void warn(params object[] data);
-        public static void info(params object[] data);
-        public static void debug(params object[] data);
-        public static void trace(params object[] data);
-        public static void assert(bool condition, params object[] data);
-        public static void clear();
-        public static void count(string label = "default");
-        public static void countReset(string label = "default");
-        public static void group(params object[] data);
-        public static void groupCollapsed(params object[] data);
-        public static void groupEnd();
-        public static void time(string label = "default");
-        public static void timeLog(string label = "default", params object[] data);
-        public static void timeEnd(string label = "default");
-        public static void table(object tabularData, Array<String> properties = null);
+        public static void log(params object[] data)
+        {
+            Console.WriteLine(string.Join(" ", data));
+        }
+
+        public static void error(params object[] data)
+        {
+            Console.Error.WriteLine(string.Join(" ", data));
+        }
+
+        public static void warn(params object[] data)
+        {
+            Console.WriteLine("WARN: " + string.Join(" ", data));
+        }
+
+        public static void info(params object[] data)
+        {
+            Console.WriteLine(string.Join(" ", data));
+        }
     }
 }
 ```
 
-### Math
+**Usage:**
+
+```typescript
+console.log("Hello", "World");
+console.error("Something went wrong");
+```
+
+```csharp
+Tsonic.Runtime.console.log("Hello", "World");
+Tsonic.Runtime.console.error("Something went wrong");
+```
+
+## Math
+
+JavaScript Math namespace functions:
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public static class Math  // Exact name
+    public static class Math
     {
-        // Constants (exact JS values)
+        // Constants
         public const double E = 2.718281828459045;
+        public const double PI = 3.141592653589793;
         public const double LN2 = 0.6931471805599453;
         public const double LN10 = 2.302585092994046;
         public const double LOG2E = 1.4426950408889634;
         public const double LOG10E = 0.4342944819032518;
-        public const double PI = 3.141592653589793;
         public const double SQRT1_2 = 0.7071067811865476;
         public const double SQRT2 = 1.4142135623730951;
 
-        // Methods
-        public static double abs(double x);
-        public static double acos(double x);
-        public static double asin(double x);
-        public static double atan(double x);
-        public static double atan2(double y, double x);
-        public static double ceil(double x);
-        public static double cos(double x);
-        public static double exp(double x);
-        public static double floor(double x);
-        public static double log(double x);
-        public static double max(params double[] values);
-        public static double min(params double[] values);
-        public static double pow(double x, double y);
-        public static double random();  // 0 <= n < 1
-        public static double round(double x);
-        public static double sin(double x);
-        public static double sqrt(double x);
-        public static double tan(double x);
-        public static double trunc(double x);
-        public static double sign(double x);
+        // Common methods
+        public static double abs(double x) => System.Math.Abs(x);
+        public static double ceil(double x) => System.Math.Ceiling(x);
+        public static double floor(double x) => System.Math.Floor(x);
+        public static double round(double x) => System.Math.Round(x);
+        public static double sqrt(double x) => System.Math.Sqrt(x);
+        public static double pow(double x, double y) => System.Math.Pow(x, y);
 
-        // ES6+
-        public static double cbrt(double x);
-        public static double hypot(params double[] values);
-        public static double imul(double a, double b);
-        public static double clz32(double x);
+        public static double max(params double[] values) => values.Max();
+        public static double min(params double[] values) => values.Min();
+
+        // Trigonometric
+        public static double sin(double x) => System.Math.Sin(x);
+        public static double cos(double x) => System.Math.Cos(x);
+        public static double tan(double x) => System.Math.Tan(x);
+        public static double asin(double x) => System.Math.Asin(x);
+        public static double acos(double x) => System.Math.Acos(x);
+        public static double atan(double x) => System.Math.Atan(x);
+        public static double atan2(double y, double x) => System.Math.Atan2(y, x);
+
+        // Random
+        private static Random _random = new Random();
+        public static double random() => _random.NextDouble();
     }
 }
 ```
 
-### JSON
+**Usage:**
+
+```typescript
+const pi = Math.PI;
+const max = Math.max(10, 20, 30);
+const rand = Math.random();
+```
 
 ```csharp
+double pi = Tsonic.Runtime.Math.PI;
+double max = Tsonic.Runtime.Math.max(10, 20, 30);
+double rand = Tsonic.Runtime.Math.random();
+```
+
+## JSON
+
+JSON parsing and stringification:
+
+```csharp
+using System.Text.Json;
+
 namespace Tsonic.Runtime
 {
     public static class JSON
     {
-        public static string stringify(object value,
-            object replacer = null, object space = null);
-        public static T parse<T>(string text, object reviver = null);
+        public static T parse<T>(string text)
+        {
+            return JsonSerializer.Deserialize<T>(text);
+        }
 
-        // Overload for dynamic parsing
-        public static object parse(string text, object reviver = null);
+        public static string stringify(object value)
+        {
+            return JsonSerializer.Serialize(value);
+        }
     }
 }
 ```
 
-### Union<T1, T2>
+**Usage:**
 
-For TypeScript union types:
+```typescript
+type User = { id: int; name: string };
+
+const json = JSON.stringify({ id: 1, name: "John" });
+const user: User = JSON.parse(json);
+```
 
 ```csharp
-namespace Tsonic.Runtime
-{
-    public readonly struct Union<T1, T2>
-    {
-        private readonly object _value;
-        private readonly int _index;  // Which type: 0=T1, 1=T2
-
-        public Union(T1 value);
-        public Union(T2 value);
-
-        public bool IsT1 => _index == 0;
-        public bool IsT2 => _index == 1;
-
-        public T1 AsT1();  // Throws if not T1
-        public T2 AsT2();  // Throws if not T2
-
-        public TResult Match<TResult>(
-            Func<T1, TResult> onT1,
-            Func<T2, TResult> onT2);
-
-        public void Match(Action<T1> onT1, Action<T2> onT2);
-
-        public override string ToString();
-    }
-}
+var json = Tsonic.Runtime.JSON.stringify(new { id = 1, name = "John" });
+User user = Tsonic.Runtime.JSON.parse<User>(json);
 ```
 
-## Not Implemented (MVP)
+## Not Supported in MVP
 
-These throw runtime errors with clear messages:
+These features are not available in MVP and will error:
 
 ### Array Methods
 
-- `map()` - "Array.map() not yet supported. Use a for loop instead."
-- `filter()` - "Array.filter() not yet supported. Use a for loop with conditions."
-- `reduce()` - "Array.reduce() not yet supported. Use a for loop with accumulator."
-- `forEach()` - "Array.forEach() not yet supported. Use a for...of loop."
+Higher-order array methods require lambda/callback support (planned for Phase 4+):
+
+- ⏳ `arr.map(callback)` - Planned, requires lambda support - Use for loop with result array for now
+- ⏳ `arr.filter(callback)` - Planned, requires lambda support - Use for loop with condition for now
+- ⏳ `arr.reduce(callback, initial)` - Planned, requires lambda support - Use for loop with accumulator for now
+- ⏳ `arr.forEach(callback)` - Planned, requires lambda support - Use for...of loop for now
+
+Note: Basic array methods without callbacks (push, pop, shift, unshift, slice, indexOf, includes, join) are fully supported.
+
+### Built-In Types
+
+Use .NET equivalents:
+
+- ❌ `Date` - Use `System.DateTime`
+- ❌ `Map<K,V>` - Use `Dictionary<K,V>`
+- ❌ `Set<T>` - Use `HashSet<T>`
+- ❌ `RegExp` - Use `System.Text.RegularExpressions.Regex`
+- ❌ `Symbol` - Not supported
+- ❌ `BigInt` - Not supported
 
 ### Object Methods
 
-- `Object.keys()` - "Object.keys() not yet supported."
-- `Object.values()` - "Object.values() not yet supported."
-- `Object.entries()` - "Object.entries() not yet supported."
+Not needed with static typing:
 
-### Other Types
+- ❌ `Object.keys()` - Know the type structure at compile time
+- ❌ `Object.values()` - Know the type structure at compile time
+- ❌ `Object.entries()` - Know the type structure at compile time
 
-- `Map<K,V>` - Planned for phase 2
-- `Set<T>` - Planned for phase 2
-- `WeakMap<K,V>` - Planned for phase 3
-- `WeakSet<T>` - May not support
-- `RegExp` - Planned for phase 2
-- `Promise.all()`, `Promise.race()` - Use Task methods
+## Complete Usage Examples
 
-## Usage Examples
+### Example 1: String Operations
 
-### TypeScript Input
+**TypeScript:**
 
 ```typescript
-const arr = [1, 2, 3];
-arr.push(4, 5);
-arr[10] = 99; // Sparse
-console.log(`Length: ${arr.length}`);
+function formatName(first: string, last: string): string {
+  const full = `${first} ${last}`;
+  return full.toUpperCase().trim();
+}
 
-const text = "Hello World";
-const lower = text.toLowerCase();
-const words = lower.split(" ");
-
-const now = Date.now();
-const date = new Date(2024, 0, 15); // Jan 15, 2024
-
-const pi = Math.PI;
-const max = Math.max(10, 20, 30);
-const random = Math.random();
+const name = formatName("  john  ", "doe");
+const parts = name.split(" ");
+console.log("Parts:", parts.length);
 ```
 
-### C# Output
+**Generated C#:**
+
+```csharp
+using System.Collections.Generic;
+using Tsonic.Runtime;
+
+public static string formatName(string first, string last)
+{
+    string full = $"{first} {last}";
+    return Tsonic.Runtime.String.trim(Tsonic.Runtime.String.toUpperCase(full));
+}
+
+string name = formatName("  john  ", "doe");
+var parts = Tsonic.Runtime.String.split(name, " ");
+Tsonic.Runtime.console.log("Parts:", parts.length);
+```
+
+### Example 2: Array Operations
+
+**TypeScript:**
+
+```typescript
+function processItems(items: string[]): number {
+  items.push("new item");
+  const first = items.shift();
+  console.log("Removed:", first);
+  return items.length;
+}
+
+const arr: string[] = ["a", "b", "c"];
+const count = processItems(arr);
+```
+
+**Generated C#:**
 
 ```csharp
 using Tsonic.Runtime;
-using static Tsonic.Runtime.Globals;
 
-var arr = new Array<double>(1, 2, 3);
-arr.push(4, 5);
-arr[10] = 99;  // Sparse
-console.log($"Length: {arr.length}");
+public static double processItems(Tsonic.Runtime.Array<string> items)
+{
+    items.push("new item");  // Instance method
+    string first = items.shift();  // Instance method
+    Tsonic.Runtime.console.log("Removed:", first);
+    return items.length;
+}
 
-var text = "Hello World";
-var lower = new String(text).toLowerCase();
-var words = lower.split(new String(" "));
-
-var now = Date.now();
-var date = new Date(2024, 0, 15);  // Jan 15, 2024
-
-var pi = Math.PI;
-var max = Math.max(10, 20, 30);
-var random = Math.random();
+var arr = new Tsonic.Runtime.Array<string>("a", "b", "c");
+double count = processItems(arr);
 ```
+
+### Example 3: .NET Interop with Boundaries
+
+**TypeScript:**
+
+```typescript
+import { File } from "System.IO";
+import { List } from "System.Collections.Generic";
+
+function processFile(path: string): void {
+  // C# returns string[], becomes ReadonlyArray<string>
+  const lines = File.ReadAllLines(path);
+
+  // C# List with C# methods
+  const mutable = new List<string>(lines);
+  mutable.Add("// End of file"); // C# method
+
+  // C# method expects T[], so convert
+  File.WriteAllLines(path, mutable.ToArray());
+}
+```
+
+**Generated C#:**
+
+```csharp
+using System.IO;
+using System.Collections.Generic;
+
+public static void processFile(string path)
+{
+    // C# returns string[]
+    string[] lines = File.ReadAllLines(path);
+
+    // C# List
+    List<string> mutable = new List<string>(lines);
+    mutable.Add("// End of file"); // C# method
+
+    // C# to C# conversion
+    File.WriteAllLines(path, mutable.ToArray());
+}
+```
+
+### Example 4: Type Guards with unknown
+
+**TypeScript:**
+
+```typescript
+function process(value: unknown): string {
+  if (typeof value === "string") {
+    return value.toUpperCase();
+  }
+  if (typeof value === "number") {
+    return `Number: ${value}`;
+  }
+  return "Unknown";
+}
+```
+
+**Generated C#:**
+
+```csharp
+using Tsonic.Runtime;
+
+public static string process(object? value)
+{
+    if (Tsonic.Runtime.Operators.typeof(value) == "string")
+    {
+        return Tsonic.Runtime.String.toUpperCase((string)value);
+    }
+    if (Tsonic.Runtime.Operators.typeof(value) == "number")
+    {
+        return $"Number: {(double)value}";
+    }
+    return "Unknown";
+}
+```
+
+### Example 5: JSON with Explicit Types
+
+**TypeScript:**
+
+```typescript
+type Config = {
+  host: string;
+  port: int;
+  enabled: boolean;
+};
+
+function loadConfig(json: string): Config {
+  const config: Config = JSON.parse(json);
+  return config;
+}
+
+function saveConfig(config: Config): string {
+  return JSON.stringify(config);
+}
+```
+
+**Generated C#:**
+
+```csharp
+using Tsonic.Runtime;
+
+public class Config
+{
+    public string host { get; set; }
+    public int port { get; set; }
+    public bool enabled { get; set; }
+}
+
+public static Config loadConfig(string json)
+{
+    Config config = Tsonic.Runtime.JSON.parse<Config>(json);
+    return config;
+}
+
+public static string saveConfig(Config config)
+{
+    return Tsonic.Runtime.JSON.stringify(config);
+}
+```
+
+### Example 6: Using C# Numeric Types
+
+**TypeScript:**
+
+```typescript
+function calculateTotal(price: decimal, quantity: int): decimal {
+  return price * quantity;
+}
+
+const items: byte[] = [1, 2, 3, 4, 5];
+let total: int = 0;
+
+for (const item of items) {
+  total = total + item;
+}
+```
+
+**Generated C#:**
+
+```csharp
+using Tsonic.Runtime;
+
+public static decimal calculateTotal(decimal price, int quantity)
+{
+    return price * quantity;
+}
+
+var items = new Tsonic.Runtime.Array<byte>(1, 2, 3, 4, 5);
+int total = 0;
+
+foreach (byte item in items)
+{
+    total = total + item;
+}
+```
+
+## Summary
+
+- **No wrapper classes**: All types are native .NET types
+- **Static helpers only**: JavaScript semantics via `Tsonic.Runtime` functions
+- **Clean boundaries**: Explicit conversions at .NET library boundaries
+- **Type safety**: Strict typing with no `any` support
+- **Performance**: Native .NET performance with NativeAOT compilation

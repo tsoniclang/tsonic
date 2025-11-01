@@ -4,13 +4,20 @@
 
 Tsonic is a TypeScript to C# compiler that produces NativeAOT executables. It parses modern ESM TypeScript, generates C# source code, and compiles to native binaries using the .NET CLI.
 
+**Target Platform:**
+
+- C# 14 (.NET 10+)
+- All C# 14 features are available (nullable reference types, records, pattern matching, etc.)
+- NativeAOT compilation for single-file executables
+
 ## Core Philosophy
 
-1. **ESM-Only**: No CommonJS support. All local imports must include `.ts` extensions.
-2. **Exact Namespace Mapping**: Directory paths map directly to C# namespaces (case-preserved).
-3. **Exact Name Preservation**: JS/TS built-in objects keep their exact names in `Tsonic.Runtime`.
+1. **.NET-First**: Tsonic is a better language for .NET, not a JavaScript runtime port. Use native .NET types and expose .NET semantics directly.
+2. **ESM-Only**: No CommonJS support. All local imports must include `.ts` extensions.
+3. **Exact Namespace Mapping**: Directory paths map directly to C# namespaces (case-preserved).
 4. **No Magic**: Clear, predictable mappings. When in doubt, error with clear diagnostics.
-5. **Incremental Support**: Start with core features, grow the runtime as needed.
+5. **Native Types**: Use `List<T>`, `string`, `double` directly. No wrapper classes.
+6. **Static Helpers**: JavaScript semantics provided via `Tsonic.Runtime` static helper functions.
 
 ## What Tsonic Does
 
@@ -28,23 +35,48 @@ Tsonic is a TypeScript to C# compiler that produces NativeAOT executables. It pa
 
 ## Key Innovations
 
-### 1. Runtime Implementation
+### 1. TypeScript Types with JavaScript Semantics
 
-Instead of mapping JS arrays to C# Lists, we implement `Tsonic.Runtime.Array<T>` with exact JavaScript semantics (sparse arrays, mutable length, etc.).
+TypeScript types map to custom implementations with exact JavaScript semantics:
+
+- `string[]` → `Tsonic.Runtime.Array<T>` (custom class supporting sparse arrays, etc.)
+- `string` → `string` (native C# string)
+- `number` → `double` (native C# numeric)
+
+JavaScript semantics preserved:
+
+- `arr.push(x)` → `arr.push(x)` (instance method on Tsonic.Runtime.Array)
+- `arr.length` → `arr.length` (property on Tsonic.Runtime.Array)
+- `str.toUpperCase()` → `Tsonic.Runtime.String.toUpperCase(str)` (static helper)
 
 ### 2. Direct .NET Interop
 
-Import .NET namespaces directly:
+Import .NET namespaces and use them naturally:
 
 ```typescript
-import { JsonSerializer } from "System.Text.Json";
+import { File } from "System.IO";
+const lines = File.ReadAllLines("file.txt"); // Returns ReadonlyArray<string>
 ```
 
-### 3. Predictable Mappings
+C# types exposed directly - no automatic conversions unless explicit.
+
+### 3. Clean Type Boundaries
+
+- **Tsonic types**: `Tsonic.Runtime.Array<T>` with JavaScript semantics - use `.push()`, `.slice()`, etc.
+- **C# types**: Native .NET types (`T[]`, `List<T>`, `Dictionary<K,V>`) - use `.Add()`, `.ToArray()`, etc.
+- **C# arrays from libraries**: Exposed as `ReadonlyArray<T>` in TypeScript
+- **NO automatic conversions**: C# types stay C# types, Tsonic types stay Tsonic types
+- **Use C# methods on C# types**: `List.Add()`, `list.ToArray()`
+
+### 4. Predictable Mappings
 
 - Directory structure = namespace hierarchy
 - File name = class name
 - Top-level exports = static class members
+
+## Related Specifications
+
+- Generators & coroutine translation (`spec/13-generators.md`)
 
 ## Project Structure
 
@@ -63,9 +95,17 @@ tsonic/
 
 ## Target Audience
 
-- **Primary**: Developers wanting to compile TypeScript to native executables
-- **Secondary**: Teams migrating Node.js services to .NET
+- **Primary**: Developers who want TypeScript's syntax with .NET's performance and ecosystem
+- **Secondary**: Teams building high-performance services using .NET libraries
+- **Use Cases**: CLI tools, microservices, system utilities - anything that benefits from NativeAOT
 - **Implementation**: AI coding agents and human contributors
+
+## What Tsonic Is NOT
+
+- **NOT** a Node.js replacement
+- **NOT** a JavaScript runtime port
+- **NOT** trying to bring npm ecosystem to .NET
+- **IS** a better, type-safe language for writing .NET applications
 
 ## Success Metrics
 

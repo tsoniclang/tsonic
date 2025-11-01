@@ -79,7 +79,6 @@ describe("C# Emitter", () => {
       expect(result).to.include("public static double add(double a, double b)");
       expect(result).to.include("return a + b");
       expect(result).to.include("namespace MyApp");
-      expect(result).to.include("using Tsonic.Runtime");
     });
 
     it("should emit a regular class", () => {
@@ -230,6 +229,7 @@ describe("C# Emitter", () => {
 
       expect(result).to.include("new Tsonic.Runtime.Array");
       expect(result).to.include("1.0, 2.0, 3.0");
+      expect(result).to.include("using Tsonic.Runtime");
     });
 
     it("should emit template literals", () => {
@@ -396,7 +396,8 @@ describe("C# Emitter", () => {
       const result = emitModule(module);
 
       expect(result).to.include("foreach (var item in items)");
-      expect(result).to.include("console.log(item)");
+      expect(result).to.include("Tsonic.Runtime.console.log(item)");
+      expect(result).to.include("using Tsonic.Runtime");
     });
   });
 

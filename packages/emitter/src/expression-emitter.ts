@@ -2,15 +2,20 @@
  * Expression Emitter - IR expressions to C# code
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment, addUsing } from "./types.js";
+import { emitType } from "./type-emitter.js";
 
 /**
  * Emit a C# expression from an IR expression
+ * @param expr The IR expression to emit
+ * @param context The emitter context
+ * @param expectedType Optional expected type for contextual typing (e.g., array element type inference)
  */
 export const emitExpression = (
   expr: IrExpression,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
   switch (expr.kind) {
     case "literal":
@@ -20,7 +25,7 @@ export const emitExpression = (
       return emitIdentifier(expr, context);
 
     case "array":
-      return emitArray(expr, context);
+      return emitArray(expr, context, expectedType);
 
     case "object":
       return emitObject(expr, context);
@@ -118,28 +123,63 @@ const emitIdentifier = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  // Map JavaScript global identifiers to C# equivalents
+  // Map JavaScript global identifiers to Tsonic.Runtime equivalents
   const identifierMap: Record<string, string> = {
-    console: "console",
-    Math: "Math",
-    JSON: "JSON",
+    console: "Tsonic.Runtime.console",
+    Math: "Tsonic.Runtime.Math",
+    JSON: "Tsonic.Runtime.JSON",
+    parseInt: "Tsonic.Runtime.parseInt",
+    parseFloat: "Tsonic.Runtime.parseFloat",
+    isNaN: "Tsonic.Runtime.isNaN",
+    isFinite: "Tsonic.Runtime.isFinite",
     undefined: "default",
   };
 
-  const mapped = identifierMap[expr.name] ?? expr.name;
-  return [{ text: mapped }, context];
+  const mapped = identifierMap[expr.name];
+  if (mapped) {
+    const updatedContext = addUsing(context, "Tsonic.Runtime");
+    return [{ text: mapped }, updatedContext];
+  }
+
+  return [{ text: expr.name }, context];
 };
 
 const emitArray = (
   expr: Extract<IrExpression, { kind: "array" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = addUsing(context, "Tsonic.Runtime");
   const elements: string[] = [];
 
+  // Determine element type from expected type if available
+  let elementType = "object";
+  if (expectedType) {
+    if (expectedType.kind === "arrayType") {
+      const [elemTypeStr, newContext] = emitType(
+        expectedType.elementType,
+        currentContext
+      );
+      elementType = elemTypeStr;
+      currentContext = newContext;
+    } else if (
+      expectedType.kind === "referenceType" &&
+      expectedType.name === "Array" &&
+      expectedType.typeArguments &&
+      expectedType.typeArguments.length > 0
+    ) {
+      const firstArg = expectedType.typeArguments[0];
+      if (firstArg) {
+        const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
+        elementType = elemTypeStr;
+        currentContext = newContext;
+      }
+    }
+  }
+
   for (const element of expr.elements) {
     if (element === undefined) {
-      // Sparse array hole
+      // Sparse array hole - Tsonic.Runtime.Array supports sparse arrays
       elements.push("default");
     } else if (element.kind === "spread") {
       // Spread in array literal - needs special handling
@@ -152,8 +192,6 @@ const emitArray = (
     }
   }
 
-  // Infer element type from first non-null element or default to object
-  const elementType = expr.elements.length > 0 ? "object" : "object";
   const text = `new Tsonic.Runtime.Array<${elementType}>(${elements.join(", ")})`;
 
   return [{ text }, currentContext];
@@ -211,6 +249,61 @@ const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Type-aware method call rewriting
+  // Use inferredType to determine if we need to rewrite as static helper
+  if (
+    expr.callee.kind === "memberAccess" &&
+    typeof expr.callee.property === "string"
+  ) {
+    const methodName = expr.callee.property;
+    const objectType = expr.callee.object.inferredType;
+
+    // Rewrite based on type:
+    // - string → Tsonic.Runtime.String.method()
+    // - number → Tsonic.Runtime.Number.method()
+    // - Array<T> → Keep as instance method (our custom class)
+    // - Other custom types → Keep as instance method
+
+    const shouldRewriteAsStatic =
+      (objectType?.kind === "primitiveType" && objectType.name === "string") ||
+      (objectType?.kind === "primitiveType" && objectType.name === "number");
+
+    if (shouldRewriteAsStatic) {
+      // Determine which runtime class based on type
+      const runtimeClass =
+        objectType?.kind === "primitiveType" && objectType.name === "string"
+          ? "String"
+          : "Number";
+
+      // Rewrite: obj.method(args) → Tsonic.Runtime.{Class}.method(obj, args)
+      const [objectFrag, objContext] = emitExpression(
+        expr.callee.object,
+        context
+      );
+      let currentContext = addUsing(objContext, "Tsonic.Runtime");
+
+      const args: string[] = [objectFrag.text]; // Object becomes first argument
+      for (const arg of expr.arguments) {
+        if (arg.kind === "spread") {
+          const [spreadFrag, ctx] = emitExpression(
+            arg.expression,
+            currentContext
+          );
+          args.push(`params ${spreadFrag.text}`);
+          currentContext = ctx;
+        } else {
+          const [argFrag, ctx] = emitExpression(arg, currentContext);
+          args.push(argFrag.text);
+          currentContext = ctx;
+        }
+      }
+
+      const text = `Tsonic.Runtime.${runtimeClass}.${methodName}(${args.join(", ")})`;
+      return [{ text }, currentContext];
+    }
+  }
+
+  // Regular function call (includes array methods - they're instance methods)
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
   let currentContext = newContext;
 
@@ -304,9 +397,10 @@ const emitUnary = (
   const [operandFrag, newContext] = emitExpression(expr.expression, context);
 
   if (expr.operator === "typeof") {
-    // typeof needs special handling in C#
-    const text = `${operandFrag.text}.GetType().Name`;
-    return [{ text }, newContext];
+    // typeof becomes Tsonic.Runtime.Operators.typeof()
+    const updatedContext = addUsing(newContext, "Tsonic.Runtime");
+    const text = `Tsonic.Runtime.Operators.@typeof(${operandFrag.text})`;
+    return [{ text }, updatedContext];
   }
 
   if (expr.operator === "void") {

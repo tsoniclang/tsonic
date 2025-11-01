@@ -38,10 +38,10 @@ export const emitType = (
       return emitLiteralType(type, context);
 
     case "anyType":
-      return ["object", context];
+      return ["dynamic", context];
 
     case "unknownType":
-      return ["object", context];
+      return ["object?", context];
 
     case "voidType":
       return ["void", context];
@@ -104,12 +104,11 @@ const emitReferenceType = (
     return ["Task", updatedContext];
   }
 
-  // Map common JS types to Tsonic.Runtime equivalents
+  // Map common JS types to .NET equivalents
+  // Note: Date, RegExp, Map, Set are NOT SUPPORTED in MVP
+  // Users should use System.DateTime, System.Text.RegularExpressions.Regex,
+  // Dictionary<K,V>, and HashSet<T> directly
   const runtimeTypes: Record<string, string> = {
-    Date: "Tsonic.Runtime.Date",
-    RegExp: "Tsonic.Runtime.RegExp",
-    Map: "Tsonic.Runtime.Map",
-    Set: "Tsonic.Runtime.Set",
     Error: "System.Exception",
   };
 
@@ -232,16 +231,15 @@ const emitUnionType = (
   );
 
   if (nonNullTypes.length === 1) {
-    // This is a nullable type
+    // This is a nullable type (T | null | undefined)
     const firstType = nonNullTypes[0];
     if (!firstType) {
-      return ["object", context];
+      return ["object?", context];
     }
     const [baseType, newContext] = emitType(firstType, context);
-    if (baseType !== "string" && baseType !== "object") {
-      return [`${baseType}?`, newContext];
-    }
-    return [baseType, newContext];
+    // Add ? suffix for nullable types (both value types and reference types)
+    // This includes string?, int?, double?, etc. per spec/04-type-mappings.md
+    return [`${baseType}?`, newContext];
   }
 
   return ["object", context];
@@ -285,7 +283,10 @@ export const emitParameterType = (
   const typeNode = type ?? { kind: "anyType" as const };
   const [baseType, newContext] = emitType(typeNode, context);
 
-  if (isOptional && baseType !== "string" && baseType !== "object") {
+  // For optional parameters, add ? suffix for nullable types
+  // This includes both value types (double?, int?) and reference types (string?)
+  // per spec/04-type-mappings.md:21-78
+  if (isOptional) {
     return [`${baseType}?`, newContext];
   }
 

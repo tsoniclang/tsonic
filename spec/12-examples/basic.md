@@ -69,7 +69,7 @@ namespace My.App
             console.log($"Name: {name}");
             console.log($"Age: {age}");
             console.log($"Active: {isActive}");
-            console.log($"Scores: {scores.join(new String(", "))}");
+            console.log($"Scores: {scores.join(", ")}");
             console.log($"User: {user.name} ({user.age})");
         }
     }
