@@ -138,23 +138,27 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 ### Phase 4: Tsonic Runtime Core
 
-**Goal:** Implement JavaScript runtime in C#
+**Goal:** Implement JavaScript runtime in C# as a class library
 
 **Package:** `packages/runtime`
 
+**Structure:** C# class library project (`.csproj`) compiled to assembly
+
 **Tasks:**
 
-1. Implement `Array<T>` with sparse array support
-2. Implement `String` wrapper with JS methods
-3. Implement `Number` wrapper with JS methods
+1. Create `Tsonic.Runtime.csproj` class library project
+2. Implement `Array<T>` with sparse array support
+3. Implement `String` static helpers with JS methods
 4. Implement `console` object
 5. Implement `Math` object
-6. Implement `Date` class
-7. Implement global functions (parseInt, parseFloat)
-8. Implement `JSON` object
+6. Implement global functions (parseInt, parseFloat)
+7. Implement `JSON` object
+8. Implement `Operators` class (typeof, instanceof)
+9. Configure project for NativeAOT compatibility
 
-**Key File:**
+**Key Files:**
 
+- `Tsonic.Runtime.csproj` - Class library project file
 - `TsonicRuntime.cs` - All runtime implementations
 
 **Note:** Generator helpers (for ergonomic `Next(value)` API) will be added in Phase 7 when generator support is implemented.
@@ -163,14 +167,15 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 - Array sparse behavior
 - String method compatibility
-- Number method compatibility
 - Math function accuracy
-- Date conversions
+- JSON serialization/deserialization
+- typeof operator behavior
 
 **Deliverables:**
 
 - Complete runtime for basic JavaScript operations
-- NuGet package or embedded .cs file
+- Published as NuGet package `Tsonic.Runtime`
+- Can be consumed via PackageReference in generated projects
 
 ### Phase 5: .NET Backend
 
@@ -180,13 +185,12 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 **Tasks:**
 
-1. Generate .csproj file
+1. Generate .csproj file with Tsonic.Runtime PackageReference
 2. Create temporary build directories
 3. Copy generated C# files
-4. Copy runtime file
-5. Generate Program.cs when needed
-6. Execute `dotnet publish` with NativeAOT
-7. Copy output binary
+4. Generate Program.cs when needed
+5. Execute `dotnet publish` with NativeAOT
+6. Copy output binary
 
 **Key Files:**
 

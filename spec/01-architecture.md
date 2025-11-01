@@ -81,26 +81,30 @@ NativeAOT Executable
 **Key Modules**:
 
 - `dotnet.ts`: Execute dotnet commands (new, publish)
-- `files.ts`: Manage temporary build directories, copy runtime
+- `files.ts`: Manage temporary build directories
 
 **Workflow**:
 
 1. Create temporary project directory
-2. Generate minimal .csproj with NativeAOT settings
+2. Generate minimal .csproj with NativeAOT settings and Tsonic.Runtime package reference
 3. Copy generated C# files
-4. Copy Tsonic.Runtime.cs
-5. Generate Program.cs if needed
-6. Execute `dotnet publish`
-7. Copy output binary
+4. Generate Program.cs if needed
+5. Execute `dotnet publish` (restores Tsonic.Runtime from NuGet)
+6. Copy output binary
 
 ### 5. Runtime (`packages/runtime`)
 
 **Purpose**: JavaScript/TypeScript runtime implementation in C#
 
+**Structure**: C# class library project published as NuGet package
+
 **Key Files**:
 
-- `tsruntime.cs`: Core runtime (Array, String, console, Math, etc.)
+- `Tsonic.Runtime.csproj`: C# class library project file
+- `TsonicRuntime.cs`: Core runtime implementation (Array, String, console, Math, etc.)
 - `lib/System.d.ts`, `lib/System.IO.d.ts`, etc.: TypeScript declarations for .NET types (per-namespace)
+
+**Distribution**: Published as NuGet package `Tsonic.Runtime`, consumed via PackageReference in generated projects
 
 ## Intermediate Representation (IR)
 

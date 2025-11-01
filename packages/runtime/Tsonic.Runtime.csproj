@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Tsonic.Runtime</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- NuGet Package Properties -->
+    <PackageId>Tsonic.Runtime</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>Tsonic Project</Authors>
+    <Description>JavaScript/TypeScript runtime implementation for Tsonic compiler - provides exact JavaScript semantics in C#</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/tsoniclang/tsonic</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/tsoniclang/tsonic.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>typescript;csharp;compiler;runtime;native-aot</PackageTags>
+
+    <!-- Enable NativeAOT compatibility -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Required for JSON support -->
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -308,8 +308,14 @@ packages/
 │       ├── emit/              # IR → C#
 │       └── templates/         # C# code templates
 └── runtime/
-    ├── TsonicRuntime.cs       # C# runtime
-    └── lib.cs.d.ts           # .NET type declarations
+    ├── Tsonic.Runtime.csproj  # C# class library project
+    ├── TsonicRuntime.cs       # C# runtime implementation
+    ├── package.json           # npm package (for TypeScript declarations only)
+    └── lib/                   # .NET type declarations (per-namespace)
+        ├── System.d.ts
+        ├── System.IO.d.ts
+        ├── System.Collections.Generic.d.ts
+        └── ...
 ```
 
 ### File Naming
