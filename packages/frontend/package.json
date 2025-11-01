@@ -1,0 +1,33 @@
+{
+  "name": "@tsonic/frontend",
+  "version": "0.0.1",
+  "description": "TypeScript parser and IR builder for Tsonic compiler",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "mocha 'dist/**/*.test.js'",
+    "test:watch": "mocha 'dist/**/*.test.js' --watch"
+  },
+  "dependencies": {
+    "typescript": "5.9.2"
+  },
+  "devDependencies": {
+    "@types/chai": "5.2.2",
+    "@types/mocha": "10.0.10",
+    "@types/node": "20.14.0",
+    "chai": "5.3.3",
+    "mocha": "11.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

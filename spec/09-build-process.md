@@ -105,7 +105,10 @@ function createBuildDir(entryFile: string): string {
 Preserve directory structure:
 
 ```typescript
-function copyGeneratedFiles(emittedFiles: Map<string, string>, buildDir: string) {
+function copyGeneratedFiles(
+  emittedFiles: Map<string, string>,
+  buildDir: string
+) {
   for (const [tsPath, csContent] of emittedFiles) {
     // src/models/User.ts → <buildDir>/src/models/User.cs
     const csPath = tsPath.replace(/\.ts$/, ".cs");
@@ -172,7 +175,7 @@ function generateCsproj(config: BuildConfig, buildDir: string): void {
   </PropertyGroup>
 
   <ItemGroup>
-    ${config.packages.map(p => `<PackageReference Include="${p.name}" Version="${p.version}" />`).join("\n    ")}
+    ${config.packages.map((p) => `<PackageReference Include="${p.name}" Version="${p.version}" />`).join("\n    ")}
   </ItemGroup>
 </Project>`;
 
@@ -189,16 +192,18 @@ function publishNativeAot(buildDir: string, rid: string): void {
   const args = [
     "publish",
     "tsonic.csproj",
-    "-c", "Release",
-    "-r", rid,
+    "-c",
+    "Release",
+    "-r",
+    rid,
     "-p:PublishAot=true",
     "-p:PublishSingleFile=true",
-    "--no-self-contained"  // Use installed .NET runtime
+    "--no-self-contained", // Use installed .NET runtime
   ];
 
   const result = spawnSync("dotnet", args, {
     cwd: buildDir,
-    stdio: "inherit"
+    stdio: "inherit",
   });
 
   if (result.status !== 0) {
@@ -210,13 +215,12 @@ function publishNativeAot(buildDir: string, rid: string): void {
 ### Step 7: Copy Output Binary
 
 ```typescript
-function copyOutputBinary(buildDir: string, rid: string, outputPath: string): void {
-  const publishDir = path.join(
-    buildDir,
-    "bin/Release/net8.0",
-    rid,
-    "publish"
-  );
+function copyOutputBinary(
+  buildDir: string,
+  rid: string,
+  outputPath: string
+): void {
+  const publishDir = path.join(buildDir, "bin/Release/net8.0", rid, "publish");
 
   const exeName = process.platform === "win32" ? "tsonic.exe" : "tsonic";
   const binaryPath = path.join(publishDir, exeName);
@@ -230,15 +234,15 @@ function copyOutputBinary(buildDir: string, rid: string, outputPath: string): vo
 
 Common RIDs for NativeAOT:
 
-| Platform | RID | Notes |
-|----------|-----|-------|
-| Windows x64 | `win-x64` | Windows 10+ |
-| Windows ARM64 | `win-arm64` | Windows 11 ARM |
-| Linux x64 | `linux-x64` | Most Linux distros |
-| Linux ARM64 | `linux-arm64` | ARM Linux |
-| Linux musl x64 | `linux-musl-x64` | Alpine Linux |
-| macOS x64 | `osx-x64` | Intel Macs |
-| macOS ARM64 | `osx-arm64` | M1/M2/M3 Macs |
+| Platform       | RID              | Notes              |
+| -------------- | ---------------- | ------------------ |
+| Windows x64    | `win-x64`        | Windows 10+        |
+| Windows ARM64  | `win-arm64`      | Windows 11 ARM     |
+| Linux x64      | `linux-x64`      | Most Linux distros |
+| Linux ARM64    | `linux-arm64`    | ARM Linux          |
+| Linux musl x64 | `linux-musl-x64` | Alpine Linux       |
+| macOS x64      | `osx-x64`        | Intel Macs         |
+| macOS ARM64    | `osx-arm64`      | M1/M2/M3 Macs      |
 
 ## Auto-detection
 
@@ -253,7 +257,7 @@ function detectRid(): string {
     "linux-x64": "linux-x64",
     "linux-arm64": "linux-arm64",
     "win32-x64": "win-x64",
-    "win32-arm64": "win-arm64"
+    "win32-arm64": "win-arm64",
   };
 
   const key = `${platform}-${arch}`;
@@ -299,11 +303,11 @@ Scan imports to auto-add NuGet packages:
 const packageMap = {
   "Microsoft.EntityFrameworkCore": {
     name: "Microsoft.EntityFrameworkCore.Sqlite",
-    version: "8.0.0"
+    version: "8.0.0",
   },
   "System.Data.SqlClient": {
     name: "System.Data.SqlClient",
-    version: "4.8.6"
+    version: "4.8.6",
   },
   // Add more as needed
 };
@@ -329,16 +333,19 @@ function detectPackages(imports: Set<string>): Package[] {
 ### Common Build Errors
 
 1. **dotnet not found**
+
    ```
    ERROR: .NET SDK not found. Install from https://dot.net
    ```
 
 2. **Unsupported RID**
+
    ```
    ERROR: Runtime identifier 'exotic-os' not supported for NativeAOT
    ```
 
 3. **Missing dependencies**
+
    ```
    ERROR: Package 'Microsoft.EntityFrameworkCore' not found
    ```
@@ -385,13 +392,16 @@ export async function buildNativeAot(
     }
 
     const packages = detectPackages(emitted.imports);
-    generateCsproj({
-      rootNamespace: options.namespace,
-      packages,
-      outputName: options.outputName,
-      invariantGlobalization: true,
-      stripSymbols: options.stripSymbols ?? true
-    }, buildDir);
+    generateCsproj(
+      {
+        rootNamespace: options.namespace,
+        packages,
+        outputName: options.outputName,
+        invariantGlobalization: true,
+        stripSymbols: options.stripSymbols ?? true,
+      },
+      buildDir
+    );
 
     // 4. Build with dotnet
     const rid = options.rid || detectRid();

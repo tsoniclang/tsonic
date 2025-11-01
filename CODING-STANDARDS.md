@@ -18,7 +18,7 @@ All code must follow functional programming principles:
 // ✅ Good - Pure function, immutable
 export const addImport = (module: IrModule, importPath: string): IrModule => ({
   ...module,
-  imports: [...module.imports, importPath]
+  imports: [...module.imports, importPath],
 });
 
 // ❌ Bad - Mutation
@@ -37,7 +37,7 @@ const updated = { ...original, field: newValue };
 const newArray = [...oldArray, newItem];
 
 // ✅ Good - Filter for removals
-const filtered = items.filter(item => item.id !== targetId);
+const filtered = items.filter((item) => item.id !== targetId);
 
 // ❌ Bad - Direct mutation
 original.field = newValue; // NEVER
@@ -125,7 +125,7 @@ export const resolveImport = (
   const resolved = path.resolve(path.dirname(currentFile), importPath);
   return {
     path: resolved,
-    isLocal: importPath.startsWith(".")
+    isLocal: importPath.startsWith("."),
   };
 };
 
@@ -145,12 +145,7 @@ Use function composition over sequential mutations:
 ```typescript
 // ✅ Good - Composition
 export const processModule = (source: string): string =>
-  pipe(
-    source,
-    parseTypeScript,
-    buildIR,
-    emitCSharp
-  );
+  pipe(source, parseTypeScript, buildIR, emitCSharp);
 
 // ❌ Bad - Mutations
 export function processModule(source: string): string {
@@ -168,10 +163,7 @@ All dependencies must be parameters:
 
 ```typescript
 // ✅ Good - Explicit config parameter
-export const emitModule = (
-  module: IrModule,
-  config: EmitConfig
-): string => {
+export const emitModule = (module: IrModule, config: EmitConfig): string => {
   // Use config
 };
 
@@ -193,7 +185,12 @@ Use discriminated unions for AST/IR nodes:
 export type IrExpression =
   | { kind: "literal"; value: unknown }
   | { kind: "identifier"; name: string }
-  | { kind: "binary"; operator: string; left: IrExpression; right: IrExpression }
+  | {
+      kind: "binary";
+      operator: string;
+      left: IrExpression;
+      right: IrExpression;
+    }
   | { kind: "call"; callee: IrExpression; args: IrExpression[] };
 
 // Type guards
@@ -249,9 +246,7 @@ Use Result/Either types instead of throwing:
 
 ```typescript
 // ✅ Good - Result type
-export type Result<T, E> =
-  | { ok: true; value: T }
-  | { ok: false; error: E };
+export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export const parseModule = (source: string): Result<IrModule, ParseError> => {
   try {
@@ -283,12 +278,12 @@ export const validateModule = (module: IrModule): ValidationResult => {
   const diagnostics = [
     ...validateImports(module.imports),
     ...validateExports(module.exports),
-    ...validateNamespace(module.namespace)
+    ...validateNamespace(module.namespace),
   ];
 
   return {
     diagnostics,
-    hasErrors: diagnostics.some(d => d.severity === "error")
+    hasErrors: diagnostics.some((d) => d.severity === "error"),
   };
 };
 ```
@@ -329,17 +324,27 @@ One public export per file:
 
 ```typescript
 // ✅ Good - ir-builder.ts
-const helper1 = () => { /* ... */ };
-const helper2 = () => { /* ... */ };
+const helper1 = () => {
+  /* ... */
+};
+const helper2 = () => {
+  /* ... */
+};
 
 export const buildIR = (ast: TSNode): IrModule => {
   // Uses helpers internally
 };
 
 // ❌ Bad - Multiple exports
-export const helper1 = () => { /* ... */ };
-export const helper2 = () => { /* ... */ };
-export const buildIR = () => { /* ... */ };
+export const helper1 = () => {
+  /* ... */
+};
+export const helper2 = () => {
+  /* ... */
+};
+export const buildIR = () => {
+  /* ... */
+};
 ```
 
 ## Testing
@@ -356,8 +361,8 @@ describe("parseModule", () => {
     assert.deepEqual(result, {
       ok: true,
       value: {
-        exports: [{ kind: "const", name: "x", value: 1 }]
-      }
+        exports: [{ kind: "const", name: "x", value: 1 }],
+      },
     });
   });
 });
@@ -419,7 +424,7 @@ export const resolveImport = (importPath: string): ResolvedImport | null => {
 
   return {
     path: resolvePath(importPath),
-    isLocal: true
+    isLocal: true,
   };
 };
 
@@ -429,7 +434,7 @@ export function resolveImport(importPath: string): ResolvedImport | null {
     if (importPath.endsWith(".ts")) {
       return {
         path: resolvePath(importPath),
-        isLocal: true
+        isLocal: true,
       };
     }
   }
@@ -483,7 +488,7 @@ Build data structures without immediate processing:
 // ✅ Good - Build IR, process later
 export const buildQuery = (operations: Operation[]): Query => ({
   operations,
-  evaluate: () => evaluateOperations(operations)
+  evaluate: () => evaluateOperations(operations),
 });
 
 // ❌ Bad - Immediate processing
@@ -501,14 +506,12 @@ Compute once, reuse results:
 export const processModules = (modules: readonly IrModule[]): ProcessResult => {
   const namespaceMap = buildNamespaceMap(modules);
 
-  return modules.map(module =>
-    processModule(module, namespaceMap)
-  );
+  return modules.map((module) => processModule(module, namespaceMap));
 };
 
 // ❌ Bad - Recompute each time
 export function processModules(modules: IrModule[]): ProcessResult {
-  return modules.map(module => {
+  return modules.map((module) => {
     const namespaceMap = buildNamespaceMap(modules); // Rebuilt each iteration
     return processModule(module, namespaceMap);
   });
