@@ -21,24 +21,33 @@ import {
   IrBinaryOperator,
   IrAssignmentOperator,
 } from "./types.js";
-import { convertParameters, convertBlockStatement } from "./statement-converter.js";
+import {
+  convertParameters,
+  convertBlockStatement,
+} from "./statement-converter.js";
 import { convertType } from "./type-converter.js";
 
 export const convertExpression = (node: ts.Expression): IrExpression => {
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
     return convertLiteral(node);
   }
-  if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
+  if (
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword
+  ) {
     return {
       kind: "literal",
       value: node.kind === ts.SyntaxKind.TrueKeyword,
-      raw: node.getText()
+      raw: node.getText(),
     };
   }
   if (node.kind === ts.SyntaxKind.NullKeyword) {
     return { kind: "literal", value: null, raw: "null" };
   }
-  if (node.kind === ts.SyntaxKind.UndefinedKeyword || ts.isVoidExpression(node)) {
+  if (
+    node.kind === ts.SyntaxKind.UndefinedKeyword ||
+    ts.isVoidExpression(node)
+  ) {
     return { kind: "literal", value: undefined, raw: "undefined" };
   }
   if (ts.isIdentifier(node)) {
@@ -50,7 +59,10 @@ export const convertExpression = (node: ts.Expression): IrExpression => {
   if (ts.isObjectLiteralExpression(node)) {
     return convertObjectLiteral(node);
   }
-  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+  if (
+    ts.isPropertyAccessExpression(node) ||
+    ts.isElementAccessExpression(node)
+  ) {
     return convertMemberExpression(node);
   }
   if (ts.isCallExpression(node)) {
@@ -72,21 +84,21 @@ export const convertExpression = (node: ts.Expression): IrExpression => {
     return {
       kind: "unary",
       operator: "typeof",
-      expression: convertExpression(node.expression)
+      expression: convertExpression(node.expression),
     };
   }
   if (ts.isVoidExpression(node)) {
     return {
       kind: "unary",
       operator: "void",
-      expression: convertExpression(node.expression)
+      expression: convertExpression(node.expression),
     };
   }
   if (ts.isDeleteExpression(node)) {
     return {
       kind: "unary",
       operator: "delete",
-      expression: convertExpression(node.expression)
+      expression: convertExpression(node.expression),
     };
   }
   if (ts.isConditionalExpression(node)) {
@@ -98,13 +110,16 @@ export const convertExpression = (node: ts.Expression): IrExpression => {
   if (ts.isArrowFunction(node)) {
     return convertArrowFunction(node);
   }
-  if (ts.isTemplateExpression(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+  if (
+    ts.isTemplateExpression(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node)
+  ) {
     return convertTemplateLiteral(node);
   }
   if (ts.isSpreadElement(node)) {
     return {
       kind: "spread",
-      expression: convertExpression(node.expression)
+      expression: convertExpression(node.expression),
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
@@ -113,7 +128,7 @@ export const convertExpression = (node: ts.Expression): IrExpression => {
   if (ts.isAwaitExpression(node)) {
     return {
       kind: "await",
-      expression: convertExpression(node.expression)
+      expression: convertExpression(node.expression),
     };
   }
   if (ts.isParenthesizedExpression(node)) {
@@ -121,67 +136,75 @@ export const convertExpression = (node: ts.Expression): IrExpression => {
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Type assertions are ignored in IR (runtime doesn't need them)
-    return convertExpression(ts.isAsExpression(node) ? node.expression : node.expression);
+    return convertExpression(
+      ts.isAsExpression(node) ? node.expression : node.expression
+    );
   }
 
   // Fallback - treat as identifier
   return { kind: "identifier", name: node.getText() };
 };
 
-const convertLiteral = (node: ts.StringLiteral | ts.NumericLiteral): IrLiteralExpression => {
+const convertLiteral = (
+  node: ts.StringLiteral | ts.NumericLiteral
+): IrLiteralExpression => {
   return {
     kind: "literal",
     value: ts.isStringLiteral(node) ? node.text : Number(node.text),
-    raw: node.getText()
+    raw: node.getText(),
   };
 };
 
-const convertArrayLiteral = (node: ts.ArrayLiteralExpression): IrArrayExpression => {
+const convertArrayLiteral = (
+  node: ts.ArrayLiteralExpression
+): IrArrayExpression => {
   return {
     kind: "array",
-    elements: node.elements.map(elem => {
+    elements: node.elements.map((elem) => {
       if (ts.isOmittedExpression(elem)) {
         return undefined; // Hole in sparse array
       }
       if (ts.isSpreadElement(elem)) {
         return {
           kind: "spread" as const,
-          expression: convertExpression(elem.expression)
+          expression: convertExpression(elem.expression),
         };
       }
       return convertExpression(elem);
-    })
+    }),
   };
 };
 
-const convertObjectLiteral = (node: ts.ObjectLiteralExpression): IrObjectExpression => {
+const convertObjectLiteral = (
+  node: ts.ObjectLiteralExpression
+): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
 
-  node.properties.forEach(prop => {
+  node.properties.forEach((prop) => {
     if (ts.isPropertyAssignment(prop)) {
       const key = ts.isComputedPropertyName(prop.name)
         ? convertExpression(prop.name.expression)
         : ts.isIdentifier(prop.name)
-        ? prop.name.text
-        : String(prop.name.text);
+          ? prop.name.text
+          : String(prop.name.text);
 
       properties.push({
         kind: "property",
         key,
         value: convertExpression(prop.initializer),
-        shorthand: false
+        shorthand: false,
       });
     } else if (ts.isShorthandPropertyAssignment(prop)) {
       properties.push({
         kind: "property",
         key: prop.name.text,
         value: { kind: "identifier", name: prop.name.text },
-        shorthand: true
+        shorthand: true,
       });
     } else if (ts.isSpreadAssignment(prop)) {
       properties.push({
         kind: "spread",
-        expression: convertExpression(prop.expression)
+        expression: convertExpression(prop.expression),
       });
     }
     // Skip getters/setters/methods for now (can add later if needed)
@@ -201,7 +224,7 @@ const convertMemberExpression = (
       object: convertExpression(node.expression),
       property: node.name.text,
       isComputed: false,
-      isOptional
+      isOptional,
     };
   } else {
     return {
@@ -209,7 +232,7 @@ const convertMemberExpression = (
       object: convertExpression(node.expression),
       property: convertExpression(node.argumentExpression),
       isComputed: true,
-      isOptional
+      isOptional,
     };
   }
 };
@@ -218,16 +241,16 @@ const convertCallExpression = (node: ts.CallExpression): IrCallExpression => {
   return {
     kind: "call",
     callee: convertExpression(node.expression),
-    arguments: node.arguments.map(arg => {
+    arguments: node.arguments.map((arg) => {
       if (ts.isSpreadElement(arg)) {
         return {
           kind: "spread" as const,
-          expression: convertExpression(arg.expression)
+          expression: convertExpression(arg.expression),
         };
       }
       return convertExpression(arg);
     }),
-    isOptional: node.questionDotToken !== undefined
+    isOptional: node.questionDotToken !== undefined,
   };
 };
 
@@ -235,15 +258,16 @@ const convertNewExpression = (node: ts.NewExpression): IrNewExpression => {
   return {
     kind: "new",
     callee: convertExpression(node.expression),
-    arguments: node.arguments?.map(arg => {
-      if (ts.isSpreadElement(arg)) {
-        return {
-          kind: "spread" as const,
-          expression: convertExpression(arg.expression)
-        };
-      }
-      return convertExpression(arg);
-    }) ?? []
+    arguments:
+      node.arguments?.map((arg) => {
+        if (ts.isSpreadElement(arg)) {
+          return {
+            kind: "spread" as const,
+            expression: convertExpression(arg.expression),
+          };
+        }
+        return convertExpression(arg);
+      }) ?? [],
   };
 };
 
@@ -258,7 +282,7 @@ const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
       left: ts.isIdentifier(node.left)
         ? { kind: "identifier", name: node.left.text }
         : convertExpression(node.left),
-      right: convertExpression(node.right)
+      right: convertExpression(node.right),
     };
   }
 
@@ -268,7 +292,7 @@ const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
       kind: "logical",
       operator,
       left: convertExpression(node.left),
-      right: convertExpression(node.right)
+      right: convertExpression(node.right),
     };
   }
 
@@ -277,18 +301,23 @@ const convertBinaryExpression = (node: ts.BinaryExpression): IrExpression => {
     kind: "binary",
     operator: operator as IrBinaryOperator,
     left: convertExpression(node.left),
-    right: convertExpression(node.right)
+    right: convertExpression(node.right),
   };
 };
 
-const convertUnaryExpression = (node: ts.PrefixUnaryExpression): IrUnaryExpression | IrUpdateExpression => {
+const convertUnaryExpression = (
+  node: ts.PrefixUnaryExpression
+): IrUnaryExpression | IrUpdateExpression => {
   // Check if it's an increment/decrement (++ or --)
-  if (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) {
+  if (
+    node.operator === ts.SyntaxKind.PlusPlusToken ||
+    node.operator === ts.SyntaxKind.MinusMinusToken
+  ) {
     return {
       kind: "update",
       operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
       prefix: true,
-      expression: convertExpression(node.operand)
+      expression: convertExpression(node.operand),
     };
   }
 
@@ -313,19 +342,24 @@ const convertUnaryExpression = (node: ts.PrefixUnaryExpression): IrUnaryExpressi
   return {
     kind: "unary",
     operator,
-    expression: convertExpression(node.operand)
+    expression: convertExpression(node.operand),
   };
 };
 
-const convertUpdateExpression = (node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression): IrUpdateExpression => {
+const convertUpdateExpression = (
+  node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression
+): IrUpdateExpression => {
   if (ts.isPrefixUnaryExpression(node)) {
     // Check if it's an increment or decrement
-    if (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) {
+    if (
+      node.operator === ts.SyntaxKind.PlusPlusToken ||
+      node.operator === ts.SyntaxKind.MinusMinusToken
+    ) {
       return {
         kind: "update",
         operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
         prefix: true,
-        expression: convertExpression(node.operand)
+        expression: convertExpression(node.operand),
       };
     }
   }
@@ -336,36 +370,46 @@ const convertUpdateExpression = (node: ts.PostfixUnaryExpression | ts.PrefixUnar
     kind: "update",
     operator: postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
     prefix: false,
-    expression: convertExpression(postfix.operand)
+    expression: convertExpression(postfix.operand),
   };
 };
 
-const convertConditionalExpression = (node: ts.ConditionalExpression): IrConditionalExpression => {
+const convertConditionalExpression = (
+  node: ts.ConditionalExpression
+): IrConditionalExpression => {
   return {
     kind: "conditional",
     condition: convertExpression(node.condition),
     whenTrue: convertExpression(node.whenTrue),
-    whenFalse: convertExpression(node.whenFalse)
+    whenFalse: convertExpression(node.whenFalse),
   };
 };
 
-const convertFunctionExpression = (node: ts.FunctionExpression): IrFunctionExpression => {
+const convertFunctionExpression = (
+  node: ts.FunctionExpression
+): IrFunctionExpression => {
   // Note: For now we pass undefined for checker. This should be passed from the builder in a future refactor.
-  const checker = undefined as any;
+  const checker = undefined as unknown as ts.TypeChecker;
   return {
     kind: "functionExpression",
     name: node.name?.text,
     parameters: convertParameters(node.parameters, checker),
     returnType: node.type ? convertType(node.type, checker) : undefined,
-    body: node.body ? convertBlockStatement(node.body, checker) : { kind: "blockStatement", statements: [] },
-    isAsync: !!node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword),
-    isGenerator: !!node.asteriskToken
+    body: node.body
+      ? convertBlockStatement(node.body, checker)
+      : { kind: "blockStatement", statements: [] },
+    isAsync: !!node.modifiers?.some(
+      (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+    ),
+    isGenerator: !!node.asteriskToken,
   };
 };
 
-const convertArrowFunction = (node: ts.ArrowFunction): IrArrowFunctionExpression => {
+const convertArrowFunction = (
+  node: ts.ArrowFunction
+): IrArrowFunctionExpression => {
   // Note: For now we pass undefined for checker. This should be passed from the builder in a future refactor.
-  const checker = undefined as any;
+  const checker = undefined as unknown as ts.TypeChecker;
   const body = ts.isBlock(node.body)
     ? convertBlockStatement(node.body, checker)
     : convertExpression(node.body);
@@ -375,7 +419,9 @@ const convertArrowFunction = (node: ts.ArrowFunction): IrArrowFunctionExpression
     parameters: convertParameters(node.parameters, checker),
     returnType: node.type ? convertType(node.type, checker) : undefined,
     body,
-    isAsync: !!node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)
+    isAsync: !!node.modifiers?.some(
+      (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+    ),
   };
 };
 
@@ -386,14 +432,14 @@ const convertTemplateLiteral = (
     return {
       kind: "templateLiteral",
       quasis: [node.text],
-      expressions: []
+      expressions: [],
     };
   }
 
   const quasis: string[] = [node.head.text];
   const expressions: IrExpression[] = [];
 
-  node.templateSpans.forEach(span => {
+  node.templateSpans.forEach((span) => {
     expressions.push(convertExpression(span.expression));
     quasis.push(span.literal.text);
   });
@@ -450,6 +496,8 @@ const convertBinaryOperator = (token: ts.BinaryOperatorToken): string => {
 };
 
 const isAssignmentOperator = (token: ts.BinaryOperatorToken): boolean => {
-  return token.kind >= ts.SyntaxKind.FirstAssignment &&
-         token.kind <= ts.SyntaxKind.LastAssignment;
+  return (
+    token.kind >= ts.SyntaxKind.FirstAssignment &&
+    token.kind <= ts.SyntaxKind.LastAssignment
+  );
 };

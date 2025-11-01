@@ -6,6 +6,11 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
+import {
+  IrFunctionDeclaration,
+  IrVariableDeclaration,
+  IrClassDeclaration,
+} from "./types.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -17,27 +22,31 @@ describe("IR Builder", () => {
       ts.ScriptKind.TS
     );
 
-    const program = ts.createProgram([fileName], {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ES2022,
-    }, {
-      getSourceFile: (name) => name === fileName ? sourceFile : undefined,
-      writeFile: () => {},
-      getCurrentDirectory: () => "/test",
-      getDirectories: () => [],
-      fileExists: () => true,
-      readFile: () => source,
-      getCanonicalFileName: (f) => f,
-      useCaseSensitiveFileNames: () => true,
-      getNewLine: () => "\n",
-      getDefaultLibFileName: (_options) => "lib.d.ts"
-    });
+    const program = ts.createProgram(
+      [fileName],
+      {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ES2022,
+      },
+      {
+        getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
+        writeFile: () => {},
+        getCurrentDirectory: () => "/test",
+        getDirectories: () => [],
+        fileExists: () => true,
+        readFile: () => source,
+        getCanonicalFileName: (f) => f,
+        useCaseSensitiveFileNames: () => true,
+        getNewLine: () => "\n",
+        getDefaultLibFileName: (_options) => "lib.d.ts",
+      }
+    );
 
     return {
       program,
       checker: program.getTypeChecker(),
       options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
-      sourceFiles: [sourceFile]
+      sourceFiles: [sourceFile],
     };
   };
 
@@ -53,22 +62,21 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
       if (!result.ok) {
         console.error("Error in test:", result.error);
       }
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const module = result.value;
         expect(module.kind).to.equal("module");
         expect(module.namespace).to.equal("TestApp");
         expect(module.className).to.equal("test");
-        expect(module.isStaticContainer).to.be.true;
+        expect(module.isStaticContainer).to.equal(true);
       }
     });
 
@@ -82,15 +90,14 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
-        expect(result.value.isStaticContainer).to.be.false;
+        expect(result.value.isStaticContainer).to.equal(false);
       }
     });
   });
@@ -106,13 +113,12 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const imports = result.value.imports;
         expect(imports).to.have.length(2);
@@ -122,8 +128,8 @@ describe("IR Builder", () => {
         if (!firstImport || !secondImport) throw new Error("Missing imports");
 
         expect(firstImport.source).to.equal("./models/User.ts");
-        expect(firstImport.isLocal).to.be.true;
-        expect(firstImport.isDotNet).to.be.false;
+        expect(firstImport.isLocal).to.equal(true);
+        expect(firstImport.isDotNet).to.equal(false);
 
         expect(secondImport.source).to.equal("./utils.ts");
         const firstSpec = secondImport.specifiers[0];
@@ -141,18 +147,17 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const imports = result.value.imports;
         const firstImport = imports[0];
         if (!firstImport) throw new Error("Missing import");
-        expect(firstImport.isDotNet).to.be.true;
+        expect(firstImport.isDotNet).to.equal(true);
         expect(firstImport.resolvedNamespace).to.equal("System.IO");
       }
     });
@@ -170,13 +175,12 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const body = result.value.body;
         expect(body).to.have.length(1);
@@ -185,10 +189,10 @@ describe("IR Builder", () => {
         if (!firstItem) throw new Error("Missing body item");
         expect(firstItem.kind).to.equal("functionDeclaration");
 
-        const func = firstItem as any;
+        const func = firstItem as IrFunctionDeclaration;
         expect(func.name).to.equal("add");
         expect(func.parameters).to.have.length(2);
-        expect(func.isExported).to.be.true;
+        expect(func.isExported).to.equal(true);
       }
     });
 
@@ -203,26 +207,25 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const body = result.value.body;
         expect(body).to.have.length(3);
 
-        const firstVar = body[0] as any;
+        const firstVar = body[0] as IrVariableDeclaration;
         expect(firstVar.kind).to.equal("variableDeclaration");
         expect(firstVar.declarationKind).to.equal("const");
 
-        const secondVar = body[1] as any;
+        const secondVar = body[1] as IrVariableDeclaration;
         expect(secondVar.declarationKind).to.equal("let");
 
-        const thirdVar = body[2] as any;
-        expect(thirdVar.isExported).to.be.true;
+        const thirdVar = body[2] as IrVariableDeclaration;
+        expect(thirdVar.isExported).to.equal(true);
       }
     });
 
@@ -243,21 +246,20 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const body = result.value.body;
         expect(body).to.have.length(1);
 
-        const cls = body[0] as any;
+        const cls = body[0] as IrClassDeclaration;
         expect(cls.kind).to.equal("classDeclaration");
         expect(cls.name).to.equal("User");
-        expect(cls.isExported).to.be.true;
+        expect(cls.isExported).to.equal(true);
         expect(cls.members).to.have.length.greaterThan(0);
       }
     });
@@ -273,19 +275,20 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
-        const varDecl = result.value.body[0] as any;
-        const init = varDecl.declarations[0].initializer;
-        expect(init.kind).to.equal("templateLiteral");
-        expect(init.quasis).to.have.length(2);
-        expect(init.expressions).to.have.length(1);
+        const varDecl = result.value.body[0] as IrVariableDeclaration;
+        const init = varDecl.declarations[0]?.initializer;
+        if (init && init.kind === "templateLiteral") {
+          expect(init.kind).to.equal("templateLiteral");
+          expect(init.quasis).to.have.length(2);
+          expect(init.expressions).to.have.length(1);
+        }
       }
     });
 
@@ -298,18 +301,19 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
-        const varDecl = result.value.body[0] as any;
-        const init = varDecl.declarations[0].initializer;
-        expect(init.kind).to.equal("arrowFunction");
-        expect(init.parameters).to.have.length(1);
+        const varDecl = result.value.body[0] as IrVariableDeclaration;
+        const init = varDecl.declarations[0]?.initializer;
+        if (init && init.kind === "arrowFunction") {
+          expect(init.kind).to.equal("arrowFunction");
+          expect(init.parameters).to.have.length(1);
+        }
       }
     });
   });
@@ -326,13 +330,12 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const exports = result.value.exports;
         expect(exports).to.have.length(2);
@@ -340,13 +343,16 @@ describe("IR Builder", () => {
         const firstExport = exports[0];
         if (!firstExport) throw new Error("Missing export");
         expect(firstExport.kind).to.equal("named");
-        const first = firstExport as any;
-        expect(first.name).to.equal("a");
-        expect(first.localName).to.equal("a");
+        if (firstExport.kind === "named") {
+          expect(firstExport.name).to.equal("a");
+          expect(firstExport.localName).to.equal("a");
+        }
 
-        const second = exports[1] as any;
-        expect(second.name).to.equal("c");
-        expect(second.localName).to.equal("b");
+        const second = exports[1];
+        if (second && second.kind === "named") {
+          expect(second.name).to.equal("c");
+          expect(second.localName).to.equal("b");
+        }
       }
     });
 
@@ -361,16 +367,15 @@ describe("IR Builder", () => {
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(
-        sourceFile,
-        testProgram,
-        { sourceRoot: "/test", rootNamespace: "TestApp" }
-      );
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         const exports = result.value.exports;
-        expect(exports.some(e => e.kind === "default")).to.be.true;
+        expect(exports.some((e) => e.kind === "default")).to.equal(true);
       }
     });
   });

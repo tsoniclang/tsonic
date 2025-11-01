@@ -30,10 +30,18 @@ export type IrImport = {
 export type IrImportSpecifier =
   | { readonly kind: "default"; readonly localName: string }
   | { readonly kind: "namespace"; readonly localName: string }
-  | { readonly kind: "named"; readonly name: string; readonly localName: string };
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly localName: string;
+    };
 
 export type IrExport =
-  | { readonly kind: "named"; readonly name: string; readonly localName: string }
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly localName: string;
+    }
   | { readonly kind: "default"; readonly expression: IrExpression }
   | { readonly kind: "declaration"; readonly declaration: IrStatement };
 
@@ -138,9 +146,7 @@ export type IrInterfaceDeclaration = {
   readonly isExported: boolean;
 };
 
-export type IrInterfaceMember =
-  | IrPropertySignature
-  | IrMethodSignature;
+export type IrInterfaceMember = IrPropertySignature | IrMethodSignature;
 
 export type IrPropertySignature = {
   readonly kind: "propertySignature";
@@ -311,7 +317,12 @@ export type IrObjectExpression = {
 };
 
 export type IrObjectProperty =
-  | { readonly kind: "property"; readonly key: string | IrExpression; readonly value: IrExpression; readonly shorthand: boolean }
+  | {
+      readonly kind: "property";
+      readonly key: string | IrExpression;
+      readonly value: IrExpression;
+      readonly shorthand: boolean;
+    }
   | { readonly kind: "spread"; readonly expression: IrExpression };
 
 export type IrFunctionExpression = {
@@ -418,10 +429,7 @@ export type IrAwaitExpression = {
 // Patterns (for destructuring)
 // ============================================================================
 
-export type IrPattern =
-  | IrIdentifierPattern
-  | IrArrayPattern
-  | IrObjectPattern;
+export type IrPattern = IrIdentifierPattern | IrArrayPattern | IrObjectPattern;
 
 export type IrIdentifierPattern = {
   readonly kind: "identifierPattern";
@@ -440,7 +448,12 @@ export type IrObjectPattern = {
 };
 
 export type IrObjectPatternProperty =
-  | { readonly kind: "property"; readonly key: string; readonly value: IrPattern; readonly shorthand: boolean }
+  | {
+      readonly kind: "property";
+      readonly key: string;
+      readonly value: IrPattern;
+      readonly shorthand: boolean;
+    }
   | { readonly kind: "rest"; readonly pattern: IrPattern };
 
 // ============================================================================
@@ -535,35 +548,80 @@ export type IrParameter = {
 export type IrAccessibility = "public" | "private" | "protected";
 
 export type IrBinaryOperator =
-  | "+" | "-" | "*" | "/" | "%" | "**"
-  | "==" | "!=" | "===" | "!=="
-  | "<" | ">" | "<=" | ">="
-  | "<<" | ">>" | ">>>"
-  | "&" | "|" | "^"
-  | "in" | "instanceof";
+  | "+"
+  | "-"
+  | "*"
+  | "/"
+  | "%"
+  | "**"
+  | "=="
+  | "!="
+  | "==="
+  | "!=="
+  | "<"
+  | ">"
+  | "<="
+  | ">="
+  | "<<"
+  | ">>"
+  | ">>>"
+  | "&"
+  | "|"
+  | "^"
+  | "in"
+  | "instanceof";
 
 export type IrAssignmentOperator =
-  | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**="
-  | "<<=" | ">>=" | ">>>="
-  | "&=" | "|=" | "^="
-  | "&&=" | "||=" | "??=";
+  | "="
+  | "+="
+  | "-="
+  | "*="
+  | "/="
+  | "%="
+  | "**="
+  | "<<="
+  | ">>="
+  | ">>>="
+  | "&="
+  | "|="
+  | "^="
+  | "&&="
+  | "||="
+  | "??=";
 
 // ============================================================================
 // Helper Type Guards
 // ============================================================================
 
-export const isStatement = (node: IrStatement | IrExpression): node is IrStatement => {
-  const statementKinds = [
-    "variableDeclaration", "functionDeclaration", "classDeclaration",
-    "interfaceDeclaration", "enumDeclaration", "typeAliasDeclaration",
-    "expressionStatement", "returnStatement", "ifStatement",
-    "whileStatement", "forStatement", "forOfStatement",
-    "switchStatement", "throwStatement", "tryStatement", "blockStatement",
-    "breakStatement", "continueStatement", "emptyStatement"
+export const isStatement = (
+  node: IrStatement | IrExpression
+): node is IrStatement => {
+  const statementKinds: string[] = [
+    "variableDeclaration",
+    "functionDeclaration",
+    "classDeclaration",
+    "interfaceDeclaration",
+    "enumDeclaration",
+    "typeAliasDeclaration",
+    "expressionStatement",
+    "returnStatement",
+    "ifStatement",
+    "whileStatement",
+    "forStatement",
+    "forOfStatement",
+    "switchStatement",
+    "throwStatement",
+    "tryStatement",
+    "blockStatement",
+    "breakStatement",
+    "continueStatement",
+    "emptyStatement",
   ];
-  return statementKinds.includes((node as any).kind);
+  return statementKinds.includes(node.kind);
 };
 
-export const isExpression = (node: IrStatement | IrExpression): node is IrExpression => {
+export const isExpression = (
+  node: IrStatement | IrExpression
+): node is IrExpression => {
   return !isStatement(node);
 };

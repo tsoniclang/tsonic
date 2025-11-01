@@ -40,10 +40,10 @@ describe("Module Resolver", () => {
         sourceRoot
       );
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
-        expect(result.value.isLocal).to.be.true;
-        expect(result.value.isDotNet).to.be.false;
+        expect(result.value.isLocal).to.equal(true);
+        expect(result.value.isDotNet).to.equal(false);
         expect(result.value.resolvedPath).to.equal(
           path.join(tempDir, "src", "models", "User.ts")
         );
@@ -57,7 +57,7 @@ describe("Module Resolver", () => {
         sourceRoot
       );
 
-      expect(result.ok).to.be.false;
+      expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1001");
         expect(result.error.message).to.include("must have .ts extension");
@@ -71,10 +71,10 @@ describe("Module Resolver", () => {
         sourceRoot
       );
 
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
-        expect(result.value.isLocal).to.be.false;
-        expect(result.value.isDotNet).to.be.true;
+        expect(result.value.isLocal).to.equal(false);
+        expect(result.value.isDotNet).to.equal(true);
         expect(result.value.originalSpecifier).to.equal("System.IO");
       }
     });
@@ -86,7 +86,7 @@ describe("Module Resolver", () => {
         sourceRoot
       );
 
-      expect(result.ok).to.be.false;
+      expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1004");
         expect(result.error.message).to.include(
@@ -102,7 +102,7 @@ describe("Module Resolver", () => {
         sourceRoot
       );
 
-      expect(result.ok).to.be.false;
+      expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1004");
         expect(result.error.message).to.include("Cannot find module");

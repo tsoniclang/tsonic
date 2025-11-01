@@ -42,8 +42,8 @@ describe("Diagnostics", () => {
 
       expect(diagnostic.code).to.equal("TSN1002");
       expect(diagnostic.severity).to.equal("warning");
-      expect(diagnostic.location).to.be.undefined;
-      expect(diagnostic.hint).to.be.undefined;
+      expect(diagnostic.location).to.equal(undefined);
+      expect(diagnostic.hint).to.equal(undefined);
     });
   });
 
@@ -96,7 +96,7 @@ describe("Diagnostics", () => {
     it("should start with empty diagnostics", () => {
       const collector = createDiagnosticsCollector();
       expect(collector.diagnostics).to.have.length(0);
-      expect(collector.hasErrors).to.be.false;
+      expect(collector.hasErrors).to.equal(false);
     });
 
     it("should add diagnostics immutably", () => {
@@ -107,7 +107,7 @@ describe("Diagnostics", () => {
 
       expect(collector1.diagnostics).to.have.length(0);
       expect(collector2.diagnostics).to.have.length(1);
-      expect(collector2.hasErrors).to.be.true;
+      expect(collector2.hasErrors).to.equal(true);
     });
 
     it("should track hasErrors correctly", () => {
@@ -117,19 +117,19 @@ describe("Diagnostics", () => {
         collector,
         createDiagnostic("TSN1001", "warning", "Warning")
       );
-      expect(collector.hasErrors).to.be.false;
+      expect(collector.hasErrors).to.equal(false);
 
       collector = addDiagnostic(
         collector,
         createDiagnostic("TSN1002", "error", "Error")
       );
-      expect(collector.hasErrors).to.be.true;
+      expect(collector.hasErrors).to.equal(true);
 
       collector = addDiagnostic(
         collector,
         createDiagnostic("TSN1003", "info", "Info")
       );
-      expect(collector.hasErrors).to.be.true; // Still has errors
+      expect(collector.hasErrors).to.equal(true); // Still has errors
     });
 
     it("should merge collectors", () => {
@@ -146,7 +146,7 @@ describe("Diagnostics", () => {
       const merged = mergeDiagnostics(collector1, collector2);
 
       expect(merged.diagnostics).to.have.length(2);
-      expect(merged.hasErrors).to.be.true;
+      expect(merged.hasErrors).to.equal(true);
     });
   });
 
@@ -156,9 +156,9 @@ describe("Diagnostics", () => {
       const warning = createDiagnostic("TSN1002", "warning", "Test");
       const info = createDiagnostic("TSN1003", "info", "Test");
 
-      expect(isError(error)).to.be.true;
-      expect(isError(warning)).to.be.false;
-      expect(isError(info)).to.be.false;
+      expect(isError(error)).to.equal(true);
+      expect(isError(warning)).to.equal(false);
+      expect(isError(info)).to.equal(false);
     });
   });
 });

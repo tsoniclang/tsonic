@@ -2,8 +2,8 @@
  * Tsonic Emitter - C# code generator
  */
 
-// Placeholder to make the package compile
-export const emitCSharp = (ir: unknown): string => {
-  console.log("C# emitter not yet implemented", ir);
-  return "// C# code will be generated here";
-};
+export * from "./types.js";
+export * from "./type-emitter.js";
+export * from "./expression-emitter.js";
+export * from "./statement-emitter.js";
+export { emitModule, emitCSharpFile, emitCSharpFiles } from "./emitter.js";

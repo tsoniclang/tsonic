@@ -20,7 +20,7 @@ describe("Result", () => {
   describe("ok and error constructors", () => {
     it("should create ok result", () => {
       const result = ok<number, string>(42);
-      expect(result.ok).to.be.true;
+      expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value).to.equal(42);
       }
@@ -28,7 +28,7 @@ describe("Result", () => {
 
     it("should create error result", () => {
       const result = error<number, string>("Something went wrong");
-      expect(result.ok).to.be.false;
+      expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error).to.equal("Something went wrong");
       }
@@ -40,7 +40,7 @@ describe("Result", () => {
       const result = ok<number, string>(5);
       const mapped = map(result, (x) => x * 2);
 
-      expect(mapped.ok).to.be.true;
+      expect(mapped.ok).to.equal(true);
       if (mapped.ok) {
         expect(mapped.value).to.equal(10);
       }
@@ -50,7 +50,7 @@ describe("Result", () => {
       const result = error<number, string>("Error");
       const mapped = map(result, (x) => x * 2);
 
-      expect(mapped.ok).to.be.false;
+      expect(mapped.ok).to.equal(false);
       if (!mapped.ok) {
         expect(mapped.error).to.equal("Error");
       }
@@ -62,7 +62,7 @@ describe("Result", () => {
       const result = ok<number, string>(5);
       const mapped = flatMap(result, (x) => ok(x.toString()));
 
-      expect(mapped.ok).to.be.true;
+      expect(mapped.ok).to.equal(true);
       if (mapped.ok) {
         expect(mapped.value).to.equal("5");
       }
@@ -74,7 +74,7 @@ describe("Result", () => {
         x > 10 ? ok(x) : error("Too small")
       );
 
-      expect(mapped.ok).to.be.false;
+      expect(mapped.ok).to.equal(false);
       if (!mapped.ok) {
         expect(mapped.error).to.equal("Too small");
       }
@@ -84,7 +84,7 @@ describe("Result", () => {
       const result = error<number, string>("Original error");
       const mapped = flatMap(result, (x) => ok(x * 2));
 
-      expect(mapped.ok).to.be.false;
+      expect(mapped.ok).to.equal(false);
       if (!mapped.ok) {
         expect(mapped.error).to.equal("Original error");
       }
@@ -96,7 +96,7 @@ describe("Result", () => {
       const result = error<number, string>("Error");
       const mapped = mapError(result, (e) => e.toUpperCase());
 
-      expect(mapped.ok).to.be.false;
+      expect(mapped.ok).to.equal(false);
       if (!mapped.ok) {
         expect(mapped.error).to.equal("ERROR");
       }
@@ -106,7 +106,7 @@ describe("Result", () => {
       const result = ok<number, string>(42);
       const mapped = mapError(result, (e) => e.toUpperCase());
 
-      expect(mapped.ok).to.be.true;
+      expect(mapped.ok).to.equal(true);
       if (mapped.ok) {
         expect(mapped.value).to.equal(42);
       }
@@ -142,16 +142,16 @@ describe("Result", () => {
       const okResult = ok<number, string>(42);
       const errorResult = error<number, string>("Error");
 
-      expect(isOk(okResult)).to.be.true;
-      expect(isOk(errorResult)).to.be.false;
+      expect(isOk(okResult)).to.equal(true);
+      expect(isOk(errorResult)).to.equal(false);
     });
 
     it("should identify error results", () => {
       const okResult = ok<number, string>(42);
       const errorResult = error<number, string>("Error");
 
-      expect(isError(okResult)).to.be.false;
-      expect(isError(errorResult)).to.be.true;
+      expect(isError(okResult)).to.equal(false);
+      expect(isError(errorResult)).to.equal(true);
     });
   });
 });
