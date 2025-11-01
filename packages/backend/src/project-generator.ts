@@ -30,11 +30,17 @@ ${refs}
  */
 export const generateCsproj = (config: BuildConfig): string => {
   const packageRefs = formatPackageReferences(config.packages);
+  const runtimeRef = config.runtimePath
+    ? `
+  <ItemGroup>
+    <ProjectReference Include="${config.runtimePath}" />
+  </ItemGroup>`
+    : "";
 
   return `<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>${config.dotnetVersion}</TargetFramework>
     <RootNamespace>${config.rootNamespace}</RootNamespace>
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
@@ -50,7 +56,7 @@ export const generateCsproj = (config: BuildConfig): string => {
     <!-- Optimization -->
     <OptimizationPreference>${config.optimizationPreference}</OptimizationPreference>
     <IlcOptimizationPreference>${config.optimizationPreference}</IlcOptimizationPreference>
-  </PropertyGroup>${packageRefs}
+  </PropertyGroup>${packageRefs}${runtimeRef}
 </Project>
 `;
 };

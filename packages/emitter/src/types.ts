@@ -16,6 +16,10 @@ export type EmitterOptions = {
   readonly maxLineLength?: number;
   /** Include timestamp in generated files */
   readonly includeTimestamp?: boolean;
+  /** Whether this module is an entry point (needs Main method) */
+  readonly isEntryPoint?: boolean;
+  /** Entry point file path (for batch emit) */
+  readonly entryPointPath?: string;
 };
 
 /**

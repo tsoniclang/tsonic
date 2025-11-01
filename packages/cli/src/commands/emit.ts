@@ -3,7 +3,7 @@
  */
 
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { join, dirname, relative } from "node:path";
+import { join, dirname, relative, resolve } from "node:path";
 import { compile, buildIr, type Diagnostic } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/emitter";
 import { generateCsproj } from "@tsonic/backend";
@@ -49,7 +49,11 @@ export const emitCommand = (
     }
 
     // Emit C# code
-    const csFiles = emitCSharpFiles(irResult.value, { rootNamespace });
+    const absoluteEntryPoint = resolve(entryPoint);
+    const csFiles = emitCSharpFiles(irResult.value, {
+      rootNamespace,
+      entryPointPath: absoluteEntryPoint,
+    });
 
     // Create output directory
     const outputDir = join(process.cwd(), outputDirectory);
@@ -74,9 +78,20 @@ export const emitCommand = (
     // Generate or preserve tsonic.csproj
     const csprojPath = join(outputDir, "tsonic.csproj");
     if (!existsSync(csprojPath)) {
+      // Find Tsonic.Runtime.csproj path
+      // Look in the monorepo structure: packages/runtime/Tsonic.Runtime.csproj
+      const runtimeCsprojPath = resolve(
+        join(import.meta.dirname, "../../../runtime/Tsonic.Runtime.csproj")
+      );
+      const runtimePath = existsSync(runtimeCsprojPath)
+        ? runtimeCsprojPath
+        : undefined;
+
       const csproj = generateCsproj({
         rootNamespace,
         outputName: config.outputName,
+        dotnetVersion: config.dotnetVersion,
+        runtimePath,
         packages,
         invariantGlobalization: config.invariantGlobalization,
         stripSymbols: config.stripSymbols,

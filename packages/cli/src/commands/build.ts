@@ -85,7 +85,7 @@ export const buildCommand = (
     generatedDir,
     "bin",
     "Release",
-    "net9.0",
+    config.dotnetVersion,
     rid,
     "publish"
   );

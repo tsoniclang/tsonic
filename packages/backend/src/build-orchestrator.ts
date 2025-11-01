@@ -121,6 +121,7 @@ export const buildNativeAot = (
     const buildConfig: BuildConfig = {
       rootNamespace: options.namespace,
       outputName: options.outputName || "tsonic",
+      dotnetVersion: options.dotnetVersion || "net10.0",
       packages: [], // TODO: Auto-detect from imports
       invariantGlobalization: true,
       stripSymbols: options.stripSymbols ?? true,

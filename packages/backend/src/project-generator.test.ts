@@ -13,6 +13,7 @@ describe("Project Generator", () => {
       const config: BuildConfig = {
         rootNamespace: "TestApp",
         outputName: "test",
+        dotnetVersion: "net10.0",
         packages: [],
         invariantGlobalization: true,
         stripSymbols: true,
@@ -22,7 +23,7 @@ describe("Project Generator", () => {
       const result = generateCsproj(config);
 
       expect(result).to.include('<Project Sdk="Microsoft.NET.Sdk">');
-      expect(result).to.include("<TargetFramework>net8.0</TargetFramework>");
+      expect(result).to.include("<TargetFramework>net10.0</TargetFramework>");
       expect(result).to.include("<RootNamespace>TestApp</RootNamespace>");
       expect(result).to.include("<AssemblyName>test</AssemblyName>");
       expect(result).to.include("<PublishAot>true</PublishAot>");
@@ -35,6 +36,7 @@ describe("Project Generator", () => {
       const config: BuildConfig = {
         rootNamespace: "TestApp",
         outputName: "test",
+        dotnetVersion: "net10.0",
         packages: [
           { name: "System.Text.Json", version: "8.0.0" },
           { name: "Newtonsoft.Json", version: "13.0.3" },
@@ -61,6 +63,7 @@ describe("Project Generator", () => {
       const config: BuildConfig = {
         rootNamespace: "TestApp",
         outputName: "test",
+        dotnetVersion: "net10.0",
         packages: [],
         invariantGlobalization: false,
         stripSymbols: false,
