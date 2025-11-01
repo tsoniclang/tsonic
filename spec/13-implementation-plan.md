@@ -283,19 +283,33 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 **Tasks:**
 
-1. Create per-namespace .NET declaration files (System.d.ts, System.IO.d.ts, etc.)
-2. Implement .NET namespace detection
-3. Generate proper using statements
-4. Handle Task to Promise mapping
-5. Support common BCL types
-6. Auto-include declaration files in TypeScript program
+1. Generate .NET declaration files using the `generatedts` tool
+2. Populate `packages/runtime/lib/` with per-namespace `.d.ts` files
+3. Implement .NET namespace detection
+4. Generate proper using statements
+5. Handle Task to Promise mapping
+6. Support common BCL types
+7. Auto-include declaration files in TypeScript program
 
 **Key Files:**
 
-- `runtime/lib/System.d.ts` - Core .NET type declarations
-- `runtime/lib/System.IO.d.ts` - File I/O type declarations
-- `runtime/lib/System.Collections.Generic.d.ts` - Collection type declarations
-- Additional namespace files as needed
+- `runtime/lib/System.d.ts` - Core .NET type declarations (generated)
+- `runtime/lib/System.IO.d.ts` - File I/O type declarations (generated)
+- `runtime/lib/System.Collections.Generic.d.ts` - Collection type declarations (generated)
+- Additional namespace files as needed (generated)
+
+**Generation Tool:**
+
+The `.d.ts` files are generated using the `generatedts` tool (located in `../generatedts`):
+
+```bash
+cd ../generatedts
+dotnet run --project Src -- System.dll --out-dir ../tsonic/packages/runtime/lib/
+dotnet run --project Src -- System.IO.dll --out-dir ../tsonic/packages/runtime/lib/
+# etc. for each .NET assembly
+```
+
+See `../generatedts/README.md` for detailed usage.
 
 **Tests:**
 
@@ -309,6 +323,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 - Can import and use .NET libraries
 - System.IO working
 - System.Text.Json working
+- Generated `.d.ts` files in `packages/runtime/lib/`
 
 ### Phase 9: Testing & Examples
 

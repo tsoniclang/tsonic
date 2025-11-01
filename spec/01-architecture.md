@@ -102,9 +102,11 @@ NativeAOT Executable
 
 - `Tsonic.Runtime.csproj`: C# class library project file
 - `TsonicRuntime.cs`: Core runtime implementation (Array, String, console, Math, etc.)
-- `lib/System.d.ts`, `lib/System.IO.d.ts`, etc.: TypeScript declarations for .NET types (per-namespace)
+- `lib/System.d.ts`, `lib/System.IO.d.ts`, etc.: TypeScript declarations for .NET types (generated via `generatedts` tool)
 
 **Distribution**: Published as NuGet package `Tsonic.Runtime`, consumed via PackageReference in generated projects
+
+**Note**: The `.d.ts` files in `lib/` are generated using the `generatedts` tool (separate C# project in `../generatedts`) which uses reflection to analyze .NET assemblies and produce TypeScript declarations.
 
 ## Intermediate Representation (IR)
 
