@@ -11,6 +11,7 @@ namespace = rootNamespace + "." + relative_directory_path
 ```
 
 Where:
+
 - `rootNamespace`: From package.json `tsonic.rootNamespace` (default: `Tsonic.Compiled`)
 - `relative_directory_path`: Directory path from source root, with `/` → `.`
 
@@ -18,12 +19,12 @@ Where:
 
 Given `rootNamespace: "My.App"` and source root `src/`:
 
-| File Path | Namespace | Class Name |
-|-----------|-----------|------------|
-| `src/main.ts` | `My.App` | `main` |
-| `src/models/User.ts` | `My.App.models` | `User` |
-| `src/api/v1/endpoints.ts` | `My.App.api.v1` | `endpoints` |
-| `src/utils/string/helper.ts` | `My.App.utils.string` | `helper` |
+| File Path                    | Namespace             | Class Name  |
+| ---------------------------- | --------------------- | ----------- |
+| `src/main.ts`                | `My.App`              | `main`      |
+| `src/models/User.ts`         | `My.App.models`       | `User`      |
+| `src/api/v1/endpoints.ts`    | `My.App.api.v1`       | `endpoints` |
+| `src/utils/string/helper.ts` | `My.App.utils.string` | `helper`    |
 
 ## Case Preservation
 
@@ -41,18 +42,19 @@ src/
 
 **File stem (without .ts) = C# class name:**
 
-| File Name | Class Name | Type |
-|-----------|------------|------|
-| `User.ts` | `User` | Regular class if exported |
-| `user.ts` | `user` | Static container class |
-| `userService.ts` | `userService` | Name exactly as-is |
-| `user-service.ts` | ERROR TSN1011 | Invalid character `-` |
+| File Name         | Class Name    | Type                      |
+| ----------------- | ------------- | ------------------------- |
+| `User.ts`         | `User`        | Regular class if exported |
+| `user.ts`         | `user`        | Static container class    |
+| `userService.ts`  | `userService` | Name exactly as-is        |
+| `user-service.ts` | ERROR TSN1011 | Invalid character `-`     |
 
 ## Name Sanitization Rules
 
 ### For Namespaces
 
 **Invalid characters → ERROR:**
+
 ```typescript
 // These cause errors:
 src/user-service/     // ERROR TSN1011: Invalid character '-'
@@ -61,6 +63,7 @@ src/user.service/     // ERROR TSN1011: Invalid character '.'
 ```
 
 **C# keywords → ERROR:**
+
 ```typescript
 src/namespace/        // ERROR TSN1012: C# keyword
 src/class/           // ERROR TSN1012: C# keyword
@@ -69,6 +72,7 @@ src/class/           // ERROR TSN1012: C# keyword
 ### For File/Class Names
 
 **Same rules apply:**
+
 ```typescript
 user-service.ts      // ERROR TSN1011: Invalid character
 namespace.ts         // ERROR TSN1012: C# keyword
@@ -83,8 +87,12 @@ When a file doesn't export a class with the same name as the file, a static cont
 
 ```typescript
 // src/utils/math.ts
-export function add(a: number, b: number) { return a + b; }
-export function multiply(a: number, b: number) { return a * b; }
+export function add(a: number, b: number) {
+  return a + b;
+}
+export function multiply(a: number, b: number) {
+  return a * b;
+}
 export const PI = 3.14159;
 ```
 
@@ -107,7 +115,7 @@ namespace My.App.utils
 ```typescript
 // src/models/User.ts
 export class User {
-    constructor(public name: string) {}
+  constructor(public name: string) {}
 }
 ```
 
@@ -129,12 +137,17 @@ namespace My.App.models
 ```typescript
 // src/services/UserService.ts
 export class UserService {
-    getUser() { return new User("test"); }
+  getUser() {
+    return new User("test");
+  }
 }
-export function createService() { return new UserService(); }
+export function createService() {
+  return new UserService();
+}
 ```
 
 **ERROR TSN1013:** File exports class 'UserService' and other members. Either:
+
 1. Export only the class, OR
 2. Rename the class to not match the filename
 
@@ -185,6 +198,7 @@ If source root is `src/app/`:
 ### Unicode in Names
 
 **Currently unsupported:**
+
 ```typescript
 src/用户/    // ERROR TSN1015: Non-ASCII characters in path
 ```
@@ -214,6 +228,7 @@ tsonic build src/main.ts --namespace My.Custom.Namespace
 ### Full Example
 
 Directory structure:
+
 ```
 project/
 ├── package.json (rootNamespace: "TodoApp")
@@ -232,11 +247,11 @@ project/
 
 Generates:
 
-| File | Namespace | Class |
-|------|-----------|-------|
-| main.ts | TodoApp | main |
-| models/Todo.ts | TodoApp.models | Todo |
-| models/User.ts | TodoApp.models | User |
-| services/TodoService.ts | TodoApp.services | TodoService |
-| services/data/Database.ts | TodoApp.services.data | Database |
-| utils/validation.ts | TodoApp.utils | validation |
+| File                      | Namespace             | Class       |
+| ------------------------- | --------------------- | ----------- |
+| main.ts                   | TodoApp               | main        |
+| models/Todo.ts            | TodoApp.models        | Todo        |
+| models/User.ts            | TodoApp.models        | User        |
+| services/TodoService.ts   | TodoApp.services      | TodoService |
+| services/data/Database.ts | TodoApp.services.data | Database    |
+| utils/validation.ts       | TodoApp.utils         | validation  |

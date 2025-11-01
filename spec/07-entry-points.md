@@ -9,14 +9,16 @@ The entry file specified to the CLI determines the program entry point.
 ### 1. Exported main() Function
 
 **TypeScript:**
+
 ```typescript
 // main.ts
 export function main(): void {
-    console.log("Hello from main");
+  console.log("Hello from main");
 }
 ```
 
 **Generated C#:**
+
 ```csharp
 namespace My.App
 {
@@ -31,6 +33,7 @@ namespace My.App
 ```
 
 **Generated Program.cs:**
+
 ```csharp
 using My.App;
 
@@ -46,15 +49,17 @@ public static class Program
 ### 2. Exported async main() Function
 
 **TypeScript:**
+
 ```typescript
 // main.ts
 export async function main(): Promise<void> {
-    await doAsyncWork();
-    console.log("Done");
+  await doAsyncWork();
+  console.log("Done");
 }
 ```
 
 **Generated C#:**
+
 ```csharp
 namespace My.App
 {
@@ -70,6 +75,7 @@ namespace My.App
 ```
 
 **Generated Program.cs:**
+
 ```csharp
 using My.App;
 using System.Threading.Tasks;
@@ -86,6 +92,7 @@ public static class Program
 ### 3. Top-Level Code Only
 
 **TypeScript:**
+
 ```typescript
 // main.ts
 console.log("Starting application");
@@ -94,6 +101,7 @@ console.log(`Loaded config: ${config}`);
 ```
 
 **Generated C#:**
+
 ```csharp
 namespace My.App
 {
@@ -114,21 +122,23 @@ namespace My.App
 ### 4. Top-Level Code + Exported Functions
 
 **TypeScript:**
+
 ```typescript
 // main.ts
 console.log("Initializing");
 const state = { ready: false };
 
 export function run(): void {
-    console.log("Running with state:", state);
+  console.log("Running with state:", state);
 }
 
 export function cleanup(): void {
-    console.log("Cleaning up");
+  console.log("Cleaning up");
 }
 ```
 
 **Generated C#:**
+
 ```csharp
 namespace My.App
 {
@@ -157,24 +167,27 @@ namespace My.App
 
 **ERROR TSN1020:** Entry file has top-level code but no `main()` export.
 Either:
+
 1. Add `export function main()` to provide entry point, OR
 2. Move top-level code into a main() function
 
 ### 5. Top-Level Code + Exported main()
 
 **TypeScript:**
+
 ```typescript
 // main.ts
 console.log("Setting up");
 const config = { port: 3000 };
 
 export function main(): void {
-    console.log(`Starting on port ${config.port}`);
-    startServer(config);
+  console.log(`Starting on port ${config.port}`);
+  startServer(config);
 }
 ```
 
 **Generated C#:**
+
 ```csharp
 namespace My.App
 {
@@ -198,6 +211,7 @@ namespace My.App
 ```
 
 **Generated Program.cs:**
+
 ```csharp
 using My.App;
 
@@ -214,21 +228,23 @@ public static class Program
 ### 6. Class with Static Main
 
 **TypeScript:**
+
 ```typescript
 // Application.ts
 export class Application {
-    static main(): void {
-        const app = new Application();
-        app.run();
-    }
+  static main(): void {
+    const app = new Application();
+    app.run();
+  }
 
-    run(): void {
-        console.log("Application running");
-    }
+  run(): void {
+    console.log("Application running");
+  }
 }
 ```
 
 **Generated C#:**
+
 ```csharp
 namespace My.App
 {
@@ -249,6 +265,7 @@ namespace My.App
 ```
 
 **Generated Program.cs:**
+
 ```csharp
 using My.App;
 
@@ -286,6 +303,7 @@ public static class app
 ### Statements in Top-Level Code
 
 Top-level statements go in:
+
 - Static constructor if there are also exports
 - Main() method if no exports
 
@@ -293,11 +311,12 @@ Top-level statements go in:
 // init.ts
 console.log("Initializing");
 if (checkEnvironment()) {
-    setupLogging();
+  setupLogging();
 }
 ```
 
 With exports → static constructor:
+
 ```csharp
 static init()
 {
@@ -310,6 +329,7 @@ static init()
 ```
 
 Without exports → Main():
+
 ```csharp
 public static void Main()
 {
@@ -327,7 +347,7 @@ public static void Main()
 
 ```typescript
 // main.ts
-const data = await fetchData();  // ERROR TSN1021: Top-level await not supported
+const data = await fetchData(); // ERROR TSN1021: Top-level await not supported
 ```
 
 ## Entry Point Rules Summary
@@ -361,6 +381,7 @@ public static class Program
 ```
 
 Where:
+
 - `async_modifier`: "async" if entry is async, else ""
 - `return_type`: "Task" if async, else "void"
 - `await_modifier`: "await" if async, else ""
@@ -372,9 +393,10 @@ Where:
 **NOT SUPPORTED in MVP** - Arguments not passed to TypeScript code
 
 Future enhancement:
+
 ```typescript
 export function main(args: string[]): void {
-    console.log("Args:", args);
+  console.log("Args:", args);
 }
 ```
 
@@ -382,8 +404,8 @@ export function main(args: string[]): void {
 
 ```typescript
 export function main(): number {
-    if (success) return 0;
-    return 1;
+  if (success) return 0;
+  return 1;
 }
 ```
 
@@ -396,6 +418,7 @@ public static int main()
 ```
 
 **Program.cs:**
+
 ```csharp
 public static int Main(string[] args)
 {
@@ -435,9 +458,9 @@ import { createServer } from "System.Net.Http";
 const PORT = 8080;
 
 export async function main(): Promise<void> {
-    console.log(`Starting server on port ${PORT}`);
-    const server = createServer();
-    await server.listen(PORT);
+  console.log(`Starting server on port ${PORT}`);
+  const server = createServer();
+  await server.listen(PORT);
 }
 ```
 
@@ -446,18 +469,18 @@ export async function main(): Promise<void> {
 ```typescript
 // cli.ts
 export function main(): number {
-    const command = getCommand();
+  const command = getCommand();
 
-    switch (command) {
-        case "help":
-            showHelp();
-            return 0;
-        case "version":
-            console.log("1.0.0");
-            return 0;
-        default:
-            console.error(`Unknown command: ${command}`);
-            return 1;
-    }
+  switch (command) {
+    case "help":
+      showHelp();
+      return 0;
+    case "version":
+      console.log("1.0.0");
+      return 0;
+    default:
+      console.error(`Unknown command: ${command}`);
+      return 1;
+  }
 }
 ```

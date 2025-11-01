@@ -1,0 +1,16 @@
+{
+  "name": "@tsonic/runtime",
+  "version": "0.0.1",
+  "description": "JavaScript runtime implementation in C# for Tsonic compiler",
+  "type": "module",
+  "files": [
+    "TsonicRuntime.cs",
+    "lib.cs.d.ts"
+  ],
+  "scripts": {
+    "test": "echo 'Runtime tests run as part of backend tests'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

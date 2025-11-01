@@ -3,12 +3,14 @@
 ## Hello World
 
 ### TypeScript Input
+
 ```typescript
 // src/hello.ts
 console.log("Hello, World!");
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -28,6 +30,7 @@ namespace My.App
 ## Variables and Types
 
 ### TypeScript Input
+
 ```typescript
 // src/variables.ts
 const name: string = "Alice";
@@ -37,15 +40,16 @@ const scores: number[] = [95, 87, 92];
 const user = { name: "Bob", age: 30 };
 
 export function printInfo(): void {
-    console.log(`Name: ${name}`);
-    console.log(`Age: ${age}`);
-    console.log(`Active: ${isActive}`);
-    console.log(`Scores: ${scores.join(", ")}`);
-    console.log(`User: ${user.name} (${user.age})`);
+  console.log(`Name: ${name}`);
+  console.log(`Age: ${age}`);
+  console.log(`Active: ${isActive}`);
+  console.log(`Scores: ${scores.join(", ")}`);
+  console.log(`User: ${user.name} (${user.age})`);
 }
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -75,35 +79,37 @@ namespace My.App
 ## Functions
 
 ### TypeScript Input
+
 ```typescript
 // src/functions.ts
 export function add(a: number, b: number): number {
-    return a + b;
+  return a + b;
 }
 
 export function greet(name: string = "World"): string {
-    return `Hello, ${name}!`;
+  return `Hello, ${name}!`;
 }
 
 export function sum(...numbers: number[]): number {
-    let total = 0;
-    for (const n of numbers) {
-        total += n;
-    }
-    return total;
+  let total = 0;
+  for (const n of numbers) {
+    total += n;
+  }
+  return total;
 }
 
 export async function fetchData(): Promise<string> {
-    await delay(100);
-    return "Data loaded";
+  await delay(100);
+  return "Data loaded";
 }
 
 function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 ```
 
 ### C# Output
+
 ```csharp
 using System.Threading.Tasks;
 using Tsonic.Runtime;
@@ -150,30 +156,32 @@ namespace My.App
 ## Classes
 
 ### TypeScript Input
+
 ```typescript
 // src/models/Person.ts
 export class Person {
-    private id: number;
-    public name: string;
-    protected age: number;
+  private id: number;
+  public name: string;
+  protected age: number;
 
-    constructor(name: string, age: number) {
-        this.id = Math.random();
-        this.name = name;
-        this.age = age;
-    }
+  constructor(name: string, age: number) {
+    this.id = Math.random();
+    this.name = name;
+    this.age = age;
+  }
 
-    greet(): string {
-        return `Hello, I'm ${this.name}`;
-    }
+  greet(): string {
+    return `Hello, I'm ${this.name}`;
+  }
 
-    static create(name: string): Person {
-        return new Person(name, 0);
-    }
+  static create(name: string): Person {
+    return new Person(name, 0);
+  }
 }
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -209,45 +217,47 @@ namespace My.App.models
 ## Control Flow
 
 ### TypeScript Input
+
 ```typescript
 // src/control.ts
 export function checkValue(value: number): string {
-    if (value > 100) {
-        return "High";
-    } else if (value > 50) {
-        return "Medium";
-    } else {
-        return "Low";
-    }
+  if (value > 100) {
+    return "High";
+  } else if (value > 50) {
+    return "Medium";
+  } else {
+    return "Low";
+  }
 }
 
 export function getDayName(day: number): string {
-    switch (day) {
-        case 0:
-            return "Sunday";
-        case 1:
-            return "Monday";
-        case 2:
-            return "Tuesday";
-        default:
-            return "Unknown";
-    }
+  switch (day) {
+    case 0:
+      return "Sunday";
+    case 1:
+      return "Monday";
+    case 2:
+      return "Tuesday";
+    default:
+      return "Unknown";
+  }
 }
 
 export function countToTen(): void {
-    for (let i = 1; i <= 10; i++) {
-        console.log(i);
-    }
+  for (let i = 1; i <= 10; i++) {
+    console.log(i);
+  }
 }
 
 export function processArray(items: string[]): void {
-    for (const item of items) {
-        console.log(`Processing: ${item}`);
-    }
+  for (const item of items) {
+    console.log(`Processing: ${item}`);
+  }
 }
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -309,28 +319,30 @@ namespace My.App
 ## Error Handling
 
 ### TypeScript Input
+
 ```typescript
 // src/errors.ts
 export function divide(a: number, b: number): number {
-    if (b === 0) {
-        throw new Error("Division by zero");
-    }
-    return a / b;
+  if (b === 0) {
+    throw new Error("Division by zero");
+  }
+  return a / b;
 }
 
 export function safeDivide(a: number, b: number): number | null {
-    try {
-        return divide(a, b);
-    } catch (error) {
-        console.error("Error:", error);
-        return null;
-    } finally {
-        console.log("Division attempted");
-    }
+  try {
+    return divide(a, b);
+  } catch (error) {
+    console.error("Error:", error);
+    return null;
+  } finally {
+    console.log("Division attempted");
+  }
 }
 ```
 
 ### C# Output
+
 ```csharp
 using System;
 using Tsonic.Runtime;

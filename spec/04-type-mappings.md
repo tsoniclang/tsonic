@@ -2,32 +2,32 @@
 
 ## Primitive Types
 
-| TypeScript | C# | Notes |
-|------------|-----|-------|
-| `number` | `double` | All numbers are double-precision |
-| `string` | `string` | When methods used, may need `Tsonic.Runtime.String` |
-| `boolean` | `bool` | Direct mapping |
-| `void` | `void` | Direct mapping |
-| `undefined` | `default(T)` | Becomes default value for type |
-| `null` | `null` | C# null |
-| `any` | `object` | Loss of type safety |
-| `unknown` | `object` | Same as any for MVP |
-| `never` | `void` | Or custom `Never` type if needed |
+| TypeScript  | C#           | Notes                                               |
+| ----------- | ------------ | --------------------------------------------------- |
+| `number`    | `double`     | All numbers are double-precision                    |
+| `string`    | `string`     | When methods used, may need `Tsonic.Runtime.String` |
+| `boolean`   | `bool`       | Direct mapping                                      |
+| `void`      | `void`       | Direct mapping                                      |
+| `undefined` | `default(T)` | Becomes default value for type                      |
+| `null`      | `null`       | C# null                                             |
+| `any`       | `object`     | Loss of type safety                                 |
+| `unknown`   | `object`     | Same as any for MVP                                 |
+| `never`     | `void`       | Or custom `Never` type if needed                    |
 
 ## Built-in Objects
 
 All JavaScript built-in objects map to their `Tsonic.Runtime` equivalents with **exact names**:
 
-| TypeScript | C# | Implementation |
-|------------|-----|----------------|
-| `T[]` | `Tsonic.Runtime.Array<T>` | Sparse arrays, mutable length |
-| `Array<T>` | `Tsonic.Runtime.Array<T>` | Same as T[] |
-| `Date` | `Tsonic.Runtime.Date` | JS Date semantics |
-| `RegExp` | `Tsonic.Runtime.RegExp` | JS regex behavior |
-| `Map<K,V>` | `Tsonic.Runtime.Map<K,V>` | JS Map semantics |
-| `Set<T>` | `Tsonic.Runtime.Set<T>` | JS Set semantics |
-| `Promise<T>` | `System.Threading.Tasks.Task<T>` | Direct async mapping |
-| `Error` | `System.Exception` | Base error type |
+| TypeScript   | C#                               | Implementation                |
+| ------------ | -------------------------------- | ----------------------------- |
+| `T[]`        | `Tsonic.Runtime.Array<T>`        | Sparse arrays, mutable length |
+| `Array<T>`   | `Tsonic.Runtime.Array<T>`        | Same as T[]                   |
+| `Date`       | `Tsonic.Runtime.Date`            | JS Date semantics             |
+| `RegExp`     | `Tsonic.Runtime.RegExp`          | JS regex behavior             |
+| `Map<K,V>`   | `Tsonic.Runtime.Map<K,V>`        | JS Map semantics              |
+| `Set<T>`     | `Tsonic.Runtime.Set<T>`          | JS Set semantics              |
+| `Promise<T>` | `System.Threading.Tasks.Task<T>` | Direct async mapping          |
+| `Error`      | `System.Exception`               | Base error type               |
 
 ## Array Types
 
@@ -37,7 +37,7 @@ All JavaScript built-in objects map to their `Tsonic.Runtime` equivalents with *
 // TypeScript
 const nums: number[] = [1, 2, 3];
 nums.push(4);
-nums[10] = 99;  // Sparse array
+nums[10] = 99; // Sparse array
 ```
 
 ```csharp
@@ -52,6 +52,7 @@ nums[10] = 99;  // Sparse array supported
 ### When to use Tsonic.Runtime.String
 
 String literals and basic operations use C# `string`:
+
 ```typescript
 const name: string = "John";
 const greeting = "Hello " + name;
@@ -63,6 +64,7 @@ var greeting = "Hello " + name;
 ```
 
 When JS string methods are used, wrap in `Tsonic.Runtime.String`:
+
 ```typescript
 const lower = name.toLowerCase();
 const parts = name.split(" ");
@@ -75,20 +77,20 @@ var parts = new Tsonic.Runtime.String(name).split(new Tsonic.Runtime.String(" ")
 
 ## Async Types
 
-| TypeScript | C# |
-|------------|-----|
-| `Promise<T>` | `Task<T>` |
-| `Promise<void>` | `Task` |
+| TypeScript       | C#                  |
+| ---------------- | ------------------- |
+| `Promise<T>`     | `Task<T>`           |
+| `Promise<void>`  | `Task`              |
 | `async function` | `async Task` method |
-| `await expr` | `await expr` |
+| `await expr`     | `await expr`        |
 
 ### Example
 
 ```typescript
 // TypeScript
 async function fetchData(): Promise<string> {
-    const result = await getData();
-    return result;
+  const result = await getData();
+  return result;
 }
 ```
 
@@ -109,11 +111,11 @@ Union types use `Tsonic.Runtime.Union<T1, T2>`:
 // TypeScript
 type StringOrNumber = string | number;
 function process(value: StringOrNumber) {
-    if (typeof value === "string") {
-        console.log(value.toLowerCase());
-    } else {
-        console.log(value * 2);
-    }
+  if (typeof value === "string") {
+    console.log(value.toLowerCase());
+  } else {
+    console.log(value * 2);
+  }
 }
 ```
 
@@ -134,8 +136,8 @@ public static void process(Tsonic.Runtime.Union<string, double> value)
 ```typescript
 // TypeScript
 interface User {
-    name: string;
-    age: number;
+  name: string;
+  age: number;
 }
 ```
 
@@ -167,11 +169,11 @@ Generics are preserved with constraints simplified:
 ```typescript
 // TypeScript
 function identity<T>(value: T): T {
-    return value;
+  return value;
 }
 
 class Box<T> {
-    constructor(public value: T) {}
+  constructor(public value: T) {}
 }
 ```
 
@@ -205,6 +207,7 @@ const point: Point = [10, 20];
 ```
 
 Named tuples:
+
 ```typescript
 type Result = [success: boolean, value: string];
 ```
@@ -256,7 +259,8 @@ var value = (string)someValue;
 ### typeof
 
 ```typescript
-if (typeof value === "string") { }
+if (typeof value === "string") {
+}
 ```
 
 ```csharp
@@ -266,7 +270,8 @@ if (value is string) { }
 ### instanceof
 
 ```typescript
-if (value instanceof User) { }
+if (value instanceof User) {
+}
 ```
 
 ```csharp
@@ -278,9 +283,9 @@ if (value is User) { }
 ```typescript
 // TypeScript
 enum Color {
-    Red = 0,
-    Green = 1,
-    Blue = 2
+  Red = 0,
+  Green = 1,
+  Blue = 2,
 }
 ```
 
@@ -295,10 +300,11 @@ public enum Color
 ```
 
 String enums:
+
 ```typescript
 enum Status {
-    Active = "ACTIVE",
-    Inactive = "INACTIVE"
+  Active = "ACTIVE",
+  Inactive = "INACTIVE",
 }
 ```
 
@@ -309,8 +315,8 @@ enum Status {
 Use `var` when TypeScript infers types:
 
 ```typescript
-const x = 5;           // number inferred
-const name = "John";   // string inferred
+const x = 5; // number inferred
+const name = "John"; // string inferred
 const arr = [1, 2, 3]; // number[] inferred
 ```
 

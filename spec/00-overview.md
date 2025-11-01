@@ -29,15 +29,19 @@ Tsonic is a TypeScript to C# compiler that produces NativeAOT executables. It pa
 ## Key Innovations
 
 ### 1. Runtime Implementation
+
 Instead of mapping JS arrays to C# Lists, we implement `Tsonic.Runtime.Array<T>` with exact JavaScript semantics (sparse arrays, mutable length, etc.).
 
 ### 2. Direct .NET Interop
+
 Import .NET namespaces directly:
+
 ```typescript
 import { JsonSerializer } from "System.Text.Json";
 ```
 
 ### 3. Predictable Mappings
+
 - Directory structure = namespace hierarchy
 - File name = class name
 - Top-level exports = static class members

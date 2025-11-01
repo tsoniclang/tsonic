@@ -11,6 +11,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Goal:** Establish monorepo structure and basic tooling
 
 **Tasks:**
+
 1. Initialize monorepo with npm workspaces
 2. Create package directories: cli, frontend, emitter, backend, runtime
 3. Setup TypeScript configuration with base config
@@ -20,6 +21,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 7. Setup test framework (Mocha/Chai)
 
 **Deliverables:**
+
 - Working monorepo structure with npm workspaces
 - Shell scripts: `build.sh`, `clean.sh`, `install-deps.sh`, `format-all.sh`, `lint-all.sh`
 - `npm install` and `./scripts/build.sh` work
@@ -32,6 +34,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Package:** `packages/frontend`
 
 **Tasks:**
+
 1. Create TypeScript program factory
 2. Implement ESM import validator (require .ts extensions)
 3. Build module resolver with exact case matching
@@ -40,18 +43,21 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 6. Build module dependency graph
 
 **Key Files:**
+
 - `program.ts` - TypeScript program creation
 - `resolver.ts` - Module resolution with extensions
 - `validator.ts` - ESM rule enforcement
 - `diagnostics.ts` - Error collection
 
 **Tests:**
+
 - Module resolution with extensions
 - Case sensitivity validation
 - Circular dependency detection
 - Error message formatting
 
 **Deliverables:**
+
 - Can parse TypeScript files
 - Validates all imports have .ts extensions
 - Detects and reports ESM violations
@@ -63,6 +69,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Package:** `packages/frontend`
 
 **Tasks:**
+
 1. Define IR types (IrModule, IrClass, IrFunction, etc.)
 2. Implement AST traversal
 3. Build namespace inference from directory structure
@@ -71,17 +78,20 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 6. Extract top-level code vs exports
 
 **Key Files:**
+
 - `ir/types.ts` - IR type definitions
 - `irBuilder.ts` - AST to IR conversion
 - `namespaceResolver.ts` - Directory to namespace mapping
 
 **Tests:**
+
 - Namespace generation from paths
 - Class vs static container logic
 - Import classification (local vs .NET)
 - Top-level code extraction
 
 **Deliverables:**
+
 - Complete IR for simple TypeScript programs
 - Proper namespace assignment
 - Import resolution
@@ -93,6 +103,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Package:** `packages/emitter`
 
 **Tasks:**
+
 1. Implement C# file structure generation
 2. Generate using statements
 3. Emit namespace blocks
@@ -101,11 +112,13 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 6. Handle basic expressions and statements
 
 **Key Files:**
+
 - `emitCs.ts` - Main emission pipeline
 - `csTemplates.ts` - C# code templates
 - `typeMap.ts` - Type conversion rules
 
 **Supported Features:**
+
 - Classes and static classes
 - Methods and properties
 - Basic types (string, number, boolean)
@@ -113,11 +126,13 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 - String templates to string interpolation
 
 **Tests:**
+
 - Golden tests (TS input → expected C# output)
 - Namespace and class generation
 - Method signature conversion
 
 **Deliverables:**
+
 - Can emit compilable C# for simple programs
 - Proper namespace and using statements
 
@@ -128,6 +143,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Package:** `packages/runtime`
 
 **Tasks:**
+
 1. Implement `Array<T>` with sparse array support
 2. Implement `String` wrapper with JS methods
 3. Implement `console` object
@@ -137,15 +153,18 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 7. Implement `JSON` object
 
 **Key File:**
+
 - `TsonicRuntime.cs` - All runtime implementations
 
 **Tests:**
+
 - Array sparse behavior
 - String method compatibility
 - Math function accuracy
 - Date conversions
 
 **Deliverables:**
+
 - Complete runtime for basic JavaScript operations
 - NuGet package or embedded .cs file
 
@@ -156,6 +175,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Package:** `packages/backend`
 
 **Tasks:**
+
 1. Generate .csproj file
 2. Create temporary build directories
 3. Copy generated C# files
@@ -165,16 +185,19 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 7. Copy output binary
 
 **Key Files:**
+
 - `dotnet.ts` - dotnet CLI wrapper
 - `projectGenerator.ts` - .csproj generation
 - `buildOrchestrator.ts` - Build pipeline
 
 **Tests:**
+
 - Project file generation
 - Build directory management
 - Error handling from dotnet
 
 **Deliverables:**
+
 - Can produce NativeAOT executables
 - Proper error reporting from build failures
 
@@ -185,6 +208,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Package:** `packages/cli`
 
 **Tasks:**
+
 1. Setup command routing (emit, build, run)
 2. Implement option parsing
 3. Add configuration file support
@@ -193,17 +217,20 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 6. Handle exit codes properly
 
 **Key Files:**
+
 - `index.ts` - CLI entry point
 - `commands/emit.ts` - Emit command
 - `commands/build.ts` - Build command
 - `commands/run.ts` - Run command
 
 **Tests:**
+
 - Command parsing
 - Configuration loading
 - Error formatting
 
 **Deliverables:**
+
 - Working `tsonic` CLI
 - All three commands functional
 
@@ -212,6 +239,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Goal:** Support more TypeScript features
 
 **Tasks:**
+
 1. Arrays with proper `Tsonic.Runtime.Array<T>`
 2. Async/await to Task conversion
 3. Interfaces to C# classes
@@ -221,11 +249,13 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 7. Type assertions and guards
 
 **Tests:**
+
 - Array method mappings
 - Async method generation
 - Generic preservation
 
 **Deliverables:**
+
 - Support for modern TypeScript patterns
 - Async/await working end-to-end
 
@@ -234,6 +264,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Goal:** Enable .NET library usage
 
 **Tasks:**
+
 1. Create basic lib.cs.d.ts declarations
 2. Implement .NET namespace detection
 3. Generate proper using statements
@@ -241,15 +272,18 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 5. Support common BCL types
 
 **Key Files:**
+
 - `runtime/lib.cs.d.ts` - .NET type declarations
 
 **Tests:**
+
 - .NET import resolution
 - Using statement generation
 - File I/O examples
 - HTTP client examples
 
 **Deliverables:**
+
 - Can import and use .NET libraries
 - System.IO working
 - System.Text.Json working
@@ -259,6 +293,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Goal:** Comprehensive test coverage and examples
 
 **Tasks:**
+
 1. Create test fixtures for each feature
 2. Build golden test suite
 3. Create example projects:
@@ -270,6 +305,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 5. Performance benchmarks
 
 **Deliverables:**
+
 - 80%+ code coverage
 - All examples compile and run
 - Documentation for each example
@@ -279,6 +315,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 **Goal:** Production readiness
 
 **Tasks:**
+
 1. Improve error messages
 2. Add helpful hints to diagnostics
 3. Create README.md
@@ -287,20 +324,21 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 6. Create website/documentation
 
 **Deliverables:**
+
 - Professional documentation
 - NPM package ready for publishing
 - GitHub releases configured
 
 ## Implementation Order
 
-| Priority | Milestone | Key Achievement |
-|----------|-----------|-----------------|
-| 1 | Setup + Frontend | Can parse and validate TypeScript |
-| 2 | IR + Basic Emitter | Can generate simple C# |
-| 3 | Runtime + Backend | Can build NativeAOT executables |
-| 4 | CLI + Advanced Types | Usable for real programs |
-| 5 | Interop + Testing | .NET integration working |
-| 6 | Polish + Release | Production ready |
+| Priority | Milestone            | Key Achievement                   |
+| -------- | -------------------- | --------------------------------- |
+| 1        | Setup + Frontend     | Can parse and validate TypeScript |
+| 2        | IR + Basic Emitter   | Can generate simple C#            |
+| 3        | Runtime + Backend    | Can build NativeAOT executables   |
+| 4        | CLI + Advanced Types | Usable for real programs          |
+| 5        | Interop + Testing    | .NET integration working          |
+| 6        | Polish + Release     | Production ready                  |
 
 ## Critical Path
 
@@ -345,16 +383,19 @@ Setup → Frontend → IR → Emitter → Runtime
 ## Success Criteria
 
 ### MVP
+
 - Can compile hello world
 - Produces working executable
 - Basic types supported
 
 ### Beta
+
 - Real programs work
 - .NET interop functional
 - Good error messages
 
 ### 1.0 Release
+
 - Stable API
 - Comprehensive docs
 - Example projects
@@ -363,18 +404,21 @@ Setup → Frontend → IR → Emitter → Runtime
 ## Development Practices
 
 ### Code Quality
+
 - TypeScript strict mode
 - 100% type coverage
 - ESLint + Prettier
 - Code review for all PRs
 
 ### Testing
+
 - Unit tests for all modules
 - Golden tests for emitter
 - E2E tests for CLI
 - Performance benchmarks
 
 ### Documentation
+
 - JSDoc for all public APIs
 - Inline comments for complex logic
 - Spec documents updated
@@ -384,15 +428,16 @@ Setup → Frontend → IR → Emitter → Runtime
 
 For team development:
 
-| Role | Focus Area | Packages |
-|------|------------|----------|
-| Lead/Architect | Design, IR, Integration | All |
-| Frontend Dev | TypeScript parsing, validation | frontend |
-| Backend Dev | C# emission, .NET integration | emitter, backend |
-| Runtime Dev | Tsonic.Runtime implementation | runtime |
-| DevOps/Test | CI/CD, testing, documentation | cli, tests |
+| Role           | Focus Area                     | Packages         |
+| -------------- | ------------------------------ | ---------------- |
+| Lead/Architect | Design, IR, Integration        | All              |
+| Frontend Dev   | TypeScript parsing, validation | frontend         |
+| Backend Dev    | C# emission, .NET integration  | emitter, backend |
+| Runtime Dev    | Tsonic.Runtime implementation  | runtime          |
+| DevOps/Test    | CI/CD, testing, documentation  | cli, tests       |
 
 For solo development:
+
 - Follow phases sequentially
 - Focus on MVP first
 - Iterate on features

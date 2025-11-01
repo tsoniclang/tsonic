@@ -23,10 +23,17 @@ export default [
     },
     rules: {
       ...typescript.configs.recommended.rules,
-      quotes: ["error", "double", { avoidEscape: true, allowTemplateLiterals: true }],
+      quotes: [
+        "error",
+        "double",
+        { avoidEscape: true, allowTemplateLiterals: true },
+      ],
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/explicit-module-boundary-types": "off",
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_" },
+      ],
       "@typescript-eslint/no-non-null-assertion": "off",
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
       "no-var": "error",

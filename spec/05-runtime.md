@@ -56,6 +56,7 @@ namespace Tsonic.Runtime
 ```
 
 **Key JavaScript Behaviors:**
+
 - Sparse arrays: `arr[100] = 'x'` creates holes
 - Mutable length: `arr.length = 5` truncates/extends
 - Negative indices don't wrap (unlike Python)
@@ -320,17 +321,20 @@ namespace Tsonic.Runtime
 These throw runtime errors with clear messages:
 
 ### Array Methods
+
 - `map()` - "Array.map() not yet supported. Use a for loop instead."
 - `filter()` - "Array.filter() not yet supported. Use a for loop with conditions."
 - `reduce()` - "Array.reduce() not yet supported. Use a for loop with accumulator."
 - `forEach()` - "Array.forEach() not yet supported. Use a for...of loop."
 
 ### Object Methods
+
 - `Object.keys()` - "Object.keys() not yet supported."
 - `Object.values()` - "Object.values() not yet supported."
 - `Object.entries()` - "Object.entries() not yet supported."
 
 ### Other Types
+
 - `Map<K,V>` - Planned for phase 2
 - `Set<T>` - Planned for phase 2
 - `WeakMap<K,V>` - Planned for phase 3
@@ -341,10 +345,11 @@ These throw runtime errors with clear messages:
 ## Usage Examples
 
 ### TypeScript Input
+
 ```typescript
 const arr = [1, 2, 3];
 arr.push(4, 5);
-arr[10] = 99;  // Sparse
+arr[10] = 99; // Sparse
 console.log(`Length: ${arr.length}`);
 
 const text = "Hello World";
@@ -352,7 +357,7 @@ const lower = text.toLowerCase();
 const words = lower.split(" ");
 
 const now = Date.now();
-const date = new Date(2024, 0, 15);  // Jan 15, 2024
+const date = new Date(2024, 0, 15); // Jan 15, 2024
 
 const pi = Math.PI;
 const max = Math.max(10, 20, 30);
@@ -360,6 +365,7 @@ const random = Math.random();
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;

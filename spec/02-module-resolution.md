@@ -3,6 +3,7 @@
 ## Fundamental Rule
 
 **Every import is either:**
+
 1. **Local TypeScript** - MUST have `.ts` extension
 2. **.NET Namespace** - MUST NOT have extension, uses dotted notation
 
@@ -19,15 +20,15 @@ import { helper } from "../utils/helper.ts";
 import { config } from "../../config.ts";
 
 // Absolute imports (if tsconfig paths configured) - MUST have .ts extension
-import { logger } from "@utils/logger.ts";  // Resolves via tsconfig paths
+import { logger } from "@utils/logger.ts"; // Resolves via tsconfig paths
 ```
 
 ### Invalid Local Imports - ERROR
 
 ```typescript
-import { User } from "./models/User";       // ERROR TSN1001: Missing .ts extension
+import { User } from "./models/User"; // ERROR TSN1001: Missing .ts extension
 import { helper } from "../utils/helper.js"; // ERROR TSN1002: .js not supported
-import { config } from "config";             // ERROR TSN1001: Missing extension
+import { config } from "config"; // ERROR TSN1001: Missing extension
 ```
 
 ### Resolution Algorithm
@@ -50,9 +51,9 @@ import { config } from "config";             // ERROR TSN1001: Missing extension
 ```typescript
 // File on disk: ./models/User.ts
 
-import { User } from "./models/User.ts";   // ✓ OK
-import { User } from "./models/user.ts";   // ERROR TSN1003: Case mismatch
-import { User } from "./Models/User.ts";   // ERROR TSN1003: Case mismatch
+import { User } from "./models/User.ts"; // ✓ OK
+import { User } from "./models/user.ts"; // ERROR TSN1003: Case mismatch
+import { User } from "./Models/User.ts"; // ERROR TSN1003: Case mismatch
 ```
 
 ## .NET Namespace Imports
@@ -60,6 +61,7 @@ import { User } from "./Models/User.ts";   // ERROR TSN1003: Case mismatch
 ### Detection Rules
 
 An import is treated as .NET if:
+
 1. **No file extension** AND
 2. **Cannot resolve to a local file** AND
 3. **Contains dots** (e.g., `System.Text.Json`) OR starts with known .NET namespaces
@@ -86,8 +88,10 @@ import { List } from "System.Collections.Generic";
 ```typescript
 // math.ts
 export const PI = 3.14;
-export function add(a: number, b: number) { return a + b; }
-export class Calculator { }
+export function add(a: number, b: number) {
+  return a + b;
+}
+export class Calculator {}
 ```
 
 ```typescript
@@ -98,17 +102,19 @@ import { PI, add, Calculator } from "./math.ts";
 ### Export All (Re-exports)
 
 **NOT SUPPORTED in MVP:**
+
 ```typescript
-export * from "./other.ts";     // ERROR TSN3001
-export { foo } from "./bar.ts";  // ERROR TSN3001
+export * from "./other.ts"; // ERROR TSN3001
+export { foo } from "./bar.ts"; // ERROR TSN3001
 ```
 
 ### Default Exports
 
 **NOT SUPPORTED:**
+
 ```typescript
-export default class User { }    // ERROR TSN3002
-import User from "./User.ts";    // ERROR TSN3002
+export default class User {} // ERROR TSN3002
+import User from "./User.ts"; // ERROR TSN3002
 ```
 
 ## Module Index Building
@@ -117,9 +123,9 @@ For each discovered module, track:
 
 ```typescript
 interface ModuleIndex {
-  path: string;           // "./src/models/User.ts"
-  namespace: string;      // "My.App.models"
-  className: string;      // "User"
+  path: string; // "./src/models/User.ts"
+  namespace: string; // "My.App.models"
+  className: string; // "User"
   exports: Map<string, ExportInfo>;
   imports: ImportInfo[];
   dotnetUsings: string[];
@@ -127,14 +133,14 @@ interface ModuleIndex {
 
 interface ExportInfo {
   name: string;
-  kind: 'class' | 'function' | 'const' | 'interface';
+  kind: "class" | "function" | "const" | "interface";
   type: IrType;
 }
 
 interface ImportInfo {
-  module: string;         // "./helper.ts" or "System.IO"
-  names: string[];        // ["helper", "utils"]
-  isLocal: boolean;       // true for .ts imports
+  module: string; // "./helper.ts" or "System.IO"
+  names: string[]; // ["helper", "utils"]
+  isLocal: boolean; // true for .ts imports
 }
 ```
 
@@ -144,9 +150,9 @@ interface ImportInfo {
 
 ```typescript
 // src/services/data.ts
-import { User } from "../models/User.ts";        // Local
+import { User } from "../models/User.ts"; // Local
 import { JsonSerializer } from "System.Text.Json"; // .NET
-import { File } from "System.IO";                 // .NET
+import { File } from "System.IO"; // .NET
 
 export class DataService {
   save(user: User) {
@@ -180,9 +186,9 @@ namespace My.App.services
 
 ```typescript
 // These all fail
-import utils from "./utils";           // ERROR TSN1001: Missing .ts extension
-import { helper } from "./Helper.ts";  // ERROR TSN1003: Case mismatch (file is helper.ts)
-import { foo } from "./missing.ts";    // ERROR TSN1002: File not found
+import utils from "./utils"; // ERROR TSN1001: Missing .ts extension
+import { helper } from "./Helper.ts"; // ERROR TSN1003: Case mismatch (file is helper.ts)
+import { foo } from "./missing.ts"; // ERROR TSN1002: File not found
 ```
 
 ## Special Cases
@@ -192,8 +198,8 @@ import { foo } from "./missing.ts";    // ERROR TSN1002: File not found
 **NOT SUPPORTED** - Use .NET equivalents:
 
 ```typescript
-import fs from "fs";                    // ERROR TSN1004: Node.js modules not supported
-import { readFile } from "node:fs";     // ERROR TSN1004
+import fs from "fs"; // ERROR TSN1004: Node.js modules not supported
+import { readFile } from "node:fs"; // ERROR TSN1004
 
 // Instead, use:
 import { File } from "System.IO";
@@ -202,13 +208,15 @@ import { File } from "System.IO";
 ### JSON Imports
 
 **NOT SUPPORTED in MVP:**
+
 ```typescript
-import data from "./data.json";         // ERROR TSN1005: JSON imports not supported
+import data from "./data.json"; // ERROR TSN1005: JSON imports not supported
 ```
 
 ### Dynamic Imports
 
 **NOT SUPPORTED:**
+
 ```typescript
 const module = await import("./dynamic.ts"); // ERROR TSN3003: Dynamic imports not supported
 ```

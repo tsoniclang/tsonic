@@ -94,7 +94,7 @@ Tsonic is a TypeScript to C# to NativeAOT compiler that:
 // ✅ CORRECT - Create new object
 const addExport = (module: IrModule, exp: IrExport): IrModule => ({
   ...module,
-  exports: [...module.exports, exp]
+  exports: [...module.exports, exp],
 });
 
 // ❌ WRONG - Never mutate
@@ -127,10 +127,10 @@ type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 const parseModule = (source: string): Result<IrModule, Diagnostic[]> =>
   // Implementation
 
-// ❌ WRONG - Throwing exceptions
-function parseModule(source: string): IrModule {
-  throw new Error("Parse failed"); // Don't throw
-}
+  // ❌ WRONG - Throwing exceptions
+  function parseModule(source: string): IrModule {
+    throw new Error("Parse failed"); // Don't throw
+  };
 ```
 
 ## Code Generation Principles
@@ -237,12 +237,16 @@ const count = items.reduce((acc) => acc + 1, 0);
 // ❌ WRONG - Hidden config dependency
 import { config } from "./config.js";
 const emit = (ir: IrModule) => {
-  if (config.debug) { /* ... */ }
+  if (config.debug) {
+    /* ... */
+  }
 };
 
 // ✅ CORRECT - Explicit parameter
 const emit = (ir: IrModule, config: Config) => {
-  if (config.debug) { /* ... */ }
+  if (config.debug) {
+    /* ... */
+  }
 };
 ```
 
@@ -253,11 +257,15 @@ const emit = (ir: IrModule, config: Config) => {
 ```typescript
 // ❌ WRONG - Class with logic
 class Emitter {
-  emit(ir: IrModule): string { /* ... */ }
+  emit(ir: IrModule): string {
+    /* ... */
+  }
 }
 
 // ✅ CORRECT - Pure function
-const emit = (ir: IrModule): string => { /* ... */ };
+const emit = (ir: IrModule): string => {
+  /* ... */
+};
 ```
 
 ## Build Commands

@@ -3,38 +3,40 @@
 ## Basic Array Operations
 
 ### TypeScript Input
+
 ```typescript
 // src/arrays.ts
 export function arrayOperations(): void {
-    // Create arrays
-    const numbers: number[] = [1, 2, 3, 4, 5];
-    const names = ["Alice", "Bob", "Charlie"];
-    const mixed = [1, "two", true];
+  // Create arrays
+  const numbers: number[] = [1, 2, 3, 4, 5];
+  const names = ["Alice", "Bob", "Charlie"];
+  const mixed = [1, "two", true];
 
-    // Access elements
-    console.log(numbers[0]);  // 1
-    console.log(names[names.length - 1]);  // Charlie
+  // Access elements
+  console.log(numbers[0]); // 1
+  console.log(names[names.length - 1]); // Charlie
 
-    // Modify arrays
-    numbers.push(6, 7);
-    const last = numbers.pop();
+  // Modify arrays
+  numbers.push(6, 7);
+  const last = numbers.pop();
 
-    const first = names.shift();
-    names.unshift("Adam");
+  const first = names.shift();
+  names.unshift("Adam");
 
-    // Array properties
-    console.log(`Length: ${numbers.length}`);
-    numbers.length = 3;  // Truncate
+  // Array properties
+  console.log(`Length: ${numbers.length}`);
+  numbers.length = 3; // Truncate
 
-    // Sparse arrays (JavaScript feature)
-    const sparse: number[] = [];
-    sparse[10] = 100;
-    console.log(`Sparse length: ${sparse.length}`);  // 11
-    console.log(`Sparse[5]: ${sparse[5]}`);  // undefined (0 in C#)
+  // Sparse arrays (JavaScript feature)
+  const sparse: number[] = [];
+  sparse[10] = 100;
+  console.log(`Sparse length: ${sparse.length}`); // 11
+  console.log(`Sparse[5]: ${sparse[5]}`); // undefined (0 in C#)
 }
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -78,60 +80,62 @@ namespace My.App
 ## Array Methods
 
 ### TypeScript Input
+
 ```typescript
 // src/arrayMethods.ts
 export function supportedMethods(): void {
-    const arr = [1, 2, 3, 4, 5];
+  const arr = [1, 2, 3, 4, 5];
 
-    // Supported methods
-    const joined = arr.join(", ");
-    console.log(`Joined: ${joined}`);
+  // Supported methods
+  const joined = arr.join(", ");
+  console.log(`Joined: ${joined}`);
 
-    const sliced = arr.slice(1, 3);
-    console.log(`Sliced: ${sliced.join(",")}`);
+  const sliced = arr.slice(1, 3);
+  console.log(`Sliced: ${sliced.join(",")}`);
 
-    const index = arr.indexOf(3);
-    console.log(`Index of 3: ${index}`);
+  const index = arr.indexOf(3);
+  console.log(`Index of 3: ${index}`);
 
-    const includes = arr.includes(4);
-    console.log(`Includes 4: ${includes}`);
+  const includes = arr.includes(4);
+  console.log(`Includes 4: ${includes}`);
 
-    // These would throw runtime errors (not implemented)
-    // const mapped = arr.map(x => x * 2);  // ERROR
-    // const filtered = arr.filter(x => x > 2);  // ERROR
-    // const sum = arr.reduce((a, b) => a + b, 0);  // ERROR
+  // These would throw runtime errors (not implemented)
+  // const mapped = arr.map(x => x * 2);  // ERROR
+  // const filtered = arr.filter(x => x > 2);  // ERROR
+  // const sum = arr.reduce((a, b) => a + b, 0);  // ERROR
 }
 
 export function manualIterations(): void {
-    const arr = [1, 2, 3, 4, 5];
+  const arr = [1, 2, 3, 4, 5];
 
-    // Manual map
-    const doubled: number[] = [];
-    for (const n of arr) {
-        doubled.push(n * 2);
+  // Manual map
+  const doubled: number[] = [];
+  for (const n of arr) {
+    doubled.push(n * 2);
+  }
+
+  // Manual filter
+  const evens: number[] = [];
+  for (const n of arr) {
+    if (n % 2 === 0) {
+      evens.push(n);
     }
+  }
 
-    // Manual filter
-    const evens: number[] = [];
-    for (const n of arr) {
-        if (n % 2 === 0) {
-            evens.push(n);
-        }
-    }
+  // Manual reduce
+  let sum = 0;
+  for (const n of arr) {
+    sum += n;
+  }
 
-    // Manual reduce
-    let sum = 0;
-    for (const n of arr) {
-        sum += n;
-    }
-
-    console.log(`Doubled: ${doubled.join(",")}`);
-    console.log(`Evens: ${evens.join(",")}`);
-    console.log(`Sum: ${sum}`);
+  console.log(`Doubled: ${doubled.join(",")}`);
+  console.log(`Evens: ${evens.join(",")}`);
+  console.log(`Sum: ${sum}`);
 }
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -202,38 +206,40 @@ namespace My.App
 ## Multidimensional Arrays
 
 ### TypeScript Input
+
 ```typescript
 // src/matrix.ts
 export class Matrix {
-    private data: number[][];
+  private data: number[][];
 
-    constructor(rows: number, cols: number) {
-        this.data = [];
-        for (let i = 0; i < rows; i++) {
-            this.data[i] = [];
-            for (let j = 0; j < cols; j++) {
-                this.data[i][j] = 0;
-            }
-        }
+  constructor(rows: number, cols: number) {
+    this.data = [];
+    for (let i = 0; i < rows; i++) {
+      this.data[i] = [];
+      for (let j = 0; j < cols; j++) {
+        this.data[i][j] = 0;
+      }
     }
+  }
 
-    set(row: number, col: number, value: number): void {
-        this.data[row][col] = value;
-    }
+  set(row: number, col: number, value: number): void {
+    this.data[row][col] = value;
+  }
 
-    get(row: number, col: number): number {
-        return this.data[row][col];
-    }
+  get(row: number, col: number): number {
+    return this.data[row][col];
+  }
 
-    print(): void {
-        for (const row of this.data) {
-            console.log(row.join(" "));
-        }
+  print(): void {
+    for (const row of this.data) {
+      console.log(row.join(" "));
     }
+  }
 }
 ```
 
 ### C# Output
+
 ```csharp
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
@@ -281,27 +287,29 @@ namespace My.App
 ## Array Type Conversions
 
 ### TypeScript Input
+
 ```typescript
 // src/arrayTypes.ts
 import { List } from "System.Collections.Generic";
 
 export function mixedArrayTypes(): void {
-    // Tsonic.Runtime.Array (JS semantics)
-    const jsArray: number[] = [1, 2, 3];
-    jsArray[10] = 100;  // Sparse array supported
+  // Tsonic.Runtime.Array (JS semantics)
+  const jsArray: number[] = [1, 2, 3];
+  jsArray[10] = 100; // Sparse array supported
 
-    // .NET List (when explicitly imported)
-    const dotnetList = new List<number>();
-    dotnetList.Add(1);
-    dotnetList.Add(2);
-    dotnetList.Add(3);
+  // .NET List (when explicitly imported)
+  const dotnetList = new List<number>();
+  dotnetList.Add(1);
+  dotnetList.Add(2);
+  dotnetList.Add(3);
 
-    console.log(`JS Array length: ${jsArray.length}`);
-    console.log(`NET List count: ${dotnetList.Count}`);
+  console.log(`JS Array length: ${jsArray.length}`);
+  console.log(`NET List count: ${dotnetList.Count}`);
 }
 ```
 
 ### C# Output
+
 ```csharp
 using System.Collections.Generic;
 using Tsonic.Runtime;

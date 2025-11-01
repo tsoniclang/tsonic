@@ -64,10 +64,13 @@ When file exports a class matching the filename:
 ```typescript
 // User.ts
 export class User {
-    constructor(public name: string, public age: number) {}
-    greet(): string {
-        return `Hello, I'm ${this.name}`;
-    }
+  constructor(
+    public name: string,
+    public age: number
+  ) {}
+  greet(): string {
+    return `Hello, I'm ${this.name}`;
+  }
 }
 ```
 
@@ -98,7 +101,7 @@ When file has top-level exports (functions, constants):
 // math.ts
 export const PI = 3.14159;
 export function add(a: number, b: number) {
-    return a + b;
+  return a + b;
 }
 ```
 
@@ -118,18 +121,18 @@ public static class math
 
 ### Literals
 
-| TypeScript | C# |
-|------------|-----|
-| `42` | `42.0` |
-| `"hello"` | `"hello"` |
-| `true` | `true` |
-| `null` | `null` |
+| TypeScript  | C#           |
+| ----------- | ------------ |
+| `42`        | `42.0`       |
+| `"hello"`   | `"hello"`    |
+| `true`      | `true`       |
+| `null`      | `null`       |
 | `undefined` | `default(T)` |
 
 ### String Templates
 
 ```typescript
-`Hello ${name}, you are ${age} years old`
+`Hello ${name}, you are ${age} years old`;
 ```
 
 ```csharp
@@ -139,7 +142,7 @@ $"Hello {name}, you are {age} years old"
 ### Arrays
 
 ```typescript
-[1, 2, 3]
+[1, 2, 3];
 ```
 
 ```csharp
@@ -149,6 +152,7 @@ new Tsonic.Runtime.Array<double>(1, 2, 3)
 ### Objects
 
 Anonymous objects:
+
 ```typescript
 { name: "John", age: 30 }
 ```
@@ -173,24 +177,24 @@ user.greet();
 
 ### Binary Operators
 
-| TypeScript | C# |
-|------------|-----|
-| `a + b` | `a + b` |
-| `a - b` | `a - b` |
-| `a * b` | `a * b` |
-| `a / b` | `a / b` |
-| `a % b` | `a % b` |
-| `a === b` | `a == b` |
-| `a !== b` | `a != b` |
-| `a < b` | `a < b` |
-| `a && b` | `a && b` |
+| TypeScript | C#         |
+| ---------- | ---------- |
+| `a + b`    | `a + b`    |
+| `a - b`    | `a - b`    |
+| `a * b`    | `a * b`    |
+| `a / b`    | `a / b`    |
+| `a % b`    | `a % b`    |
+| `a === b`  | `a == b`   |
+| `a !== b`  | `a != b`   |
+| `a < b`    | `a < b`    |
+| `a && b`   | `a && b`   |
 | `a \|\| b` | `a \|\| b` |
 
 ### Type Checking
 
 ```typescript
-typeof value === "string"
-value instanceof User
+typeof value === "string";
+value instanceof User;
 ```
 
 ```csharp
@@ -215,6 +219,7 @@ var z = true;
 ```
 
 With explicit types:
+
 ```typescript
 const x: number = 5;
 let arr: string[] = [];
@@ -229,11 +234,11 @@ var arr = new Tsonic.Runtime.Array<string>();
 
 ```typescript
 if (condition) {
-    doSomething();
+  doSomething();
 } else if (otherCondition) {
-    doOther();
+  doOther();
 } else {
-    doDefault();
+  doDefault();
 }
 ```
 
@@ -255,9 +260,10 @@ else
 ### Loops
 
 For loop:
+
 ```typescript
 for (let i = 0; i < 10; i++) {
-    console.log(i);
+  console.log(i);
 }
 ```
 
@@ -269,9 +275,10 @@ for (var i = 0; i < 10; i++)
 ```
 
 For...of:
+
 ```typescript
 for (const item of items) {
-    console.log(item);
+  console.log(item);
 }
 ```
 
@@ -283,9 +290,10 @@ foreach (var item in items)
 ```
 
 While:
+
 ```typescript
 while (condition) {
-    doWork();
+  doWork();
 }
 ```
 
@@ -300,14 +308,14 @@ while (condition)
 
 ```typescript
 switch (value) {
-    case 1:
-        doOne();
-        break;
-    case 2:
-        doTwo();
-        break;
-    default:
-        doDefault();
+  case 1:
+    doOne();
+    break;
+  case 2:
+    doTwo();
+    break;
+  default:
+    doDefault();
 }
 ```
 
@@ -330,11 +338,11 @@ switch (value)
 
 ```typescript
 try {
-    riskyOperation();
+  riskyOperation();
 } catch (error) {
-    console.error(error);
+  console.error(error);
 } finally {
-    cleanup();
+  cleanup();
 }
 ```
 
@@ -453,8 +461,8 @@ public double sum(params double[] numbers)
 
 ```typescript
 class User {
-    name: string;
-    age: number;
+  name: string;
+  age: number;
 }
 ```
 
@@ -470,7 +478,7 @@ public class User
 
 ```typescript
 class User {
-    readonly id: string;
+  readonly id: string;
 }
 ```
 
@@ -485,8 +493,8 @@ public class User
 
 ```typescript
 class User {
-    private secret: string;
-    protected internal: number;
+  private secret: string;
+  protected internal: number;
 }
 ```
 
@@ -500,13 +508,13 @@ public class User
 
 ## Access Modifiers
 
-| TypeScript | C# |
-|------------|-----|
-| `public` (default) | `public` |
-| `private` | `private` |
-| `protected` | `protected` |
-| `static` | `static` |
-| `readonly` | `{ get; }` |
+| TypeScript         | C#          |
+| ------------------ | ----------- |
+| `public` (default) | `public`    |
+| `private`          | `private`   |
+| `protected`        | `protected` |
+| `static`           | `static`    |
+| `readonly`         | `{ get; }`  |
 
 ## Special Cases
 
@@ -540,7 +548,9 @@ set fullName(value) { /* parse */ }
 
 ```typescript
 class Handler {
-    handle = () => { console.log(this); }
+  handle = () => {
+    console.log(this);
+  };
 }
 ```
 
@@ -571,6 +581,7 @@ Preserve single-line and multi-line comments:
 ```
 
 JSDoc comments:
+
 ```typescript
 /**
  * Calculates sum

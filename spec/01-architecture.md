@@ -29,6 +29,7 @@ NativeAOT Executable
 **Purpose**: Command-line interface and orchestration
 
 **Key Modules**:
+
 - `index.ts`: Command router
 - `commands/emit.ts`: TS → C# emission only
 - `commands/build.ts`: Full compilation to NativeAOT
@@ -41,6 +42,7 @@ NativeAOT Executable
 **Purpose**: Parse TypeScript and build IR
 
 **Key Modules**:
+
 - `program.ts`: Create TypeScript program, get type checker
 - `irBuilder.ts`: Convert TypeScript AST to IR
 - `symbolTable.ts`: Global symbol registry and binding
@@ -48,6 +50,7 @@ NativeAOT Executable
 - `diagnostics.ts`: Collect and format errors
 
 **Data Flow**:
+
 1. Create TS Program from entry file
 2. Walk import graph, validate ESM rules
 3. Build module index (file → namespace/class mapping)
@@ -59,12 +62,14 @@ NativeAOT Executable
 **Purpose**: Transform IR to C# source code
 
 **Key Modules**:
+
 - `emitCs.ts`: Main emission pipeline
 - `csTemplates.ts`: C# code templates (classes, methods, using statements)
 - `naming.ts`: Name sanitization and keyword handling
 - `typeMap.ts`: TypeScript → C# type conversions
 
 **Emission Rules**:
+
 - One `.cs` file per `.ts` file
 - Preserve directory structure
 - Generate using statements for both .NET and local dependencies
@@ -74,10 +79,12 @@ NativeAOT Executable
 **Purpose**: Drive dotnet CLI to produce executables
 
 **Key Modules**:
+
 - `dotnet.ts`: Execute dotnet commands (new, publish)
 - `files.ts`: Manage temporary build directories, copy runtime
 
 **Workflow**:
+
 1. Create temporary project directory
 2. Generate minimal .csproj with NativeAOT settings
 3. Copy generated C# files
@@ -91,6 +98,7 @@ NativeAOT Executable
 **Purpose**: JavaScript/TypeScript runtime implementation in C#
 
 **Key Files**:
+
 - `tsruntime.cs`: Core runtime (Array, String, console, Math, etc.)
 - `lib.cs.d.ts`: TypeScript declarations for .NET types
 
@@ -107,19 +115,19 @@ NativeAOT Executable
 
 ```typescript
 interface IrModule {
-  file: string;              // Source file path
-  namespace: string;         // C# namespace
-  fileClass: string;         // C# class name
-  imports: IrImport[];       // Local imports
-  dotnetUsings: string[];    // .NET namespace imports
-  exports: IrDeclaration[];  // Exported declarations
-  topLevel: IrStatement[];   // Top-level executable code
+  file: string; // Source file path
+  namespace: string; // C# namespace
+  fileClass: string; // C# class name
+  imports: IrImport[]; // Local imports
+  dotnetUsings: string[]; // .NET namespace imports
+  exports: IrDeclaration[]; // Exported declarations
+  topLevel: IrStatement[]; // Top-level executable code
 }
 
 interface IrClass {
-  kind: 'Class';
+  kind: "Class";
   name: string;
-  modifiers: string[];       // public, static, etc.
+  modifiers: string[]; // public, static, etc.
   extends?: IrTypeRef;
   implements: IrTypeRef[];
   constructors: IrConstructor[];
@@ -128,7 +136,7 @@ interface IrClass {
 }
 
 interface IrFunction {
-  kind: 'Function';
+  kind: "Function";
   name: string;
   async: boolean;
   params: IrParameter[];
@@ -178,11 +186,13 @@ type IrStatement =
 ## Memory & Performance Considerations
 
 ### Scalability Targets
+
 - Handle projects up to 10,000 TypeScript files
 - Compile time < 1 second per 100 files (excluding dotnet publish)
 - Memory usage < 1GB for large projects
 
 ### Optimization Points
+
 1. **Parallel Processing**: Parse multiple files concurrently
 2. **Incremental Compilation**: Cache IR for unchanged files (future)
 3. **Lazy Symbol Resolution**: Defer type checking until needed
@@ -191,12 +201,14 @@ type IrStatement =
 ## Extension Points
 
 ### Future Extensibility
+
 1. **Additional Target Languages**: IR could emit Go, Rust, etc.
 2. **Custom Type Mappings**: User-defined TS → C# conversions
 3. **Decorator Support**: Map TS decorators to C# attributes
 4. **Source Maps**: Map C# lines back to TypeScript
 
 ### Plugin Architecture (Future)
+
 - Transform hooks at IR level
 - Custom emission templates
 - Additional runtime implementations
