@@ -56,5 +56,45 @@ namespace Tsonic.Runtime
         // Sign and truncation
         public static double sign(double x) => System.Math.Sign(x);
         public static double trunc(double x) => System.Math.Truncate(x);
+
+        // Hyperbolic functions
+        public static double sinh(double x) => System.Math.Sinh(x);
+        public static double cosh(double x) => System.Math.Cosh(x);
+        public static double tanh(double x) => System.Math.Tanh(x);
+        public static double asinh(double x) => System.Math.Asinh(x);
+        public static double acosh(double x) => System.Math.Acosh(x);
+        public static double atanh(double x) => System.Math.Atanh(x);
+
+        // Additional math functions
+        public static double cbrt(double x) => System.Math.Cbrt(x);
+        public static double hypot(params double[] values)
+        {
+            double sum = 0;
+            foreach (double v in values)
+            {
+                sum += v * v;
+            }
+            return System.Math.Sqrt(sum);
+        }
+
+        public static double expm1(double x) => System.Math.Exp(x) - 1;
+        public static double log1p(double x) => System.Math.Log(1 + x);
+
+        // Floating point operations
+        public static double fround(double x) => (double)(float)x;
+        public static int imul(int a, int b) => a * b;
+        public static int clz32(int x)
+        {
+            if (x == 0) return 32;
+            return System.Numerics.BitOperations.LeadingZeroCount((uint)x);
+        }
+
+        // ES2024: Round to 16-bit float
+        public static double f16round(double x)
+        {
+            // Convert to half precision (16-bit) and back
+            var half = (Half)(float)x;
+            return (double)half;
+        }
     }
 }
