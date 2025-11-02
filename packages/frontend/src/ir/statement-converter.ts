@@ -28,6 +28,26 @@ import {
 } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
 import { convertType, convertBindingName } from "./type-converter.js";
+import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+
+/**
+ * Module-level metadata registry singleton
+ * Set once at the start of compilation via setMetadataRegistry()
+ */
+let _metadataRegistry: DotnetMetadataRegistry = new DotnetMetadataRegistry();
+
+/**
+ * Set the metadata registry for this compilation
+ * Called once at the start of IR building
+ */
+export const setMetadataRegistry = (registry: DotnetMetadataRegistry): void => {
+  _metadataRegistry = registry;
+};
+
+/**
+ * Get the current metadata registry
+ */
+const getMetadataRegistry = (): DotnetMetadataRegistry => _metadataRegistry;
 
 /**
  * Convert TypeScript type parameters to IR, detecting structural constraints
@@ -214,7 +234,7 @@ const convertClassDeclaration = (
 
   const superClass = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
-  )?.types[0]?.expression;
+  )?.types[0];
 
   const implementsTypes =
     node.heritageClauses
@@ -276,7 +296,9 @@ const convertClassDeclaration = (
   });
 
   const convertedMembers = ownMembers
-    .map((m) => convertClassMember(m, checker, constructor?.parameters))
+    .map((m) =>
+      convertClassMember(m, checker, superClass, constructor?.parameters)
+    )
     .filter((m): m is IrClassMember => m !== null);
 
   // Deduplicate members by name (keep first occurrence)
@@ -311,15 +333,101 @@ const convertClassDeclaration = (
   };
 };
 
+/**
+ * Check if a method/property should be marked as override based on base class metadata
+ */
+const detectOverride = (
+  memberName: string,
+  memberKind: "method" | "property",
+  superClass: ts.ExpressionWithTypeArguments | undefined,
+  checker: ts.TypeChecker,
+  parameterTypes?: readonly string[]
+): { isOverride: boolean; isShadow: boolean } => {
+  if (!superClass) {
+    return { isOverride: false, isShadow: false };
+  }
+
+  // Resolve the base class type
+  const baseType = checker.getTypeAtLocation(superClass.expression);
+  const baseSymbol = baseType.getSymbol();
+
+  if (!baseSymbol) {
+    return { isOverride: false, isShadow: false };
+  }
+
+  // Get fully-qualified name for .NET types
+  const qualifiedName = checker.getFullyQualifiedName(baseSymbol);
+
+  // Check if this is a .NET type (starts with "System." or other .NET namespaces)
+  const isDotNetType =
+    qualifiedName.startsWith("System.") ||
+    qualifiedName.startsWith("Microsoft.") ||
+    qualifiedName.startsWith("Tsonic.Runtime.");
+
+  if (isDotNetType) {
+    // Use metadata to determine if virtual
+    const metadata = getMetadataRegistry();
+
+    if (memberKind === "method" && parameterTypes) {
+      const signature = `${memberName}(${parameterTypes.join(",")})`;
+      const isVirtual = metadata.isVirtualMember(qualifiedName, signature);
+      const isSealed = metadata.isSealedMember(qualifiedName, signature);
+      return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
+    } else if (memberKind === "property") {
+      // For properties, check without parameters
+      const isVirtual = metadata.isVirtualMember(qualifiedName, memberName);
+      const isSealed = metadata.isSealedMember(qualifiedName, memberName);
+      return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
+    }
+  } else {
+    // TypeScript base class - check declarations
+    const baseDeclarations = baseSymbol.getDeclarations();
+
+    if (!baseDeclarations || baseDeclarations.length === 0) {
+      return { isOverride: false, isShadow: false };
+    }
+
+    for (const baseDecl of baseDeclarations) {
+      if (ts.isClassDeclaration(baseDecl)) {
+        // Check if base class has this member
+        const baseMember = baseDecl.members.find((m) => {
+          if (memberKind === "method" && ts.isMethodDeclaration(m)) {
+            return ts.isIdentifier(m.name) && m.name.text === memberName;
+          } else if (memberKind === "property" && ts.isPropertyDeclaration(m)) {
+            return ts.isIdentifier(m.name) && m.name.text === memberName;
+          }
+          return false;
+        });
+
+        if (baseMember) {
+          // In TypeScript, all methods can be overridden unless final (not supported in TS)
+          return { isOverride: true, isShadow: false };
+        }
+      }
+    }
+  }
+
+  return { isOverride: false, isShadow: false };
+};
+
 const convertClassMember = (
   node: ts.ClassElement,
   checker: ts.TypeChecker,
+  superClass: ts.ExpressionWithTypeArguments | undefined,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember | null => {
   if (ts.isPropertyDeclaration(node)) {
+    const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
+    const overrideInfo = detectOverride(
+      memberName,
+      "property",
+      superClass,
+      checker
+    );
+
     return {
       kind: "propertyDeclaration",
-      name: ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      name: memberName,
       type: node.type ? convertType(node.type, checker) : undefined,
       initializer: node.initializer
         ? convertExpression(node.initializer, checker)
@@ -327,13 +435,35 @@ const convertClassMember = (
       isStatic: hasStaticModifier(node),
       isReadonly: hasReadonlyModifier(node),
       accessibility: getAccessibility(node),
+      isOverride: overrideInfo.isOverride ? true : undefined,
+      isShadow: overrideInfo.isShadow ? true : undefined,
     };
   }
 
   if (ts.isMethodDeclaration(node)) {
+    const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
+
+    // Extract parameter types for method signature
+    const parameterTypes = node.parameters.map((param) => {
+      if (param.type) {
+        // Get type string representation
+        const type = checker.getTypeAtLocation(param.type);
+        return checker.typeToString(type);
+      }
+      return "any";
+    });
+
+    const overrideInfo = detectOverride(
+      memberName,
+      "method",
+      superClass,
+      checker,
+      parameterTypes
+    );
+
     return {
       kind: "methodDeclaration",
-      name: ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      name: memberName,
       typeParameters: convertTypeParameters(node.typeParameters, checker),
       parameters: convertParameters(node.parameters, checker),
       returnType: node.type ? convertType(node.type, checker) : undefined,
@@ -344,6 +474,8 @@ const convertClassMember = (
       ),
       isGenerator: !!node.asteriskToken,
       accessibility: getAccessibility(node),
+      isOverride: overrideInfo.isOverride ? true : undefined,
+      isShadow: overrideInfo.isShadow ? true : undefined,
     };
   }
 

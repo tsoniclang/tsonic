@@ -11,6 +11,7 @@ import {
   IrVariableDeclaration,
   IrClassDeclaration,
 } from "./types.js";
+import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -47,6 +48,7 @@ describe("IR Builder", () => {
       checker: program.getTypeChecker(),
       options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
       sourceFiles: [sourceFile],
+      metadata: new DotnetMetadataRegistry(),
     };
   };
 
