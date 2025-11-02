@@ -155,8 +155,9 @@ const emitLiteral = (
   }
 
   if (typeof value === "number") {
-    // All numbers are doubles in JavaScript
-    const text = Number.isInteger(value) ? `${value}.0` : String(value);
+    // All numbers are doubles in JavaScript, but array indices should be integers
+    const isInteger = Number.isInteger(value);
+    const text = isInteger && !context.isArrayIndex ? `${value}.0` : String(value);
     return [{ text }, context];
   }
 
@@ -278,10 +279,14 @@ const emitMemberAccess = (
   const [objectFrag, newContext] = emitExpression(expr.object, context);
 
   if (expr.isComputed) {
-    const [propFrag, finalContext] = emitExpression(
+    // Emit index expression with array index context
+    const indexContext = { ...newContext, isArrayIndex: true };
+    const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
-      newContext
+      indexContext
     );
+    // Clear the array index flag before returning context
+    const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
     const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];

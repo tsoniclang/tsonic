@@ -36,6 +36,8 @@ export type EmitterContext = {
   readonly isStatic: boolean;
   /** Whether currently in async context */
   readonly isAsync: boolean;
+  /** Whether currently emitting an array index (omit .0 from integer literals) */
+  readonly isArrayIndex?: boolean;
 };
 
 /**
