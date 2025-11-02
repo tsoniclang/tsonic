@@ -249,9 +249,9 @@ const runScenario = async (scenario: Scenario): Promise<void> => {
   }
 
   // Step 3: Emit IR → C#
+  // Note: Don't set entryPointPath - golden tests are NOT entry points
   const csharpFiles = emitCSharpFiles(irResult.value, {
     rootNamespace,
-    entryPointPath: scenario.inputPath,
   });
 
   // Find the generated file for our input

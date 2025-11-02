@@ -17,8 +17,4 @@ namespace TestCases.classes
             return x * x * x;
             }
     }
-
-    public static class StaticMembers
-    {
-    }
 }

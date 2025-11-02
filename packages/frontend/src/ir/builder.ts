@@ -249,19 +249,15 @@ const extractStatements = (
 };
 
 const isExecutableStatement = (stmt: IrStatement): boolean => {
-  // Declarations are not executable
+  // Declarations are not executable - they become static members in the container
   const declarationKinds = [
     "functionDeclaration",
     "classDeclaration",
     "interfaceDeclaration",
     "typeAliasDeclaration",
     "enumDeclaration",
+    "variableDeclaration", // Added: variable declarations become static fields
   ];
-
-  // Variable declarations without initializers are not executable
-  if (stmt.kind === "variableDeclaration") {
-    return stmt.declarations.some((decl) => decl.initializer !== undefined);
-  }
 
   // Empty statements are not executable
   if (stmt.kind === "emptyStatement") {
