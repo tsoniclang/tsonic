@@ -887,6 +887,188 @@ foreach (byte item in items)
 }
 ```
 
+## Async/Await Support
+
+Tsonic provides full support for async/await with TypeScript `Promise<T>` mapping to .NET `Task<T>`.
+
+### Supported Async Features
+
+#### Basic Async/Await
+
+```typescript
+async function fetchUser(id: number): Promise<User> {
+  const response = await fetch(`/api/users/${id}`);
+  return await response.json();
+}
+```
+
+Emits:
+
+```csharp
+public static async Task<User> fetchUser(double id)
+{
+    var response = await fetch($"/api/users/{id}");
+    return await response.json();
+}
+```
+
+#### Promise<void> → Task
+
+```typescript
+async function saveData(): Promise<void> {
+  await writeFile("data.json", data);
+}
+```
+
+Emits:
+
+```csharp
+public static async Task saveData()
+{
+    await writeFile("data.json", data);
+}
+```
+
+#### Multiple Await Expressions
+
+```typescript
+async function processAll() {
+  const users = await fetchUsers();
+  const posts = await fetchPosts();
+  return { users, posts };
+}
+```
+
+Emits:
+
+```csharp
+public static async Task<dynamic> processAll()
+{
+    var users = await fetchUsers();
+    var posts = await fetchPosts();
+    return new { users, posts };
+}
+```
+
+#### Async Try/Catch/Finally
+
+```typescript
+async function safeFetch(): Promise<string> {
+  try {
+    return await fetchData();
+  } catch (error) {
+    console.log("Error:", error);
+    return "default";
+  } finally {
+    cleanup();
+  }
+}
+```
+
+Emits:
+
+```csharp
+public static async Task<string> safeFetch()
+{
+    try
+    {
+        return await fetchData();
+    }
+    catch (var error)
+    {
+        Console.WriteLine("Error:", error);
+        return "default";
+    }
+    finally
+    {
+        cleanup();
+    }
+}
+```
+
+#### Async Generators
+
+```typescript
+async function* generateNumbers(): AsyncIterableIterator<number> {
+  for (let i = 0; i < 10; i++) {
+    await delay(100);
+    yield i;
+  }
+}
+```
+
+Emits:
+
+```csharp
+public static async IAsyncEnumerable<generateNumbers_exchange> generateNumbers()
+{
+    var exchange = new generateNumbers_exchange();
+    for (var i = 0.0; i < 10.0; i++)
+    {
+        await delay(100.0);
+        exchange.Output = i;
+        yield return exchange;
+    }
+}
+```
+
+### Unsupported Promise Features
+
+The following Promise methods are **not supported** and will emit diagnostic TSN3011:
+
+- `Promise.then(callback)` - Use async/await
+- `Promise.catch(callback)` - Use try/catch with async/await
+- `Promise.finally(callback)` - Use finally block with async/await
+
+**Rationale:** Tsonic maps `Promise<T>` to .NET `Task<T>`, which uses async/await pattern rather than chaining.
+
+### Promise Combinators
+
+Promise combinator methods (`Promise.all`, `Promise.race`, `Promise.any`, `Promise.allSettled`) are **not currently implemented**. Use .NET Task equivalents:
+
+| TypeScript                         | .NET Equivalent                  |
+| ---------------------------------- | -------------------------------- |
+| `await Promise.all([p1, p2, p3])`  | `await Task.WhenAll(p1, p2, p3)` |
+| `await Promise.race([p1, p2, p3])` | `await Task.WhenAny(p1, p2, p3)` |
+| `Promise.any()`                    | Custom implementation needed     |
+| `Promise.allSettled()`             | Custom implementation needed     |
+
+**Example:**
+
+```typescript
+import { Task } from "System.Threading.Tasks";
+
+async function fetchAll() {
+  const tasks = [fetchUser(1), fetchUser(2), fetchUser(3)];
+  const results = await Task.WhenAll(tasks);
+  return results;
+}
+```
+
+### Type Mappings
+
+| TypeScript             | C#             |
+| ---------------------- | -------------- |
+| `Promise<string>`      | `Task<string>` |
+| `Promise<number>`      | `Task<double>` |
+| `Promise<void>`        | `Task`         |
+| `Promise<T>`           | `Task<T>`      |
+| No return type + async | `Task`         |
+
+### System Namespaces
+
+Async functions automatically include:
+
+```csharp
+using System.Threading.Tasks;
+```
+
+Async generators additionally include:
+
+```csharp
+using System.Collections.Generic;
+```
+
 ## Summary
 
 - **No wrapper classes**: All types are native .NET types
@@ -894,3 +1076,4 @@ foreach (byte item in items)
 - **Clean boundaries**: Explicit conversions at .NET library boundaries
 - **Type safety**: Strict typing with no `any` support
 - **Performance**: Native .NET performance with NativeAOT compilation
+- **Async/Await**: Full support with Promise<T> → Task<T> mapping
