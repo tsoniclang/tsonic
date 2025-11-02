@@ -31,6 +31,7 @@ describe("Generic Classes (spec/15 §3-5)", () => {
               isStructuralConstraint: false,
             },
           ],
+          isStruct: false,
           members: [
             {
               kind: "propertyDeclaration",

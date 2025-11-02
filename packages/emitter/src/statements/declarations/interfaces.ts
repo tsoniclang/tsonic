@@ -43,7 +43,8 @@ export const emitInterfaceDeclaration = (
   // Access modifier
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
-  parts.push("class"); // Class, not interface!
+  // Emit struct or class based on isStruct flag
+  parts.push(stmt.isStruct ? "struct" : "class");
   parts.push(stmt.name);
 
   // Type parameters (if any)

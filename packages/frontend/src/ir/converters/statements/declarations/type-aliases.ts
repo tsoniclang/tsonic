@@ -20,5 +20,6 @@ export const convertTypeAliasDeclaration = (
     typeParameters: convertTypeParameters(node.typeParameters, checker),
     type: convertType(node.type, checker),
     isExported: hasExportModifier(node),
+    isStruct: false, // Type aliases are not structs by default
   };
 };

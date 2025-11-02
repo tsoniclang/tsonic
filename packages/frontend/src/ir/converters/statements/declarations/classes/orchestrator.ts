@@ -89,6 +89,17 @@ const deduplicateMembers = (
 };
 
 /**
+ * Check if a type reference is the struct marker
+ */
+const isStructMarker = (
+  typeRef: ts.ExpressionWithTypeArguments,
+  checker: ts.TypeChecker
+): boolean => {
+  const symbol = checker.getSymbolAtLocation(typeRef.expression);
+  return symbol?.escapedName === "struct" || symbol?.escapedName === "Struct";
+};
+
+/**
  * Convert class declaration to IR
  */
 export const convertClassDeclaration = (
@@ -101,10 +112,21 @@ export const convertClassDeclaration = (
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   )?.types[0];
 
+  // Detect struct marker in implements clause
+  let isStruct = false;
+  const implementsClause = node.heritageClauses?.find(
+    (h) => h.token === ts.SyntaxKind.ImplementsKeyword
+  );
   const implementsTypes =
-    node.heritageClauses
-      ?.find((h) => h.token === ts.SyntaxKind.ImplementsKeyword)
-      ?.types.map((t) => convertType(t, checker)) ?? [];
+    implementsClause?.types
+      .filter((t) => {
+        if (isStructMarker(t, checker)) {
+          isStruct = true;
+          return false; // Remove marker from implements
+        }
+        return true;
+      })
+      .map((t) => convertType(t, checker)) ?? [];
 
   // Extract parameter properties from constructor
   const constructor = node.members.find(ts.isConstructorDeclaration);
@@ -124,13 +146,21 @@ export const convertClassDeclaration = (
   const allMembers = [...parameterProperties, ...convertedMembers];
   const deduplicatedMembers = deduplicateMembers(allMembers);
 
+  // Filter out __brand property if this is a struct
+  const finalMembers = isStruct
+    ? deduplicatedMembers.filter(
+        (m) => m.kind !== "propertyDeclaration" || m.name !== "__brand"
+      )
+    : deduplicatedMembers;
+
   return {
     kind: "classDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, checker),
     superClass: superClass ? convertExpression(superClass, checker) : undefined,
     implements: implementsTypes,
-    members: deduplicatedMembers,
+    members: finalMembers,
     isExported: hasExportModifier(node),
+    isStruct,
   };
 };
