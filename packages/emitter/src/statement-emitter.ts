@@ -117,13 +117,48 @@ const emitVariableDeclaration = (
   for (const decl of stmt.declarations) {
     let varDecl = "";
 
+    // In static contexts, variable declarations become fields with modifiers
+    if (context.isStatic && stmt.isExported) {
+      varDecl = "public static ";
+      if (stmt.declarationKind === "const") {
+        varDecl += "readonly ";
+      }
+    }
+
     // Determine the C# type
     if (decl.type) {
       const [typeName, newContext] = emitType(decl.type, currentContext);
       currentContext = newContext;
-      varDecl = `${typeName} `;
+      varDecl += `${typeName} `;
+    } else if (decl.initializer && decl.initializer.kind === "arrowFunction" && context.isStatic) {
+      // For arrow functions in static context without explicit type, infer Func<> type
+      const arrowFunc = decl.initializer;
+      const paramTypes: string[] = [];
+
+      for (const param of arrowFunc.parameters) {
+        if (param.type) {
+          const [paramType, newCtx] = emitType(param.type, currentContext);
+          paramTypes.push(paramType);
+          currentContext = newCtx;
+        } else {
+          paramTypes.push("dynamic");
+        }
+      }
+
+      // Infer return type from arrow function if available
+      let returnType = "dynamic";
+      if (arrowFunc.returnType) {
+        const [retType, newCtx] = emitType(arrowFunc.returnType, currentContext);
+        returnType = retType;
+        currentContext = newCtx;
+      }
+
+      const allTypes = [...paramTypes, returnType];
+      const funcType = `Func<${allTypes.join(", ")}>`;
+      currentContext = addUsing(currentContext, "System");
+      varDecl += `${funcType} `;
     } else {
-      varDecl = "var ";
+      varDecl += "var ";
     }
 
     // Handle different pattern types

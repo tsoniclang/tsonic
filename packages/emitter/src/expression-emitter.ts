@@ -3,7 +3,7 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing, getIndent } from "./types.js";
+import { EmitterContext, CSharpFragment, addUsing } from "./types.js";
 import { emitType } from "./type-emitter.js";
 import { emitStatement } from "./statement-emitter.js";
 
@@ -656,28 +656,16 @@ const emitArrowFunction = (
   let bodyText: string;
   if (typeof expr.body === "object" && "kind" in expr.body) {
     if (expr.body.kind === "blockStatement") {
-      // For block statements in lambdas, emit the full block
+      // For block statements in lambdas, emit the block using the current context
+      // The context indentation determines where the block braces appear
       const [blockCode, newContext] = emitStatement(expr.body, currentContext);
       currentContext = newContext;
 
-      // The block code will have indentation, but for inline lambdas we need to format it differently
-      // For now, emit it on multiple lines with proper indentation
-      const ind = getIndent(context);
       const params = paramNames.join(", ");
-      const lines = blockCode.split('\n');
+      // The block code has proper indentation, just prepend the lambda signature
+      const text = `(${params}) =>\n${blockCode}`;
 
-      // Remove leading indentation from block code since we'll add our own
-      const trimmedLines = lines.map(line => line.trim()).filter(line => line);
-
-      // Format as multi-line lambda
-      const formattedBlock = [
-        `(${params}) =>`,
-        `${ind}{`,
-        ...trimmedLines.slice(1, -1).map(line => `${ind}${line}`),
-        `${ind}}`
-      ].join('\n');
-
-      return [{ text: formattedBlock }, currentContext];
+      return [{ text }, currentContext];
     } else {
       const [bodyFrag, newContext] = emitExpression(expr.body, currentContext);
       currentContext = newContext;
