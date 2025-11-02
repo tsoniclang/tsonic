@@ -280,7 +280,7 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use indexer syntax
-    expect(code).to.include("arr[0.0]");
+    // Should use indexer syntax (integer literals without .0)
+    expect(code).to.include("arr[0]");
   });
 });
