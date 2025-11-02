@@ -47,7 +47,7 @@ src/
 | `User.ts`         | `User`        | Regular class if exported |
 | `user.ts`         | `user`        | Static container class    |
 | `userService.ts`  | `userService` | Name exactly as-is        |
-| `user-service.ts` | `userservice` | Hyphens ignored       |
+| `user-service.ts` | `userservice` | Hyphens ignored           |
 
 ## Name Sanitization Rules
 

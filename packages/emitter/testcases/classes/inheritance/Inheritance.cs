@@ -11,7 +11,7 @@ namespace TestCases.classes
             this.name = name;
             }
 
-        public virtual string makeSound()
+        public string makeSound()
             {
             return "Some sound";
             }
@@ -26,7 +26,7 @@ namespace TestCases.classes
             this.breed = breed;
             }
 
-        public override string makeSound()
+        public string makeSound()
             {
             return "Woof!";
             }

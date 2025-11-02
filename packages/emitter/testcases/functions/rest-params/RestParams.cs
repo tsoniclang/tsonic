@@ -4,14 +4,14 @@ namespace TestCases.functions
 {
     public static class RestParams
     {
-        public static double sum(params double[] numbers)
+        public static double sum(Tsonic.Runtime.Array<double> numbers)
             {
-            return numbers.Reduce((acc, n) => acc + n, 0.0);
+            return numbers.reduce((acc, n) => acc + n, 0.0);
             }
 
-        public static string concat(string separator, params string[] strings)
+        public static string concat(string separator, Tsonic.Runtime.Array<string> strings)
             {
-            return strings.Join(separator);
+            return strings.join(separator);
             }
     }
 }

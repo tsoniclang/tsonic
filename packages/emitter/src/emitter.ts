@@ -7,6 +7,7 @@ import {
   IrImport,
   IrExport,
   IrTypeParameter,
+  IrStatement,
 } from "@tsonic/frontend";
 import {
   EmitterOptions,
@@ -105,11 +106,19 @@ export const emitModule = (
   );
 
   // Separate namespace-level declarations from static container members
-  const namespaceLevelDecls: any[] = [];
-  const staticContainerMembers: any[] = [];
+  const namespaceLevelDecls: IrStatement[] = [];
+  const staticContainerMembers: IrStatement[] = [];
+
+  // Detect if module has any inheritance (for virtual/override keywords)
+  const hasInheritance = module.body.some(
+    (stmt) => stmt.kind === "classDeclaration" && stmt.superClass
+  );
 
   for (const stmt of module.body) {
-    if (stmt.kind === "classDeclaration" || stmt.kind === "interfaceDeclaration") {
+    if (
+      stmt.kind === "classDeclaration" ||
+      stmt.kind === "interfaceDeclaration"
+    ) {
       namespaceLevelDecls.push(stmt);
     } else {
       staticContainerMembers.push(stmt);
@@ -118,7 +127,7 @@ export const emitModule = (
 
   // Emit namespace-level declarations (classes, interfaces)
   const namespaceParts: string[] = [];
-  const namespaceContext = indent(exchangesContext);
+  const namespaceContext = { ...indent(exchangesContext), hasInheritance };
   let currentContext = namespaceContext;
 
   for (const decl of namespaceLevelDecls) {
@@ -126,12 +135,19 @@ export const emitModule = (
     const [code, newContext] = emitStatement(decl, namespaceContext);
     namespaceParts.push(code);
     // Track context for using statements, but don't let indentation accumulate
-    currentContext = newContext;
+    // Preserve the hasInheritance flag
+    currentContext = { ...newContext, hasInheritance };
   }
 
-  // Emit static container if there are other members (functions, variables)
+  // Emit static container class unless there's a namespace-level class with same name
+  const hasMatchingClassName = namespaceLevelDecls.some(
+    (decl) =>
+      (decl.kind === "classDeclaration" ||
+        decl.kind === "interfaceDeclaration") &&
+      decl.name === module.className
+  );
   let staticContainerCode = "";
-  if (staticContainerMembers.length > 0) {
+  if (!hasMatchingClassName) {
     const classContext = withStatic(indent(exchangesContext), true);
     const bodyContext = indent(classContext);
     const ind = getIndent(classContext);
@@ -164,7 +180,7 @@ export const emitModule = (
 
     containerParts.push(`${ind}}`);
     staticContainerCode = containerParts.join("\n");
-    currentContext = bodyCurrentContext;
+    currentContext = { ...bodyCurrentContext, hasInheritance };
   }
 
   // Format using statements
@@ -331,7 +347,6 @@ const resolveLocalImport = (
 
   return `${rootNamespace}.${parts.join(".")}`;
 };
-
 
 /**
  * Emit an export declaration

@@ -3,7 +3,7 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "./types.js";
+import { EmitterContext, CSharpFragment, addUsing, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
 import { emitStatement } from "./statement-emitter.js";
 
@@ -158,7 +158,8 @@ const emitLiteral = (
   if (typeof value === "number") {
     // All numbers are doubles in JavaScript, but array indices should be integers
     const isInteger = Number.isInteger(value);
-    const text = isInteger && !context.isArrayIndex ? `${value}.0` : String(value);
+    const text =
+      isInteger && !context.isArrayIndex ? `${value}.0` : String(value);
     return [{ text }, context];
   }
 
@@ -656,10 +657,14 @@ const emitArrowFunction = (
   let bodyText: string;
   if (typeof expr.body === "object" && "kind" in expr.body) {
     if (expr.body.kind === "blockStatement") {
-      // For block statements in lambdas, emit the block using the current context
-      // The context indentation determines where the block braces appear
-      const [blockCode, newContext] = emitStatement(expr.body, currentContext);
-      currentContext = newContext;
+      // For block statements in lambdas:
+      // - In static contexts (field initializers), indent the block one level
+      // - In non-static contexts (local variables), keep at same level
+      const blockContext = currentContext.isStatic
+        ? indent(currentContext)
+        : currentContext;
+      const [blockCode, newContext] = emitStatement(expr.body, blockContext);
+      currentContext = { ...currentContext, usings: newContext.usings };
 
       const params = paramNames.join(", ");
       // The block code has proper indentation, just prepend the lambda signature

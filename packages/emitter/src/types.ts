@@ -40,6 +40,10 @@ export type EmitterContext = {
   readonly isArrayIndex?: boolean;
   /** Current class name (for constructor emission) */
   readonly className?: string;
+  /** Whether the current class has a superclass (for virtual/override) */
+  readonly hasSuperClass?: boolean;
+  /** Whether the module has any inheritance (to decide virtual methods) */
+  readonly hasInheritance?: boolean;
 };
 
 /**
