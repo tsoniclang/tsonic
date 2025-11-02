@@ -257,9 +257,11 @@ const emitUnionType = (
   type: Extract<IrType, { kind: "unionType" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  // C# doesn't have union types, so we need to find a common base type
-  // For MVP, we'll use object
-  // In a more complete implementation, we might analyze the types for a common base
+  // C# doesn't have native union types
+  // Strategy:
+  // 1. Nullable types (T | null | undefined) → T?
+  // 2. Two-type unions → Union<T1, T2>
+  // 3. Multi-type unions → object (fallback)
 
   // Check if it's a nullable type (T | null | undefined)
   const nonNullTypes = type.types.filter(
@@ -282,6 +284,16 @@ const emitUnionType = (
     return [`${baseType}?`, newContext];
   }
 
+  // Two-type union (most common case) → Union<T1, T2>
+  if (type.types.length === 2) {
+    const [type1Str, context1] = emitType(type.types[0]!, context);
+    const [type2Str, context2] = emitType(type.types[1]!, context1);
+    const finalContext = addUsing(context2, "Tsonic.Runtime");
+    return [`Union<${type1Str}, ${type2Str}>`, finalContext];
+  }
+
+  // Fallback for multi-type unions: use object
+  // In a more complete implementation, we might generate Union<T1, T2, T3> variants
   return ["object", context];
 };
 
