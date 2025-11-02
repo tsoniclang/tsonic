@@ -8,13 +8,13 @@ namespace TestCases.control-flow
             {
             var sum = 0.0;
             for (var i = 0.0; i < numbers.length; i++)
-            {
-            if (numbers[i] % 2.0 != 0.0)
-            {
-            continue;
-            }
-            sum += numbers[i];
-            }
+                {
+                if (numbers[i] % 2.0 != 0.0)
+                    {
+                    continue;
+                    }
+                sum += numbers[i];
+                }
             return sum;
             }
 
@@ -22,13 +22,13 @@ namespace TestCases.control-flow
             {
             var i = 0.0;
             while (i < numbers.length)
-            {
-            if (numbers[i] == target)
-            {
-            break;
-            }
-            i++;
-            }
+                {
+                if (numbers[i] == target)
+                    {
+                    break;
+                    }
+                i++;
+                }
             return i;
             }
     }

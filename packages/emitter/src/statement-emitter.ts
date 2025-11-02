@@ -850,7 +850,8 @@ const emitForStatement = (
         currentContext
       );
       currentContext = newContext;
-      init = initCode.trim();
+      // Strip trailing semicolon from variable declaration
+      init = initCode.trim().replace(/;$/, "");
     } else {
       const [initFrag, newContext] = emitExpression(
         stmt.initializer,
