@@ -299,7 +299,8 @@ export type IrExpression =
   | IrAssignmentExpression
   | IrTemplateLiteralExpression
   | IrSpreadExpression
-  | IrAwaitExpression;
+  | IrAwaitExpression
+  | IrYieldExpression;
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
@@ -451,6 +452,13 @@ export type IrSpreadExpression = {
 export type IrAwaitExpression = {
   readonly kind: "await";
   readonly expression: IrExpression;
+  readonly inferredType?: IrType;
+};
+
+export type IrYieldExpression = {
+  readonly kind: "yield";
+  readonly expression?: IrExpression; // Optional for bare `yield`
+  readonly delegate: boolean; // true for `yield*`, false for `yield`
   readonly inferredType?: IrType;
 };
 

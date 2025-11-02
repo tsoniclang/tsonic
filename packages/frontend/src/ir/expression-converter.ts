@@ -265,6 +265,16 @@ export const convertExpression = (
       inferredType,
     };
   }
+  if (ts.isYieldExpression(node)) {
+    return {
+      kind: "yield",
+      expression: node.expression
+        ? convertExpression(node.expression, checker)
+        : undefined,
+      delegate: !!node.asteriskToken,
+      inferredType,
+    };
+  }
   if (ts.isParenthesizedExpression(node)) {
     return convertExpression(node.expression, checker);
   }
