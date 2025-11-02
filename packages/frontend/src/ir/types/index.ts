@@ -1,16 +1,18 @@
 /**
+ * IR types barrel exports
  * Intermediate Representation (IR) types for Tsonic compiler
- * Main dispatcher - re-exports from specialized modules
  */
 
-// Re-export everything from types subdirectory for backward compatibility
+// Module types
 export type {
-  // Module types
   IrModule,
   IrImport,
   IrImportSpecifier,
   IrExport,
-  // Statement types
+} from "./module.js";
+
+// Statement types
+export type {
   IrStatement,
   IrVariableDeclaration,
   IrVariableDeclarator,
@@ -39,7 +41,10 @@ export type {
   IrBreakStatement,
   IrContinueStatement,
   IrEmptyStatement,
-  // Expression types
+} from "./statements.js";
+
+// Expression types
+export type {
   IrExpression,
   IrLiteralExpression,
   IrIdentifierExpression,
@@ -62,7 +67,10 @@ export type {
   IrSpreadExpression,
   IrAwaitExpression,
   IrYieldExpression,
-  // Type system types
+} from "./expressions.js";
+
+// Type system types
+export type {
   IrType,
   IrPrimitiveType,
   IrReferenceType,
@@ -76,7 +84,10 @@ export type {
   IrUnknownType,
   IrVoidType,
   IrNeverType,
-  // Helper types
+} from "./ir-types.js";
+
+// Helper types
+export type {
   IrPattern,
   IrIdentifierPattern,
   IrArrayPattern,
@@ -90,7 +101,7 @@ export type {
   IrAccessibility,
   IrBinaryOperator,
   IrAssignmentOperator,
-} from "./types/index.js";
+} from "./helpers.js";
 
-// Re-export type guards
-export { isStatement, isExpression } from "./types/guards.js";
+// Type guards
+export { isStatement, isExpression } from "./guards.js";
