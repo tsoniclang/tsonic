@@ -208,6 +208,48 @@ TypeScript generic parameters map directly to C# generic parameters whenever pos
 
 Interfaces and structural type aliases are emitted as C# classes/interfaces with property mappings, optional member handling, and adapters for structural inheritance. See `spec/16-types-and-interfaces.md` for the full strategy (including generics).
 
+### Value Type Structs
+
+TypeScript interfaces and classes can be emitted as C# **structs** (value types) instead of classes by using the `struct` marker from `@tsonic/runtime`:
+
+```typescript
+import { struct } from "@tsonic/runtime";
+
+export interface Point extends struct {
+  x: number;
+  y: number;
+}
+```
+
+Emits as:
+
+```csharp
+public struct Point
+{
+    public double x { get; set; }
+    public double y { get; set; }
+}
+```
+
+**Benefits of using structs:**
+
+- **Stack allocation** - structs are allocated on the stack, avoiding heap allocations
+- **Performance** - better cache locality and reduced GC pressure for small data types
+- **Value semantics** - structs are copied by value, not by reference
+
+**When to use structs:**
+
+- Small data structures (typically < 16 bytes)
+- Immutable value types (coordinates, colors, sizes, etc.)
+- Types that benefit from value semantics
+
+**Limitations:**
+
+- Structs cannot inherit from classes (C# restriction)
+- Larger structs (>16 bytes) may hurt performance due to copying overhead
+
+See `spec/16-types-and-interfaces.md` §2.2 for complete documentation.
+
 ## Async Types
 
 | TypeScript       | C#                  |

@@ -72,26 +72,80 @@ Self-referential fields are safe because C# supports nullable references pointin
 - Optional members (`?`) become nullable reference/value types (`bool?`, `string?`).
 - Readonly members map to `private set` auto-properties or fields.
 
-### 2.2 Generics
+### 2.2 Value Type Structs
+
+TypeScript interfaces and classes can be emitted as C# **structs** instead of classes by extending/implementing the special `struct` marker type from `@tsonic/runtime`:
+
+```typescript
+import { struct } from "@tsonic/runtime";
+
+export interface Point extends struct {
+  x: number;
+  y: number;
+}
+```
+
+Emits as:
+
+```csharp
+public struct Point
+{
+    public double x { get; set; }
+    public double y { get; set; }
+}
+```
+
+**Rules:**
+
+- The `struct` marker is a phantom type with a `__brand` property that is automatically filtered out during IR conversion.
+- Works with both `interface` (using `extends`) and `class` (using `implements`).
+- The marker is removed from the heritage clause in generated C#, so it never appears in the output.
+- Structs cannot inherit from classes (C# limitation) - extending anything other than `struct` will cause C# compilation errors.
+- Use structs for small, immutable value types to gain performance benefits from stack allocation.
+
+**Example with class:**
+
+```typescript
+import { struct } from "@tsonic/runtime";
+
+export class Vector3D implements struct {
+  x: number;
+  y: number;
+  z: number;
+}
+```
+
+Emits as:
+
+```csharp
+public struct Vector3D
+{
+    public double x { get; set; }
+    public double y { get; set; }
+    public double z { get; set; }
+}
+```
+
+### 2.3 Generics
 
 - Preserve generic parameters: `interface Box<T> { value: T; }` → `public class Box<T> { public T value { get; set; } }`.
 - Constraints on generic interfaces follow `spec/15-generics.md` (structural constraint adapters, etc.).
 
-### 2.3 Inheritance
+### 2.4 Inheritance
 
 - `interface Foo extends Bar, Baz { }` → C# class inheriting the generated base class (`Bar`) and implementing interfaces (`IBaz`). If all bases are interfaces, emit `public class Foo : Bar, IBaz`.
 - Structural bases (`extends { id: number }`) trigger adapter generation (synthesise base interface/class).
 
-### 2.4 Index signatures
+### 2.5 Index signatures
 
 - `interface Dict { [key: string]: number; }` → `public class Dict : Dictionary<string, double>` or a wrapper exposing typed indexer. Implement constructors to clone from TS objects as needed.
 - Generic index signatures (`[key: string]: T`) use `Dictionary<string, T>`.
 
-### 2.5 Intersection types (`extends Foo & Bar`)
+### 2.6 Intersection types (`extends Foo & Bar`)
 
 - If both bases map to generated classes/interfaces, use C# multiple inheritance (one base class + interfaces). If structural, synthesise combined adapter.
 
-### 2.6 Anonymous structural types
+### 2.7 Anonymous structural types
 
 - Inline structural literals (e.g., `{ id: number; name: string }`) generate synthetic classes when an interface is not declared. Reuse adapter machinery from `spec/15-generics.md`.
 

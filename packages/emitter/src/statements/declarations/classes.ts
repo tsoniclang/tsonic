@@ -28,7 +28,8 @@ export const emitClassDeclaration = (
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
 
-  parts.push("class");
+  // Emit struct or class based on isStruct flag
+  parts.push(stmt.isStruct ? "struct" : "class");
   parts.push(stmt.name);
 
   // Type parameters

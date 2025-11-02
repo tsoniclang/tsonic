@@ -22,13 +22,18 @@ export const emitTypeAliasDeclaration = (
 
   // Check if this is a structural (object) type alias
   if (stmt.type.kind === "objectType") {
-    // Generate a sealed class for structural type alias
+    // Generate a sealed class (or struct) for structural type alias
     const parts: string[] = [];
 
     const accessibility = stmt.isExported ? "public" : "internal";
     parts.push(accessibility);
-    parts.push("sealed");
-    parts.push("class");
+    // Emit struct or sealed class based on isStruct flag
+    if (stmt.isStruct) {
+      parts.push("struct");
+    } else {
+      parts.push("sealed");
+      parts.push("class");
+    }
     parts.push(`${stmt.name}__Alias`); // Add __Alias suffix per spec §3.4
 
     // Type parameters (if any)

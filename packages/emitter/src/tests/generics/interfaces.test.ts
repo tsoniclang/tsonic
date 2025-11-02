@@ -23,6 +23,7 @@ describe("Interfaces (spec/16 §2)", () => {
           name: "User",
           typeParameters: undefined,
           extends: [],
+          isStruct: false,
           members: [
             {
               kind: "propertySignature",
@@ -80,6 +81,7 @@ describe("Interfaces (spec/16 §2)", () => {
           name: "Config",
           typeParameters: undefined,
           extends: [],
+          isStruct: false,
           members: [
             {
               kind: "propertySignature",
@@ -124,6 +126,7 @@ describe("Interfaces (spec/16 §2)", () => {
             },
           ],
           extends: [],
+          isStruct: false,
           members: [
             {
               kind: "propertySignature",

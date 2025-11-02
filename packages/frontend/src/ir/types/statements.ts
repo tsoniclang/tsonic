@@ -67,6 +67,8 @@ export type IrClassDeclaration = {
   readonly implements: readonly IrType[];
   readonly members: readonly IrClassMember[];
   readonly isExported: boolean;
+  /** True if this class should be emitted as a C# struct instead of a class */
+  readonly isStruct: boolean;
 };
 
 export type IrClassMember =
@@ -119,6 +121,8 @@ export type IrInterfaceDeclaration = {
   readonly extends: readonly IrType[];
   readonly members: readonly IrInterfaceMember[];
   readonly isExported: boolean;
+  /** True if this interface should be emitted as a C# struct instead of a class */
+  readonly isStruct: boolean;
 };
 
 export type IrEnumDeclaration = {
@@ -140,6 +144,8 @@ export type IrTypeAliasDeclaration = {
   readonly typeParameters?: readonly IrTypeParameter[];
   readonly type: IrType;
   readonly isExported: boolean;
+  /** True if this type alias should be emitted as a C# struct instead of a class */
+  readonly isStruct: boolean;
 };
 
 export type IrExpressionStatement = {

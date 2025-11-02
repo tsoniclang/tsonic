@@ -381,4 +381,115 @@ describe("IR Builder", () => {
       }
     });
   });
+
+  describe("Struct Detection", () => {
+    it("should detect struct marker in interface", () => {
+      const source = `
+        interface struct {
+          readonly __brand: "struct";
+        }
+
+        export interface Point extends struct {
+          x: number;
+          y: number;
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const body = result.value.body;
+        const pointInterface = body.find(
+          (stmt) =>
+            stmt.kind === "interfaceDeclaration" && stmt.name === "Point"
+        );
+        expect(pointInterface).to.exist;
+        if (pointInterface && pointInterface.kind === "interfaceDeclaration") {
+          expect(pointInterface.isStruct).to.equal(true);
+          // Verify __brand property is filtered out
+          expect(
+            pointInterface.members.some(
+              (m) => m.kind === "propertySignature" && m.name === "__brand"
+            )
+          ).to.equal(false);
+        }
+      }
+    });
+
+    it("should detect struct marker in class", () => {
+      const source = `
+        interface struct {
+          readonly __brand: "struct";
+        }
+
+        export class Vector3D implements struct {
+          x: number;
+          y: number;
+          z: number;
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const body = result.value.body;
+        const vectorClass = body.find(
+          (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Vector3D"
+        );
+        expect(vectorClass).to.exist;
+        if (vectorClass && vectorClass.kind === "classDeclaration") {
+          expect(vectorClass.isStruct).to.equal(true);
+          // Verify __brand property is filtered out
+          expect(
+            vectorClass.members.some(
+              (m) => m.kind === "propertyDeclaration" && m.name === "__brand"
+            )
+          ).to.equal(false);
+        }
+      }
+    });
+
+    it("should not mark regular class as struct", () => {
+      const source = `
+        export class RegularClass {
+          value: number;
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const body = result.value.body;
+        const regularClass = body[0];
+        expect(regularClass).to.exist;
+        if (regularClass && regularClass.kind === "classDeclaration") {
+          expect(regularClass.isStruct).to.equal(false);
+        }
+      }
+    });
+  });
 });

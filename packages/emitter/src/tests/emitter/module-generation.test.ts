@@ -134,6 +134,7 @@ describe("Module Generation", () => {
               isGenerator: false,
             },
           ],
+          isStruct: false,
           isExported: true,
           implements: [],
         },
