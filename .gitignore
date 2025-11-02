@@ -133,6 +133,7 @@ dist
 out/
 *.cs
 !packages/runtime/**/*.cs
+!packages/emitter/testcases/**/*.cs
 
 # .NET build artifacts
 **/bin/

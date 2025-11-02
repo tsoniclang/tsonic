@@ -26,6 +26,7 @@ import {
   generateSpecializations,
 } from "./specialization-generator.js";
 import { generateGeneratorExchanges } from "./generator-exchange.js";
+import { generateFileHeader } from "./constants.js";
 
 /**
  * Collect all type parameters from declarations in a module
@@ -160,21 +161,12 @@ export const emitModule = (
 };
 
 /**
- * Generate file header with source info
+ * Generate file header with source info (uses shared constant)
  */
 const generateHeader = (module: IrModule, options: EmitterOptions): string => {
-  const lines: string[] = [];
-
-  lines.push(`// Generated from: ${module.filePath}`);
-
-  if (options.includeTimestamp) {
-    lines.push(`// Generated at: ${new Date().toISOString()}`);
-  }
-
-  lines.push("// WARNING: Do not modify this file manually");
-  lines.push("");
-
-  return lines.join("\n");
+  return generateFileHeader(module.filePath, {
+    includeTimestamp: options.includeTimestamp,
+  });
 };
 
 /**
