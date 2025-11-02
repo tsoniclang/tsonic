@@ -25,6 +25,7 @@ import {
   collectSpecializations,
   generateSpecializations,
 } from "./specialization-generator.js";
+import { generateGeneratorExchanges } from "./generator-exchange.js";
 
 /**
  * Collect all type parameters from declarations in a module
@@ -96,10 +97,16 @@ export const emitModule = (
     adaptersContext
   );
 
+  // Generate exchange objects for generators
+  const [exchangesCode, exchangesContext] = generateGeneratorExchanges(
+    module,
+    specializationsContext
+  );
+
   // Generate class or static container
   const [classCode, finalContext] = module.isStaticContainer
-    ? generateStaticClass(module, specializationsContext)
-    : generateRegularClass(module, specializationsContext);
+    ? generateStaticClass(module, exchangesContext)
+    : generateRegularClass(module, exchangesContext);
 
   // Format using statements
   const usings = formatUsings(finalContext.usings);
@@ -133,6 +140,16 @@ export const emitModule = (
       .map((line) => (line ? "    " + line : line))
       .join("\n");
     parts.push(indentedSpecializations);
+    parts.push("");
+  }
+
+  // Emit generator exchange objects after specializations
+  if (exchangesCode) {
+    const indentedExchanges = exchangesCode
+      .split("\n")
+      .map((line) => (line ? "    " + line : line))
+      .join("\n");
+    parts.push(indentedExchanges);
     parts.push("");
   }
 
