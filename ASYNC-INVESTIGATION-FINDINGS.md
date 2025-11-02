@@ -11,6 +11,7 @@ The async/await support in Tsonic is **functional for basic use cases** but has 
 ## ✅ What Works (Verified)
 
 ### 1. Basic Async/Await ✅
+
 - **Status:** FULLY WORKING
 - **Evidence:** Tests passing in emitter.test.ts:457 and async-investigation.test.ts
 - **Features:**
@@ -19,11 +20,13 @@ The async/await support in Tsonic is **functional for basic use cases** but has 
   - `System.Threading.Tasks` using statement auto-added
 
 **Example:**
+
 ```typescript
 async function fetchData(): Promise<string> {
   return await getData();
 }
 ```
+
 ```csharp
 public static async Task<string> fetchData()
 {
@@ -32,23 +35,27 @@ public static async Task<string> fetchData()
 ```
 
 ### 2. Promise<T> → Task<T> Mapping ✅
+
 - **Status:** FULLY WORKING (BUG FIXED)
 - **Bug Fixed:** Promise<void> was emitting `Task<void>` (invalid C#)
 - **Fix:** Now correctly emits just `Task`
 - **Evidence:** type-emitter.ts:139-142
 
 **Mappings:**
+
 - `Promise<string>` → `Task<string>` ✅
 - `Promise<number>` → `Task<double>` ✅
 - `Promise<void>` → `Task` ✅ (FIXED)
 - No return type + async → `Task` ✅
 
 ### 3. Multiple Await Expressions ✅
+
 - **Status:** FULLY WORKING
 - **Evidence:** async-investigation.test.ts
 - **Feature:** Sequential await statements with variable binding work correctly
 
 **Example:**
+
 ```typescript
 async function process() {
   const a = await fetch1();
@@ -56,6 +63,7 @@ async function process() {
   return a + b;
 }
 ```
+
 ```csharp
 public static async Task<string> process()
 {
@@ -66,11 +74,13 @@ public static async Task<string> process()
 ```
 
 ### 4. Async Try/Catch/Finally ✅
+
 - **Status:** FULLY WORKING
 - **Evidence:** async-investigation.test.ts
 - **Feature:** Try/catch/finally blocks work correctly with async/await
 
 **Example:**
+
 ```typescript
 async function safeFetch(): Promise<string> {
   try {
@@ -82,9 +92,11 @@ async function safeFetch(): Promise<string> {
   }
 }
 ```
+
 Emits correct C# with try/catch/finally.
 
 ### 5. Async Class Methods ✅
+
 - **Status:** FULLY WORKING
 - **Evidence:** async-investigation.test.ts
 - **Features:**
@@ -93,6 +105,7 @@ Emits correct C# with try/catch/finally.
   - Proper accessibility modifiers ✅
 
 ### 6. Async Generators ✅
+
 - **Status:** FULLY WORKING
 - **Evidence:** PHASE-7-STATUS.md, generator.test.ts
 - **Features:**
@@ -103,6 +116,7 @@ Emits correct C# with try/catch/finally.
 ## ⚠️ Gaps and Limitations
 
 ### 1. Promise Combinators ❌ NOT IMPLEMENTED
+
 - **Status:** NO RUNTIME SUPPORT
 - **Missing Features:**
   - `Promise.all()` - combine multiple promises
@@ -113,6 +127,7 @@ Emits correct C# with try/catch/finally.
 - **Workaround:** Use .NET Task.WhenAll, Task.WhenAny directly
 
 **Example of gap:**
+
 ```typescript
 // This won't work:
 const results = await Promise.all([fetch1(), fetch2(), fetch3()]);
@@ -123,6 +138,7 @@ const results = await Task.WhenAll(fetch1(), fetch2(), fetch3());
 ```
 
 ### 2. Promise.then/catch/finally ❌ NOT IMPLEMENTED
+
 - **Status:** NO SUPPORT
 - **Missing Features:**
   - `.then(callback)` chaining
@@ -132,11 +148,13 @@ const results = await Task.WhenAll(fetch1(), fetch2(), fetch3());
 - **Recommendation:** Document as unsupported; users should use async/await
 
 ### 3. for-await-of ❓ UNKNOWN
+
 - **Status:** NOT TESTED
 - **Expected:** Should work with async generators via IAsyncEnumerable
 - **Needs:** Testing and validation
 
 **Example:**
+
 ```typescript
 async function processStream() {
   for await (const item of asyncGenerator()) {
@@ -144,12 +162,15 @@ async function processStream() {
   }
 }
 ```
+
 Should map to:
+
 ```csharp
 await foreach (var item in asyncGenerator()) { ... }
 ```
 
 ### 4. Top-Level Await ❓ UNKNOWN
+
 - **Status:** NOT TESTED
 - **Expected:** Should work if entry point is async Main
 - **Needs:** Validation with entry-point logic
@@ -158,45 +179,44 @@ await foreach (var item in asyncGenerator()) { ... }
 
 ### Claims Analysis
 
-| Claim | Valid? | Status |
-|-------|--------|--------|
-| "Frontend strips await" | ❌ FALSE | await is preserved in IR as IrExpression |
-| "Promise<void> issue" | ✅ TRUE | WAS a bug, NOW FIXED |
-| "Multiple awaits with vars" | ❌ FALSE | Works correctly |
-| "No combinator support" | ✅ TRUE | Promise.all/race/any missing |
-| "No async iterator tests" | ⚠️ PARTIAL | Generators tested, for-await-of untested |
-| "No try/catch tests" | ❌ FALSE | Try/catch works, just not previously tested |
+| Claim                       | Valid?     | Status                                      |
+| --------------------------- | ---------- | ------------------------------------------- |
+| "Frontend strips await"     | ❌ FALSE   | await is preserved in IR as IrExpression    |
+| "Promise<void> issue"       | ✅ TRUE    | WAS a bug, NOW FIXED                        |
+| "Multiple awaits with vars" | ❌ FALSE   | Works correctly                             |
+| "No combinator support"     | ✅ TRUE    | Promise.all/race/any missing                |
+| "No async iterator tests"   | ⚠️ PARTIAL | Generators tested, for-await-of untested    |
+| "No try/catch tests"        | ❌ FALSE   | Try/catch works, just not previously tested |
 
 ### Recommended Actions from Work Plan
 
 **HIGH PRIORITY** (should do):
+
 1. ✅ Fix Promise<void> → Task mapping - **DONE**
 2. ⏳ Implement Promise.all/race/any runtime helpers - **RECOMMENDED**
 3. ⏳ Test for-await-of with async generators - **RECOMMENDED**
 
-**MEDIUM PRIORITY** (nice to have):
-4. Document .then/.catch/.finally as unsupported
-5. Add top-level await tests
-6. Update spec with async examples
+**MEDIUM PRIORITY** (nice to have): 4. Document .then/.catch/.finally as unsupported 5. Add top-level await tests 6. Update spec with async examples
 
-**LOW PRIORITY** (not critical):
-7. More diagnostic messages for unsupported features
-8. Performance benchmarks
+**LOW PRIORITY** (not critical): 7. More diagnostic messages for unsupported features 8. Performance benchmarks
 
 ## 📊 Test Coverage
 
 ### Existing Tests
+
 - ✅ Basic async function (emitter.test.ts:457)
 - ✅ Sync generators (generator.test.ts)
 - ✅ Async generators (generator.test.ts)
 
 ### New Tests Added (async-investigation.test.ts)
+
 - ✅ Promise<void> → Task mapping
 - ✅ No explicit return type → Task
 - ✅ Multiple await expressions
 - ✅ Async try/catch/finally
 
 ### Tests Needed
+
 - ⏳ for-await-of loops
 - ⏳ Top-level await
 - ⏳ Promise combinators (if implemented)
@@ -222,6 +242,7 @@ await foreach (var item in asyncGenerator()) { ... }
 ### Future Enhancements (Phase 8+)
 
 **Option A: Implement Promise Helpers (More Work)**
+
 - Create `packages/runtime/src/Promise.cs` with static helpers
 - Map Promise.all → Task.WhenAll
 - Map Promise.race → Task.WhenAny
@@ -229,6 +250,7 @@ await foreach (var item in asyncGenerator()) { ... }
 - Add expression rewriter in emitter
 
 **Option B: Document .NET Alternative (Less Work)**
+
 - Document in spec/08-dotnet-interop.md
 - Provide examples using Task directly
 - Add to FAQ/limitations
@@ -244,12 +266,15 @@ await foreach (var item in asyncGenerator()) { ... }
 ## 📝 Files Modified
 
 ### Bug Fix
+
 - `packages/emitter/src/type-emitter.ts` - Fixed Promise<void> → Task
 
 ### New Tests
+
 - `packages/emitter/src/async-investigation.test.ts` - 4 comprehensive async tests
 
 ### Documentation
+
 - `ASYNC-INVESTIGATION-FINDINGS.md` - This document
 
 ## ✅ Validation Checklist
@@ -279,7 +304,7 @@ await foreach (var item in asyncGenerator()) { ... }
 
 ---
 
-*Generated: 2025-11-02*
-*Tests Passing: 56/56 ✅*
-*Critical Bugs Found: 1*
-*Critical Bugs Fixed: 1*
+_Generated: 2025-11-02_
+_Tests Passing: 56/56 ✅_
+_Critical Bugs Found: 1_
+_Critical Bugs Fixed: 1_

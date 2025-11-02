@@ -161,11 +161,16 @@ export const getNamespaceFromPath = (
     return rootNamespace;
   }
 
-  const parts = dirPath.split(path.sep).filter((p) => p !== ".");
+  // Strip hyphens from directory names (per spec: hyphens are ignored)
+  const parts = dirPath
+    .split(path.sep)
+    .filter((p) => p !== ".")
+    .map((p) => p.replace(/-/g, ""));
   return [rootNamespace, ...parts].join(".");
 };
 
 export const getClassNameFromPath = (filePath: string): string => {
   const basename = path.basename(filePath, ".ts");
-  return basename;
+  // Strip hyphens from file names (per spec: hyphens are ignored)
+  return basename.replace(/-/g, "");
 };

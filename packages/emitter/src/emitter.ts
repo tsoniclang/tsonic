@@ -7,6 +7,7 @@ import {
   IrImport,
   IrExport,
   IrTypeParameter,
+  IrStatement,
 } from "@tsonic/frontend";
 import {
   EmitterOptions,
@@ -104,13 +105,86 @@ export const emitModule = (
     specializationsContext
   );
 
-  // Generate class or static container
-  const [classCode, finalContext] = module.isStaticContainer
-    ? generateStaticClass(module, exchangesContext)
-    : generateRegularClass(module, exchangesContext);
+  // Separate namespace-level declarations from static container members
+  const namespaceLevelDecls: IrStatement[] = [];
+  const staticContainerMembers: IrStatement[] = [];
+
+  // Detect if module has any inheritance (for virtual/override keywords)
+  const hasInheritance = module.body.some(
+    (stmt) => stmt.kind === "classDeclaration" && stmt.superClass
+  );
+
+  for (const stmt of module.body) {
+    if (
+      stmt.kind === "classDeclaration" ||
+      stmt.kind === "interfaceDeclaration"
+    ) {
+      namespaceLevelDecls.push(stmt);
+    } else {
+      staticContainerMembers.push(stmt);
+    }
+  }
+
+  // Emit namespace-level declarations (classes, interfaces)
+  const namespaceParts: string[] = [];
+  const namespaceContext = { ...indent(exchangesContext), hasInheritance };
+  let currentContext = namespaceContext;
+
+  for (const decl of namespaceLevelDecls) {
+    // Use the same base context for each declaration to maintain consistent indentation
+    const [code, newContext] = emitStatement(decl, namespaceContext);
+    namespaceParts.push(code);
+    // Track context for using statements, but don't let indentation accumulate
+    // Preserve the hasInheritance flag
+    currentContext = { ...newContext, hasInheritance };
+  }
+
+  // Emit static container class unless there's a namespace-level class with same name
+  const hasMatchingClassName = namespaceLevelDecls.some(
+    (decl) =>
+      (decl.kind === "classDeclaration" ||
+        decl.kind === "interfaceDeclaration") &&
+      decl.name === module.className
+  );
+  let staticContainerCode = "";
+  if (!hasMatchingClassName) {
+    const classContext = withStatic(indent(exchangesContext), true);
+    const bodyContext = indent(classContext);
+    const ind = getIndent(classContext);
+
+    const containerParts: string[] = [];
+    containerParts.push(`${ind}public static class ${module.className}`);
+    containerParts.push(`${ind}{`);
+
+    const bodyParts: string[] = [];
+    let bodyCurrentContext = bodyContext;
+
+    for (const stmt of staticContainerMembers) {
+      const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
+      bodyParts.push(code);
+      bodyCurrentContext = newContext;
+    }
+
+    // Handle explicit exports
+    for (const exp of module.exports) {
+      const exportCode = emitExport(exp, bodyCurrentContext);
+      if (exportCode[0]) {
+        bodyParts.push(exportCode[0]);
+        bodyCurrentContext = exportCode[1];
+      }
+    }
+
+    if (bodyParts.length > 0) {
+      containerParts.push(bodyParts.join("\n\n"));
+    }
+
+    containerParts.push(`${ind}}`);
+    staticContainerCode = containerParts.join("\n");
+    currentContext = { ...bodyCurrentContext, hasInheritance };
+  }
 
   // Format using statements
-  const usings = formatUsings(finalContext.usings);
+  const usings = formatUsings(currentContext.usings);
 
   // Combine all parts
   const parts: string[] = [];
@@ -154,7 +228,19 @@ export const emitModule = (
     parts.push("");
   }
 
-  parts.push(classCode);
+  // Emit namespace-level declarations first
+  if (namespaceParts.length > 0) {
+    parts.push(namespaceParts.join("\n"));
+  }
+
+  // Then emit static container if needed
+  if (staticContainerCode) {
+    if (namespaceParts.length > 0) {
+      parts.push("");
+    }
+    parts.push(staticContainerCode);
+  }
+
   parts.push("}");
 
   return parts.join("\n");
@@ -260,169 +346,6 @@ const resolveLocalImport = (
   }
 
   return `${rootNamespace}.${parts.join(".")}`;
-};
-
-/**
- * Generate a static container class
- */
-const generateStaticClass = (
-  module: IrModule,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const classContext = withStatic(indent(context), true);
-  const bodyContext = indent(classContext);
-  const ind = getIndent(classContext);
-
-  const parts: string[] = [];
-  parts.push(`${ind}public static class ${module.className}`);
-  parts.push(`${ind}{`);
-
-  // Process exports and body statements
-  const bodyParts: string[] = [];
-  let currentContext = bodyContext;
-
-  // Emit all body statements
-  for (const stmt of module.body) {
-    const [code, newContext] = emitStatement(stmt, currentContext);
-    bodyParts.push(code);
-    currentContext = newContext;
-  }
-
-  // Handle explicit exports
-  for (const exp of module.exports) {
-    const exportCode = emitExport(exp, currentContext);
-    if (exportCode[0]) {
-      bodyParts.push(exportCode[0]);
-      currentContext = exportCode[1];
-    }
-  }
-
-  if (bodyParts.length > 0) {
-    parts.push(bodyParts.join("\n\n"));
-  }
-
-  parts.push(`${ind}}`);
-  return [parts.join("\n"), currentContext];
-};
-
-/**
- * Generate a regular (non-static) class
- */
-const generateRegularClass = (
-  module: IrModule,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const classContext = indent(context);
-  const bodyContext = indent(classContext);
-  const ind = getIndent(classContext);
-
-  const parts: string[] = [];
-
-  // Check if there's a class declaration with the same name as the file
-  const classDecl = module.body.find(
-    (stmt) => stmt.kind === "classDeclaration" && stmt.name === module.className
-  );
-
-  if (classDecl) {
-    // Emit the class declaration directly
-    return emitStatement(classDecl, classContext);
-  }
-
-  // Otherwise, create a wrapper class
-  parts.push(`${ind}public class ${module.className}`);
-  parts.push(`${ind}{`);
-
-  // If this is an entry point, separate declarations from executable statements
-  if (context.options.isEntryPoint) {
-    const declarations: any[] = [];
-    const executables: any[] = [];
-
-    for (const stmt of module.body) {
-      if (isDeclaration(stmt)) {
-        declarations.push(stmt);
-      } else {
-        executables.push(stmt);
-      }
-    }
-
-    // Emit declarations at class level
-    const declarationParts: string[] = [];
-    let currentContext = bodyContext;
-
-    for (const stmt of declarations) {
-      const [code, newContext] = emitStatement(stmt, currentContext);
-      declarationParts.push(code);
-      currentContext = newContext;
-    }
-
-    if (declarationParts.length > 0) {
-      parts.push(declarationParts.join("\n\n"));
-      parts.push("");
-    }
-
-    // Emit Main method with executable statements
-    if (executables.length > 0) {
-      const mainMethodParts: string[] = [];
-      const methodIndent = getIndent(bodyContext);
-      const mainContext = withStatic(indent(bodyContext), true);
-
-      mainMethodParts.push(
-        `${methodIndent}public static void Main(string[] args)`
-      );
-      mainMethodParts.push(`${methodIndent}{`);
-
-      for (const stmt of executables) {
-        const [code, newContext] = emitStatement(stmt, mainContext);
-        mainMethodParts.push(code);
-        currentContext = newContext;
-      }
-
-      mainMethodParts.push(`${methodIndent}}`);
-      parts.push(mainMethodParts.join("\n"));
-    }
-
-    parts.push(`${ind}}`);
-    return [parts.join("\n"), currentContext];
-  }
-
-  // Non-entry point: emit all statements at class level (original behavior)
-  const bodyParts: string[] = [];
-  let currentContext = bodyContext;
-
-  for (const stmt of module.body) {
-    const [code, newContext] = emitStatement(stmt, currentContext);
-    bodyParts.push(code);
-    currentContext = newContext;
-  }
-
-  // Handle explicit exports
-  for (const exp of module.exports) {
-    const exportCode = emitExport(exp, currentContext);
-    if (exportCode[0]) {
-      bodyParts.push(exportCode[0]);
-      currentContext = exportCode[1];
-    }
-  }
-
-  if (bodyParts.length > 0) {
-    parts.push(bodyParts.join("\n\n"));
-  }
-
-  parts.push(`${ind}}`);
-  return [parts.join("\n"), currentContext];
-};
-
-/**
- * Check if a statement is a declaration (can be at class level)
- */
-const isDeclaration = (stmt: any): boolean => {
-  return (
-    stmt.kind === "functionDeclaration" ||
-    stmt.kind === "classDeclaration" ||
-    stmt.kind === "interfaceDeclaration" ||
-    stmt.kind === "enumDeclaration" ||
-    stmt.kind === "typeAlias"
-  );
 };
 
 /**

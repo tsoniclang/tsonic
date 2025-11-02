@@ -8,6 +8,7 @@ import {
   IrClassMember,
   IrInterfaceMember,
   IrParameter,
+  IrArrayPattern,
 } from "@tsonic/frontend";
 import {
   EmitterContext,
@@ -15,6 +16,8 @@ import {
   indent,
   dedent,
   withAsync,
+  withStatic,
+  withClassName,
   addUsing,
 } from "./types.js";
 import { emitExpression } from "./expression-emitter.js";
@@ -115,35 +118,122 @@ const emitVariableDeclaration = (
   for (const decl of stmt.declarations) {
     let varDecl = "";
 
+    // In static contexts, variable declarations become fields with modifiers
+    if (context.isStatic && stmt.isExported) {
+      varDecl = "public static ";
+      if (stmt.declarationKind === "const") {
+        varDecl += "readonly ";
+      }
+    }
+
     // Determine the C# type
-    if (decl.type) {
+    if (
+      decl.type &&
+      !(decl.type.kind === "functionType" && !context.isStatic)
+    ) {
+      // Emit explicit type UNLESS it's a function type in a non-static context
+      // (let C# infer lambda types in local contexts)
       const [typeName, newContext] = emitType(decl.type, currentContext);
       currentContext = newContext;
-      varDecl = `${typeName} `;
+      varDecl += `${typeName} `;
+    } else if (
+      decl.initializer &&
+      decl.initializer.kind === "arrowFunction" &&
+      context.isStatic
+    ) {
+      // For arrow functions in static context without explicit type, infer Func<> type
+      const arrowFunc = decl.initializer;
+      const paramTypes: string[] = [];
+
+      for (const param of arrowFunc.parameters) {
+        if (param.type) {
+          const [paramType, newCtx] = emitType(param.type, currentContext);
+          paramTypes.push(paramType);
+          currentContext = newCtx;
+        } else {
+          paramTypes.push("dynamic");
+        }
+      }
+
+      // Infer return type from arrow function if available
+      let returnType = "dynamic";
+      if (arrowFunc.returnType) {
+        const [retType, newCtx] = emitType(
+          arrowFunc.returnType,
+          currentContext
+        );
+        returnType = retType;
+        currentContext = newCtx;
+      }
+
+      const allTypes = [...paramTypes, returnType];
+      const funcType = `Func<${allTypes.join(", ")}>`;
+      currentContext = addUsing(currentContext, "System");
+      varDecl += `${funcType} `;
     } else {
-      varDecl = "var ";
+      varDecl += "var ";
     }
 
-    // Add the variable name
+    // Handle different pattern types
     if (decl.name.kind === "identifierPattern") {
+      // Simple identifier pattern
       varDecl += decl.name.name;
-    } else {
-      // Destructuring - not supported in MVP
-      varDecl += "/* destructuring */";
-    }
 
-    // Add initializer if present
-    if (decl.initializer) {
+      // Add initializer if present
+      if (decl.initializer) {
+        const [initFrag, newContext] = emitExpression(
+          decl.initializer,
+          currentContext,
+          decl.type // Pass expected type for contextual typing (e.g., array literals)
+        );
+        currentContext = newContext;
+        varDecl += ` = ${initFrag.text}`;
+      }
+
+      declarations.push(`${ind}${varDecl};`);
+    } else if (decl.name.kind === "arrayPattern") {
+      // Array destructuring: const [a, b] = arr; -> var a = arr[0]; var b = arr[1];
+      if (!decl.initializer) {
+        // Array destructuring requires an initializer
+        declarations.push(
+          `${ind}${varDecl}/* array destructuring without initializer */;`
+        );
+        continue;
+      }
+
       const [initFrag, newContext] = emitExpression(
         decl.initializer,
         currentContext,
-        decl.type // Pass expected type for contextual typing (e.g., array literals)
+        decl.type
       );
       currentContext = newContext;
-      varDecl += ` = ${initFrag.text}`;
-    }
 
-    declarations.push(`${ind}${varDecl};`);
+      const arrayPattern = decl.name as IrArrayPattern;
+      for (let i = 0; i < arrayPattern.elements.length; i++) {
+        const element = arrayPattern.elements[i];
+        if (element && element.kind === "identifierPattern") {
+          const elementVarDecl = `${varDecl}${element.name} = ${initFrag.text}[${i}];`;
+          declarations.push(`${ind}${elementVarDecl}`);
+        }
+        // Skip undefined elements (holes in array pattern)
+      }
+    } else {
+      // Object destructuring or other patterns - not yet supported
+      varDecl += "/* destructuring */";
+
+      // Add initializer if present
+      if (decl.initializer) {
+        const [initFrag, newContext] = emitExpression(
+          decl.initializer,
+          currentContext,
+          decl.type
+        );
+        currentContext = newContext;
+        varDecl += ` = ${initFrag.text}`;
+      }
+
+      declarations.push(`${ind}${varDecl};`);
+    }
   }
 
   return [declarations.join("\n"), currentContext];
@@ -213,18 +303,20 @@ const emitFunctionDeclaration = (
   const params = emitParameters(stmt.parameters, currentContext);
   currentContext = params[1];
 
-  // Function body
-  const bodyContext = withAsync(indent(currentContext), stmt.isAsync);
+  // Function body (not a static context - local variables)
+  const bodyContext = withAsync(
+    withStatic(indent(currentContext), false),
+    stmt.isAsync
+  );
   const [bodyCode, finalContext] = emitBlockStatement(stmt.body, bodyContext);
 
-  // For generators, inject exchange variable initialization at start of body
+  // Inject initialization code for generators
   let finalBodyCode = bodyCode;
   if (stmt.isGenerator) {
-    const exchangeName = `${stmt.name}_exchange`;
     const bodyInd = getIndent(bodyContext);
+    const exchangeName = `${stmt.name}_exchange`;
     const initLine = `${bodyInd}var exchange = new ${exchangeName}();`;
 
-    // Insert after opening brace
     const lines = bodyCode.split("\n");
     if (lines.length > 1) {
       lines.splice(1, 0, initLine, "");
@@ -239,7 +331,8 @@ const emitFunctionDeclaration = (
       : "";
   const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
 
-  return [code, dedent(finalContext)];
+  // Return context preserving usings from body but keeping original context flags
+  return [code, { ...currentContext, usings: finalContext.usings }];
 };
 
 const emitClassDeclaration = (
@@ -266,10 +359,18 @@ const emitClassDeclaration = (
 
   // Base class and interfaces
   const heritage: string[] = [];
-  // Note: superClass in IR is an expression, not a type
-  // For MVP, we'll skip superclass handling
-  // TODO: Handle superClass properly
 
+  // Handle superclass (extends clause)
+  if (stmt.superClass) {
+    const [superClassFrag, newContext] = emitExpression(
+      stmt.superClass,
+      currentContext
+    );
+    currentContext = newContext;
+    heritage.push(superClassFrag.text);
+  }
+
+  // Handle interfaces (implements clause)
   if (stmt.implements && stmt.implements.length > 0) {
     for (const iface of stmt.implements) {
       const [ifaceType, newContext] = emitType(iface, currentContext);
@@ -285,7 +386,11 @@ const emitClassDeclaration = (
       : "";
 
   // Class body
-  const bodyContext = indent(currentContext);
+  const baseContext = withClassName(indent(currentContext), stmt.name);
+  // Only set hasSuperClass flag if there's actually a superclass (for inheritance)
+  const bodyContext = stmt.superClass
+    ? { ...baseContext, hasSuperClass: true }
+    : baseContext;
   const members: string[] = [];
 
   for (const member of stmt.members) {
@@ -336,23 +441,17 @@ const emitClassMember = (
       // Property name
       parts.push(member.name);
 
-      // Auto-property or field
-      if (member.isReadonly) {
-        // Readonly field
-        let code = `${ind}${parts.join(" ")}`;
-        if (member.initializer) {
-          const [initFrag, finalContext] = emitExpression(
-            member.initializer,
-            currentContext
-          );
-          code += ` = ${initFrag.text}`;
-          currentContext = finalContext;
-        }
-        return [`${code};`, currentContext];
-      } else {
-        // Auto-property
-        return [`${ind}${parts.join(" ")} { get; set; }`, currentContext];
+      // Emit as field (TypeScript class fields map to C# fields, not properties)
+      let code = `${ind}${parts.join(" ")}`;
+      if (member.initializer) {
+        const [initFrag, finalContext] = emitExpression(
+          member.initializer,
+          currentContext
+        );
+        code += ` = ${initFrag.text}`;
+        currentContext = finalContext;
       }
+      return [`${code};`, currentContext];
     }
 
     case "methodDeclaration": {
@@ -366,6 +465,10 @@ const emitClassMember = (
       if (member.isStatic) {
         parts.push("static");
       }
+      // TODO: Implement proper override detection before emitting virtual/override modifiers.
+      // Cannot blindly emit override on all derived methods or virtual on all base methods.
+      // Requires symbol resolution to know if a method actually overrides a base member.
+      // For now, omit these modifiers to ensure generated C# compiles correctly.
 
       if (member.isAsync) {
         parts.push("async");
@@ -441,7 +544,8 @@ const emitClassMember = (
       parts.push(accessibility);
 
       // Constructor name (same as class name)
-      parts.push(context.isStatic ? "static constructor" : "constructor");
+      const constructorName = context.className ?? "UnknownClass";
+      parts.push(constructorName);
 
       // Parameters
       const params = emitParameters(member.parameters, currentContext);
@@ -455,14 +559,65 @@ const emitClassMember = (
         return [code, currentContext];
       }
 
+      // Check for super() call - MUST be the first statement if present
+      // C# base() calls execute before the constructor body, so we can't preserve
+      // TypeScript semantics if there are statements before super()
+      let baseCall = "";
+      let bodyStatements = member.body.statements;
+
+      if (bodyStatements.length > 0) {
+        const firstStmt = bodyStatements[0];
+        if (
+          firstStmt &&
+          firstStmt.kind === "expressionStatement" &&
+          firstStmt.expression.kind === "call" &&
+          firstStmt.expression.callee.kind === "identifier" &&
+          firstStmt.expression.callee.name === "super"
+        ) {
+          // Found super() call as first statement - convert to : base(...)
+          const superCall = firstStmt.expression;
+          const argFrags: string[] = [];
+          for (const arg of superCall.arguments) {
+            const [argFrag, newContext] = emitExpression(arg, currentContext);
+            argFrags.push(argFrag.text);
+            currentContext = newContext;
+          }
+          baseCall = ` : base(${argFrags.join(", ")})`;
+          // Remove super() call from body statements
+          bodyStatements = bodyStatements.slice(1);
+        }
+      }
+
+      // Check if super() appears later in the body (not supported)
+      for (const stmt of bodyStatements) {
+        if (
+          stmt.kind === "expressionStatement" &&
+          stmt.expression.kind === "call" &&
+          stmt.expression.callee.kind === "identifier" &&
+          stmt.expression.callee.name === "super"
+        ) {
+          // TODO: This should be a compile error in the IR builder
+          // For now, emit a comment noting the issue
+          const signature = parts.join(" ");
+          const errorComment = `${ind}// ERROR: super() must be the first statement in constructor`;
+          const code = `${errorComment}\n${ind}${signature}(${params[0]})\n${ind}{\n${ind}    // Constructor body omitted due to error\n${ind}}`;
+          return [code, currentContext];
+        }
+      }
+
+      // Emit body without the super() call
       const bodyContext = indent(currentContext);
+      const modifiedBody: typeof member.body = {
+        ...member.body,
+        statements: bodyStatements,
+      };
       const [bodyCode, finalContext] = emitBlockStatement(
-        member.body,
+        modifiedBody,
         bodyContext
       );
 
       const signature = parts.join(" ");
-      const code = `${ind}${signature}(${params[0]})\n${bodyCode}`;
+      const code = `${ind}${signature}(${params[0]})${baseCall}\n${bodyCode}`;
 
       return [code, dedent(finalContext)];
     }
@@ -470,6 +625,85 @@ const emitClassMember = (
     default:
       return [`${ind}// TODO: unhandled class member`, context];
   }
+};
+
+/**
+ * Capitalize first letter of a string (for generating class names from property names)
+ */
+const capitalize = (str: string): string =>
+  str.charAt(0).toUpperCase() + str.slice(1);
+
+/**
+ * Extract inline object types from interface members and generate class declarations
+ */
+type ExtractedType = {
+  readonly className: string;
+  readonly members: readonly IrInterfaceMember[];
+};
+
+const extractInlineObjectTypes = (
+  members: readonly IrInterfaceMember[]
+): readonly ExtractedType[] => {
+  const extracted: ExtractedType[] = [];
+
+  for (const member of members) {
+    if (
+      member.kind === "propertySignature" &&
+      member.type?.kind === "objectType"
+    ) {
+      // Generate class name from property name (capitalize)
+      const className = capitalize(member.name);
+      extracted.push({
+        className,
+        members: member.type.members,
+      });
+    }
+  }
+
+  return extracted;
+};
+
+/**
+ * Emit an extracted inline object type as a class
+ */
+const emitExtractedType = (
+  extracted: ExtractedType,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  const ind = getIndent(context);
+  let currentContext = context;
+
+  const parts: string[] = [];
+  parts.push(`${ind}public class ${extracted.className}`);
+  parts.push(`${ind}{`);
+
+  // Emit properties
+  const bodyContext = indent(currentContext);
+  const propertyParts: string[] = [];
+  let bodyCurrentContext = bodyContext;
+
+  for (const member of extracted.members) {
+    const [memberCode, newContext] = emitInterfaceMemberAsProperty(
+      member,
+      bodyCurrentContext
+    );
+    propertyParts.push(memberCode);
+    bodyCurrentContext = newContext;
+  }
+
+  if (propertyParts.length > 0) {
+    parts.push(propertyParts.join("\n"));
+  }
+
+  parts.push(`${ind}}`);
+
+  // Return context at original indent level, preserving only usings
+  const finalContext = {
+    ...context,
+    usings: bodyCurrentContext.usings,
+  };
+
+  return [parts.join("\n"), finalContext];
 };
 
 const emitInterfaceDeclaration = (
@@ -482,6 +716,20 @@ const emitInterfaceDeclaration = (
 
   const ind = getIndent(context);
   let currentContext = context;
+
+  // Extract inline object types and emit them as separate classes
+  const extractedTypes = extractInlineObjectTypes(stmt.members);
+  const extractedClassCodes: string[] = [];
+
+  for (const extracted of extractedTypes) {
+    const [classCode, newContext] = emitExtractedType(
+      extracted,
+      currentContext
+    );
+    extractedClassCodes.push(classCode);
+    currentContext = newContext;
+  }
+
   const parts: string[] = [];
 
   // Access modifier
@@ -544,7 +792,16 @@ const emitInterfaceDeclaration = (
 
   const signature = parts.join(" ");
   const memberCode = members.join("\n\n");
-  const code = `${ind}${signature}\n${ind}{\n${memberCode}\n${ind}}`;
+  const mainClassCode = `${ind}${signature}\n${ind}{\n${memberCode}\n${ind}}`;
+
+  // Combine main interface and extracted classes (extracted classes come after)
+  const allParts: string[] = [];
+  allParts.push(mainClassCode);
+  if (extractedClassCodes.length > 0) {
+    allParts.push(...extractedClassCodes);
+  }
+
+  const code = allParts.join("\n");
 
   return [code, currentContext];
 };
@@ -568,8 +825,19 @@ const emitInterfaceMemberAsProperty = (
 
       // Property type
       if (member.type) {
-        const [typeName, newContext] = emitType(member.type, currentContext);
-        currentContext = newContext;
+        // If this is an inline object type, use the extracted class name
+        let typeName: string;
+        if (member.type.kind === "objectType") {
+          // Use capitalized property name as the class name
+          typeName = capitalize(member.name);
+        } else {
+          const [emittedType, newContext] = emitType(
+            member.type,
+            currentContext
+          );
+          currentContext = newContext;
+          typeName = emittedType;
+        }
         // Optional members become nullable (spec §2.1)
         const typeStr = member.isOptional ? `${typeName}?` : typeName;
         parts.push(typeStr);
@@ -581,18 +849,10 @@ const emitInterfaceMemberAsProperty = (
       // Property name
       parts.push(member.name);
 
-      // Getter/setter (readonly uses private set per spec §2.1)
-      const accessors = member.isReadonly
-        ? "{ get; private set; }"
-        : "{ get; set; }";
+      // Getter/setter (readonly is get-only)
+      const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
 
-      // Optional properties get default initializer
-      const initializer = member.isOptional ? " = default!;" : ";";
-
-      return [
-        `${ind}${parts.join(" ")} ${accessors}${initializer}`,
-        currentContext,
-      ];
+      return [`${ind}${parts.join(" ")} ${accessors}`, currentContext];
     }
 
     case "methodSignature": {
@@ -815,7 +1075,8 @@ const emitForStatement = (
         currentContext
       );
       currentContext = newContext;
-      init = initCode.trim();
+      // Strip trailing semicolon from variable declaration
+      init = initCode.trim().replace(/;$/, "");
     } else {
       const [initFrag, newContext] = emitExpression(
         stmt.initializer,
@@ -1067,11 +1328,9 @@ const emitParameters = (
       );
       currentContext = newContext;
       paramType = typeName;
-    }
-
-    // Add params keyword for rest parameters
-    if (isRest) {
-      paramType = `params ${paramType}[]`;
+      // TODO: Rest parameters currently map to Tsonic.Runtime.Array<T> to preserve
+      // JavaScript semantics (reduce, join, etc.). In future, could optimize to
+      // params T[] and wrap with Array.from() at call sites.
     }
 
     // Parameter name
@@ -1080,15 +1339,16 @@ const emitParameters = (
       paramName = param.pattern.name;
     }
 
-    // Default value
+    // Default value - emit the actual default value in the parameter signature
     let paramStr = `${paramType} ${paramName}`;
     if (param.initializer) {
-      const [defaultFrag, newContext] = emitExpression(
+      // Emit the default value directly
+      const [defaultExpr, newContext] = emitExpression(
         param.initializer,
         currentContext
       );
       currentContext = newContext;
-      paramStr += ` = ${defaultFrag.text}`;
+      paramStr = `${paramType} ${paramName} = ${defaultExpr.text}`;
     } else if (isOptional && !isRest) {
       paramStr += " = default";
     }

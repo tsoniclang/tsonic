@@ -43,8 +43,15 @@ export const buildIrModule = (
     const statements = extractStatements(sourceFile, program.checker);
 
     // Determine if this should be a static container
+    // Per spec: Files with a class matching the filename should NOT be static containers
+    // Static containers are for top-level functions and constants
+    const hasClassMatchingFilename = statements.some(
+      (stmt) => stmt.kind === "classDeclaration" && stmt.name === className
+    );
+
     const hasTopLevelCode = statements.some(isExecutableStatement);
-    const isStaticContainer = !hasTopLevelCode && exports.length > 0;
+    const isStaticContainer =
+      !hasClassMatchingFilename && !hasTopLevelCode && exports.length > 0;
 
     const module: IrModule = {
       kind: "module",
@@ -242,19 +249,15 @@ const extractStatements = (
 };
 
 const isExecutableStatement = (stmt: IrStatement): boolean => {
-  // Declarations are not executable
+  // Declarations are not executable - they become static members in the container
   const declarationKinds = [
     "functionDeclaration",
     "classDeclaration",
     "interfaceDeclaration",
     "typeAliasDeclaration",
     "enumDeclaration",
+    "variableDeclaration", // Added: variable declarations become static fields
   ];
-
-  // Variable declarations without initializers are not executable
-  if (stmt.kind === "variableDeclaration") {
-    return stmt.declarations.some((decl) => decl.initializer !== undefined);
-  }
 
   // Empty statements are not executable
   if (stmt.kind === "emptyStatement") {

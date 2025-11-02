@@ -221,22 +221,100 @@ const convertClassDeclaration = (
       ?.find((h) => h.token === ts.SyntaxKind.ImplementsKeyword)
       ?.types.map((t) => convertType(t, checker)) ?? [];
 
+  // Extract parameter properties from constructor
+  const constructor = node.members.find(ts.isConstructorDeclaration);
+  const parameterProperties: IrClassMember[] = [];
+
+  if (constructor) {
+    for (const param of constructor.parameters) {
+      // Check if parameter has an EXPLICIT accessibility modifier
+      // (public/private/protected makes it a parameter property)
+      const modifiers = ts.getModifiers(param);
+      const hasAccessibilityModifier = modifiers?.some(
+        (m) =>
+          m.kind === ts.SyntaxKind.PublicKeyword ||
+          m.kind === ts.SyntaxKind.PrivateKeyword ||
+          m.kind === ts.SyntaxKind.ProtectedKeyword
+      );
+
+      if (!hasAccessibilityModifier) {
+        continue; // Not a parameter property
+      }
+
+      // Create a field declaration for this parameter property
+      if (ts.isIdentifier(param.name)) {
+        const accessibility = getAccessibility(param);
+        parameterProperties.push({
+          kind: "propertyDeclaration",
+          name: param.name.text,
+          type: param.type ? convertType(param.type, checker) : undefined,
+          initializer: undefined, // Will be assigned in constructor
+          isStatic: false,
+          isReadonly: hasReadonlyModifier(param),
+          accessibility,
+        });
+      }
+    }
+  }
+
+  // Filter to only include members declared directly on this class (not inherited)
+  const ownMembers = node.members.filter((m) => {
+    // Always include constructors and methods declared on this class
+    if (ts.isConstructorDeclaration(m) || ts.isMethodDeclaration(m)) {
+      return true;
+    }
+    // For properties, only include if they're declared directly on this class
+    if (ts.isPropertyDeclaration(m)) {
+      // Check if this property has a declaration on this specific class node
+      const symbol = checker.getSymbolAtLocation(m.name);
+      if (!symbol) return true; // Include if we can't determine
+      const declarations = symbol.getDeclarations() || [];
+      // Only include if this exact node is in the declarations
+      return declarations.some((d) => d === m);
+    }
+    return true;
+  });
+
+  const convertedMembers = ownMembers
+    .map((m) => convertClassMember(m, checker, constructor?.parameters))
+    .filter((m): m is IrClassMember => m !== null);
+
+  // Deduplicate members by name (keep first occurrence)
+  // Parameter properties should take precedence over regular properties with same name
+  const allMembers = [...parameterProperties, ...convertedMembers];
+  const seenNames = new Set<string>();
+  const deduplicatedMembers = allMembers.filter((member) => {
+    if (member.kind === "constructorDeclaration") {
+      return true; // Always include constructor
+    }
+    const name =
+      member.kind === "propertyDeclaration" ||
+      member.kind === "methodDeclaration"
+        ? member.name
+        : null;
+    if (!name) return true;
+    if (seenNames.has(name)) {
+      return false; // Skip duplicate
+    }
+    seenNames.add(name);
+    return true;
+  });
+
   return {
     kind: "classDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, checker),
     superClass: superClass ? convertExpression(superClass, checker) : undefined,
     implements: implementsTypes,
-    members: node.members
-      .map((m) => convertClassMember(m, checker))
-      .filter((m): m is IrClassMember => m !== null),
+    members: deduplicatedMembers,
     isExported: hasExportModifier(node),
   };
 };
 
 const convertClassMember = (
   node: ts.ClassElement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember | null => {
   if (ts.isPropertyDeclaration(node)) {
     return {
@@ -270,10 +348,55 @@ const convertClassMember = (
   }
 
   if (ts.isConstructorDeclaration(node)) {
+    // Build constructor body with parameter property assignments
+    const statements: IrStatement[] = [];
+
+    // Add assignments for parameter properties (parameters with explicit modifiers)
+    if (constructorParams) {
+      for (const param of constructorParams) {
+        // Check if parameter has an EXPLICIT accessibility modifier
+        const modifiers = ts.getModifiers(param);
+        const hasAccessibilityModifier = modifiers?.some(
+          (m) =>
+            m.kind === ts.SyntaxKind.PublicKeyword ||
+            m.kind === ts.SyntaxKind.PrivateKeyword ||
+            m.kind === ts.SyntaxKind.ProtectedKeyword
+        );
+
+        if (hasAccessibilityModifier && ts.isIdentifier(param.name)) {
+          // Create: this.name = name;
+          statements.push({
+            kind: "expressionStatement",
+            expression: {
+              kind: "assignment",
+              operator: "=",
+              left: {
+                kind: "memberAccess",
+                object: { kind: "this" },
+                property: param.name.text,
+                isComputed: false,
+                isOptional: false,
+              },
+              right: {
+                kind: "identifier",
+                name: param.name.text,
+              },
+            },
+          });
+        }
+      }
+    }
+
+    // Add existing constructor body statements
+    if (node.body) {
+      const existingBody = convertBlockStatement(node.body, checker);
+      statements.push(...existingBody.statements);
+    }
+
     return {
       kind: "constructorDeclaration",
       parameters: convertParameters(node.parameters, checker),
-      body: node.body ? convertBlockStatement(node.body, checker) : undefined,
+      body: { kind: "blockStatement", statements },
       accessibility: getAccessibility(node),
     };
   }

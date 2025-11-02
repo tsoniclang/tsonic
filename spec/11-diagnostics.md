@@ -368,6 +368,34 @@ import { Task } from "System.Threading.Tasks";
 // Use Task.ContinueWith in C# directly
 ```
 
+### TSN3012 - super() Not First Statement
+
+**Error:** `super()` call must be the first statement in derived class constructor
+
+```typescript
+export class Dog extends Animal {
+  constructor(name: string, breed: string) {
+    const x = 10; // ← Error: statement before super()
+    super(name);
+    this.breed = breed;
+  }
+}
+```
+
+**Fix:** Move `super()` to be the first statement
+
+```typescript
+export class Dog extends Animal {
+  constructor(name: string, breed: string) {
+    super(name); // ✓ First statement
+    const x = 10;
+    this.breed = breed;
+  }
+}
+```
+
+**Rationale:** In C#, the `: base(...)` initializer runs **before** the constructor body executes. TypeScript allows statements before `super()` as long as they don't reference `this`. However, moving these statements to after the base constructor would change execution order and could break code. For semantic correctness, Tsonic requires `super()` to be the first statement.
+
 ## TSN4xxx - Code Generation
 
 ### TSN4001 - Invalid Identifier

@@ -1,0 +1,1 @@
+- Closures.ts: should emit closure capturing outer scope variables

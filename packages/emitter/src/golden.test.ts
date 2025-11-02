@@ -172,14 +172,16 @@ const buildDescribeTree = (
 
     // Navigate/create tree nodes for each path part
     for (const part of scenario.pathParts) {
-      if (!current.children.has(part)) {
-        current.children.set(part, {
+      let node = current.children.get(part);
+      if (!node) {
+        node = {
           name: part,
           children: new Map(),
           tests: [],
-        });
+        };
+        current.children.set(part, node);
       }
-      current = current.children.get(part)!;
+      current = node;
     }
 
     // Add test to the leaf node
@@ -215,11 +217,12 @@ const runScenario = async (scenario: Scenario): Promise<void> => {
   // Determine source root (parent of input file)
   const sourceRoot = path.dirname(scenario.inputPath);
 
-  // Build namespace from path parts (case-preserved, per Tsonic spec)
-  // e.g., ['arrays', 'basic'] → 'TestCases.arrays'
-  const rootNamespace = ["TestCases", ...scenario.pathParts.slice(0, -1)].join(
-    "."
-  );
+  // Build namespace from path parts (case-preserved, hyphens stripped per spec)
+  // e.g., ['control-flow', 'error-handling'] → 'TestCases.controlflow'
+  const namespaceParts = scenario.pathParts
+    .slice(0, -1)
+    .map((part) => part.replace(/-/g, "")); // Strip hyphens
+  const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
   const compileResult = compile([scenario.inputPath], {
@@ -249,9 +252,9 @@ const runScenario = async (scenario: Scenario): Promise<void> => {
   }
 
   // Step 3: Emit IR → C#
+  // Note: Don't set entryPointPath - golden tests are NOT entry points
   const csharpFiles = emitCSharpFiles(irResult.value, {
     rootNamespace,
-    entryPointPath: scenario.inputPath,
   });
 
   // Find the generated file for our input
@@ -267,7 +270,12 @@ const runScenario = async (scenario: Scenario): Promise<void> => {
     );
   }
 
-  const actualCs = csharpFiles.get(generatedKey)!;
+  const actualCs = csharpFiles.get(generatedKey);
+  if (!actualCs) {
+    throw new Error(
+      `Generated file key exists but content is missing: ${generatedKey}`
+    );
+  }
 
   // Generate expected header using shared constant (with TIMESTAMP placeholder)
   const expectedHeader = generateFileHeader(scenario.inputPath, {

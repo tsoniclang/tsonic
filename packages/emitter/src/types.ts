@@ -36,6 +36,14 @@ export type EmitterContext = {
   readonly isStatic: boolean;
   /** Whether currently in async context */
   readonly isAsync: boolean;
+  /** Whether currently emitting an array index (omit .0 from integer literals) */
+  readonly isArrayIndex?: boolean;
+  /** Current class name (for constructor emission) */
+  readonly className?: string;
+  /** Whether the current class has a superclass (for virtual/override) */
+  readonly hasSuperClass?: boolean;
+  /** Whether the module has any inheritance (to decide virtual methods) */
+  readonly hasInheritance?: boolean;
 };
 
 /**
@@ -142,6 +150,14 @@ export const withAsync = (
 ): EmitterContext => ({
   ...context,
   isAsync,
+});
+
+export const withClassName = (
+  context: EmitterContext,
+  className: string
+): EmitterContext => ({
+  ...context,
+  className,
 });
 
 /**

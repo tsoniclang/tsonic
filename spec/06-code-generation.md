@@ -125,6 +125,105 @@ public static class math
 }
 ```
 
+### Class Inheritance
+
+TypeScript classes with `extends` map to C# class inheritance:
+
+```typescript
+// Animal.ts
+export class Animal {
+  name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  makeSound(): string {
+    return "Some sound";
+  }
+}
+
+export class Dog extends Animal {
+  breed: string;
+
+  constructor(name: string, breed: string) {
+    super(name);
+    this.breed = breed;
+  }
+
+  makeSound(): string {
+    return "Woof!";
+  }
+}
+```
+
+```csharp
+public class Animal
+{
+    public string name;
+
+    public Animal(string name)
+    {
+        this.name = name;
+    }
+
+    public virtual string makeSound()
+    {
+        return "Some sound";
+    }
+}
+
+public class Dog : Animal
+{
+    public string breed;
+
+    public Dog(string name, string breed) : base(name)
+    {
+        this.breed = breed;
+    }
+
+    public override string makeSound()
+    {
+        return "Woof!";
+    }
+}
+```
+
+**Inheritance Rules:**
+
+1. **`extends` clause**: Maps to C# `: BaseClass` syntax
+2. **Base class methods**: Automatically marked `virtual` (to allow overriding)
+3. **Derived class methods**: Automatically marked `override` (when base class exists)
+4. **Static methods**: Never virtual/override (static methods cannot be overridden)
+5. **`super()` calls**: Must be the first statement in constructor body
+
+**super() Call Constraint:**
+
+In TypeScript, `super()` is a statement in the constructor body. In C#, `: base(...)` executes **before** the constructor body runs. This semantic difference creates a critical constraint:
+
+**✅ ALLOWED:**
+
+```typescript
+constructor(name: string, breed: string) {
+  super(name);  // First statement
+  this.breed = breed;
+}
+```
+
+**❌ NOT ALLOWED (Compile Error):**
+
+```typescript
+constructor(name: string, breed: string) {
+  const x = 10;  // Code before super()
+  super(name);   // ERROR: super() must be first statement
+  this.breed = breed;
+}
+```
+
+The compiler will emit diagnostic **TSN3012** if `super()` is not the first statement in a constructor.
+
+**Rationale:** C#'s `: base(...)` runs before the constructor body. Moving statements that appear before `super()` to after the base constructor would change execution order and could break code. For correctness, we require `super()` to be first.
+
 ## Expression Generation
 
 ### Literals

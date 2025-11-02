@@ -3,8 +3,9 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "./types.js";
+import { EmitterContext, CSharpFragment, addUsing, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import { emitStatement } from "./statement-emitter.js";
 
 /**
  * Emit a C# expression from an IR expression
@@ -155,8 +156,10 @@ const emitLiteral = (
   }
 
   if (typeof value === "number") {
-    // All numbers are doubles in JavaScript
-    const text = Number.isInteger(value) ? `${value}.0` : String(value);
+    // All numbers are doubles in JavaScript, but array indices should be integers
+    const isInteger = Number.isInteger(value);
+    const text =
+      isInteger && !context.isArrayIndex ? `${value}.0` : String(value);
     return [{ text }, context];
   }
 
@@ -225,13 +228,53 @@ const emitArray = (
     }
   }
 
+  // Check if array contains only spread elements (e.g., [...arr1, ...arr2])
+  const allSpreads = expr.elements.every(
+    (el) => el !== undefined && el.kind === "spread"
+  );
+
+  if (allSpreads && expr.elements.length > 0) {
+    // Emit as chained Concat calls: arr1.Concat(arr2).Concat(arr3)
+    const spreadElements = expr.elements.filter(
+      (el): el is Extract<IrExpression, { kind: "spread" }> =>
+        el !== undefined && el.kind === "spread"
+    );
+
+    const firstSpread = spreadElements[0];
+    if (!firstSpread) {
+      // Should never happen due to allSpreads check, but satisfy TypeScript
+      return [{ text: "new Tsonic.Runtime.Array<object>()" }, currentContext];
+    }
+
+    const [firstFrag, firstContext] = emitExpression(
+      firstSpread.expression,
+      currentContext
+    );
+    currentContext = firstContext;
+
+    let result = firstFrag.text;
+    for (let i = 1; i < spreadElements.length; i++) {
+      const spread = spreadElements[i];
+      if (spread) {
+        const [spreadFrag, newContext] = emitExpression(
+          spread.expression,
+          currentContext
+        );
+        result = `${result}.Concat(${spreadFrag.text})`;
+        currentContext = newContext;
+      }
+    }
+
+    return [{ text: result }, currentContext];
+  }
+
+  // Regular array or mixed spreads/elements
   for (const element of expr.elements) {
     if (element === undefined) {
       // Sparse array hole - Tsonic.Runtime.Array supports sparse arrays
       elements.push("default");
     } else if (element.kind === "spread") {
-      // Spread in array literal - needs special handling
-      // For MVP, we'll add a comment
+      // Spread mixed with other elements - not yet supported
       elements.push("/* ...spread */");
     } else {
       const [elemFrag, newContext] = emitExpression(element, currentContext);
@@ -278,10 +321,14 @@ const emitMemberAccess = (
   const [objectFrag, newContext] = emitExpression(expr.object, context);
 
   if (expr.isComputed) {
-    const [propFrag, finalContext] = emitExpression(
+    // Emit index expression with array index context
+    const indexContext = { ...newContext, isArrayIndex: true };
+    const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
-      newContext
+      indexContext
     );
+    // Clear the array index flag before returning context
+    const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
     const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
@@ -606,12 +653,24 @@ const emitArrowFunction = (
     }
   }
 
-  // Handle body - for MVP, simplified handling
+  // Handle body
   let bodyText: string;
   if (typeof expr.body === "object" && "kind" in expr.body) {
     if (expr.body.kind === "blockStatement") {
-      // For block statements in lambdas, we need full syntax
-      bodyText = "{ /* TODO: block statement */ }";
+      // For block statements in lambdas:
+      // - In static contexts (field initializers), indent the block one level
+      // - In non-static contexts (local variables), keep at same level
+      const blockContext = currentContext.isStatic
+        ? indent(currentContext)
+        : currentContext;
+      const [blockCode, newContext] = emitStatement(expr.body, blockContext);
+      currentContext = { ...currentContext, usings: newContext.usings };
+
+      const params = paramNames.join(", ");
+      // The block code has proper indentation, just prepend the lambda signature
+      const text = `(${params}) =>\n${blockCode}`;
+
+      return [{ text }, currentContext];
     } else {
       const [bodyFrag, newContext] = emitExpression(expr.body, currentContext);
       currentContext = newContext;

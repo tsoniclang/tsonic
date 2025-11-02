@@ -392,7 +392,6 @@ describe("Generics Implementation", () => {
 
       // Optional property should be nullable
       expect(result).to.include("public bool? active { get; set; }");
-      expect(result).to.include("= default!");
     });
 
     it("should emit interface with readonly members", () => {
@@ -427,7 +426,7 @@ describe("Generics Implementation", () => {
       const result = emitModule(module);
 
       // Readonly should use private set
-      expect(result).to.include("public string apiUrl { get; private set; }");
+      expect(result).to.include("public string apiUrl { get; }");
     });
 
     it("should emit generic interface", () => {

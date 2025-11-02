@@ -144,7 +144,7 @@ describe("C# Emitter", () => {
       const result = emitModule(module);
 
       expect(result).to.include("public class User");
-      expect(result).to.include("public string name { get; set; }");
+      expect(result).to.include("public string name;");
       expect(result).to.include("public string greet()");
       expect(result).to.include('$"Hello, I\'m {this.name}"');
     });

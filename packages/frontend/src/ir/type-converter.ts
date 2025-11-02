@@ -130,6 +130,12 @@ export const convertType = (
     if (literal.kind === ts.SyntaxKind.FalseKeyword) {
       return { kind: "literalType", value: false };
     }
+    if (literal.kind === ts.SyntaxKind.NullKeyword) {
+      return { kind: "primitiveType", name: "null" };
+    }
+    if (literal.kind === ts.SyntaxKind.UndefinedKeyword) {
+      return { kind: "primitiveType", name: "undefined" };
+    }
   }
 
   // Parenthesized types
