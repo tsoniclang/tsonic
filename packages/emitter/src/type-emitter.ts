@@ -136,6 +136,10 @@ const emitReferenceType = (
     }
     const [elementType, newContext] = emitType(firstArg, context);
     const updatedContext = addUsing(newContext, "System.Threading.Tasks");
+    // Promise<void> should map to Task (not Task<void>)
+    if (elementType === "void") {
+      return [`Task`, updatedContext];
+    }
     return [`Task<${elementType}>`, updatedContext];
   }
 
