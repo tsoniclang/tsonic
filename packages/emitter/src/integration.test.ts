@@ -6,7 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
-import { buildIrModule } from "@tsonic/frontend";
+import { buildIrModule, DotnetMetadataRegistry } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
 /**
@@ -61,6 +61,7 @@ const compileToCSharp = (
       rootNamespace: "Test",
     },
     sourceFiles: [sourceFile],
+    metadata: new DotnetMetadataRegistry(),
   };
 
   // Build IR

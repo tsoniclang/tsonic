@@ -425,6 +425,11 @@ const emitClassMember = (
         parts.push("static");
       }
 
+      // Override modifier (from metadata or TS base class detection)
+      if (member.isOverride) {
+        parts.push("override");
+      }
+
       if (member.isReadonly) {
         parts.push("readonly");
       }
@@ -465,10 +470,11 @@ const emitClassMember = (
       if (member.isStatic) {
         parts.push("static");
       }
-      // TODO: Implement proper override detection before emitting virtual/override modifiers.
-      // Cannot blindly emit override on all derived methods or virtual on all base methods.
-      // Requires symbol resolution to know if a method actually overrides a base member.
-      // For now, omit these modifiers to ensure generated C# compiles correctly.
+
+      // Override modifier (from metadata or TS base class detection)
+      if (member.isOverride) {
+        parts.push("override");
+      }
 
       if (member.isAsync) {
         parts.push("async");

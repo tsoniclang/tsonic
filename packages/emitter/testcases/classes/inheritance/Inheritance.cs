@@ -26,7 +26,7 @@ namespace TestCases.classes
             this.breed = breed;
             }
 
-        public string makeSound()
+        public override string makeSound()
             {
             return "Woof!";
             }

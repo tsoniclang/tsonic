@@ -122,6 +122,10 @@ export type IrMethodDeclaration = {
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
   readonly accessibility: IrAccessibility;
+  /** True if this method overrides a virtual base class method (from metadata or TS base class) */
+  readonly isOverride?: boolean;
+  /** True if this method shadows a non-virtual base method (future: emit 'new' keyword) */
+  readonly isShadow?: boolean;
 };
 
 export type IrPropertyDeclaration = {
@@ -132,6 +136,10 @@ export type IrPropertyDeclaration = {
   readonly isStatic: boolean;
   readonly isReadonly: boolean;
   readonly accessibility: IrAccessibility;
+  /** True if this property overrides a virtual base class property (from metadata or TS base class) */
+  readonly isOverride?: boolean;
+  /** True if this property shadows a non-virtual base property (future: emit 'new' keyword) */
+  readonly isShadow?: boolean;
 };
 
 export type IrConstructorDeclaration = {

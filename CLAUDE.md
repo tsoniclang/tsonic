@@ -52,6 +52,18 @@ If you write mutable code, you MUST immediately rewrite it functionally.
 
 Automated scripts break syntax in unpredictable ways and destroy codebases.
 
+### TEMPORARY FILES
+
+**IMPORTANT**: Never create temporary files in the project root or package directories.
+
+- **ALWAYS** create temp files in `.tests/` directory
+- `.tests/` is gitignored for this purpose
+- Examples:
+  - Debug scripts: `.tests/debug-override.ts`
+  - Test data: `.tests/sample-input.json`
+  - Scratch files: `.tests/notes.md`
+- Delete temp files when no longer needed
+
 ## Session Startup
 
 ### First Steps When Starting a Session
