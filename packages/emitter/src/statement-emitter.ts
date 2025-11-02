@@ -16,6 +16,7 @@ import {
   indent,
   dedent,
   withAsync,
+  withClassName,
   addUsing,
 } from "./types.js";
 import { emitExpression } from "./expression-emitter.js";
@@ -324,7 +325,7 @@ const emitClassDeclaration = (
       : "";
 
   // Class body
-  const bodyContext = indent(currentContext);
+  const bodyContext = withClassName(indent(currentContext), stmt.name);
   const members: string[] = [];
 
   for (const member of stmt.members) {
@@ -474,7 +475,8 @@ const emitClassMember = (
       parts.push(accessibility);
 
       // Constructor name (same as class name)
-      parts.push(context.isStatic ? "static constructor" : "constructor");
+      const constructorName = context.className ?? "UnknownClass";
+      parts.push(constructorName);
 
       // Parameters
       const params = emitParameters(member.parameters, currentContext);

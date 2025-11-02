@@ -38,6 +38,8 @@ export type EmitterContext = {
   readonly isAsync: boolean;
   /** Whether currently emitting an array index (omit .0 from integer literals) */
   readonly isArrayIndex?: boolean;
+  /** Current class name (for constructor emission) */
+  readonly className?: string;
 };
 
 /**
@@ -144,6 +146,14 @@ export const withAsync = (
 ): EmitterContext => ({
   ...context,
   isAsync,
+});
+
+export const withClassName = (
+  context: EmitterContext,
+  className: string
+): EmitterContext => ({
+  ...context,
+  className,
 });
 
 /**

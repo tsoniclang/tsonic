@@ -221,22 +221,51 @@ const convertClassDeclaration = (
       ?.find((h) => h.token === ts.SyntaxKind.ImplementsKeyword)
       ?.types.map((t) => convertType(t, checker)) ?? [];
 
+  // Extract parameter properties from constructor
+  const constructor = node.members.find(ts.isConstructorDeclaration);
+  const parameterProperties: IrClassMember[] = [];
+
+  if (constructor) {
+    for (const param of constructor.parameters) {
+      const accessibility = getAccessibility(param);
+      if (accessibility !== "public" && accessibility !== "private" && accessibility !== "protected") {
+        continue; // Not a parameter property
+      }
+
+      // Create a field declaration for this parameter property
+      if (ts.isIdentifier(param.name)) {
+        parameterProperties.push({
+          kind: "propertyDeclaration",
+          name: param.name.text,
+          type: param.type ? convertType(param.type, checker) : undefined,
+          initializer: undefined, // Will be assigned in constructor
+          isStatic: false,
+          isReadonly: hasReadonlyModifier(param),
+          accessibility,
+        });
+      }
+    }
+  }
+
+  const convertedMembers = node.members
+    .map((m) => convertClassMember(m, checker, constructor?.parameters))
+    .filter((m): m is IrClassMember => m !== null);
+
   return {
     kind: "classDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, checker),
     superClass: superClass ? convertExpression(superClass, checker) : undefined,
     implements: implementsTypes,
-    members: node.members
-      .map((m) => convertClassMember(m, checker))
-      .filter((m): m is IrClassMember => m !== null),
+    members: [...parameterProperties, ...convertedMembers],
     isExported: hasExportModifier(node),
   };
 };
 
 const convertClassMember = (
   node: ts.ClassElement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember | null => {
   if (ts.isPropertyDeclaration(node)) {
     return {
@@ -270,10 +299,49 @@ const convertClassMember = (
   }
 
   if (ts.isConstructorDeclaration(node)) {
+    // Build constructor body with parameter property assignments
+    const statements: any[] = [];
+
+    // Add assignments for parameter properties
+    if (constructorParams) {
+      for (const param of constructorParams) {
+        const accessibility = getAccessibility(param);
+        if (accessibility === "public" || accessibility === "private" || accessibility === "protected") {
+          if (ts.isIdentifier(param.name)) {
+            // Create: this.name = name;
+            statements.push({
+              kind: "expressionStatement",
+              expression: {
+                kind: "assignment",
+                operator: "=",
+                left: {
+                  kind: "memberAccess",
+                  object: { kind: "this" },
+                  property: param.name.text,
+                  isComputed: false,
+                  isOptional: false,
+                },
+                right: {
+                  kind: "identifier",
+                  name: param.name.text,
+                },
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Add existing constructor body statements
+    if (node.body) {
+      const existingBody = convertBlockStatement(node.body, checker);
+      statements.push(...existingBody.statements);
+    }
+
     return {
       kind: "constructorDeclaration",
       parameters: convertParameters(node.parameters, checker),
-      body: node.body ? convertBlockStatement(node.body, checker) : undefined,
+      body: { kind: "blockStatement", statements },
       accessibility: getAccessibility(node),
     };
   }

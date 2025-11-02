@@ -20,8 +20,4 @@ namespace TestCases.classes
             return input == this.password;
             }
     }
-
-    public static class Constructor
-    {
-    }
 }
