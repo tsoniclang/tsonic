@@ -226,13 +226,53 @@ const emitArray = (
     }
   }
 
+  // Check if array contains only spread elements (e.g., [...arr1, ...arr2])
+  const allSpreads = expr.elements.every(
+    (el) => el !== undefined && el.kind === "spread"
+  );
+
+  if (allSpreads && expr.elements.length > 0) {
+    // Emit as chained Concat calls: arr1.Concat(arr2).Concat(arr3)
+    const spreadElements = expr.elements.filter(
+      (el): el is Extract<IrExpression, { kind: "spread" }> =>
+        el !== undefined && el.kind === "spread"
+    );
+
+    const firstSpread = spreadElements[0];
+    if (!firstSpread) {
+      // Should never happen due to allSpreads check, but satisfy TypeScript
+      return [{ text: "new Tsonic.Runtime.Array<object>()" }, currentContext];
+    }
+
+    const [firstFrag, firstContext] = emitExpression(
+      firstSpread.expression,
+      currentContext
+    );
+    currentContext = firstContext;
+
+    let result = firstFrag.text;
+    for (let i = 1; i < spreadElements.length; i++) {
+      const spread = spreadElements[i];
+      if (spread) {
+        const [spreadFrag, newContext] = emitExpression(
+          spread.expression,
+          currentContext
+        );
+        result = `${result}.Concat(${spreadFrag.text})`;
+        currentContext = newContext;
+      }
+    }
+
+    return [{ text: result }, currentContext];
+  }
+
+  // Regular array or mixed spreads/elements
   for (const element of expr.elements) {
     if (element === undefined) {
       // Sparse array hole - Tsonic.Runtime.Array supports sparse arrays
       elements.push("default");
     } else if (element.kind === "spread") {
-      // Spread in array literal - needs special handling
-      // For MVP, we'll add a comment
+      // Spread mixed with other elements - not yet supported
       elements.push("/* ...spread */");
     } else {
       const [elemFrag, newContext] = emitExpression(element, currentContext);
