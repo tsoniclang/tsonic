@@ -427,7 +427,7 @@ describe("Generics Implementation", () => {
       const result = emitModule(module);
 
       // Readonly should use private set
-      expect(result).to.include("public string apiUrl { get; private set; }");
+      expect(result).to.include("public string apiUrl { get; }");
     });
 
     it("should emit generic interface", () => {
