@@ -249,6 +249,26 @@ const validateUnsupportedFeatures = (
       );
     }
 
+    // Check for Promise.then/catch/finally chaining (not supported)
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression)
+    ) {
+      const methodName = node.expression.name.text;
+      if (["then", "catch", "finally"].includes(methodName)) {
+        collector = addDiagnostic(
+          collector,
+          createDiagnostic(
+            "TSN3011",
+            "error",
+            `Promise.${methodName}() is not supported`,
+            getNodeLocation(sourceFile, node),
+            "Use async/await instead of Promise chaining"
+          )
+        );
+      }
+    }
+
     ts.forEachChild(node, visitor);
   };
 

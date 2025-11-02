@@ -333,6 +333,41 @@ const entries = Object.entries(obj);
 const combined = { ...obj1, ...obj2 };
 ```
 
+### TSN3011 - Promise Chaining
+
+**Error:** Promise.then/catch/finally not supported
+
+```typescript
+fetchData()
+  .then((data) => processData(data))
+  .catch((error) => handleError(error))
+  .finally(() => cleanup());
+```
+
+**Fix:** Use async/await instead
+
+```typescript
+async function process() {
+  try {
+    const data = await fetchData();
+    await processData(data);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    cleanup();
+  }
+}
+```
+
+**Rationale:** Tsonic maps Promise<T> to Task<T>, which uses async/await pattern rather than chaining.
+
+**Workaround:** Use .NET Task continuation methods if chaining is required:
+
+```typescript
+import { Task } from "System.Threading.Tasks";
+// Use Task.ContinueWith in C# directly
+```
+
 ## TSN4xxx - Code Generation
 
 ### TSN4001 - Invalid Identifier

@@ -15,6 +15,7 @@ export type DiagnosticCode =
   | "TSN2002" // Invalid type mapping
   | "TSN3001" // C# reserved keyword used
   | "TSN3002" // Invalid C# identifier
+  | "TSN3011" // Promise chaining (.then/.catch/.finally) not supported
   | "TSN4001" // .NET interop error
   | "TSN4002" // Missing .NET type declaration
   | "TSN5001" // NativeAOT limitation
