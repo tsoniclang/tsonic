@@ -118,11 +118,14 @@ export const emitModule = (
 
   // Emit namespace-level declarations (classes, interfaces)
   const namespaceParts: string[] = [];
-  let currentContext = indent(exchangesContext);
+  const namespaceContext = indent(exchangesContext);
+  let currentContext = namespaceContext;
 
   for (const decl of namespaceLevelDecls) {
-    const [code, newContext] = emitStatement(decl, currentContext);
+    // Use the same base context for each declaration to maintain consistent indentation
+    const [code, newContext] = emitStatement(decl, namespaceContext);
     namespaceParts.push(code);
+    // Track context for using statements, but don't let indentation accumulate
     currentContext = newContext;
   }
 

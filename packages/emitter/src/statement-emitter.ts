@@ -651,13 +651,11 @@ const emitInterfaceMemberAsProperty = (
       // Property name
       parts.push(member.name);
 
-      // Getter/setter (readonly uses private set per spec §2.1)
-      const accessors = member.isReadonly
-        ? "{ get; private set; }"
-        : "{ get; set; }";
+      // Getter/setter (readonly is get-only)
+      const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
 
-      // Optional properties get default initializer
-      const initializer = member.isOptional ? " = default!;" : ";";
+      // Optional properties need default initializer to suppress nullability warnings
+      const initializer = member.isOptional ? " = default!" : "";
 
       return [
         `${ind}${parts.join(" ")} ${accessors}${initializer}`,
