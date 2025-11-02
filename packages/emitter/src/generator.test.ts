@@ -91,7 +91,9 @@ describe("Generator Emission", () => {
     expect(code).to.include("public double Output { get; set; }");
 
     // Should have IEnumerable return type
-    expect(code).to.include("public static IEnumerable<counter_exchange> counter()");
+    expect(code).to.include(
+      "public static IEnumerable<counter_exchange> counter()"
+    );
 
     // Should use System.Collections.Generic
     expect(code).to.include("using System.Collections.Generic");

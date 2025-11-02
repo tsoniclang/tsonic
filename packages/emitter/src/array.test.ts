@@ -93,7 +93,9 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should handle sparse array with default
-    expect(code).to.include("new Tsonic.Runtime.Array<double>(1.0, default, 3.0)");
+    expect(code).to.include(
+      "new Tsonic.Runtime.Array<double>(1.0, default, 3.0)"
+    );
   });
 
   it("should emit array with string elements", () => {
