@@ -9,19 +9,19 @@ namespace TestCases.ControlFlow
             try
             {
             if (b == 0.0)
-            {
-            throw new Exception("Division by zero");
-            }
+                {
+                throw new Error("Division by zero");
+                }
             return a / b;
             }
             catch (Exception error)
             {
-            console.log(error);
+            Tsonic.Runtime.console.log(error);
             return 0.0;
             }
             finally
             {
-            console.log("Operation complete");
+            Tsonic.Runtime.console.log("Operation complete");
             }
             }
     }
