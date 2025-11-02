@@ -1,6 +1,6 @@
 using Tsonic.Runtime;
 
-namespace TestCases.ControlFlow
+namespace TestCases.control-flow
 {
     public static class SwitchStatement
     {
