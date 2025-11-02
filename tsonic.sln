@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "packages", "packages", "{809F86A1-1C4C-B159-0CD4-DF9D33D876CE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tsonic.Runtime", "packages\runtime\Tsonic.Runtime.csproj", "{4CAA32F2-CD37-C6F9-F804-4E1819529F78}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tsonic.Runtime.Tests", "packages\runtime\Tsonic.Runtime.Tests.csproj", "{1F224DB4-F035-D63B-140A-149D63F0A0F4}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4CAA32F2-CD37-C6F9-F804-4E1819529F78}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4CAA32F2-CD37-C6F9-F804-4E1819529F78}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4CAA32F2-CD37-C6F9-F804-4E1819529F78}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4CAA32F2-CD37-C6F9-F804-4E1819529F78}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1F224DB4-F035-D63B-140A-149D63F0A0F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1F224DB4-F035-D63B-140A-149D63F0A0F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1F224DB4-F035-D63B-140A-149D63F0A0F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1F224DB4-F035-D63B-140A-149D63F0A0F4}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{4CAA32F2-CD37-C6F9-F804-4E1819529F78} = {809F86A1-1C4C-B159-0CD4-DF9D33D876CE}
+		{1F224DB4-F035-D63B-140A-149D63F0A0F4} = {809F86A1-1C4C-B159-0CD4-DF9D33D876CE}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {67E094D5-4E8F-47CF-B9FF-E0E176ACE05C}
+	EndGlobalSection
+EndGlobal
