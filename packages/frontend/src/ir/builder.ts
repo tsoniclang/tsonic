@@ -43,8 +43,15 @@ export const buildIrModule = (
     const statements = extractStatements(sourceFile, program.checker);
 
     // Determine if this should be a static container
+    // Per spec: Files with a class matching the filename should NOT be static containers
+    // Static containers are for top-level functions and constants
+    const hasClassMatchingFilename = statements.some(
+      (stmt) => stmt.kind === "classDeclaration" && stmt.name === className
+    );
+
     const hasTopLevelCode = statements.some(isExecutableStatement);
-    const isStaticContainer = !hasTopLevelCode && exports.length > 0;
+    const isStaticContainer =
+      !hasClassMatchingFilename && !hasTopLevelCode && exports.length > 0;
 
     const module: IrModule = {
       kind: "module",

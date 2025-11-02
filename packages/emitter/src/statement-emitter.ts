@@ -375,23 +375,17 @@ const emitClassMember = (
       // Property name
       parts.push(member.name);
 
-      // Auto-property or field
-      if (member.isReadonly) {
-        // Readonly field
-        let code = `${ind}${parts.join(" ")}`;
-        if (member.initializer) {
-          const [initFrag, finalContext] = emitExpression(
-            member.initializer,
-            currentContext
-          );
-          code += ` = ${initFrag.text}`;
-          currentContext = finalContext;
-        }
-        return [`${code};`, currentContext];
-      } else {
-        // Auto-property
-        return [`${ind}${parts.join(" ")} { get; set; }`, currentContext];
+      // Emit as field (TypeScript class fields map to C# fields, not properties)
+      let code = `${ind}${parts.join(" ")}`;
+      if (member.initializer) {
+        const [initFrag, finalContext] = emitExpression(
+          member.initializer,
+          currentContext
+        );
+        code += ` = ${initFrag.text}`;
+        currentContext = finalContext;
       }
+      return [`${code};`, currentContext];
     }
 
     case "methodDeclaration": {
