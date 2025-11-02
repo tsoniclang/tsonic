@@ -17,8 +17,4 @@ namespace TestCases.classes
             this.age++;
             }
     }
-
-    public static class BasicClass
-    {
-    }
 }
