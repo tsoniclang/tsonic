@@ -1,0 +1,1 @@
+- AsyncFunction.ts: should emit async function with Promise<string> return type
