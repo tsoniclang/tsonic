@@ -1,6 +1,5 @@
 /**
- * C# Emitter Types
- * Main dispatcher - re-exports from emitter-types/ subdirectory
+ * Emitter types - Public API
  */
 
 export type {
@@ -8,11 +7,13 @@ export type {
   EmitterContext,
   EmitResult,
   CSharpFragment,
+} from "./core.js";
+export type {
   CSharpAccessModifier,
   CSharpClassModifier,
   CSharpMethodModifier,
   CSharpUsing,
-} from "./emitter-types/index.js";
+} from "./csharp-types.js";
 export {
   createContext,
   indent,
@@ -21,6 +22,5 @@ export {
   withStatic,
   withAsync,
   withClassName,
-  getIndent,
-  formatUsings,
-} from "./emitter-types/index.js";
+} from "./context.js";
+export { getIndent, formatUsings } from "./formatting.js";
