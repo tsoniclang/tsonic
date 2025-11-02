@@ -69,10 +69,7 @@ export class DotnetMetadataRegistry {
   /**
    * Check if a member is virtual (can be overridden)
    */
-  isVirtualMember(
-    qualifiedTypeName: string,
-    memberSignature: string
-  ): boolean {
+  isVirtualMember(qualifiedTypeName: string, memberSignature: string): boolean {
     const memberMetadata = this.getMemberMetadata(
       qualifiedTypeName,
       memberSignature
@@ -83,10 +80,7 @@ export class DotnetMetadataRegistry {
   /**
    * Check if a member is sealed (cannot be overridden)
    */
-  isSealedMember(
-    qualifiedTypeName: string,
-    memberSignature: string
-  ): boolean {
+  isSealedMember(qualifiedTypeName: string, memberSignature: string): boolean {
     const memberMetadata = this.getMemberMetadata(
       qualifiedTypeName,
       memberSignature

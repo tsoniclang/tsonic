@@ -14,7 +14,10 @@ import { TsonicProgram } from "../program.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../resolver.js";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import { convertStatement, setMetadataRegistry } from "./statement-converter.js";
+import {
+  convertStatement,
+  setMetadataRegistry,
+} from "./statement-converter.js";
 import { convertExpression } from "./expression-converter.js";
 
 export type IrBuildOptions = {

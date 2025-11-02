@@ -16,7 +16,11 @@ import {
   addUsing,
 } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
-import { emitType, emitParameterType, emitTypeParameters } from "../type-emitter.js";
+import {
+  emitType,
+  emitParameterType,
+  emitTypeParameters,
+} from "../type-emitter.js";
 import { emitBlockStatement } from "./blocks.js";
 
 /**
