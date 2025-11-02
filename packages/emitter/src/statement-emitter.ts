@@ -654,13 +654,7 @@ const emitInterfaceMemberAsProperty = (
       // Getter/setter (readonly is get-only)
       const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
 
-      // Optional properties need default initializer to suppress nullability warnings
-      const initializer = member.isOptional ? " = default!" : "";
-
-      return [
-        `${ind}${parts.join(" ")} ${accessors}${initializer}`,
-        currentContext,
-      ];
+      return [`${ind}${parts.join(" ")} ${accessors}`, currentContext];
     }
 
     case "methodSignature": {

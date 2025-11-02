@@ -392,7 +392,6 @@ describe("Generics Implementation", () => {
 
       // Optional property should be nullable
       expect(result).to.include("public bool? active { get; set; }");
-      expect(result).to.include("= default!");
     });
 
     it("should emit interface with readonly members", () => {
