@@ -284,16 +284,22 @@ const emitUnionType = (
     return [`${baseType}?`, newContext];
   }
 
-  // Two-type union (most common case) → Union<T1, T2>
-  if (type.types.length === 2) {
-    const [type1Str, context1] = emitType(type.types[0]!, context);
-    const [type2Str, context2] = emitType(type.types[1]!, context1);
-    const finalContext = addUsing(context2, "Tsonic.Runtime");
-    return [`Union<${type1Str}, ${type2Str}>`, finalContext];
+  // Multi-type unions (2-8 types) → Union<T1, T2, ...>
+  if (type.types.length >= 2 && type.types.length <= 8) {
+    const typeStrings: string[] = [];
+    let currentContext = context;
+
+    for (const t of type.types) {
+      const [typeStr, newContext] = emitType(t, currentContext);
+      typeStrings.push(typeStr);
+      currentContext = newContext;
+    }
+
+    const finalContext = addUsing(currentContext, "Tsonic.Runtime");
+    return [`Union<${typeStrings.join(", ")}>`, finalContext];
   }
 
-  // Fallback for multi-type unions: use object
-  // In a more complete implementation, we might generate Union<T1, T2, T3> variants
+  // Fallback for unions with more than 8 types: use object
   return ["object", context];
 };
 
