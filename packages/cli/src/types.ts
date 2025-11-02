@@ -22,6 +22,9 @@ export type TsonicConfig = {
     readonly stripSymbols?: boolean;
     readonly invariantGlobalization?: boolean;
   };
+  readonly dotnet?: {
+    readonly typeRoots?: readonly string[];
+  };
 };
 
 /**
@@ -59,6 +62,7 @@ export type ResolvedConfig = {
   readonly keepTemp: boolean;
   readonly verbose: boolean;
   readonly quiet: boolean;
+  readonly typeRoots: readonly string[];
 };
 
 /**

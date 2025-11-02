@@ -250,6 +250,32 @@ describe("Config", () => {
       expect(result.quiet).to.be.true;
     });
 
+    it("should default typeRoots to node_modules/@tsonic/dotnet-types/types", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+      };
+
+      const result = resolveConfig(config, {});
+      expect(result.typeRoots).to.deep.equal([
+        "node_modules/@tsonic/dotnet-types/types",
+      ]);
+    });
+
+    it("should use typeRoots from config.dotnet.typeRoots", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        dotnet: {
+          typeRoots: ["custom/path/types", "another/path/types"],
+        },
+      };
+
+      const result = resolveConfig(config, {});
+      expect(result.typeRoots).to.deep.equal([
+        "custom/path/types",
+        "another/path/types",
+      ]);
+    });
+
     it("should handle all options together", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",

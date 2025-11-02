@@ -15,8 +15,14 @@ import type { ResolvedConfig, Result } from "../types.js";
 export const emitCommand = (
   config: ResolvedConfig
 ): Result<{ filesGenerated: number; outputDir: string }, string> => {
-  const { entryPoint, outputDirectory, rootNamespace, sourceRoot, packages } =
-    config;
+  const {
+    entryPoint,
+    outputDirectory,
+    rootNamespace,
+    sourceRoot,
+    packages,
+    typeRoots,
+  } = config;
 
   if (!config.quiet) {
     console.log(`Emitting C# code for ${entryPoint}...`);
@@ -27,6 +33,7 @@ export const emitCommand = (
     const compileResult = compile([entryPoint], {
       sourceRoot,
       rootNamespace,
+      typeRoots,
     });
     if (!compileResult.ok) {
       return {
