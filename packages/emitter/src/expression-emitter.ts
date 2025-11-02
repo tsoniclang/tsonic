@@ -3,8 +3,9 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "./types.js";
+import { EmitterContext, CSharpFragment, addUsing, getIndent } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import { emitStatement } from "./statement-emitter.js";
 
 /**
  * Emit a C# expression from an IR expression
@@ -651,12 +652,32 @@ const emitArrowFunction = (
     }
   }
 
-  // Handle body - for MVP, simplified handling
+  // Handle body
   let bodyText: string;
   if (typeof expr.body === "object" && "kind" in expr.body) {
     if (expr.body.kind === "blockStatement") {
-      // For block statements in lambdas, we need full syntax
-      bodyText = "{ /* TODO: block statement */ }";
+      // For block statements in lambdas, emit the full block
+      const [blockCode, newContext] = emitStatement(expr.body, currentContext);
+      currentContext = newContext;
+
+      // The block code will have indentation, but for inline lambdas we need to format it differently
+      // For now, emit it on multiple lines with proper indentation
+      const ind = getIndent(context);
+      const params = paramNames.join(", ");
+      const lines = blockCode.split('\n');
+
+      // Remove leading indentation from block code since we'll add our own
+      const trimmedLines = lines.map(line => line.trim()).filter(line => line);
+
+      // Format as multi-line lambda
+      const formattedBlock = [
+        `(${params}) =>`,
+        `${ind}{`,
+        ...trimmedLines.slice(1, -1).map(line => `${ind}${line}`),
+        `${ind}}`
+      ].join('\n');
+
+      return [{ text: formattedBlock }, currentContext];
     } else {
       const [bodyFrag, newContext] = emitExpression(expr.body, currentContext);
       currentContext = newContext;
