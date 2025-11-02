@@ -7,8 +7,8 @@
     "lib/"
   ],
   "scripts": {
-    "build": "echo 'Runtime is a C# project - build with dotnet build Tsonic.Runtime.csproj'",
-    "test": "dotnet test Tsonic.Runtime.Tests.csproj --verbosity quiet --nologo"
+    "build": "echo 'Runtime is a C# project - build with dotnet build src/Tsonic.Runtime.csproj'",
+    "test": "dotnet test tests/Tsonic.Runtime.Tests.csproj --verbosity quiet --nologo"
   },
   "engines": {
     "node": ">=18.0.0"

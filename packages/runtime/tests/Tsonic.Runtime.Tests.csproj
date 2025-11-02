@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="Tsonic.Runtime.csproj" />
+    <ProjectReference Include="../src/Tsonic.Runtime.csproj" />
   </ItemGroup>
 
 </Project>
