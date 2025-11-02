@@ -8,17 +8,22 @@ namespace TestCases.control-flow
             {
             switch (day)
             {
-            case 0.0:
-            case 6.0:
-            return "weekend";
-            case 1.0:
-            case 2.0:
-            case 3.0:
-            case 4.0:
-            case 5.0:
-            return "weekday";
-            default:
-            return "invalid";
+                case 0.0:
+                    break;
+                case 6.0:
+                    return "weekend";
+                case 1.0:
+                        break;
+                case 2.0:
+                        break;
+                case 3.0:
+                        break;
+                case 4.0:
+                        break;
+                case 5.0:
+                        return "weekday";
+                default:
+                            return "invalid";
             }
             }
     }
