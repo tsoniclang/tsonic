@@ -39,7 +39,6 @@ describe("Async Investigation Tests", () => {
     };
 
     const code = emitModule(module);
-    console.log("Promise<void> output:", code);
 
     // Promise<void> should map to Task (not Task<void>)
     expect(code).to.include("async Task processAsync()");
@@ -72,7 +71,6 @@ describe("Async Investigation Tests", () => {
     };
 
     const code = emitModule(module);
-    console.log("No return type output:", code);
 
     // Should emit Task when async with no return type
     expect(code).to.include("async Task doWork()");
@@ -159,7 +157,6 @@ describe("Async Investigation Tests", () => {
     };
 
     const code = emitModule(module);
-    console.log("Multiple awaits output:", code);
 
     // Should have both variable declarations with await
     // Note: C# uses 'var' for type inference, not 'const'
@@ -246,7 +243,6 @@ describe("Async Investigation Tests", () => {
     };
 
     const code = emitModule(module);
-    console.log("Try/catch/finally output:", code);
 
     expect(code).to.include("try");
     expect(code).to.include("catch");
