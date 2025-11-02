@@ -2,7 +2,12 @@
  * Main C# Emitter - Orchestrates code generation from IR
  */
 
-import { IrModule, IrImport, IrExport } from "@tsonic/frontend";
+import {
+  IrModule,
+  IrImport,
+  IrExport,
+  IrTypeParameter,
+} from "@tsonic/frontend";
 import {
   EmitterOptions,
   EmitterContext,
@@ -15,6 +20,40 @@ import {
 } from "./types.js";
 import { emitStatement } from "./statement-emitter.js";
 import { emitExpression } from "./expression-emitter.js";
+import { generateStructuralAdapters } from "./adapter-generator.js";
+import {
+  collectSpecializations,
+  generateSpecializations,
+} from "./specialization-generator.js";
+
+/**
+ * Collect all type parameters from declarations in a module
+ */
+const collectTypeParameters = (
+  module: IrModule
+): readonly IrTypeParameter[] => {
+  const typeParams: IrTypeParameter[] = [];
+
+  for (const stmt of module.body) {
+    if (stmt.kind === "functionDeclaration" && stmt.typeParameters) {
+      typeParams.push(...stmt.typeParameters);
+    } else if (stmt.kind === "classDeclaration" && stmt.typeParameters) {
+      typeParams.push(...stmt.typeParameters);
+      // Also collect from class members
+      for (const member of stmt.members) {
+        if (member.kind === "methodDeclaration" && member.typeParameters) {
+          typeParams.push(...member.typeParameters);
+        }
+      }
+    } else if (stmt.kind === "interfaceDeclaration" && stmt.typeParameters) {
+      typeParams.push(...stmt.typeParameters);
+    } else if (stmt.kind === "typeAliasDeclaration" && stmt.typeParameters) {
+      typeParams.push(...stmt.typeParameters);
+    }
+  }
+
+  return typeParams;
+};
 
 /**
  * Default emitter options
@@ -43,10 +82,24 @@ export const emitModule = (
   // Process imports to collect using statements
   const processedContext = processImports(module.imports, context, module);
 
+  // Collect type parameters and generate adapters
+  const typeParams = collectTypeParameters(module);
+  const [adaptersCode, adaptersContext] = generateStructuralAdapters(
+    typeParams,
+    processedContext
+  );
+
+  // Collect specializations and generate monomorphized versions
+  const specializations = collectSpecializations(module);
+  const [specializationsCode, specializationsContext] = generateSpecializations(
+    specializations,
+    adaptersContext
+  );
+
   // Generate class or static container
   const [classCode, finalContext] = module.isStaticContainer
-    ? generateStaticClass(module, processedContext)
-    : generateRegularClass(module, processedContext);
+    ? generateStaticClass(module, specializationsContext)
+    : generateRegularClass(module, specializationsContext);
 
   // Format using statements
   const usings = formatUsings(finalContext.usings);
@@ -62,6 +115,27 @@ export const emitModule = (
   parts.push("");
   parts.push(`namespace ${module.namespace}`);
   parts.push("{");
+
+  // Emit adapters before class code
+  if (adaptersCode) {
+    const indentedAdapters = adaptersCode
+      .split("\n")
+      .map((line) => (line ? "    " + line : line))
+      .join("\n");
+    parts.push(indentedAdapters);
+    parts.push("");
+  }
+
+  // Emit specializations after adapters
+  if (specializationsCode) {
+    const indentedSpecializations = specializationsCode
+      .split("\n")
+      .map((line) => (line ? "    " + line : line))
+      .join("\n");
+    parts.push(indentedSpecializations);
+    parts.push("");
+  }
+
   parts.push(classCode);
   parts.push("}");
 

@@ -17,7 +17,11 @@ import {
   addUsing,
 } from "./types.js";
 import { emitExpression } from "./expression-emitter.js";
-import { emitType, emitParameterType } from "./type-emitter.js";
+import {
+  emitType,
+  emitParameterType,
+  emitTypeParameters,
+} from "./type-emitter.js";
 
 /**
  * Emit a C# statement from an IR statement
@@ -187,6 +191,13 @@ const emitFunctionDeclaration = (
   // Function name
   parts.push(stmt.name);
 
+  // Type parameters
+  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+    stmt.typeParameters,
+    currentContext
+  );
+  currentContext = typeParamContext;
+
   // Parameters
   const params = emitParameters(stmt.parameters, currentContext);
   currentContext = params[1];
@@ -196,7 +207,11 @@ const emitFunctionDeclaration = (
   const [bodyCode, finalContext] = emitBlockStatement(stmt.body, bodyContext);
 
   const signature = parts.join(" ");
-  const code = `${ind}${signature}(${params[0]})\n${bodyCode}`;
+  const whereClause =
+    whereClauses.length > 0
+      ? `\n${ind}    ${whereClauses.join(`\n${ind}    `)}`
+      : "";
+  const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${bodyCode}`;
 
   return [code, dedent(finalContext)];
 };
@@ -216,6 +231,13 @@ const emitClassDeclaration = (
   parts.push("class");
   parts.push(stmt.name);
 
+  // Type parameters
+  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+    stmt.typeParameters,
+    currentContext
+  );
+  currentContext = typeParamContext;
+
   // Base class and interfaces
   const heritage: string[] = [];
   // Note: superClass in IR is an expression, not a type
@@ -230,10 +252,11 @@ const emitClassDeclaration = (
     }
   }
 
-  if (heritage.length > 0) {
-    parts.push(":");
-    parts.push(heritage.join(", "));
-  }
+  const heritageStr = heritage.length > 0 ? ` : ${heritage.join(", ")}` : "";
+  const whereClause =
+    whereClauses.length > 0
+      ? `\n${ind}    ${whereClauses.join(`\n${ind}    `)}`
+      : "";
 
   // Class body
   const bodyContext = indent(currentContext);
@@ -247,7 +270,7 @@ const emitClassDeclaration = (
 
   const signature = parts.join(" ");
   const memberCode = members.join("\n\n");
-  const code = `${ind}${signature}\n${ind}{\n${memberCode}\n${ind}}`;
+  const code = `${ind}${signature}${typeParamsStr}${heritageStr}${whereClause}\n${ind}{\n${memberCode}\n${ind}}`;
 
   return [code, currentContext];
 };
@@ -348,9 +371,19 @@ const emitClassMember = (
       // Method name
       parts.push(member.name);
 
+      // Type parameters
+      const [typeParamsStr, whereClauses, typeParamContext] =
+        emitTypeParameters(member.typeParameters, currentContext);
+      currentContext = typeParamContext;
+
       // Parameters
       const params = emitParameters(member.parameters, currentContext);
       currentContext = params[1];
+
+      const whereClause =
+        whereClauses.length > 0
+          ? `\n${ind}    ${whereClauses.join(`\n${ind}    `)}`
+          : "";
 
       // Method body
       const bodyContext = withAsync(indent(currentContext), member.isAsync);
@@ -358,7 +391,7 @@ const emitClassMember = (
       if (!member.body) {
         // Abstract method without body
         const signature = parts.join(" ");
-        const code = `${ind}${signature}(${params[0]});`;
+        const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause};`;
         return [code, currentContext];
       }
 
@@ -368,7 +401,7 @@ const emitClassMember = (
       );
 
       const signature = parts.join(" ");
-      const code = `${ind}${signature}(${params[0]})\n${bodyCode}`;
+      const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${bodyCode}`;
 
       return [code, dedent(finalContext)];
     }
@@ -417,6 +450,10 @@ const emitInterfaceDeclaration = (
   stmt: Extract<IrStatement, { kind: "interfaceDeclaration" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  // Per spec/16-types-and-interfaces.md §2.1:
+  // TypeScript interfaces map to C# classes (not C# interfaces)
+  // because TS interfaces are structural and we need nominal types in C#
+
   const ind = getIndent(context);
   let currentContext = context;
   const parts: string[] = [];
@@ -424,39 +461,73 @@ const emitInterfaceDeclaration = (
   // Access modifier
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
-  parts.push("interface");
+  parts.push("class"); // Class, not interface!
   parts.push(stmt.name);
 
-  // Extended interfaces
-  if (stmt.extends && stmt.extends.length > 0) {
-    const extended: string[] = [];
-    for (const ext of stmt.extends) {
-      const [extType, newContext] = emitType(ext, currentContext);
-      currentContext = newContext;
-      extended.push(extType);
+  // Type parameters (if any)
+  if (stmt.typeParameters && stmt.typeParameters.length > 0) {
+    const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+      stmt.typeParameters,
+      currentContext
+    );
+    parts.push(typeParamsStr);
+    currentContext = typeParamContext;
+
+    // Extended interfaces/classes
+    if (stmt.extends && stmt.extends.length > 0) {
+      const extended: string[] = [];
+      for (const ext of stmt.extends) {
+        const [extType, newContext] = emitType(ext, currentContext);
+        currentContext = newContext;
+        extended.push(extType);
+      }
+      parts.push(":");
+      parts.push(extended.join(", "));
     }
-    parts.push(":");
-    parts.push(extended.join(", "));
+
+    // Where clauses for type parameters
+    if (whereClauses.length > 0) {
+      parts.push("\n" + ind + "    " + whereClauses.join("\n" + ind + "    "));
+    }
+  } else {
+    // Extended interfaces/classes (no generics)
+    if (stmt.extends && stmt.extends.length > 0) {
+      const extended: string[] = [];
+      for (const ext of stmt.extends) {
+        const [extType, newContext] = emitType(ext, currentContext);
+        currentContext = newContext;
+        extended.push(extType);
+      }
+      parts.push(":");
+      parts.push(extended.join(", "));
+    }
   }
 
-  // Interface body
+  // Class body with auto-properties
   const bodyContext = indent(currentContext);
   const members: string[] = [];
 
   for (const member of stmt.members) {
-    const [memberCode, newContext] = emitInterfaceMember(member, bodyContext);
+    const [memberCode, newContext] = emitInterfaceMemberAsProperty(
+      member,
+      bodyContext
+    );
     members.push(memberCode);
     currentContext = newContext;
   }
 
   const signature = parts.join(" ");
-  const memberCode = members.join("\n");
+  const memberCode = members.join("\n\n");
   const code = `${ind}${signature}\n${ind}{\n${memberCode}\n${ind}}`;
 
   return [code, currentContext];
 };
 
-const emitInterfaceMember = (
+/**
+ * Emit interface member as C# auto-property (for classes)
+ * Per spec/16-types-and-interfaces.md §2.1
+ */
+const emitInterfaceMemberAsProperty = (
   member: IrInterfaceMember,
   context: EmitterContext
 ): [string, EmitterContext] => {
@@ -467,27 +538,42 @@ const emitInterfaceMember = (
       let currentContext = context;
       const parts: string[] = [];
 
+      parts.push("public"); // All properties public
+
       // Property type
       if (member.type) {
         const [typeName, newContext] = emitType(member.type, currentContext);
         currentContext = newContext;
-        parts.push(typeName);
+        // Optional members become nullable (spec §2.1)
+        const typeStr = member.isOptional ? `${typeName}?` : typeName;
+        parts.push(typeStr);
       } else {
-        parts.push("object");
+        const typeStr = member.isOptional ? "object?" : "object";
+        parts.push(typeStr);
       }
 
       // Property name
       parts.push(member.name);
 
-      // Getter/setter
-      const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
+      // Getter/setter (readonly uses private set per spec §2.1)
+      const accessors = member.isReadonly
+        ? "{ get; private set; }"
+        : "{ get; set; }";
 
-      return [`${ind}${parts.join(" ")} ${accessors}`, currentContext];
+      // Optional properties get default initializer
+      const initializer = member.isOptional ? " = default!;" : ";";
+
+      return [
+        `${ind}${parts.join(" ")} ${accessors}${initializer}`,
+        currentContext,
+      ];
     }
 
     case "methodSignature": {
       let currentContext = context;
       const parts: string[] = [];
+
+      parts.push("public"); // All methods public
 
       // Return type
       if (member.returnType) {
@@ -508,7 +594,11 @@ const emitInterfaceMember = (
       const params = emitParameters(member.parameters, currentContext);
       currentContext = params[1];
 
-      return [`${ind}${parts.join(" ")}(${params[0]});`, currentContext];
+      // Methods in interfaces are abstract declarations
+      return [
+        `${ind}${parts.join(" ")}(${params[0]}) => throw new NotImplementedException();`,
+        currentContext,
+      ];
     }
 
     default:
@@ -542,9 +632,86 @@ const emitTypeAliasDeclaration = (
   stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  // Per spec/16-types-and-interfaces.md §3:
+  // - Structural type aliases generate C# classes with __Alias suffix
+  // - Simple aliases (primitives, references) emit as comments or using aliases
+
   const ind = getIndent(context);
-  // C# doesn't have type aliases in the same way as TypeScript
-  // We'll emit a using alias or a comment
+  let currentContext = context;
+
+  // Check if this is a structural (object) type alias
+  if (stmt.type.kind === "objectType") {
+    // Generate a sealed class for structural type alias
+    const parts: string[] = [];
+
+    const accessibility = stmt.isExported ? "public" : "internal";
+    parts.push(accessibility);
+    parts.push("sealed");
+    parts.push("class");
+    parts.push(`${stmt.name}__Alias`); // Add __Alias suffix per spec §3.4
+
+    // Type parameters (if any)
+    if (stmt.typeParameters && stmt.typeParameters.length > 0) {
+      const [typeParamsStr, whereClauses, typeParamContext] =
+        emitTypeParameters(stmt.typeParameters, currentContext);
+      parts.push(typeParamsStr);
+      currentContext = typeParamContext;
+
+      if (whereClauses.length > 0) {
+        parts.push(
+          "\n" + ind + "    " + whereClauses.join("\n" + ind + "    ")
+        );
+      }
+    }
+
+    // Generate properties from object type members
+    const bodyContext = indent(currentContext);
+    const properties: string[] = [];
+
+    if (stmt.type.kind === "objectType") {
+      for (const member of stmt.type.members) {
+        if (member.kind === "propertySignature") {
+          const propParts: string[] = [];
+          propParts.push("public");
+
+          // Property type
+          if (member.type) {
+            const [propType, newContext] = emitType(
+              member.type,
+              currentContext
+            );
+            currentContext = newContext;
+            // Optional members become nullable
+            const typeStr = member.isOptional ? `${propType}?` : propType;
+            propParts.push(typeStr);
+          } else {
+            propParts.push(member.isOptional ? "object?" : "object");
+          }
+
+          propParts.push(member.name);
+
+          // Readonly uses private set
+          const accessors = member.isReadonly
+            ? "{ get; private set; }"
+            : "{ get; set; }";
+          propParts.push(accessors);
+
+          // Default initializer
+          propParts.push("= default!;");
+
+          properties.push(`${getIndent(bodyContext)}${propParts.join(" ")}`);
+        }
+      }
+    }
+
+    const signature = parts.join(" ");
+    const propsCode = properties.join("\n");
+    const code = `${ind}${signature}\n${ind}{\n${propsCode}\n${ind}}`;
+
+    return [code, currentContext];
+  }
+
+  // For non-structural aliases, emit as comment (C# using aliases are limited)
   const [typeName, newContext] = emitType(stmt.type, context);
   const code = `${ind}// type ${stmt.name} = ${typeName}`;
   return [code, newContext];

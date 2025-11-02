@@ -55,6 +55,14 @@ using My.App.services;
 - Combine imports from same namespace
 - Remove redundant parent namespaces if not used directly
 
+## Generics
+
+The emitter preserves TypeScript generic parameters whenever C# can represent them directly (classes, methods, interfaces, .NET collections). When constraints or type expressions cannot be mapped verbatim, follow `spec/15-generics.md` for structural adapters, call-site rewriting, and monomorphisation.
+
+## Interfaces and Type Aliases
+
+When emitting interfaces or structural type aliases, generate C# classes/interfaces following `spec/16-types-and-interfaces.md` (property mapping, optional members, index signatures, and adapter generation).
+
 ## Class Generation
 
 ### Regular Class

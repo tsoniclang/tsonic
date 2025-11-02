@@ -250,38 +250,37 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 ### Phase 7: Advanced Types and Language Features
 
-**Goal:** Support more TypeScript features
+**Goal:** Deliver full generic support (see `spec/15-generics.md`) and complete generator translation while rounding out remaining TypeScript features.
 
 **Tasks:**
 
-1. Arrays with proper `Tsonic.Runtime.Array<T>`
-2. Async/await to Task conversion
-3. Interfaces to C# classes
-4. Enums support
-5. Generic functions and classes
-6. Union types (basic two-type unions)
-7. Type assertions and guards
-8. **Generators (function\*)** using Exchange Object pattern:
-   - Generate Exchange class per generator function
-   - Transform `yield value` to `exchange.Output = value; yield return exchange;`
-   - Transform `const x = yield y` to read `exchange.Input` after yield
-   - Support `IEnumerable<Exchange>` for sync generators
-   - Support `IAsyncEnumerable<Exchange>` for async generators
-   - Add runtime helper for ergonomic `Next(value)` API
+1. Arrays with proper `Tsonic.Runtime.Array<T>` semantics (sparse, length).
+2. Async/await to `Task` conversion.
+3. Interfaces -> C# classes (auto-property generation).
+4. Enums support.
+5. **Generics Phase 1 – IR Enhancements** (`spec/15-generics.md` §2).
+6. **Generics Phase 2 – Emitter** (`spec/15-generics.md` §3–§6).
+7. **Generics Phase 3 – Runtime Helpers** (`spec/15-generics.md` §7–§9).
+8. Union types (basic two-type unions) & union helpers.
+9. Type assertions and guards.
+10. Generators (sync + async) per `spec/13-generators.md` (exchange object pattern).
+11. Interfaces & type aliases (`spec/16-types-and-interfaces.md`).
 
 **Tests:**
 
-- Array method mappings
-- Async method generation
-- Generic preservation
-- Generator bidirectional communication
-- Async generator coordination
+- Generic class/function emission (multiple constraints, adapter generation, call-site rewriting).
+- Interface & type-alias generation (optional/indexed members).
+- Specialisation generation for conditional types.
+- Generator bidirectional communication (sync & async).
+- Async/await end-to-end.
+- Union helper behaviour.
 
 **Deliverables:**
 
-- Support for modern TypeScript patterns
-- Async/await working end-to-end
-- Generators with exchange object pattern working
+- Robust generic support aligned with `spec/15-generics.md`.
+- Structural type support per `spec/16-types-and-interfaces.md`.
+- Generators with exchange object pattern working.
+- Type guard infrastructure in place.
 
 ### Phase 8: .NET Interop
 

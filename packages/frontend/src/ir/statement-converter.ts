@@ -24,9 +24,53 @@ import {
   IrInterfaceMember,
   IrParameter,
   IrAccessibility,
+  IrTypeParameter,
 } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
 import { convertType, convertBindingName } from "./type-converter.js";
+
+/**
+ * Convert TypeScript type parameters to IR, detecting structural constraints
+ */
+const convertTypeParameters = (
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
+  checker: ts.TypeChecker
+): readonly IrTypeParameter[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) {
+    return undefined;
+  }
+
+  return typeParameters.map((tp) => {
+    const name = tp.name.text;
+    const constraint = tp.constraint
+      ? convertType(tp.constraint, checker)
+      : undefined;
+    const defaultType = tp.default
+      ? convertType(tp.default, checker)
+      : undefined;
+
+    // Check if constraint is structural (object literal type)
+    const isStructural = tp.constraint && ts.isTypeLiteralNode(tp.constraint);
+
+    // Extract structural members if it's a structural constraint
+    const structuralMembers =
+      isStructural && tp.constraint && ts.isTypeLiteralNode(tp.constraint)
+        ? tp.constraint.members
+            .map((member) => convertInterfaceMember(member, checker))
+            .filter((m): m is IrInterfaceMember => m !== null)
+        : undefined;
+
+    return {
+      kind: "typeParameter" as const,
+      name,
+      constraint,
+      default: defaultType,
+      variance: undefined, // TypeScript doesn't expose variance directly
+      isStructuralConstraint: isStructural,
+      structuralMembers,
+    };
+  });
+};
 
 export const convertStatement = (
   node: ts.Node,
@@ -148,6 +192,7 @@ const convertFunctionDeclaration = (
   return {
     kind: "functionDeclaration",
     name: node.name.text,
+    typeParameters: convertTypeParameters(node.typeParameters, checker),
     parameters: convertParameters(node.parameters, checker),
     returnType: node.type ? convertType(node.type, checker) : undefined,
     body: node.body
@@ -179,6 +224,7 @@ const convertClassDeclaration = (
   return {
     kind: "classDeclaration",
     name: node.name.text,
+    typeParameters: convertTypeParameters(node.typeParameters, checker),
     superClass: superClass ? convertExpression(superClass, checker) : undefined,
     implements: implementsTypes,
     members: node.members
@@ -210,6 +256,7 @@ const convertClassMember = (
     return {
       kind: "methodDeclaration",
       name: ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      typeParameters: convertTypeParameters(node.typeParameters, checker),
       parameters: convertParameters(node.parameters, checker),
       returnType: node.type ? convertType(node.type, checker) : undefined,
       body: node.body ? convertBlockStatement(node.body, checker) : undefined,
@@ -246,6 +293,7 @@ const convertInterfaceDeclaration = (
   return {
     kind: "interfaceDeclaration",
     name: node.name.text,
+    typeParameters: convertTypeParameters(node.typeParameters, checker),
     extends: extendsTypes,
     members: node.members
       .map((m) => convertInterfaceMember(m, checker))
@@ -274,6 +322,7 @@ const convertInterfaceMember = (
       kind: "methodSignature",
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
+      typeParameters: convertTypeParameters(node.typeParameters, checker),
       parameters: convertParameters(node.parameters, checker),
       returnType: node.type ? convertType(node.type, checker) : undefined,
     };
@@ -307,6 +356,7 @@ const convertTypeAliasDeclaration = (
   return {
     kind: "typeAliasDeclaration",
     name: node.name.text,
+    typeParameters: convertTypeParameters(node.typeParameters, checker),
     type: convertType(node.type, checker),
     isExported: hasExportModifier(node),
   };

@@ -1,0 +1,297 @@
+/**
+ * End-to-end integration tests for generics implementation
+ * Tests the complete pipeline: TypeScript -> IR -> C#
+ */
+
+import { describe, it } from "mocha";
+import { expect } from "chai";
+import * as ts from "typescript";
+import { buildIrModule } from "@tsonic/frontend";
+import { emitModule } from "./emitter.js";
+
+/**
+ * Helper to compile TypeScript source to C#
+ */
+const compileToCSharp = (
+  source: string,
+  fileName = "/test/test.ts"
+): string => {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.NodeNext,
+    strict: true,
+    noEmit: true,
+  };
+
+  const host = ts.createCompilerHost(compilerOptions);
+  const originalGetSourceFile = host.getSourceFile;
+  host.getSourceFile = (
+    name: string,
+    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
+    onError?: (message: string) => void,
+    shouldCreateNewSourceFile?: boolean
+  ) => {
+    if (name === fileName) {
+      return sourceFile;
+    }
+    return originalGetSourceFile.call(
+      host,
+      name,
+      languageVersionOrOptions,
+      onError,
+      shouldCreateNewSourceFile
+    );
+  };
+
+  const tsProgram = ts.createProgram([fileName], compilerOptions, host);
+
+  const tsonicProgram = {
+    program: tsProgram,
+    checker: tsProgram.getTypeChecker(),
+    options: {
+      sourceRoot: "/test",
+      rootNamespace: "Test",
+    },
+    sourceFiles: [sourceFile],
+  };
+
+  // Build IR
+  const irResult = buildIrModule(sourceFile, tsonicProgram, {
+    sourceRoot: "/test",
+    rootNamespace: "Test",
+  });
+
+  if (!irResult.ok) {
+    throw new Error(`IR build failed: ${irResult.error.message}`);
+  }
+
+  // Emit C#
+  return emitModule(irResult.value);
+};
+
+describe("End-to-End Integration", () => {
+  describe("Generic Functions", () => {
+    it("should compile generic identity function to C#", () => {
+      const source = `
+        export function identity<T>(value: T): T {
+          return value;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit generic function signature
+      expect(csharp).to.match(/public\s+static\s+T\s+identity\s*<T>/);
+      expect(csharp).to.include("(T value)");
+      expect(csharp).to.include("return value;");
+    });
+
+    it("should compile generic function with type alias constraint", () => {
+      const source = `
+        type HasId = { id: number };
+
+        export function getId<T extends HasId>(obj: T): number {
+          return obj.id;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit type alias as class
+      expect(csharp).to.include("class HasId__Alias");
+      expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*set;/);
+
+      // Should use type alias as constraint
+      expect(csharp).to.include("where T : HasId");
+
+      // Should have function
+      expect(csharp).to.match(/public\s+static\s+double\s+getId<T>/);
+    });
+  });
+
+  describe("Interfaces and Type Aliases", () => {
+    it("should compile interface to C# class", () => {
+      const source = `
+        export interface User {
+          id: number;
+          name: string;
+          email?: string;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit C# class (not interface)
+      expect(csharp).to.match(/public\s+class\s+User/);
+      expect(csharp).not.to.include("interface User");
+
+      // Should have auto-properties
+      expect(csharp).to.match(/public\s+double\s+id\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(/public\s+string\s+name\s*\{\s*get;\s*set;/);
+
+      // Optional property should be nullable
+      expect(csharp).to.match(/public\s+string\?\s+email\s*\{\s*get;\s*set;/);
+    });
+
+    it("should compile structural type alias to sealed class", () => {
+      const source = `
+        export type Point = {
+          x: number;
+          y: number;
+        };
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit sealed class with __Alias suffix
+      expect(csharp).to.match(/public\s+sealed\s+class\s+Point__Alias/);
+      expect(csharp).to.match(/public\s+double\s+x\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(/public\s+double\s+y\s*\{\s*get;\s*set;/);
+    });
+
+    it("should compile generic interface", () => {
+      const source = `
+        export interface Result<T> {
+          ok: boolean;
+          value: T;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit generic class
+      expect(csharp).to.match(/public\s+class\s+Result\s*<T>/);
+      expect(csharp).to.match(/public\s+bool\s+ok/);
+      expect(csharp).to.match(/public\s+T\s+value/);
+    });
+  });
+
+  describe("Generic Classes", () => {
+    it("should compile generic class with methods", () => {
+      const source = `
+        export class Container<T> {
+          constructor(private value: T) {}
+
+          getValue(): T {
+            return this.value;
+          }
+
+          setValue(newValue: T): void {
+            this.value = newValue;
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit generic class
+      expect(csharp).to.match(/public\s+class\s+Container\s*<T>/);
+
+      // Should have generic methods
+      expect(csharp).to.match(/public\s+T\s+getValue\s*\(\s*\)/);
+      expect(csharp).to.match(
+        /public\s+void\s+setValue\s*\(\s*T\s+newValue\s*\)/
+      );
+    });
+  });
+
+  describe("Combined Features", () => {
+    it("should compile code with multiple generic features", () => {
+      const source = `
+        export interface Repository<T> {
+          items: T[];
+          add(item: T): void;
+          findById(id: number): T | undefined;
+        }
+
+        export class InMemoryRepository<T extends { id: number }> {
+          private items: T[] = [];
+
+          add(item: T): void {
+            this.items.push(item);
+          }
+
+          findById(id: number): T | undefined {
+            return this.items.find(item => item.id === id);
+          }
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit Repository as generic class (interfaces become classes)
+      expect(csharp).to.match(/public\s+class\s+Repository\s*<T>/);
+
+      // Should emit InMemoryRepository as generic class with constraint
+      expect(csharp).to.match(/public\s+class\s+InMemoryRepository\s*<T>/);
+      expect(csharp).to.include("where T : __Constraint_T");
+
+      // Should generate constraint adapter
+      expect(csharp).to.match(/public\s+interface\s+__Constraint_T/);
+      expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*\}/);
+    });
+  });
+
+  describe("Full Module Compilation", () => {
+    it("should compile a complete module with all features", () => {
+      const source = `
+        // Type definitions
+        export interface User {
+          id: number;
+          name: string;
+          email?: string;
+        }
+
+        export type UserId = number;
+
+        // Generic repository
+        export class UserRepository {
+          private users: User[] = [];
+
+          add(user: User): void {
+            this.users.push(user);
+          }
+
+          findById(id: UserId): User | undefined {
+            return this.users.find(u => u.id === id);
+          }
+
+          all(): User[] {
+            return this.users;
+          }
+        }
+
+        // Generic utility function
+        export function map<T, U>(arr: T[], fn: (item: T) => U): U[] {
+          return arr.map(fn);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should have all type definitions
+      expect(csharp).to.include("class User");
+      expect(csharp).to.include("// type UserId = double"); // number → double in C#
+
+      // Should have the repository class
+      expect(csharp).to.include("class UserRepository");
+
+      // Should have the generic function
+      expect(csharp).to.match(
+        /public\s+static\s+Tsonic\.Runtime\.Array<U>\s+map\s*<T,\s*U>/
+      );
+
+      // Should have proper namespace structure
+      expect(csharp).to.include("namespace Test");
+      expect(csharp).to.include("public static class test");
+    });
+  });
+});

@@ -200,6 +200,14 @@ Tsonic.Runtime.Array<string> parts = Tsonic.Runtime.String.split(name, " ");
 
 See [Runtime Specification](./05-runtime.md) for complete list of string methods.
 
+## Generics
+
+TypeScript generic parameters map directly to C# generic parameters whenever possible. See `spec/15-generics.md` for full translation rules (constraints, call-site rewriting, structural adapters, and specialisation).
+
+## Interfaces and Type Aliases
+
+Interfaces and structural type aliases are emitted as C# classes/interfaces with property mappings, optional member handling, and adapters for structural inheritance. See `spec/16-types-and-interfaces.md` for the full strategy (including generics).
+
 ## Async Types
 
 | TypeScript       | C#                  |
