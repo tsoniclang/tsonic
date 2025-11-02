@@ -289,7 +289,9 @@ describe("Config", () => {
       expect(result.rid).to.equal("win-x64");
       expect(result.dotnetVersion).to.equal("net9.0");
       expect(result.optimize).to.equal("speed");
-      expect(result.packages).to.deep.equal([{ name: "Package.Name", version: "1.0.0" }]);
+      expect(result.packages).to.deep.equal([
+        { name: "Package.Name", version: "1.0.0" },
+      ]);
       expect(result.stripSymbols).to.be.false;
       expect(result.invariantGlobalization).to.be.false;
       expect(result.keepTemp).to.be.true;

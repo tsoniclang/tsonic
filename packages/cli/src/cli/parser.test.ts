@@ -178,7 +178,14 @@ describe("CLI Parser", () => {
       });
 
       it("should handle options in program arguments", () => {
-        const result = parseArgs(["run", "index.ts", "--", "--verbose", "-o", "out"]);
+        const result = parseArgs([
+          "run",
+          "index.ts",
+          "--",
+          "--verbose",
+          "-o",
+          "out",
+        ]);
         expect(result.programArgs).to.deep.equal(["--verbose", "-o", "out"]);
       });
 
@@ -218,7 +225,10 @@ describe("CLI Parser", () => {
         expect(result.command).to.equal("run");
         expect(result.entryFile).to.equal("index.ts");
         expect(result.options.verbose).to.be.true;
-        expect(result.programArgs).to.deep.equal(["programArg1", "programArg2"]);
+        expect(result.programArgs).to.deep.equal([
+          "programArg1",
+          "programArg2",
+        ]);
       });
 
       it("should handle empty args array", () => {
