@@ -16,17 +16,40 @@ Document how TypeScript `type` aliases and `interface` declarations—including 
 
 ---
 
-
 ## Structural vs Nominal Typing
 
 - TypeScript is structurally typed; C# is nominal. We always generate nominal definitions (classes/interfaces) for structural shapes and wrap or clone incoming values so the C# compiler sees concrete types.
 - This keeps runtime dispatch static and avoids `dynamic`.
+
+## Mapped Types & Finite Expansions
+
+When structural aliases or mapped types are instantiated with a concrete nominal type
+**Example – simple recursive alias**
+
+```typescript
+type Node = { name: string; next?: Node };
+```
+
+Expands to the nominal C# class:
+
+```csharp
+public sealed class Node__Alias
+{
+    public string name { get; set; } = string.Empty;
+    public Node__Alias? next { get; set; }
+}
+```
+
+Self-referential fields are safe because C# supports nullable references pointing back to the same class. No diagnostic is emitted.
+
+(e.g., `DeepReadonly<Settings>`), the emitter expands them into generated nominal classes. The expansion is structural but finite, so the resulting C# types are ordinary classes/records with nested types for nested objects. If the expansion is infinite or recursive without a base case, we emit `TSN7201`.
 
 ## 2. Interfaces (`interface Foo { ... }`)
 
 ### 2.1 Basic mapping
 
 - Emit C# classes with auto-properties:
+
   ```typescript
   interface User {
     id: number;
@@ -34,7 +57,9 @@ Document how TypeScript `type` aliases and `interface` declarations—including 
     active?: boolean;
   }
   ```
+
   →
+
   ```csharp
   public class User
   {
@@ -121,12 +146,12 @@ Document how TypeScript `type` aliases and `interface` declarations—including 
 
 Emit diagnostics when interfaces or aliases use patterns we cannot support:
 
-| Pattern | Example | Diagnostic |
-|---------|---------|------------|
-| Recursive aliases without base case | `type Foo<T> = { child: Foo<T> };` | `TSN7201`: “Recursive structural alias not supported.” |
+| Pattern                                          | Example                                                     | Diagnostic                                                   |
+| ------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| Recursive aliases without base case              | `type Foo<T> = { child: Foo<T> };`                          | `TSN7201`: “Recursive structural alias not supported.”       |
 | Conditional aliases with infinite instantiations | `type Result<T> = T extends string ? Foo<T> : Result<T[]>;` | `TSN7202`: “Conditional alias cannot be resolved; refactor.” |
-| Interfaces with symbol index signatures | `[key: symbol]: number;` | `TSN7203`: “Symbol keys not supported in C#.” |
-| Generic interfaces with variadic constraints | `interface Z<T extends unknown[]> { ... }` | `TSN7204`: “Variadic generic interface not supported.” |
+| Interfaces with symbol index signatures          | `[key: symbol]: number;`                                    | `TSN7203`: “Symbol keys not supported in C#.”                |
+| Generic interfaces with variadic constraints     | `interface Z<T extends unknown[]> { ... }`                  | `TSN7204`: “Variadic generic interface not supported.”       |
 
 ---
 
@@ -155,4 +180,3 @@ Emit diagnostics when interfaces or aliases use patterns we cannot support:
    - Alias chains + monomorphised conditional aliases.
 
 ---
-

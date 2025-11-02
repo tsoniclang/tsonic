@@ -129,7 +129,10 @@ const checkIfRequiresSpecialization = (
         if (constraint) {
           const constraintStr = checker.typeToString(constraint);
           // Check for unknown[] which indicates variadic
-          if (constraintStr.includes("unknown[]") || constraintStr.includes("any[]")) {
+          if (
+            constraintStr.includes("unknown[]") ||
+            constraintStr.includes("any[]")
+          ) {
             return true;
           }
         }

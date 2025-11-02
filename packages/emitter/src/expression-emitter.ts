@@ -81,6 +81,54 @@ export const emitExpression = (
   }
 };
 
+/**
+ * Emit type arguments as C# generic type parameters
+ * Example: [string, number] → <string, double>
+ */
+const emitTypeArguments = (
+  typeArgs: readonly IrType[],
+  context: EmitterContext
+): [string, EmitterContext] => {
+  if (!typeArgs || typeArgs.length === 0) {
+    return ["", context];
+  }
+
+  let currentContext = context;
+  const typeStrings: string[] = [];
+
+  for (const typeArg of typeArgs) {
+    const [typeStr, newContext] = emitType(typeArg, currentContext);
+    currentContext = newContext;
+    typeStrings.push(typeStr);
+  }
+
+  return [`<${typeStrings.join(", ")}>`, currentContext];
+};
+
+/**
+ * Generate specialized method/class name from type arguments
+ * Example: process with [string, number] → process__string__double
+ */
+const generateSpecializedName = (
+  baseName: string,
+  typeArgs: readonly IrType[],
+  context: EmitterContext
+): [string, EmitterContext] => {
+  let currentContext = context;
+  const typeNames: string[] = [];
+
+  for (const typeArg of typeArgs) {
+    const [typeName, newContext] = emitType(typeArg, currentContext);
+    currentContext = newContext;
+    // Sanitize type name for use in identifier (remove <>, ?, etc.)
+    const sanitized = typeName.replace(/[<>?,\s]/g, "_").replace(/\./g, "_");
+    typeNames.push(sanitized);
+  }
+
+  const specializedName = `${baseName}__${typeNames.join("__")}`;
+  return [specializedName, currentContext];
+};
+
 const emitLiteral = (
   expr: Extract<IrExpression, { kind: "literal" }>,
   context: EmitterContext
@@ -307,6 +355,33 @@ const emitCall = (
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
   let currentContext = newContext;
 
+  // Handle generic type arguments
+  let typeArgsStr = "";
+  let finalCalleeName = calleeFrag.text;
+
+  if (expr.typeArguments && expr.typeArguments.length > 0) {
+    if (expr.requiresSpecialization) {
+      // Monomorphisation: Generate specialized method name
+      // e.g., process<string> → process__string
+      const [specializedName, specContext] = generateSpecializedName(
+        calleeFrag.text,
+        expr.typeArguments,
+        currentContext
+      );
+      finalCalleeName = specializedName;
+      currentContext = specContext;
+    } else {
+      // Emit explicit type arguments for generic call
+      // e.g., identity<string>(value)
+      const [typeArgs, typeContext] = emitTypeArguments(
+        expr.typeArguments,
+        currentContext
+      );
+      typeArgsStr = typeArgs;
+      currentContext = typeContext;
+    }
+  }
+
   const args: string[] = [];
   for (const arg of expr.arguments) {
     if (arg.kind === "spread") {
@@ -322,7 +397,7 @@ const emitCall = (
   }
 
   const callOp = expr.isOptional ? "?." : "";
-  const text = `${calleeFrag.text}${callOp}(${args.join(", ")})`;
+  const text = `${finalCalleeName}${typeArgsStr}${callOp}(${args.join(", ")})`;
   return [{ text }, currentContext];
 };
 
@@ -332,6 +407,33 @@ const emitNew = (
 ): [CSharpFragment, EmitterContext] => {
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
   let currentContext = newContext;
+
+  // Handle generic type arguments
+  let typeArgsStr = "";
+  let finalClassName = calleeFrag.text;
+
+  if (expr.typeArguments && expr.typeArguments.length > 0) {
+    if (expr.requiresSpecialization) {
+      // Monomorphisation: Generate specialized class name
+      // e.g., new Box<string>() → new Box__string()
+      const [specializedName, specContext] = generateSpecializedName(
+        calleeFrag.text,
+        expr.typeArguments,
+        currentContext
+      );
+      finalClassName = specializedName;
+      currentContext = specContext;
+    } else {
+      // Emit explicit type arguments for generic constructor
+      // e.g., new Box<string>(value)
+      const [typeArgs, typeContext] = emitTypeArguments(
+        expr.typeArguments,
+        currentContext
+      );
+      typeArgsStr = typeArgs;
+      currentContext = typeContext;
+    }
+  }
 
   const args: string[] = [];
   for (const arg of expr.arguments) {
@@ -346,7 +448,7 @@ const emitNew = (
     }
   }
 
-  const text = `new ${calleeFrag.text}(${args.join(", ")})`;
+  const text = `new ${finalClassName}${typeArgsStr}(${args.join(", ")})`;
   return [{ text }, currentContext];
 };
 

@@ -1,9 +1,21 @@
 /**
- * Generic validation - detect unsupported generic patterns and emit diagnostics
+ * Generic validation - detect truly unsupported generic patterns
+ *
+ * NOTE: Many previously-blocked constructs are now handled via:
+ * - Monomorphisation for finite specializations
+ * - CRTP pattern for `this` typing
+ * - Tuple specialisations for variadic parameters
+ * - Structural adapters for mapped/conditional types
+ *
+ * Only constructs with NO static mapping remain as errors.
  */
 
 import * as ts from "typescript";
-import { Diagnostic, createDiagnostic, SourceLocation } from "../types/diagnostic.js";
+import {
+  Diagnostic,
+  createDiagnostic,
+  SourceLocation,
+} from "../types/diagnostic.js";
 
 /**
  * Get source location from TypeScript node
@@ -12,7 +24,9 @@ const getLocation = (
   node: ts.Node,
   sourceFile: ts.SourceFile
 ): SourceLocation => {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+    node.getStart()
+  );
   return {
     file: sourceFile.fileName,
     line: line + 1,
@@ -22,132 +36,9 @@ const getLocation = (
 };
 
 /**
- * Check for conditional types with infer keyword (TSN7102)
- */
-export const checkForInferKeyword = (
-  node: ts.Node,
-  sourceFile: ts.SourceFile
-): Diagnostic | null => {
-  if (ts.isConditionalTypeNode(node)) {
-    // Check if the true/false types contain infer
-    const hasInfer = (type: ts.TypeNode): boolean => {
-      if (ts.isInferTypeNode(type)) return true;
-      let found = false;
-      ts.forEachChild(type, (child) => {
-        if (ts.isTypeNode(child) && hasInfer(child)) {
-          found = true;
-        }
-      });
-      return found;
-    };
-
-    if (hasInfer(node.trueType) || hasInfer(node.falseType)) {
-      return createDiagnostic(
-        "TSN7102",
-        "error",
-        "Conditional types using infer are not supported",
-        getLocation(node, sourceFile),
-        "Consider using explicit type parameters instead of infer"
-      );
-    }
-  }
-  return null;
-};
-
-/**
- * Check for recursive mapped types (TSN7101)
- */
-export const checkForRecursiveMappedType = (
-  node: ts.TypeAliasDeclaration,
-  sourceFile: ts.SourceFile
-): Diagnostic | null => {
-  if (!ts.isMappedTypeNode(node.type)) {
-    return null;
-  }
-
-  // Simple check: if the mapped type references itself
-  const typeName = node.name.text;
-  let isRecursive = false;
-
-  const checkRecursion = (n: ts.Node): void => {
-    if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName)) {
-      if (n.typeName.text === typeName) {
-        isRecursive = true;
-      }
-    }
-    ts.forEachChild(n, checkRecursion);
-  };
-
-  checkRecursion(node.type);
-
-  if (isRecursive) {
-    return createDiagnostic(
-      "TSN7101",
-      "error",
-      "Recursive mapped types are not supported",
-      getLocation(node, sourceFile),
-      "Refactor to use explicit type definitions instead of recursion"
-    );
-  }
-
-  return null;
-};
-
-/**
- * Check for `this` typing in generics (TSN7103)
- */
-export const checkForThisType = (
-  node: ts.Node,
-  sourceFile: ts.SourceFile
-): Diagnostic | null => {
-  if (ts.isTypeReferenceNode(node) && node.typeName.getText() === "this") {
-    return createDiagnostic(
-      "TSN7103",
-      "error",
-      "`this` typing is not supported; refactor to explicit type parameters",
-      getLocation(node, sourceFile),
-      "Use a generic type parameter instead of `this`"
-    );
-  }
-  return null;
-};
-
-/**
- * Check for variadic type parameters (TSN7104/TSN7204)
- */
-export const checkForVariadicTypeParameter = (
-  typeParam: ts.TypeParameterDeclaration,
-  sourceFile: ts.SourceFile
-): Diagnostic | null => {
-  if (!typeParam.constraint) {
-    return null;
-  }
-
-  // Check if constraint is unknown[] or any[] (indicates variadic)
-  if (ts.isArrayTypeNode(typeParam.constraint)) {
-    const elementType = typeParam.constraint.elementType;
-    if (
-      ts.isTypeReferenceNode(elementType) &&
-      ts.isIdentifier(elementType.typeName)
-    ) {
-      const name = elementType.typeName.text;
-      if (name === "unknown" || name === "any") {
-        return createDiagnostic(
-          "TSN7104",
-          "error",
-          "Variadic type parameters are not supported",
-          getLocation(typeParam, sourceFile),
-          "Use fixed-length tuple types or refactor to avoid variadic generics"
-        );
-      }
-    }
-  }
-
-  return null;
-};
-
-/**
  * Check for symbol index signatures (TSN7203)
+ *
+ * Symbol keys have no static C# mapping and must be rejected.
  */
 export const checkForSymbolIndexSignature = (
   node: ts.IndexSignatureDeclaration,
@@ -156,11 +47,9 @@ export const checkForSymbolIndexSignature = (
   // Check if the parameter type is symbol
   if (node.parameters.length > 0) {
     const param = node.parameters[0];
-    if (param && param.type && ts.isTypeReferenceNode(param.type)) {
-      if (
-        ts.isIdentifier(param.type.typeName) &&
-        param.type.typeName.text === "symbol"
-      ) {
+    if (param && param.type) {
+      // Check for symbol keyword type
+      if (param.type.kind === ts.SyntaxKind.SymbolKeyword) {
         return createDiagnostic(
           "TSN7203",
           "error",
@@ -169,6 +58,22 @@ export const checkForSymbolIndexSignature = (
           "Use string keys instead of symbol keys"
         );
       }
+
+      // Also check for type reference to 'symbol'
+      if (ts.isTypeReferenceNode(param.type)) {
+        if (
+          ts.isIdentifier(param.type.typeName) &&
+          param.type.typeName.text === "symbol"
+        ) {
+          return createDiagnostic(
+            "TSN7203",
+            "error",
+            "Symbol keys are not supported in C#",
+            getLocation(node, sourceFile),
+            "Use string keys instead of symbol keys"
+          );
+        }
+      }
     }
   }
 
@@ -176,39 +81,20 @@ export const checkForSymbolIndexSignature = (
 };
 
 /**
- * Check for recursive structural aliases (TSN7201)
+ * REMOVED CHECKS (now handled by implementation):
+ *
+ * - checkForInferKeyword (TSN7102)
+ *   Conditional types with infer are handled via monomorphisation
+ *
+ * - checkForRecursiveMappedType (TSN7101)
+ *   Finite mapped types are specialized; unbounded cases get adapters
+ *
+ * - checkForThisType (TSN7103)
+ *   `this` typing is handled via CRTP pattern
+ *
+ * - checkForVariadicTypeParameter (TSN7104)
+ *   Variadic parameters are handled via tuple specialisations
+ *
+ * - checkForRecursiveStructuralAlias (TSN7201)
+ *   Recursive structural aliases emit as C# classes with nullable refs
  */
-export const checkForRecursiveStructuralAlias = (
-  node: ts.TypeAliasDeclaration,
-  sourceFile: ts.SourceFile
-): Diagnostic | null => {
-  if (!ts.isTypeLiteralNode(node.type)) {
-    return null;
-  }
-
-  const typeName = node.name.text;
-  let isRecursive = false;
-
-  const checkRecursion = (n: ts.Node): void => {
-    if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName)) {
-      if (n.typeName.text === typeName) {
-        isRecursive = true;
-      }
-    }
-    ts.forEachChild(n, checkRecursion);
-  };
-
-  checkRecursion(node.type);
-
-  if (isRecursive) {
-    return createDiagnostic(
-      "TSN7201",
-      "error",
-      "Recursive structural alias not supported",
-      getLocation(node, sourceFile),
-      "Add a base case or use nominal types instead"
-    );
-  }
-
-  return null;
-};

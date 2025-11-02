@@ -42,17 +42,23 @@ const convertTypeParameters = (
 
   return typeParameters.map((tp) => {
     const name = tp.name.text;
-    const constraint = tp.constraint ? convertType(tp.constraint, checker) : undefined;
-    const defaultType = tp.default ? convertType(tp.default, checker) : undefined;
+    const constraint = tp.constraint
+      ? convertType(tp.constraint, checker)
+      : undefined;
+    const defaultType = tp.default
+      ? convertType(tp.default, checker)
+      : undefined;
 
     // Check if constraint is structural (object literal type)
     const isStructural = tp.constraint && ts.isTypeLiteralNode(tp.constraint);
 
     // Extract structural members if it's a structural constraint
-    const structuralMembers = isStructural && tp.constraint && ts.isTypeLiteralNode(tp.constraint)
-      ? tp.constraint.members.map((member) => convertInterfaceMember(member, checker))
-          .filter((m): m is IrInterfaceMember => m !== null)
-      : undefined;
+    const structuralMembers =
+      isStructural && tp.constraint && ts.isTypeLiteralNode(tp.constraint)
+        ? tp.constraint.members
+            .map((member) => convertInterfaceMember(member, checker))
+            .filter((m): m is IrInterfaceMember => m !== null)
+        : undefined;
 
     return {
       kind: "typeParameter" as const,

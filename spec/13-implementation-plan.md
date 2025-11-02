@@ -282,7 +282,6 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 - Generators with exchange object pattern working.
 - Type guard infrastructure in place.
 
-
 ### Phase 8: .NET Interop
 
 **Goal:** Enable .NET library usage

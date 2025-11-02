@@ -47,16 +47,16 @@ Non-goals: supporting every TypeScript utility type or advanced generic pattern 
 
 ## 3. Mapping Rules (Happy Path)
 
-| TypeScript Construct | Emitted C# | Notes |
-|----------------------|------------|-------|
-| `class Foo<T>` | `public class Foo<T>` | Preserve generic parameter name & order. |
-| `function bar<T>(value: T): T` | `public static T bar<T>(T value)` | Methods inherit type params. |
-| `T extends SomeClass` | `where T : SomeClass` | Works when `SomeClass` is generated/declared. |
-| `T extends IFoo` | `where T : IFoo` | Multiple interface constraints allowed. |
-| `Foo<T extends IFoo & IBar>` | `where T : IFoo, IBar` | Keep order; C# handles multiple interfaces. |
-| `Promise<T>` | `Task<T>` | already defined in type mappings. |
-| `Array<T>` | `Tsonic.Runtime.Array<T>` | Already mapped, generics preserved. |
-| `.d.ts` .NET types (`List<T>`) | same generics as .NET | Works out of the box. |
+| TypeScript Construct           | Emitted C#                        | Notes                                         |
+| ------------------------------ | --------------------------------- | --------------------------------------------- |
+| `class Foo<T>`                 | `public class Foo<T>`             | Preserve generic parameter name & order.      |
+| `function bar<T>(value: T): T` | `public static T bar<T>(T value)` | Methods inherit type params.                  |
+| `T extends SomeClass`          | `where T : SomeClass`             | Works when `SomeClass` is generated/declared. |
+| `T extends IFoo`               | `where T : IFoo`                  | Multiple interface constraints allowed.       |
+| `Foo<T extends IFoo & IBar>`   | `where T : IFoo, IBar`            | Keep order; C# handles multiple interfaces.   |
+| `Promise<T>`                   | `Task<T>`                         | already defined in type mappings.             |
+| `Array<T>`                     | `Tsonic.Runtime.Array<T>`         | Already mapped, generics preserved.           |
+| `.d.ts` .NET types (`List<T>`) | same generics as .NET             | Works out of the box.                         |
 
 ---
 
@@ -81,12 +81,12 @@ Diagnostics trigger only if we cannot synthesise the wrapper (e.g., symbol keys,
 
 ## 5. Rewriting Call Sites
 
-| Case | TS Example | C# Rewrite |
-|------|------------|------------|
-| Default type arg | `new Box()` when `class Box<T = string>` | `new Box<string>(default!)` |
-| Generic method with omitted args | `identity(value)` | `identity<string>(value)` (use type from TS checker) |
-| Rest-type generics | `call(1, 2)` when `function call<T extends unknown[]>(...args: T)` | emit `call__2<int, int>(1, 2)` specialisation |
-| Conditional return | `process("text")` | `process__string("text")` (specialised method) |
+| Case                             | TS Example                                                         | C# Rewrite                                           |
+| -------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------- |
+| Default type arg                 | `new Box()` when `class Box<T = string>`                           | `new Box<string>(default!)`                          |
+| Generic method with omitted args | `identity(value)`                                                  | `identity<string>(value)` (use type from TS checker) |
+| Rest-type generics               | `call(1, 2)` when `function call<T extends unknown[]>(...args: T)` | emit `call__2<int, int>(1, 2)` specialisation        |
+| Conditional return               | `process("text")`                                                  | `process__string("text")` (specialised method)       |
 
 The emitter must rewrite all generically-typed call sites to either (a) supply missing type parameters or (b) invoke a generated specialisation.
 
@@ -109,6 +109,18 @@ When the IR flags a feature that C# cannot represent generically (conditional ty
 
 Monomorphisation keeps the generated C# static and fast; we rely on the TS checker to guarantee the set of instantiations is finite in the compilation unit.
 
+### 6.1 Special-case Strategies
+
+To keep C# static and high-performance we specialise certain TypeScript-only patterns whenever all call sites are known. For each instantiation reported by the TypeScript checker, the emitter generates a concrete helper and rewrites the caller to use it.
+
+- **Recursive mapped types (finite)** – When a mapped type such as `DeepReadonly<Settings>` is instantiated with a concrete interface, expand it into an exact nominal C# class (nested classes for nested objects). Truly unbounded recursive shapes continue to raise the structural alias diagnostic.
+- **Conditional types with `infer`** – When every branch is seen at call sites, emit one helper per branch (for example `process__string`, `process__number`). Unseen branches are omitted. If new instantiations appear later, the codegen step will emit additional helpers.
+- **`this` typing** – Rewrite base classes into the CRTP pattern (`Base<TSelf>`) for each concrete inheritance chain observed, so fluent APIs return the precise derived type. External inheritance beyond the compiled set still emits a diagnostic.
+- **Constructor constraints with rest parameters** – For each tuple length observed in `new (...args: TArgs) => TResult`, generate a dedicated overload with that signature.
+- **Variadic generic interfaces / tuple generics** – For each tuple length used, synthesise a nominal interface/implementation (`Tuple2<T1,T2>`, `Tuple3<...>`, etc.).
+
+If the checker reports an unbounded set of instantiations (for example an exported generic used by third-party code), fall back to `TSN7105`.
+
 ---
 
 ## 7. Indexed Access Helpers (`keyof`, `T[K]`)
@@ -128,17 +140,13 @@ Monomorphisation keeps the generated C# static and fast; we rely on the TS check
 
 ## 8. Unsupported Patterns & Diagnostics
 
-Emit diagnostics when encountering the following features without a clear mapping or finite specialisation:
+After specialisation, only a few patterns remain genuinely unsupported. Emit diagnostics for these situations:
 
-| Pattern | Example | Diagnostic Action |
-|---------|---------|-------------------|
-| Conditional/mapped types with recursive expansion | `type Foo<T> = { [K in keyof T]: Foo<T[K]> }` | `TSN7101`: “Recursive mapped types are not supported.” |
-| `infer` keyword | `type ReturnType<T> = T extends (...args: any) => infer R ? R : never;` | `TSN7102`: “Conditional types using infer are not supported.” |
-| `this` type in generics that lead to infinite specialisations | `class Fluent<T> { with(v: T): this { ... } }` | `TSN7103`: “`this` typing is not supported; refactor to explicit type parameters.” |
-| Constructor constraints we cannot model | `new (...args) => T` with variable arguments | `TSN7104`: “Generic constructor constraints with rest parameters are not supported.” |
-| Unbounded or unknown instantiations (e.g., exported generic library used externally) | – | `TSN7105`: “Cannot determine required type specialisations.” |
+| Pattern                                                                 | Example                                    | Diagnostic Action                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
+| Unbounded or unknown instantiations (generic exported for external use) | `export function identity<T>(value: T): T` | `TSN7105`: “Cannot determine required type specialisations.” |
 
-Each diagnostic should include a suggestion (e.g., “wrap the call in a helper” or “annotate with @tsonic-ignore to force dynamic fallback”).
+(See `spec/16-types-and-interfaces.md` for structural alias diagnostics `TSN7201`–`TSN7203`.)
 
 ---
 
@@ -174,6 +182,7 @@ Each diagnostic should include a suggestion (e.g., “wrap the call in a helper�
 ### 10.1 Structural constraint + adapter
 
 **TypeScript**
+
 ```ts
 function getId<T extends { id: number }>(item: T): number {
   return item.id;
@@ -183,6 +192,7 @@ const id = getId({ id: 42, name: "alice" });
 ```
 
 **Emitted C# (partial)**
+
 ```csharp
 public interface __getId_HasId
 {
@@ -207,6 +217,7 @@ var id = getId(new __getId_arg0 { id = 42, name = "alice" });
 ### 10.2 Conditional type specialisation
 
 **TypeScript**
+
 ```ts
 type Result<T> = T extends string ? string : number;
 
@@ -217,11 +228,12 @@ export function process<T>(value: T): Result<T> {
   return 0 as Result<T>;
 }
 
-const a = process("hi");   // string
-const b = process(42);      // number
+const a = process("hi"); // string
+const b = process(42); // number
 ```
 
 **Emitted C# (partial)**
+
 ```csharp
 public static string process__string(string value)
 {
@@ -241,6 +253,7 @@ b = process__double(42);
 ### 10.3 `keyof` helper
 
 **TypeScript**
+
 ```ts
 function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {
   return obj[key];
@@ -251,6 +264,7 @@ const name = getProp(user, "name");
 ```
 
 **C#**
+
 ```csharp
 public static TResult getProp<T, TResult>(T obj, string key)
     where T : Tsonic.Runtime.DynamicObject
@@ -279,4 +293,3 @@ var name = getProp<Tsonic.Runtime.DynamicObject, string>(user, "name");
 - Investigate caching specialisations across builds to avoid regeneration noise.
 - Explore user-configurable fallbacks (e.g., allow `dynamic` with `@tsonic-allow-dynamic` comment).
 - Monitor code-size growth with monomorphisation and introduce heuristics if required.
-
