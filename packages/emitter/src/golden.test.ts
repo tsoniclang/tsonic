@@ -215,11 +215,12 @@ const runScenario = async (scenario: Scenario): Promise<void> => {
   // Determine source root (parent of input file)
   const sourceRoot = path.dirname(scenario.inputPath);
 
-  // Build namespace from path parts (case-preserved, per Tsonic spec)
-  // e.g., ['arrays', 'basic'] → 'TestCases.arrays'
-  const rootNamespace = ["TestCases", ...scenario.pathParts.slice(0, -1)].join(
-    "."
-  );
+  // Build namespace from path parts (case-preserved, hyphens stripped per spec)
+  // e.g., ['control-flow', 'error-handling'] → 'TestCases.controlflow'
+  const namespaceParts = scenario.pathParts
+    .slice(0, -1)
+    .map((part) => part.replace(/-/g, "")); // Strip hyphens
+  const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
   const compileResult = compile([scenario.inputPath], {

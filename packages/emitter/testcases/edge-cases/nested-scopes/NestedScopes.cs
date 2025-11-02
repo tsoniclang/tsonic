@@ -1,6 +1,6 @@
 using Tsonic.Runtime;
 
-namespace TestCases.edge-cases
+namespace TestCases.edgecases
 {
     public static class NestedScopes
     {

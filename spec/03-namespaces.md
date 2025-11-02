@@ -47,17 +47,25 @@ src/
 | `User.ts`         | `User`        | Regular class if exported |
 | `user.ts`         | `user`        | Static container class    |
 | `userService.ts`  | `userService` | Name exactly as-is        |
-| `user-service.ts` | ERROR TSN1011 | Invalid character `-`     |
+| `user-service.ts` | `userservice` | Hyphens ignored       |
 
 ## Name Sanitization Rules
 
 ### For Namespaces
 
+**Hyphens are ignored (stripped):**
+
+```typescript
+// Hyphens are removed:
+src/user-service/     → My.App.userservice
+src/api-v2/          → My.App.apiv2
+src/my-cool-feature/ → My.App.mycoolfeature
+```
+
 **Invalid characters → ERROR:**
 
 ```typescript
 // These cause errors:
-src/user-service/     // ERROR TSN1011: Invalid character '-'
 src/user service/     // ERROR TSN1011: Invalid character ' '
 src/user.service/     // ERROR TSN1011: Invalid character '.'
 ```
@@ -74,7 +82,9 @@ src/class/           // ERROR TSN1012: C# keyword
 **Same rules apply:**
 
 ```typescript
-user-service.ts      // ERROR TSN1011: Invalid character
+user-service.ts      → class name: userservice (hyphen ignored)
+user service.ts      // ERROR TSN1011: Invalid character ' '
+user.service.ts      // ERROR TSN1011: Invalid character '.'
 namespace.ts         // ERROR TSN1012: C# keyword
 class.ts            // ERROR TSN1012: C# keyword
 ```

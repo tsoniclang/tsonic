@@ -1,6 +1,6 @@
 using Tsonic.Runtime;
 
-namespace TestCases.control-flow
+namespace TestCases.controlflow
 {
     public static class Loops
     {
