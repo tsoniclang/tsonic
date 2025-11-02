@@ -8,6 +8,7 @@ import {
   IrClassMember,
   IrInterfaceMember,
   IrParameter,
+  IrArrayPattern,
 } from "@tsonic/frontend";
 import {
   EmitterContext,
@@ -124,26 +125,64 @@ const emitVariableDeclaration = (
       varDecl = "var ";
     }
 
-    // Add the variable name
+    // Handle different pattern types
     if (decl.name.kind === "identifierPattern") {
+      // Simple identifier pattern
       varDecl += decl.name.name;
-    } else {
-      // Destructuring - not supported in MVP
-      varDecl += "/* destructuring */";
-    }
 
-    // Add initializer if present
-    if (decl.initializer) {
+      // Add initializer if present
+      if (decl.initializer) {
+        const [initFrag, newContext] = emitExpression(
+          decl.initializer,
+          currentContext,
+          decl.type // Pass expected type for contextual typing (e.g., array literals)
+        );
+        currentContext = newContext;
+        varDecl += ` = ${initFrag.text}`;
+      }
+
+      declarations.push(`${ind}${varDecl};`);
+    } else if (decl.name.kind === "arrayPattern") {
+      // Array destructuring: const [a, b] = arr; -> var a = arr[0]; var b = arr[1];
+      if (!decl.initializer) {
+        // Array destructuring requires an initializer
+        declarations.push(`${ind}${varDecl}/* array destructuring without initializer */;`);
+        continue;
+      }
+
       const [initFrag, newContext] = emitExpression(
         decl.initializer,
         currentContext,
-        decl.type // Pass expected type for contextual typing (e.g., array literals)
+        decl.type
       );
       currentContext = newContext;
-      varDecl += ` = ${initFrag.text}`;
-    }
 
-    declarations.push(`${ind}${varDecl};`);
+      const arrayPattern = decl.name as IrArrayPattern;
+      for (let i = 0; i < arrayPattern.elements.length; i++) {
+        const element = arrayPattern.elements[i];
+        if (element && element.kind === "identifierPattern") {
+          const elementVarDecl = `${varDecl}${element.name} = ${initFrag.text}[${i}];`;
+          declarations.push(`${ind}${elementVarDecl}`);
+        }
+        // Skip undefined elements (holes in array pattern)
+      }
+    } else {
+      // Object destructuring or other patterns - not yet supported
+      varDecl += "/* destructuring */";
+
+      // Add initializer if present
+      if (decl.initializer) {
+        const [initFrag, newContext] = emitExpression(
+          decl.initializer,
+          currentContext,
+          decl.type
+        );
+        currentContext = newContext;
+        varDecl += ` = ${initFrag.text}`;
+      }
+
+      declarations.push(`${ind}${varDecl};`);
+    }
   }
 
   return [declarations.join("\n"), currentContext];
