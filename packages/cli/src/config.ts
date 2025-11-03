@@ -79,6 +79,10 @@ export const resolveConfig = (
   const entryPoint = entryFile ?? config.entryPoint ?? "src/main.ts";
   const sourceRoot = cliOptions.src ?? config.sourceRoot ?? dirname(entryPoint);
 
+  // Default type roots: node_modules/@tsonic/dotnet-types/types
+  const defaultTypeRoots = ["node_modules/@tsonic/dotnet-types/types"];
+  const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
+
   return {
     rootNamespace: cliOptions.namespace ?? config.rootNamespace,
     entryPoint,
@@ -96,5 +100,6 @@ export const resolveConfig = (
     keepTemp: cliOptions.keepTemp ?? false,
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
+    typeRoots,
   };
 };

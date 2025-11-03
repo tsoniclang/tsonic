@@ -9,6 +9,7 @@ export type CompilerOptions = {
   readonly sourceRoot: string;
   readonly rootNamespace: string;
   readonly strict?: boolean;
+  readonly typeRoots?: readonly string[];
 };
 
 export type TsonicProgram = {

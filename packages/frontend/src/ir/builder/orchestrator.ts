@@ -37,6 +37,50 @@ export const buildIrModule = (
     const exports = extractExports(sourceFile, program.checker);
     const statements = extractStatements(sourceFile, program.checker);
 
+    // Check for file name / export name collision (Issue #4)
+    // When file name matches an exported function/variable name, C# will have illegal code
+    // Example: main.ts exporting function main() → class main { void main() } ❌
+    // Note: Classes are allowed to match file name (Person.ts → class Person) - that's the normal pattern
+    const collisionExport = exports.find((exp) => {
+      if (exp.kind === "declaration") {
+        const decl = exp.declaration;
+        // Only check functions and variables, NOT classes (classes matching filename is normal)
+        if (decl.kind === "functionDeclaration") {
+          return decl.name === className;
+        } else if (decl.kind === "variableDeclaration") {
+          // Check if any of the variable declarators has a matching name
+          return decl.declarations.some((declarator) => {
+            if (declarator.name.kind === "identifierPattern") {
+              return declarator.name.name === className;
+            }
+            return false;
+          });
+        }
+      } else if (exp.kind === "named") {
+        // For named exports, we need to check what's being exported
+        // This is more complex because we'd need to look it up in statements
+        // For now, skip named exports (they're usually re-exports)
+        return false;
+      }
+      return false;
+    });
+
+    if (collisionExport) {
+      return error(
+        createDiagnostic(
+          "TSN2003",
+          "error",
+          `File name '${className}' conflicts with exported member name. In C#, a type cannot contain a member with the same name as the enclosing type. Consider renaming the file or the exported member.`,
+          {
+            file: sourceFile.fileName,
+            line: 1,
+            column: 1,
+            length: className.length,
+          }
+        )
+      );
+    }
+
     // Determine if this should be a static container
     // Per spec: Files with a class matching the filename should NOT be static containers
     // Static containers are for top-level functions and constants

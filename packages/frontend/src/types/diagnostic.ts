@@ -13,6 +13,7 @@ export type DiagnosticCode =
   | "TSN1006" // Invalid namespace
   | "TSN2001" // Unsupported TypeScript feature
   | "TSN2002" // Invalid type mapping
+  | "TSN2003" // File name conflicts with exported member name
   | "TSN3001" // C# reserved keyword used
   | "TSN3002" // Invalid C# identifier
   | "TSN3011" // Promise chaining (.then/.catch/.finally) not supported
