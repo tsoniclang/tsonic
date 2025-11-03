@@ -122,4 +122,7 @@ export const convertStatement = (
 // Re-export commonly used functions for backward compatibility
 export { convertBlockStatement } from "./converters/statements/control.js";
 export { convertParameters } from "./converters/statements/helpers.js";
-export { setMetadataRegistry } from "./converters/statements/declarations.js";
+export {
+  setMetadataRegistry,
+  setBindingRegistry,
+} from "./converters/statements/declarations.js";

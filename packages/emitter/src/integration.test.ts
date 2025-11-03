@@ -6,7 +6,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
-import { buildIrModule, DotnetMetadataRegistry } from "@tsonic/frontend";
+import {
+  buildIrModule,
+  DotnetMetadataRegistry,
+  BindingRegistry,
+} from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
 /**
@@ -62,6 +66,7 @@ const compileToCSharp = (
     },
     sourceFiles: [sourceFile],
     metadata: new DotnetMetadataRegistry(),
+    bindings: new BindingRegistry(),
   };
 
   // Build IR

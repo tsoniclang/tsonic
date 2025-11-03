@@ -4,6 +4,7 @@
 
 import * as ts from "typescript";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import { BindingRegistry } from "./bindings.js";
 
 export type CompilerOptions = {
   readonly sourceRoot: string;
@@ -18,4 +19,5 @@ export type TsonicProgram = {
   readonly options: CompilerOptions;
   readonly sourceFiles: readonly ts.SourceFile[];
   readonly metadata: DotnetMetadataRegistry;
+  readonly bindings: BindingRegistry;
 };

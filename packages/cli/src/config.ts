@@ -92,7 +92,7 @@ export const resolveConfig = (
     rid: cliOptions.rid ?? config.rid ?? detectRid(),
     dotnetVersion: config.dotnetVersion ?? "net10.0",
     optimize: cliOptions.optimize ?? config.optimize ?? "speed",
-    packages: config.packages ?? [],
+    packages: config.dotnet?.packages ?? config.packages ?? [],
     stripSymbols: cliOptions.noStrip
       ? false
       : (config.buildOptions?.stripSymbols ?? true),

@@ -8,7 +8,10 @@ import { TsonicProgram } from "../../program.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
 import { Result, ok, error } from "../../types/result.js";
 import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
-import { setMetadataRegistry } from "../statement-converter.js";
+import {
+  setMetadataRegistry,
+  setBindingRegistry,
+} from "../statement-converter.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
@@ -25,6 +28,9 @@ export const buildIrModule = (
   try {
     // Set the metadata registry for this compilation
     setMetadataRegistry(program.metadata);
+
+    // Set the binding registry for this compilation
+    setBindingRegistry(program.bindings);
 
     const namespace = getNamespaceFromPath(
       sourceFile.fileName,

@@ -5,6 +5,7 @@
 
 import * as ts from "typescript";
 import { IrExpression } from "./types.js";
+import { getBindingRegistry } from "./converters/statements/declarations/registry.js";
 
 // Import expression converters from specialized modules
 import { convertLiteral } from "./converters/expressions/literals.js";
@@ -71,6 +72,17 @@ export const convertExpression = (
     };
   }
   if (ts.isIdentifier(node)) {
+    // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
+    const binding = getBindingRegistry().getBinding(node.text);
+    if (binding && binding.kind === "global") {
+      return {
+        kind: "identifier",
+        name: node.text,
+        inferredType,
+        resolvedClrType: binding.type,
+        resolvedAssembly: binding.assembly,
+      };
+    }
     return { kind: "identifier", name: node.text, inferredType };
   }
   if (ts.isArrayLiteralExpression(node)) {

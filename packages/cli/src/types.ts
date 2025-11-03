@@ -17,13 +17,14 @@ export type TsonicConfig = {
   readonly rid?: string;
   readonly dotnetVersion?: string;
   readonly optimize?: "size" | "speed";
-  readonly packages?: readonly NuGetPackage[];
+  readonly packages?: readonly NuGetPackage[]; // Deprecated - use dotnet.packages
   readonly buildOptions?: {
     readonly stripSymbols?: boolean;
     readonly invariantGlobalization?: boolean;
   };
   readonly dotnet?: {
     readonly typeRoots?: readonly string[];
+    readonly packages?: readonly NuGetPackage[];
   };
 };
 

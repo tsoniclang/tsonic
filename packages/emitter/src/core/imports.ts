@@ -16,7 +16,10 @@ export const processImports = (
   let currentContext = context;
 
   for (const imp of imports) {
-    if (imp.isDotNet) {
+    if (imp.resolvedAssembly) {
+      // Module binding (Node.js API, etc.) - add assembly using
+      currentContext = addUsing(currentContext, imp.resolvedAssembly);
+    } else if (imp.isDotNet) {
       // .NET import - add to using statements
       if (imp.resolvedNamespace) {
         currentContext = addUsing(currentContext, imp.resolvedNamespace);

@@ -44,6 +44,9 @@ export type IrIdentifierExpression = {
   readonly kind: "identifier";
   readonly name: string;
   readonly inferredType?: IrType;
+  // Resolved binding for globals (console, Math, etc.)
+  readonly resolvedClrType?: string; // e.g., "Tsonic.Runtime.console"
+  readonly resolvedAssembly?: string; // e.g., "Tsonic.Runtime"
 };
 
 export type IrArrayExpression = {

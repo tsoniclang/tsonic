@@ -12,6 +12,7 @@ import {
   IrClassDeclaration,
 } from "./types.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
+import { BindingRegistry } from "../program/bindings.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -49,6 +50,7 @@ describe("IR Builder", () => {
       options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
+      bindings: new BindingRegistry(),
     };
   };
 
