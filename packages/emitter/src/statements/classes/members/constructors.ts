@@ -2,7 +2,7 @@
  * Constructor member emission
  */
 
-import { IrClassMember } from "@tsonic/frontend";
+import { IrClassMember, IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
@@ -88,9 +88,9 @@ export const emitConstructorMember = (
  * Returns [baseCall, remainingStatements, context]
  */
 const extractSuperCall = (
-  statements: readonly any[],
+  statements: readonly IrStatement[],
   context: EmitterContext
-): [string, readonly any[], EmitterContext] => {
+): [string, readonly IrStatement[], EmitterContext] => {
   let currentContext = context;
 
   if (statements.length === 0) {

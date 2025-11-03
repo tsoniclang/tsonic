@@ -7,7 +7,7 @@ import { VERSION } from "./constants.js";
 /**
  * Show help message
  */
-export const showHelp = () => {
+export const showHelp = (): void => {
   console.log(`
 Tsonic - TypeScript to C# to NativeAOT compiler v${VERSION}
 

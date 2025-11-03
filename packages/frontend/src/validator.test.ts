@@ -88,7 +88,7 @@ describe("Generic Validation", () => {
       const symbolDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7203"
       );
-      expect(symbolDiag).to.not.be.undefined;
+      expect(symbolDiag).not.to.equal(undefined);
       expect(symbolDiag?.message).to.include(
         "Symbol keys are not supported in C#"
       );
@@ -107,7 +107,7 @@ describe("Generic Validation", () => {
       const symbolDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7203"
       );
-      expect(symbolDiag).to.be.undefined;
+      expect(symbolDiag).to.equal(undefined);
     });
 
     it("should not flag number index signatures", () => {
@@ -123,7 +123,7 @@ describe("Generic Validation", () => {
       const symbolDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7203"
       );
-      expect(symbolDiag).to.be.undefined;
+      expect(symbolDiag).to.equal(undefined);
     });
   });
 
@@ -142,7 +142,7 @@ describe("Generic Validation", () => {
       const recursiveDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7101"
       );
-      expect(recursiveDiag).to.be.undefined;
+      expect(recursiveDiag).to.equal(undefined);
     });
 
     it("should allow conditional types with infer (handled via monomorphisation)", () => {
@@ -157,7 +157,7 @@ describe("Generic Validation", () => {
       const inferDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7102"
       );
-      expect(inferDiag).to.be.undefined;
+      expect(inferDiag).to.equal(undefined);
     });
 
     it("should allow this typing (handled via CRTP pattern)", () => {
@@ -174,7 +174,7 @@ describe("Generic Validation", () => {
       const thisDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7103"
       );
-      expect(thisDiag).to.be.undefined;
+      expect(thisDiag).to.equal(undefined);
     });
 
     it("should allow variadic type parameters (handled via tuple specialisations)", () => {
@@ -189,7 +189,7 @@ describe("Generic Validation", () => {
       const variadicDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7104"
       );
-      expect(variadicDiag).to.be.undefined;
+      expect(variadicDiag).to.equal(undefined);
     });
 
     it("should allow recursive structural aliases (emit as C# classes)", () => {
@@ -207,7 +207,7 @@ describe("Generic Validation", () => {
       const recursiveDiag = diagnostics.diagnostics.find(
         (d) => d.code === "TSN7201"
       );
-      expect(recursiveDiag).to.be.undefined;
+      expect(recursiveDiag).to.equal(undefined);
     });
 
     it("should allow complex generic code without errors", () => {
