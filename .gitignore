@@ -135,8 +135,10 @@ out/
 !packages/runtime/**/*.cs
 !packages/emitter/testcases/**/*.cs
 
-# Claude Code temp files
+# Claude Code working directories
 .tests/
+.analysis/
+.todos/
 
 # .NET build artifacts
 **/bin/

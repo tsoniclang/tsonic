@@ -52,17 +52,88 @@ If you write mutable code, you MUST immediately rewrite it functionally.
 
 Automated scripts break syntax in unpredictable ways and destroy codebases.
 
-### TEMPORARY FILES
+### WORKING DIRECTORIES
 
-**IMPORTANT**: Never create temporary files in the project root or package directories.
+**IMPORTANT**: Never create temporary files in the project root or package directories. Use dedicated gitignored directories for different purposes.
 
-- **ALWAYS** create temp files in `.tests/` directory
-- `.tests/` is gitignored for this purpose
-- Examples:
-  - Debug scripts: `.tests/debug-override.ts`
-  - Test data: `.tests/sample-input.json`
-  - Scratch files: `.tests/notes.md`
-- Delete temp files when no longer needed
+#### .tests/ Directory (Test Output Capture)
+
+**Purpose:** Save test run output for analysis without re-running tests
+
+**Usage:**
+```bash
+# Create directory (gitignored)
+mkdir -p .tests
+
+# Run tests with tee - shows output AND saves to file
+npm test | tee .tests/run-$(date +%s).txt
+
+# Analyze saved output later without re-running:
+grep "failing" .tests/run-*.txt
+tail -50 .tests/run-*.txt
+grep -A10 "specific test name" .tests/run-*.txt
+```
+
+**Benefits:**
+- See test output in real-time (unlike `>` redirection)
+- Analyze failures without expensive re-runs
+- Keep historical test results for comparison
+- Search across multiple test runs
+
+**Key Rule:** ALWAYS use `tee` for test output, NEVER plain redirection (`>` or `2>&1`)
+
+#### .analysis/ Directory (Research & Documentation)
+
+**Purpose:** Keep analysis artifacts separate from source code
+
+**Usage:**
+```bash
+# Create directory (gitignored)
+mkdir -p .analysis
+
+# Use for:
+# - Code complexity reports
+# - API documentation generation
+# - Dependency analysis
+# - Performance profiling results
+# - Architecture diagrams and documentation
+# - Parser output investigations
+# - Temporary debugging scripts
+```
+
+**Benefits:**
+- Keeps analysis work separate from source code
+- Allows iterative analysis without cluttering repository
+- Safe place for temporary debugging scripts
+- Gitignored - no risk of committing debug artifacts
+
+#### .todos/ Directory (Persistent Task Tracking)
+
+**Purpose:** Track multi-step tasks across conversation sessions
+
+**Usage:**
+```bash
+# Create task file: YYYY-MM-DD-task-name.md
+# Example: 2025-01-13-sql-generation.md
+
+# Task file must include:
+# - Task overview and objectives
+# - Current status (completed work)
+# - Detailed remaining work list
+# - Important decisions made
+# - Code locations affected
+# - Testing requirements
+# - Special considerations
+
+# Mark complete: YYYY-MM-DD-task-name-COMPLETED.md
+```
+
+**Benefits:**
+- Resume complex tasks across sessions with full context
+- No loss of progress or decisions
+- Gitignored for persistence
+
+**Note:** All three directories (`.tests/`, `.analysis/`, `.todos/`) should be added to `.gitignore`
 
 ## Session Startup
 
