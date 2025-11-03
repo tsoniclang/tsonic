@@ -94,6 +94,11 @@ export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
   for (const typeRoot of typeRoots) {
     const absoluteRoot = path.resolve(typeRoot);
 
+    // Skip if directory doesn't exist
+    if (!fs.existsSync(absoluteRoot)) {
+      continue;
+    }
+
     // Strategy 1: Look for manifest in the typeRoot itself
     const rootManifests = fs
       .readdirSync(absoluteRoot)

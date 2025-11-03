@@ -7,6 +7,20 @@ import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
 import { emitType } from "../type-emitter.js";
 
 /**
+ * Fallback mappings for well-known runtime globals
+ * Used when binding manifests are not available (e.g., in tests)
+ */
+const RUNTIME_FALLBACKS: Record<string, string> = {
+  console: "Tsonic.Runtime.console",
+  Math: "Tsonic.Runtime.Math",
+  JSON: "Tsonic.Runtime.JSON",
+  parseInt: "Tsonic.Runtime.Globals.parseInt",
+  parseFloat: "Tsonic.Runtime.Globals.parseFloat",
+  isNaN: "Tsonic.Runtime.Globals.isNaN",
+  isFinite: "Tsonic.Runtime.Globals.isFinite",
+};
+
+/**
  * Emit an identifier, using resolved binding info if available
  */
 export const emitIdentifier = (
@@ -22,6 +36,13 @@ export const emitIdentifier = (
   if (expr.resolvedClrType && expr.resolvedAssembly) {
     const updatedContext = addUsing(context, expr.resolvedAssembly);
     return [{ text: expr.resolvedClrType }, updatedContext];
+  }
+
+  // Fallback for well-known runtime globals (when bindings not available)
+  const fallback = RUNTIME_FALLBACKS[expr.name];
+  if (fallback) {
+    const updatedContext = addUsing(context, "Tsonic.Runtime");
+    return [{ text: fallback }, updatedContext];
   }
 
   // Fallback: use identifier as-is
