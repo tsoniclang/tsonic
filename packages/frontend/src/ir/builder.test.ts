@@ -413,7 +413,7 @@ describe("IR Builder", () => {
           (stmt) =>
             stmt.kind === "interfaceDeclaration" && stmt.name === "Point"
         );
-        expect(pointInterface).to.exist;
+        expect(pointInterface).not.to.equal(undefined);
         if (pointInterface && pointInterface.kind === "interfaceDeclaration") {
           expect(pointInterface.isStruct).to.equal(true);
           // Verify __brand property is filtered out
@@ -454,7 +454,7 @@ describe("IR Builder", () => {
         const vectorClass = body.find(
           (stmt) => stmt.kind === "classDeclaration" && stmt.name === "Vector3D"
         );
-        expect(vectorClass).to.exist;
+        expect(vectorClass).not.to.equal(undefined);
         if (vectorClass && vectorClass.kind === "classDeclaration") {
           expect(vectorClass.isStruct).to.equal(true);
           // Verify __brand property is filtered out
@@ -487,7 +487,7 @@ describe("IR Builder", () => {
       if (result.ok) {
         const body = result.value.body;
         const regularClass = body[0];
-        expect(regularClass).to.exist;
+        expect(regularClass).not.to.equal(undefined);
         if (regularClass && regularClass.kind === "classDeclaration") {
           expect(regularClass.isStruct).to.equal(false);
         }

@@ -148,7 +148,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.stripSymbols).to.be.true;
+      expect(result.stripSymbols).to.equal(true);
     });
 
     it("should use buildOptions.stripSymbols from config", () => {
@@ -160,7 +160,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.stripSymbols).to.be.false;
+      expect(result.stripSymbols).to.equal(false);
     });
 
     it("should override stripSymbols with --no-strip CLI option", () => {
@@ -172,7 +172,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, { noStrip: true });
-      expect(result.stripSymbols).to.be.false;
+      expect(result.stripSymbols).to.equal(false);
     });
 
     it("should default invariantGlobalization to true", () => {
@@ -181,7 +181,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.invariantGlobalization).to.be.true;
+      expect(result.invariantGlobalization).to.equal(true);
     });
 
     it("should use buildOptions.invariantGlobalization from config", () => {
@@ -193,7 +193,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.invariantGlobalization).to.be.false;
+      expect(result.invariantGlobalization).to.equal(false);
     });
 
     it("should default keepTemp to false", () => {
@@ -202,7 +202,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.keepTemp).to.be.false;
+      expect(result.keepTemp).to.equal(false);
     });
 
     it("should set keepTemp from CLI option", () => {
@@ -211,7 +211,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, { keepTemp: true });
-      expect(result.keepTemp).to.be.true;
+      expect(result.keepTemp).to.equal(true);
     });
 
     it("should default verbose to false", () => {
@@ -220,7 +220,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.verbose).to.be.false;
+      expect(result.verbose).to.equal(false);
     });
 
     it("should set verbose from CLI option", () => {
@@ -229,7 +229,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, { verbose: true });
-      expect(result.verbose).to.be.true;
+      expect(result.verbose).to.equal(true);
     });
 
     it("should default quiet to false", () => {
@@ -238,7 +238,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
-      expect(result.quiet).to.be.false;
+      expect(result.quiet).to.equal(false);
     });
 
     it("should set quiet from CLI option", () => {
@@ -247,7 +247,7 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, { quiet: true });
-      expect(result.quiet).to.be.true;
+      expect(result.quiet).to.equal(true);
     });
 
     it("should default typeRoots to node_modules/@tsonic/dotnet-types/types", () => {
@@ -318,11 +318,11 @@ describe("Config", () => {
       expect(result.packages).to.deep.equal([
         { name: "Package.Name", version: "1.0.0" },
       ]);
-      expect(result.stripSymbols).to.be.false;
-      expect(result.invariantGlobalization).to.be.false;
-      expect(result.keepTemp).to.be.true;
-      expect(result.verbose).to.be.true;
-      expect(result.quiet).to.be.false;
+      expect(result.stripSymbols).to.equal(false);
+      expect(result.invariantGlobalization).to.equal(false);
+      expect(result.keepTemp).to.equal(true);
+      expect(result.verbose).to.equal(true);
+      expect(result.quiet).to.equal(false);
     });
   });
 });

@@ -2,6 +2,7 @@
  * Test registration for Mocha
  */
 
+import { describe, it } from "mocha";
 import { DescribeNode } from "./types.js";
 import { runScenario } from "./runner.js";
 

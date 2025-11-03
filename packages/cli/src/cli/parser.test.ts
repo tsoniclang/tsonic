@@ -65,29 +65,29 @@ describe("CLI Parser", () => {
 
       it("should handle no entry file", () => {
         const result = parseArgs(["build"]);
-        expect(result.entryFile).to.be.undefined;
+        expect(result.entryFile).to.equal(undefined);
       });
     });
 
     describe("Options", () => {
       it("should parse --verbose option", () => {
         const result = parseArgs(["build", "--verbose"]);
-        expect(result.options.verbose).to.be.true;
+        expect(result.options.verbose).to.equal(true);
       });
 
       it("should parse -V short option for verbose", () => {
         const result = parseArgs(["build", "-V"]);
-        expect(result.options.verbose).to.be.true;
+        expect(result.options.verbose).to.equal(true);
       });
 
       it("should parse --quiet option", () => {
         const result = parseArgs(["build", "--quiet"]);
-        expect(result.options.quiet).to.be.true;
+        expect(result.options.quiet).to.equal(true);
       });
 
       it("should parse -q short option for quiet", () => {
         const result = parseArgs(["build", "-q"]);
-        expect(result.options.quiet).to.be.true;
+        expect(result.options.quiet).to.equal(true);
       });
 
       it("should parse --config option with value", () => {
@@ -157,17 +157,17 @@ describe("CLI Parser", () => {
 
       it("should parse --keep-temp option", () => {
         const result = parseArgs(["build", "--keep-temp"]);
-        expect(result.options.keepTemp).to.be.true;
+        expect(result.options.keepTemp).to.equal(true);
       });
 
       it("should parse -k short option for keep-temp", () => {
         const result = parseArgs(["build", "-k"]);
-        expect(result.options.keepTemp).to.be.true;
+        expect(result.options.keepTemp).to.equal(true);
       });
 
       it("should parse --no-strip option", () => {
         const result = parseArgs(["build", "--no-strip"]);
-        expect(result.options.noStrip).to.be.true;
+        expect(result.options.noStrip).to.equal(true);
       });
     });
 
@@ -210,7 +210,7 @@ describe("CLI Parser", () => {
         expect(result.entryFile).to.equal("src/main.ts");
         expect(result.options.namespace).to.equal("MyApp");
         expect(result.options.out).to.equal("dist");
-        expect(result.options.verbose).to.be.true;
+        expect(result.options.verbose).to.equal(true);
       });
 
       it("should parse run command with entry, options, and program args", () => {
@@ -224,7 +224,7 @@ describe("CLI Parser", () => {
         ]);
         expect(result.command).to.equal("run");
         expect(result.entryFile).to.equal("index.ts");
-        expect(result.options.verbose).to.be.true;
+        expect(result.options.verbose).to.equal(true);
         expect(result.programArgs).to.deep.equal([
           "programArg1",
           "programArg2",
@@ -234,7 +234,7 @@ describe("CLI Parser", () => {
       it("should handle empty args array", () => {
         const result = parseArgs([]);
         expect(result.command).to.equal("");
-        expect(result.entryFile).to.be.undefined;
+        expect(result.entryFile).to.equal(undefined);
         expect(result.options).to.deep.equal({});
         expect(result.programArgs).to.deep.equal([]);
       });
@@ -251,8 +251,8 @@ describe("CLI Parser", () => {
         ]);
         expect(result.options.namespace).to.equal("App");
         expect(result.options.out).to.equal("dist");
-        expect(result.options.verbose).to.be.true;
-        expect(result.options.keepTemp).to.be.true;
+        expect(result.options.verbose).to.equal(true);
+        expect(result.options.keepTemp).to.equal(true);
       });
     });
   });
