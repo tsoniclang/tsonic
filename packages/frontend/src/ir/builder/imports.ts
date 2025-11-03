@@ -4,6 +4,7 @@
 
 import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
+import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
 
 /**
  * Extract import declarations from source file
@@ -24,6 +25,10 @@ export const extractImports = (
         !isLocal && !source.includes("/") && /^[A-Z]/.test(source);
       const specifiers = extractImportSpecifiers(node);
 
+      // Check for module binding (Node.js API, etc.)
+      const binding = getBindingRegistry().getBinding(source);
+      const hasModuleBinding = binding?.kind === "module";
+
       imports.push({
         kind: "import",
         source,
@@ -31,6 +36,8 @@ export const extractImports = (
         isDotNet,
         specifiers,
         resolvedNamespace: isDotNet ? source : undefined,
+        resolvedClrType: hasModuleBinding ? binding.type : undefined,
+        resolvedAssembly: hasModuleBinding ? binding.assembly : undefined,
       });
     }
     ts.forEachChild(node, visitor);

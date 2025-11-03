@@ -5,6 +5,7 @@
 
 export {
   setMetadataRegistry,
+  setBindingRegistry,
   convertVariableStatement,
   convertFunctionDeclaration,
   convertClassDeclaration,

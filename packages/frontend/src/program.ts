@@ -4,4 +4,8 @@
  */
 
 export type { CompilerOptions, TsonicProgram } from "./program/index.js";
-export { createProgram, getSourceFile } from "./program/index.js";
+export {
+  createProgram,
+  getSourceFile,
+  BindingRegistry,
+} from "./program/index.js";

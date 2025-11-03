@@ -23,6 +23,9 @@ export type IrImport = {
   readonly isDotNet: boolean;
   readonly specifiers: readonly IrImportSpecifier[];
   readonly resolvedNamespace?: string; // For .NET imports
+  // For module bindings (Node.js APIs mapped to CLR types)
+  readonly resolvedClrType?: string; // e.g., "Tsonic.NodeApi.fs"
+  readonly resolvedAssembly?: string; // e.g., "Tsonic.NodeApi"
 };
 
 export type IrImportSpecifier =

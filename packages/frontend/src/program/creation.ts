@@ -10,6 +10,7 @@ import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { defaultTsConfig } from "./config.js";
 import { loadDotnetMetadata } from "./metadata.js";
+import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
 
 /**
@@ -82,11 +83,15 @@ export const createProgram = (
   // Load .NET metadata files
   const metadata = loadDotnetMetadata(typeRoots);
 
+  // Load binding manifests
+  const bindings = loadBindings(typeRoots);
+
   return ok({
     program,
     checker: program.getTypeChecker(),
     options,
     sourceFiles,
     metadata,
+    bindings,
   });
 };

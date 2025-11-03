@@ -2,7 +2,7 @@
  * Declaration converters - Public API
  */
 
-export { setMetadataRegistry } from "./registry.js";
+export { setMetadataRegistry, setBindingRegistry } from "./registry.js";
 export { convertVariableStatement } from "./variables.js";
 export { convertFunctionDeclaration } from "./functions.js";
 export { convertClassDeclaration } from "./classes.js";

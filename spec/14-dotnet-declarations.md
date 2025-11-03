@@ -13,10 +13,10 @@ The compiler loads all three artefacts from configured `typeRoots` and uses them
 ## Repository Layout
 
 | Surface             | Decl / Metadata Location                                   | Bindings Manifest                     |
-|---------------------|-------------------------------------------------------------|---------------------------------------|
-| JS runtime globals  | `../tsonic-runtime/src/Tsonic.Runtime/types/`               | `Tsonic.Runtime.bindings.json`        |
-| .NET BCL assemblies | npm package `@tsonic/dotnet-types` (per version directory)  | *(none – BCL doesn’t expose globals)* |
-| Node.js API surface | npm package `@tsonic/node-types`                            | `Tsonic.NodeApi.bindings.json`        |
+| ------------------- | ---------------------------------------------------------- | ------------------------------------- |
+| JS runtime globals  | `../tsonic-runtime/src/Tsonic.Runtime/types/`              | `Tsonic.Runtime.bindings.json`        |
+| .NET BCL assemblies | npm package `@tsonic/dotnet-types` (per version directory) | _(none – BCL doesn’t expose globals)_ |
+| Node.js API surface | npm package `@tsonic/node-types`                           | `Tsonic.NodeApi.bindings.json`        |
 
 Each versioned npm bundle mirrors the assemblies (e.g. `types/System.Text.Json.d.ts`, `types/System.Text.Json.metadata.json`). The runtime repo ships its own declarations and binding manifest alongside the C# project so the package can be consumed independently.
 
@@ -124,13 +124,13 @@ Tsonic loads declarations, metadata, and bindings from every configured `typeRoo
     "typeRoots": [
       "node_modules/@tsonic/dotnet-types/10.0.0/types",
       "../tsonic-runtime/src/Tsonic.Runtime/types",
-      "node_modules/@tsonic/node-types/1.0.0/types"
+      "node_modules/@tsonic/node-types/1.0.0/types",
     ],
     "packages": [
       { "name": "Tsonic.Runtime", "version": "1.0.0" },
-      { "name": "Tsonic.NodeApi", "version": "1.0.0" }
-    ]
-  }
+      { "name": "Tsonic.NodeApi", "version": "1.0.0" },
+    ],
+  },
 }
 ```
 

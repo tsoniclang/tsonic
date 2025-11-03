@@ -8,6 +8,7 @@ import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { isLocalImport, isDotNetImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
+import { getBindingRegistry } from "../ir/converters/statements/declarations/registry.js";
 
 /**
  * Resolve import specifier to module
@@ -25,13 +26,26 @@ export const resolveImport = (
     return resolveDotNetImport(importSpecifier);
   }
 
+  // Check if this is a module binding (e.g., Node.js API)
+  const binding = getBindingRegistry().getBinding(importSpecifier);
+  if (binding && binding.kind === "module") {
+    return ok({
+      resolvedPath: "", // No file path for bound modules
+      isLocal: false,
+      isDotNet: false,
+      originalSpecifier: importSpecifier,
+      resolvedClrType: binding.type,
+      resolvedAssembly: binding.assembly,
+    });
+  }
+
   return error(
     createDiagnostic(
       "TSN1004",
       "error",
-      `Node module imports are not supported: "${importSpecifier}"`,
+      `Unsupported module import: "${importSpecifier}"`,
       undefined,
-      "Tsonic only supports local imports (with .ts) and .NET imports"
+      "Tsonic only supports local imports (with .ts), .NET imports, and registered module bindings"
     )
   );
 };

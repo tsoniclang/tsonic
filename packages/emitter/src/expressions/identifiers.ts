@@ -7,30 +7,24 @@ import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
 import { emitType } from "../type-emitter.js";
 
 /**
- * Emit an identifier, mapping JavaScript globals to Tsonic.Runtime equivalents
+ * Emit an identifier, using resolved binding info if available
  */
 export const emitIdentifier = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  // Map JavaScript global identifiers to Tsonic.Runtime equivalents
-  const identifierMap: Record<string, string> = {
-    console: "Tsonic.Runtime.console",
-    Math: "Tsonic.Runtime.Math",
-    JSON: "Tsonic.Runtime.JSON",
-    parseInt: "Tsonic.Runtime.parseInt",
-    parseFloat: "Tsonic.Runtime.parseFloat",
-    isNaN: "Tsonic.Runtime.isNaN",
-    isFinite: "Tsonic.Runtime.isFinite",
-    undefined: "default",
-  };
-
-  const mapped = identifierMap[expr.name];
-  if (mapped) {
-    const updatedContext = addUsing(context, "Tsonic.Runtime");
-    return [{ text: mapped }, updatedContext];
+  // Special case for undefined -> default
+  if (expr.name === "undefined") {
+    return [{ text: "default" }, context];
   }
 
+  // Use resolved binding if available (from binding manifest)
+  if (expr.resolvedClrType && expr.resolvedAssembly) {
+    const updatedContext = addUsing(context, expr.resolvedAssembly);
+    return [{ text: expr.resolvedClrType }, updatedContext];
+  }
+
+  // Fallback: use identifier as-is
   return [{ text: expr.name }, context];
 };
 

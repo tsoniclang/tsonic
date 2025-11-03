@@ -89,9 +89,7 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1004");
-        expect(result.error.message).to.include(
-          "Node module imports are not supported"
-        );
+        expect(result.error.message).to.include("Unsupported module import");
       }
     });
 
