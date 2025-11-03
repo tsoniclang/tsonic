@@ -76,7 +76,7 @@ C# types exposed directly - no automatic conversions unless explicit.
 
 ## Related Specifications
 
-- Generators & coroutine translation (`spec/13-generators.md`)
+- Generators & coroutine translation ([Generators](generators.md))
 
 ## Project Structure
 

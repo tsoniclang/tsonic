@@ -2,7 +2,7 @@
 
 **Purpose**
 
-Document how TypeScript `type` aliases and `interface` declarations—including their generic variants—are mapped to C#. This extends the generics plan (`spec/15-generics.md`) to cover structural types, alias resolution, optional members, and index signatures.
+Document how TypeScript `type` aliases and `interface` declarations—including their generic variants—are mapped to C#. This extends the generics plan ([Generics](generics.md)) to cover structural types, alias resolution, optional members, and index signatures.
 
 ---
 
@@ -129,7 +129,7 @@ public struct Vector3D
 ### 2.3 Generics
 
 - Preserve generic parameters: `interface Box<T> { value: T; }` → `public class Box<T> { public T value { get; set; } }`.
-- Constraints on generic interfaces follow `spec/15-generics.md` (structural constraint adapters, etc.).
+- Constraints on generic interfaces follow [Generics](generics.md) (structural constraint adapters, etc.).
 
 ### 2.4 Inheritance
 
@@ -147,7 +147,7 @@ public struct Vector3D
 
 ### 2.7 Anonymous structural types
 
-- Inline structural literals (e.g., `{ id: number; name: string }`) generate synthetic classes when an interface is not declared. Reuse adapter machinery from `spec/15-generics.md`.
+- Inline structural literals (e.g., `{ id: number; name: string }`) generate synthetic classes when an interface is not declared. Reuse adapter machinery from [Generics](generics.md).
 
 ---
 
@@ -175,7 +175,7 @@ public struct Vector3D
 
 ## 4. Generics & Specialisation Recap
 
-- Generic interfaces/aliases use the same rules as `spec/15-generics.md`.
+- Generic interfaces/aliases use the same rules as [Generics](generics.md).
 - For structural constraints inside generics, synthesise interfaces/adapters per instantiation.
 - Conditional/utility aliases that cannot be expressed statically are monomorphised: generate specialisations (`Foo__string`, `Foo__number`) and rewrite call sites.
 

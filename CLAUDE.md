@@ -72,12 +72,12 @@ When you begin working on this project, you MUST:
 
 1. **Read this entire CLAUDE.md file** to understand the project conventions
 2. **Read the spec documents** in order:
-   - `/spec/00-overview.md` - Project overview
-   - `/spec/01-architecture.md` - System architecture
-   - `/spec/02-module-resolution.md` - ESM import rules
+   - `/spec/overview.md` - Project overview
+   - `/spec/architecture.md` - System architecture
+   - `/spec/module-resolution.md` - ESM import rules
    - `/CODING-STANDARDS.md` - Mandatory coding patterns
-3. **Check implementation plan**: `/spec/13-implementation-plan.md`
-4. **Review examples** in `/spec/12-examples/` for expected behavior
+3. **Check implementation plan**: `/spec/implementation-plan.md`
+4. **Review examples** in `/spec/examples/` for expected behavior
 
 Only after reading these documents should you proceed with implementation tasks.
 
@@ -325,7 +325,7 @@ npm test -- --grep "pattern"
 
 ## Implementation Order
 
-Follow the phases in `/spec/13-implementation-plan.md`:
+Follow the phases in `/spec/implementation-plan.md`:
 
 1. **Phase 0**: Project setup
 2. **Phase 1**: TypeScript frontend
@@ -371,9 +371,9 @@ const safePath = (input: string): string | null => {
 ## Key Files to Reference
 
 - **Spec documents**: `/spec/*.md` - Complete specification
-- **Examples**: `/spec/12-examples/*.md` - Input/output examples
+- **Examples**: `/spec/examples/*.md` - Input/output examples
 - **Coding standards**: `/CODING-STANDARDS.md` - Mandatory patterns
-- **Implementation plan**: `/spec/13-implementation-plan.md` - Development phases
+- **Implementation plan**: `/spec/implementation-plan.md` - Development phases
 
 ## Remember
 
