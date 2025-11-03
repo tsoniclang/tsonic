@@ -63,18 +63,6 @@ npm run dev
 - \`generated/\` - Generated C# code (gitignored)
 `;
 
-const SAMPLE_PACKAGE_JSON = `{
-  "name": "my-tsonic-app",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "build": "tsonic build src/main.ts",
-    "dev": "tsonic run src/main.ts"
-  },
-  "devDependencies": {}
-}
-`;
-
 /**
  * Generate tsonic.json config
  */
@@ -101,6 +89,62 @@ const generateConfig = (includeTypeRoots: boolean): string => {
   }
 
   return JSON.stringify(config, null, 2) + "\n";
+};
+
+/**
+ * Create or update package.json with scripts and metadata
+ */
+const createOrUpdatePackageJson = (packageJsonPath: string): void => {
+  let packageJson: Record<string, unknown>;
+
+  if (existsSync(packageJsonPath)) {
+    // Merge with existing package.json
+    const existing = readFileSync(packageJsonPath, "utf-8");
+    packageJson = JSON.parse(existing);
+
+    // Ensure required fields exist
+    if (!packageJson.name) {
+      packageJson.name = "my-tsonic-app";
+    }
+    if (!packageJson.version) {
+      packageJson.version = "1.0.0";
+    }
+    if (!packageJson.type) {
+      packageJson.type = "module";
+    }
+
+    // Merge scripts
+    const existingScripts =
+      (packageJson.scripts as Record<string, string>) || {};
+    packageJson.scripts = {
+      ...existingScripts,
+      build: "tsonic build src/main.ts",
+      dev: "tsonic run src/main.ts",
+    };
+
+    // Ensure devDependencies exists
+    if (!packageJson.devDependencies) {
+      packageJson.devDependencies = {};
+    }
+  } else {
+    // Create new package.json
+    packageJson = {
+      name: "my-tsonic-app",
+      version: "1.0.0",
+      type: "module",
+      scripts: {
+        build: "tsonic build src/main.ts",
+        dev: "tsonic run src/main.ts",
+      },
+      devDependencies: {},
+    };
+  }
+
+  writeFileSync(
+    packageJsonPath,
+    JSON.stringify(packageJson, null, 2) + "\n",
+    "utf-8"
+  );
 };
 
 /**
@@ -152,6 +196,13 @@ export const initProject = (
   }
 
   try {
+    // Create or update package.json FIRST (before npm install)
+    const packageJsonExists = existsSync(packageJsonPath);
+    createOrUpdatePackageJson(packageJsonPath);
+    console.log(
+      packageJsonExists ? "✓ Updated package.json" : "✓ Created package.json"
+    );
+
     // Install .NET type declarations
     const shouldInstallTypes = !options.skipTypes;
     const typesVersion = options.typesVersion ?? "10.0.0";
@@ -204,12 +255,6 @@ export const initProject = (
     if (!existsSync(readmePath)) {
       writeFileSync(readmePath, SAMPLE_README, "utf-8");
       console.log("✓ Created README.md");
-    }
-
-    // Create or update package.json
-    if (!existsSync(packageJsonPath)) {
-      writeFileSync(packageJsonPath, SAMPLE_PACKAGE_JSON, "utf-8");
-      console.log("✓ Created package.json");
     }
 
     console.log("\n✓ Project initialized successfully!");

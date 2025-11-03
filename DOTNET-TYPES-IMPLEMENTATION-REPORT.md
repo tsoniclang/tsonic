@@ -18,6 +18,7 @@ However, testing revealed **5 critical issues** requiring fixes before productio
 ### Features Implemented
 
 #### 1.1 Configuration System
+
 - **Location**: `packages/cli/src/types.ts`, `packages/cli/src/config.ts`
 - **Changes**:
   - Added `dotnet.typeRoots?: string[]` to `TsonicConfig`
@@ -26,6 +27,7 @@ However, testing revealed **5 critical issues** requiring fixes before productio
 - **Status**: ✅ Working as designed
 
 #### 1.2 Metadata Loading System
+
 - **Location**: `packages/frontend/src/program/metadata.ts`
 - **Changes**:
   - Changed signature from `loadDotnetMetadata(program)` to `loadDotnetMetadata(typeRoots)`
@@ -35,6 +37,7 @@ However, testing revealed **5 critical issues** requiring fixes before productio
 - **Status**: ✅ Working as designed
 
 #### 1.3 TypeScript Program Creation
+
 - **Location**: `packages/frontend/src/program/creation.ts`
 - **Changes**:
   - Added `typeRoots` to `CompilerOptions`
@@ -44,6 +47,7 @@ However, testing revealed **5 critical issues** requiring fixes before productio
 - **Status**: ✅ Working as designed
 
 #### 1.4 Enhanced `tsonic project init` Command
+
 - **Location**: `packages/cli/src/commands/init.ts`
 - **Complete rewrite** with new features:
   - Installs `@tsonic/dotnet-types@10.0.0` via npm
@@ -55,6 +59,7 @@ However, testing revealed **5 critical issues** requiring fixes before productio
 - **Status**: ⚠️ Partially working (see Issues #3, #4)
 
 #### 1.5 Build Pipeline Integration
+
 - **Location**: `packages/cli/src/commands/emit.ts`
 - **Changes**:
   - Updated `emitCommand()` to pass `typeRoots` from config to `compile()`
@@ -92,6 +97,7 @@ Build successful
 ```
 
 **Executable produced**:
+
 - Size: 1.4 MB
 - Type: Native x86_64 ELF
 - Startup: Instant (NativeAOT)
@@ -133,9 +139,7 @@ System.IO.Pipes.metadata.json
     "invariantGlobalization": true
   },
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@tsonic/dotnet-types/types"
-    ]
+    "typeRoots": ["node_modules/@tsonic/dotnet-types/types"]
   }
 }
 ```
@@ -154,17 +158,20 @@ System.IO.Pipes.metadata.json
 The `emit` command does not generate `Program.cs` containing the `Main()` entry point. The backend has `generateProgramCs()` function but it's never called by the CLI.
 
 **Error Message**:
+
 ```
 CSC : error CS5001: Program does not contain a static 'Main' method suitable for an entry point
 ```
 
 **Root Cause**:
+
 - `packages/cli/src/commands/emit.ts` only calls `emitCSharpFiles()` for module files
 - It never calls `generateProgramCs()` from `@tsonic/backend`
 - `packages/backend/src/build-orchestrator.ts` has the logic but is unused
 
 **Workaround Applied**:
 Created `Program.cs` manually:
+
 ```csharp
 using System;
 using System.Threading.Tasks;
@@ -182,6 +189,7 @@ public static class Program
 
 **Fix Required**:
 Update `packages/cli/src/commands/emit.ts`:
+
 ```typescript
 // After emitting C# files
 const entryInfo: EntryInfo = {
@@ -208,12 +216,14 @@ writeFileSync(programPath, programCs, "utf-8");
 The generated `.csproj` file does not include a reference to `Tsonic.Runtime`. When building outside the monorepo, compilation fails.
 
 **Error Message**:
+
 ```
 error CS0246: The type or namespace name 'Tsonic' could not be found
 (are you missing a using directive or an assembly reference?)
 ```
 
 **Root Cause**:
+
 - `packages/cli/src/commands/emit.ts` tries to detect runtime path:
   ```typescript
   const runtimeCsprojPath = resolve(
@@ -226,6 +236,7 @@ error CS0246: The type or namespace name 'Tsonic' could not be found
 
 **Workaround Applied**:
 Manually edited `tsonic.csproj`:
+
 ```xml
 <ItemGroup>
   <ProjectReference Include="/home/jeswin/repos/tsoniclang/tsonic/packages/runtime/src/Tsonic.Runtime.csproj" />
@@ -234,6 +245,7 @@ Manually edited `tsonic.csproj`:
 
 **Fix Required - Option 1** (Recommended):
 Publish `Tsonic.Runtime` as a NuGet package:
+
 ```xml
 <ItemGroup>
   <PackageReference Include="Tsonic.Runtime" Version="0.0.1" />
@@ -242,6 +254,7 @@ Publish `Tsonic.Runtime` as a NuGet package:
 
 **Fix Required - Option 2**:
 Bundle runtime source with CLI package and reference it:
+
 ```typescript
 // In emit.ts
 const runtimePath = join(
@@ -251,6 +264,7 @@ const runtimePath = join(
 ```
 
 **Estimated Effort**:
+
 - Option 1: 4-6 hours (package publishing setup)
 - Option 2: 1-2 hours (bundling approach)
 
@@ -262,6 +276,7 @@ const runtimePath = join(
 
 **Description**:
 The `init` command creates a minimal `package.json`:
+
 ```json
 {
   "devDependencies": {
@@ -271,16 +286,19 @@ The `init` command creates a minimal `package.json`:
 ```
 
 Missing:
+
 - `name`, `version`, `type: "module"`
 - `scripts.build`, `scripts.dev`
 
 **Root Cause**:
 Order of operations in `initProject()`:
+
 1. Runs `npm install` first (requires package.json)
 2. Creates package.json after (overwrites npm-generated version)
 
 **Workaround Applied**:
 Manually added to `package.json`:
+
 ```json
 {
   "name": "my-tsonic-app",
@@ -298,6 +316,7 @@ Manually added to `package.json`:
 
 **Fix Required**:
 Update `packages/cli/src/commands/init.ts`:
+
 ```typescript
 // 1. Create package.json FIRST with full content
 const packageJsonPath = join(cwd, "package.json");
@@ -321,17 +340,20 @@ if (shouldInstallTypes) {
 
 **Description**:
 When source file is named `main.ts`:
+
 - Generated class: `public static class main`
 - Generated method: `public static void main()`
 - C# error: "member names cannot be the same as their enclosing type"
 
 **Error Message**:
+
 ```
 error CS0542: 'main': member names cannot be the same as their enclosing type
 warning CS8981: The type name 'main' only contains lower-cased ascii characters
 ```
 
 **Root Cause**:
+
 - Tsonic generates: `FileName.ts` → `class FileName`
 - If exported function also named `main`, creates conflict
 - C# forbids method name matching containing class name
@@ -342,6 +364,7 @@ Renamed `src/main.ts` → `src/index.ts`
 **Fix Options**:
 
 **Option A**: Detect and warn:
+
 ```typescript
 // In IR builder
 if (className.toLowerCase() === exportedFunctionName.toLowerCase()) {
@@ -352,11 +375,10 @@ if (className.toLowerCase() === exportedFunctionName.toLowerCase()) {
 ```
 
 **Option B**: Auto-rename class:
+
 ```typescript
 // If conflict detected
-const className = fileNameMatchesExport
-  ? `${fileName}Module`
-  : fileName;
+const className = fileNameMatchesExport ? `${fileName}Module` : fileName;
 ```
 
 **Option C**: Document limitation:
@@ -376,6 +398,7 @@ Add to docs: "Entry point files should not have exported functions with the same
 The published `@tsonic/dotnet-types@10.0.0` package contains `.d.ts` files with TypeScript syntax errors. TypeScript compiler fails to parse them.
 
 **Error Messages** (sample from 50+ errors):
+
 ```
 'break' is not allowed as a parameter name.
 'finally' is not allowed as a parameter name.
@@ -386,6 +409,7 @@ Cannot find module 'System.IO' or its corresponding type declarations.
 ```
 
 **Example from `System.Console.d.ts`** (line 15):
+
 ```typescript
 declare namespace System {
   class Console {
@@ -404,6 +428,7 @@ declare namespace System {
 
 **Workaround Applied**:
 Set `typeRoots: []` in `tsonic.json` to skip loading .NET types entirely:
+
 ```json
 "dotnet": {
   "typeRoots": []
@@ -411,6 +436,7 @@ Set `typeRoots: []` in `tsonic.json` to skip loading .NET types entirely:
 ```
 
 **Sample Problematic Code** (inferred from errors):
+
 ```typescript
 // In some .d.ts file
 class SomeClass {
@@ -422,6 +448,7 @@ class SomeClass {
 **Fixes Required in @tsonic/dotnet-types**:
 
 **Fix 1**: Escape reserved keywords:
+
 ```typescript
 // Wrong
 static method(break: number): void;
@@ -432,6 +459,7 @@ static method(breakValue: number): void;
 ```
 
 **Fix 2**: Add proper module structure:
+
 ```typescript
 // Each file should be:
 declare module "System" {
@@ -445,6 +473,7 @@ declare module "System" {
 ```
 
 **Fix 3**: Add ambient reference:
+
 ```typescript
 // Create index.d.ts that references all modules
 /// <reference path="./System.d.ts" />
@@ -453,6 +482,7 @@ declare module "System" {
 ```
 
 **Verification Needed**:
+
 ```bash
 # Test that declarations are valid
 npx tsc --noEmit --lib es2015 \
@@ -469,6 +499,7 @@ Users can only use `Tsonic.Runtime` built-in types (console, Array, String, etc.
 ## 4. Tests Added
 
 ### 4.1 Configuration Tests
+
 **File**: `packages/cli/src/config.test.ts`
 
 ```typescript
@@ -498,6 +529,7 @@ it("should use typeRoots from config.dotnet.typeRoots", () => {
 **Status**: ✅ Both tests passing
 
 ### 4.2 Test Coverage
+
 - Frontend tests: 57 passing
 - Emitter tests: 88 passing
 - Backend tests: 8 passing
@@ -511,38 +543,44 @@ it("should use typeRoots from config.dotnet.typeRoots", () => {
 ## 5. What Works Perfectly
 
 ### 5.1 Configuration System
+
 - ✅ typeRoots can be specified in `tsonic.json`
 - ✅ Default value correctly applied
 - ✅ Multiple paths supported
 - ✅ Config resolution flows through entire pipeline
 
 ### 5.2 Metadata Loading
+
 - ✅ Recursively scans directories for `.d.ts` files
 - ✅ Loads corresponding `.metadata.json` files
 - ✅ Handles missing directories gracefully (returns empty array)
 - ✅ No hardcoded paths
 
 ### 5.3 TypeScript Program Creation
+
 - ✅ Combines source files + declaration files
 - ✅ TypeScript compiler receives all files correctly
 - ✅ Type checking works (when declarations are valid)
 
 ### 5.4 Code Generation Pipeline
+
 - ✅ IR building works correctly
 - ✅ C# emission generates valid code
 - ✅ Module structure preserved
 - ✅ Console API works (`Tsonic.Runtime.console.log`)
 
 ### 5.5 NativeAOT Compilation
+
 - ✅ Produces native executables
 - ✅ Small binary size (1.4 MB for hello world)
 - ✅ Instant startup
 - ✅ No runtime dependencies
 
 ### 5.6 Package Installation
+
 - ✅ `npm install @tsonic/dotnet-types` works
 - ✅ Package contains all expected files
-- ✅ File structure correct (types/*.d.ts + types/*.metadata.json)
+- ✅ File structure correct (types/_.d.ts + types/_.metadata.json)
 
 ---
 
@@ -602,18 +640,22 @@ config: {
 
 ```typescript
 class DotnetMetadataRegistry {
-  private metadata: Map<string, DotnetTypeMetadata>
+  private metadata: Map<string, DotnetTypeMetadata>;
 
   // Example content after loading:
   // "System.Console" → { kind: "class", members: {...} }
   // "System.IO.File" → { kind: "class", members: {...} }
 
-  getTypeMetadata(qualifiedName: string): DotnetTypeMetadata | undefined
-  getMemberMetadata(typeName: string, memberSig: string): DotnetMemberMetadata | undefined
+  getTypeMetadata(qualifiedName: string): DotnetTypeMetadata | undefined;
+  getMemberMetadata(
+    typeName: string,
+    memberSig: string
+  ): DotnetMemberMetadata | undefined;
 }
 ```
 
 Currently loaded from `.metadata.json` files, used for:
+
 - Override detection (virtual/sealed methods)
 - Struct detection (`kind: "struct"`)
 - Future: Parameter names, nullability, etc.
@@ -697,15 +739,18 @@ Total: 8 files changed, 296 insertions(+), 52 deletions(-)
 The typeRoots bootstrapping feature is **architecturally sound** and the **core infrastructure works correctly**. The configuration system, metadata loading, and build pipeline all function as designed.
 
 However, **3 critical issues** (#1, #2, #5) must be resolved before this feature can be used in production:
+
 - Missing Program.cs generation (CLI bug)
 - Missing Tsonic.Runtime reference (packaging issue)
 - Broken @tsonic/dotnet-types declarations (external package issue)
 
 **Immediate Action Required**:
+
 1. Fix Program.cs generation (Issue #1) - blocks all builds
 2. Coordinate with @tsonic/dotnet-types maintainer to fix TypeScript syntax errors (Issue #5)
 
 **Success Metrics**:
+
 - ✅ End-to-end compilation works (with workarounds)
 - ✅ 1.4 MB native executable produced
 - ✅ Instant startup, no runtime overhead
@@ -809,13 +854,13 @@ sys     0m0.000s
 
 ## Appendix B: Workarounds Applied (Quick Reference)
 
-| Issue | Workaround | Location |
-|-------|------------|----------|
-| #1 Missing Program.cs | Created manually | `~/test/sample-project/generated/Program.cs` |
-| #2 Missing Runtime ref | Added `<ProjectReference>` manually | `~/test/sample-project/generated/tsonic.csproj` |
-| #3 Incomplete package.json | Added fields manually | `~/test/sample-project/package.json` |
-| #4 File naming conflict | Renamed `main.ts` → `index.ts` | `~/test/sample-project/src/` |
-| #5 Broken .d.ts files | Set `typeRoots: []` | `~/test/sample-project/tsonic.json` |
+| Issue                      | Workaround                          | Location                                        |
+| -------------------------- | ----------------------------------- | ----------------------------------------------- |
+| #1 Missing Program.cs      | Created manually                    | `~/test/sample-project/generated/Program.cs`    |
+| #2 Missing Runtime ref     | Added `<ProjectReference>` manually | `~/test/sample-project/generated/tsonic.csproj` |
+| #3 Incomplete package.json | Added fields manually               | `~/test/sample-project/package.json`            |
+| #4 File naming conflict    | Renamed `main.ts` → `index.ts`      | `~/test/sample-project/src/`                    |
+| #5 Broken .d.ts files      | Set `typeRoots: []`                 | `~/test/sample-project/tsonic.json`             |
 
 ---
 
@@ -825,6 +870,7 @@ sys     0m0.000s
 **PR Link**: https://github.com/tsoniclang/tsonic/pull/new/feat/dotnet-type-packages
 
 **Recommended Review Order**:
+
 1. Read this report fully
 2. Review test results (Section 2)
 3. Review critical issues (Section 3.1, 3.2, 3.5)
