@@ -146,7 +146,7 @@ After specialisation, only a few patterns remain genuinely unsupported. Emit dia
 | ----------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
 | Unbounded or unknown instantiations (generic exported for external use) | `export function identity<T>(value: T): T` | `TSN7105`: “Cannot determine required type specialisations.” |
 
-(See `spec/16-types-and-interfaces.md` for structural alias diagnostics `TSN7201`–`TSN7203`.)
+(See [Types & Interfaces](types-and-interfaces.md) for structural alias diagnostics `TSN7201`–`TSN7203`.)
 
 ---
 

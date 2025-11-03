@@ -250,7 +250,7 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 ### Phase 7: Advanced Types and Language Features
 
-**Goal:** Deliver full generic support (see `spec/15-generics.md`) and complete generator translation while rounding out remaining TypeScript features.
+**Goal:** Deliver full generic support (see [Generics](generics.md)) and complete generator translation while rounding out remaining TypeScript features.
 
 **Tasks:**
 
@@ -258,13 +258,13 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 2. Async/await to `Task` conversion.
 3. Interfaces -> C# classes (auto-property generation).
 4. Enums support.
-5. **Generics Phase 1 – IR Enhancements** (`spec/15-generics.md` §2).
-6. **Generics Phase 2 – Emitter** (`spec/15-generics.md` §3–§6).
-7. **Generics Phase 3 – Runtime Helpers** (`spec/15-generics.md` §7–§9).
+5. **Generics Phase 1 – IR Enhancements** ([Generics](generics.md) §2).
+6. **Generics Phase 2 – Emitter** ([Generics](generics.md) §3–§6).
+7. **Generics Phase 3 – Runtime Helpers** ([Generics](generics.md) §7–§9).
 8. Union types (basic two-type unions) & union helpers.
 9. Type assertions and guards.
-10. Generators (sync + async) per `spec/13-generators.md` (exchange object pattern).
-11. Interfaces & type aliases (`spec/16-types-and-interfaces.md`).
+10. Generators (sync + async) per [Generators](generators.md) (exchange object pattern).
+11. Interfaces & type aliases ([Types & Interfaces](types-and-interfaces.md)).
 
 **Tests:**
 
@@ -277,8 +277,8 @@ This document outlines the step-by-step implementation plan for Tsonic, breaking
 
 **Deliverables:**
 
-- Robust generic support aligned with `spec/15-generics.md`.
-- Structural type support per `spec/16-types-and-interfaces.md`.
+- Robust generic support aligned with [Generics](generics.md).
+- Structural type support per [Types & Interfaces](types-and-interfaces.md).
 - Generators with exchange object pattern working.
 - Type guard infrastructure in place.
 

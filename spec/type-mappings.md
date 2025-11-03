@@ -103,7 +103,7 @@ const price = 19.99 as decimal;
 const percentage = 0.15 as float;
 ```
 
-**Note:** Due to type branding, you must use `as` type assertions. See [.NET Type Declarations](./14-dotnet-declarations.md) for details.
+**Note:** Due to type branding, you must use `as` type assertions. See [.NET Type Declarations](./dotnet-declarations.md) for details.
 
 ## Collection Types
 
@@ -198,15 +198,15 @@ Tsonic.Runtime.Array<string> parts = Tsonic.Runtime.String.split(name, " ");
 - `str.substring(0, 5)` → `Tsonic.Runtime.String.substring(str, 0, 5)`
 - `str.split(" ")` → `Tsonic.Runtime.String.split(str, " ")` (returns Tsonic.Runtime.Array)
 
-See [Runtime Specification](./05-runtime.md) for complete list of string methods.
+See [Runtime Specification](./runtime.md) for complete list of string methods.
 
 ## Generics
 
-TypeScript generic parameters map directly to C# generic parameters whenever possible. See `spec/15-generics.md` for full translation rules (constraints, call-site rewriting, structural adapters, and specialisation).
+TypeScript generic parameters map directly to C# generic parameters whenever possible. See [Generics](generics.md) for full translation rules (constraints, call-site rewriting, structural adapters, and specialisation).
 
 ## Interfaces and Type Aliases
 
-Interfaces and structural type aliases are emitted as C# classes/interfaces with property mappings, optional member handling, and adapters for structural inheritance. See `spec/16-types-and-interfaces.md` for the full strategy (including generics).
+Interfaces and structural type aliases are emitted as C# classes/interfaces with property mappings, optional member handling, and adapters for structural inheritance. See [Types & Interfaces](types-and-interfaces.md) for the full strategy (including generics).
 
 ### Value Type Structs
 
@@ -248,7 +248,7 @@ public struct Point
 - Structs cannot inherit from classes (C# restriction)
 - Larger structs (>16 bytes) may hurt performance due to copying overhead
 
-See `spec/16-types-and-interfaces.md` §2.2 for complete documentation.
+See [Types & Interfaces](types-and-interfaces.md) §2.2 for complete documentation.
 
 ## Async Types
 
