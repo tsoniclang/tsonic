@@ -27,6 +27,7 @@ Read these to understand how TypeScript maps to C#:
 ### Code Generation
 - [Code Generation](code-generation.md) - IR → C# emission rules
 - [Generators](generators.md) - Async/sync generator translation
+- [Bindings](bindings.md) - Structure of `<Assembly>.bindings.json`
 
 ## .NET Integration
 
@@ -62,7 +63,8 @@ Read these to understand how TypeScript maps to C#:
 2. [Architecture](architecture.md)
 3. [Implementation Plan](implementation-plan.md)
 4. [Code Generation](code-generation.md)
-5. [Runtime](runtime.md)
+5. [Bindings](bindings.md)
+6. [Runtime](runtime.md)
 
 ### For Language Designers
 1. [Type Mappings](type-mappings.md)

@@ -111,6 +111,53 @@ Map JavaScript entry points to the CLR type that implements them. A single manif
 
 The compiler uses `kind` to decide whether to bind the identifier as a global (no import) or as an importable module.
 
+#### Identifier Renaming with `csharpName`
+
+Bindings can optionally specify a `csharpName` field to rename the identifier in generated C# code. This is useful when mapping TypeScript globals to different C# names:
+
+```json
+{
+  "bindings": {
+    "console": {
+      "kind": "global",
+      "assembly": "System",
+      "type": "System.Console",
+      "csharpName": "Console"
+    },
+    "customGlobal": {
+      "kind": "global",
+      "assembly": "MyApp.Runtime",
+      "type": "MyApp.Runtime.CustomGlobal",
+      "csharpName": "GlobalHelper"
+    }
+  }
+}
+```
+
+**Example transformation:**
+
+```typescript
+// TypeScript input
+console.log("Hello");
+customGlobal.doSomething();
+```
+
+```csharp
+// Generated C# (with csharpName)
+Console.log("Hello");  // "console" renamed to "Console"
+GlobalHelper.doSomething();  // "customGlobal" renamed to "GlobalHelper"
+```
+
+**Without `csharpName`:**
+
+```csharp
+// Generated C# (without csharpName - uses type name)
+System.Console.log("Hello");  // Uses full type name
+MyApp.Runtime.CustomGlobal.doSomething();  // Uses full type name
+```
+
+The `csharpName` field provides control over how bound identifiers appear in generated C# while maintaining TypeScript surface compatibility.
+
 ## Consumption from the Compiler
 
 Tsonic loads declarations, metadata, and bindings from every configured `typeRoot`. A typical project configuration looks like:

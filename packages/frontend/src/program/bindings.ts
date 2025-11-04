@@ -13,6 +13,7 @@ export type BindingDescriptor = {
   readonly kind: "global" | "module";
   readonly assembly: string;
   readonly type: string;
+  readonly csharpName?: string; // Optional: rename identifier in generated C#
 };
 
 /**

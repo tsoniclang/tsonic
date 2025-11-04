@@ -47,6 +47,7 @@ export type IrIdentifierExpression = {
   // Resolved binding for globals (console, Math, etc.)
   readonly resolvedClrType?: string; // e.g., "Tsonic.Runtime.console"
   readonly resolvedAssembly?: string; // e.g., "Tsonic.Runtime"
+  readonly csharpName?: string; // Optional: renamed identifier in C# (from binding)
 };
 
 export type IrArrayExpression = {
