@@ -140,6 +140,17 @@ At compile time the pipeline:
 2. Loads **all `.metadata.json`** to drive C# emission (virtual overrides, structs, etc.).
 3. Loads **all `.bindings.json`** so it can resolve globals/modules to the appropriate assemblies and insert `<PackageReference/>` entries automatically.
 
+## Explicit Interface Implementations
+
+Some CLR types implement interfaces explicitly—members only become callable after casting to the interface. To keep the TypeScript surface honest while still allowing the emitter to generate correct casts, the generator applies the following rule when deciding whether to list an interface in a class/struct `implements` clause:
+
+1. For every `(type, interface)` pair, we obtain the CLR mapping via `Type.GetInterfaceMap(interface)`. This reports which concrete members satisfy each interface member.
+2. If **every** mapped method/accessor is public, the interface is emitted in the `.d.ts` `implements` list because TypeScript callers can reach all members without casting.
+3. If **any** mapped member is non-public (an explicit implementation), we omit that interface from the `.d.ts` `implements` clause. The interface declaration still exists, so callers can write `(value as Namespace.Interface)` when they need the explicit member.
+4. Regardless of visibility, the interface remains in the `.metadata.json` entry for the type. The emitter uses this metadata to recognise that casts are valid and to generate the correct C# call, e.g. `((System.Collections.IEnumerator)enumerator).Reset();`.
+
+This approach avoids phantom members in TypeScript, prevents `TS2420` “incorrectly implements” errors, and still preserves the full CLR contract for code generation.
+
 ## Validation
 
 The `generatedts` repo contains a validation script (`Scripts/validate.js`) that regenerates the reference assemblies, writes an aggregator `index.d.ts`, and runs the TypeScript compiler across the entire output to ensure there are no syntax errors. Semantic diagnostics are tracked and reduced over time as the generator improves its CLR → TS mapping.
