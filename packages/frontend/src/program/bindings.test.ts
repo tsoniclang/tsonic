@@ -280,4 +280,233 @@ describe("Binding System", () => {
       expect(fsBinding?.kind).to.equal("module");
     });
   });
+
+  describe("Hierarchical Binding Manifests", () => {
+    it("should add and retrieve hierarchical namespace bindings", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/system-linq.json", {
+        assembly: "System.Linq",
+        namespaces: [
+          {
+            name: "systemLinq",
+            alias: "System.Linq",
+            types: [
+              {
+                name: "enumerable",
+                alias: "Enumerable",
+                kind: "class",
+                members: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      const namespace = registry.getNamespace("systemLinq");
+      expect(namespace).to.not.equal(undefined);
+      expect(namespace?.alias).to.equal("System.Linq");
+      expect(namespace?.types).to.have.lengthOf(1);
+    });
+
+    it("should retrieve type bindings from hierarchical manifest", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/system-linq.json", {
+        assembly: "System.Linq",
+        namespaces: [
+          {
+            name: "systemLinq",
+            alias: "System.Linq",
+            types: [
+              {
+                name: "enumerable",
+                alias: "Enumerable",
+                kind: "class",
+                members: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      const type = registry.getType("enumerable");
+      expect(type).to.not.equal(undefined);
+      expect(type?.alias).to.equal("Enumerable");
+      expect(type?.kind).to.equal("class");
+    });
+
+    it("should retrieve member bindings from hierarchical manifest", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/system-linq.json", {
+        assembly: "System.Linq",
+        namespaces: [
+          {
+            name: "systemLinq",
+            alias: "System.Linq",
+            types: [
+              {
+                name: "enumerable",
+                alias: "Enumerable",
+                kind: "class",
+                members: [
+                  {
+                    kind: "method",
+                    name: "selectMany",
+                    alias: "SelectMany",
+                    binding: {
+                      assembly: "System.Linq",
+                      type: "System.Linq.Enumerable",
+                      member: "SelectMany",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      const member = registry.getMember("enumerable", "selectMany");
+      expect(member).to.not.equal(undefined);
+      expect(member?.alias).to.equal("SelectMany");
+      expect(member?.binding.type).to.equal("System.Linq.Enumerable");
+      expect(member?.binding.member).to.equal("SelectMany");
+    });
+
+    it("should handle multiple namespaces in one manifest", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/multi-namespace.json", {
+        assembly: "MyLib",
+        namespaces: [
+          {
+            name: "ns1",
+            alias: "MyLib.Namespace1",
+            types: [],
+          },
+          {
+            name: "ns2",
+            alias: "MyLib.Namespace2",
+            types: [],
+          },
+        ],
+      });
+
+      expect(registry.getNamespace("ns1")).to.not.equal(undefined);
+      expect(registry.getNamespace("ns2")).to.not.equal(undefined);
+      expect(registry.getAllNamespaces()).to.have.lengthOf(2);
+    });
+
+    it("should support both legacy and hierarchical manifests", () => {
+      const registry = new BindingRegistry();
+
+      // Add legacy manifest
+      registry.addBindings("/test/legacy.json", {
+        bindings: {
+          console: {
+            kind: "global",
+            assembly: "Tsonic.Runtime",
+            type: "Tsonic.Runtime.console",
+          },
+        },
+      });
+
+      // Add hierarchical manifest
+      registry.addBindings("/test/hierarchical.json", {
+        assembly: "System.Linq",
+        namespaces: [
+          {
+            name: "systemLinq",
+            alias: "System.Linq",
+            types: [],
+          },
+        ],
+      });
+
+      // Both should work
+      expect(registry.getBinding("console")).to.not.equal(undefined);
+      expect(registry.getNamespace("systemLinq")).to.not.equal(undefined);
+    });
+
+    it("should return undefined for non-existent hierarchical bindings", () => {
+      const registry = new BindingRegistry();
+
+      expect(registry.getNamespace("nonexistent")).to.equal(undefined);
+      expect(registry.getType("nonexistent")).to.equal(undefined);
+      expect(registry.getMember("nonexistent", "member")).to.equal(undefined);
+    });
+
+    it("should clear hierarchical bindings along with simple bindings", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/mixed.json", {
+        assembly: "Test",
+        namespaces: [
+          {
+            name: "ns",
+            alias: "Test.NS",
+            types: [],
+          },
+        ],
+      });
+
+      expect(registry.getAllNamespaces()).to.have.lengthOf(1);
+
+      registry.clear();
+
+      expect(registry.getAllNamespaces()).to.have.lengthOf(0);
+      expect(registry.getNamespace("ns")).to.equal(undefined);
+    });
+
+    it("should index member bindings by type.member key", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/members.json", {
+        assembly: "MyLib",
+        namespaces: [
+          {
+            name: "myLib",
+            alias: "MyLib",
+            types: [
+              {
+                name: "typeA",
+                alias: "TypeA",
+                kind: "class",
+                members: [
+                  {
+                    kind: "method",
+                    name: "method1",
+                    alias: "Method1",
+                    binding: {
+                      assembly: "MyLib",
+                      type: "MyLib.TypeA",
+                      member: "Method1",
+                    },
+                  },
+                  {
+                    kind: "method",
+                    name: "method2",
+                    alias: "Method2",
+                    binding: {
+                      assembly: "MyLib",
+                      type: "MyLib.TypeA",
+                      member: "Method2",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      const member1 = registry.getMember("typeA", "method1");
+      const member2 = registry.getMember("typeA", "method2");
+
+      expect(member1?.alias).to.equal("Method1");
+      expect(member2?.alias).to.equal("Method2");
+    });
+  });
 });

@@ -61,6 +61,7 @@ Automated scripts break syntax in unpredictable ways and destroy codebases.
 **Purpose:** Save test run output for analysis without re-running tests
 
 **Usage:**
+
 ```bash
 # Create directory (gitignored)
 mkdir -p .tests
@@ -75,6 +76,7 @@ grep -A10 "specific test name" .tests/run-*.txt
 ```
 
 **Benefits:**
+
 - See test output in real-time (unlike `>` redirection)
 - Analyze failures without expensive re-runs
 - Keep historical test results for comparison
@@ -87,6 +89,7 @@ grep -A10 "specific test name" .tests/run-*.txt
 **Purpose:** Keep analysis artifacts separate from source code
 
 **Usage:**
+
 ```bash
 # Create directory (gitignored)
 mkdir -p .analysis
@@ -102,6 +105,7 @@ mkdir -p .analysis
 ```
 
 **Benefits:**
+
 - Keeps analysis work separate from source code
 - Allows iterative analysis without cluttering repository
 - Safe place for temporary debugging scripts
@@ -112,6 +116,7 @@ mkdir -p .analysis
 **Purpose:** Track multi-step tasks across conversation sessions
 
 **Usage:**
+
 ```bash
 # Create task file: YYYY-MM-DD-task-name.md
 # Example: 2025-01-13-sql-generation.md
@@ -129,6 +134,7 @@ mkdir -p .analysis
 ```
 
 **Benefits:**
+
 - Resume complex tasks across sessions with full context
 - No loss of progress or decisions
 - Gitignored for persistence

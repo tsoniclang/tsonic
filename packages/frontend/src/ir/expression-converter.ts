@@ -81,6 +81,7 @@ export const convertExpression = (
         inferredType,
         resolvedClrType: binding.type,
         resolvedAssembly: binding.assembly,
+        csharpName: binding.csharpName, // Optional C# name from binding
       };
     }
     return { kind: "identifier", name: node.text, inferredType };

@@ -1,62 +1,178 @@
 /**
- * Binding manifest loading - maps JS globals/modules to CLR types
- * See spec/14-dotnet-declarations.md for manifest format
+ * Binding manifest loading - maps JS/TS names to CLR types/members
+ * See spec/bindings.md for full manifest format
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 /**
- * Single binding entry mapping a JS identifier to a CLR type
+ * Member binding (method/property level)
  */
-export type BindingDescriptor = {
-  readonly kind: "global" | "module";
-  readonly assembly: string;
-  readonly type: string;
+export type MemberBinding = {
+  readonly kind: "method" | "property";
+  readonly signature?: string; // Optional TS signature for diagnostics
+  readonly name: string; // TS identifier (e.g., "selectMany")
+  readonly alias: string; // CLR member name (e.g., "SelectMany")
+  readonly binding: {
+    readonly assembly: string;
+    readonly type: string; // Full CLR type (e.g., "System.Linq.Enumerable")
+    readonly member: string; // CLR member name
+  };
 };
 
 /**
- * Complete binding manifest file structure
+ * Type binding (class/interface/struct/enum level)
  */
-export type BindingFile = {
-  readonly bindings: Readonly<Record<string, BindingDescriptor>>;
+export type TypeBinding = {
+  readonly name: string; // TS identifier (e.g., "enumerable")
+  readonly alias: string; // CLR type name (e.g., "Enumerable")
+  readonly kind: "class" | "interface" | "struct" | "enum";
+  readonly members: readonly MemberBinding[];
+};
+
+/**
+ * Namespace binding
+ */
+export type NamespaceBinding = {
+  readonly name: string; // TS identifier (e.g., "systemLinq")
+  readonly alias: string; // CLR namespace (e.g., "System.Linq")
+  readonly types: readonly TypeBinding[];
+};
+
+/**
+ * Full binding manifest structure (new format from bindings.md)
+ */
+export type FullBindingManifest = {
+  readonly assembly: string;
+  readonly namespaces: readonly NamespaceBinding[];
+};
+
+/**
+ * Simple binding entry (legacy format for backwards compatibility)
+ * Maps simple global/module identifiers to CLR types
+ */
+export type SimpleBindingDescriptor = {
+  readonly kind: "global" | "module";
+  readonly assembly: string;
+  readonly type: string;
+  readonly csharpName?: string; // Optional: rename identifier in generated C#
+};
+
+/**
+ * Legacy binding file structure (backwards compatible)
+ */
+export type LegacyBindingFile = {
+  readonly bindings: Readonly<Record<string, SimpleBindingDescriptor>>;
+};
+
+/**
+ * Union type for both binding formats
+ */
+export type BindingFile = FullBindingManifest | LegacyBindingFile;
+
+/**
+ * Type guard to check if a manifest is the full format
+ */
+const isFullBindingManifest = (
+  manifest: BindingFile
+): manifest is FullBindingManifest => {
+  return "assembly" in manifest && "namespaces" in manifest;
 };
 
 /**
  * Registry of all loaded bindings
- * Maps JS identifiers (console, Math, fs, path, etc.) to CLR types
+ * Supports both legacy (simple global/module) and new (hierarchical namespace/type/member) formats
  */
 export class BindingRegistry {
-  private readonly bindings = new Map<string, BindingDescriptor>();
+  // Legacy format: simple global/module bindings
+  private readonly simpleBindings = new Map<string, SimpleBindingDescriptor>();
+
+  // New format: hierarchical bindings
+  private readonly namespaces = new Map<string, NamespaceBinding>();
+  private readonly types = new Map<string, TypeBinding>(); // Flat lookup by TS name
+  private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
 
   /**
    * Load a binding manifest file and add its bindings to the registry
+   * Supports both legacy and new formats
    */
   addBindings(_filePath: string, manifest: BindingFile): void {
-    for (const [name, descriptor] of Object.entries(manifest.bindings)) {
-      this.bindings.set(name, descriptor);
+    if (isFullBindingManifest(manifest)) {
+      // New format: hierarchical namespace/type/member structure
+      for (const ns of manifest.namespaces) {
+        this.namespaces.set(ns.name, ns);
+
+        // Index types for quick lookup
+        for (const type of ns.types) {
+          this.types.set(type.name, type);
+
+          // Index members for quick lookup (keyed by "typeName.memberName")
+          for (const member of type.members) {
+            const key = `${type.name}.${member.name}`;
+            this.members.set(key, member);
+          }
+        }
+      }
+    } else {
+      // Legacy format: simple global/module bindings
+      for (const [name, descriptor] of Object.entries(manifest.bindings)) {
+        this.simpleBindings.set(name, descriptor);
+      }
     }
   }
 
   /**
-   * Look up a binding by name (e.g., "console", "fs")
+   * Look up a simple global/module binding (legacy format)
    */
-  getBinding(name: string): BindingDescriptor | undefined {
-    return this.bindings.get(name);
+  getBinding(name: string): SimpleBindingDescriptor | undefined {
+    return this.simpleBindings.get(name);
   }
 
   /**
-   * Get all loaded bindings
+   * Look up a namespace binding by TS name
    */
-  getAllBindings(): readonly [string, BindingDescriptor][] {
-    return Array.from(this.bindings.entries());
+  getNamespace(name: string): NamespaceBinding | undefined {
+    return this.namespaces.get(name);
+  }
+
+  /**
+   * Look up a type binding by TS name
+   */
+  getType(name: string): TypeBinding | undefined {
+    return this.types.get(name);
+  }
+
+  /**
+   * Look up a member binding by type and member name
+   */
+  getMember(typeName: string, memberName: string): MemberBinding | undefined {
+    const key = `${typeName}.${memberName}`;
+    return this.members.get(key);
+  }
+
+  /**
+   * Get all loaded simple bindings (legacy)
+   */
+  getAllBindings(): readonly [string, SimpleBindingDescriptor][] {
+    return Array.from(this.simpleBindings.entries());
+  }
+
+  /**
+   * Get all loaded namespaces
+   */
+  getAllNamespaces(): readonly NamespaceBinding[] {
+    return Array.from(this.namespaces.values());
   }
 
   /**
    * Clear all loaded bindings
    */
   clear(): void {
-    this.bindings.clear();
+    this.simpleBindings.clear();
+    this.namespaces.clear();
+    this.types.clear();
+    this.members.clear();
   }
 }
 

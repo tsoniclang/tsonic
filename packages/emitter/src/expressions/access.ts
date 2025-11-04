@@ -3,7 +3,7 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../types.js";
+import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 
 /**
@@ -13,6 +13,15 @@ export const emitMemberAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Check if this is a hierarchical member binding
+  if (expr.memberBinding) {
+    // Emit the full CLR type and member from the binding
+    const { assembly, type, member } = expr.memberBinding;
+    const updatedContext = addUsing(context, assembly);
+    const text = `${type}.${member}`;
+    return [{ text }, updatedContext];
+  }
+
   const [objectFrag, newContext] = emitExpression(expr.object, context);
 
   if (expr.isComputed) {

@@ -32,6 +32,12 @@ export const emitIdentifier = (
     return [{ text: "default" }, context];
   }
 
+  // Use custom C# name from binding if specified
+  if (expr.csharpName && expr.resolvedAssembly) {
+    const updatedContext = addUsing(context, expr.resolvedAssembly);
+    return [{ text: expr.csharpName }, updatedContext];
+  }
+
   // Use resolved binding if available (from binding manifest)
   if (expr.resolvedClrType && expr.resolvedAssembly) {
     const updatedContext = addUsing(context, expr.resolvedAssembly);
