@@ -206,4 +206,142 @@ describe("Expression Emission", () => {
     expect(result).to.include("Tsonic.Runtime.Math.sqrt");
     expect(result).to.include("using Tsonic.Runtime");
   });
+
+  it("should emit hierarchical member bindings correctly", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "memberAccess",
+                object: { kind: "identifier", name: "systemLinq" },
+                property: "enumerable",
+                isComputed: false,
+                isOptional: false,
+              },
+              property: "selectMany",
+              isComputed: false,
+              isOptional: false,
+              // Hierarchical member binding from manifest
+              memberBinding: {
+                assembly: "System.Linq",
+                type: "System.Linq.Enumerable",
+                member: "SelectMany",
+              },
+            },
+            arguments: [
+              { kind: "array", elements: [{ kind: "literal", value: 1 }] },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Should emit full CLR type and member from binding
+    expect(result).to.include("System.Linq.Enumerable.SelectMany");
+    expect(result).to.include("using System.Linq");
+  });
+
+  it("should emit hierarchical member bindings without emitting intermediate objects", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "result" },
+              initializer: {
+                kind: "call",
+                callee: {
+                  kind: "memberAccess",
+                  object: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "myLib" },
+                    property: "math",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                  property: "add",
+                  isComputed: false,
+                  isOptional: false,
+                  memberBinding: {
+                    assembly: "MyLib",
+                    type: "MyLib.Math",
+                    member: "Add",
+                  },
+                },
+                arguments: [
+                  { kind: "literal", value: 1 },
+                  { kind: "literal", value: 2 },
+                ],
+                isOptional: false,
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Should emit MyLib.Math.Add directly
+    expect(result).to.include("MyLib.Math.Add");
+    // Should NOT include myLib.math (intermediate objects shouldn't appear)
+    expect(result).not.to.include("myLib.math");
+    expect(result).to.include("using MyLib");
+  });
+
+  it("should handle member access without binding (regular property access)", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: { kind: "identifier", name: "obj" },
+            property: "property",
+            isComputed: false,
+            isOptional: false,
+            // No memberBinding - regular property access
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Should emit regular property access
+    expect(result).to.include("obj.property");
+  });
 });

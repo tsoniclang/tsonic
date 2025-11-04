@@ -98,6 +98,14 @@ export type IrMemberExpression = {
   readonly isComputed: boolean; // true for obj[prop], false for obj.prop
   readonly isOptional: boolean; // true for obj?.prop
   readonly inferredType?: IrType;
+  // Hierarchical member binding (from bindings manifest)
+  // When a member access like systemLinq.enumerable.selectMany is resolved,
+  // this contains the full CLR binding info
+  readonly memberBinding?: {
+    readonly assembly: string; // e.g., "System.Linq"
+    readonly type: string; // Full CLR type e.g., "System.Linq.Enumerable"
+    readonly member: string; // CLR member name e.g., "SelectMany"
+  };
 };
 
 export type IrCallExpression = {

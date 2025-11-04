@@ -111,9 +111,9 @@ Map JavaScript entry points to the CLR type that implements them. A single manif
 
 The compiler uses `kind` to decide whether to bind the identifier as a global (no import) or as an importable module.
 
-#### Identifier Renaming with `csharpName`
+#### Simple Bindings with `csharpName`
 
-Bindings can optionally specify a `csharpName` field to rename the identifier in generated C# code. This is useful when mapping TypeScript globals to different C# names:
+Simple bindings (globals and modules) can optionally specify a `csharpName` field to rename the identifier in generated C# code:
 
 ```json
 {
@@ -123,40 +123,70 @@ Bindings can optionally specify a `csharpName` field to rename the identifier in
       "assembly": "System",
       "type": "System.Console",
       "csharpName": "Console"
-    },
-    "customGlobal": {
-      "kind": "global",
-      "assembly": "MyApp.Runtime",
-      "type": "MyApp.Runtime.CustomGlobal",
-      "csharpName": "GlobalHelper"
     }
   }
 }
 ```
 
-**Example transformation:**
+This is the legacy binding format, suitable for simple global/module bindings.
+
+#### Hierarchical Bindings
+
+For more complex scenarios, Tsonic supports **hierarchical binding manifests** that allow TypeScript code to access nested namespace/type/member structures and map them to CLR types. This enables patterns like:
 
 ```typescript
-// TypeScript input
-console.log("Hello");
-customGlobal.doSomething();
+import { systemLinq } from "@dotnet/system-linq";
+const result = systemLinq.enumerable.selectMany(data, (x) => [x, x * 2]);
 ```
+
+Which generates:
 
 ```csharp
-// Generated C# (with csharpName)
-Console.log("Hello");  // "console" renamed to "Console"
-GlobalHelper.doSomething();  // "customGlobal" renamed to "GlobalHelper"
+using System.Linq;
+var result = System.Linq.Enumerable.SelectMany(data, x => new[] { x, x * 2.0 });
 ```
 
-**Without `csharpName`:**
+The hierarchical binding manifest defines the complete mapping:
 
-```csharp
-// Generated C# (without csharpName - uses type name)
-System.Console.log("Hello");  // Uses full type name
-MyApp.Runtime.CustomGlobal.doSomething();  // Uses full type name
+```json
+{
+  "assembly": "System.Linq",
+  "namespaces": [
+    {
+      "name": "systemLinq",
+      "alias": "System.Linq",
+      "types": [
+        {
+          "name": "enumerable",
+          "alias": "Enumerable",
+          "kind": "class",
+          "members": [
+            {
+              "kind": "method",
+              "name": "selectMany",
+              "alias": "SelectMany",
+              "binding": {
+                "assembly": "System.Linq",
+                "type": "System.Linq.Enumerable",
+                "member": "SelectMany"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
 ```
 
-The `csharpName` field provides control over how bound identifiers appear in generated C# while maintaining TypeScript surface compatibility.
+**Key features:**
+
+- **Namespace bindings**: Map TypeScript identifiers to CLR namespaces
+- **Type bindings**: Map nested properties to CLR types within namespaces
+- **Member bindings**: Map nested members to CLR static methods/properties
+- **Transparent substitution**: The TypeScript code structure doesn't need to match the CLR structure
+
+See `spec/bindings.md` for the complete hierarchical binding manifest specification.
 
 ## Consumption from the Compiler
 
