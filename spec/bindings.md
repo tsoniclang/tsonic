@@ -20,47 +20,45 @@ types/
 
 ```json
 {
-  "assembly": "System.Linq",
-  "namespaces": [
-    {
-      "name": "systemLinq",
-      "alias": "System.Linq",
-      "types": [
-        {
-          "name": "enumerable",
-          "alias": "Enumerable",
-          "kind": "class",
-          "members": [
-            {
-              "kind": "method",
-              "signature": "selectMany<TSource, TResult>(source: IEnumerable<TSource>, selector: (TSource) => IEnumerable<TResult>)",
-              "name": "selectMany",
-              "alias": "SelectMany",
-              "binding": {
-                "assembly": "System.Linq",
-                "type": "System.Linq.Enumerable",
-                "member": "SelectMany"
-              }
-            }
-          ]
-        }
-      ]
-    }
-  ]
+  "SelectMany": {
+    "Kind": "method",
+    "Name": "SelectMany",
+    "Alias": "selectMany",
+    "FullName": "System.Linq.Enumerable.SelectMany"
+  },
+  "Enumerable": {
+    "Kind": "class",
+    "Name": "Enumerable",
+    "Alias": "enumerable",
+    "FullName": "System.Linq.Enumerable"
+  },
+  "System.Linq": {
+    "Kind": "namespace",
+    "Name": "System.Linq",
+    "Alias": "systemLinq",
+    "FullName": "System.Linq"
+  }
 }
 ```
 
-- `name` is the identifier written to the declaration file; `alias` is the CLR identifier.
-- `binding` records the fully-qualified CLR target that must be called.
-- `signature` is optional and may be omitted if not available.
+- `Name` is the CLR identifier (e.g., "SelectMany", "Enumerable", "System.Linq")
+- `Alias` is the TypeScript-facing identifier emitted in the `.d.ts` (e.g., "selectMany", "enumerable", "systemLinq")
+- `Kind` describes the type of entity: "namespace", "class", "interface", "method", "property", "enumMember"
+- `FullName` contains the fully-qualified CLR name for the entity
+- Dictionary keys are the CLR identifiers for quick lookup
 - The manifest is emitted only when a naming transform changes at least one identifier.
 
 ## Runtime consumption
 
 - Load the manifest alongside `AssemblyName.metadata.json`.
-- Walk the namespace/type/member hierarchy to locate the transformed name and
-  use the `binding` information to call the CLR member.
-- If a name is missing, emit the CLR identifier unchanged (no transform).
+- When you have a TypeScript identifier (e.g., `selectMany`):
+  - Iterate through dictionary values to find an entry where `Alias` matches
+  - Read the `Name` field to get the CLR identifier (`SelectMany`)
+  - Use `FullName` for the fully-qualified CLR target
+- When you have a CLR identifier (e.g., `SelectMany`):
+  - Use it as the dictionary key: `bindings["SelectMany"]`
+  - Read the `Alias` field to get the TypeScript identifier
+- If an entry is missing, emit the CLR identifier unchanged (no transform).
 
 ## Versioning
 

@@ -153,18 +153,18 @@ The hierarchical binding manifest defines the complete mapping:
   "assembly": "System.Linq",
   "namespaces": [
     {
-      "name": "systemLinq",
-      "alias": "System.Linq",
+      "name": "System.Linq",
+      "alias": "systemLinq",
       "types": [
         {
-          "name": "enumerable",
-          "alias": "Enumerable",
+          "name": "Enumerable",
+          "alias": "enumerable",
           "kind": "class",
           "members": [
             {
               "kind": "method",
-              "name": "selectMany",
-              "alias": "SelectMany",
+              "name": "SelectMany",
+              "alias": "selectMany",
               "binding": {
                 "assembly": "System.Linq",
                 "type": "System.Linq.Enumerable",
@@ -181,12 +181,13 @@ The hierarchical binding manifest defines the complete mapping:
 
 **Key features:**
 
-- **Namespace bindings**: Map TypeScript identifiers to CLR namespaces
-- **Type bindings**: Map nested properties to CLR types within namespaces
-- **Member bindings**: Map nested members to CLR static methods/properties
+- **Namespace bindings**: `Name` holds the CLR namespace (e.g., "System.Linq"), `Alias` holds the TypeScript identifier (e.g., "systemLinq")
+- **Type bindings**: `Name` holds the CLR type (e.g., "Enumerable"), `Alias` holds the TypeScript identifier (e.g., "enumerable")
+- **Member bindings**: `Name` holds the CLR member (e.g., "SelectMany"), `Alias` holds the TypeScript identifier (e.g., "selectMany")
+- **Quick lookup**: Dictionary keys are CLR identifiers for direct access
 - **Transparent substitution**: The TypeScript code structure doesn't need to match the CLR structure
 
-See `spec/bindings.md` for the complete hierarchical binding manifest specification.
+See `spec/bindings.md` for the complete binding manifest specification.
 
 ## Consumption from the Compiler
 

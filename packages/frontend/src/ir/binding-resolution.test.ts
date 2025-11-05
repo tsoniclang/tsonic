@@ -403,18 +403,18 @@ describe("Binding Resolution in IR", () => {
         assembly: "System.Linq",
         namespaces: [
           {
-            name: "systemLinq",
-            alias: "System.Linq",
+            name: "System.Linq",
+            alias: "systemLinq",
             types: [
               {
-                name: "enumerable",
-                alias: "Enumerable",
+                name: "Enumerable",
+                alias: "enumerable",
                 kind: "class",
                 members: [
                   {
                     kind: "method",
-                    name: "selectMany",
-                    alias: "SelectMany",
+                    name: "SelectMany",
+                    alias: "selectMany",
                     binding: {
                       assembly: "System.Linq",
                       type: "System.Linq.Enumerable",
@@ -526,18 +526,18 @@ describe("Binding Resolution in IR", () => {
         assembly: "MyLib",
         namespaces: [
           {
-            name: "myLib",
-            alias: "MyLib",
+            name: "MyLib",
+            alias: "myLib",
             types: [
               {
-                name: "typeA",
-                alias: "TypeA",
+                name: "TypeA",
+                alias: "typeA",
                 kind: "class",
                 members: [
                   {
                     kind: "method",
-                    name: "knownMember",
-                    alias: "KnownMember",
+                    name: "KnownMember",
+                    alias: "knownMember",
                     binding: {
                       assembly: "MyLib",
                       type: "MyLib.TypeA",
