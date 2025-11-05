@@ -12,8 +12,8 @@ import * as path from "node:path";
 export type MemberBinding = {
   readonly kind: "method" | "property";
   readonly signature?: string; // Optional TS signature for diagnostics
-  readonly name: string; // TS identifier (e.g., "selectMany")
-  readonly alias: string; // CLR member name (e.g., "SelectMany")
+  readonly name: string; // CLR member name (e.g., "SelectMany")
+  readonly alias: string; // TS identifier (e.g., "selectMany")
   readonly binding: {
     readonly assembly: string;
     readonly type: string; // Full CLR type (e.g., "System.Linq.Enumerable")
@@ -25,8 +25,8 @@ export type MemberBinding = {
  * Type binding (class/interface/struct/enum level)
  */
 export type TypeBinding = {
-  readonly name: string; // TS identifier (e.g., "enumerable")
-  readonly alias: string; // CLR type name (e.g., "Enumerable")
+  readonly name: string; // CLR type name (e.g., "Enumerable")
+  readonly alias: string; // TS identifier (e.g., "enumerable")
   readonly kind: "class" | "interface" | "struct" | "enum";
   readonly members: readonly MemberBinding[];
 };
@@ -35,8 +35,8 @@ export type TypeBinding = {
  * Namespace binding
  */
 export type NamespaceBinding = {
-  readonly name: string; // TS identifier (e.g., "systemLinq")
-  readonly alias: string; // CLR namespace (e.g., "System.Linq")
+  readonly name: string; // CLR namespace (e.g., "System.Linq")
+  readonly alias: string; // TS identifier (e.g., "systemLinq")
   readonly types: readonly TypeBinding[];
 };
 
@@ -100,16 +100,17 @@ export class BindingRegistry {
   addBindings(_filePath: string, manifest: BindingFile): void {
     if (isFullBindingManifest(manifest)) {
       // New format: hierarchical namespace/type/member structure
+      // Index by alias (TS identifier) for quick lookup
       for (const ns of manifest.namespaces) {
-        this.namespaces.set(ns.name, ns);
+        this.namespaces.set(ns.alias, ns);
 
-        // Index types for quick lookup
+        // Index types for quick lookup by TS alias
         for (const type of ns.types) {
-          this.types.set(type.name, type);
+          this.types.set(type.alias, type);
 
-          // Index members for quick lookup (keyed by "typeName.memberName")
+          // Index members for quick lookup (keyed by "typeAlias.memberAlias")
           for (const member of type.members) {
-            const key = `${type.name}.${member.name}`;
+            const key = `${type.alias}.${member.alias}`;
             this.members.set(key, member);
           }
         }
@@ -130,24 +131,24 @@ export class BindingRegistry {
   }
 
   /**
-   * Look up a namespace binding by TS name
+   * Look up a namespace binding by TS alias
    */
-  getNamespace(name: string): NamespaceBinding | undefined {
-    return this.namespaces.get(name);
+  getNamespace(tsAlias: string): NamespaceBinding | undefined {
+    return this.namespaces.get(tsAlias);
   }
 
   /**
-   * Look up a type binding by TS name
+   * Look up a type binding by TS alias
    */
-  getType(name: string): TypeBinding | undefined {
-    return this.types.get(name);
+  getType(tsAlias: string): TypeBinding | undefined {
+    return this.types.get(tsAlias);
   }
 
   /**
-   * Look up a member binding by type and member name
+   * Look up a member binding by TS type alias and member alias
    */
-  getMember(typeName: string, memberName: string): MemberBinding | undefined {
-    const key = `${typeName}.${memberName}`;
+  getMember(typeAlias: string, memberAlias: string): MemberBinding | undefined {
+    const key = `${typeAlias}.${memberAlias}`;
     return this.members.get(key);
   }
 

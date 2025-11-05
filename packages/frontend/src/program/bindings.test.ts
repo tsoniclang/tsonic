@@ -289,12 +289,12 @@ describe("Binding System", () => {
         assembly: "System.Linq",
         namespaces: [
           {
-            name: "systemLinq",
-            alias: "System.Linq",
+            name: "System.Linq",
+            alias: "systemLinq",
             types: [
               {
-                name: "enumerable",
-                alias: "Enumerable",
+                name: "Enumerable",
+                alias: "enumerable",
                 kind: "class",
                 members: [],
               },
@@ -305,7 +305,7 @@ describe("Binding System", () => {
 
       const namespace = registry.getNamespace("systemLinq");
       expect(namespace).to.not.equal(undefined);
-      expect(namespace?.alias).to.equal("System.Linq");
+      expect(namespace?.name).to.equal("System.Linq");
       expect(namespace?.types).to.have.lengthOf(1);
     });
 
@@ -316,12 +316,12 @@ describe("Binding System", () => {
         assembly: "System.Linq",
         namespaces: [
           {
-            name: "systemLinq",
-            alias: "System.Linq",
+            name: "System.Linq",
+            alias: "systemLinq",
             types: [
               {
-                name: "enumerable",
-                alias: "Enumerable",
+                name: "Enumerable",
+                alias: "enumerable",
                 kind: "class",
                 members: [],
               },
@@ -332,7 +332,7 @@ describe("Binding System", () => {
 
       const type = registry.getType("enumerable");
       expect(type).to.not.equal(undefined);
-      expect(type?.alias).to.equal("Enumerable");
+      expect(type?.name).to.equal("Enumerable");
       expect(type?.kind).to.equal("class");
     });
 
@@ -343,18 +343,18 @@ describe("Binding System", () => {
         assembly: "System.Linq",
         namespaces: [
           {
-            name: "systemLinq",
-            alias: "System.Linq",
+            name: "System.Linq",
+            alias: "systemLinq",
             types: [
               {
-                name: "enumerable",
-                alias: "Enumerable",
+                name: "Enumerable",
+                alias: "enumerable",
                 kind: "class",
                 members: [
                   {
                     kind: "method",
-                    name: "selectMany",
-                    alias: "SelectMany",
+                    name: "SelectMany",
+                    alias: "selectMany",
                     binding: {
                       assembly: "System.Linq",
                       type: "System.Linq.Enumerable",
@@ -370,7 +370,7 @@ describe("Binding System", () => {
 
       const member = registry.getMember("enumerable", "selectMany");
       expect(member).to.not.equal(undefined);
-      expect(member?.alias).to.equal("SelectMany");
+      expect(member?.name).to.equal("SelectMany");
       expect(member?.binding.type).to.equal("System.Linq.Enumerable");
       expect(member?.binding.member).to.equal("SelectMany");
     });
@@ -382,13 +382,13 @@ describe("Binding System", () => {
         assembly: "MyLib",
         namespaces: [
           {
-            name: "ns1",
-            alias: "MyLib.Namespace1",
+            name: "MyLib.Namespace1",
+            alias: "ns1",
             types: [],
           },
           {
-            name: "ns2",
-            alias: "MyLib.Namespace2",
+            name: "MyLib.Namespace2",
+            alias: "ns2",
             types: [],
           },
         ],
@@ -418,8 +418,8 @@ describe("Binding System", () => {
         assembly: "System.Linq",
         namespaces: [
           {
-            name: "systemLinq",
-            alias: "System.Linq",
+            name: "System.Linq",
+            alias: "systemLinq",
             types: [],
           },
         ],
@@ -445,8 +445,8 @@ describe("Binding System", () => {
         assembly: "Test",
         namespaces: [
           {
-            name: "ns",
-            alias: "Test.NS",
+            name: "Test.NS",
+            alias: "ns",
             types: [],
           },
         ],
@@ -467,18 +467,18 @@ describe("Binding System", () => {
         assembly: "MyLib",
         namespaces: [
           {
-            name: "myLib",
-            alias: "MyLib",
+            name: "MyLib",
+            alias: "myLib",
             types: [
               {
-                name: "typeA",
-                alias: "TypeA",
+                name: "TypeA",
+                alias: "typeA",
                 kind: "class",
                 members: [
                   {
                     kind: "method",
-                    name: "method1",
-                    alias: "Method1",
+                    name: "Method1",
+                    alias: "method1",
                     binding: {
                       assembly: "MyLib",
                       type: "MyLib.TypeA",
@@ -487,8 +487,8 @@ describe("Binding System", () => {
                   },
                   {
                     kind: "method",
-                    name: "method2",
-                    alias: "Method2",
+                    name: "Method2",
+                    alias: "method2",
                     binding: {
                       assembly: "MyLib",
                       type: "MyLib.TypeA",
@@ -505,8 +505,8 @@ describe("Binding System", () => {
       const member1 = registry.getMember("typeA", "method1");
       const member2 = registry.getMember("typeA", "method2");
 
-      expect(member1?.alias).to.equal("Method1");
-      expect(member2?.alias).to.equal("Method2");
+      expect(member1?.name).to.equal("Method1");
+      expect(member2?.name).to.equal("Method2");
     });
   });
 });

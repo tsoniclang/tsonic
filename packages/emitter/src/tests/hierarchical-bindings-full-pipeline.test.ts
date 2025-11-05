@@ -29,18 +29,18 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       assembly: "System.Linq",
       namespaces: [
         {
-          name: "systemLinq",
-          alias: "System.Linq",
+          name: "System.Linq",
+          alias: "systemLinq",
           types: [
             {
-              name: "enumerable",
-              alias: "Enumerable",
+              name: "Enumerable",
+              alias: "enumerable",
               kind: "class",
               members: [
                 {
                   kind: "method",
-                  name: "selectMany",
-                  alias: "SelectMany",
+                  name: "SelectMany",
+                  alias: "selectMany",
                   binding: {
                     assembly: "System.Linq",
                     type: "System.Linq.Enumerable",
@@ -161,18 +161,18 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       assembly: "MyLib",
       namespaces: [
         {
-          name: "myLib",
-          alias: "MyLib",
+          name: "MyLib",
+          alias: "myLib",
           types: [
             {
-              name: "typeA",
-              alias: "TypeA",
+              name: "TypeA",
+              alias: "typeA",
               kind: "class",
               members: [
                 {
                   kind: "method",
-                  name: "methodA",
-                  alias: "MethodA",
+                  name: "MethodA",
+                  alias: "methodA",
                   binding: {
                     assembly: "MyLib",
                     type: "MyLib.TypeA",
@@ -182,14 +182,14 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
               ],
             },
             {
-              name: "typeB",
-              alias: "TypeB",
+              name: "TypeB",
+              alias: "typeB",
               kind: "class",
               members: [
                 {
                   kind: "method",
-                  name: "methodB",
-                  alias: "MethodB",
+                  name: "MethodB",
+                  alias: "methodB",
                   binding: {
                     assembly: "MyLib",
                     type: "MyLib.TypeB",

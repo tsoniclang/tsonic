@@ -23,7 +23,8 @@ const resolveHierarchicalBinding = (
     const namespace = registry.getNamespace(object.name);
     if (namespace) {
       // Found namespace binding, check if property is a type within this namespace
-      const type = namespace.types.find((t) => t.name === propertyName);
+      // Note: After schema swap, we look up by alias (TS identifier)
+      const type = namespace.types.find((t) => t.alias === propertyName);
       if (type) {
         // This member access is namespace.type - we don't emit a member binding here
         // because we're just accessing a type, not calling a member
@@ -39,10 +40,10 @@ const resolveHierarchicalBinding = (
     if (object.object.kind === "identifier") {
       const namespace = registry.getNamespace(object.object.name);
       if (namespace && typeof object.property === "string") {
-        const type = namespace.types.find((t) => t.name === object.property);
+        const type = namespace.types.find((t) => t.alias === object.property);
         if (type) {
           // The object is a type reference (namespace.type), now check if property is a member
-          const member = type.members.find((m) => m.name === propertyName);
+          const member = type.members.find((m) => m.alias === propertyName);
           if (member) {
             // Found a member binding!
             return {

@@ -28,18 +28,18 @@ describe("Hierarchical Bindings End-to-End", () => {
       assembly: "System.Linq",
       namespaces: [
         {
-          name: "systemLinq",
-          alias: "System.Linq",
+          name: "System.Linq",
+          alias: "systemLinq",
           types: [
             {
-              name: "enumerable",
-              alias: "Enumerable",
+              name: "Enumerable",
+              alias: "enumerable",
               kind: "class",
               members: [
                 {
                   kind: "method",
-                  name: "selectMany",
-                  alias: "SelectMany",
+                  name: "SelectMany",
+                  alias: "selectMany",
                   binding: {
                     assembly: "System.Linq",
                     type: "System.Linq.Enumerable",
