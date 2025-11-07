@@ -1,0 +1,52 @@
+export interface Todo {
+  id: number;
+  title: string;
+  completed: boolean;
+  createdAt: Date;
+}
+
+export class TodoList {
+  private todos: Todo[] = [];
+  private nextId: number = 1;
+
+  addTodo(title: string): Todo {
+    const todo: Todo = {
+      id: this.nextId++,
+      title: title,
+      completed: false,
+      createdAt: new Date(),
+    };
+    this.todos.push(todo);
+    return todo;
+  }
+
+  completeTodo(id: number): boolean {
+    const todo = this.todos.find((t) => t.id === id);
+    if (todo) {
+      todo.completed = true;
+      return true;
+    }
+    return false;
+  }
+
+  getActiveTodos(): Todo[] {
+    return this.todos.filter((t) => !t.completed);
+  }
+
+  getCompletedTodos(): Todo[] {
+    return this.todos.filter((t) => t.completed);
+  }
+
+  getAllTodos(): Todo[] {
+    return [...this.todos];
+  }
+}
+
+export function createSampleTodoList(): TodoList {
+  const list = new TodoList();
+  list.addTodo("Buy groceries");
+  list.addTodo("Write code");
+  list.addTodo("Exercise");
+  list.completeTodo(1);
+  return list;
+}
