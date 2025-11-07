@@ -1,0 +1,1 @@
+- TypeGuards.ts: should emit type guard functions with is predicates
