@@ -9,6 +9,7 @@ import { initProject } from "../commands/init.js";
 import { emitCommand } from "../commands/emit.js";
 import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
+import { packCommand } from "../commands/pack.js";
 import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
@@ -105,6 +106,15 @@ export const runCli = async (args: string[]): Promise<number> => {
         return 7;
       }
       return result.value.exitCode;
+    }
+
+    case "pack": {
+      const result = packCommand(config);
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 9;
+      }
+      return 0;
     }
 
     default:

@@ -15,6 +15,9 @@ import {
   generateCsproj,
   generateProgramCs,
   type EntryInfo,
+  type BuildConfig,
+  type ExecutableConfig,
+  type LibraryConfig,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../types.js";
 
@@ -71,13 +74,25 @@ export const emitCommand = (
     typeRoots,
   } = config;
 
+  // For libraries, entry point is optional
+  if (!entryPoint && config.outputConfig.type !== "library") {
+    return {
+      ok: false,
+      error: "Entry point is required for executable builds",
+    };
+  }
+
   if (!config.quiet) {
-    console.log(`Emitting C# code for ${entryPoint}...`);
+    const target = entryPoint ?? sourceRoot;
+    console.log(`Emitting C# code for ${target}...`);
   }
 
   try {
-    // Parse TypeScript
-    const compileResult = compile([entryPoint], {
+    // Parse TypeScript - use entry point or all files in sourceRoot
+    const entryFiles = entryPoint
+      ? [entryPoint]
+      : [join(sourceRoot, "**/*.ts")];
+    const compileResult = compile(entryFiles, {
       sourceRoot,
       rootNamespace,
       typeRoots,
@@ -103,7 +118,7 @@ export const emitCommand = (
     }
 
     // Emit C# code
-    const absoluteEntryPoint = resolve(entryPoint);
+    const absoluteEntryPoint = entryPoint ? resolve(entryPoint) : undefined;
     const csFiles = emitCSharpFiles(irResult.value, {
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
@@ -129,20 +144,22 @@ export const emitCommand = (
       }
     }
 
-    // Generate Program.cs entry point wrapper
-    const entryModule = irResult.value.find(
-      (m) => resolve(m.filePath) === absoluteEntryPoint
-    );
+    // Generate Program.cs entry point wrapper (only for executables)
+    if (absoluteEntryPoint) {
+      const entryModule = irResult.value.find(
+        (m) => resolve(m.filePath) === absoluteEntryPoint
+      );
 
-    if (entryModule) {
-      const entryInfo = extractEntryInfo(entryModule);
-      if (entryInfo) {
-        const programCs = generateProgramCs(entryInfo);
-        const programPath = join(outputDir, "Program.cs");
-        writeFileSync(programPath, programCs, "utf-8");
+      if (entryModule) {
+        const entryInfo = extractEntryInfo(entryModule);
+        if (entryInfo) {
+          const programCs = generateProgramCs(entryInfo);
+          const programPath = join(outputDir, "Program.cs");
+          writeFileSync(programPath, programCs, "utf-8");
 
-        if (config.verbose) {
-          console.log(`  Generated: ${relative(process.cwd(), programPath)}`);
+          if (config.verbose) {
+            console.log(`  Generated: ${relative(process.cwd(), programPath)}`);
+          }
         }
       }
     }
@@ -179,16 +196,45 @@ export const emitCommand = (
         );
       }
 
-      const csproj = generateCsproj({
+      // Build output configuration
+      const outputType = config.outputConfig.type ?? "executable";
+      let outputConfig: ExecutableConfig | LibraryConfig;
+
+      if (outputType === "library") {
+        outputConfig = {
+          type: "library",
+          targetFrameworks: config.outputConfig.targetFrameworks ?? [
+            config.dotnetVersion,
+          ],
+          generateDocumentation:
+            config.outputConfig.generateDocumentation ?? true,
+          includeSymbols: config.outputConfig.includeSymbols ?? true,
+          packable: config.outputConfig.packable ?? false,
+          packageMetadata: config.outputConfig.package,
+        };
+      } else {
+        outputConfig = {
+          type: "executable",
+          nativeAot: config.outputConfig.nativeAot ?? true,
+          singleFile: config.outputConfig.singleFile ?? true,
+          trimmed: config.outputConfig.trimmed ?? true,
+          stripSymbols: config.stripSymbols,
+          optimization: config.optimize === "size" ? "Size" : "Speed",
+          invariantGlobalization: config.invariantGlobalization,
+          selfContained: config.outputConfig.selfContained ?? true,
+        };
+      }
+
+      const buildConfig: BuildConfig = {
         rootNamespace,
         outputName: config.outputName,
         dotnetVersion: config.dotnetVersion,
         runtimePath,
         packages,
-        invariantGlobalization: config.invariantGlobalization,
-        stripSymbols: config.stripSymbols,
-        optimizationPreference: config.optimize === "size" ? "Size" : "Speed",
-      });
+        outputConfig,
+      };
+
+      const csproj = generateCsproj(buildConfig);
       writeFileSync(csprojPath, csproj, "utf-8");
 
       if (config.verbose) {

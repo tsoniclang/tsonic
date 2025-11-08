@@ -17,10 +17,7 @@ export type Nullable<T> = {
 export type NullablePerson = Nullable<Person>;
 
 // Function using mapped types
-export function updatePerson(
-  person: Person,
-  updates: Partial<Person>
-): Person {
+export function updatePerson(person: Person, updates: Partial<Person>): Person {
   return { ...person, ...updates };
 }
 

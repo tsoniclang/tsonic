@@ -123,9 +123,16 @@ export const buildNativeAot = (
       outputName: options.outputName || "tsonic",
       dotnetVersion: options.dotnetVersion || "net10.0",
       packages: [], // TODO: Auto-detect from imports
-      invariantGlobalization: true,
-      stripSymbols: options.stripSymbols ?? true,
-      optimizationPreference: options.optimizationPreference || "Speed",
+      outputConfig: {
+        type: "executable",
+        nativeAot: true,
+        singleFile: true,
+        trimmed: true,
+        stripSymbols: options.stripSymbols ?? true,
+        optimization: options.optimizationPreference || "Speed",
+        invariantGlobalization: true,
+        selfContained: true,
+      },
     };
 
     const csprojContent = generateCsproj(buildConfig);

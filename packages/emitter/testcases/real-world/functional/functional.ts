@@ -38,23 +38,15 @@ export function pipe<A, B>(value: A, fn: (a: A) => B): B {
   return fn(value);
 }
 
-export function compose<A, B, C>(
-  f: (b: B) => C,
-  g: (a: A) => B
-): (a: A) => C {
+export function compose<A, B, C>(f: (b: B) => C, g: (a: A) => B): (a: A) => C {
   return (a: A) => f(g(a));
 }
 
-export function curry<A, B, C>(
-  fn: (a: A, b: B) => C
-): (a: A) => (b: B) => C {
+export function curry<A, B, C>(fn: (a: A, b: B) => C): (a: A) => (b: B) => C {
   return (a: A) => (b: B) => fn(a, b);
 }
 
-export function partial<A, B, C>(
-  fn: (a: A, b: B) => C,
-  a: A
-): (b: B) => C {
+export function partial<A, B, C>(fn: (a: A, b: B) => C, a: A): (b: B) => C {
   return (b: B) => fn(a, b);
 }
 
@@ -114,18 +106,11 @@ export class Lazy<T> {
 }
 
 // Immutable operations
-export function assoc<T, K extends keyof T>(
-  obj: T,
-  key: K,
-  value: T[K]
-): T {
+export function assoc<T, K extends keyof T>(obj: T, key: K, value: T[K]): T {
   return { ...obj, [key]: value };
 }
 
-export function dissoc<T, K extends keyof T>(
-  obj: T,
-  key: K
-): Omit<T, K> {
+export function dissoc<T, K extends keyof T>(obj: T, key: K): Omit<T, K> {
   const { [key]: _, ...rest } = obj;
   return rest;
 }

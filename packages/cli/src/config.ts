@@ -10,7 +10,9 @@ import type {
   CliOptions,
   ResolvedConfig,
   Result,
+  TsonicOutputConfig,
 } from "./types.js";
+import type { OutputType } from "@tsonic/backend";
 
 /**
  * Load tsonic.json from a directory
@@ -69,6 +71,88 @@ export const findConfig = (startDir: string): string | null => {
 };
 
 /**
+ * Auto-detect output type based on entry point and project structure
+ */
+const autoDetectOutputType = (entryPoint: string | undefined): OutputType => {
+  // If no entry point, default to library
+  if (!entryPoint) {
+    return "library";
+  }
+
+  // If entry point exists and contains main/index, it's likely an executable
+  const entryName = entryPoint.toLowerCase();
+  if (entryName.includes("main") || entryName.includes("index")) {
+    return "executable";
+  }
+
+  // Default to library
+  return "library";
+};
+
+/**
+ * Resolve output configuration from config + CLI options
+ */
+const resolveOutputConfig = (
+  config: TsonicConfig,
+  cliOptions: CliOptions,
+  entryPoint: string | undefined
+): TsonicOutputConfig => {
+  const configOutput = config.output ?? {};
+
+  // Determine output type
+  const outputType =
+    cliOptions.type ?? configOutput.type ?? autoDetectOutputType(entryPoint);
+
+  // Base config from file
+  const baseConfig: TsonicOutputConfig = {
+    type: outputType,
+    name: configOutput.name ?? config.outputName,
+  };
+
+  // Merge executable-specific options
+  if (outputType === "executable") {
+    return {
+      ...baseConfig,
+      nativeAot: cliOptions.noAot ? false : (configOutput.nativeAot ?? true),
+      singleFile: cliOptions.singleFile ?? configOutput.singleFile ?? true,
+      trimmed: configOutput.trimmed ?? true,
+      stripSymbols: cliOptions.noStrip
+        ? false
+        : (configOutput.stripSymbols ?? true),
+      optimization: cliOptions.optimize ?? configOutput.optimization ?? "speed",
+      invariantGlobalization:
+        config.buildOptions?.invariantGlobalization ?? true,
+      selfContained:
+        cliOptions.selfContained ?? configOutput.selfContained ?? true,
+    };
+  }
+
+  // Merge library-specific options
+  if (outputType === "library") {
+    return {
+      ...baseConfig,
+      targetFrameworks: configOutput.targetFrameworks ?? [
+        config.dotnetVersion ?? "net10.0",
+      ],
+      generateDocumentation:
+        cliOptions.generateDocs ?? configOutput.generateDocumentation ?? true,
+      includeSymbols:
+        cliOptions.includeSymbols ?? configOutput.includeSymbols ?? true,
+      packable: cliOptions.pack ?? configOutput.packable ?? false,
+      package: configOutput.package,
+    };
+  }
+
+  // Console app fallback
+  return {
+    ...baseConfig,
+    singleFile: cliOptions.singleFile ?? configOutput.singleFile ?? true,
+    selfContained:
+      cliOptions.selfContained ?? configOutput.selfContained ?? true,
+  };
+};
+
+/**
  * Resolve final configuration from file + CLI args
  */
 export const resolveConfig = (
@@ -76,12 +160,18 @@ export const resolveConfig = (
   cliOptions: CliOptions,
   entryFile?: string
 ): ResolvedConfig => {
-  const entryPoint = entryFile ?? config.entryPoint ?? "src/main.ts";
-  const sourceRoot = cliOptions.src ?? config.sourceRoot ?? dirname(entryPoint);
+  const entryPoint = entryFile ?? config.entryPoint;
+  const sourceRoot =
+    cliOptions.src ??
+    config.sourceRoot ??
+    (entryPoint ? dirname(entryPoint) : "src");
 
   // Default type roots: node_modules/@tsonic/dotnet-types/types
   const defaultTypeRoots = ["node_modules/@tsonic/dotnet-types/types"];
   const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
+
+  // Resolve output configuration
+  const outputConfig = resolveOutputConfig(config, cliOptions, entryPoint);
 
   return {
     rootNamespace: cliOptions.namespace ?? config.rootNamespace,
@@ -93,6 +183,7 @@ export const resolveConfig = (
     dotnetVersion: config.dotnetVersion ?? "net10.0",
     optimize: cliOptions.optimize ?? config.optimize ?? "speed",
     packages: config.dotnet?.packages ?? config.packages ?? [],
+    outputConfig,
     stripSymbols: cliOptions.noStrip
       ? false
       : (config.buildOptions?.stripSymbols ?? true),
