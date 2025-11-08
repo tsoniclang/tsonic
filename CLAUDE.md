@@ -188,6 +188,20 @@ git revert HEAD
 git reset --hard HEAD~1  # NEVER DO THIS - loses history
 ```
 
+**If you accidentally committed to main:**
+
+```bash
+# DON'T panic or use git reset
+# Just create a feature branch from current position
+git checkout -b feat/your-feature-name
+
+# Push the branch
+git push -u origin feat/your-feature-name
+
+# When merged, it will fast-forward (no conflicts)
+# Main will catch up to the same commit
+```
+
 ### WORKING DIRECTORIES
 
 **IMPORTANT**: Never create temporary files in the project root or package directories. Use dedicated gitignored directories for different purposes.
