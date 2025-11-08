@@ -52,6 +52,156 @@ If you write mutable code, you MUST immediately rewrite it functionally.
 
 Automated scripts break syntax in unpredictable ways and destroy codebases.
 
+### GIT SAFETY RULES
+
+#### NEVER DISCARD UNCOMMITTED WORK
+
+**🚨 CRITICAL RULE: NEVER use commands that permanently delete uncommitted changes. 🚨**
+
+These commands cause **PERMANENT DATA LOSS** that cannot be recovered:
+
+- **NEVER** use `git reset --hard`
+- **NEVER** use `git reset --soft`
+- **NEVER** use `git reset --mixed`
+- **NEVER** use `git reset HEAD`
+- **NEVER** use `git checkout -- .`
+- **NEVER** use `git checkout -- <file>`
+- **NEVER** use `git restore` to discard changes
+- **NEVER** use `git clean -fd`
+
+**Why this matters for AI sessions:**
+- Uncommitted work is invisible to future AI sessions
+- Once discarded, changes cannot be recovered
+- AI cannot help fix problems it cannot see
+
+**What to do instead:**
+
+| Situation | ❌ WRONG | ✅ CORRECT |
+|-----------|---------|-----------|
+| Need to switch branches | `git checkout main` (loses changes) | Commit first, then switch |
+| Made mistakes | `git reset --hard` | Commit to temp branch, start fresh |
+| Want clean slate | `git restore .` | Commit current state, then revert |
+| On wrong branch | `git checkout --` | Commit here, then cherry-pick |
+
+**Safe workflow:**
+```bash
+# Always commit before switching context
+git add -A
+git commit -m "wip: current progress on feature X"
+git checkout other-branch
+
+# If commit was wrong, fix with new commit or revert
+git revert HEAD  # Creates new commit that undoes last commit
+# OR
+git commit -m "fix: correct the previous commit"
+```
+
+#### NEVER USE GIT STASH
+
+**🚨 CRITICAL RULE: NEVER use git stash - it hides work and causes data loss. 🚨**
+
+- **NEVER** use `git stash`
+- **NEVER** use `git stash push`
+- **NEVER** use `git stash pop`
+- **NEVER** use `git stash apply`
+- **NEVER** use `git stash drop`
+
+**Why stash is dangerous:**
+- Stashed changes are invisible to AI sessions
+- Easy to forget what's stashed
+- Stash can be accidentally dropped
+- Causes merge conflicts when applied
+- No clear history of when/why stashed
+
+**What to do instead - Use WIP branches:**
+
+```bash
+# Instead of stash, create a timestamped WIP branch
+git checkout -b wip/feature-name-$(date +%Y%m%d-%H%M%S)
+git add -A
+git commit -m "wip: in-progress work on feature X"
+git push -u origin wip/feature-name-$(date +%Y%m%d-%H%M%S)
+
+# Now switch to other work safely
+git checkout main
+# ... do other work ...
+
+# Return to your WIP later
+git checkout wip/feature-name-20251108-084530
+# Continue working...
+
+# When done, squash WIP commits or rebase
+git rebase -i main
+```
+
+**Benefits of WIP branches over stash:**
+- ✅ Work is visible in git history
+- ✅ Work is backed up on remote
+- ✅ AI can see the work in future sessions
+- ✅ Can have multiple WIP branches
+- ✅ Clear timestamps show when work was done
+- ✅ Can share WIP with others if needed
+
+#### Safe Branch Switching
+
+**ALWAYS commit before switching branches:**
+
+```bash
+# Check current status
+git status
+
+# If there are changes, commit them first
+git add -A
+git commit -m "wip: current state before switching"
+
+# NOW safe to switch
+git checkout other-branch
+```
+
+**If you accidentally started work on wrong branch:**
+
+```bash
+# DON'T use git reset or git checkout --
+# Instead, commit the work here
+git add -A
+git commit -m "wip: work started on wrong branch"
+
+# Create correct branch from current state
+git checkout -b correct-branch-name
+
+# Previous branch will still have the commit
+# You can cherry-pick it or just continue on new branch
+```
+
+#### Recovery from Mistakes
+
+If you realize you made a mistake AFTER committing:
+
+```bash
+# ✅ CORRECT: Create a fix commit
+git commit -m "fix: correct the mistake from previous commit"
+
+# ✅ CORRECT: Revert the bad commit
+git revert HEAD
+
+# ❌ WRONG: Try to undo with reset
+git reset --hard HEAD~1  # NEVER DO THIS - loses history
+```
+
+**If you accidentally committed to main:**
+
+```bash
+# DON'T panic or use git reset
+# Just create a feature branch from current position
+git checkout -b feat/your-feature-name
+
+# Push the branch
+git push -u origin feat/your-feature-name
+
+# When merged, it will fast-forward (no conflicts)
+# Main will catch up to the same commit
+```
+
 ### WORKING DIRECTORIES
 
 **IMPORTANT**: Never create temporary files in the project root or package directories. Use dedicated gitignored directories for different purposes.
@@ -395,10 +545,39 @@ npm test -- --grep "pattern"
 
 ### Commit Process
 
-1. **Format code**: Run prettier before committing
-2. **Run tests**: Ensure all tests pass
-3. **Clear commit message**: Describe what and why
-4. **No force push**: Never use `git push --force`
+1. **Commit before switching contexts**: See Git Safety Rules above
+2. **Format code**: Run `./scripts/format-all.sh` before committing
+3. **Run tests**: Ensure all tests pass with `npm test`
+4. **Clear commit message**: Describe what and why
+5. **No force push**: Never use `git push --force`
+
+### Workflow Summary
+
+**Critical rules (see detailed Git Safety Rules section above):**
+1. ✅ **ALWAYS commit before switching contexts** - Even if work is incomplete
+2. ✅ **NEVER discard uncommitted work** - Use WIP branches instead
+3. ✅ **NEVER use git stash** - Use timestamped WIP branches
+4. ✅ **NEVER use git reset --hard** - Use git revert for fixes
+5. ✅ **Verify branch**: `git branch --show-current` before committing
+6. ✅ **Push WIP branches**: Backup work on remote
+7. ✅ **Use git revert not git reset** - To undo commits
+
+**Standard workflow:**
+```bash
+# 1. Verify you're on correct branch
+git branch --show-current
+
+# 2. Make changes and commit frequently
+git add -A
+git commit -m "feat: descriptive message"
+
+# 3. Format and test before pushing
+./scripts/format-all.sh
+npm test
+
+# 4. Push to remote
+git push
+```
 
 ## Implementation Order
 
@@ -460,3 +639,5 @@ const safePath = (input: string): string | null => {
 4. **Error over guess** - Clear diagnostics instead of magic
 5. **Test everything** - TDD approach
 6. **Ask before changing** - Get user approval first
+7. **Commit before switching** - Never discard uncommitted work
+8. **Never use git stash** - Use WIP branches instead
