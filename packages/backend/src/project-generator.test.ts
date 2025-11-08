@@ -9,15 +9,22 @@ import { BuildConfig } from "./types.js";
 
 describe("Project Generator", () => {
   describe("generateCsproj", () => {
-    it("should generate basic .csproj without packages", () => {
+    it("should generate basic executable .csproj without packages", () => {
       const config: BuildConfig = {
         rootNamespace: "TestApp",
         outputName: "test",
         dotnetVersion: "net10.0",
         packages: [],
-        invariantGlobalization: true,
-        stripSymbols: true,
-        optimizationPreference: "Speed",
+        outputConfig: {
+          type: "executable",
+          nativeAot: true,
+          singleFile: true,
+          trimmed: true,
+          stripSymbols: true,
+          optimization: "Speed",
+          invariantGlobalization: true,
+          selfContained: true,
+        },
       };
 
       const result = generateCsproj(config);
@@ -41,9 +48,16 @@ describe("Project Generator", () => {
           { name: "System.Text.Json", version: "8.0.0" },
           { name: "Newtonsoft.Json", version: "13.0.3" },
         ],
-        invariantGlobalization: true,
-        stripSymbols: true,
-        optimizationPreference: "Size",
+        outputConfig: {
+          type: "executable",
+          nativeAot: true,
+          singleFile: true,
+          trimmed: true,
+          stripSymbols: true,
+          optimization: "Size",
+          invariantGlobalization: true,
+          selfContained: true,
+        },
       };
 
       const result = generateCsproj(config);
@@ -65,9 +79,16 @@ describe("Project Generator", () => {
         outputName: "test",
         dotnetVersion: "net10.0",
         packages: [],
-        invariantGlobalization: false,
-        stripSymbols: false,
-        optimizationPreference: "Speed",
+        outputConfig: {
+          type: "executable",
+          nativeAot: true,
+          singleFile: true,
+          trimmed: true,
+          stripSymbols: false,
+          optimization: "Speed",
+          invariantGlobalization: false,
+          selfContained: true,
+        },
       };
 
       const result = generateCsproj(config);
@@ -76,6 +97,34 @@ describe("Project Generator", () => {
         "<InvariantGlobalization>false</InvariantGlobalization>"
       );
       expect(result).to.include("<StripSymbols>false</StripSymbols>");
+    });
+
+    it("should generate library .csproj", () => {
+      const config: BuildConfig = {
+        rootNamespace: "TestLib",
+        outputName: "testlib",
+        dotnetVersion: "net10.0",
+        packages: [],
+        outputConfig: {
+          type: "library",
+          targetFrameworks: ["net8.0", "net9.0"],
+          generateDocumentation: true,
+          includeSymbols: true,
+          packable: false,
+        },
+      };
+
+      const result = generateCsproj(config);
+
+      expect(result).to.include("<OutputType>Library</OutputType>");
+      expect(result).to.include(
+        "<TargetFrameworks>net8.0;net9.0</TargetFrameworks>"
+      );
+      expect(result).to.include(
+        "<GenerateDocumentationFile>true</GenerateDocumentationFile>"
+      );
+      expect(result).to.include("<DebugType>embedded</DebugType>");
+      expect(result).to.include("<IsPackable>false</IsPackable>");
     });
   });
 });

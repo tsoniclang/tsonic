@@ -2,7 +2,33 @@
  * Type definitions for CLI
  */
 
-import type { NuGetPackage } from "@tsonic/backend";
+import type {
+  NuGetPackage,
+  OutputType,
+  PackageMetadata,
+} from "@tsonic/backend";
+
+/**
+ * Output configuration in tsonic.json
+ */
+export type TsonicOutputConfig = {
+  readonly type?: OutputType;
+  readonly name?: string;
+  // Executable options
+  readonly nativeAot?: boolean;
+  readonly singleFile?: boolean;
+  readonly trimmed?: boolean;
+  readonly stripSymbols?: boolean;
+  readonly optimization?: "size" | "speed";
+  readonly invariantGlobalization?: boolean;
+  readonly selfContained?: boolean;
+  // Library options
+  readonly targetFrameworks?: readonly string[];
+  readonly generateDocumentation?: boolean;
+  readonly includeSymbols?: boolean;
+  readonly packable?: boolean;
+  readonly package?: PackageMetadata;
+};
 
 /**
  * Tsonic configuration file (tsonic.json)
@@ -17,6 +43,7 @@ export type TsonicConfig = {
   readonly rid?: string;
   readonly dotnetVersion?: string;
   readonly optimize?: "size" | "speed";
+  readonly output?: TsonicOutputConfig;
   readonly packages?: readonly NuGetPackage[]; // Deprecated - use dotnet.packages
   readonly buildOptions?: {
     readonly stripSymbols?: boolean;
@@ -43,6 +70,16 @@ export type CliOptions = {
   keepTemp?: boolean;
   noStrip?: boolean;
   packages?: string;
+  // Output type options
+  type?: OutputType;
+  targetFramework?: string;
+  noAot?: boolean;
+  singleFile?: boolean;
+  selfContained?: boolean;
+  // Library options
+  generateDocs?: boolean;
+  includeSymbols?: boolean;
+  pack?: boolean;
 };
 
 /**
@@ -50,7 +87,7 @@ export type CliOptions = {
  */
 export type ResolvedConfig = {
   readonly rootNamespace: string;
-  readonly entryPoint: string;
+  readonly entryPoint: string | undefined;
   readonly sourceRoot: string;
   readonly outputDirectory: string;
   readonly outputName: string;
@@ -58,6 +95,7 @@ export type ResolvedConfig = {
   readonly dotnetVersion: string;
   readonly optimize: "size" | "speed";
   readonly packages: readonly NuGetPackage[];
+  readonly outputConfig: TsonicOutputConfig;
   readonly stripSymbols: boolean;
   readonly invariantGlobalization: boolean;
   readonly keepTemp: boolean;

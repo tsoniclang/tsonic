@@ -62,13 +62,13 @@ describe("Config", () => {
       expect(result.entryPoint).to.equal("custom/entry.ts");
     });
 
-    it("should default entryPoint to src/main.ts", () => {
+    it("should leave entryPoint as undefined when not specified", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
       };
 
       const result = resolveConfig(config, {});
-      expect(result.entryPoint).to.equal("src/main.ts");
+      expect(result.entryPoint).to.be.undefined;
     });
 
     it("should default sourceRoot to dirname of entryPoint", () => {

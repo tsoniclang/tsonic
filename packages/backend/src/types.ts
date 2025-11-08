@@ -11,6 +11,65 @@ export type NuGetPackage = {
 };
 
 /**
+ * Output type taxonomy
+ */
+export type OutputType = "executable" | "library" | "console-app";
+
+/**
+ * NuGet package metadata for libraries
+ */
+export type PackageMetadata = {
+  readonly id: string;
+  readonly version: string;
+  readonly authors: readonly string[];
+  readonly description: string;
+  readonly projectUrl?: string;
+  readonly license?: string;
+  readonly tags?: readonly string[];
+};
+
+/**
+ * Executable-specific configuration
+ */
+export type ExecutableConfig = {
+  readonly type: "executable";
+  readonly nativeAot: boolean;
+  readonly singleFile: boolean;
+  readonly trimmed: boolean;
+  readonly stripSymbols: boolean;
+  readonly optimization: "Size" | "Speed";
+  readonly invariantGlobalization: boolean;
+  readonly selfContained: boolean;
+};
+
+/**
+ * Library-specific configuration
+ */
+export type LibraryConfig = {
+  readonly type: "library";
+  readonly targetFrameworks: readonly string[];
+  readonly generateDocumentation: boolean;
+  readonly includeSymbols: boolean;
+  readonly packable: boolean;
+  readonly packageMetadata?: PackageMetadata;
+};
+
+/**
+ * Console app configuration (non-NativeAOT)
+ */
+export type ConsoleAppConfig = {
+  readonly type: "console-app";
+  readonly selfContained: boolean;
+  readonly singleFile: boolean;
+  readonly targetFramework: string;
+};
+
+/**
+ * Output configuration union type
+ */
+export type OutputConfig = ExecutableConfig | LibraryConfig | ConsoleAppConfig;
+
+/**
  * Build configuration options
  */
 export type BuildConfig = {
@@ -19,9 +78,11 @@ export type BuildConfig = {
   readonly dotnetVersion: string;
   readonly runtimePath?: string;
   readonly packages: readonly NuGetPackage[];
-  readonly invariantGlobalization: boolean;
-  readonly stripSymbols: boolean;
-  readonly optimizationPreference: "Size" | "Speed";
+  readonly outputConfig: OutputConfig;
+  // Legacy fields for backward compatibility
+  readonly invariantGlobalization?: boolean;
+  readonly stripSymbols?: boolean;
+  readonly optimizationPreference?: "Size" | "Speed";
 };
 
 /**

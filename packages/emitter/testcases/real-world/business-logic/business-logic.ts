@@ -20,7 +20,12 @@ export interface Order {
   createdAt: Date;
 }
 
-export type OrderStatus = "pending" | "processing" | "shipped" | "delivered" | "cancelled";
+export type OrderStatus =
+  | "pending"
+  | "processing"
+  | "shipped"
+  | "delivered"
+  | "cancelled";
 
 export class ShoppingCart {
   private items: CartItem[] = [];
@@ -48,9 +53,7 @@ export class ShoppingCart {
   }
 
   removeItem(productId: string): boolean {
-    const index = this.items.findIndex(
-      (item) => item.product.id === productId
-    );
+    const index = this.items.findIndex((item) => item.product.id === productId);
 
     if (index !== -1) {
       this.items.splice(index, 1);
@@ -100,10 +103,7 @@ export class ShoppingCart {
 }
 
 export class DiscountCalculator {
-  static applyPercentageDiscount(
-    price: number,
-    percentage: number
-  ): number {
+  static applyPercentageDiscount(price: number, percentage: number): number {
     if (percentage < 0 || percentage > 100) {
       throw new Error("Invalid discount percentage");
     }
@@ -159,9 +159,7 @@ export class OrderProcessor {
 
     const allowed = validTransitions[order.status];
     if (!allowed.includes(newStatus)) {
-      throw new Error(
-        `Cannot transition from ${order.status} to ${newStatus}`
-      );
+      throw new Error(`Cannot transition from ${order.status} to ${newStatus}`);
     }
 
     order.status = newStatus;
@@ -181,10 +179,7 @@ export class OrderProcessor {
   }
 }
 
-export function searchProducts(
-  products: Product[],
-  query: string
-): Product[] {
+export function searchProducts(products: Product[], query: string): Product[] {
   const lowerQuery = query.toLowerCase();
   return products.filter(
     (p) =>

@@ -13,6 +13,12 @@ export type {
   EntryInfo,
   NuGetPackage,
   DotnetResult,
+  OutputType,
+  OutputConfig,
+  ExecutableConfig,
+  LibraryConfig,
+  ConsoleAppConfig,
+  PackageMetadata,
 } from "./types.js";
 
 // Export utilities
