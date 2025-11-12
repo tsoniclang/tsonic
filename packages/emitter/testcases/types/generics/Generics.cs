@@ -1,4 +1,5 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.types
 {
@@ -24,9 +25,9 @@ namespace TestCases.types
             return value;
             }
 
-        public static T? firstElement<T>(Tsonic.Runtime.Array<T> arr)
+        public static T? firstElement<T>(List<T> arr)
             {
-            return arr[0];
+            return Tsonic.Runtime.Array.get(arr, 0.0);
             }
     }
 }

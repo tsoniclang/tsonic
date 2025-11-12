@@ -1,4 +1,5 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.edgecases
 {
@@ -9,9 +10,9 @@ namespace TestCases.edgecases
             return a + b * c - a / b + c % a * b - a / c + 1.0;
             }
 
-        public static double chainedCalls(Tsonic.Runtime.Array<double> arr)
+        public static double chainedCalls(List<double> arr)
             {
-            return arr.map((x) => x * 2.0).filter((x) => x > 10.0).reduce((acc, x) => acc + x, 0.0);
+            return Tsonic.Runtime.Array.reduce(Tsonic.Runtime.Array.filter(Tsonic.Runtime.Array.map(arr, (x) => x * 2.0), (x) => x > 10.0), (acc, x) => acc + x, 0.0);
             }
     }
 }

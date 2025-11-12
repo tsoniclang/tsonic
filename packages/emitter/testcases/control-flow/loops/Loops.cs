@@ -1,29 +1,30 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.controlflow
 {
     public static class Loops
     {
-        public static double sumEven(Tsonic.Runtime.Array<double> numbers)
+        public static double sumEven(List<double> numbers)
             {
             var sum = 0.0;
-            for (var i = 0.0; i < numbers.length; i++)
+            for (var i = 0.0; i < Tsonic.Runtime.Array.length(numbers); i++)
                 {
-                if (numbers[i] % 2.0 != 0.0)
+                if (Tsonic.Runtime.Array.get(numbers, i) % 2.0 != 0.0)
                     {
                     continue;
                     }
-                sum += numbers[i];
+                sum += Tsonic.Runtime.Array.get(numbers, i);
                 }
             return sum;
             }
 
-        public static double findFirst(Tsonic.Runtime.Array<double> numbers, double target)
+        public static double findFirst(List<double> numbers, double target)
             {
             var i = 0.0;
-            while (i < numbers.length)
+            while (i < Tsonic.Runtime.Array.length(numbers))
                 {
-                if (numbers[i] == target)
+                if (Tsonic.Runtime.Array.get(numbers, i) == target)
                     {
                     break;
                     }

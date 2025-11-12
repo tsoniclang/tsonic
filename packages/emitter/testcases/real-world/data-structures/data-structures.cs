@@ -1,74 +1,75 @@
 
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
     public class Stack<T>
     {
-        private Tsonic.Runtime.Array<T> items = new Tsonic.Runtime.Array<object>();
+        private List<T> items = new List<object>();
 
         public void push(T item)
             {
-            this.items.push(item);
+            Tsonic.Runtime.Array.push(this.items, item);
             }
 
         public T? pop()
             {
-            return this.items.pop();
+            return Tsonic.Runtime.Array.pop(this.items);
             }
 
         public T? peek()
             {
-            return this.items[this.items.length - 1];
+            return Tsonic.Runtime.Array.get(this.items, Tsonic.Runtime.Array.length(this.items) - 1.0);
             }
 
         public bool isEmpty()
             {
-            return this.items.length == 0.0;
+            return Tsonic.Runtime.Array.length(this.items) == 0.0;
             }
 
         public double size()
             {
-            return this.items.length;
+            return Tsonic.Runtime.Array.length(this.items);
             }
 
         public void clear()
             {
-            this.items = new Tsonic.Runtime.Array<object>();
+            this.items = new List<object>();
             }
     }
     public class Queue<T>
     {
-        private Tsonic.Runtime.Array<T> items = new Tsonic.Runtime.Array<object>();
+        private List<T> items = new List<object>();
 
         public void enqueue(T item)
             {
-            this.items.push(item);
+            Tsonic.Runtime.Array.push(this.items, item);
             }
 
         public T? dequeue()
             {
-            return this.items.shift();
+            return Tsonic.Runtime.Array.shift(this.items);
             }
 
         public T? front()
             {
-            return this.items[0];
+            return Tsonic.Runtime.Array.get(this.items, 0.0);
             }
 
         public bool isEmpty()
             {
-            return this.items.length == 0.0;
+            return Tsonic.Runtime.Array.length(this.items) == 0.0;
             }
 
         public double size()
             {
-            return this.items.length;
+            return Tsonic.Runtime.Array.length(this.items);
             }
 
         public void clear()
             {
-            this.items = new Tsonic.Runtime.Array<object>();
+            this.items = new List<object>();
             }
     }
     public class LinkedListNode<T>
@@ -126,13 +127,13 @@ namespace TestCases.realworld
             return this.length;
             }
 
-        public Tsonic.Runtime.Array<T> toArray()
+        public List<T> toArray()
             {
-            Tsonic.Runtime.Array<T> result = new Tsonic.Runtime.Array<T>();
+            var result = new List<T>();
             var current = this.head;
             while (current != null)
                 {
-                result.push(current.value);
+                Tsonic.Runtime.Array.push(result, current.value);
                 current = current.next;
                 }
             return result;

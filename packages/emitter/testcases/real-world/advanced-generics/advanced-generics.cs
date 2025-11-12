@@ -1,6 +1,7 @@
 
 using Tsonic.Runtime;
 using System;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -30,7 +31,7 @@ namespace TestCases.realworld
     {
         public T value;
 
-        public Tsonic.Runtime.Array<TreeNode<T>> children = new Tsonic.Runtime.Array<object>();
+        public List<TreeNode<T>> children = new List<object>();
 
         public TreeNode(T value)
             {
@@ -40,7 +41,7 @@ namespace TestCases.realworld
         public TreeNode<T> addChild(T value)
             {
             var child = new TreeNode(value);
-            this.children.push(child);
+            Tsonic.Runtime.Array.push(this.children, child);
             return child;
             }
 
@@ -58,7 +59,7 @@ namespace TestCases.realworld
             var mapped = new TreeNode(mapper(this.value));
             foreach (var child in this.children)
                 {
-                mapped.children.push(child.map(mapper));
+                Tsonic.Runtime.Array.push(mapped.children, child.map(mapper));
                 }
             return mapped;
             }
@@ -108,37 +109,37 @@ namespace TestCases.realworld
             return result.ok == false;
             }
 
-        public static T? min<T>(Tsonic.Runtime.Array<T> items)
+        public static T? min<T>(List<T> items)
             where T : Comparable<T>
             {
-            if (items.length == 0.0)
+            if (Tsonic.Runtime.Array.length(items) == 0.0)
                 {
                 return default;
                 }
-            var result = items[0];
-            for (var i = 1.0; i < items.length; i++)
+            var result = Tsonic.Runtime.Array.get(items, 0.0);
+            for (var i = 1.0; i < Tsonic.Runtime.Array.length(items); i++)
                 {
-                if (items[i].compareTo(result) < 0.0)
+                if (Tsonic.Runtime.Array.get(items, i).compareTo(result) < 0.0)
                     {
-                    result = items[i];
+                    result = Tsonic.Runtime.Array.get(items, i);
                     }
                 }
             return result;
             }
 
-        public static T? max<T>(Tsonic.Runtime.Array<T> items)
+        public static T? max<T>(List<T> items)
             where T : Comparable<T>
             {
-            if (items.length == 0.0)
+            if (Tsonic.Runtime.Array.length(items) == 0.0)
                 {
                 return default;
                 }
-            var result = items[0];
-            for (var i = 1.0; i < items.length; i++)
+            var result = Tsonic.Runtime.Array.get(items, 0.0);
+            for (var i = 1.0; i < Tsonic.Runtime.Array.length(items); i++)
                 {
-                if (items[i].compareTo(result) > 0.0)
+                if (Tsonic.Runtime.Array.get(items, i).compareTo(result) > 0.0)
                     {
-                    result = items[i];
+                    result = Tsonic.Runtime.Array.get(items, i);
                     }
                 }
             return result;

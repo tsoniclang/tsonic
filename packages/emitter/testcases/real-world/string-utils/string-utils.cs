@@ -1,5 +1,6 @@
 
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -16,7 +17,7 @@ namespace TestCases.realworld
 
         public static string reverse(string str)
             {
-            return Tsonic.Runtime.String.split(str, "").reverse().join("");
+            return Tsonic.Runtime.Array.join(Tsonic.Runtime.Array.reverse(Tsonic.Runtime.String.split(str, "")), "");
             }
 
         public static string truncate(string str, double maxLength)
@@ -30,7 +31,7 @@ namespace TestCases.realworld
 
         public static double countWords(string str)
             {
-            return Tsonic.Runtime.String.split(Tsonic.Runtime.String.trim(str), /\s+/).length;
+            return Tsonic.Runtime.Array.length(Tsonic.Runtime.String.split(Tsonic.Runtime.String.trim(str), /\s+/));
             }
 
         public static bool isPalindrome(string str)
@@ -39,27 +40,27 @@ namespace TestCases.realworld
             return cleaned == reverse(cleaned);
             }
 
-        public static T? first<T>(Tsonic.Runtime.Array<T> arr)
+        public static T? first<T>(List<T> arr)
             {
-            return arr[0];
+            return Tsonic.Runtime.Array.get(arr, 0.0);
             }
 
-        public static T? last<T>(Tsonic.Runtime.Array<T> arr)
+        public static T? last<T>(List<T> arr)
             {
-            return arr[arr.length - 1];
+            return Tsonic.Runtime.Array.get(arr, Tsonic.Runtime.Array.length(arr) - 1.0);
             }
 
-        public static Tsonic.Runtime.Array<T> unique<T>(Tsonic.Runtime.Array<T> arr)
+        public static List<T> unique<T>(List<T> arr)
             {
-            return arr.filter((item, index) => arr.indexOf(item) == index);
+            return Tsonic.Runtime.Array.filter(arr, (item, index) => Tsonic.Runtime.Array.indexOf(arr, item) == index);
             }
 
-        public static Tsonic.Runtime.Array<Tsonic.Runtime.Array<T>> chunk<T>(Tsonic.Runtime.Array<T> arr, double size)
+        public static List<List<T>> chunk<T>(List<T> arr, double size)
             {
-            Tsonic.Runtime.Array<Tsonic.Runtime.Array<T>> result = new Tsonic.Runtime.Array<Tsonic.Runtime.Array<T>>();
-            for (var i = 0.0; i < arr.length; i += size)
+            var result = new List<List<T>>();
+            for (var i = 0.0; i < Tsonic.Runtime.Array.length(arr); i += size)
                 {
-                result.push(arr.slice(i, i + size));
+                Tsonic.Runtime.Array.push(result, Tsonic.Runtime.Array.slice(arr, i, i + size));
                 }
             return result;
             }

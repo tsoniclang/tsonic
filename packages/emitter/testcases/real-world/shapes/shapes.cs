@@ -1,5 +1,6 @@
 
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -97,18 +98,18 @@ namespace TestCases.realworld
 
     public static class shapes
     {
-        public static double totalArea(Tsonic.Runtime.Array<Shape> shapes)
+        public static double totalArea(List<Shape> shapes)
             {
-            return shapes.reduce((sum, shape) => sum + shape.area(), 0.0);
+            return Tsonic.Runtime.Array.reduce(shapes, (sum, shape) => sum + shape.area(), 0.0);
             }
 
-        public static Shape? findLargestShape(Tsonic.Runtime.Array<Shape> shapes)
+        public static Shape? findLargestShape(List<Shape> shapes)
             {
-            if (shapes.length == 0.0)
+            if (Tsonic.Runtime.Array.length(shapes) == 0.0)
                 {
                 return default;
                 }
-            var largest = shapes[0];
+            var largest = Tsonic.Runtime.Array.get(shapes, 0.0);
             foreach (var shape in shapes)
                 {
                 if (shape.area() > largest.area())

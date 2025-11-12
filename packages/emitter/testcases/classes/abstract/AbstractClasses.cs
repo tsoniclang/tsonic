@@ -1,4 +1,5 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.classes
 {
@@ -59,9 +60,9 @@ namespace TestCases.classes
 
     public static class AbstractClasses
     {
-        public static double calculateTotalArea(Tsonic.Runtime.Array<Shape> shapes)
+        public static double calculateTotalArea(List<Shape> shapes)
             {
-            return shapes.reduce((total, shape) => total + shape.getArea(), 0.0);
+            return Tsonic.Runtime.Array.reduce(shapes, (total, shape) => total + shape.getArea(), 0.0);
             }
     }
 }

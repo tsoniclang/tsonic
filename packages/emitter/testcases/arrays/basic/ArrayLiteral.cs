@@ -1,12 +1,13 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.arrays
 {
     public static class ArrayLiteral
     {
-        public static Tsonic.Runtime.Array<double> createArray()
+        public static List<double> createArray()
             {
-            var arr = new Tsonic.Runtime.Array<object>(1.0, 2.0, 3.0);
+            var arr = new List<object> { 1.0, 2.0, 3.0 };
             return arr;
             }
     }

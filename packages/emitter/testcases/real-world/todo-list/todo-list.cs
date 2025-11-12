@@ -1,5 +1,6 @@
 
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -15,20 +16,20 @@ namespace TestCases.realworld
     }
     public class TodoList
     {
-        private Tsonic.Runtime.Array<Todo> todos = new Tsonic.Runtime.Array<object>();
+        private List<Todo> todos = new List<object>();
 
         private double nextId = 1.0;
 
         public Todo addTodo(string title)
             {
             Todo todo = new { id = this.nextId++, title = title, completed = false, createdAt = new Date() };
-            this.todos.push(todo);
+            Tsonic.Runtime.Array.push(this.todos, todo);
             return todo;
             }
 
         public bool completeTodo(double id)
             {
-            var todo = this.todos.find((t) => t.id == id);
+            var todo = Tsonic.Runtime.Array.find(this.todos, (t) => t.id == id);
             if (todo)
                 {
                 todo.completed = true;
@@ -37,17 +38,17 @@ namespace TestCases.realworld
             return false;
             }
 
-        public Tsonic.Runtime.Array<Todo> getActiveTodos()
+        public List<Todo> getActiveTodos()
             {
-            return this.todos.filter((t) => !t.completed);
+            return Tsonic.Runtime.Array.filter(this.todos, (t) => !t.completed);
             }
 
-        public Tsonic.Runtime.Array<Todo> getCompletedTodos()
+        public List<Todo> getCompletedTodos()
             {
-            return this.todos.filter((t) => t.completed);
+            return Tsonic.Runtime.Array.filter(this.todos, (t) => t.completed);
             }
 
-        public Tsonic.Runtime.Array<Todo> getAllTodos()
+        public List<Todo> getAllTodos()
             {
             return this.todos;
             }

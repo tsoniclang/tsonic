@@ -1,6 +1,7 @@
 
 using Tsonic.Runtime;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace TestCases.realworld
@@ -58,9 +59,9 @@ namespace TestCases.realworld
             return $"Data for ID {id}";
             }
 
-        public static async Task<Tsonic.Runtime.Array<string>> fetchMultiple(Tsonic.Runtime.Array<double> ids)
+        public static async Task<List<string>> fetchMultiple(List<double> ids)
             {
-            var promises = ids.map((id) => fetchData(id));
+            var promises = Tsonic.Runtime.Array.map(ids, (id) => fetchData(id));
             return Promise.all(promises);
             }
 

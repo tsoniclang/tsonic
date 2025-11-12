@@ -112,10 +112,12 @@ export const emitVariableDeclaration = (
       currentContext = newContext;
 
       const arrayPattern = decl.name as IrArrayPattern;
+      // Add using for Tsonic.Runtime.Array static helpers
+      currentContext = addUsing(currentContext, "Tsonic.Runtime");
       for (let i = 0; i < arrayPattern.elements.length; i++) {
         const element = arrayPattern.elements[i];
         if (element && element.kind === "identifierPattern") {
-          const elementVarDecl = `${varDecl}${element.name} = ${initFrag.text}[${i}];`;
+          const elementVarDecl = `${varDecl}${element.name} = Tsonic.Runtime.Array.get(${initFrag.text}, ${i});`;
           declarations.push(`${ind}${elementVarDecl}`);
         }
         // Skip undefined elements (holes in array pattern)

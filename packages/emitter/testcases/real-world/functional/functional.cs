@@ -1,6 +1,7 @@
 
 using Tsonic.Runtime;
 using System;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -100,7 +101,7 @@ namespace TestCases.realworld
             }
 
         public static Func<T, R> memoize<T, R>(Func<T, R> fn)
-            where T : Tsonic.Runtime.Array<dynamic>
+            where T : List<dynamic>
             {
             var cache = new Map<string, R>();
             return (args) =>
@@ -117,7 +118,7 @@ namespace TestCases.realworld
             }
 
         public static Action<T> debounce<T>(Action<T> fn, double delayMs)
-            where T : Tsonic.Runtime.Array<dynamic>
+            where T : List<dynamic>
             {
             dynamic timeoutId;
             return (args) =>
