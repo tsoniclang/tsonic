@@ -175,7 +175,7 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should create empty array
-    expect(code).to.include("new List<double> {  }");
+    expect(code).to.include("new List<double>()");
   });
 
   it("should emit array method calls correctly", () => {
@@ -265,7 +265,14 @@ describe("Array Emission", () => {
               name: { kind: "identifierPattern", name: "first" },
               initializer: {
                 kind: "memberAccess",
-                object: { kind: "identifier", name: "arr" },
+                object: {
+                  kind: "identifier",
+                  name: "arr",
+                  inferredType: {
+                    kind: "arrayType",
+                    elementType: { kind: "primitiveType", name: "number" },
+                  },
+                },
                 property: { kind: "literal", value: 0 },
                 isComputed: true,
                 isOptional: false,
@@ -278,7 +285,7 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use indexer syntax (integer literals without .0)
-    expect(code).to.include("arr[0]");
+    // Should use static helper for array access with double literal
+    expect(code).to.include("Tsonic.Runtime.Array.get(arr, 0.0)");
   });
 });

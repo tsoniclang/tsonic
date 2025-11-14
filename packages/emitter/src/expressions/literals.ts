@@ -34,10 +34,9 @@ export const emitLiteral = (
   }
 
   if (typeof value === "number") {
-    // All numbers are doubles in JavaScript, but array indices should be integers
+    // All numbers are doubles in JavaScript (including array indices)
     const isInteger = Number.isInteger(value);
-    const text =
-      isInteger && !context.isArrayIndex ? `${value}.0` : String(value);
+    const text = isInteger ? `${value}.0` : String(value);
     return [{ text }, context];
   }
 

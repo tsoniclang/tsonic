@@ -100,7 +100,11 @@ export const emitArray = (
     }
   }
 
-  const text = `new List<${elementType}> { ${elements.join(", ")} }`;
+  // Use constructor syntax for empty arrays, initializer syntax for non-empty
+  const text =
+    elements.length === 0
+      ? `new List<${elementType}>()`
+      : `new List<${elementType}> { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

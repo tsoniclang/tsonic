@@ -7,7 +7,7 @@ namespace TestCases.arrays
     {
         public static double getElement(List<List<double>> matrix)
             {
-            return Tsonic.Runtime.Array.get(Tsonic.Runtime.Array.get(matrix, 0), 1);
+            return Tsonic.Runtime.Array.get(Tsonic.Runtime.Array.get(matrix, 0.0), 1.0);
             }
 
         public static List<List<double>> createMatrix()

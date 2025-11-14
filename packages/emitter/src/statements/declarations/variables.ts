@@ -117,7 +117,8 @@ export const emitVariableDeclaration = (
       for (let i = 0; i < arrayPattern.elements.length; i++) {
         const element = arrayPattern.elements[i];
         if (element && element.kind === "identifierPattern") {
-          const elementVarDecl = `${varDecl}${element.name} = Tsonic.Runtime.Array.get(${initFrag.text}, ${i});`;
+          // Use double literal for index (JavaScript uses doubles for all numbers)
+          const elementVarDecl = `${varDecl}${element.name} = Tsonic.Runtime.Array.get(${initFrag.text}, ${i}.0);`;
           declarations.push(`${ind}${elementVarDecl}`);
         }
         // Skip undefined elements (holes in array pattern)
