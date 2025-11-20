@@ -70,20 +70,22 @@ These commands cause **PERMANENT DATA LOSS** that cannot be recovered:
 - **NEVER** use `git clean -fd`
 
 **Why this matters for AI sessions:**
+
 - Uncommitted work is invisible to future AI sessions
 - Once discarded, changes cannot be recovered
 - AI cannot help fix problems it cannot see
 
 **What to do instead:**
 
-| Situation | ❌ WRONG | ✅ CORRECT |
-|-----------|---------|-----------|
-| Need to switch branches | `git checkout main` (loses changes) | Commit first, then switch |
-| Made mistakes | `git reset --hard` | Commit to temp branch, start fresh |
-| Want clean slate | `git restore .` | Commit current state, then revert |
-| On wrong branch | `git checkout --` | Commit here, then cherry-pick |
+| Situation               | ❌ WRONG                            | ✅ CORRECT                         |
+| ----------------------- | ----------------------------------- | ---------------------------------- |
+| Need to switch branches | `git checkout main` (loses changes) | Commit first, then switch          |
+| Made mistakes           | `git reset --hard`                  | Commit to temp branch, start fresh |
+| Want clean slate        | `git restore .`                     | Commit current state, then revert  |
+| On wrong branch         | `git checkout --`                   | Commit here, then cherry-pick      |
 
 **Safe workflow:**
+
 ```bash
 # Always commit before switching context
 git add -A
@@ -107,6 +109,7 @@ git commit -m "fix: correct the previous commit"
 - **NEVER** use `git stash drop`
 
 **Why stash is dangerous:**
+
 - Stashed changes are invisible to AI sessions
 - Easy to forget what's stashed
 - Stash can be accidentally dropped
@@ -135,6 +138,7 @@ git rebase -i main
 ```
 
 **Benefits of WIP branches over stash:**
+
 - ✅ Work is visible in git history
 - ✅ Work is backed up on remote
 - ✅ AI can see the work in future sessions
@@ -554,6 +558,7 @@ npm test -- --grep "pattern"
 ### Workflow Summary
 
 **Critical rules (see detailed Git Safety Rules section above):**
+
 1. ✅ **ALWAYS commit before switching contexts** - Even if work is incomplete
 2. ✅ **NEVER discard uncommitted work** - Use WIP branches instead
 3. ✅ **NEVER use git stash** - Use timestamped WIP branches
@@ -563,6 +568,7 @@ npm test -- --grep "pattern"
 7. ✅ **Use git revert not git reset** - To undo commits
 
 **Standard workflow:**
+
 ```bash
 # 1. Verify you're on correct branch
 git branch --show-current

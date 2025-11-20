@@ -25,20 +25,50 @@ export const emitMemberAccess = (
   const [objectFrag, newContext] = emitExpression(expr.object, context);
 
   if (expr.isComputed) {
-    // Emit index expression with array index context
+    // Check if this is array index access - rewrite to static helper
+    const objectType = expr.object.inferredType;
+    const isArrayType = objectType?.kind === "arrayType";
+
+    if (isArrayType) {
+      // Rewrite: arr[index] → Tsonic.Runtime.Array.get(arr, index)
+      const indexContext = { ...newContext, isArrayIndex: true };
+      const [propFrag, contextWithIndex] = emitExpression(
+        expr.property as IrExpression,
+        indexContext
+      );
+      const finalContext = addUsing(
+        { ...contextWithIndex, isArrayIndex: false },
+        "Tsonic.Runtime"
+      );
+      const text = `Tsonic.Runtime.Array.get(${objectFrag.text}, ${propFrag.text})`;
+      return [{ text }, finalContext];
+    }
+
+    // Regular computed access
     const indexContext = { ...newContext, isArrayIndex: true };
     const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
       indexContext
     );
-    // Clear the array index flag before returning context
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
     const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
   }
 
+  // Property access
   const prop = expr.property as string;
+  const objectType = expr.object.inferredType;
+  const isArrayType = objectType?.kind === "arrayType";
+
+  // Rewrite array.length → Tsonic.Runtime.Array.length(array)
+  if (isArrayType && prop === "length") {
+    const updatedContext = addUsing(newContext, "Tsonic.Runtime");
+    const text = `Tsonic.Runtime.Array.length(${objectFrag.text})`;
+    return [{ text }, updatedContext];
+  }
+
+  // Regular property access
   const accessor = expr.isOptional ? "?." : ".";
   const text = `${objectFrag.text}${accessor}${prop}`;
   return [{ text }, newContext];

@@ -26,19 +26,27 @@ export const emitCall = (
     // Rewrite based on type:
     // - string → Tsonic.Runtime.String.method()
     // - number → Tsonic.Runtime.Number.method()
-    // - Array<T> → Keep as instance method (our custom class)
+    // - Array<T> → Tsonic.Runtime.Array.method() (now uses native List<T>)
     // - Other custom types → Keep as instance method
 
-    const shouldRewriteAsStatic =
-      (objectType?.kind === "primitiveType" && objectType.name === "string") ||
-      (objectType?.kind === "primitiveType" && objectType.name === "number");
+    const isStringType =
+      objectType?.kind === "primitiveType" && objectType.name === "string";
+    const isNumberType =
+      objectType?.kind === "primitiveType" && objectType.name === "number";
+    const isArrayType = objectType?.kind === "arrayType";
+
+    const shouldRewriteAsStatic = isStringType || isNumberType || isArrayType;
 
     if (shouldRewriteAsStatic) {
       // Determine which runtime class based on type
-      const runtimeClass =
-        objectType?.kind === "primitiveType" && objectType.name === "string"
-          ? "String"
-          : "Number";
+      let runtimeClass: string;
+      if (isStringType) {
+        runtimeClass = "String";
+      } else if (isNumberType) {
+        runtimeClass = "Number";
+      } else {
+        runtimeClass = "Array";
+      }
 
       // Rewrite: obj.method(args) → Tsonic.Runtime.{Class}.method(obj, args)
       const [objectFrag, objContext] = emitExpression(
@@ -68,7 +76,7 @@ export const emitCall = (
     }
   }
 
-  // Regular function call (includes array methods - they're instance methods)
+  // Regular function call
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
   let currentContext = newContext;
 

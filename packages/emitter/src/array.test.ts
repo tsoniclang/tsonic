@@ -48,9 +48,9 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Tsonic.Runtime.Array
-    expect(code).to.include("new Tsonic.Runtime.Array<double>(1.0, 2.0, 3.0)");
-    expect(code).to.include("using Tsonic.Runtime");
+    // Should use List<T>
+    expect(code).to.include("new List<double> { 1.0, 2.0, 3.0 }");
+    expect(code).to.include("using System.Collections.Generic");
   });
 
   it("should emit sparse array with holes", () => {
@@ -93,9 +93,7 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should handle sparse array with default
-    expect(code).to.include(
-      "new Tsonic.Runtime.Array<double>(1.0, default, 3.0)"
-    );
+    expect(code).to.include("new List<double> { 1.0, default, 3.0 }");
   });
 
   it("should emit array with string elements", () => {
@@ -137,7 +135,7 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should use string type parameter
-    expect(code).to.include("new Tsonic.Runtime.Array<string>");
+    expect(code).to.include("new List<string>");
     expect(code).to.include('"hello", "world"');
   });
 
@@ -177,7 +175,7 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should create empty array
-    expect(code).to.include("new Tsonic.Runtime.Array<double>()");
+    expect(code).to.include("new List<double>()");
   });
 
   it("should emit array method calls correctly", () => {
@@ -267,7 +265,14 @@ describe("Array Emission", () => {
               name: { kind: "identifierPattern", name: "first" },
               initializer: {
                 kind: "memberAccess",
-                object: { kind: "identifier", name: "arr" },
+                object: {
+                  kind: "identifier",
+                  name: "arr",
+                  inferredType: {
+                    kind: "arrayType",
+                    elementType: { kind: "primitiveType", name: "number" },
+                  },
+                },
                 property: { kind: "literal", value: 0 },
                 isComputed: true,
                 isOptional: false,
@@ -280,7 +285,7 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use indexer syntax (integer literals without .0)
-    expect(code).to.include("arr[0]");
+    // Should use static helper for array access with double literal
+    expect(code).to.include("Tsonic.Runtime.Array.get(arr, 0.0)");
   });
 });

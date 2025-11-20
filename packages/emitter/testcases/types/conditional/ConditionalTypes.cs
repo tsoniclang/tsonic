@@ -1,4 +1,5 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace TestCases.types
@@ -15,7 +16,7 @@ namespace TestCases.types
 
         // type IsArray = dynamic
 
-        // type ArrayCheck1 = IsArray<Tsonic.Runtime.Array<string>>
+        // type ArrayCheck1 = IsArray<List<string>>
 
         // type ArrayCheck2 = IsArray<string>
 

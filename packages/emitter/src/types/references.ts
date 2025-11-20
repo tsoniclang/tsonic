@@ -19,12 +19,12 @@ export const emitReferenceType = (
   if (name === "Array" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
-      const updatedContext = addUsing(context, "Tsonic.Runtime");
-      return [`Tsonic.Runtime.Array<object>`, updatedContext];
+      const updatedContext = addUsing(context, "System.Collections.Generic");
+      return [`List<object>`, updatedContext];
     }
     const [elementType, newContext] = emitType(firstArg, context);
-    const updatedContext = addUsing(newContext, "Tsonic.Runtime");
-    return [`Tsonic.Runtime.Array<${elementType}>`, updatedContext];
+    const updatedContext = addUsing(newContext, "System.Collections.Generic");
+    return [`List<${elementType}>`, updatedContext];
   }
 
   if (name === "Promise" && typeArguments && typeArguments.length > 0) {

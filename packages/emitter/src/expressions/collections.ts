@@ -15,7 +15,7 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
-  let currentContext = addUsing(context, "Tsonic.Runtime");
+  let currentContext = addUsing(context, "System.Collections.Generic");
   const elements: string[] = [];
 
   // Determine element type from expected type if available
@@ -50,6 +50,7 @@ export const emitArray = (
 
   if (allSpreads && expr.elements.length > 0) {
     // Emit as chained Concat calls: arr1.Concat(arr2).Concat(arr3)
+    // Note: Concat returns IEnumerable<T>, so wrap in ToList() at the end
     const spreadElements = expr.elements.filter(
       (el): el is Extract<IrExpression, { kind: "spread" }> =>
         el !== undefined && el.kind === "spread"
@@ -58,14 +59,14 @@ export const emitArray = (
     const firstSpread = spreadElements[0];
     if (!firstSpread) {
       // Should never happen due to allSpreads check, but satisfy TypeScript
-      return [{ text: "new Tsonic.Runtime.Array<object>()" }, currentContext];
+      return [{ text: "new List<object>()" }, currentContext];
     }
 
     const [firstFrag, firstContext] = emitExpression(
       firstSpread.expression,
       currentContext
     );
-    currentContext = firstContext;
+    currentContext = addUsing(firstContext, "System.Linq");
 
     let result = firstFrag.text;
     for (let i = 1; i < spreadElements.length; i++) {
@@ -80,13 +81,14 @@ export const emitArray = (
       }
     }
 
-    return [{ text: result }, currentContext];
+    // Wrap in ToList() to return List<T>
+    return [{ text: `${result}.ToList()` }, currentContext];
   }
 
   // Regular array or mixed spreads/elements
   for (const element of expr.elements) {
     if (element === undefined) {
-      // Sparse array hole - Tsonic.Runtime.Array supports sparse arrays
+      // Sparse array hole - fill with default value
       elements.push("default");
     } else if (element.kind === "spread") {
       // Spread mixed with other elements - not yet supported
@@ -98,7 +100,11 @@ export const emitArray = (
     }
   }
 
-  const text = `new Tsonic.Runtime.Array<${elementType}>(${elements.join(", ")})`;
+  // Use constructor syntax for empty arrays, initializer syntax for non-empty
+  const text =
+    elements.length === 0
+      ? `new List<${elementType}>()`
+      : `new List<${elementType}> { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

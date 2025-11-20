@@ -1,4 +1,5 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.types
 {
@@ -35,14 +36,14 @@ namespace TestCases.types
 
         public static double distance(Point2D point)
             {
-            var x = point[0];
-            var y = point[1];
+            var x = Tsonic.Runtime.Array.get(point, 0.0);
+            var y = Tsonic.Runtime.Array.get(point, 1.0);
             return Tsonic.Runtime.Math.sqrt(x * x + y * y);
             }
 
         public static Point2D createPoint(double x, double y)
             {
-            return new Tsonic.Runtime.Array<object>(x, y);
+            return new List<object> { x, y };
             }
 
         public static string greetPerson(Person person)
@@ -52,7 +53,7 @@ namespace TestCases.types
 
         public static double sum(dynamic nums)
             {
-            return nums.reduce((a, b) => a + b, 0.0);
+            return Tsonic.Runtime.Array.reduce(nums, (a, b) => a + b, 0.0);
             }
     }
 }

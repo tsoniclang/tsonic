@@ -1,12 +1,14 @@
 using Tsonic.Runtime;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace TestCases.arrays
 {
     public static class ArraySpread
     {
-        public static Tsonic.Runtime.Array<double> spreadArray(Tsonic.Runtime.Array<double> arr1, Tsonic.Runtime.Array<double> arr2)
+        public static List<double> spreadArray(List<double> arr1, List<double> arr2)
             {
-            return arr1.Concat(arr2);
+            return arr1.Concat(arr2).ToList();
             }
     }
 }

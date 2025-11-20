@@ -291,9 +291,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("class UserRepository");
 
       // Should have the generic function
-      expect(csharp).to.match(
-        /public\s+static\s+Tsonic\.Runtime\.Array<U>\s+map\s*<T,\s*U>/
-      );
+      expect(csharp).to.match(/public\s+static\s+List<U>\s+map\s*<T,\s*U>/);
 
       // Should have proper namespace structure
       expect(csharp).to.include("namespace Test");

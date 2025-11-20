@@ -85,9 +85,9 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("new Tsonic.Runtime.Array");
+    expect(result).to.include("new List<");
     expect(result).to.include("1.0, 2.0, 3.0");
-    expect(result).to.include("using Tsonic.Runtime");
+    expect(result).to.include("using System.Collections.Generic");
   });
 
   it("should emit template literals", () => {

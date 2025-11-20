@@ -107,16 +107,17 @@ const percentage = 0.15 as float;
 
 ## Collection Types
 
-### TypeScript Arrays → Tsonic.Runtime.Array<T>
+### TypeScript Arrays → List<T> + Static Helpers
 
-TypeScript arrays map to **`Tsonic.Runtime.Array<T>`**, a custom class that implements exact JavaScript array semantics:
+TypeScript arrays map to native **`List<T>`** with JavaScript semantics provided by **`Tsonic.Runtime.Array`** static helper methods:
 
-| TypeScript | C#                        | Notes                |
-| ---------- | ------------------------- | -------------------- |
-| `T[]`      | `Tsonic.Runtime.Array<T>` | JavaScript semantics |
-| `Array<T>` | `Tsonic.Runtime.Array<T>` | Same as T[]          |
+| TypeScript | C#                                 | Notes                           |
+| ---------- | ---------------------------------- | ------------------------------- |
+| `T[]`      | `List<T>`                          | Native .NET list                |
+| `Array<T>` | `List<T>`                          | Same as T[]                     |
+| Methods    | `Tsonic.Runtime.Array.method(...)` | Static helpers for JS semantics |
 
-**Why not native List<T>?** JavaScript arrays support features like **sparse arrays** (arrays with holes) that .NET `List<T>` cannot represent.
+**Why List<T>?** Native .NET types enable seamless interop with the .NET ecosystem. JavaScript semantics (including sparse arrays) are provided through static helper methods.
 
 **Example:**
 
@@ -132,15 +133,26 @@ console.log(sparse.length); // 11
 ```
 
 ```csharp
-var nums = new Tsonic.Runtime.Array<double>(1, 2, 3);
-nums.push(4);
-Tsonic.Runtime.console.log(nums.length); // 4
+var nums = new List<double> { 1, 2, 3 };
+Tsonic.Runtime.Array.push(nums, 4);
+Tsonic.Runtime.console.log(nums.Count); // 4
 
-// Sparse array support
-var sparse = new Tsonic.Runtime.Array<double>();
-sparse[10] = 42;
-Tsonic.Runtime.console.log(sparse.length); // 11
+// Sparse array support (fills gaps with default)
+var sparse = new List<double>();
+Tsonic.Runtime.Array.set(sparse, 10, 42); // Fills 0-9 with 0.0
+Tsonic.Runtime.console.log(sparse.Count); // 11
 ```
+
+**Sparse Arrays:** When setting an index beyond the current length, gaps are filled with `default(T)` (0 for numbers, null for reference types). This provides JavaScript sparse array semantics while using native `List<T>`.
+
+**Array Methods:** All JavaScript array methods are available as static helpers:
+
+- `Array.push(arr, item)` - Add to end
+- `Array.pop(arr)` - Remove from end
+- `Array.map(arr, callback)` - Transform elements
+- `Array.filter(arr, callback)` - Filter elements
+- `Array.slice(arr, start, end)` - Get slice
+- See [Runtime Specification](./runtime.md) for complete list
 
 ### C# Arrays → ReadonlyArray<T>
 
@@ -189,14 +201,14 @@ const parts = name.split(" ");
 ```csharp
 string name = "John Doe";
 string upper = Tsonic.Runtime.String.toUpperCase(name);
-Tsonic.Runtime.Array<string> parts = Tsonic.Runtime.String.split(name, " ");
+List<string> parts = Tsonic.Runtime.String.split(name, " ");
 ```
 
 **All string operations use `Tsonic.Runtime.String` static helpers:**
 
 - `str.toUpperCase()` → `Tsonic.Runtime.String.toUpperCase(str)`
 - `str.substring(0, 5)` → `Tsonic.Runtime.String.substring(str, 0, 5)`
-- `str.split(" ")` → `Tsonic.Runtime.String.split(str, " ")` (returns Tsonic.Runtime.Array)
+- `str.split(" ")` → `Tsonic.Runtime.String.split(str, " ")` (returns `List<string>`)
 
 See [Runtime Specification](./runtime.md) for complete list of string methods.
 
@@ -531,7 +543,7 @@ const arr = [1, 2, 3]; // number[] inferred
 ```csharp
 var x = 5.0; // double
 var name = "John"; // string
-var arr = new Tsonic.Runtime.Array<double>(1, 2, 3);
+var arr = new List<double> { 1, 2, 3 };
 ```
 
 ## Special Cases
@@ -567,7 +579,7 @@ Console.WriteLine(user.name); // compile-time type safety
 
 ### Boundary Conversions
 
-**Within Tsonic code** - Use Tsonic.Runtime.Array:
+**Within Tsonic code** - Use native `List<T>` with static helpers:
 
 ```typescript
 function addItem(items: string[], item: string): void {
@@ -576,9 +588,9 @@ function addItem(items: string[], item: string): void {
 ```
 
 ```csharp
-public static void addItem(Tsonic.Runtime.Array<string> items, string item)
+public static void addItem(List<string> items, string item)
 {
-    items.push(item); // Instance method on Tsonic.Runtime.Array
+    Tsonic.Runtime.Array.push(items, item); // Static helper for JavaScript semantics
 }
 ```
 

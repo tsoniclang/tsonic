@@ -4,20 +4,21 @@
 
 ## Design Principles
 
-1. **JavaScript Semantics**: Custom types (like `Tsonic.Runtime.Array<T>`) implement exact JavaScript behavior
-2. **Sparse Array Support**: Arrays must support holes/gaps (e.g., `arr[10] = 42` when `arr.length` was 0)
-3. **Native Types Where Appropriate**: `string` and `double` use native C# types
-4. **Static Helpers for Native Types**: String methods rewritten to static helpers
-5. **Instance Methods for Custom Types**: Array methods are instance methods on `Tsonic.Runtime.Array<T>`
-6. **Clean Separation**: Tsonic types and C# types don't mix - NO automatic conversions
-7. **Explicit Conversions Only**: When interop requires it, use explicit helpers (`.ToArray()`, constructors) - never implicit
+1. **Native Types First**: Arrays use native `List<T>`, strings use native `string`, numbers use native `double`
+2. **JavaScript Semantics via Static Helpers**: Static helper classes (like `Tsonic.Runtime.Array`) provide exact JavaScript behavior
+3. **Sparse Array Support**: Arrays support holes/gaps (e.g., `arr[10] = 42` when `arr.length` was 0) via static helper logic
+4. **Static Helpers Pattern**: All JavaScript methods are static helpers operating on native types
+5. **Seamless .NET Interop**: Native types enable direct use with .NET APIs without conversion
+6. **No Wrapper Classes**: TypeScript arrays are `List<T>`, not custom wrapper classes
+7. **Explicit API Surface**: Clear separation between JavaScript semantics (static helpers) and native operations
 
-**Clarification on conversions:**
+**Key Design:**
 
-- ❌ **NO** automatic conversions: `Tsonic.Runtime.Array<T>` is not implicitly convertible to `List<T>` or `T[]`
-- ✅ **Explicit helpers allowed**: Use `.ToArray()` when calling .NET APIs that expect `T[]`
-- ✅ **Constructor conversion**: C# types can be passed to constructors: `new List<T>(csharpArray)`
-- 🎯 **General rule**: If you use C# types (via imports), use C# methods on them. If you use Tsonic types, use JavaScript-style methods.
+- ✅ **Native storage**: `List<T>` for arrays, `string` for strings, `double` for numbers
+- ✅ **JavaScript semantics**: `Tsonic.Runtime.Array.push(arr, item)` provides JS behavior
+- ✅ **Direct interop**: Pass `List<T>` directly to .NET APIs that accept `IList<T>`, `IEnumerable<T>`, etc.
+- ✅ **Conversion helpers**: Use `.ToArray()` when .NET APIs require `T[]` specifically
+- 🎯 **General rule**: TypeScript uses static helpers for JS semantics, imported .NET types use their native methods
 
 ## Runtime Organization
 
@@ -28,19 +29,20 @@ Tsonic.Runtime/
 ├── isNaN(double)
 ├── isFinite(double)
 │
-├── Array<T>                         - Class with instance methods (NOT static)
-│   ├── push(T item)                 - Instance method
-│   ├── pop()                        - Instance method
-│   ├── shift()                      - Instance method
-│   ├── length                       - Property
-│   ├── slice()                      - Returns new Array<T>
-│   └── ...
+├── Array                            - Static class for array operations on List<T>
+│   ├── push<T>(List<T>, T)          - Static helper (List<T> is native C#)
+│   ├── pop<T>(List<T>)              - Static helper
+│   ├── shift<T>(List<T>)            - Static helper
+│   ├── length<T>(List<T>)           - Static helper (returns Count)
+│   ├── slice<T>(List<T>, int, int?) - Returns new List<T>
+│   ├── map<T,R>(List<T>, Func...)   - Returns new List<R>
+│   └── ... (45+ array methods)
 │
 ├── String                           - Static class for string operations
 │   ├── toUpperCase(string)          - Static helper (string is native C#)
 │   ├── toLowerCase(string)          - Static helper
 │   ├── substring(string, int, int?) - Static helper
-│   ├── split(string, string)        - Returns Tsonic.Runtime.Array<string>
+│   ├── split(string, string)        - Returns List<string>
 │   └── ...
 │
 ├── Operators                        - Static class for operators
@@ -94,182 +96,125 @@ const num = parseInt("42", 10);
 double num = Tsonic.Runtime.parseInt("42", 10);
 ```
 
-## Array Class
+## Array Static Helpers
 
-`Tsonic.Runtime.Array<T>` is a **class** that implements JavaScript array semantics, including sparse arrays:
+`Tsonic.Runtime.Array` is a **static class** that provides JavaScript array semantics for native `List<T>`:
 
 ```csharp
 namespace Tsonic.Runtime
 {
-    public class Array<T> : IEnumerable<T>
+    public static class Array
     {
-        // Internal storage - supports sparse arrays
-        private Dictionary<int, T> _items;
-        private int _length;
-
-        // Constructors
-        public Array() { _items = new Dictionary<int, T>(); _length = 0; }
-        public Array(params T[] items) { /* initialize from params */ }
-
-        // Property
-        public int length
+        // Index access helpers
+        public static T get<T>(List<T> arr, int index)
         {
-            get => _length;
-            set { /* Setting length can truncate or expand */ }
+            if (index < 0 || index >= arr.Count)
+                return default(T)!;
+            return arr[index];
         }
 
-        // Indexer - supports sparse arrays
-        // Note: For MVP, holes return default(T) instead of undefined
-        // This means 0 for numbers, null for reference types
-        // TODO: Use Nullable<T> or Option<T> for proper undefined semantics
-        public T this[int index]
+        public static void set<T>(List<T> arr, int index, T value)
         {
-            get => _items.ContainsKey(index) ? _items[index] : default(T);
-            set
-            {
-                _items[index] = value;
-                if (index >= _length) _length = index + 1;
-            }
+            // Fill gaps with default(T) for sparse array support
+            while (arr.Count <= index)
+                arr.Add(default(T)!);
+            arr[index] = value;
         }
 
-        // Instance methods - NOT static!
-        public void push(T item)
+        // Length helpers
+        public static int length<T>(List<T> arr) => arr.Count;
+
+        public static void setLength<T>(List<T> arr, int newLength)
         {
-            _items[_length] = item;
-            _length++;
+            if (newLength < arr.Count)
+                arr.RemoveRange(newLength, arr.Count - newLength);
+            else
+                while (arr.Count < newLength)
+                    arr.Add(default(T)!);
         }
 
-        public T pop()
+        // Mutation methods
+        public static void push<T>(List<T> arr, T item) => arr.Add(item);
+
+        public static T pop<T>(List<T> arr)
         {
-            if (_length == 0) return default(T);
-            _length--;
-            T item = _items.ContainsKey(_length) ? _items[_length] : default(T);
-            _items.Remove(_length);
+            if (arr.Count == 0) return default(T)!;
+            T item = arr[arr.Count - 1];
+            arr.RemoveAt(arr.Count - 1);
             return item;
         }
 
-        public T shift()
+        public static T shift<T>(List<T> arr)
         {
-            if (_length == 0) return default(T);
-            T item = _items.ContainsKey(0) ? _items[0] : default(T);
-            // Shift all items down
-            for (int i = 0; i < _length - 1; i++)
-            {
-                if (_items.ContainsKey(i + 1))
-                    _items[i] = _items[i + 1];
-                else
-                    _items.Remove(i);
-            }
-            _items.Remove(_length - 1);
-            _length--;
+            if (arr.Count == 0) return default(T)!;
+            T item = arr[0];
+            arr.RemoveAt(0);
             return item;
         }
 
-        public void unshift(T item)
+        public static void unshift<T>(List<T> arr, T item) => arr.Insert(0, item);
+
+        // Non-mutating methods
+        public static List<T> slice<T>(List<T> arr, int start = 0, int? end = null)
         {
-            // Shift all items up
-            for (int i = _length; i > 0; i--)
-            {
-                if (_items.ContainsKey(i - 1))
-                    _items[i] = _items[i - 1];
-            }
-            _items[0] = item;
-            _length++;
+            int actualStart = start < 0 ? Math.Max(0, arr.Count + start) : start;
+            int actualEnd = end ?? arr.Count;
+            if (actualStart >= actualEnd) return new List<T>();
+            return arr.GetRange(actualStart, Math.Min(actualEnd - actualStart, arr.Count - actualStart));
         }
 
-        public Array<T> slice(int start = 0, int? end = null)
+        // Higher-order functions
+        public static List<TResult> map<T, TResult>(List<T> arr, Func<T, int, List<T>, TResult> callback)
         {
-            int actualStart = start < 0 ? Math.Max(0, _length + start) : start;
-            int actualEnd = end.HasValue
-                ? (end.Value < 0 ? Math.Max(0, _length + end.Value) : end.Value)
-                : _length;
-
-            var result = new Array<T>();
-            for (int i = actualStart; i < actualEnd && i < _length; i++)
-            {
-                if (_items.ContainsKey(i))
-                    result.push(_items[i]);
-            }
+            var result = new List<TResult>(arr.Count);
+            for (int i = 0; i < arr.Count; i++)
+                result.Add(callback(arr[i], i, arr));
             return result;
         }
 
-        public int indexOf(T searchElement, int fromIndex = 0)
+        public static List<T> filter<T>(List<T> arr, Func<T, int, List<T>, bool> callback)
         {
-            for (int i = fromIndex; i < _length; i++)
-            {
-                if (_items.ContainsKey(i) && EqualityComparer<T>.Default.Equals(_items[i], searchElement))
+            var result = new List<T>();
+            for (int i = 0; i < arr.Count; i++)
+                if (callback(arr[i], i, arr))
+                    result.Add(arr[i]);
+            return result;
+        }
+
+        // Search methods
+        public static int indexOf<T>(List<T> arr, T searchElement, int fromIndex = 0)
+        {
+            for (int i = fromIndex; i < arr.Count; i++)
+                if (EqualityComparer<T>.Default.Equals(arr[i], searchElement))
                     return i;
-            }
             return -1;
         }
 
-        public bool includes(T searchElement)
+        public static bool includes<T>(List<T> arr, T searchElement) => indexOf(arr, searchElement) >= 0;
+
+        // Conversion methods
+        public static string join<T>(List<T> arr, string separator = ",")
         {
-            return indexOf(searchElement) >= 0;
+            return string.Join(separator, arr.Select(x => x?.ToString() ?? ""));
         }
 
-        public string join(string separator = ",")
-        {
-            var parts = new List<string>();
-            for (int i = 0; i < _length; i++)
-            {
-                if (_items.ContainsKey(i))
-                    parts.Add(_items[i]?.ToString() ?? "");
-                else
-                    parts.Add(""); // Sparse array hole
-            }
-            return string.Join(separator, parts);
-        }
+        // Mutation methods (continued)
+        public static void reverse<T>(List<T> arr) => arr.Reverse();
 
-        public void reverse()
-        {
-            // Reverse the items in-place
-            var temp = new Dictionary<int, T>();
-            for (int i = 0; i < _length; i++)
-            {
-                if (_items.ContainsKey(i))
-                    temp[_length - 1 - i] = _items[i];
-            }
-            _items = temp;
-        }
-
-        // IEnumerable<T> implementation for foreach, LINQ, JSON serialization
-        public IEnumerator<T> GetEnumerator()
-        {
-            for (int i = 0; i < _length; i++)
-            {
-                yield return _items.ContainsKey(i) ? _items[i] : default(T);
-            }
-        }
-
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
-        {
-            return GetEnumerator();
-        }
-
-        // Helper for JSON serialization and .NET interop
-        public T[] ToArray()
-        {
-            var result = new T[_length];
-            for (int i = 0; i < _length; i++)
-            {
-                result[i] = _items.ContainsKey(i) ? _items[i] : default(T);
-            }
-            return result;
-        }
+        // ... 35+ more methods (see tsonic-runtime Array.cs for complete implementation)
     }
 }
 ```
 
 **Important Notes:**
 
-- **Instance methods**: Array<T> is a class - methods are called on instances, not static helpers
-- **Sparse array support**: Uses `Dictionary<int, T>` internally to support holes
-- **Holes behavior (MVP)**: Accessing holes returns `default(T)` (0 for numbers, null for references) instead of true undefined. This is a known limitation.
-- **Higher-order methods**: `map`, `filter`, `reduce` require lambda support - planned for Phase 4+
-- **IEnumerable<T>**: Array<T> implements IEnumerable<T> for .NET interop (foreach loops, LINQ compatibility)
-- **JSON serialization**: Use `.ToArray()` when needed: `JsonSerializer.Serialize(arr.ToArray())` or implement custom JsonConverter for direct serialization
-- **C# array interop**: Use `.ToArray()` to convert to `T[]` when calling .NET APIs that expect native arrays
+- **Static helpers**: All array methods are static functions operating on native `List<T>`
+- **Sparse array support**: Gaps are filled with `default(T)` (0 for numbers, null for references)
+- **Holes behavior**: Accessing beyond length returns `default(T)` - JavaScript-compatible semantics
+- **Higher-order methods**: `map`, `filter`, `reduce`, `forEach` fully supported with lambda functions
+- **Native interop**: `List<T>` works directly with .NET APIs - no conversion needed
+- **LINQ compatibility**: `List<T>` implements `IEnumerable<T>` natively
+- **Performance**: Uses native `List<T>` operations for optimal performance
 
 **Usage Examples:**
 
@@ -277,12 +222,30 @@ namespace Tsonic.Runtime
 const arr: number[] = [1, 2, 3];
 arr.push(4);
 const first = arr.shift();
+const doubled = arr.map((x) => x * 2);
 ```
 
 ```csharp
-var arr = new Tsonic.Runtime.Array<double>(1, 2, 3);
-arr.push(4);  // Instance method
-double first = arr.shift();  // Instance method
+var arr = new List<double> { 1, 2, 3 };
+Tsonic.Runtime.Array.push(arr, 4);  // Static helper
+double first = Tsonic.Runtime.Array.shift(arr);  // Static helper
+var doubled = Tsonic.Runtime.Array.map(arr, (x, i, a) => x * 2);
+```
+
+**Sparse Array Example:**
+
+```typescript
+const sparse: number[] = [];
+sparse[10] = 42;
+console.log(sparse.length); // 11
+console.log(sparse[5]); // undefined (0 in C#)
+```
+
+```csharp
+var sparse = new List<double>();
+Tsonic.Runtime.Array.set(sparse, 10, 42); // Fills 0-9 with 0.0
+Tsonic.Runtime.console.log(sparse.Count); // 11
+Tsonic.Runtime.console.log(sparse[5]); // 0.0 (default for double)
 ```
 
 ## String Operations
@@ -401,16 +364,16 @@ namespace Tsonic.Runtime
         }
 
         // Splitting
-        public static Tsonic.Runtime.Array<string> split(string str, string separator, int? limit = null)
+        public static List<string> split(string str, string separator, int? limit = null)
         {
             string[] parts = str.Split(new[] { separator }, StringSplitOptions.None);
             if (limit.HasValue && parts.Length > limit.Value)
             {
                 string[] limited = new string[limit.Value];
                 System.Array.Copy(parts, limited, limit.Value);
-                return new Tsonic.Runtime.Array<string>(limited);
+                return new List<string>(limited);
             }
-            return new Tsonic.Runtime.Array<string>(parts);
+            return new List<string>(parts);
         }
 
         // Properties
@@ -716,17 +679,18 @@ const count = processItems(arr);
 **Generated C#:**
 
 ```csharp
+using System.Collections.Generic;
 using Tsonic.Runtime;
 
-public static double processItems(Tsonic.Runtime.Array<string> items)
+public static double processItems(List<string> items)
 {
-    items.push("new item");  // Instance method
-    string first = items.shift();  // Instance method
+    Tsonic.Runtime.Array.push(items, "new item");  // Static helper
+    string first = Tsonic.Runtime.Array.shift(items);  // Static helper
     Tsonic.Runtime.console.log("Removed:", first);
-    return items.length;
+    return Tsonic.Runtime.Array.length(items);
 }
 
-var arr = new Tsonic.Runtime.Array<string>("a", "b", "c");
+var arr = new List<string> { "a", "b", "c" };
 double count = processItems(arr);
 ```
 
@@ -878,7 +842,7 @@ public static decimal calculateTotal(decimal price, int quantity)
     return price * quantity;
 }
 
-var items = new Tsonic.Runtime.Array<byte>(1, 2, 3, 4, 5);
+var items = new List<byte> { 1, 2, 3, 4, 5 };
 int total = 0;
 
 foreach (byte item in items)

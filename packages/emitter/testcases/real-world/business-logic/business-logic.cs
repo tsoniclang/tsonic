@@ -1,5 +1,6 @@
 
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -25,7 +26,7 @@ namespace TestCases.realworld
     {
         public string id { get; set; }
 
-        public Tsonic.Runtime.Array<CartItem> items { get; set; }
+        public List<CartItem> items { get; set; }
 
         public double total { get; set; }
 
@@ -35,7 +36,7 @@ namespace TestCases.realworld
     }
     public class ShoppingCart
     {
-        private Tsonic.Runtime.Array<CartItem> items = new Tsonic.Runtime.Array<object>();
+        private List<CartItem> items = new List<object>();
 
         public bool addItem(Product product, double quantity)
             {
@@ -43,7 +44,7 @@ namespace TestCases.realworld
                 {
                 return false;
                 }
-            var existingItem = this.items.find((item) => item.product.id == product.id);
+            var existingItem = Tsonic.Runtime.Array.find(this.items, (item) => item.product.id == product.id);
             if (existingItem)
                 {
                 var newQuantity = existingItem.quantity + quantity;
@@ -55,17 +56,17 @@ namespace TestCases.realworld
                 }
             else
                 {
-                this.items.push(new { product = product, quantity = quantity });
+                Tsonic.Runtime.Array.push(this.items, new { product = product, quantity = quantity });
                 }
             return true;
             }
 
         public bool removeItem(string productId)
             {
-            var index = this.items.findIndex((item) => item.product.id == productId);
+            var index = Tsonic.Runtime.Array.findIndex(this.items, (item) => item.product.id == productId);
             if (index != -1.0)
                 {
-                this.items.splice(index, 1.0);
+                Tsonic.Runtime.Array.splice(this.items, index, 1.0);
                 return true;
                 }
             return false;
@@ -73,7 +74,7 @@ namespace TestCases.realworld
 
         public bool updateQuantity(string productId, double quantity)
             {
-            var item = this.items.find((item) => item.product.id == productId);
+            var item = Tsonic.Runtime.Array.find(this.items, (item) => item.product.id == productId);
             if (!item)
                 {
                 return false;
@@ -92,22 +93,22 @@ namespace TestCases.realworld
 
         public double getTotal()
             {
-            return this.items.reduce((sum, item) => sum + item.product.price * item.quantity, 0.0);
+            return Tsonic.Runtime.Array.reduce(this.items, (sum, item) => sum + item.product.price * item.quantity, 0.0);
             }
 
         public double getItemCount()
             {
-            return this.items.reduce((sum, item) => sum + item.quantity, 0.0);
+            return Tsonic.Runtime.Array.reduce(this.items, (sum, item) => sum + item.quantity, 0.0);
             }
 
-        public Tsonic.Runtime.Array<CartItem> getItems()
+        public List<CartItem> getItems()
             {
             return this.items;
             }
 
         public void clear()
             {
-            this.items = new Tsonic.Runtime.Array<object>();
+            this.items = new List<object>();
             }
     }
     public class DiscountCalculator
@@ -163,9 +164,9 @@ namespace TestCases.realworld
 
         public void updateOrderStatus(Order order, OrderStatus newStatus)
             {
-            Record<OrderStatus, Tsonic.Runtime.Array<OrderStatus>> validTransitions = new { pending = new Tsonic.Runtime.Array<object>("processing", "cancelled"), processing = new Tsonic.Runtime.Array<object>("shipped", "cancelled"), shipped = new Tsonic.Runtime.Array<object>("delivered"), delivered = new Tsonic.Runtime.Array<object>(), cancelled = new Tsonic.Runtime.Array<object>() };
+            Record<OrderStatus, List<OrderStatus>> validTransitions = new { pending = new List<object> { "processing", "cancelled" }, processing = new List<object> { "shipped", "cancelled" }, shipped = new List<object> { "delivered" }, delivered = new List<object>(), cancelled = new List<object>() };
             var allowed = validTransitions[order.status];
-            if (!allowed.includes(newStatus))
+            if (!Tsonic.Runtime.Array.includes(allowed, newStatus))
                 {
                 throw new Error($"Cannot transition from {order.status} to {newStatus}");
                 }
@@ -191,26 +192,26 @@ namespace TestCases.realworld
     {
         // type OrderStatus = Union<string, string, string, string, string>
 
-        public static Tsonic.Runtime.Array<Product> searchProducts(Tsonic.Runtime.Array<Product> products, string query)
+        public static List<Product> searchProducts(List<Product> products, string query)
             {
             var lowerQuery = Tsonic.Runtime.String.toLowerCase(query);
-            return products.filter((p) => Tsonic.Runtime.String.includes(Tsonic.Runtime.String.toLowerCase(p.name), lowerQuery) || Tsonic.Runtime.String.includes(Tsonic.Runtime.String.toLowerCase(p.category), lowerQuery));
+            return Tsonic.Runtime.Array.filter(products, (p) => Tsonic.Runtime.String.includes(Tsonic.Runtime.String.toLowerCase(p.name), lowerQuery) || Tsonic.Runtime.String.includes(Tsonic.Runtime.String.toLowerCase(p.category), lowerQuery));
             }
 
-        public static Tsonic.Runtime.Array<Product> filterByCategory(Tsonic.Runtime.Array<Product> products, string category)
+        public static List<Product> filterByCategory(List<Product> products, string category)
             {
-            return products.filter((p) => p.category == category);
+            return Tsonic.Runtime.Array.filter(products, (p) => p.category == category);
             }
 
-        public static Tsonic.Runtime.Array<Product> filterByPriceRange(Tsonic.Runtime.Array<Product> products, double minPrice, double maxPrice)
+        public static List<Product> filterByPriceRange(List<Product> products, double minPrice, double maxPrice)
             {
-            return products.filter((p) => p.price >= minPrice && p.price <= maxPrice);
+            return Tsonic.Runtime.Array.filter(products, (p) => p.price >= minPrice && p.price <= maxPrice);
             }
 
-        public static Tsonic.Runtime.Array<Product> sortByPrice(Tsonic.Runtime.Array<Product> products, bool ascending = true)
+        public static List<Product> sortByPrice(List<Product> products, bool ascending = true)
             {
             var sorted = products;
-            sorted.sort((a, b) =>
+            Tsonic.Runtime.Array.sort(sorted, (a, b) =>
             {
             return ascending ? a.price - b.price : b.price - a.price;
             });

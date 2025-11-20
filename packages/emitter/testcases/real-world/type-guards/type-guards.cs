@@ -1,5 +1,6 @@
 
 using Tsonic.Runtime;
+using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -23,7 +24,7 @@ namespace TestCases.realworld
 
         public string email { get; set; }
 
-        public Tsonic.Runtime.Array<string> permissions { get; set; }
+        public List<string> permissions { get; set; }
     }
     public class Guest
     {
@@ -60,7 +61,7 @@ namespace TestCases.realworld
             else
                 if (isAdmin(account))
                     {
-                    return $"Admin: {account.username} with {account.permissions.length} permissions";
+                    return $"Admin: {account.username} with {Tsonic.Runtime.Array.length(account.permissions)} permissions";
                     }
                 else
                     if (isGuest(account))
@@ -75,13 +76,13 @@ namespace TestCases.realworld
             return isUser(account) || isAdmin(account);
             }
 
-        public static Tsonic.Runtime.Array<string> getPermissions(Account account)
+        public static List<string> getPermissions(Account account)
             {
             if (isAdmin(account))
                 {
                 return account.permissions;
                 }
-            return new Tsonic.Runtime.Array<object>();
+            return new List<object>();
             }
 
         public static string processValue(Union<string, double, bool> value)
