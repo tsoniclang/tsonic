@@ -302,13 +302,17 @@ mkdir -p .analysis
 When you begin working on this project, you MUST:
 
 1. **Read this entire CLAUDE.md file** to understand the project conventions
-2. **Read the spec documents** in order:
-   - `/spec/overview.md` - Project overview
-   - `/spec/architecture.md` - System architecture
-   - `/spec/module-resolution.md` - ESM import rules
+2. **Read the user documentation** for context:
+   - `/docs/index.md` - Project overview and user guide
+   - `/docs/language/module-system.md` - ESM import rules
+   - `/docs/language/type-mappings.md` - TypeScript → C# mappings
    - `/CODING-STANDARDS.md` - Mandatory coding patterns
-3. **Check implementation plan**: `/spec/implementation-plan.md`
-4. **Review examples** in `/spec/examples/` for expected behavior
+3. **Read engineering specs** if modifying compiler internals:
+   - `/spec/index.md` - Engineering specification index
+   - `/spec/architecture/README.md` - How to read architecture docs
+   - `/spec/architecture/00-overview.md` - Compiler principles
+4. **Check implementation plan**: `/spec/appendices/implementation-plan.md`
+5. **Review examples** in `/docs/examples/` for expected behavior
 
 Only after reading these documents should you proceed with implementation tasks.
 
