@@ -122,6 +122,7 @@ export const emitCommand = (
     const csFiles = emitCSharpFiles(irResult.value, {
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
+      libraries: config.libraries,
     });
 
     // Create output directory

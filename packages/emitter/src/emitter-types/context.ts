@@ -4,8 +4,7 @@
 
 import { EmitterOptions, EmitterContext } from "./core.js";
 import {
-  loadMetadataDirectory,
-  loadBindingsDirectory,
+  loadLibraries,
   buildBindingsRegistry,
 } from "@tsonic/frontend/metadata/index.js";
 
@@ -13,24 +12,23 @@ import {
  * Create a new emitter context with default values
  */
 export const createContext = (options: EmitterOptions): EmitterContext => {
-  // Load metadata and bindings if paths provided
+  // Load metadata and bindings from library directories
   let metadata: EmitterContext["metadata"] = undefined;
   let bindingsRegistry: EmitterContext["bindingsRegistry"] = undefined;
 
-  if (options.metadataPath) {
-    const metadataResult = loadMetadataDirectory(options.metadataPath);
-    if (metadataResult.ok) {
-      metadata = metadataResult.value;
+  if (options.libraries && options.libraries.length > 0) {
+    const librariesResult = loadLibraries(options.libraries);
+    if (librariesResult.ok) {
+      metadata = librariesResult.value.metadata;
+      bindingsRegistry = buildBindingsRegistry(librariesResult.value.bindings);
+    } else {
+      // TODO: Report diagnostics from librariesResult.error
+      // Need to integrate diagnostic reporting infrastructure
+      console.warn(
+        "[Tsonic] Failed to load libraries:",
+        librariesResult.error.map((d) => d.message).join(", ")
+      );
     }
-    // TODO: Handle metadata loading errors - need diagnostics infrastructure
-  }
-
-  if (options.bindingsPath) {
-    const bindingsResult = loadBindingsDirectory(options.bindingsPath);
-    if (bindingsResult.ok) {
-      bindingsRegistry = buildBindingsRegistry(bindingsResult.value);
-    }
-    // TODO: Handle bindings loading errors - need diagnostics infrastructure
   }
 
   return {

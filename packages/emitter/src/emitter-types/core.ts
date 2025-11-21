@@ -23,10 +23,8 @@ export type EmitterOptions = {
   readonly isEntryPoint?: boolean;
   /** Entry point file path (for batch emit) */
   readonly entryPointPath?: string;
-  /** Path to directory containing .NET metadata files */
-  readonly metadataPath?: string;
-  /** Path to directory containing .NET bindings files */
-  readonly bindingsPath?: string;
+  /** External library paths (contain .metadata and .bindings directories) */
+  readonly libraries?: readonly string[];
 };
 
 /**

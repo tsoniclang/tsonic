@@ -10,3 +10,6 @@ export {
   buildBindingsRegistry,
   lookupTypeBinding,
 } from "./bindings-loader.js";
+
+export { loadLibrary, loadLibraries } from "./library-loader.js";
+export type { LibraryData } from "./library-loader.js";

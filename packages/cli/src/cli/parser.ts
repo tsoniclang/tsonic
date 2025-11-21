@@ -102,6 +102,16 @@ export const parseArgs = (
       case "--no-strip":
         options.noStrip = true;
         break;
+      case "-L":
+      case "--lib":
+        {
+          const libPath = args[++i] ?? "";
+          if (libPath) {
+            options.lib = options.lib || [];
+            options.lib.push(libPath);
+          }
+        }
+        break;
     }
   }
 

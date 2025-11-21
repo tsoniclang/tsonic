@@ -52,6 +52,7 @@ export type TsonicConfig = {
   readonly dotnet?: {
     readonly typeRoots?: readonly string[];
     readonly packages?: readonly NuGetPackage[];
+    readonly libraries?: readonly string[]; // External library paths for .NET interop
   };
 };
 
@@ -70,6 +71,7 @@ export type CliOptions = {
   keepTemp?: boolean;
   noStrip?: boolean;
   packages?: string;
+  lib?: string[]; // External library paths for .NET interop
   // Output type options
   type?: OutputType;
   targetFramework?: string;
@@ -102,6 +104,7 @@ export type ResolvedConfig = {
   readonly verbose: boolean;
   readonly quiet: boolean;
   readonly typeRoots: readonly string[];
+  readonly libraries: readonly string[]; // External library paths for .NET interop
 };
 
 /**
