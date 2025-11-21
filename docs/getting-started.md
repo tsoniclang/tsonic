@@ -7,17 +7,19 @@ This guide will help you install Tsonic and compile your first TypeScript progra
 Before you begin, make sure you have:
 
 1. **.NET SDK 8.0 or later**
+
    ```bash
    dotnet --version  # Should show 8.0 or higher
    ```
-   
+
    If not installed, download from [dot.net](https://dot.net)
 
 2. **Node.js 18.0 or later**
+
    ```bash
    node --version  # Should show v18.0 or higher
    ```
-   
+
    If not installed, download from [nodejs.org](https://nodejs.org)
 
 ## Installation
@@ -83,6 +85,7 @@ hello    # Windows
 ```
 
 The executable:
+
 - Is a single file with no dependencies
 - Starts instantly (no JIT compilation)
 - Is typically 10-50 MB depending on features used
@@ -98,23 +101,23 @@ import { File, Directory } from "System.IO";
 
 export function main(): void {
   const dir = "data";
-  
+
   // Create directory if it doesn't exist
   if (!Directory.Exists(dir)) {
     Directory.CreateDirectory(dir);
     console.log(`Created directory: ${dir}`);
   }
-  
+
   // Write a file
   const content = "Tsonic is awesome!";
   const filePath = `${dir}/message.txt`;
   File.WriteAllText(filePath, content);
   console.log(`Wrote: ${filePath}`);
-  
+
   // Read it back
   const readContent = File.ReadAllText(filePath);
   console.log(`Read: ${readContent}`);
-  
+
   // Count files in directory
   const files = Directory.GetFiles(dir);
   console.log(`Files in ${dir}: ${files.length}`);
@@ -271,12 +274,12 @@ TypeScript types map to native .NET types:
 
 ```typescript
 // Primitives
-const name: string = "Alice";      // → string
-const age: number = 25;            // → double
-const active: boolean = true;      // → bool
+const name: string = "Alice"; // → string
+const age: number = 25; // → double
+const active: boolean = true; // → bool
 
 // Arrays
-const nums: number[] = [1, 2, 3];  // → List<double>
+const nums: number[] = [1, 2, 3]; // → List<double>
 
 // Async
 async function fetch(): Promise<string> {

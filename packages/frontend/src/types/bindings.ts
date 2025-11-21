@@ -29,14 +29,14 @@ export type TypeBinding = {
   readonly tsEmitName: string;
   readonly assemblyName: string;
   readonly metadataToken: number;
-  readonly methods?: MethodBinding[];           // V1: Full signatures
-  readonly properties?: PropertyBinding[];       // V1: Property info
-  readonly fields?: FieldBinding[];             // V1: Field info
-  readonly events?: EventBinding[];             // V1: Event info
-  readonly exposedMethods?: ExposedMethodBinding[];     // V2: Runtime dispatch
+  readonly methods?: MethodBinding[]; // V1: Full signatures
+  readonly properties?: PropertyBinding[]; // V1: Property info
+  readonly fields?: FieldBinding[]; // V1: Field info
+  readonly events?: EventBinding[]; // V1: Event info
+  readonly exposedMethods?: ExposedMethodBinding[]; // V2: Runtime dispatch
   readonly exposedProperties?: ExposedPropertyBinding[]; // V2: Runtime access
-  readonly exposedFields?: ExposedFieldBinding[];       // V2: Runtime access
-  readonly exposedEvents?: ExposedEventBinding[];       // V2: Runtime access
+  readonly exposedFields?: ExposedFieldBinding[]; // V2: Runtime access
+  readonly exposedEvents?: ExposedEventBinding[]; // V2: Runtime access
 };
 
 /**

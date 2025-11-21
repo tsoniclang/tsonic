@@ -70,7 +70,11 @@ const buildNativeExecutable = async (
 
   // 3. Generate .csproj file
   const projectContent = generateProjectFile(options);
-  await fs.writeFile(join(outputDir, "project.csproj"), projectContent, "utf-8");
+  await fs.writeFile(
+    join(outputDir, "project.csproj"),
+    projectContent,
+    "utf-8"
+  );
 
   // 4. Restore dependencies
   await execAsync("dotnet restore", { cwd: outputDir });
@@ -102,16 +106,19 @@ const buildNativeExecutable = async (
 ### 3.1 Required Properties
 
 **PublishAot**: `true`
+
 - Enables Native AOT compilation
 - Produces single-file native executable
 - No runtime dependencies required
 
 **InvariantGlobalization**: `true`
+
 - Disables culture-specific formatting
 - Reduces binary size significantly
 - Required for minimal runtime
 
 **TrimMode**: `link`
+
 - Removes unused code
 - Reduces binary size
 - Required for NativeAOT
@@ -172,16 +179,19 @@ output/
 ### 5.2 Binary Characteristics
 
 **Size:**
+
 - Small program (~3-5 MB)
 - Medium program (~8-15 MB)
 - Large program (~20-40 MB)
 
 **Startup Time:**
+
 - Cold start: < 10ms
 - No JIT compilation
 - Instant execution
 
 **Performance:**
+
 - Native machine code
 - Comparable to C/C++/Rust
 - No GC pauses during execution
@@ -193,6 +203,7 @@ output/
 ### 6.1 Common Errors
 
 **AOT Analysis Warnings:**
+
 ```
 IL3050: Using member 'X' which has RequiresDynamicCodeAttribute can break functionality when AOT compiling.
 ```
@@ -200,6 +211,7 @@ IL3050: Using member 'X' which has RequiresDynamicCodeAttribute can break functi
 **Resolution:** Avoid reflection and dynamic code generation in Tsonic code.
 
 **Missing Dependencies:**
+
 ```
 error NU1101: Unable to find package Tsonic.Runtime
 ```
@@ -213,18 +225,21 @@ error NU1101: Unable to find package Tsonic.Runtime
 ### 7.1 Build Times
 
 **Small Project (10 files, 1000 LOC):**
+
 - C# generation: ~100ms
 - dotnet restore: ~2s
 - AOT compilation: ~10s
 - **Total: ~12s**
 
 **Medium Project (100 files, 10000 LOC):**
+
 - C# generation: ~500ms
 - dotnet restore: ~3s
 - AOT compilation: ~30s
 - **Total: ~34s**
 
 **Large Project (1000 files, 100000 LOC):**
+
 - C# generation: ~5s
 - dotnet restore: ~5s
 - AOT compilation: ~120s
@@ -233,6 +248,7 @@ error NU1101: Unable to find package Tsonic.Runtime
 ### 7.2 Incremental Builds
 
 Incremental compilation is handled by dotnet CLI:
+
 - Only recompiles changed files
 - Caches intermediate build artifacts
 - Typically 5-10x faster than clean builds
@@ -248,6 +264,7 @@ Incremental compilation is handled by dotnet CLI:
 ---
 
 **Document Statistics:**
+
 - Lines: ~250
 - Sections: 8
 - Coverage: Complete backend compilation with NativeAOT

@@ -21,12 +21,7 @@ export type MetadataFile = {
  * Type kind enumeration.
  * Represents the fundamental kind of CLR type.
  */
-export type TypeKind =
-  | "Class"
-  | "Interface"
-  | "Struct"
-  | "Enum"
-  | "Delegate";
+export type TypeKind = "Class" | "Interface" | "Struct" | "Enum" | "Delegate";
 
 /**
  * Accessibility level enumeration.
@@ -45,21 +40,21 @@ export type Accessibility =
  * Determines where a member should be emitted in TypeScript declarations.
  */
 export type EmitScope =
-  | "ClassSurface"   // Emit on main class
-  | "ViewOnly"       // Emit only in explicit interface views
-  | "Omitted";       // Don't emit (not accessible from TypeScript)
+  | "ClassSurface" // Emit on main class
+  | "ViewOnly" // Emit only in explicit interface views
+  | "Omitted"; // Don't emit (not accessible from TypeScript)
 
 /**
  * Provenance enumeration.
  * Tracks the origin of a member in the type hierarchy.
  */
 export type Provenance =
-  | "Original"                  // Declared on this type
-  | "Declared"                  // Explicitly declared (alias of Original)
-  | "InlineFromInterface"       // Implicit interface implementation
-  | "InlineFromBase"            // Inherited from base class
-  | "SynthesizedViewOnly"       // Generated for view-only access
-  | "ExplicitView";             // Explicit interface implementation
+  | "Original" // Declared on this type
+  | "Declared" // Explicitly declared (alias of Original)
+  | "InlineFromInterface" // Implicit interface implementation
+  | "InlineFromBase" // Inherited from base class
+  | "SynthesizedViewOnly" // Generated for view-only access
+  | "ExplicitView"; // Explicit interface implementation
 
 /**
  * Complete metadata for a CLR type.

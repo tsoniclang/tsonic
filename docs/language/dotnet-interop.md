@@ -100,7 +100,7 @@ export function processFile(path: string): void {
 
   // To make mutable, use C# List
   const mutable = new List<string>(lines);
-  mutable.Add("New line");  // ✅ C# method
+  mutable.Add("New line"); // ✅ C# method
 
   // Pass back to C# API (needs T[])
   File.WriteAllLines(path, mutable.ToArray());
@@ -108,6 +108,7 @@ export function processFile(path: string): void {
 ```
 
 **Key Points:**
+
 - C# arrays from libraries → `ReadonlyArray<T>` in TypeScript
 - To modify, convert to C# `List<T>`
 - Use C# methods (`.Add()`, `.ToArray()`) on C# types
@@ -143,8 +144,8 @@ Access .NET properties:
 import { DateTime } from "System";
 
 export function getToday(): DateTime {
-  const now = DateTime.Now;  // Property access
-  const year = now.Year;     // Property on instance
+  const now = DateTime.Now; // Property access
+  const year = now.Year; // Property on instance
   return now;
 }
 ```
@@ -301,10 +302,12 @@ export async function main(): Promise<void> {
 Tsonic generates TypeScript type declarations (`.d.ts`) for .NET assemblies automatically. This gives you IntelliSense and type checking for all .NET APIs.
 
 **Auto-generated for:**
+
 - .NET BCL (Base Class Library)
 - All NuGet packages you reference
 
 **Example:**
+
 ```typescript
 import { File } from "System.IO";
 //       ^^^^

@@ -5,6 +5,7 @@
 C# extension methods are static methods that appear to extend a type without modifying it. TypeScript doesn't have an equivalent feature, so tsbindgen and Tsonic handle them as **static methods with a clear naming convention**.
 
 **C# Extension Method:**
+
 ```csharp
 // C# - LINQ extension methods
 public static class Enumerable
@@ -23,13 +24,14 @@ var doubled = numbers.SelectMany(x => new[] { x, x });  // Extension method synt
 ```
 
 **TypeScript/Tsonic Equivalent:**
+
 ```typescript
 // TypeScript - Static method
 export class Enumerable {
-    static SelectMany<TSource, TResult>(
-        source: IEnumerable<TSource>,
-        selector: (x: TSource) => IEnumerable<TResult>
-    ): IEnumerable<TResult>;
+  static SelectMany<TSource, TResult>(
+    source: IEnumerable<TSource>,
+    selector: (x: TSource) => IEnumerable<TResult>
+  ): IEnumerable<TResult>;
 }
 
 // Usage in TypeScript
@@ -40,22 +42,19 @@ numbers.Add(1);
 numbers.Add(2);
 numbers.Add(3);
 
-const doubled = Enumerable.SelectMany(
-    numbers.As_IEnumerable,
-    x => [x, x]
-);  // Static method call
+const doubled = Enumerable.SelectMany(numbers.As_IEnumerable, (x) => [x, x]); // Static method call
 ```
 
 ---
 
 ## Key Differences from C#
 
-| Aspect | C# | TypeScript/Tsonic |
-|--------|----|--------------------|
-| **Syntax** | `list.SelectMany(...)` | `Enumerable.SelectMany(list, ...)` |
-| **First Parameter** | Implicit (`this`) | Explicit (first argument) |
-| **Import** | `using System.Linq;` | `import { Enumerable } from "System.Linq";` |
-| **Method Resolution** | Compiler resolves to static method | Already static method call |
+| Aspect                | C#                                 | TypeScript/Tsonic                           |
+| --------------------- | ---------------------------------- | ------------------------------------------- |
+| **Syntax**            | `list.SelectMany(...)`             | `Enumerable.SelectMany(list, ...)`          |
+| **First Parameter**   | Implicit (`this`)                  | Explicit (first argument)                   |
+| **Import**            | `using System.Linq;`               | `import { Enumerable } from "System.Linq";` |
+| **Method Resolution** | Compiler resolves to static method | Already static method call                  |
 
 **Key Insight:** In C#, extension method syntax `list.SelectMany(...)` is **syntactic sugar** that the compiler transforms into `Enumerable.SelectMany(list, ...)`. In TypeScript/Tsonic, we **skip the sugar** and use the static method directly.
 
@@ -81,6 +80,7 @@ if (method.IsStatic &&
 ### 2. TypeScript Emission
 
 **Original C# signature:**
+
 ```csharp
 public static IEnumerable<TResult> SelectMany<TSource, TResult>(
     this IEnumerable<TSource> source,  // ← Extension parameter
@@ -88,6 +88,7 @@ public static IEnumerable<TResult> SelectMany<TSource, TResult>(
 ```
 
 **Emitted TypeScript:**
+
 ```typescript
 static SelectMany<TSource, TResult>(
     source: IEnumerable_1<TSource>,  // ← Regular parameter (no "this")
@@ -96,6 +97,7 @@ static SelectMany<TSource, TResult>(
 ```
 
 **Key Changes:**
+
 - `this` keyword removed (TypeScript doesn't support it on static methods)
 - Extension parameter becomes first regular parameter
 - Method remains static
@@ -134,34 +136,26 @@ numbers.Add(2);
 numbers.Add(3);
 
 // Where
-const evens = Enumerable.Where(
-    numbers.As_IEnumerable,
-    x => x % 2 === 0
-);
+const evens = Enumerable.Where(numbers.As_IEnumerable, (x) => x % 2 === 0);
 
 // Select
-const doubled = Enumerable.Select(
-    numbers.As_IEnumerable,
-    x => x * 2
-);
+const doubled = Enumerable.Select(numbers.As_IEnumerable, (x) => x * 2);
 
 // SelectMany
-const flattened = Enumerable.SelectMany(
-    numbers.As_IEnumerable,
-    x => [x, x * 10]
-);
+const flattened = Enumerable.SelectMany(numbers.As_IEnumerable, (x) => [
+  x,
+  x * 10,
+]);
 
 // Method chaining
 const result = Enumerable.Select(
-    Enumerable.Where(
-        numbers.As_IEnumerable,
-        x => x % 2 === 0
-    ),
-    x => x * 2
+  Enumerable.Where(numbers.As_IEnumerable, (x) => x % 2 === 0),
+  (x) => x * 2
 );
 ```
 
 **Generated C#:**
+
 ```csharp
 using System.Linq;
 using System.Collections.Generic;
@@ -234,12 +228,9 @@ namespace MyApp.Extensions
 ```typescript
 // TypeScript - tsbindgen generated
 declare namespace MyApp.Extensions {
-    export class ListExtensions {
-        static AddRange<T>(
-            list: List_1<T>,
-            ...items: T[]
-        ): void;
-    }
+  export class ListExtensions {
+    static AddRange<T>(list: List_1<T>, ...items: T[]): void;
+  }
 }
 
 // Usage
@@ -276,12 +267,13 @@ import { Enumerable } from "System.Linq";
 const numbers = [1, 2, 3];
 
 // Compiler transforms extension syntax to static call
-const doubled = numbers.SelectMany(x => [x, x]);
+const doubled = numbers.SelectMany((x) => [x, x]);
 // ↓
 // Enumerable.SelectMany(numbers, x => [x, x]);
 ```
 
 **Requirements for this feature:**
+
 1. Tsonic compiler must detect extension method usage from metadata
 2. Transform AST to convert method call to static call
 3. Import the static class automatically
@@ -315,10 +307,8 @@ When resolving `Enumerable.SelectMany`:
 ```typescript
 // Tsonic compiler
 const type = resolveType("System.Linq.Enumerable");
-const method = type.methods.find(m =>
-    m.clrName === "SelectMany" &&
-    m.isStatic &&
-    m.parameterCount === 2
+const method = type.methods.find(
+  (m) => m.clrName === "SelectMany" && m.isStatic && m.parameterCount === 2
 );
 
 // Emit static call
@@ -331,7 +321,7 @@ LINQ extension methods are generic. Tsonic must infer type arguments:
 
 ```typescript
 // TypeScript (type arguments inferred)
-const doubled = Enumerable.Select(numbers, x => x * 2);
+const doubled = Enumerable.Select(numbers, (x) => x * 2);
 //                                 ^^^^^^^  ^^^^^^^^
 //                                 IEnumerable<number>
 //                                          (number) => number
@@ -344,6 +334,7 @@ var doubled = Enumerable.Select<int, int>(numbers, x => x * 2);
 ```
 
 **Type Inference Algorithm:**
+
 1. Analyze first argument type: `IEnumerable<number>` → `TSource = number`
 2. Analyze lambda return type: `(number) => number` → `TResult = number`
 3. Emit with explicit type arguments in C#
@@ -352,18 +343,18 @@ var doubled = Enumerable.Select<int, int>(numbers, x => x * 2);
 
 ## Common LINQ Methods
 
-| Method | Signature | Purpose |
-|--------|-----------|---------|
-| `Where` | `Where<T>(IEnumerable<T>, T => bool)` | Filter elements |
-| `Select` | `Select<T, R>(IEnumerable<T>, T => R)` | Transform elements |
-| `SelectMany` | `SelectMany<T, R>(IEnumerable<T>, T => IEnumerable<R>)` | Flatten nested sequences |
-| `First` | `First<T>(IEnumerable<T>)` | Get first element |
-| `FirstOrDefault` | `FirstOrDefault<T>(IEnumerable<T>)` | Get first or default |
-| `Any` | `Any<T>(IEnumerable<T>, T => bool)` | Check if any match |
-| `All` | `All<T>(IEnumerable<T>, T => bool)` | Check if all match |
-| `Count` | `Count<T>(IEnumerable<T>)` | Count elements |
-| `OrderBy` | `OrderBy<T, K>(IEnumerable<T>, T => K)` | Sort ascending |
-| `GroupBy` | `GroupBy<T, K>(IEnumerable<T>, T => K)` | Group by key |
+| Method           | Signature                                               | Purpose                  |
+| ---------------- | ------------------------------------------------------- | ------------------------ |
+| `Where`          | `Where<T>(IEnumerable<T>, T => bool)`                   | Filter elements          |
+| `Select`         | `Select<T, R>(IEnumerable<T>, T => R)`                  | Transform elements       |
+| `SelectMany`     | `SelectMany<T, R>(IEnumerable<T>, T => IEnumerable<R>)` | Flatten nested sequences |
+| `First`          | `First<T>(IEnumerable<T>)`                              | Get first element        |
+| `FirstOrDefault` | `FirstOrDefault<T>(IEnumerable<T>)`                     | Get first or default     |
+| `Any`            | `Any<T>(IEnumerable<T>, T => bool)`                     | Check if any match       |
+| `All`            | `All<T>(IEnumerable<T>, T => bool)`                     | Check if all match       |
+| `Count`          | `Count<T>(IEnumerable<T>)`                              | Count elements           |
+| `OrderBy`        | `OrderBy<T, K>(IEnumerable<T>, T => K)`                 | Sort ascending           |
+| `GroupBy`        | `GroupBy<T, K>(IEnumerable<T>, T => K)`                 | Group by key             |
 
 **Full documentation:** See `System.Linq` namespace declarations.
 
@@ -398,24 +389,20 @@ Use: list.As_IEnumerable
 5. **Type annotations**: Help TypeScript infer complex generic chains
 
 **Good:**
+
 ```typescript
 import { Enumerable } from "System.Linq";
 
-const filtered = Enumerable.Where(
-    list.As_IEnumerable,
-    x => x > 10
-);
+const filtered = Enumerable.Where(list.As_IEnumerable, (x) => x > 10);
 
-const mapped = Enumerable.Select(
-    filtered,
-    x => x.toString()
-);
+const mapped = Enumerable.Select(filtered, (x) => x.toString());
 ```
 
 **Bad:**
+
 ```typescript
 // Don't try to use C# extension syntax
-const filtered = list.Where(x => x > 10);  // ❌ Won't work
+const filtered = list.Where((x) => x > 10); // ❌ Won't work
 ```
 
 ---

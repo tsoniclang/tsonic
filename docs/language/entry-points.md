@@ -14,6 +14,7 @@ export function main(): void {
 ```
 
 Compile with:
+
 ```bash
 tsonic build main.ts --namespace MyApp
 ./main
@@ -63,9 +64,9 @@ Return an exit code:
 ```typescript
 export function main(): int {
   if (errorCondition) {
-    return 1;  // Error
+    return 1; // Error
   }
-  return 0;  // Success
+  return 0; // Success
 }
 ```
 

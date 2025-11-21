@@ -11,6 +11,7 @@ This directory contains engineering specifications and internal architecture doc
 These define the interfaces and guarantees between compiler phases:
 
 ### Core Contracts
+
 - **[metadata.md](metadata.md)** - `.metadata.json` schema for CLR-specific information (camelCase)
 - **[bindings.md](bindings.md)** - `.bindings.json` schema for name transformation tracking (camelCase)
 - **[runtime-contract.md](runtime-contract.md)** - Runtime asset loading and type roots
@@ -18,10 +19,11 @@ These define the interfaces and guarantees between compiler phases:
 - **[validation.md](validation.md)** - Validation rules and diagnostic codes
 
 ### .NET Interop Features
+
 - **[explicit-interface-views.md](explicit-interface-views.md)** - As_IInterface pattern for explicit implementations
 - **[extension-methods.md](extension-methods.md)** - C# extension methods as static methods (LINQ)
 - **[ref-out-parameters.md](ref-out-parameters.md)** - TSByRef wrapper for ref/out/in parameters
-- **[support-types.md](support-types.md)** - _support/types.d.ts markers (TSByRef, TSUnsafePointer, etc.)
+- **[support-types.md](support-types.md)** - \_support/types.d.ts markers (TSByRef, TSUnsafePointer, etc.)
 - **[nested-types.md](nested-types.md)** - Outer$Inner naming convention for nested types
 
 ---

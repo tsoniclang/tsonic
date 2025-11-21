@@ -52,6 +52,7 @@ type DependencyAnalysis = {
 ```
 
 **Fields:**
+
 - **graph** - Complete module dependency graph
 - **symbolTable** - Cross-module symbol references
 - **diagnostics** - Errors and warnings from analysis
@@ -68,6 +69,7 @@ type ModuleGraph = {
 ```
 
 **Fields:**
+
 - **modules** - Map of file path → ModuleInfo
 - **dependencies** - Map of file path → list of files it imports
 - **dependents** - Map of file path → list of files that import it
@@ -86,16 +88,22 @@ type ModuleInfo = {
 };
 
 type Import = {
-  readonly source: string;              // "./User.ts" or "System.IO"
+  readonly source: string; // "./User.ts" or "System.IO"
   readonly isLocal: boolean;
   readonly isDotNet: boolean;
-  readonly resolvedPath?: string;       // Absolute path for local imports
+  readonly resolvedPath?: string; // Absolute path for local imports
   readonly specifiers: readonly ImportSpecifier[];
 };
 
 type Export = {
   readonly name: string;
-  readonly kind: "variable" | "function" | "class" | "interface" | "enum" | "type";
+  readonly kind:
+    | "variable"
+    | "function"
+    | "class"
+    | "interface"
+    | "enum"
+    | "type";
   readonly isDefault: boolean;
 };
 ```
@@ -109,12 +117,12 @@ type SymbolTable = {
 };
 
 type Symbol = {
-  readonly id: string;                  // Unique identifier
-  readonly name: string;                // Symbol name
+  readonly id: string; // Unique identifier
+  readonly name: string; // Symbol name
   readonly kind: SymbolKind;
-  readonly modulePath: string;          // Where it's defined
+  readonly modulePath: string; // Where it's defined
   readonly isExported: boolean;
-  readonly type?: string;               // TypeScript type string
+  readonly type?: string; // TypeScript type string
 };
 
 type SymbolKind =
@@ -207,7 +215,11 @@ const extractModuleInfo = (
   program: TsonicProgram
 ): ModuleInfo => {
   const filePath = sourceFile.fileName;
-  const namespace = getNamespaceFromPath(filePath, program.options.sourceRoot, program.options.rootNamespace);
+  const namespace = getNamespaceFromPath(
+    filePath,
+    program.options.sourceRoot,
+    program.options.rootNamespace
+  );
   const className = getClassNameFromPath(filePath);
 
   // Extract imports
@@ -219,7 +231,9 @@ const extractModuleInfo = (
   const exports = extractExports(sourceFile, program.checker);
 
   // Check for top-level code
-  const hasTopLevelCode = sourceFile.statements.some((stmt) => isTopLevelCode(stmt));
+  const hasTopLevelCode = sourceFile.statements.some((stmt) =>
+    isTopLevelCode(stmt)
+  );
 
   return {
     filePath,
@@ -708,9 +722,7 @@ const isTopLevelCode = (statement: ts.Statement): boolean => {
   return true;
 };
 
-const hasExecutableInitializer = (
-  statement: ts.VariableStatement
-): boolean => {
+const hasExecutableInitializer = (statement: ts.VariableStatement): boolean => {
   return statement.declarationList.declarations.some(
     (decl) => decl.initializer !== undefined
   );
@@ -751,9 +763,7 @@ export const API_URL = process.env.API_URL; // Initializer is top-level code
 ### 9.1 Topological Sort
 
 ```typescript
-const topologicalSort = (
-  graph: ModuleGraph
-): readonly string[] => {
+const topologicalSort = (graph: ModuleGraph): readonly string[] => {
   const sorted: string[] = [];
   const visited = new Set<string>();
 
@@ -897,6 +907,7 @@ if (symbol) {
 ### 11.1 Common Errors
 
 **TSN1002: Circular Dependency**
+
 ```typescript
 // A.ts → B.ts → C.ts → A.ts
 Circular dependency detected: A.ts → B.ts → C.ts → A.ts
@@ -905,6 +916,7 @@ Hint: Break the circular dependency by refactoring shared code
 ```
 
 **TSN1004: Module Not Found**
+
 ```typescript
 // Import path doesn't resolve
 Cannot resolve import: ./models/Missing.ts
@@ -917,18 +929,22 @@ Cannot resolve import: ./models/Missing.ts
 ### 12.1 Complexity
 
 **Module Info Extraction:**
+
 - Time: O(M × N) where M = modules, N = average statements per module
 - Space: O(M) for ModuleInfo storage
 
 **Dependency Graph Building:**
+
 - Time: O(M + I) where M = modules, I = total imports
 - Space: O(M + I) for graph storage
 
 **Circular Detection:**
+
 - Time: O(M + D) where M = modules, D = total dependencies
 - Space: O(M) for visited/stack sets
 
 **Symbol Table Building:**
+
 - Time: O(M × S) where M = modules, S = average symbols per module
 - Space: O(M × S) for symbol storage
 
@@ -937,6 +953,7 @@ Cannot resolve import: ./models/Missing.ts
 ### 12.2 Timing
 
 **Small Project (10 modules, 100 LOC each):**
+
 - Module extraction: ~10ms
 - Dependency graph: ~5ms
 - Circular detection: ~2ms
@@ -944,6 +961,7 @@ Cannot resolve import: ./models/Missing.ts
 - **Total: ~32ms**
 
 **Medium Project (100 modules, 200 LOC each):**
+
 - Module extraction: ~50ms
 - Dependency graph: ~20ms
 - Circular detection: ~10ms
@@ -951,6 +969,7 @@ Cannot resolve import: ./models/Missing.ts
 - **Total: ~160ms**
 
 **Large Project (1000 modules, 500 LOC each):**
+
 - Module extraction: ~300ms
 - Dependency graph: ~100ms
 - Circular detection: ~50ms
@@ -979,6 +998,7 @@ Cannot resolve import: ./models/Missing.ts
 ---
 
 **Document Statistics:**
+
 - Lines: ~800
 - Sections: 13
 - Code examples: 25+

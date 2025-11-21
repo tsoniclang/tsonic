@@ -132,11 +132,7 @@ const validateBindingsFile = (
   } else {
     // Validate each type binding
     for (let i = 0; i < obj.types.length; i++) {
-      const typeValidation = validateTypeBinding(
-        obj.types[i],
-        filePath,
-        i
-      );
+      const typeValidation = validateTypeBinding(obj.types[i], filePath, i);
       if (!typeValidation.ok) {
         diagnostics.push(...typeValidation.error);
       }

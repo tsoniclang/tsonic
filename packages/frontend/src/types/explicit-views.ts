@@ -153,9 +153,7 @@ export const parseExplicitViewAccess = (
   }
 
   // Look for view that matches the property name
-  const view = explicitViews.find(
-    (v) => v.tsPropertyName === viewPropertyName
-  );
+  const view = explicitViews.find((v) => v.tsPropertyName === viewPropertyName);
   if (!view) {
     return undefined;
   }

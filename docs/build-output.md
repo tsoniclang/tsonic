@@ -124,14 +124,14 @@ Tsonic automatically generates a `.csproj` file with NativeAOT settings:
 
 The final executable has these properties:
 
-| Property | Value |
-|----------|-------|
-| **Format** | Single native executable |
-| **Runtime** | None required (self-contained) |
-| **Size** | 10-50 MB (depends on features) |
-| **Startup** | Fast (no JIT compilation) |
-| **Platform** | Native for target RID |
-| **Dependencies** | None (statically linked) |
+| Property         | Value                          |
+| ---------------- | ------------------------------ |
+| **Format**       | Single native executable       |
+| **Runtime**      | None required (self-contained) |
+| **Size**         | 10-50 MB (depends on features) |
+| **Startup**      | Fast (no JIT compilation)      |
+| **Platform**     | Native for target RID          |
+| **Dependencies** | None (statically linked)       |
 
 ## Build Optimizations
 
@@ -142,6 +142,7 @@ tsonic build main.ts --optimize speed
 ```
 
 Prioritizes runtime performance:
+
 - Optimized for execution speed
 - May be slightly larger
 - Best for production services
@@ -153,6 +154,7 @@ tsonic build main.ts --optimize size
 ```
 
 Prioritizes binary size:
+
 - Smaller executable
 - May sacrifice some performance
 - Best for CLI tools, lambdas
@@ -166,6 +168,7 @@ tsonic build main.ts --keep-temp
 ```
 
 The build directory stays at `.tsonic/build/<hash>/` and you can:
+
 - Inspect generated C# code
 - Check the `.csproj` file
 - See compiler warnings
@@ -238,14 +241,15 @@ cat .tsonic/build/<hash>/bin/Release/net8.0/<rid>/publish/*.log
 
 Typical build times:
 
-| Project Size | Time |
-|--------------|------|
-| Single file | 5-10s |
-| Small (5-10 files) | 10-20s |
-| Medium (20-50 files) | 20-40s |
-| Large (100+ files) | 1-2 min |
+| Project Size         | Time    |
+| -------------------- | ------- |
+| Single file          | 5-10s   |
+| Small (5-10 files)   | 10-20s  |
+| Medium (20-50 files) | 20-40s  |
+| Large (100+ files)   | 1-2 min |
 
 Most time is spent in:
+
 1. TypeScript parsing (~10%)
 2. C# emission (~10%)
 3. dotnet publish (~80%)

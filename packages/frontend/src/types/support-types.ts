@@ -7,7 +7,7 @@
  * @see spec/support-types.md for complete documentation
  */
 
-import type * as ts from "typescript";
+import * as ts from "typescript";
 
 /**
  * Support type kind enumeration.
@@ -39,15 +39,10 @@ export type SupportTypeInfo = {
  */
 export const getSupportTypeInfo = (
   type: ts.Type,
-  checker: ts.TypeChecker
+  _checker: ts.TypeChecker
 ): SupportTypeInfo | undefined => {
-  // Check if type is a generic type reference
-  if (!isGenericTypeReference(type)) {
-    return undefined;
-  }
-
-  // Get the type symbol name
-  const symbol = type.symbol || type.aliasSymbol;
+  // Try to get type name from either symbol or aliasSymbol
+  const symbol = type.aliasSymbol || type.symbol;
   if (!symbol) {
     return undefined;
   }
@@ -60,15 +55,30 @@ export const getSupportTypeInfo = (
     return undefined;
   }
 
-  // Extract type arguments
-  const typeArguments = getTypeArguments(type, checker);
+  // Extract type arguments - try alias type arguments first, then regular
+  let typeArguments: readonly ts.Type[] = [];
+
+  // Type aliases have aliasTypeArguments
+  if (type.aliasTypeArguments && type.aliasTypeArguments.length > 0) {
+    typeArguments = type.aliasTypeArguments;
+  }
+  // Generic type references have typeArguments through TypeReference interface
+  else if (isGenericTypeReference(type)) {
+    typeArguments = getTypeArguments(type);
+  }
+
   if (typeArguments.length === 0) {
+    return undefined;
+  }
+
+  const wrappedType = typeArguments[0];
+  if (!wrappedType) {
     return undefined;
   }
 
   return {
     kind,
-    wrappedType: typeArguments[0],
+    wrappedType,
     typeArguments,
   };
 };
@@ -105,10 +115,7 @@ const getSupportTypeKind = (typeName: string): SupportTypeKind | undefined => {
  * @param checker - TypeScript type checker
  * @returns True if type is TSByRef<T>
  */
-export const isTSByRef = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): boolean => {
+export const isTSByRef = (type: ts.Type, checker: ts.TypeChecker): boolean => {
   const info = getSupportTypeInfo(type, checker);
   return info?.kind === "TSByRef";
 };
@@ -165,10 +172,7 @@ export const isTSNullable = (
  * @param checker - TypeScript type checker
  * @returns True if type is TSFixed<T, N>
  */
-export const isTSFixed = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): boolean => {
+export const isTSFixed = (type: ts.Type, checker: ts.TypeChecker): boolean => {
   const info = getSupportTypeInfo(type, checker);
   return info?.kind === "TSFixed";
 };
@@ -241,13 +245,9 @@ const isGenericTypeReference = (type: ts.Type): boolean => {
  * Get type arguments from a generic type reference.
  *
  * @param type - TypeScript type (must be generic reference)
- * @param checker - TypeScript type checker
  * @returns Array of type arguments
  */
-const getTypeArguments = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): readonly ts.Type[] => {
+const getTypeArguments = (type: ts.Type): readonly ts.Type[] => {
   const typeRef = type as ts.TypeReference;
   if (!typeRef.typeArguments) {
     return [];

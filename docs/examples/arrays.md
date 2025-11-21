@@ -28,8 +28,8 @@ export function main() {
   const first = nums.shift();
 
   // Transform
-  const doubled = nums.map(x => x * 2);
-  const evens = nums.filter(x => x % 2 === 0);
+  const doubled = nums.map((x) => x * 2);
+  const evens = nums.filter((x) => x % 2 === 0);
   const sum = nums.reduce((a, b) => a + b, 0);
 
   // Access
@@ -50,9 +50,9 @@ export function main() {
   const sparse: number[] = [];
   sparse[10] = 42;
 
-  console.log(sparse.length);  // 11
-  console.log(sparse[5]);      // 0 (default value)
-  console.log(sparse[10]);     // 42
+  console.log(sparse.length); // 11
+  console.log(sparse[5]); // 0 (default value)
+  console.log(sparse[10]); // 42
 }
 ```
 
@@ -68,7 +68,7 @@ export function main() {
   }
 
   // forEach
-  fruits.forEach(fruit => console.log(fruit));
+  fruits.forEach((fruit) => console.log(fruit));
 
   // Traditional for
   for (let i = 0; i < fruits.length; i++) {
@@ -84,12 +84,12 @@ export function main() {
   const matrix: number[][] = [
     [1, 2, 3],
     [4, 5, 6],
-    [7, 8, 9]
+    [7, 8, 9],
   ];
 
-  console.log(matrix[0][0]);  // 1
-  console.log(matrix[1][1]);  // 5
-  console.log(matrix[2][2]);  // 9
+  console.log(matrix[0][0]); // 1
+  console.log(matrix[1][1]); // 5
+  console.log(matrix[2][2]); // 9
 }
 ```
 

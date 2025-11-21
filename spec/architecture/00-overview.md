@@ -7,6 +7,7 @@
 **Tsonic** is a TypeScript-to-C#-to-NativeAOT compiler that produces fast, self-contained native executables using .NET's NativeAOT technology. It enables developers to write .NET applications using TypeScript syntax while preserving JavaScript semantics through the Tsonic.Runtime library.
 
 **Key Characteristics:**
+
 - **TypeScript Source** → **C# Code** → **Native Binary**
 - **.NET-First**: Uses native .NET types (List<T>, string, double), not JavaScript runtime ports
 - **JavaScript Semantics**: Preserves exact JS behavior through Tsonic.Runtime static helpers
@@ -17,6 +18,7 @@
 ### Example
 
 **TypeScript Input:**
+
 ```typescript
 // src/main.ts
 import { File } from "System.IO";
@@ -33,6 +35,7 @@ export function main() {
 ```
 
 **Generated C#:**
+
 ```csharp
 // Generated/MyApp/main.cs
 using Tsonic.Runtime;
@@ -55,6 +58,7 @@ public static class main {
 ```
 
 **Native Binary:**
+
 ```bash
 $ tsonic build src/main.ts
 $ ./myapp
@@ -71,6 +75,7 @@ Read 10 lines
 Tsonic uses **native .NET types** directly rather than creating wrapper classes:
 
 **Array Handling:**
+
 ```typescript
 // TypeScript:
 const arr: number[] = [1, 2, 3];
@@ -84,6 +89,7 @@ Tsonic.Runtime.Array.push(arr, 4.0);  // Static helper
 ```
 
 **Benefits:**
+
 - Full .NET ecosystem compatibility
 - Better performance (no wrapper overhead)
 - Interop with existing .NET libraries
@@ -92,6 +98,7 @@ Tsonic.Runtime.Array.push(arr, 4.0);  // Static helper
 ### 2.2 ESM-Only Module System
 
 **Strict Rules:**
+
 - Local imports **MUST** have `.ts` extension
 - .NET imports use capital letter namespaces (no extensions)
 - No default exports
@@ -110,6 +117,7 @@ export default class User {}
 ```
 
 **Rationale:**
+
 - Explicit is better than implicit
 - No magic resolution algorithms
 - Clear distinction between local and .NET imports
@@ -118,6 +126,7 @@ export default class User {}
 ### 2.3 Functional Programming
 
 **Mandatory Rules:**
+
 - **No mutable variables** - Only `const`, never `let` or `var`
 - **No mutations** - Never modify objects/arrays in place
 - **Pure functions** - No side effects except necessary I/O
@@ -133,11 +142,12 @@ const addImport = (module: IrModule, imp: IrImport): IrModule => ({
 
 // ❌ WRONG - Mutation
 function addImport(module: IrModule, imp: IrImport): void {
-  module.imports.push(imp);  // MUTATION!
+  module.imports.push(imp); // MUTATION!
 }
 ```
 
 **Benefits:**
+
 - Predictable, testable code
 - Safe for parallelization (future)
 - No hidden state or side effects
@@ -146,6 +156,7 @@ function addImport(module: IrModule, imp: IrImport): void {
 ### 2.4 Explicit Over Implicit
 
 **Error Instead of Guess:**
+
 ```typescript
 // ❌ Do NOT guess or infer behavior
 // ✅ Report clear error with diagnostic code
@@ -156,6 +167,7 @@ function addImport(module: IrModule, imp: IrImport): void {
 ```
 
 **Clear Diagnostics:**
+
 ```
 src/main.ts:5:8 - error TSN1001: Local import must have .ts extension
 
@@ -168,6 +180,7 @@ Change to: "./models/User.ts"
 ### 2.5 Layered Architecture
 
 **Clean Phase Separation:**
+
 ```
 Frontend  → IR       (No C# knowledge)
 Emitter   → C# Code  (No TypeScript knowledge)
@@ -278,19 +291,20 @@ Each layer has clear input/output contracts and no knowledge of adjacent layers.
 
 ### 3.2 Phase Inputs and Outputs
 
-| Phase | Input | Output | Error Type |
-|-------|-------|--------|------------|
-| **Program** | File paths, tsconfig | TsonicProgram | Parse errors, metadata load errors |
-| **Resolver** | TsonicProgram, entry file | ModuleGraph, ResolvedModule[] | TSN1xxx (import errors) |
-| **Validation** | ModuleGraph, source files | Diagnostic[] | TSN1xxx-TSN3xxx |
-| **IR Builder** | Validated modules | IrModule[] | TSN4xxx (conversion errors) |
-| **Analysis** | IrModule[] | DependencyAnalysis | TSN3006 (circular deps) |
-| **Emitter** | IrModule[], DependencyAnalysis | C# source files | TSN4xxx (emission errors) |
-| **Backend** | C# files, build config | Native binary | TSN5xxx (build errors) |
+| Phase          | Input                          | Output                        | Error Type                         |
+| -------------- | ------------------------------ | ----------------------------- | ---------------------------------- |
+| **Program**    | File paths, tsconfig           | TsonicProgram                 | Parse errors, metadata load errors |
+| **Resolver**   | TsonicProgram, entry file      | ModuleGraph, ResolvedModule[] | TSN1xxx (import errors)            |
+| **Validation** | ModuleGraph, source files      | Diagnostic[]                  | TSN1xxx-TSN3xxx                    |
+| **IR Builder** | Validated modules              | IrModule[]                    | TSN4xxx (conversion errors)        |
+| **Analysis**   | IrModule[]                     | DependencyAnalysis            | TSN3006 (circular deps)            |
+| **Emitter**    | IrModule[], DependencyAnalysis | C# source files               | TSN4xxx (emission errors)          |
+| **Backend**    | C# files, build config         | Native binary                 | TSN5xxx (build errors)             |
 
 ### 3.3 Data Flow
 
 **Forward Flow (Success Path):**
+
 ```
 TypeScript Files
   → TsonicProgram (with type checker, metadata, bindings)
@@ -303,6 +317,7 @@ TypeScript Files
 ```
 
 **Error Propagation:**
+
 ```
 Any Phase
   → Diagnostic[] (with code, severity, message, location)
@@ -336,6 +351,7 @@ const buildIr = (
 ```
 
 **No Hidden State:**
+
 ```typescript
 // ❌ WRONG - Global state
 let currentModule: IrModule;
@@ -357,6 +373,7 @@ const buildIr = (
 ### 4.2 Immutable Data Structures
 
 **All IR types are readonly:**
+
 ```typescript
 type IrModule = {
   readonly kind: "module";
@@ -370,6 +387,7 @@ type IrModule = {
 ```
 
 **Transformations create new objects:**
+
 ```typescript
 // ✅ CORRECT
 const addImport = (module: IrModule, imp: IrImport): IrModule => ({
@@ -383,6 +401,7 @@ const addImport = (module: IrModule, imp: IrImport): IrModule => ({
 ### 4.3 Result Types
 
 **Explicit error handling with Result<T, E>:**
+
 ```typescript
 type Result<T, E> =
   | { readonly ok: true; readonly value: T }
@@ -401,19 +420,18 @@ const buildIr = (
 ```
 
 **No exceptions for control flow:**
+
 ```typescript
 // ❌ WRONG
 function buildIr(program: TsonicProgram): IrModule[] {
   if (hasErrors) {
-    throw new Error("Build failed");  // Don't throw
+    throw new Error("Build failed"); // Don't throw
   }
   return modules;
 }
 
 // ✅ CORRECT
-const buildIr = (
-  program: TsonicProgram
-): Result<IrModule[], Diagnostic[]> => {
+const buildIr = (program: TsonicProgram): Result<IrModule[], Diagnostic[]> => {
   // Return Result type
 };
 ```
@@ -443,6 +461,7 @@ const buildIr = (
 ### 5.2 Package Responsibilities
 
 **@tsonic/frontend** (4,618 LOC, 110 files)
+
 - TypeScript program creation (Phase 1)
 - Module resolution (Phase 2)
 - Validation (Phase 3)
@@ -450,6 +469,7 @@ const buildIr = (
 - Dependency analysis (Phase 5)
 
 **@tsonic/emitter** (3,146 LOC)
+
 - C# type emission
 - C# expression emission
 - C# statement emission
@@ -457,12 +477,14 @@ const buildIr = (
 - Structural constraint adapter generation
 
 **@tsonic/backend**
+
 - .csproj file generation
 - Program.cs generation
 - dotnet CLI wrapper
 - NativeAOT build orchestration
 
 **@tsonic/cli**
+
 - Command-line interface
 - Configuration loading (tsonic.json)
 - Pipeline orchestration
@@ -482,6 +504,7 @@ External Dependencies:
 ```
 
 **Import Rules:**
+
 - Packages can only import from dependencies (not siblings)
 - `cli` can import from all packages
 - `backend` can import from `emitter` and `frontend`
@@ -495,12 +518,13 @@ External Dependencies:
 ### 6.1 IR Module
 
 **IrModule** - Root representation of a TypeScript file:
+
 ```typescript
 type IrModule = {
   readonly kind: "module";
-  readonly filePath: string;           // /src/models/User.ts
-  readonly namespace: string;          // MyApp.models
-  readonly className: string;          // User
+  readonly filePath: string; // /src/models/User.ts
+  readonly namespace: string; // MyApp.models
+  readonly className: string; // User
   readonly isStaticContainer: boolean; // true if no class, only exports
   readonly imports: readonly IrImport[];
   readonly body: readonly IrStatement[];
@@ -509,9 +533,10 @@ type IrModule = {
 ```
 
 **Static Container Detection:**
+
 ```typescript
 // File: utils.ts (no class named "utils")
-export function helper() { }
+export function helper() {}
 export const constant = 42;
 
 // isStaticContainer = true
@@ -522,56 +547,58 @@ export const constant = 42;
 
 ```typescript
 type IrType =
-  | IrPrimitiveType    // string, number, boolean, null, undefined
-  | IrReferenceType    // User, Array<T>, Map<K,V>
-  | IrArrayType        // T[]
-  | IrFunctionType     // (a: T) => U
-  | IrObjectType       // { x: number; y: string }
-  | IrUnionType        // T | U
+  | IrPrimitiveType // string, number, boolean, null, undefined
+  | IrReferenceType // User, Array<T>, Map<K,V>
+  | IrArrayType // T[]
+  | IrFunctionType // (a: T) => U
+  | IrObjectType // { x: number; y: string }
+  | IrUnionType // T | U
   | IrIntersectionType // T & U
-  | IrLiteralType      // "literal" | 42 | true
-  | IrAnyType          // any
-  | IrUnknownType      // unknown
-  | IrVoidType         // void
-  | IrNeverType;       // never
+  | IrLiteralType // "literal" | 42 | true
+  | IrAnyType // any
+  | IrUnknownType // unknown
+  | IrVoidType // void
+  | IrNeverType; // never
 ```
 
 ### 6.3 IR Expressions
 
 **35 expression types:**
+
 ```typescript
 type IrExpression =
-  | IrLiteralExpression        // 42, "hello", true
-  | IrIdentifierExpression     // variable (with CLR binding)
-  | IrArrayExpression          // [1, 2, 3]
-  | IrObjectExpression         // { x: 1, y: 2 }
-  | IrFunctionExpression       // function() {}
-  | IrArrowFunctionExpression  // () => {}
-  | IrMemberExpression         // obj.prop (with member binding)
-  | IrCallExpression           // fn(args) (with type arguments)
-  | IrNewExpression            // new Class()
-  | IrThisExpression           // this
-  | IrUpdateExpression         // ++x, x--
-  | IrUnaryExpression          // !x, -x, typeof x
-  | IrBinaryExpression         // x + y, x === y
-  | IrLogicalExpression        // x && y, x || y
-  | IrConditionalExpression    // x ? y : z
-  | IrAssignmentExpression     // x = y, x += y
+  | IrLiteralExpression // 42, "hello", true
+  | IrIdentifierExpression // variable (with CLR binding)
+  | IrArrayExpression // [1, 2, 3]
+  | IrObjectExpression // { x: 1, y: 2 }
+  | IrFunctionExpression // function() {}
+  | IrArrowFunctionExpression // () => {}
+  | IrMemberExpression // obj.prop (with member binding)
+  | IrCallExpression // fn(args) (with type arguments)
+  | IrNewExpression // new Class()
+  | IrThisExpression // this
+  | IrUpdateExpression // ++x, x--
+  | IrUnaryExpression // !x, -x, typeof x
+  | IrBinaryExpression // x + y, x === y
+  | IrLogicalExpression // x && y, x || y
+  | IrConditionalExpression // x ? y : z
+  | IrAssignmentExpression // x = y, x += y
   | IrTemplateLiteralExpression // `hello ${name}`
-  | IrSpreadExpression         // ...arr
-  | IrAwaitExpression          // await promise
-  | IrYieldExpression;         // yield value
+  | IrSpreadExpression // ...arr
+  | IrAwaitExpression // await promise
+  | IrYieldExpression; // yield value
 ```
 
 **Key Feature: Binding Resolution**
+
 ```typescript
 type IrIdentifierExpression = {
   readonly kind: "identifier";
   readonly name: string;
   readonly inferredType?: IrType;
-  readonly resolvedClrType?: string;    // "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string;   // "Tsonic.Runtime"
-  readonly csharpName?: string;         // Optional C# rename
+  readonly resolvedClrType?: string; // "Tsonic.Runtime.console"
+  readonly resolvedAssembly?: string; // "Tsonic.Runtime"
+  readonly csharpName?: string; // Optional C# rename
 };
 
 type IrMemberExpression = {
@@ -579,9 +606,9 @@ type IrMemberExpression = {
   readonly object: IrExpression;
   readonly property: IrExpression | string;
   readonly memberBinding?: {
-    readonly assembly: string;          // "System.Linq"
-    readonly type: string;              // "System.Linq.Enumerable"
-    readonly member: string;            // "SelectMany"
+    readonly assembly: string; // "System.Linq"
+    readonly type: string; // "System.Linq.Enumerable"
+    readonly member: string; // "SelectMany"
   };
 };
 ```
@@ -589,6 +616,7 @@ type IrMemberExpression = {
 ### 6.4 IR Statements
 
 **18 statement types:**
+
 ```typescript
 type IrStatement =
   | IrVariableDeclaration      // const x = 1
@@ -640,8 +668,8 @@ type IrMethodDeclaration = {
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
   readonly accessibility: "public" | "private" | "protected";
-  readonly isOverride?: boolean;   // Determined from metadata
-  readonly isShadow?: boolean;     // Determined from metadata
+  readonly isOverride?: boolean; // Determined from metadata
+  readonly isShadow?: boolean; // Determined from metadata
 };
 ```
 
@@ -678,6 +706,7 @@ ReadonlyArray<T>     →  IReadOnlyList<T>
 ```
 
 **JavaScript Semantics via Static Helpers:**
+
 ```typescript
 // TypeScript:
 const arr = [1, 2, 3];
@@ -739,27 +768,31 @@ public class Box<T> {
 ### 8.1 ESM Import Rules
 
 **Local Imports (starts with `.` or `/`):**
+
 ```typescript
-import { User } from "./models/User.ts";  // ✅
-import { User } from "./models/User";     // ❌ TSN1001
+import { User } from "./models/User.ts"; // ✅
+import { User } from "./models/User"; // ❌ TSN1001
 ```
 
 **.NET Imports (starts with capital letter):**
+
 ```typescript
-import { File } from "System.IO";          // ✅
-import { Console } from "System";          // ✅
-import { File } from "System/IO";          // ❌ TSN1004
+import { File } from "System.IO"; // ✅
+import { Console } from "System"; // ✅
+import { File } from "System/IO"; // ❌ TSN1004
 ```
 
 **Module Bindings (from binding registry):**
+
 ```typescript
 // If binding manifest defines "fs" → "Tsonic.NodeApi.fs"
-import * as fs from "fs";                  // ✅
+import * as fs from "fs"; // ✅
 ```
 
 ### 8.2 Namespace Generation
 
 **Directory Structure → Namespace:**
+
 ```
 Project root:  /home/user/project
 Source root:   /home/user/project/src
@@ -771,6 +804,7 @@ Class:     User
 ```
 
 **Case Preservation:**
+
 ```
 src/MyModels/User.ts       → namespace MyApp.MyModels; class User
 src/models/user-dto.ts     → namespace MyApp.models; class user-dto
@@ -793,10 +827,7 @@ const resolveImport = (
     }
 
     // Resolve relative to containing file
-    const resolved = path.resolve(
-      path.dirname(containingFile),
-      specifier
-    );
+    const resolved = path.resolve(path.dirname(containingFile), specifier);
 
     // Check file exists
     if (!fs.existsSync(resolved)) {
@@ -818,7 +849,7 @@ const resolveImport = (
     }
 
     return ok({
-      resolvedPath: specifier,  // Namespace, not path
+      resolvedPath: specifier, // Namespace, not path
       isLocal: false,
       isDotNet: true,
     });
@@ -874,6 +905,7 @@ var b = identity_String("hello");
 ```
 
 **Benefits:**
+
 - No boxing/unboxing
 - Better inlining
 - Smaller binary size (AOT can trim unused specializations)
@@ -909,6 +941,7 @@ public static double getId<T>(__Constraint_T obj) where T : __Constraint_T {
 ### 9.3 Array Implementation
 
 **Native List<T> with Static Helpers:**
+
 ```typescript
 // TypeScript:
 const arr = [1, 2, 3];
@@ -924,6 +957,7 @@ var doubled = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
 ```
 
 **Why Not Custom Array<T> Class?**
+
 - Native List<T> is faster
 - Better .NET interop
 - NativeAOT-friendly
@@ -936,38 +970,43 @@ var doubled = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
 ### 10.1 Diagnostic Codes
 
 **TSN1xxx - Import/Module Errors:**
+
 - TSN1001: Missing .ts extension on local import
 - TSN1003: Case mismatch in file path
 - TSN1004: Module not found
 - TSN1006: Circular dependency detected
 
 **TSN2xxx - Type System Errors:**
+
 - TSN2001: Literal types not supported
 - TSN2002: Conditional types not supported
 - TSN2003: File name conflicts with export
 
 **TSN3xxx - Feature Errors:**
+
 - TSN3001: Export-all not supported
 - TSN3002: Default exports not supported
 - TSN3003: Dynamic imports not supported
 
 **TSN4xxx - Code Generation Errors:**
+
 - Reserved for emitter-phase errors
 
 **TSN5xxx - Build Errors:**
+
 - Reserved for backend/NativeAOT errors
 
 ### 10.2 Diagnostic Format
 
 ```typescript
 type Diagnostic = {
-  readonly code: string;        // e.g., "TSN1001"
+  readonly code: string; // e.g., "TSN1001"
   readonly severity: "error" | "warning" | "info";
   readonly message: string;
   readonly file?: string;
   readonly line?: number;
   readonly column?: number;
-  readonly hint?: string;       // Suggested fix
+  readonly hint?: string; // Suggested fix
 };
 ```
 
@@ -978,32 +1017,38 @@ type Diagnostic = {
 ### 11.1 Compilation Performance
 
 **Small Project (10 files, ~1000 LOC):**
+
 - Parse: ~50ms
 - IR Build: ~30ms
 - Emit: ~20ms
 - Total (without dotnet): ~100ms
 
 **Medium Project (100 files, ~10,000 LOC):**
+
 - Parse: ~500ms
 - IR Build: ~300ms
 - Emit: ~200ms
 - Total (without dotnet): ~1s
 
 **NativeAOT Compilation:**
+
 - Dominates total time (10-60 seconds)
 - Depends on project size and optimization level
 
 ### 11.2 Runtime Performance
 
 **Array Operations:**
+
 - List<T> with static helpers: ~5-10% slower than raw List<T>
 - Still 10-100x faster than JavaScript engines
 
 **Function Calls:**
+
 - Specialized generics: Zero overhead (inlined)
 - Non-specialized: Normal C# generic overhead
 
 **Binary Size:**
+
 - Minimal: ~3-5 MB (hello world)
 - Medium: ~10-20 MB (typical app)
 - Includes trimmed .NET runtime + app code
@@ -1120,6 +1165,7 @@ packages/backend/src/
 ---
 
 **Document Statistics:**
+
 - Lines: ~1,150
 - Sections: 14 major sections
 - Code Examples: 50+

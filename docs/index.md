@@ -17,12 +17,14 @@ Tsonic lets you write TypeScript and compile it to native executables via C# and
 ## Why Tsonic?
 
 **For TypeScript Developers:**
+
 - Familiar syntax you already know
 - Strong type system
 - Modern language features
 - Build high-performance CLI tools and services
 
 **For .NET Developers:**
+
 - Cleaner, more concise syntax than C#
 - Modern module system
 - Still get full access to .NET ecosystem
@@ -38,6 +40,7 @@ Tsonic lets you write TypeScript and compile it to native executables via C# and
 ## Quick Example
 
 **TypeScript:**
+
 ```typescript
 // hello.ts
 import { File } from "System.IO";
@@ -50,6 +53,7 @@ export function main(): void {
 ```
 
 **Compile and Run:**
+
 ```bash
 tsonic build hello.ts
 ./tsonic-app
@@ -69,16 +73,18 @@ New to Tsonic? Start here:
 ## Core Concepts
 
 ### Module System
+
 Tsonic uses ES Modules with explicit `.ts` extensions for local imports:
 
 ```typescript
-import { User } from "./models/User.ts";  // Local file
-import { File } from "System.IO";          // .NET namespace
+import { User } from "./models/User.ts"; // Local file
+import { File } from "System.IO"; // .NET namespace
 ```
 
 See [Module System](./language/module-system.md) for details.
 
 ### Namespaces
+
 Your directory structure becomes C# namespaces exactly:
 
 ```
@@ -89,6 +95,7 @@ src/api/endpoints.ts → My.App.api.endpoints
 See [Namespaces](./language/namespaces.md) for details.
 
 ### Type Mappings
+
 TypeScript types map to native .NET types:
 
 ```typescript
@@ -101,6 +108,7 @@ Promise<T>  → Task<T>       // Native C# Task<T>
 See [Type Mappings](./language/type-mappings.md) for complete reference.
 
 ### .NET Interop
+
 Import and use .NET directly:
 
 ```typescript
@@ -116,6 +124,7 @@ See [.NET Interop](./language/dotnet-interop.md) for details.
 ## Documentation
 
 ### User Guide
+
 - [Getting Started](./getting-started.md) - Installation and first compile
 - [CLI Reference](./cli.md) - Command-line interface
 - [Build Output](./build-output.md) - What gets emitted
@@ -123,6 +132,7 @@ See [.NET Interop](./language/dotnet-interop.md) for details.
 - [Troubleshooting](./troubleshooting.md) - Common issues and solutions
 
 ### Language Reference
+
 - [Module System](./language/module-system.md) - ESM imports and rules
 - [Namespaces](./language/namespaces.md) - Directory to namespace mapping
 - [Type Mappings](./language/type-mappings.md) - TypeScript to C# types
@@ -133,6 +143,7 @@ See [.NET Interop](./language/dotnet-interop.md) for details.
 - [Entry Points](./language/entry-points.md) - Program entry points
 
 ### Examples
+
 - [Basic Examples](./examples/basic.md) - Functions, classes, control flow
 - [Array Examples](./examples/arrays.md) - Array operations
 - [.NET Examples](./examples/dotnet.md) - Using .NET libraries

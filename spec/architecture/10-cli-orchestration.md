@@ -24,15 +24,15 @@ This phase provides the command-line interface (CLI) that orchestrates the entir
 
 ### 2.1 Available Commands
 
-| Command           | Description                                      | Example                            |
-| ----------------- | ------------------------------------------------ | ---------------------------------- |
-| `tsonic build`    | Compile TypeScript to native executable          | `tsonic build`                     |
-| `tsonic emit`     | Emit C# code only (no compilation)               | `tsonic emit`                      |
-| `tsonic init`     | Initialize new Tsonic project                    | `tsonic init my-project`           |
-| `tsonic watch`    | Watch mode - recompile on file changes           | `tsonic watch`                     |
-| `tsonic clean`    | Clean build artifacts                            | `tsonic clean`                     |
-| `tsonic version`  | Show version information                         | `tsonic version`                   |
-| `tsonic help`     | Show help for commands                           | `tsonic help build`                |
+| Command          | Description                             | Example                  |
+| ---------------- | --------------------------------------- | ------------------------ |
+| `tsonic build`   | Compile TypeScript to native executable | `tsonic build`           |
+| `tsonic emit`    | Emit C# code only (no compilation)      | `tsonic emit`            |
+| `tsonic init`    | Initialize new Tsonic project           | `tsonic init my-project` |
+| `tsonic watch`   | Watch mode - recompile on file changes  | `tsonic watch`           |
+| `tsonic clean`   | Clean build artifacts                   | `tsonic clean`           |
+| `tsonic version` | Show version information                | `tsonic version`         |
+| `tsonic help`    | Show help for commands                  | `tsonic help build`      |
 
 ---
 
@@ -291,7 +291,9 @@ type RuntimeIdentifier =
 ### 4.2 Configuration Loading
 
 ```typescript
-const loadConfig = async (configPath: string): Promise<Result<TsonicConfig, Diagnostic[]>> => {
+const loadConfig = async (
+  configPath: string
+): Promise<Result<TsonicConfig, Diagnostic[]>> => {
   // 1. Check if config file exists
   if (!fs.existsSync(configPath)) {
     return error([
@@ -387,32 +389,33 @@ const resolveEntryPoint = (
 
 ### 5.1 Global Options
 
-| Option              | Alias | Description                           | Default        |
-| ------------------- | ----- | ------------------------------------- | -------------- |
-| `--config <path>`   | `-c`  | Config file path                      | `tsonic.json`  |
-| `--verbose`         | `-v`  | Verbose output                        | `false`        |
-| `--quiet`           | `-q`  | Suppress output (errors only)         | `false`        |
-| `--color`           | N/A   | Force color output                    | auto-detect    |
-| `--no-color`        | N/A   | Disable color output                  | N/A            |
+| Option            | Alias | Description                   | Default       |
+| ----------------- | ----- | ----------------------------- | ------------- |
+| `--config <path>` | `-c`  | Config file path              | `tsonic.json` |
+| `--verbose`       | `-v`  | Verbose output                | `false`       |
+| `--quiet`         | `-q`  | Suppress output (errors only) | `false`       |
+| `--color`         | N/A   | Force color output            | auto-detect   |
+| `--no-color`      | N/A   | Disable color output          | N/A           |
 
 ### 5.2 Build Options
 
-| Option              | Alias | Description                           | Default        |
-| ------------------- | ----- | ------------------------------------- | -------------- |
-| `--runtime <rid>`   | `-r`  | Target runtime identifier             | auto-detect    |
-| `--optimize <mode>` | `-O`  | Optimization mode (size/speed)        | `speed`        |
-| `--out <dir>`       | `-o`  | Output directory                      | `./dist`       |
-| `--watch`           | `-w`  | Watch mode                            | `false`        |
+| Option              | Alias | Description                    | Default     |
+| ------------------- | ----- | ------------------------------ | ----------- |
+| `--runtime <rid>`   | `-r`  | Target runtime identifier      | auto-detect |
+| `--optimize <mode>` | `-O`  | Optimization mode (size/speed) | `speed`     |
+| `--out <dir>`       | `-o`  | Output directory               | `./dist`    |
+| `--watch`           | `-w`  | Watch mode                     | `false`     |
 
 ### 5.3 Debug Options
 
-| Option              | Alias | Description                           | Default        |
-| ------------------- | ----- | ------------------------------------- | -------------- |
-| `--emit-ir`         | N/A   | Save IR to JSON file                  | `false`        |
-| `--emit-ast`        | N/A   | Save AST to JSON file                 | `false`        |
-| `--keep-csharp`     | N/A   | Keep generated C# files               | `false`        |
+| Option          | Alias | Description             | Default |
+| --------------- | ----- | ----------------------- | ------- |
+| `--emit-ir`     | N/A   | Save IR to JSON file    | `false` |
+| `--emit-ast`    | N/A   | Save AST to JSON file   | `false` |
+| `--keep-csharp` | N/A   | Keep generated C# files | `false` |
 
 **Example:**
+
 ```bash
 tsonic build --runtime linux-x64 --optimize size --emit-ir --keep-csharp
 ```
@@ -676,11 +679,7 @@ const cleanCommand = async (options: CleanOptions): Promise<ExitCode> => {
   }
 
   // 3. Remove debug artifacts if present
-  const debugFiles = [
-    ".tsonic-ir.json",
-    ".tsonic-ast.json",
-    ".tsonic-csharp/",
-  ];
+  const debugFiles = [".tsonic-ir.json", ".tsonic-ast.json", ".tsonic-csharp/"];
   for (const file of debugFiles) {
     if (fs.existsSync(file)) {
       console.log(`Removing ${file}...`);
@@ -768,12 +767,14 @@ For more information, visit: https://tsonic.dev
 ### 12.1 Startup Time
 
 **Cold Start:**
+
 - Config loading: ~5ms
 - CLI parsing: ~10ms
 - Node.js startup: ~50ms
 - **Total: ~65ms overhead**
 
 **Build Time (Small Project):**
+
 - CLI overhead: ~65ms
 - TypeScript program: ~200ms
 - Compilation pipeline: ~12s
@@ -782,6 +783,7 @@ For more information, visit: https://tsonic.dev
 ### 12.2 Watch Mode Performance
 
 **File Change Detection:**
+
 - FS watcher latency: ~10-50ms
 - Affected module detection: ~5ms
 - Incremental rebuild: 1-3s (vs 12s full build)
@@ -798,6 +800,7 @@ For more information, visit: https://tsonic.dev
 ---
 
 **Document Statistics:**
+
 - Lines: ~700
 - Sections: 13
 - Commands: 7

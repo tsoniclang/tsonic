@@ -16,8 +16,6 @@ import type {
   TypeMetadata,
   TypeKind,
   Accessibility,
-  EmitScope,
-  Provenance,
 } from "../types/metadata.ts";
 
 /**
@@ -158,11 +156,7 @@ const validateMetadataFile = (
   } else {
     // Validate each type
     for (let i = 0; i < obj.types.length; i++) {
-      const typeValidation = validateTypeMetadata(
-        obj.types[i],
-        filePath,
-        i
-      );
+      const typeValidation = validateTypeMetadata(obj.types[i], filePath, i);
       if (!typeValidation.ok) {
         diagnostics.push(...typeValidation.error);
       }
@@ -257,11 +251,7 @@ const validateTypeMetadata = (
   }
 
   // Validate required boolean fields
-  const requiredBooleanFields = [
-    "isAbstract",
-    "isSealed",
-    "isStatic",
-  ];
+  const requiredBooleanFields = ["isAbstract", "isSealed", "isStatic"];
   for (const field of requiredBooleanFields) {
     if (typeof type[field] !== "boolean") {
       diagnostics.push({

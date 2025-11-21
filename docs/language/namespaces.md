@@ -22,6 +22,7 @@ tsonic build src/main.ts --namespace MyApp
 ```
 
 Or in `tsonic.json`:
+
 ```json
 {
   "namespace": "MyApp"
@@ -132,7 +133,7 @@ TypeScript imports with `.ts` extensions work across directories:
 
 ```typescript
 // src/services/UserService.ts
-import { User } from "../models/User.ts";  // Cross-namespace import
+import { User } from "../models/User.ts"; // Cross-namespace import
 
 export class UserService {
   getUser(): User {

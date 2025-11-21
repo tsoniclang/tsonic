@@ -85,14 +85,14 @@ const createDiagnostic = (
 
 ### 3.1 Code Categories
 
-| Range          | Category                  | Examples                                        |
-| -------------- | ------------------------- | ----------------------------------------------- |
-| **TSN1xxx**    | Import/Module Resolution  | Missing .ts extension, circular deps            |
-| **TSN2xxx**    | Type System               | Type errors, generic constraints, name collision |
-| **TSN3xxx**    | Export/Feature Support    | Default exports, union types, decorators        |
-| **TSN4xxx**    | IR Building               | AST conversion errors, binding resolution       |
-| **TSN5xxx**    | C# Emission               | Code generation errors, specialization issues   |
-| **TSN6xxx**    | Backend/NativeAOT         | .csproj errors, dotnet compilation failures     |
+| Range       | Category                 | Examples                                         |
+| ----------- | ------------------------ | ------------------------------------------------ |
+| **TSN1xxx** | Import/Module Resolution | Missing .ts extension, circular deps             |
+| **TSN2xxx** | Type System              | Type errors, generic constraints, name collision |
+| **TSN3xxx** | Export/Feature Support   | Default exports, union types, decorators         |
+| **TSN4xxx** | IR Building              | AST conversion errors, binding resolution        |
+| **TSN5xxx** | C# Emission              | Code generation errors, specialization issues    |
+| **TSN6xxx** | Backend/NativeAOT        | .csproj errors, dotnet compilation failures      |
 
 ### 3.2 Import Errors (TSN1xxx)
 
@@ -245,6 +245,7 @@ const nativeAotError = createDiagnostic(
 ### 4.1 Collection Strategies
 
 **Fail-Fast (Default):**
+
 ```typescript
 const resolveModules = (
   program: TsonicProgram,
@@ -269,6 +270,7 @@ const resolveModules = (
 ```
 
 **Collect-All (For IDE integration):**
+
 ```typescript
 const resolveModulesWithWarnings = (
   program: TsonicProgram,
@@ -406,7 +408,7 @@ const fullPipeline = async (
   }
 
   const resolverResult = await resolveModules(
-    programResult.value,
+    programResult.value
     /* options */
   );
   if (!resolverResult.ok) {
@@ -433,6 +435,7 @@ const fullPipeline = async (
 ### 6.1 Message Format
 
 **Standard Format:**
+
 ```
 file:line:col - severity TSN1234: message
   Hint: suggestion
@@ -442,6 +445,7 @@ file:line:col - severity TSN1234: message
 ```
 
 **Example Output:**
+
 ```
 src/models/User.ts:5:20 - error TSN1001: Local import must have .ts extension
   Hint: Change "./models/User" to "./models/User.ts"
@@ -539,9 +543,7 @@ const addHintToCircularDep = (cycle: string[]): Diagnostic => {
 Some errors span multiple files. Use `relatedInfo` to show all locations:
 
 ```typescript
-const createCircularDependencyError = (
-  cycle: string[]
-): Diagnostic => {
+const createCircularDependencyError = (cycle: string[]): Diagnostic => {
   const [first, ...rest] = cycle;
 
   // Main diagnostic at first file
@@ -575,6 +577,7 @@ const createCircularDependencyError = (
 ```
 
 **Output:**
+
 ```
 src/models/User.ts:1:0 - error TSN1002: Circular dependency detected: User.ts → Post.ts → Comment.ts → User.ts
   Hint: Break the cycle by extracting shared code to a separate module
@@ -591,12 +594,14 @@ Related locations:
 ### 8.1 Error vs Warning
 
 **Error (severity: "error"):**
+
 - Compilation MUST stop
 - Violates language rules
 - Would produce incorrect code
 - Examples: Missing .ts extension, circular deps, unsupported features
 
 **Warning (severity: "warning"):**
+
 - Compilation CAN continue
 - Potentially problematic code
 - Best practice violations
@@ -651,11 +656,16 @@ const diagnostic = addCodeSnippet(
 );
 
 // ✅ CORRECT - Generate snippets only when printing
-const diagnostic = createDiagnostic("TSN1001", "error", "Missing .ts extension", {
-  file: "/src/main.ts",
-  line: 5,
-  column: 20,
-});
+const diagnostic = createDiagnostic(
+  "TSN1001",
+  "error",
+  "Missing .ts extension",
+  {
+    file: "/src/main.ts",
+    line: 5,
+    column: 20,
+  }
+);
 
 // Later, when printing:
 const withSnippet = addCodeSnippet(diagnostic);
@@ -749,6 +759,7 @@ const buildIRWithRecovery = (
 ---
 
 **Document Statistics:**
+
 - Lines: ~600
 - Sections: 11
 - Error codes: 30+ (TSN1xxx-TSN7xxx)

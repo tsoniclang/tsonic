@@ -70,9 +70,9 @@ packages/frontend/src/ir/
 ```typescript
 type IrModule = {
   readonly kind: "module";
-  readonly filePath: string;           // /src/models/User.ts
-  readonly namespace: string;          // MyApp.models
-  readonly className: string;          // User
+  readonly filePath: string; // /src/models/User.ts
+  readonly namespace: string; // MyApp.models
+  readonly className: string; // User
   readonly isStaticContainer: boolean; // true if no top-level code
   readonly imports: readonly IrImport[];
   readonly body: readonly IrStatement[];
@@ -81,6 +81,7 @@ type IrModule = {
 ```
 
 **Fields:**
+
 - **filePath** - Absolute path to source file
 - **namespace** - C# namespace (from directory structure)
 - **className** - C# class name (from file name)
@@ -94,26 +95,34 @@ type IrModule = {
 ```typescript
 type IrImport = {
   readonly kind: "import";
-  readonly source: string;              // "./User.ts" or "System.IO"
-  readonly isLocal: boolean;            // true for local imports
-  readonly isDotNet: boolean;           // true for .NET imports
+  readonly source: string; // "./User.ts" or "System.IO"
+  readonly isLocal: boolean; // true for local imports
+  readonly isDotNet: boolean; // true for .NET imports
   readonly specifiers: readonly IrImportSpecifier[];
-  readonly resolvedNamespace?: string;  // For .NET: "System.IO"
-  readonly resolvedClrType?: string;    // For bindings: "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string;   // For bindings: "Tsonic.Runtime"
+  readonly resolvedNamespace?: string; // For .NET: "System.IO"
+  readonly resolvedClrType?: string; // For bindings: "Tsonic.Runtime.console"
+  readonly resolvedAssembly?: string; // For bindings: "Tsonic.Runtime"
 };
 
 type IrImportSpecifier =
   | { readonly kind: "default"; readonly localName: string }
   | { readonly kind: "namespace"; readonly localName: string }
-  | { readonly kind: "named"; readonly name: string; readonly localName: string };
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly localName: string;
+    };
 ```
 
 ### 3.3 IrExport
 
 ```typescript
 type IrExport =
-  | { readonly kind: "named"; readonly name: string; readonly localName: string }
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly localName: string;
+    }
   | { readonly kind: "default"; readonly expression: IrExpression }
   | { readonly kind: "declaration"; readonly declaration: IrStatement };
 ```
@@ -122,18 +131,18 @@ type IrExport =
 
 ```typescript
 type IrType =
-  | IrPrimitiveType    // string, number, boolean, null, undefined
-  | IrReferenceType    // User, Array<T>, Map<K, V>
-  | IrArrayType        // T[]
-  | IrFunctionType     // (x: number) => string
-  | IrObjectType       // { id: number; name: string }
-  | IrUnionType        // string | number
+  | IrPrimitiveType // string, number, boolean, null, undefined
+  | IrReferenceType // User, Array<T>, Map<K, V>
+  | IrArrayType // T[]
+  | IrFunctionType // (x: number) => string
+  | IrObjectType // { id: number; name: string }
+  | IrUnionType // string | number
   | IrIntersectionType // User & Timestamped
-  | IrLiteralType      // "pending" | 42 | true
-  | IrAnyType          // any
-  | IrUnknownType      // unknown
-  | IrVoidType         // void
-  | IrNeverType;       // never
+  | IrLiteralType // "pending" | 42 | true
+  | IrAnyType // any
+  | IrUnknownType // unknown
+  | IrVoidType // void
+  | IrNeverType; // never
 
 type IrPrimitiveType = {
   readonly kind: "primitiveType";
@@ -162,26 +171,26 @@ type IrFunctionType = {
 
 ```typescript
 type IrExpression =
-  | IrLiteralExpression         // "hello", 42, true, null
-  | IrIdentifierExpression      // console, Math, x
-  | IrArrayExpression           // [1, 2, 3]
-  | IrObjectExpression          // { x: 10, y: 20 }
-  | IrFunctionExpression        // function(x) { return x + 1; }
-  | IrArrowFunctionExpression   // (x) => x + 1
-  | IrMemberExpression          // obj.prop, arr[0]
-  | IrCallExpression            // func(x, y)
-  | IrNewExpression             // new User()
-  | IrThisExpression            // this
-  | IrUpdateExpression          // x++, --y
-  | IrUnaryExpression           // !x, -y, typeof x
-  | IrBinaryExpression          // x + y, a < b
-  | IrLogicalExpression         // x && y, a || b
-  | IrConditionalExpression     // x ? y : z
-  | IrAssignmentExpression      // x = 10, y += 5
+  | IrLiteralExpression // "hello", 42, true, null
+  | IrIdentifierExpression // console, Math, x
+  | IrArrayExpression // [1, 2, 3]
+  | IrObjectExpression // { x: 10, y: 20 }
+  | IrFunctionExpression // function(x) { return x + 1; }
+  | IrArrowFunctionExpression // (x) => x + 1
+  | IrMemberExpression // obj.prop, arr[0]
+  | IrCallExpression // func(x, y)
+  | IrNewExpression // new User()
+  | IrThisExpression // this
+  | IrUpdateExpression // x++, --y
+  | IrUnaryExpression // !x, -y, typeof x
+  | IrBinaryExpression // x + y, a < b
+  | IrLogicalExpression // x && y, a || b
+  | IrConditionalExpression // x ? y : z
+  | IrAssignmentExpression // x = 10, y += 5
   | IrTemplateLiteralExpression // `Hello ${name}`
-  | IrSpreadExpression          // ...items
-  | IrAwaitExpression           // await promise
-  | IrYieldExpression;          // yield value
+  | IrSpreadExpression // ...items
+  | IrAwaitExpression // await promise
+  | IrYieldExpression; // yield value
 ```
 
 **Example with binding resolution:**
@@ -192,9 +201,9 @@ type IrIdentifierExpression = {
   readonly name: string;
   readonly inferredType?: IrType;
   // Resolved binding for globals (console, Math, etc.)
-  readonly resolvedClrType?: string;    // "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string;   // "Tsonic.Runtime"
-  readonly csharpName?: string;         // Optional renamed identifier
+  readonly resolvedClrType?: string; // "Tsonic.Runtime.console"
+  readonly resolvedAssembly?: string; // "Tsonic.Runtime"
+  readonly csharpName?: string; // Optional renamed identifier
 };
 ```
 
@@ -203,26 +212,26 @@ type IrIdentifierExpression = {
 ```typescript
 type IrStatement =
   // Declarations
-  | IrVariableDeclaration      // const x = 10;
-  | IrFunctionDeclaration      // function f() {}
-  | IrClassDeclaration         // class User {}
-  | IrInterfaceDeclaration     // interface IUser {}
-  | IrEnumDeclaration          // enum Status {}
-  | IrTypeAliasDeclaration     // type UserId = number;
+  | IrVariableDeclaration // const x = 10;
+  | IrFunctionDeclaration // function f() {}
+  | IrClassDeclaration // class User {}
+  | IrInterfaceDeclaration // interface IUser {}
+  | IrEnumDeclaration // enum Status {}
+  | IrTypeAliasDeclaration // type UserId = number;
   // Control flow
-  | IrExpressionStatement      // console.log("hi");
-  | IrReturnStatement          // return x;
-  | IrIfStatement              // if (x) {} else {}
-  | IrWhileStatement           // while (x) {}
-  | IrForStatement             // for (;;) {}
-  | IrForOfStatement           // for (const item of arr) {}
-  | IrSwitchStatement          // switch (x) { ... }
-  | IrThrowStatement           // throw new Error();
-  | IrTryStatement             // try {} catch {} finally {}
-  | IrBlockStatement           // { ... }
-  | IrBreakStatement           // break;
-  | IrContinueStatement        // continue;
-  | IrEmptyStatement;          // ;
+  | IrExpressionStatement // console.log("hi");
+  | IrReturnStatement // return x;
+  | IrIfStatement // if (x) {} else {}
+  | IrWhileStatement // while (x) {}
+  | IrForStatement // for (;;) {}
+  | IrForOfStatement // for (const item of arr) {}
+  | IrSwitchStatement // switch (x) { ... }
+  | IrThrowStatement // throw new Error();
+  | IrTryStatement // try {} catch {} finally {}
+  | IrBlockStatement // { ... }
+  | IrBreakStatement // break;
+  | IrContinueStatement // continue;
+  | IrEmptyStatement; // ;
 ```
 
 ---
@@ -620,7 +629,9 @@ const convertFunctionType = (
 ): IrFunctionType => {
   const parameters = node.parameters.map((param) => ({
     name: param.name.getText(),
-    type: param.type ? convertType(param.type, checker) : { kind: "anyType" as const },
+    type: param.type
+      ? convertType(param.type, checker)
+      : { kind: "anyType" as const },
     optional: !!param.questionToken,
     rest: !!param.dotDotDotToken,
   }));
@@ -652,7 +663,10 @@ const convertExpression = (
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
     return convertLiteral(node, checker);
   }
-  if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
+  if (
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword
+  ) {
     return {
       kind: "literal",
       value: node.kind === ts.SyntaxKind.TrueKeyword,
@@ -689,7 +703,10 @@ const convertExpression = (
   }
 
   // Member access
-  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+  if (
+    ts.isPropertyAccessExpression(node) ||
+    ts.isElementAccessExpression(node)
+  ) {
     return convertMemberExpression(node, checker);
   }
 
@@ -724,7 +741,10 @@ const convertExpression = (
   if (ts.isConditionalExpression(node)) {
     return convertConditionalExpression(node, checker);
   }
-  if (ts.isTemplateExpression(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+  if (
+    ts.isTemplateExpression(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node)
+  ) {
     return convertTemplateLiteral(node, checker);
   }
 
@@ -815,11 +835,13 @@ const resolveIdentifierBinding = (
 const resolveMemberBinding = (
   object: IrExpression,
   property: string
-): {
-  assembly?: string;
-  type?: string;
-  member?: string;
-} | undefined => {
+):
+  | {
+      assembly?: string;
+      type?: string;
+      member?: string;
+    }
+  | undefined => {
   // Only resolve if object is an identifier
   if (object.kind !== "identifier") {
     return undefined;
@@ -859,7 +881,9 @@ const convertVariableStatement = (
   const declarations = node.declarationList.declarations.map((decl) => ({
     name: convertPattern(decl.name, checker),
     type: decl.type ? convertType(decl.type, checker) : undefined,
-    init: decl.initializer ? convertExpression(decl.initializer, checker) : undefined,
+    init: decl.initializer
+      ? convertExpression(decl.initializer, checker)
+      : undefined,
   }));
 
   return {
@@ -881,7 +905,9 @@ const convertFunctionDeclaration = (
 
   const parameters = convertParameters(node.parameters, checker);
   const returnType = node.type ? convertType(node.type, checker) : undefined;
-  const body = node.body ? convertBlockStatement(node.body, checker) : undefined;
+  const body = node.body
+    ? convertBlockStatement(node.body, checker)
+    : undefined;
 
   return {
     kind: "functionDeclaration",
@@ -889,12 +915,16 @@ const convertFunctionDeclaration = (
     parameters,
     returnType,
     body,
-    isAsync: !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+    isAsync: !!node.modifiers?.some(
+      (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+    ),
     isGenerator: !!node.asteriskToken,
     typeParameters: node.typeParameters
       ? node.typeParameters.map((tp) => ({
           name: tp.name.text,
-          constraint: tp.constraint ? convertType(tp.constraint, checker) : undefined,
+          constraint: tp.constraint
+            ? convertType(tp.constraint, checker)
+            : undefined,
           default: tp.default ? convertType(tp.default, checker) : undefined,
         }))
       : undefined,
@@ -936,7 +966,9 @@ const convertClassDeclaration = (
     typeParameters: node.typeParameters
       ? node.typeParameters.map((tp) => ({
           name: tp.name.text,
-          constraint: tp.constraint ? convertType(tp.constraint, checker) : undefined,
+          constraint: tp.constraint
+            ? convertType(tp.constraint, checker)
+            : undefined,
         }))
       : undefined,
   };
@@ -992,6 +1024,7 @@ const convertForOfStatement = (
 ### 8.1 Static Container Detection
 
 A module is a **static container** when:
+
 - It does NOT have a class matching the file name
 - It does NOT have top-level executable code
 - It DOES have exports
@@ -1181,19 +1214,20 @@ var result = System.Linq.Enumerable.SelectMany(arr, (x) => x.items);
 ### 9.1 Common Errors
 
 **TSN6001: IR Build Failed**
+
 ```typescript
 // Catch-all for unexpected errors during IR building
 return error(
-  createDiagnostic(
-    "TSN6001",
-    "error",
-    `Failed to build IR: ${err.message}`,
-    { file: sourceFile.fileName, line: 1, column: 1 }
-  )
+  createDiagnostic("TSN6001", "error", `Failed to build IR: ${err.message}`, {
+    file: sourceFile.fileName,
+    line: 1,
+    column: 1,
+  })
 );
 ```
 
 **TSN2003: Name Collision**
+
 ```typescript
 // File name conflicts with export
 File name 'main' conflicts with exported member name 'main'
@@ -1206,18 +1240,22 @@ File name 'main' conflicts with exported member name 'main'
 ### 10.1 Complexity
 
 **Import/Export Extraction:**
+
 - Time: O(N) where N = statements in file
 - Space: O(I + E) where I = imports, E = exports
 
 **Statement Conversion:**
+
 - Time: O(N) where N = AST nodes
 - Space: O(N) for IR nodes
 
 **Type Conversion:**
+
 - Time: O(T) where T = type annotations
 - Space: O(T) for IR types
 
 **Expression Conversion:**
+
 - Time: O(E) where E = expressions
 - Space: O(E) for IR expressions
 
@@ -1226,6 +1264,7 @@ File name 'main' conflicts with exported member name 'main'
 ### 10.2 Timing
 
 **Small Project (10 files, 100 LOC each):**
+
 - Import extraction: ~5ms
 - Export extraction: ~5ms
 - Statement conversion: ~30ms
@@ -1234,6 +1273,7 @@ File name 'main' conflicts with exported member name 'main'
 - **Total: ~100ms**
 
 **Medium Project (100 files, 200 LOC each):**
+
 - Import extraction: ~20ms
 - Export extraction: ~20ms
 - Statement conversion: ~200ms
@@ -1242,6 +1282,7 @@ File name 'main' conflicts with exported member name 'main'
 - **Total: ~640ms**
 
 **Large Project (1000 files, 500 LOC each):**
+
 - Import extraction: ~100ms
 - Export extraction: ~100ms
 - Statement conversion: ~2000ms
@@ -1272,6 +1313,7 @@ File name 'main' conflicts with exported member name 'main'
 ---
 
 **Document Statistics:**
+
 - Lines: ~1,050
 - Sections: 11
 - Code examples: 35+

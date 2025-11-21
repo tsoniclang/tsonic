@@ -2,6 +2,9 @@
  * Core emitter types
  */
 
+import type { MetadataFile } from "@tsonic/frontend/types/metadata.js";
+import type { TypeBinding } from "@tsonic/frontend/types/bindings.js";
+
 /**
  * Options for C# code generation
  */
@@ -20,6 +23,10 @@ export type EmitterOptions = {
   readonly isEntryPoint?: boolean;
   /** Entry point file path (for batch emit) */
   readonly entryPointPath?: string;
+  /** Path to directory containing .NET metadata files */
+  readonly metadataPath?: string;
+  /** Path to directory containing .NET bindings files */
+  readonly bindingsPath?: string;
 };
 
 /**
@@ -44,6 +51,10 @@ export type EmitterContext = {
   readonly hasSuperClass?: boolean;
   /** Whether the module has any inheritance (to decide virtual methods) */
   readonly hasInheritance?: boolean;
+  /** Loaded .NET metadata files (for CLR type information) */
+  readonly metadata?: ReadonlyArray<MetadataFile>;
+  /** Registry mapping TypeScript emit names to type bindings */
+  readonly bindingsRegistry?: ReadonlyMap<string, TypeBinding>;
 };
 
 /**

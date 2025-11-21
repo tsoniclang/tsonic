@@ -5,6 +5,36 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext, addUsing } from "../types.js";
 import { emitType } from "./emitter.js";
+import {
+  isNestedType,
+  tsCSharpNestedTypeName,
+} from "@tsonic/frontend/types/nested-types.js";
+
+/**
+ * Check if a type name indicates an unsupported support type.
+ *
+ * TODO: This is a basic check. Full implementation requires:
+ * 1. Access to TypeScript type checker
+ * 2. Integration with support-types.ts helpers
+ * 3. Proper diagnostic reporting
+ *
+ * For now, we check the type name string.
+ */
+const checkUnsupportedSupportType = (typeName: string): string | undefined => {
+  if (
+    typeName === "TSUnsafePointer" ||
+    typeName.startsWith("TSUnsafePointer<")
+  ) {
+    return "Unsafe pointers are not supported in Tsonic. Use IntPtr for opaque handles.";
+  }
+  if (typeName === "TSFixed" || typeName.startsWith("TSFixed<")) {
+    return "Fixed-size buffers (unsafe feature) are not supported. Use arrays or Span<T> instead.";
+  }
+  if (typeName === "TSStackAlloc" || typeName.startsWith("TSStackAlloc<")) {
+    return "stackalloc is not supported in Tsonic. Use heap-allocated arrays instead.";
+  }
+  return undefined;
+};
 
 /**
  * Emit reference types with type arguments
@@ -14,6 +44,15 @@ export const emitReferenceType = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const { name, typeArguments } = type;
+
+  // Check for unsupported support types
+  const unsupportedError = checkUnsupportedSupportType(name);
+  if (unsupportedError) {
+    // TODO: Report diagnostic error instead of throwing
+    // For now, emit a comment to make the error visible in generated code
+    console.warn(`[Tsonic] ${unsupportedError}`);
+    return [`/* ERROR: ${unsupportedError} */ object`, context];
+  }
 
   // Handle built-in types
   if (name === "Array" && typeArguments && typeArguments.length > 0) {
@@ -96,9 +135,15 @@ export const emitReferenceType = (
       currentContext = newContext;
     }
 
-    return [`${name}<${typeParams.join(", ")}>`, currentContext];
+    // Convert nested type names (Outer$Inner → Outer.Inner)
+    const csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
+
+    return [`${csharpName}<${typeParams.join(", ")}>`, currentContext];
   }
 
-  // Default: use the name as-is
-  return [name, context];
+  // Convert nested type names (Outer$Inner → Outer.Inner)
+  // before returning the name
+  const csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
+
+  return [csharpName, context];
 };

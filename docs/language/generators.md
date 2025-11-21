@@ -17,8 +17,8 @@ function* counter(): Generator<number> {
 }
 
 const gen = counter();
-console.log(gen.next().value);  // 0
-console.log(gen.next().value);  // 1
+console.log(gen.next().value); // 0
+console.log(gen.next().value); // 1
 ```
 
 Becomes C# with `IEnumerable<T>`:
@@ -50,9 +50,9 @@ function* accumulator(start = 0) {
 }
 
 const gen = accumulator(10);
-console.log(gen.next().value);   // 10
-console.log(gen.next(5).value);  // 15
-console.log(gen.next(3).value);  // 18
+console.log(gen.next().value); // 10
+console.log(gen.next(5).value); // 15
+console.log(gen.next(3).value); // 18
 ```
 
 Uses exchange objects for bidirectional communication.

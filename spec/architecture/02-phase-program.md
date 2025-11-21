@@ -51,6 +51,7 @@ type TsonicProgram = {
 ```
 
 **Fields:**
+
 - **program** - TypeScript Program instance from ts.createProgram()
 - **checker** - TypeScript type checker for type inference
 - **options** - Compiler options used (strict mode, target, etc.)
@@ -72,6 +73,7 @@ type CompilerOptions = {
 ```
 
 **Default Values:**
+
 - `strict`: true
 - `typeRoots`: `["node_modules/@tsonic/dotnet-types/types"]`
 - `target`: ES2022
@@ -163,6 +165,7 @@ const scanDeclarationFiles = (
 ```
 
 **Example:**
+
 ```
 typeRoots: ["node_modules/@tsonic/dotnet-types/types"]
 
@@ -185,7 +188,10 @@ class DotnetMetadataRegistry {
 
   loadMetadataFile(filePath: string, content: DotnetMetadataFile): void;
   getTypeMetadata(qualifiedName: string): DotnetTypeMetadata | undefined;
-  getMemberMetadata(qualifiedTypeName: string, memberSignature: string): DotnetMemberMetadata | undefined;
+  getMemberMetadata(
+    qualifiedTypeName: string,
+    memberSignature: string
+  ): DotnetMemberMetadata | undefined;
   isVirtualMember(qualifiedTypeName: string, memberSignature: string): boolean;
   isSealedMember(qualifiedTypeName: string, memberSignature: string): boolean;
 }
@@ -267,6 +273,7 @@ class BindingRegistry {
 ### 6.2 Binding File Format
 
 **Hierarchical Format:**
+
 ```json
 {
   "version": "2.0",
@@ -300,6 +307,7 @@ class BindingRegistry {
 ```
 
 **Legacy Simple Format:**
+
 ```json
 {
   "bindings": {
@@ -315,9 +323,7 @@ class BindingRegistry {
 ### 6.3 Loading Algorithm
 
 ```typescript
-const loadBindingRegistry = (
-  typeRoots: readonly string[]
-): BindingRegistry => {
+const loadBindingRegistry = (typeRoots: readonly string[]): BindingRegistry => {
   const registry = new BindingRegistry();
 
   for (const root of typeRoots) {
@@ -375,22 +381,27 @@ const createCompilerOptions = (
 ### 7.2 Why These Settings?
 
 **target: ES2022**
+
 - Modern JavaScript features (async/await, class fields, etc.)
 - Closer to C# semantics
 
 **module: ESNext**
+
 - Native ESM support
 - Enforces `.ts` extension requirement
 
 **strict: true**
+
 - Catches type errors early
 - Better C# generation
 
 **noEmit: true**
+
 - We only need type checking
 - C# generation is separate
 
 **skipLibCheck: false**
+
 - Validate .NET type declarations
 - Catch incompatibilities early
 
@@ -401,9 +412,7 @@ const createCompilerOptions = (
 ### 8.1 TypeScript Diagnostics
 
 ```typescript
-const collectDiagnostics = (
-  program: ts.Program
-): readonly ts.Diagnostic[] => {
+const collectDiagnostics = (program: ts.Program): readonly ts.Diagnostic[] => {
   // Syntax errors
   const syntactic = program.getSyntacticDiagnostics();
 
@@ -420,15 +429,14 @@ const collectDiagnostics = (
 ### 8.2 Diagnostic Conversion
 
 ```typescript
-const convertDiagnostic = (
-  tsDiag: ts.Diagnostic
-): Diagnostic => {
+const convertDiagnostic = (tsDiag: ts.Diagnostic): Diagnostic => {
   const file = tsDiag.file;
   const pos = file?.getLineAndCharacterOfPosition(tsDiag.start ?? 0);
 
   return {
     code: `TS${tsDiag.code}`,
-    severity: tsDiag.category === ts.DiagnosticCategory.Error ? "error" : "warning",
+    severity:
+      tsDiag.category === ts.DiagnosticCategory.Error ? "error" : "warning",
     message: ts.flattenDiagnosticMessageText(tsDiag.messageText, "\n"),
     file: file?.fileName,
     line: pos?.line,
@@ -454,9 +462,7 @@ const getSourceFile = (
 const getAllSourceFiles = (
   program: TsonicProgram
 ): readonly ts.SourceFile[] => {
-  return program.program.getSourceFiles().filter(
-    sf => !sf.isDeclarationFile
-  );
+  return program.program.getSourceFiles().filter((sf) => !sf.isDeclarationFile);
 };
 ```
 
@@ -523,27 +529,31 @@ const resolveMemberBinding = (
 ### 10.1 Common Errors
 
 **Parse Errors:**
+
 ```typescript
 // TypeScript syntax error
 const x = ;  // TS1109: Expression expected
 ```
 
 **Type Errors:**
+
 ```typescript
 // Type mismatch
-const x: number = "hello";  // TS2322: Type 'string' is not assignable to type 'number'
+const x: number = "hello"; // TS2322: Type 'string' is not assignable to type 'number'
 ```
 
 **Module Resolution Errors:**
+
 ```typescript
 // Cannot find module
-import { Foo } from "./missing.ts";  // TS2307: Cannot find module
+import { Foo } from "./missing.ts"; // TS2307: Cannot find module
 ```
 
 **Declaration File Errors:**
+
 ```typescript
 // Invalid type declaration
-declare function foo(): InvalidType;  // TS2304: Cannot find name 'InvalidType'
+declare function foo(): InvalidType; // TS2304: Cannot find name 'InvalidType'
 ```
 
 ### 10.2 Error Recovery
@@ -551,6 +561,7 @@ declare function foo(): InvalidType;  // TS2304: Cannot find name 'InvalidType'
 **No automatic recovery** - Program creation fails on first error.
 
 **Rationale:**
+
 - Better to fail fast than produce invalid IR
 - User must fix TypeScript errors before compilation
 - Prevents cascading errors in later phases
@@ -562,6 +573,7 @@ declare function foo(): InvalidType;  // TS2304: Cannot find name 'InvalidType'
 ### 11.1 Timing Breakdown
 
 **Small Project (10 files):**
+
 - Declaration scanning: ~10ms
 - Program creation: ~50ms
 - Type checking: ~100ms
@@ -570,6 +582,7 @@ declare function foo(): InvalidType;  // TS2304: Cannot find name 'InvalidType'
 - **Total: ~170ms**
 
 **Medium Project (100 files):**
+
 - Declaration scanning: ~20ms
 - Program creation: ~200ms
 - Type checking: ~500ms
@@ -578,6 +591,7 @@ declare function foo(): InvalidType;  // TS2304: Cannot find name 'InvalidType'
 - **Total: ~740ms**
 
 **Large Project (1000 files):**
+
 - Declaration scanning: ~50ms
 - Program creation: ~1000ms
 - Type checking: ~5000ms
@@ -635,6 +649,7 @@ declare function foo(): InvalidType;  // TS2304: Cannot find name 'InvalidType'
 ---
 
 **Document Statistics:**
+
 - Lines: ~650
 - Sections: 13
 - Code examples: 25+

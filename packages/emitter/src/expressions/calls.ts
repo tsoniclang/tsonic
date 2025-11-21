@@ -8,6 +8,17 @@ import { emitExpression } from "../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
 
 /**
+ * TODO: Ref/out parameter handling
+ *
+ * Full implementation requires:
+ * 1. Type information from the TypeScript checker
+ * 2. Parameter metadata from .metadata.json
+ * 3. Integration with ref-parameters.ts helpers
+ *
+ * See packages/frontend/src/types/ref-parameters.ts for the infrastructure.
+ */
+
+/**
  * Emit a function call expression
  */
 export const emitCall = (

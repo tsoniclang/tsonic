@@ -37,6 +37,7 @@ var upperNames = names.Map(name => name.ToUpper());
 ```
 
 **Benefits:**
+
 - Full .NET interop without conversions
 - Better performance (no wrapper overhead)
 - AOT-friendly (no dynamic dispatch)
@@ -85,33 +86,33 @@ public static class ConsoleHelper
 
 ### 3.1 Primitive Types
 
-| TypeScript     | .NET Type | Notes                         |
-| -------------- | --------- | ----------------------------- |
-| `number`       | `double`  | Always 64-bit floating point  |
-| `string`       | `string`  | Native .NET string            |
-| `boolean`      | `bool`    | Native .NET boolean           |
-| `undefined`    | `Undefined` | Singleton type              |
-| `null`         | `null`    | .NET null                     |
+| TypeScript  | .NET Type   | Notes                        |
+| ----------- | ----------- | ---------------------------- |
+| `number`    | `double`    | Always 64-bit floating point |
+| `string`    | `string`    | Native .NET string           |
+| `boolean`   | `bool`      | Native .NET boolean          |
+| `undefined` | `Undefined` | Singleton type               |
+| `null`      | `null`      | .NET null                    |
 
 ### 3.2 Composite Types
 
-| TypeScript        | .NET Type                        | Notes                              |
-| ----------------- | -------------------------------- | ---------------------------------- |
-| `T[]`             | `List<T>`                        | Native .NET list                   |
-| `object`          | `Dictionary<string, object?>`    | For dynamic objects                |
-| `Record<K, V>`    | `Dictionary<K, V>`               | Native .NET dictionary             |
-| `Map<K, V>`       | `Dictionary<K, V>`               | Currently no separate Map type     |
-| `Set<T>`          | `HashSet<T>`                     | Native .NET set                    |
+| TypeScript     | .NET Type                     | Notes                          |
+| -------------- | ----------------------------- | ------------------------------ |
+| `T[]`          | `List<T>`                     | Native .NET list               |
+| `object`       | `Dictionary<string, object?>` | For dynamic objects            |
+| `Record<K, V>` | `Dictionary<K, V>`            | Native .NET dictionary         |
+| `Map<K, V>`    | `Dictionary<K, V>`            | Currently no separate Map type |
+| `Set<T>`       | `HashSet<T>`                  | Native .NET set                |
 
 ### 3.3 Function Types
 
-| TypeScript                      | .NET Type                     |
-| ------------------------------- | ----------------------------- |
-| `() => T`                       | `Func<T>`                     |
-| `(a: A) => T`                   | `Func<A, T>`                  |
-| `(a: A, b: B) => T`             | `Func<A, B, T>`               |
-| `(a: A) => void`                | `Action<A>`                   |
-| `(a: A, b: B) => void`          | `Action<A, B>`                |
+| TypeScript             | .NET Type       |
+| ---------------------- | --------------- |
+| `() => T`              | `Func<T>`       |
+| `(a: A) => T`          | `Func<A, T>`    |
+| `(a: A, b: B) => T`    | `Func<A, B, T>` |
+| `(a: A) => void`       | `Action<A>`     |
+| `(a: A, b: B) => void` | `Action<A, B>`  |
 
 ---
 
@@ -137,12 +138,14 @@ public static List<TResult> Map<T, TResult>(
 ```
 
 **Generated TypeScript:**
+
 ```typescript
 const numbers = [1, 2, 3];
-const doubled = numbers.map(x => x * 2);
+const doubled = numbers.map((x) => x * 2);
 ```
 
 **Generated C#:**
+
 ```csharp
 var numbers = new List<double> { 1, 2, 3 };
 var doubled = ArrayHelpers.Map(numbers, x => x * 2);
@@ -171,12 +174,14 @@ public static List<T> Filter<T>(
 ```
 
 **Generated TypeScript:**
+
 ```typescript
 const numbers = [1, 2, 3, 4, 5];
-const evens = numbers.filter(x => x % 2 === 0);
+const evens = numbers.filter((x) => x % 2 === 0);
 ```
 
 **Generated C#:**
+
 ```csharp
 var numbers = new List<double> { 1, 2, 3, 4, 5 };
 var evens = ArrayHelpers.Filter(numbers, x => x % 2 == 0);
@@ -203,12 +208,14 @@ public static TResult Reduce<T, TResult>(
 ```
 
 **Generated TypeScript:**
+
 ```typescript
 const numbers = [1, 2, 3, 4];
 const sum = numbers.reduce((acc, x) => acc + x, 0);
 ```
 
 **Generated C#:**
+
 ```csharp
 var numbers = new List<double> { 1, 2, 3, 4 };
 var sum = ArrayHelpers.Reduce(numbers, (acc, x) => acc + x, 0.0);
@@ -301,15 +308,17 @@ public static List<T> Splice<T>(
 **Solution:** Use `Undefined` for sparse indices.
 
 **JavaScript:**
+
 ```typescript
 const arr = [];
 arr[10] = "ten";
-console.log(arr.length);  // 11
-console.log(arr[0]);      // undefined
-console.log(arr[10]);     // "ten"
+console.log(arr.length); // 11
+console.log(arr[0]); // undefined
+console.log(arr[10]); // "ten"
 ```
 
 **C# with Tsonic.Runtime:**
+
 ```csharp
 var arr = new List<object?>();
 // Fill with Undefined up to index 10
@@ -365,14 +374,16 @@ public static string Slice(string str, int start, int? end = null)
 ```
 
 **JavaScript:**
+
 ```typescript
 const str = "Hello, World!";
-console.log(str.slice(0, 5));   // "Hello"
-console.log(str.slice(7));      // "World!"
-console.log(str.slice(-6));     // "World!"
+console.log(str.slice(0, 5)); // "Hello"
+console.log(str.slice(7)); // "World!"
+console.log(str.slice(-6)); // "World!"
 ```
 
 **C#:**
+
 ```csharp
 var str = "Hello, World!";
 ConsoleHelper.Log(StringHelpers.Slice(str, 0, 5));   // "Hello"
@@ -579,12 +590,14 @@ public static void Error(params object?[] args)
 ```
 
 **JavaScript:**
+
 ```typescript
 console.log("Hello", 42, true, undefined, null);
 // Output: Hello 42 true undefined null
 ```
 
 **C#:**
+
 ```csharp
 ConsoleHelper.Log("Hello", 42, true, Undefined.Value, null);
 // Output: Hello 42 true undefined null
@@ -672,6 +685,7 @@ public static class TruthinessHelpers
 ```
 
 **JavaScript:**
+
 ```typescript
 if (value) {
   console.log("Truthy");
@@ -679,6 +693,7 @@ if (value) {
 ```
 
 **C#:**
+
 ```csharp
 if (TruthinessHelpers.IsTruthy(value))
 {
@@ -818,33 +833,39 @@ packages/runtime/
 ### 11.1 Memory Overhead
 
 **Native Types:**
+
 - `List<T>`: Same as .NET List (16 bytes + element storage)
 - `string`: Same as .NET string (immutable, interned)
 - `double`: 8 bytes (value type)
 
 **Wrapper Overhead (NOT used):**
+
 - JSArray wrapper would add ~24 bytes per instance
 - JSString wrapper would add ~24 bytes per instance
 
 **Savings:**
+
 - Small program with 1000 arrays: ~24 KB saved
 - Large program with 100,000 arrays: ~2.4 MB saved
 
 ### 11.2 Performance Benchmarks
 
 **Array.map() - 10,000 elements:**
+
 - Tsonic (static helper): ~0.15ms
 - Native C# LINQ: ~0.12ms
 - Node.js: ~0.30ms
 - **Result: 2x faster than Node.js**
 
 **String.slice() - 1,000,000 calls:**
+
 - Tsonic (static helper): ~25ms
 - Native C# Substring: ~20ms
 - Node.js: ~45ms
 - **Result: 1.8x faster than Node.js**
 
 **Math.floor() - 10,000,000 calls:**
+
 - Tsonic (static helper): ~15ms
 - Native C# Math.Floor: ~15ms
 - Node.js: ~35ms
@@ -940,6 +961,7 @@ for (const test of tests) {
 ---
 
 **Document Statistics:**
+
 - Lines: ~550
 - Sections: 14
 - Helper classes: 6

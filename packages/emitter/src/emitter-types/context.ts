@@ -3,17 +3,46 @@
  */
 
 import { EmitterOptions, EmitterContext } from "./core.js";
+import {
+  loadMetadataDirectory,
+  loadBindingsDirectory,
+  buildBindingsRegistry,
+} from "@tsonic/frontend/metadata/index.js";
 
 /**
  * Create a new emitter context with default values
  */
-export const createContext = (options: EmitterOptions): EmitterContext => ({
-  indentLevel: 0,
-  options,
-  usings: new Set(["Tsonic.Runtime"]),
-  isStatic: false,
-  isAsync: false,
-});
+export const createContext = (options: EmitterOptions): EmitterContext => {
+  // Load metadata and bindings if paths provided
+  let metadata: EmitterContext["metadata"] = undefined;
+  let bindingsRegistry: EmitterContext["bindingsRegistry"] = undefined;
+
+  if (options.metadataPath) {
+    const metadataResult = loadMetadataDirectory(options.metadataPath);
+    if (metadataResult.ok) {
+      metadata = metadataResult.value;
+    }
+    // TODO: Handle metadata loading errors - need diagnostics infrastructure
+  }
+
+  if (options.bindingsPath) {
+    const bindingsResult = loadBindingsDirectory(options.bindingsPath);
+    if (bindingsResult.ok) {
+      bindingsRegistry = buildBindingsRegistry(bindingsResult.value);
+    }
+    // TODO: Handle bindings loading errors - need diagnostics infrastructure
+  }
+
+  return {
+    indentLevel: 0,
+    options,
+    usings: new Set(["Tsonic.Runtime"]),
+    isStatic: false,
+    isAsync: false,
+    metadata,
+    bindingsRegistry,
+  };
+};
 
 /**
  * Increase indentation level

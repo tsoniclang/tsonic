@@ -41,6 +41,7 @@ npm install -g @tsonic/cli
 ```
 
 **Requirements:**
+
 - Node.js 22+
 - .NET SDK 8.0+
 

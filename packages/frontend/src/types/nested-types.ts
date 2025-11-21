@@ -42,10 +42,17 @@ export const parseNestedTypeName = (
     return undefined;
   }
 
+  const outerType = parts[0];
+  const nestedType = parts[parts.length - 1];
+
+  if (!outerType || !nestedType) {
+    return undefined;
+  }
+
   return {
     isNested: true,
-    outerType: parts[0],
-    nestedType: parts[parts.length - 1],
+    outerType,
+    nestedType,
     fullPath: parts,
     depth: parts.length - 1,
   };
@@ -166,7 +173,8 @@ export const getOutermostType = (tsEmitName: string): string => {
  */
 export const getInnermostType = (tsEmitName: string): string => {
   const parts = tsEmitName.split("$");
-  return parts[parts.length - 1];
+  const innermost = parts[parts.length - 1];
+  return innermost || tsEmitName;
 };
 
 /**
@@ -176,7 +184,10 @@ export const getInnermostType = (tsEmitName: string): string => {
  * @param outerType - Potentially containing type (e.g., "List_1")
  * @returns True if innerType is nested inside outerType
  */
-export const isNestedInside = (innerType: string, outerType: string): boolean => {
+export const isNestedInside = (
+  innerType: string,
+  outerType: string
+): boolean => {
   if (!isNestedType(innerType)) {
     return false;
   }

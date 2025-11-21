@@ -42,7 +42,7 @@ export function main() {
   const user: User = {
     id: 1,
     name: "Alice",
-    email: "alice@example.com"
+    email: "alice@example.com",
   };
 
   // Serialize
@@ -94,8 +94,8 @@ export function main() {
   const set = new HashSet<number>();
   set.Add(1);
   set.Add(2);
-  set.Add(1);  // Duplicate ignored
-  console.log(set.Count);  // 2
+  set.Add(1); // Duplicate ignored
+  console.log(set.Count); // 2
 }
 ```
 

@@ -10,9 +10,9 @@
  * @see spec/ref-out-parameters.md for complete documentation
  */
 
-import type * as ts from "typescript";
-import type { ParameterMetadata } from "./metadata.ts";
-import { isTSByRef, getTSByRefWrappedType } from "./support-types.ts";
+import * as ts from "typescript";
+import type { ParameterMetadata } from "./metadata.js";
+import { isTSByRef, getTSByRefWrappedType } from "./support-types.js";
 
 /**
  * Parameter modifier for C# emission.
@@ -58,7 +58,9 @@ export const getParameterModifier = (
  * @returns True if parameter should use TSByRef<T> in TypeScript
  */
 export const requiresTSByRef = (paramMetadata: ParameterMetadata): boolean => {
-  return paramMetadata.isRef || paramMetadata.isOut || (paramMetadata.isIn ?? false);
+  return (
+    paramMetadata.isRef || paramMetadata.isOut || (paramMetadata.isIn ?? false)
+  );
 };
 
 /**
@@ -142,7 +144,7 @@ export const isTSByRefObjectLiteral = (
   }
 
   const prop = properties[0];
-  if (!ts.isPropertyAssignment(prop)) {
+  if (!prop || !ts.isPropertyAssignment(prop)) {
     return false;
   }
 
@@ -240,7 +242,7 @@ export const extractTSByRefInitialValue = (
   }
 
   const prop = properties[0];
-  if (!ts.isPropertyAssignment(prop)) {
+  if (!prop || !ts.isPropertyAssignment(prop)) {
     return undefined;
   }
 
