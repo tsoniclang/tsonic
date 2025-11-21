@@ -28,6 +28,7 @@ tsonic emit src/main.ts --namespace MyCompany.Product
 ```
 
 **Use When**:
+
 - Debugging code generation
 - Learning how TypeScript maps to C#
 - Integrating with custom build pipelines
@@ -61,6 +62,7 @@ tsonic build src/main.ts --keep-temp --verbose
 ```
 
 **Build Output**:
+
 - Single-file native executable
 - No .NET runtime required
 - Typical size: 10-50 MB
@@ -99,13 +101,13 @@ tsonic run src/main.ts --namespace TestApp
 
 Available for all commands:
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--help` | `-h` | Show help | - |
-| `--version` | `-v` | Show version | - |
-| `--verbose` | `-V` | Verbose output | false |
-| `--quiet` | `-q` | Suppress output | false |
-| `--diagnostics <format>` | `-d` | Diagnostic format: `json`, `pretty`, `silent` | pretty |
+| Option                   | Short | Description                                   | Default |
+| ------------------------ | ----- | --------------------------------------------- | ------- |
+| `--help`                 | `-h`  | Show help                                     | -       |
+| `--version`              | `-v`  | Show version                                  | -       |
+| `--verbose`              | `-V`  | Verbose output                                | false   |
+| `--quiet`                | `-q`  | Suppress output                               | false   |
+| `--diagnostics <format>` | `-d`  | Diagnostic format: `json`, `pretty`, `silent` | pretty  |
 
 **Examples**:
 
@@ -131,12 +133,12 @@ tsonic build src/main.ts --diagnostics json
 
 These options work for all three commands:
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--src <dir>` | `-s` | Source root directory | dirname(entry) |
-| `--out <path>` | `-o` | Output directory (emit) or file (build) | ./out or ./tsonic-app |
-| `--namespace <ns>` | `-n` | Root namespace override | from tsonic.json |
-| `--config <file>` | `-c` | Config file path | tsonic.json |
+| Option             | Short | Description                             | Default               |
+| ------------------ | ----- | --------------------------------------- | --------------------- |
+| `--src <dir>`      | `-s`  | Source root directory                   | dirname(entry)        |
+| `--out <path>`     | `-o`  | Output directory (emit) or file (build) | ./out or ./tsonic-app |
+| `--namespace <ns>` | `-n`  | Root namespace override                 | from tsonic.json      |
+| `--config <file>`  | `-c`  | Config file path                        | tsonic.json           |
 
 **Examples**:
 
@@ -158,13 +160,13 @@ tsonic build main.ts --config tsonic.production.json
 
 Additional options for building executables:
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--rid <rid>` | `-r` | Runtime identifier | auto-detect |
-| `--optimize <level>` | `-O` | Optimization: `size`, `speed` | speed |
-| `--keep-temp` | `-k` | Keep build artifacts | false |
-| `--no-strip` | | Keep debug symbols | false |
-| `--packages <list>` | `-p` | Additional NuGet packages | auto-detect |
+| Option               | Short | Description                   | Default     |
+| -------------------- | ----- | ----------------------------- | ----------- |
+| `--rid <rid>`        | `-r`  | Runtime identifier            | auto-detect |
+| `--optimize <level>` | `-O`  | Optimization: `size`, `speed` | speed       |
+| `--keep-temp`        | `-k`  | Keep build artifacts          | false       |
+| `--no-strip`         |       | Keep debug symbols            | false       |
+| `--packages <list>`  | `-p`  | Additional NuGet packages     | auto-detect |
 
 **Examples**:
 
@@ -186,9 +188,9 @@ tsonic build main.ts --packages Newtonsoft.Json:13.0.3,Dapper:2.1.0
 
 Additional option for the run command:
 
-| Option | Description |
-|--------|-------------|
-| `--` | Pass remaining args to program |
+| Option | Description                    |
+| ------ | ------------------------------ |
+| `--`   | Pass remaining args to program |
 
 **Example**:
 
@@ -242,15 +244,15 @@ tsonic build  # Uses settings from tsonic.json
 
 Common RIDs for NativeAOT:
 
-| Platform | RID | Notes |
-|----------|-----|-------|
-| Windows x64 | `win-x64` | Windows 10+ |
-| Windows ARM64 | `win-arm64` | Windows 11 ARM |
-| Linux x64 | `linux-x64` | Most Linux distros |
-| Linux ARM64 | `linux-arm64` | ARM Linux |
-| Linux musl x64 | `linux-musl-x64` | Alpine Linux |
-| macOS x64 | `osx-x64` | Intel Macs |
-| macOS ARM64 | `osx-arm64` | M1/M2/M3 Macs |
+| Platform       | RID              | Notes              |
+| -------------- | ---------------- | ------------------ |
+| Windows x64    | `win-x64`        | Windows 10+        |
+| Windows ARM64  | `win-arm64`      | Windows 11 ARM     |
+| Linux x64      | `linux-x64`      | Most Linux distros |
+| Linux ARM64    | `linux-arm64`    | ARM Linux          |
+| Linux musl x64 | `linux-musl-x64` | Alpine Linux       |
+| macOS x64      | `osx-x64`        | Intel Macs         |
+| macOS ARM64    | `osx-arm64`      | M1/M2/M3 Macs      |
 
 **Auto-detection**: If you don't specify `--rid`, Tsonic detects your platform automatically.
 
@@ -258,17 +260,17 @@ Common RIDs for NativeAOT:
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Invalid arguments |
-| 3 | File not found |
-| 4 | TypeScript errors |
-| 5 | C# emission errors |
-| 6 | Build errors |
-| 7 | Runtime error (run command) |
-| 8 | .NET SDK not found |
+| Code | Meaning                     |
+| ---- | --------------------------- |
+| 0    | Success                     |
+| 1    | General error               |
+| 2    | Invalid arguments           |
+| 3    | File not found              |
+| 4    | TypeScript errors           |
+| 5    | C# emission errors          |
+| 6    | Build errors                |
+| 7    | Runtime error (run command) |
+| 8    | .NET SDK not found          |
 
 **Use in CI/CD**:
 
@@ -285,14 +287,14 @@ fi
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `TSONIC_HOME` | Override Tsonic installation directory |
-| `TSONIC_CACHE` | Build cache directory |
-| `TSONIC_DOTNET` | Path to dotnet executable |
-| `TSONIC_VERBOSE` | Enable verbose output (1 or true) |
-| `TSONIC_COLOR` | Force color output (1 or true) |
-| `NO_COLOR` | Disable color output (standard) |
+| Variable         | Description                            |
+| ---------------- | -------------------------------------- |
+| `TSONIC_HOME`    | Override Tsonic installation directory |
+| `TSONIC_CACHE`   | Build cache directory                  |
+| `TSONIC_DOTNET`  | Path to dotnet executable              |
+| `TSONIC_VERBOSE` | Enable verbose output (1 or true)      |
+| `TSONIC_COLOR`   | Force color output (1 or true)         |
+| `NO_COLOR`       | Disable color output (standard)        |
 
 **Examples**:
 

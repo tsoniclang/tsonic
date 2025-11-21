@@ -45,7 +45,7 @@ Reserved for tsonic.json validation errors.
 
 ```typescript
 type Diagnostic = {
-  code: string;        // e.g., "TSN1001"
+  code: string; // e.g., "TSN1001"
   severity: "error" | "warning" | "info";
   message: string;
   file?: string;

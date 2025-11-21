@@ -9,6 +9,7 @@ This document describes the detailed data flow through Tsonic's compilation pipe
 ## 1. Pipeline Overview
 
 The Tsonic compiler implements a linear 8-phase pipeline where each phase:
+
 1. Receives immutable input from the previous phase
 2. Performs pure transformations
 3. Returns either success (with transformed data) or failure (with diagnostics)
@@ -45,6 +46,7 @@ Phase 8: Runtime       Runtime support (separate package)
 ### 3.1 Entry Point → Phase 1 (Program)
 
 **Input:**
+
 ```typescript
 {
   entryPoint: string;              // "src/main.ts"
@@ -56,6 +58,7 @@ Phase 8: Runtime       Runtime support (separate package)
 ```
 
 **Process:**
+
 1. Scan typeRoots for `.d.ts` files recursively
 2. Load all source files from sourceRoot
 3. Create TypeScript Program with compiler options
@@ -63,6 +66,7 @@ Phase 8: Runtime       Runtime support (separate package)
 5. Load `.bindings.json` files into BindingRegistry
 
 **Output (Success):**
+
 ```typescript
 type TsonicProgram = {
   readonly program: ts.Program;
@@ -75,6 +79,7 @@ type TsonicProgram = {
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -95,16 +100,18 @@ type Diagnostic[] = [
 ### 3.2 Phase 1 → Phase 2 (Resolver)
 
 **Input:**
+
 ```typescript
 {
   program: TsonicProgram;
-  entryPoint: string;              // "src/main.ts"
-  sourceRoot: string;              // "src"
-  rootNamespace: string;           // "MyApp"
+  entryPoint: string; // "src/main.ts"
+  sourceRoot: string; // "src"
+  rootNamespace: string; // "MyApp"
 }
 ```
 
 **Process:**
+
 1. Start from entry point file
 2. Extract all import statements
 3. Resolve each import:
@@ -117,6 +124,7 @@ type Diagnostic[] = [
 7. Compute class name from file name
 
 **Output (Success):**
+
 ```typescript
 type ResolverResult = {
   readonly moduleGraph: ModuleGraph;
@@ -141,6 +149,7 @@ type ResolvedModule = {
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -162,6 +171,7 @@ type Diagnostic[] = [
 ### 3.3 Phase 2 → Phase 3 (Validation)
 
 **Input:**
+
 ```typescript
 {
   program: TsonicProgram;
@@ -171,6 +181,7 @@ type Diagnostic[] = [
 ```
 
 **Process:**
+
 1. **Import Validation:**
    - Verify `.ts` extension on local imports
    - Validate .NET namespace format
@@ -191,14 +202,16 @@ type Diagnostic[] = [
    - No recursive type parameters
 
 **Output (Success):**
+
 ```typescript
 type ValidationResult = {
   readonly validatedModules: readonly string[];
-  readonly warnings: readonly Diagnostic[];  // Non-fatal warnings
+  readonly warnings: readonly Diagnostic[]; // Non-fatal warnings
 };
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -220,6 +233,7 @@ type Diagnostic[] = [
 ### 3.4 Phase 3 → Phase 4 (IR Builder)
 
 **Input:**
+
 ```typescript
 {
   program: TsonicProgram;
@@ -230,6 +244,7 @@ type Diagnostic[] = [
 ```
 
 **Process:**
+
 1. **For each validated module:**
    - Get TypeScript AST (SourceFile)
    - Convert imports → IrImport[]
@@ -266,6 +281,7 @@ type Diagnostic[] = [
    - etc. (18 statement types total)
 
 **Output (Success):**
+
 ```typescript
 type IRBuilderResult = {
   readonly modules: ReadonlyMap<string, IrModule>;
@@ -284,6 +300,7 @@ type IrModule = {
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -304,6 +321,7 @@ type Diagnostic[] = [
 ### 3.5 Phase 4 → Phase 5 (Analysis)
 
 **Input:**
+
 ```typescript
 {
   modules: ReadonlyMap<string, IrModule>;
@@ -312,6 +330,7 @@ type Diagnostic[] = [
 ```
 
 **Process:**
+
 1. **Build Symbol Table:**
    - Extract all exported symbols from each module
    - Map symbol name → module path
@@ -328,11 +347,12 @@ type Diagnostic[] = [
    - Prepare for adapter generation
 
 **Output (Success):**
+
 ```typescript
 type AnalysisResult = {
   readonly symbolTable: SymbolTable;
-  readonly buildOrder: readonly string[];  // Module paths in dependency order
-  readonly circularDeps: readonly string[][];  // Empty if no cycles
+  readonly buildOrder: readonly string[]; // Module paths in dependency order
+  readonly circularDeps: readonly string[][]; // Empty if no cycles
 };
 
 type SymbolTable = {
@@ -343,7 +363,13 @@ type SymbolTable = {
 
 type Symbol = {
   readonly name: string;
-  readonly kind: "class" | "interface" | "function" | "variable" | "type" | "enum";
+  readonly kind:
+    | "class"
+    | "interface"
+    | "function"
+    | "variable"
+    | "type"
+    | "enum";
   readonly isExported: boolean;
   readonly module: string;
   readonly tsSymbol?: ts.Symbol;
@@ -351,6 +377,7 @@ type Symbol = {
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -369,6 +396,7 @@ type Diagnostic[] = [
 ### 3.6 Phase 5 → Phase 6 (Emitter)
 
 **Input:**
+
 ```typescript
 {
   modules: ReadonlyMap<string, IrModule>;
@@ -387,47 +415,48 @@ type EmitterOptions = {
 ```
 
 **Process:**
+
 1. **For each module (in build order):**
 
    a. **Header Generation:**
-      - Copyright notice
-      - Auto-generated comment
-      - Namespace declaration
+   - Copyright notice
+   - Auto-generated comment
+   - Namespace declaration
 
    b. **Import Processing:**
-      - Collect using statements from imports
-      - Deduplicate namespaces
-      - Sort alphabetically
+   - Collect using statements from imports
+   - Deduplicate namespaces
+   - Sort alphabetically
 
    c. **Type Parameter Collection:**
-      - Find all generic type parameters
-      - Identify structural constraints
-      - Generate adapter interfaces
-      - Generate wrapper classes
+   - Find all generic type parameters
+   - Identify structural constraints
+   - Generate adapter interfaces
+   - Generate wrapper classes
 
    d. **Specialization Collection:**
-      - Find all generic call/new expressions
-      - Collect concrete type arguments
-      - Generate specialized functions
-      - Rewrite call sites
+   - Find all generic call/new expressions
+   - Collect concrete type arguments
+   - Generate specialized functions
+   - Rewrite call sites
 
    e. **Generator Exchange Generation:**
-      - Find async generators
-      - Generate exchange classes for state management
+   - Find async generators
+   - Generate exchange classes for state management
 
    f. **Statement Separation:**
-      - Namespace-level declarations (classes, interfaces)
-      - Static container members (functions, constants)
+   - Namespace-level declarations (classes, interfaces)
+   - Static container members (functions, constants)
 
    g. **Emission:**
-      - Emit namespace declarations
-      - Emit static container (if needed)
-      - Emit entry point Main method (if entry point)
+   - Emit namespace declarations
+   - Emit static container (if needed)
+   - Emit entry point Main method (if entry point)
 
    h. **Assembly:**
-      - Combine using statements
-      - Combine body
-      - Format with indentation
+   - Combine using statements
+   - Combine body
+   - Format with indentation
 
 2. **Type Emission:**
    - `string` → `string`
@@ -455,19 +484,21 @@ type EmitterOptions = {
    - etc.
 
 **Output (Success):**
+
 ```typescript
 type EmitterResult = {
   readonly emittedFiles: ReadonlyMap<string, EmittedFile>;
 };
 
 type EmittedFile = {
-  readonly filePath: string;        // Generated/MyApp/models/User.cs
-  readonly content: string;         // C# source code
-  readonly sourceMap?: SourceMap;   // Optional source map
+  readonly filePath: string; // Generated/MyApp/models/User.cs
+  readonly content: string; // C# source code
+  readonly sourceMap?: SourceMap; // Optional source map
 };
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -488,6 +519,7 @@ type Diagnostic[] = [
 ### 3.7 Phase 6 → Phase 7 (Backend)
 
 **Input:**
+
 ```typescript
 {
   emittedFiles: ReadonlyMap<string, EmittedFile>;
@@ -497,7 +529,7 @@ type Diagnostic[] = [
 type BuildConfig = {
   readonly rootNamespace: string;
   readonly outputName: string;
-  readonly dotnetVersion: string;        // "net10.0"
+  readonly dotnetVersion: string; // "net10.0"
   readonly runtimePath?: string;
   readonly packages: readonly NuGetPackage[];
   readonly outputConfig: ExecutableConfig | LibraryConfig;
@@ -520,6 +552,7 @@ type NuGetPackage = {
 ```
 
 **Process:**
+
 1. **Preparation:**
    - Check dotnet is installed (`dotnet --version`)
    - Detect runtime identifier (linux-x64, win-x64, osx-arm64)
@@ -535,6 +568,7 @@ type NuGetPackage = {
      - NuGet package references
 
 3. **.csproj Content:**
+
    ```xml
    <Project Sdk="Microsoft.NET.Sdk">
      <PropertyGroup>
@@ -570,15 +604,17 @@ type NuGetPackage = {
    - Clean build directory (unless keepTemp)
 
 **Output (Success):**
+
 ```typescript
 type BuildResult = {
-  readonly binaryPath: string;          // "./myapp" or "./myapp.exe"
-  readonly buildLog: string;            // dotnet output
-  readonly buildTime: number;           // milliseconds
+  readonly binaryPath: string; // "./myapp" or "./myapp.exe"
+  readonly buildLog: string; // dotnet output
+  readonly buildTime: number; // milliseconds
 };
 ```
 
 **Output (Failure):**
+
 ```typescript
 type Diagnostic[] = [
   {
@@ -603,6 +639,7 @@ type Diagnostic[] = [
 **Runtime Package:** `Tsonic.Runtime` (C# library)
 
 **Provided APIs:**
+
 - **Array static methods:** `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `map`, `filter`, `reduce`, `find`, `some`, `every`, `join`, etc.
 - **String static methods:** `toUpperCase`, `toLowerCase`, `substring`, `indexOf`, `split`, `trim`, etc.
 - **Math static methods:** `abs`, `ceil`, `floor`, `round`, `sqrt`, `pow`, `min`, `max`, etc.
@@ -610,6 +647,7 @@ type Diagnostic[] = [
 - **console static methods:** `log`, `error`, `warn`, `info`
 
 **Integration:**
+
 - Runtime is referenced as NuGet package in .csproj
 - Compiled into final binary
 - No runtime dependencies after compilation
@@ -621,6 +659,7 @@ type Diagnostic[] = [
 ### 4.1 Error Flow
 
 **Any Phase Failure:**
+
 ```
 Phase N (failed)
   ↓
@@ -665,11 +704,13 @@ Each phase may add context to diagnostics:
 ### 4.3 Warning vs Error
 
 **Warnings:**
+
 - Do NOT halt pipeline
 - Displayed to user
 - Can be suppressed via configuration
 
 **Errors:**
+
 - ALWAYS halt pipeline
 - Must be fixed before proceeding
 - Cannot be suppressed
@@ -680,24 +721,26 @@ Each phase may add context to diagnostics:
 
 ### 5.1 Phase Data Structures
 
-| Phase | Input Types | Output Types |
-|-------|-------------|--------------|
-| **Program** | File paths, config | TsonicProgram, DotnetMetadataRegistry, BindingRegistry |
-| **Resolver** | TsonicProgram, entry point | ModuleGraph, ResolvedModule[] |
-| **Validation** | ModuleGraph, program | Validated module paths, warnings |
-| **IR Builder** | TsonicProgram, ModuleGraph | IrModule[] |
-| **Analysis** | IrModule[], ModuleGraph | SymbolTable, build order |
-| **Emitter** | IrModule[], SymbolTable, build order | EmittedFile[] |
-| **Backend** | EmittedFile[], BuildConfig | Binary path |
+| Phase          | Input Types                          | Output Types                                           |
+| -------------- | ------------------------------------ | ------------------------------------------------------ |
+| **Program**    | File paths, config                   | TsonicProgram, DotnetMetadataRegistry, BindingRegistry |
+| **Resolver**   | TsonicProgram, entry point           | ModuleGraph, ResolvedModule[]                          |
+| **Validation** | ModuleGraph, program                 | Validated module paths, warnings                       |
+| **IR Builder** | TsonicProgram, ModuleGraph           | IrModule[]                                             |
+| **Analysis**   | IrModule[], ModuleGraph              | SymbolTable, build order                               |
+| **Emitter**    | IrModule[], SymbolTable, build order | EmittedFile[]                                          |
+| **Backend**    | EmittedFile[], BuildConfig           | Binary path                                            |
 
 ### 5.2 Shared Data Structures
 
 **Throughout Pipeline:**
+
 - `TsonicProgram` - Passed from Phase 1 through Phase 4
 - `ModuleGraph` - Created in Phase 2, used through Phase 5
 - `IrModule[]` - Created in Phase 4, used in Phase 5-6
 
 **Immutability:**
+
 - All data structures are readonly
 - No phase modifies data from previous phases
 - New data created via spread/map/filter
@@ -724,6 +767,7 @@ Total (with backend):    ~30s
 ### 6.2 Memory Usage
 
 **Peak Memory by Phase:**
+
 ```
 Phase 1 (Program):     ~50MB   (TypeScript ASTs)
 Phase 4 (IR Builder):  ~100MB  (TypeScript ASTs + IR)
@@ -746,15 +790,18 @@ Phase 7 (Backend):     ~500MB  (dotnet compiler process)
 ### 7.2 Future Parallelization
 
 **Phase 4 (IR Builder):**
+
 - Each module can be processed independently
 - Potential for N-way parallelism where N = CPU cores
 - Requires thread-safe TypeScript checker
 
 **Phase 5 (Analysis):**
+
 - Symbol table building can be parallelized per module
 - Dependency analysis must remain sequential
 
 **Phase 6 (Emitter):**
+
 - Each module can be emitted independently
 - Potential for N-way parallelism
 - Specialization must be coordinated
@@ -766,6 +813,7 @@ Phase 7 (Backend):     ~500MB  (dotnet compiler process)
 ### 8.1 Logging Points
 
 **Each phase should log:**
+
 - Phase start timestamp
 - Input data summary
 - Key decisions made
@@ -774,6 +822,7 @@ Phase 7 (Backend):     ~500MB  (dotnet compiler process)
 - Total phase time
 
 **Example:**
+
 ```
 [Program] Starting...
 [Program] Loading 45 source files
@@ -791,6 +840,7 @@ Phase 7 (Backend):     ~500MB  (dotnet compiler process)
 ### 8.2 Intermediate Artifacts
 
 **For debugging, optionally save:**
+
 - Phase 1: TypeScript ASTs (JSON)
 - Phase 2: Module graph (DOT format)
 - Phase 4: IR modules (JSON)
@@ -814,6 +864,7 @@ Phase 7 (Backend):     ~500MB  (dotnet compiler process)
 ---
 
 **Document Statistics:**
+
 - Lines: ~790
 - Sections: 9 major sections
 - Phase connections: 7 detailed

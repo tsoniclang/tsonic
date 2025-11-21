@@ -79,20 +79,20 @@ packages/emitter/src/
 type EmitterContext = {
   readonly options: EmitterOptions;
   readonly indentLevel: number;
-  readonly usings: ReadonlySet<string>;          // using directives
-  readonly specializations: SpecializationMap;    // Generated specializations
-  readonly adapters: AdapterMap;                  // Structural adapters
+  readonly usings: ReadonlySet<string>; // using directives
+  readonly specializations: SpecializationMap; // Generated specializations
+  readonly adapters: AdapterMap; // Structural adapters
   readonly generatorExchanges: GeneratorExchangeMap;
-  readonly inClass: boolean;                      // Inside class context
-  readonly inStaticMethod: boolean;               // Inside static method
+  readonly inClass: boolean; // Inside class context
+  readonly inStaticMethod: boolean; // Inside static method
 };
 
 type EmitterOptions = {
-  readonly indent: string;              // "  " (2 spaces)
-  readonly rootNamespace: string;       // "MyApp"
-  readonly sourceRoot: string;          // "/src"
-  readonly isEntryPoint: boolean;       // Generate Main() method
-  readonly entryPointPath?: string;     // Path to entry point module
+  readonly indent: string; // "  " (2 spaces)
+  readonly rootNamespace: string; // "MyApp"
+  readonly sourceRoot: string; // "/src"
+  readonly isEntryPoint: boolean; // Generate Main() method
+  readonly entryPointPath?: string; // Path to entry point module
 };
 ```
 
@@ -256,10 +256,7 @@ const processImports = (
 ### 5.2 Generate Header
 
 ```typescript
-const generateHeader = (
-  module: IrModule,
-  options: EmitterOptions
-): string => {
+const generateHeader = (module: IrModule, options: EmitterOptions): string => {
   const lines: string[] = [];
 
   // File comment
@@ -289,7 +286,10 @@ const collectSpecializations = (
   module: IrModule
 ): readonly SpecializationRequest[] => {
   const requests: SpecializationRequest[] = [];
-  const declarations = new Map<string, IrFunctionDeclaration | IrClassDeclaration>();
+  const declarations = new Map<
+    string,
+    IrFunctionDeclaration | IrClassDeclaration
+  >();
 
   // Collect generic declarations
   for (const stmt of module.body) {
@@ -349,9 +349,10 @@ const generateSpecializations = (
     if (specializationMap.has(key)) continue;
 
     // Generate specialized name
-    const specializedName = request.kind === "function"
-      ? generateSpecializedFunctionName(request)
-      : generateSpecializedClassName(request);
+    const specializedName =
+      request.kind === "function"
+        ? generateSpecializedFunctionName(request)
+        : generateSpecializedClassName(request);
 
     // Substitute type parameters with concrete types
     const substituted = substituteDeclaration(
@@ -360,9 +361,16 @@ const generateSpecializations = (
     );
 
     // Emit specialized version
-    const [specializedCode, newContext] = request.kind === "function"
-      ? emitFunctionDeclaration(substituted as IrFunctionDeclaration, currentContext)
-      : emitClassDeclaration(substituted as IrClassDeclaration, currentContext);
+    const [specializedCode, newContext] =
+      request.kind === "function"
+        ? emitFunctionDeclaration(
+            substituted as IrFunctionDeclaration,
+            currentContext
+          )
+        : emitClassDeclaration(
+            substituted as IrClassDeclaration,
+            currentContext
+          );
 
     // Store specialization
     specializationMap.set(key, {
@@ -510,9 +518,10 @@ const emitArray = (
   let currentContext = context;
 
   // Infer element type
-  const elementType = expectedType?.kind === "arrayType"
-    ? expectedType.elementType
-    : inferElementType(expr.elements);
+  const elementType =
+    expectedType?.kind === "arrayType"
+      ? expectedType.elementType
+      : inferElementType(expr.elements);
 
   const [elementTypeCode] = emitType(elementType, currentContext);
 
@@ -527,7 +536,11 @@ const emitArray = (
       // This should be handled by Array.from or similar
       throw new Error("Spread in array literal not yet supported");
     } else {
-      const [elementCode, newContext] = emitExpression(element, currentContext, elementType);
+      const [elementCode, newContext] = emitExpression(
+        element,
+        currentContext,
+        elementType
+      );
       elementCodes.push(elementCode.code);
       currentContext = newContext;
     }
@@ -550,7 +563,10 @@ const emitCall = (
   let currentContext = context;
 
   // Emit callee
-  const [calleeCode, calleeContext] = emitExpression(expr.callee, currentContext);
+  const [calleeCode, calleeContext] = emitExpression(
+    expr.callee,
+    currentContext
+  );
   currentContext = calleeContext;
 
   // Check for specialized call
@@ -573,7 +589,10 @@ const emitCall = (
   for (const arg of expr.arguments) {
     if (arg.kind === "spread") {
       // Spread in arguments - use params array syntax
-      const [spreadCode, newContext] = emitExpression(arg.expression, currentContext);
+      const [spreadCode, newContext] = emitExpression(
+        arg.expression,
+        currentContext
+      );
       argCodes.push(`...(${spreadCode.code})`);
       currentContext = newContext;
     } else {
@@ -667,7 +686,10 @@ const emitFunctionDeclaration = (
 
   // Emit body
   if (stmt.body) {
-    const bodyContext = { ...currentContext, indentLevel: currentContext.indentLevel + 1 };
+    const bodyContext = {
+      ...currentContext,
+      indentLevel: currentContext.indentLevel + 1,
+    };
     const [bodyCode, newContext] = emitBlockStatement(stmt.body, bodyContext);
     lines.push(bodyCode);
     currentContext = newContext;
@@ -706,7 +728,11 @@ const emitClassDeclaration = (
   lines.push(`${ind}{`);
 
   // Emit members
-  const memberContext = { ...currentContext, indentLevel: currentContext.indentLevel + 1, inClass: true };
+  const memberContext = {
+    ...currentContext,
+    indentLevel: currentContext.indentLevel + 1,
+    inClass: true,
+  };
   for (const member of stmt.members) {
     const [memberCode, newContext] = emitClassMember(member, memberContext);
     lines.push(memberCode);
@@ -756,9 +782,7 @@ const emitType = (
 ### 9.2 Primitive Type Mapping
 
 ```typescript
-const emitPrimitiveType = (
-  type: IrPrimitiveType
-): [string, EmitterContext] => {
+const emitPrimitiveType = (type: IrPrimitiveType): [string, EmitterContext] => {
   const mapping: Record<string, string> = {
     string: "string",
     number: "double",
@@ -811,7 +835,10 @@ const separateStatements = (
       stmt.kind === "typeAliasDeclaration"
     ) {
       namespaceLevelDecls.push(stmt);
-      if (stmt.kind === "classDeclaration" && (stmt.extends || stmt.implements)) {
+      if (
+        stmt.kind === "classDeclaration" &&
+        (stmt.extends || stmt.implements)
+      ) {
         hasInheritance = true;
       }
     } else {
@@ -980,14 +1007,17 @@ const assembleOutput = (
 ### 13.1 Complexity
 
 **Expression Emission:**
+
 - Time: O(E) where E = expressions
 - Space: O(D) where D = expression depth
 
 **Statement Emission:**
+
 - Time: O(S) where S = statements
 - Space: O(D) where D = nesting depth
 
 **Specialization:**
+
 - Time: O(G × C) where G = generic declarations, C = call sites
 - Space: O(G × T) where T = unique type argument combinations
 
@@ -996,6 +1026,7 @@ const assembleOutput = (
 ### 13.2 Timing
 
 **Small Module (100 LOC):**
+
 - Expression emission: ~10ms
 - Statement emission: ~15ms
 - Type emission: ~5ms
@@ -1004,6 +1035,7 @@ const assembleOutput = (
 - **Total: ~37ms**
 
 **Medium Module (500 LOC):**
+
 - Expression emission: ~40ms
 - Statement emission: ~60ms
 - Type emission: ~20ms
@@ -1012,6 +1044,7 @@ const assembleOutput = (
 - **Total: ~145ms**
 
 **Large Module (2000 LOC):**
+
 - Expression emission: ~150ms
 - Statement emission: ~250ms
 - Type emission: ~80ms
@@ -1032,6 +1065,7 @@ const assembleOutput = (
 ---
 
 **Document Statistics:**
+
 - Lines: ~1,100
 - Sections: 14
 - Code examples: 30+

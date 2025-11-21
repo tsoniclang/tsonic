@@ -55,12 +55,13 @@ const snakeToPascalCase = (identifier: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
-toPascalCase("userName")         // "UserName"
-toPascalCase("getId")            // "GetId"
-toCamelCase("UserName")          // "userName"
-kebabToPascalCase("user-name")   // "UserName"
-snakeToPascalCase("user_name")   // "UserName"
+toPascalCase("userName"); // "UserName"
+toPascalCase("getId"); // "GetId"
+toCamelCase("UserName"); // "userName"
+kebabToPascalCase("user-name"); // "UserName"
+snakeToPascalCase("user_name"); // "UserName"
 ```
 
 ---
@@ -86,6 +87,7 @@ const transformVariableName = (
 ```
 
 **Examples:**
+
 ```typescript
 // Local variables - keep camelCase
 "userName" → "userName"
@@ -108,6 +110,7 @@ const transformFunctionName = (tsName: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
 "greet" → "Greet"
 "getUserById" → "GetUserById"
@@ -126,6 +129,7 @@ const transformTypeName = (tsName: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
 "User" → "User"
 "PostMetadata" → "PostMetadata"
@@ -144,6 +148,7 @@ const transformParameterName = (tsName: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
 "userId" → "userId"
 "callback" → "callback"
@@ -159,23 +164,113 @@ const transformParameterName = (tsName: string): string => {
 ```typescript
 const CSHARP_RESERVED_KEYWORDS = new Set([
   // C# keywords
-  "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
-  "char", "checked", "class", "const", "continue", "decimal", "default",
-  "delegate", "do", "double", "else", "enum", "event", "explicit", "extern",
-  "false", "finally", "fixed", "float", "for", "foreach", "goto", "if",
-  "implicit", "in", "int", "interface", "internal", "is", "lock", "long",
-  "namespace", "new", "null", "object", "operator", "out", "override",
-  "params", "private", "protected", "public", "readonly", "ref", "return",
-  "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string",
-  "struct", "switch", "this", "throw", "true", "try", "typeof", "uint",
-  "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void",
-  "volatile", "while",
+  "abstract",
+  "as",
+  "base",
+  "bool",
+  "break",
+  "byte",
+  "case",
+  "catch",
+  "char",
+  "checked",
+  "class",
+  "const",
+  "continue",
+  "decimal",
+  "default",
+  "delegate",
+  "do",
+  "double",
+  "else",
+  "enum",
+  "event",
+  "explicit",
+  "extern",
+  "false",
+  "finally",
+  "fixed",
+  "float",
+  "for",
+  "foreach",
+  "goto",
+  "if",
+  "implicit",
+  "in",
+  "int",
+  "interface",
+  "internal",
+  "is",
+  "lock",
+  "long",
+  "namespace",
+  "new",
+  "null",
+  "object",
+  "operator",
+  "out",
+  "override",
+  "params",
+  "private",
+  "protected",
+  "public",
+  "readonly",
+  "ref",
+  "return",
+  "sbyte",
+  "sealed",
+  "short",
+  "sizeof",
+  "stackalloc",
+  "static",
+  "string",
+  "struct",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "uint",
+  "ulong",
+  "unchecked",
+  "unsafe",
+  "ushort",
+  "using",
+  "virtual",
+  "void",
+  "volatile",
+  "while",
 
   // Contextual keywords
-  "add", "alias", "ascending", "async", "await", "by", "descending",
-  "dynamic", "equals", "from", "get", "global", "group", "into", "join",
-  "let", "nameof", "on", "orderby", "partial", "remove", "select", "set",
-  "value", "var", "when", "where", "yield",
+  "add",
+  "alias",
+  "ascending",
+  "async",
+  "await",
+  "by",
+  "descending",
+  "dynamic",
+  "equals",
+  "from",
+  "get",
+  "global",
+  "group",
+  "into",
+  "join",
+  "let",
+  "nameof",
+  "on",
+  "orderby",
+  "partial",
+  "remove",
+  "select",
+  "set",
+  "value",
+  "var",
+  "when",
+  "where",
+  "yield",
 ]);
 
 const escapeReservedKeyword = (identifier: string): string => {
@@ -187,6 +282,7 @@ const escapeReservedKeyword = (identifier: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
 "class" → "@class"
 "object" → "@object"
@@ -224,6 +320,7 @@ const escapeReservedKeywordWithConflictResolution = (
 ```
 
 **Examples:**
+
 ```typescript
 // If "@class" already exists:
 "class" → "class1"
@@ -253,6 +350,7 @@ const fileNameToClassName = (filePath: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
 "/src/models/user.ts"        → "User"
 "/src/models/post-meta.ts"   → "PostMeta"
@@ -263,18 +361,21 @@ const fileNameToClassName = (filePath: string): string => {
 ### 5.2 Special Cases
 
 **kebab-case files:**
+
 ```typescript
 "user-repository.ts" → "UserRepository"
 "api-client.ts"      → "ApiClient"
 ```
 
 **snake_case files:**
+
 ```typescript
 "user_repository.ts" → "UserRepository"
 "api_client.ts"      → "ApiClient"
 ```
 
 **Numbers in file names:**
+
 ```typescript
 "math2d.ts"     → "Math2d"
 "vector3.ts"    → "Vector3"
@@ -311,6 +412,7 @@ const directoryToNamespace = (
 ```
 
 **Examples:**
+
 ```typescript
 // sourceRoot: "/src", rootNamespace: "MyApp"
 
@@ -352,11 +454,12 @@ const getQualifiedName = (
 ```
 
 **Examples:**
+
 ```typescript
-getQualifiedName("MyApp.models", "User", "create")
+getQualifiedName("MyApp.models", "User", "create");
 // → "MyApp.models.User.create"
 
-getQualifiedName("MyApp.services", "ApiClient", "fetch")
+getQualifiedName("MyApp.services", "ApiClient", "fetch");
 // → "MyApp.services.ApiClient.fetch"
 ```
 
@@ -435,25 +538,26 @@ const primitiveTypeToCSharpName = (primitive: string): string => {
 ```
 
 **Examples:**
+
 ```typescript
 // map<number, string>
 generateSpecializationName("map", [
   { kind: "primitive", primitive: "number" },
   { kind: "primitive", primitive: "string" },
-])
+]);
 // → "map__double_string"
 
 // filter<User>
 generateSpecializationName("filter", [
   { kind: "type-reference", name: "User" },
-])
+]);
 // → "filter__User"
 
 // map<number[], string[]>
 generateSpecializationName("map", [
   { kind: "array", elementType: { kind: "primitive", primitive: "number" } },
   { kind: "array", elementType: { kind: "primitive", primitive: "string" } },
-])
+]);
 // → "map__doubleArray_stringArray"
 ```
 
@@ -497,14 +601,15 @@ const createNameRegistry = (): NameRegistry => {
 ```
 
 **Examples:**
+
 ```typescript
 const registry = createNameRegistry();
 
-registry.register("User");        // "User"
-registry.register("User");        // "User1"
-registry.register("User");        // "User2"
-registry.register("getValue");    // "getValue"
-registry.register("getValue");    // "getValue1"
+registry.register("User"); // "User"
+registry.register("User"); // "User1"
+registry.register("User"); // "User2"
+registry.register("getValue"); // "getValue"
+registry.register("getValue"); // "getValue1"
 ```
 
 ### 9.2 Scoped Registries
@@ -597,15 +702,15 @@ namespace MyApp.models
 
 ### 10.3 Transformation Summary
 
-| TypeScript          | C#                   | Rule                          |
-| ------------------- | -------------------- | ----------------------------- |
-| `user-repository.ts` | `UserRepository`    | File name → PascalCase        |
-| `UserRepository`    | `UserRepository`     | Class name (no change)        |
-| `userName` (field)  | `UserName`           | Field → PascalCase            |
-| `getUserById`       | `GetUserById`        | Function → PascalCase         |
-| `fetchAll`          | `FetchAll`           | Function → PascalCase         |
-| `id` (param)        | `id`                 | Parameter → camelCase         |
-| `User` (type)       | `User`               | Type name (no change)         |
+| TypeScript           | C#               | Rule                   |
+| -------------------- | ---------------- | ---------------------- |
+| `user-repository.ts` | `UserRepository` | File name → PascalCase |
+| `UserRepository`     | `UserRepository` | Class name (no change) |
+| `userName` (field)   | `UserName`       | Field → PascalCase     |
+| `getUserById`        | `GetUserById`    | Function → PascalCase  |
+| `fetchAll`           | `FetchAll`       | Function → PascalCase  |
+| `id` (param)         | `id`             | Parameter → camelCase  |
+| `User` (type)        | `User`           | Type name (no change)  |
 
 ---
 
@@ -614,20 +719,24 @@ namespace MyApp.models
 ### 11.1 Transformation Complexity
 
 **Case Conversion:**
+
 - Time: O(n) where n = identifier length
 - Space: O(n)
 
 **Reserved Keyword Check:**
+
 - Time: O(1) (hash set lookup)
 - Space: O(1)
 
 **Qualified Name Construction:**
+
 - Time: O(s) where s = total namespace/class/member length
 - Space: O(s)
 
 ### 11.2 Registry Performance
 
 **Name Registration:**
+
 - Best case: O(1) (no collision)
 - Worst case: O(k) where k = number of collisions
 - Space: O(n) where n = unique names
@@ -644,6 +753,7 @@ namespace MyApp.models
 ---
 
 **Document Statistics:**
+
 - Lines: ~600
 - Sections: 12
 - Transformation rules: 10+

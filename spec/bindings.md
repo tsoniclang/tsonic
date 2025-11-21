@@ -3,6 +3,7 @@
 ## Purpose
 
 `.bindings.json` files provide runtime binding information for .NET interop:
+
 - MetadataToken for runtime method/property resolution
 - Name transformations (CLR name → TypeScript name)
 - Target information (which assembly/type declares a member)
@@ -12,6 +13,7 @@
 These files are produced by **tsbindgen** and consumed by **Tsonic.Runtime** for reflection-based method dispatch.
 
 **Key Difference from .metadata.json:**
+
 - `.metadata.json`: Compile-time semantics (virtual, override, abstract, accessibility)
 - `.bindings.json`: Runtime binding (MetadataToken, reflection targets, name mappings)
 
@@ -36,12 +38,13 @@ node_modules/@types/dotnet/
 
 ```typescript
 type BindingsFile = {
-  readonly namespace: string;              // "System.Collections.Generic"
-  readonly types: TypeBinding[];           // Array of type bindings
+  readonly namespace: string; // "System.Collections.Generic"
+  readonly types: TypeBinding[]; // Array of type bindings
 };
 ```
 
 **Example:**
+
 ```json
 {
   "namespace": "System.Collections.Generic",
@@ -51,8 +54,12 @@ type BindingsFile = {
       "tsEmitName": "List_1",
       "assemblyName": "System.Private.CoreLib",
       "metadataToken": 33554433,
-      "methods": [ /* ... */ ],
-      "properties": [ /* ... */ ]
+      "methods": [
+        /* ... */
+      ],
+      "properties": [
+        /* ... */
+      ]
     }
   ]
 }
@@ -65,10 +72,10 @@ type BindingsFile = {
 ```typescript
 type TypeBinding = {
   // Identity
-  readonly clrName: string;              // "List`1" (backtick for generics)
-  readonly tsEmitName: string;           // "List_1" (underscore for generics)
-  readonly assemblyName: string;         // "System.Private.CoreLib"
-  readonly metadataToken: number;        // For runtime type resolution
+  readonly clrName: string; // "List`1" (backtick for generics)
+  readonly tsEmitName: string; // "List_1" (underscore for generics)
+  readonly assemblyName: string; // "System.Private.CoreLib"
+  readonly metadataToken: number; // For runtime type resolution
 
   // V1: Definitions (what CLR declares on this type)
   readonly Methods?: MethodBinding[];
@@ -92,36 +99,38 @@ type TypeBinding = {
 ```typescript
 type MethodBinding = {
   // Identity
-  readonly clrName: string;              // "Add", "SelectMany"
-  readonly tsEmitName: string;           // "Add", "selectMany" (if camelCase)
-  readonly metadataToken: number;        // For runtime method resolution
+  readonly clrName: string; // "Add", "SelectMany"
+  readonly tsEmitName: string; // "Add", "selectMany" (if camelCase)
+  readonly metadataToken: number; // For runtime method resolution
 
   // Signatures
-  readonly canonicalSignature: string;   // C#-style: "SelectMany[2](IEnumerable,Func)"
-  readonly normalizedSignature: string;  // Normalized: "SelectMany(IEnumerable_1,Func_2)"
+  readonly canonicalSignature: string; // C#-style: "SelectMany[2](IEnumerable,Func)"
+  readonly normalizedSignature: string; // Normalized: "SelectMany(IEnumerable_1,Func_2)"
 
   // Metadata
-  readonly emitScope: EmitScope;         // "ClassSurface" | "ViewOnly" | "Omitted"
-  readonly arity: number;                // Generic method parameter count
-  readonly parameterCount: number;       // Total parameter count
+  readonly emitScope: EmitScope; // "ClassSurface" | "ViewOnly" | "Omitted"
+  readonly arity: number; // Generic method parameter count
+  readonly parameterCount: number; // Total parameter count
 
   // Target (where method is declared)
-  readonly declaringClrType: string;     // "System.Linq.Enumerable"
+  readonly declaringClrType: string; // "System.Linq.Enumerable"
   readonly declaringAssemblyName: string; // "System.Linq"
 };
 
 type EmitScope =
-  | "ClassSurface"       // Emitted directly on class/interface
-  | "ViewOnly"           // Emitted in As_IInterface view property
-  | "Omitted";           // Intentionally not emitted
+  | "ClassSurface" // Emitted directly on class/interface
+  | "ViewOnly" // Emitted in As_IInterface view property
+  | "Omitted"; // Intentionally not emitted
 ```
 
 **CanonicalSignature Format:**
+
 ```
 MethodName[Arity](Param1Type,Param2Type,...):ReturnType
 ```
 
 Examples:
+
 ```
 "Add(T):Void"
 "SelectMany[2](IEnumerable,Func):IEnumerable"
@@ -129,11 +138,13 @@ Examples:
 ```
 
 **NormalizedSignature Format:**
+
 ```
 MethodName(Param1Type_Arity,Param2Type_Arity,...)
 ```
 
 Examples:
+
 ```
 "Add(T)"
 "SelectMany(IEnumerable_1,Func_2)"
@@ -147,13 +158,13 @@ Examples:
 ```typescript
 type PropertyBinding = {
   // Identity
-  readonly clrName: string;              // "Count", "Item"
-  readonly tsEmitName: string;           // "count" (if camelCase)
-  readonly metadataToken: number;        // For runtime property resolution
+  readonly clrName: string; // "Count", "Item"
+  readonly tsEmitName: string; // "count" (if camelCase)
+  readonly metadataToken: number; // For runtime property resolution
 
   // Metadata
   readonly emitScope: EmitScope;
-  readonly isIndexer: boolean;           // C# indexer (this[int index])
+  readonly isIndexer: boolean; // C# indexer (this[int index])
 
   // Target
   readonly declaringClrType: string;
@@ -201,8 +212,8 @@ type EventBinding = {
 
 ```typescript
 type ConstructorBinding = {
-  readonly metadataToken: number;        // For runtime constructor resolution
-  readonly canonicalSignature: string;   // "ctor()" or "ctor(Int32,String)"
+  readonly metadataToken: number; // For runtime constructor resolution
+  readonly canonicalSignature: string; // "ctor()" or "ctor(Int32,String)"
   readonly parameterCount: number;
 };
 ```
@@ -214,24 +225,25 @@ type ConstructorBinding = {
 ```typescript
 type ExposedMethodBinding = {
   // TypeScript-facing identity
-  readonly tsName: string;               // "selectMany" (after transforms)
-  readonly isStatic: boolean;            // Static vs instance
+  readonly tsName: string; // "selectMany" (after transforms)
+  readonly isStatic: boolean; // Static vs instance
 
   // Signature in TypeScript terms
-  readonly tsSignatureId: string;        // "SelectMany(IEnumerable_1,Func_2)"
+  readonly tsSignatureId: string; // "SelectMany(IEnumerable_1,Func_2)"
 
   // Runtime target (where method actually lives)
   readonly target: BindingTarget;
 };
 
 type BindingTarget = {
-  readonly declaringClrType: string;     // "System.Linq.Enumerable"
+  readonly declaringClrType: string; // "System.Linq.Enumerable"
   readonly declaringAssemblyName: string; // "System.Linq"
-  readonly metadataToken: number;        // For runtime resolution
+  readonly metadataToken: number; // For runtime resolution
 };
 ```
 
 **Why V2 Exposures Matter:**
+
 - TypeScript shows inherited members inline
 - CLR distinguishes inherited from declared
 - V2 tracks: "TypeScript shows `list.Contains()`, but it's actually declared on `ICollection<T>`"
@@ -585,6 +597,7 @@ var tsName = methodBinding.TsEmitName; // "selectMany"
 - **Module-scoped**: Use `Assembly.ManifestModule.ResolveMethod(token)` or `ResolveType(token)`
 
 **Performance Comparison:**
+
 ```csharp
 // Slow: Reflection by name (string matching, parameter matching)
 var method = type.GetMethod("SelectMany", BindingFlags.Public | BindingFlags.Static, ...);
@@ -596,12 +609,14 @@ var method = assembly.ManifestModule.ResolveMethod(100663297);
 ### 2. Generic Type/Method Handling
 
 **Generic Types:**
+
 - CLR name: `List`1`, `Dictionary`2` (backtick)
 - TypeScript name: `List_1`, `Dictionary_2` (underscore)
 - MetadataToken refers to open generic definition
 - Must call `MakeGenericType(...)` to construct closed generic
 
 **Generic Methods:**
+
 - `Arity` field indicates number of generic parameters
 - MetadataToken refers to open generic definition
 - Must call `MakeGenericMethod(...)` to construct closed generic
@@ -630,27 +645,32 @@ var match = candidates.Find(m =>
 ### 4. V1 Definitions vs V2 Exposures
 
 **V1 Definitions (Methods, Properties, etc.):**
+
 - What CLR declares **directly on this type**
 - For List<T>: `Add`, `BinarySearch`, `Count`, `Item`
 - Excludes inherited members from interfaces/base classes
 
 **V2 Exposures (ExposedMethods, ExposedProperties, etc.):**
+
 - What TypeScript **shows to developers**
 - For List<T>: `Add`, `BinarySearch`, `Count`, `Item`, **`Contains`**, **`CopyTo`**, etc.
 - Includes inherited members (inlined from interfaces/base classes)
 - Target points to the **actual declaring type**
 
 **When to use which:**
+
 - **Tsonic compiler**: Use V1 Definitions to understand what's directly on the type
 - **Tsonic.Runtime**: Use V2 Exposures to resolve TypeScript calls to CLR targets
 
 ### 5. Optional File Generation
 
 **bindings.json is only emitted when:**
+
 - Naming transforms are applied (e.g., camelCase conversion)
 - Otherwise, omitted to save disk space
 
 **Fallback when missing:**
+
 - Assume `TsEmitName == ClrName` (no transform)
 - Use metadata.json for method discovery
 - Use reflection by name (slower than MetadataToken)
@@ -658,18 +678,21 @@ var match = candidates.Find(m =>
 ### 6. Canonical vs Normalized Signatures
 
 **CanonicalSignature (C#-style):**
+
 - Human-readable format
 - Uses C# type names: `Int32`, `String`, `IEnumerable`, `Func`
 - Includes return type: `SelectMany[2](IEnumerable,Func):IEnumerable`
 - Used for documentation/debugging
 
 **NormalizedSignature (Normalized):**
+
 - Machine-readable format
 - Uses full type names with arity: `System.Int32`, `IEnumerable_1`, `Func_2`
 - Omits return type: `SelectMany(IEnumerable_1,Func_2)`
 - Used for exact overload matching
 
 **When to use which:**
+
 - **Display/logging**: Use CanonicalSignature
 - **Overload resolution**: Use NormalizedSignature
 

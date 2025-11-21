@@ -3,17 +3,44 @@
  */
 
 import { EmitterOptions, EmitterContext } from "./core.js";
+import {
+  loadLibraries,
+  buildBindingsRegistry,
+} from "@tsonic/frontend/metadata/index.js";
 
 /**
  * Create a new emitter context with default values
  */
-export const createContext = (options: EmitterOptions): EmitterContext => ({
-  indentLevel: 0,
-  options,
-  usings: new Set(["Tsonic.Runtime"]),
-  isStatic: false,
-  isAsync: false,
-});
+export const createContext = (options: EmitterOptions): EmitterContext => {
+  // Load metadata and bindings from library directories
+  let metadata: EmitterContext["metadata"] = undefined;
+  let bindingsRegistry: EmitterContext["bindingsRegistry"] = undefined;
+
+  if (options.libraries && options.libraries.length > 0) {
+    const librariesResult = loadLibraries(options.libraries);
+    if (librariesResult.ok) {
+      metadata = librariesResult.value.metadata;
+      bindingsRegistry = buildBindingsRegistry(librariesResult.value.bindings);
+    } else {
+      // TODO: Report diagnostics from librariesResult.error
+      // Need to integrate diagnostic reporting infrastructure
+      console.warn(
+        "[Tsonic] Failed to load libraries:",
+        librariesResult.error.map((d) => d.message).join(", ")
+      );
+    }
+  }
+
+  return {
+    indentLevel: 0,
+    options,
+    usings: new Set(["Tsonic.Runtime"]),
+    isStatic: false,
+    isAsync: false,
+    metadata,
+    bindingsRegistry,
+  };
+};
 
 /**
  * Increase indentation level

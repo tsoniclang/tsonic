@@ -87,7 +87,7 @@ export function main() {
   const user: User = {
     id: 1,
     name: "Bob",
-    email: "bob@example.com"
+    email: "bob@example.com",
   };
   displayUser(user);
 }

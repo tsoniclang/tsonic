@@ -12,36 +12,37 @@ Architecture docs are organized by **compilation phase**:
 
 ### Foundation Documents
 
-| File | Lines | Description |
-|------|-------|-------------|
-| **00-overview.md** | ~1,150 | Complete system architecture, design principles, 8-phase pipeline |
-| **01-pipeline-flow.md** | ~790 | Phase connections, data flow, error propagation |
+| File                    | Lines  | Description                                                       |
+| ----------------------- | ------ | ----------------------------------------------------------------- |
+| **00-overview.md**      | ~1,150 | Complete system architecture, design principles, 8-phase pipeline |
+| **01-pipeline-flow.md** | ~790   | Phase connections, data flow, error propagation                   |
 
 ### Compilation Phases (02-08)
 
-| File | Lines | Description |
-|------|-------|-------------|
-| **02-phase-program.md** | ~642 | TypeScript program creation, metadata/binding registry loading |
-| **03-phase-resolver.md** | ~775 | Module resolution (local/.NET/binding), namespace generation |
-| **04-phase-validation.md** | ~630 | ESM rules, unsupported feature detection, error codes (TSN1xxx-TSN3xxx) |
-| **05-phase-ir.md** | ~1,275 | TypeScript AST → IR transformation, type inference, binding resolution |
-| **06-phase-analysis.md** | ~980 | Dependency analysis, circular detection, symbol tables |
-| **07-phase-emitter.md** | ~1,039 | IR → C# code generation, specialization (monomorphization) |
-| **08-phase-backend.md** | ~250 | .csproj generation, dotnet publish, NativeAOT compilation |
+| File                       | Lines  | Description                                                             |
+| -------------------------- | ------ | ----------------------------------------------------------------------- |
+| **02-phase-program.md**    | ~642   | TypeScript program creation, metadata/binding registry loading          |
+| **03-phase-resolver.md**   | ~775   | Module resolution (local/.NET/binding), namespace generation            |
+| **04-phase-validation.md** | ~630   | ESM rules, unsupported feature detection, error codes (TSN1xxx-TSN3xxx) |
+| **05-phase-ir.md**         | ~1,275 | TypeScript AST → IR transformation, type inference, binding resolution  |
+| **06-phase-analysis.md**   | ~980   | Dependency analysis, circular detection, symbol tables                  |
+| **07-phase-emitter.md**    | ~1,039 | IR → C# code generation, specialization (monomorphization)              |
+| **08-phase-backend.md**    | ~250   | .csproj generation, dotnet publish, NativeAOT compilation               |
 
 ### Supporting Systems (09-13)
 
-| File | Lines | Description |
-|------|-------|-------------|
-| **09-phase-runtime.md** | ~948 | Tsonic.Runtime package with static helpers (ArrayHelpers, StringHelpers, etc.) |
-| **10-cli-orchestration.md** | ~806 | CLI commands, configuration management, watch mode |
-| **11-diagnostics-flow.md** | ~757 | Error reporting, diagnostic codes (TSN1xxx-TSN6xxx), user-facing messages |
-| **12-call-graphs.md** | ~801 | Function call graph construction, specialization tracking, dead code detection |
-| **13-renaming.md** | ~652 | TypeScript → C# identifier transformation, reserved keyword handling |
+| File                        | Lines | Description                                                                    |
+| --------------------------- | ----- | ------------------------------------------------------------------------------ |
+| **09-phase-runtime.md**     | ~948  | Tsonic.Runtime package with static helpers (ArrayHelpers, StringHelpers, etc.) |
+| **10-cli-orchestration.md** | ~806  | CLI commands, configuration management, watch mode                             |
+| **11-diagnostics-flow.md**  | ~757  | Error reporting, diagnostic codes (TSN1xxx-TSN6xxx), user-facing messages      |
+| **12-call-graphs.md**       | ~801  | Function call graph construction, specialization tracking, dead code detection |
+| **13-renaming.md**          | ~652  | TypeScript → C# identifier transformation, reserved keyword handling           |
 
 **Total Documentation:** ~11,495 lines across 14 comprehensive architecture documents
 
 Each phase doc follows the same structure:
+
 - **Purpose** - High-level overview
 - **Responsibility** - What this phase does
 - **Input/Output** - Data contracts with full type definitions
@@ -55,6 +56,7 @@ Each phase doc follows the same structure:
 ### For New Contributors
 
 **Essential Reading (2-3 hours):**
+
 1. **00-overview.md** - Understand the big picture (30 min)
 2. **01-pipeline-flow.md** - See how phases connect (20 min)
 3. **11-diagnostics-flow.md** - Error handling system (20 min)
@@ -62,26 +64,28 @@ Each phase doc follows the same structure:
 5. Your target phase - e.g., **07-phase-emitter.md** for C# generation (30-60 min)
 
 **Optional Deep Dives:**
+
 - **05-phase-ir.md** - IR data structures (critical for understanding the compiler)
 - **09-phase-runtime.md** - JavaScript semantics preservation
 - **12-call-graphs.md** - Advanced analysis techniques
 
 ### For Specific Tasks
 
-| Task | Start Here | Then Read |
-|------|------------|-----------|
-| **Adding TypeScript feature** | 02-phase-program.md | 05-phase-ir.md, 07-phase-emitter.md |
-| **Fixing module resolution** | 03-phase-resolver.md | 04-phase-validation.md |
-| **Adding .NET binding** | 02-phase-program.md | 05-phase-ir.md (binding resolution) |
-| **Improving error messages** | 11-diagnostics-flow.md | 10-cli-orchestration.md (printing) |
-| **Optimizing code generation** | 07-phase-emitter.md | 12-call-graphs.md (dead code) |
-| **Adding CLI command** | 10-cli-orchestration.md | 01-pipeline-flow.md |
-| **Understanding generic types** | 05-phase-ir.md | 07-phase-emitter.md (specialization), 12-call-graphs.md |
-| **Debugging runtime behavior** | 09-phase-runtime.md | 07-phase-emitter.md (how it's used) |
+| Task                            | Start Here              | Then Read                                               |
+| ------------------------------- | ----------------------- | ------------------------------------------------------- |
+| **Adding TypeScript feature**   | 02-phase-program.md     | 05-phase-ir.md, 07-phase-emitter.md                     |
+| **Fixing module resolution**    | 03-phase-resolver.md    | 04-phase-validation.md                                  |
+| **Adding .NET binding**         | 02-phase-program.md     | 05-phase-ir.md (binding resolution)                     |
+| **Improving error messages**    | 11-diagnostics-flow.md  | 10-cli-orchestration.md (printing)                      |
+| **Optimizing code generation**  | 07-phase-emitter.md     | 12-call-graphs.md (dead code)                           |
+| **Adding CLI command**          | 10-cli-orchestration.md | 01-pipeline-flow.md                                     |
+| **Understanding generic types** | 05-phase-ir.md          | 07-phase-emitter.md (specialization), 12-call-graphs.md |
+| **Debugging runtime behavior**  | 09-phase-runtime.md     | 07-phase-emitter.md (how it's used)                     |
 
 ### For Architecture Changes
 
 **System-Wide Impact Assessment:**
+
 1. Read all phase docs in order (02→13)
 2. Review **01-pipeline-flow.md** to understand data contracts
 3. Check **12-call-graphs.md** for function dependencies

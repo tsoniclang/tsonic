@@ -21,14 +21,14 @@ class List<T> : ICollection<T>
 
 ```typescript
 class List_1<T> {
-    Add(item: T): void;  // Always available
-    As_ICollection: ICollection_1<T>;  // Cast to access explicit members
+  Add(item: T): void; // Always available
+  As_ICollection: ICollection_1<T>; // Cast to access explicit members
 }
 
 // Usage:
 const list = new List_1<string>();
-list.Add("hello");  // Direct access
-list.As_ICollection.CopyTo(array, 0);  // Via view
+list.Add("hello"); // Direct access
+list.As_ICollection.CopyTo(array, 0); // Via view
 ```
 
 ---
@@ -43,6 +43,7 @@ tsbindgen generates explicit views when:
 4. **Generic Constraints**: Interface has generic constraints class doesn't satisfy structurally
 
 **No view generated when:**
+
 - Class implements interface implicitly (member is on class surface)
 - TypeScript structural typing already satisfied (duck typing works)
 
@@ -59,14 +60,15 @@ type TypeMetadata = {
 };
 
 type ExplicitView = {
-  readonly interfaceClrName: string;     // "System.Collections.Generic.ICollection`1"
-  readonly interfaceTsEmitName: string;  // "ICollection_1"
-  readonly propertyName: string;         // "As_ICollection"
-  readonly members: string[];            // Member StableIds included in view
+  readonly interfaceClrName: string; // "System.Collections.Generic.ICollection`1"
+  readonly interfaceTsEmitName: string; // "ICollection_1"
+  readonly propertyName: string; // "As_ICollection"
+  readonly members: string[]; // Member StableIds included in view
 };
 ```
 
 **Example:**
+
 ```json
 {
   "explicitViews": [
@@ -89,18 +91,20 @@ Members that appear in views have special metadata:
 ```typescript
 type MethodMetadata = {
   // ...other fields
-  readonly provenance: Provenance;       // "ExplicitView" or "SynthesizedViewOnly"
-  readonly emitScope: EmitScope;         // "ViewOnly" means only in As_IInterface
-  readonly sourceInterface?: string;     // Which interface declares this member
+  readonly provenance: Provenance; // "ExplicitView" or "SynthesizedViewOnly"
+  readonly emitScope: EmitScope; // "ViewOnly" means only in As_IInterface
+  readonly sourceInterface?: string; // Which interface declares this member
 };
 ```
 
 **EmitScope Values:**
+
 - `"ClassSurface"`: Emitted directly on class (implicit implementation)
 - `"ViewOnly"`: Only emitted in As_IInterface view (explicit implementation)
 - `"Omitted"`: Not emitted (intentionally excluded)
 
 **Provenance Values:**
+
 - `"Declared"`: Direct member on type
 - `"InlineFromInterface"`: Inherited interface member (implicit)
 - `"InlineFromBase"`: Inherited base class member
@@ -116,19 +120,19 @@ type MethodMetadata = {
 ```typescript
 // List<T> class
 export class List_1<T> {
-    // Class surface members (EmitScope: ClassSurface)
-    Add(item: T): void;
-    readonly Count: number;
+  // Class surface members (EmitScope: ClassSurface)
+  Add(item: T): void;
+  readonly Count: number;
 
-    // View properties for explicit interface implementations
-    readonly As_ICollection: ICollection_1<T>;
-    readonly As_IEnumerable: IEnumerable_1<T>;
+  // View properties for explicit interface implementations
+  readonly As_ICollection: ICollection_1<T>;
+  readonly As_IEnumerable: IEnumerable_1<T>;
 }
 
 // Interface view type
 export interface __List_1$views<T> {
-    readonly As_ICollection: ICollection_1<T>;
-    readonly As_IEnumerable: IEnumerable_1<T>;
+  readonly As_ICollection: ICollection_1<T>;
+  readonly As_IEnumerable: IEnumerable_1<T>;
 }
 
 // Combined type alias (what users import)
@@ -174,6 +178,7 @@ Tsonic must emit a **cast** in C#:
 ```
 
 **Why cast is required:**
+
 - C# explicit interface implementations are only accessible via interface reference
 - Direct call `list.CopyTo()` won't compile if CopyTo is explicit
 - Cast `((ICollection<T>)list)` makes explicit members accessible
@@ -200,15 +205,15 @@ class MyClass : IFoo {
 ```typescript
 // TypeScript - No view needed, structural typing works
 interface IFoo {
-    Bar(): void;
+  Bar(): void;
 }
 
 class MyClass implements IFoo {
-    Bar(): void { }
+  Bar(): void {}
 }
 
-const obj: IFoo = new MyClass();  // Structural typing
-obj.Bar();  // Works directly
+const obj: IFoo = new MyClass(); // Structural typing
+obj.Bar(); // Works directly
 ```
 
 ### Case 2: Explicit Implementation (View Required)
@@ -227,16 +232,16 @@ class MyClass : IFoo {
 ```typescript
 // TypeScript - View required
 interface IFoo {
-    Bar(): void;
+  Bar(): void;
 }
 
 class MyClass {
-    // Bar() not on class surface
-    readonly As_IFoo: IFoo;
+  // Bar() not on class surface
+  readonly As_IFoo: IFoo;
 }
 
 const obj = new MyClass();
-obj.As_IFoo.Bar();  // Via view
+obj.As_IFoo.Bar(); // Via view
 ```
 
 ---
@@ -258,17 +263,21 @@ class MyClass : IA, IB {
 
 ```typescript
 // TypeScript
-interface IA { Foo(): void; }
-interface IB { Foo(): void; }
+interface IA {
+  Foo(): void;
+}
+interface IB {
+  Foo(): void;
+}
 
 class MyClass {
-    readonly As_IA: IA;
-    readonly As_IB: IB;
+  readonly As_IA: IA;
+  readonly As_IB: IB;
 }
 
 const obj = new MyClass();
-obj.As_IA.Foo();  // Calls IA implementation
-obj.As_IB.Foo();  // Calls IB implementation
+obj.As_IA.Foo(); // Calls IA implementation
+obj.As_IB.Foo(); // Calls IB implementation
 ```
 
 ---
@@ -280,13 +289,13 @@ obj.As_IB.Foo();  // Calls IB implementation
 ```typescript
 // Tsonic compiler loading metadata
 const metadata = loadMetadata("System.Collections.Generic");
-const listType = metadata.types.find(t => t.tsEmitName === "List_1");
+const listType = metadata.types.find((t) => t.tsEmitName === "List_1");
 
 if (listType.explicitViews) {
-    for (const view of listType.explicitViews) {
-        console.log(`View: ${view.propertyName}`);
-        console.log(`Interface: ${view.interfaceTsEmitName}`);
-    }
+  for (const view of listType.explicitViews) {
+    console.log(`View: ${view.propertyName}`);
+    console.log(`Interface: ${view.interfaceTsEmitName}`);
+  }
 }
 ```
 
@@ -295,16 +304,14 @@ if (listType.explicitViews) {
 ```typescript
 // TypeScript AST analysis
 // Detect: list.As_ICollection.CopyTo(...)
-if (isPropertyAccess(node) &&
-    node.name.text.startsWith("As_")) {
+if (isPropertyAccess(node) && node.name.text.startsWith("As_")) {
+  const interfaceName = node.name.text.substring(3); // Remove "As_"
+  const view = findExplicitView(typeMetadata, interfaceName);
 
-    const interfaceName = node.name.text.substring(3); // Remove "As_"
-    const view = findExplicitView(typeMetadata, interfaceName);
-
-    if (view) {
-        // Emit cast in C#
-        emitInterfaceCast(node, view.interfaceClrName);
-    }
+  if (view) {
+    // Emit cast in C#
+    emitInterfaceCast(node, view.interfaceClrName);
+  }
 }
 ```
 
@@ -312,15 +319,18 @@ if (isPropertyAccess(node) &&
 
 ```typescript
 // C# emission
-function emitInterfaceCast(node: PropertyAccessExpression, interfaceClrName: string) {
-    emit("((");
-    emit(interfaceClrName);
-    emit(")");
-    emitExpression(node.expression);  // The object being cast
-    emit(")");
+function emitInterfaceCast(
+  node: PropertyAccessExpression,
+  interfaceClrName: string
+) {
+  emit("((");
+  emit(interfaceClrName);
+  emit(")");
+  emitExpression(node.expression); // The object being cast
+  emit(")");
 
-    // Then emit the member access
-    // .CopyTo(...) part handled by subsequent call expression
+  // Then emit the member access
+  // .CopyTo(...) part handled by subsequent call expression
 }
 ```
 
@@ -329,10 +339,10 @@ function emitInterfaceCast(node: PropertyAccessExpression, interfaceClrName: str
 ```typescript
 // When emitting method call on interface view
 if (memberMetadata.emitScope === "ViewOnly") {
-    // Must access via explicit view, not directly on class
-    if (!isViaExplicitView(accessPath)) {
-        diagnostic(TSN4001, "Member only accessible via explicit interface view");
-    }
+  // Must access via explicit view, not directly on class
+  if (!isViaExplicitView(accessPath)) {
+    diagnostic(TSN4001, "Member only accessible via explicit interface view");
+  }
 }
 ```
 
@@ -345,7 +355,7 @@ if (memberMetadata.emitScope === "ViewOnly") {
 ```typescript
 // TypeScript
 for (const item of list.As_IEnumerable) {
-    console.log(item);
+  console.log(item);
 }
 ```
 
@@ -362,10 +372,7 @@ foreach (var item in (IEnumerable<T>)list) {
 // TypeScript
 import { Enumerable } from "System.Linq";
 
-const filtered = Enumerable.Where(
-    list.As_IEnumerable,
-    x => x.length > 3
-);
+const filtered = Enumerable.Where(list.As_IEnumerable, (x) => x.length > 3);
 ```
 
 ```csharp
@@ -384,9 +391,9 @@ var filtered = Enumerable.Where(
 // TypeScript
 const stream = File.OpenRead("file.txt");
 try {
-    // Use stream
+  // Use stream
 } finally {
-    stream.As_IDisposable.Dispose();
+  stream.As_IDisposable.Dispose();
 }
 ```
 

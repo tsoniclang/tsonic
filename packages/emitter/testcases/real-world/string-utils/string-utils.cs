@@ -57,7 +57,7 @@ namespace TestCases.realworld
 
         public static List<List<T>> chunk<T>(List<T> arr, double size)
             {
-            var result = new List<List<T>>();
+            List<List<T>> result = new List<List<T>>();
             for (var i = 0.0; i < Tsonic.Runtime.Array.length(arr); i += size)
                 {
                 Tsonic.Runtime.Array.push(result, Tsonic.Runtime.Array.slice(arr, i, i + size));

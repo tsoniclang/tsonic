@@ -54,7 +54,7 @@ Runtime version must match compiler version:
 {
   "devDependencies": {
     "@tsonic/cli": "0.0.1",
-    "@tsonic/runtime": "0.0.1"  // Must match
+    "@tsonic/runtime": "0.0.1" // Must match
   }
 }
 ```

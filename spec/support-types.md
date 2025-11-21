@@ -1,10 +1,11 @@
-# Support Types (_support/types.d.ts)
+# Support Types (\_support/types.d.ts)
 
 ## Overview
 
 The `_support/types.d.ts` file provides TypeScript type definitions for CLR concepts that don't have JavaScript equivalents. These types enable .NET interop while maintaining type safety.
 
 **File Location:**
+
 ```
 node_modules/@types/dotnet/
   _support/
@@ -29,7 +30,7 @@ Wrapper for C# `ref`, `out`, and `in` parameters.
  * }
  */
 export type TSByRef<T> = {
-    value: T;
+  value: T;
 };
 ```
 
@@ -52,12 +53,13 @@ Marker type for C# pointer types (`T*`, `void*`, `IntPtr`).
  * declare const ptr: TSUnsafePointer<void>;
  */
 export type TSUnsafePointer<T> = {
-    readonly __brand: "unsafe-pointer";
-    readonly __type: T;
+  readonly __brand: "unsafe-pointer";
+  readonly __type: T;
 };
 ```
 
 **Purpose:**
+
 - Represent `IntPtr`, `UIntPtr`, `void*`, `T*` in TypeScript
 - Prevent accidental use (opaque type)
 - Type-safe at declaration, runtime validation needed
@@ -65,6 +67,7 @@ export type TSUnsafePointer<T> = {
 **Important:** Pointer operations are **not supported** in Tsonic. This type exists only for declaration completeness.
 
 **Example:**
+
 ```typescript
 // C# method with pointer parameter
 declare function GetMemory(size: number): TSUnsafePointer<void>;
@@ -73,7 +76,7 @@ declare function ReleaseMemory(ptr: TSUnsafePointer<void>): void;
 // TypeScript usage
 const ptr = GetMemory(1024);
 // Cannot dereference or do pointer arithmetic
-ReleaseMemory(ptr);  // Only pass to other methods
+ReleaseMemory(ptr); // Only pass to other methods
 ```
 
 ---
@@ -92,12 +95,13 @@ Marker type for C# delegates (function pointers with invoke lists).
  * export type MyDelegate = TSDelegate<[number, string], void>;
  */
 export type TSDelegate<TArgs extends any[], TReturn> = {
-    readonly __brand: "delegate";
-    (...args: TArgs): TReturn;
+  readonly __brand: "delegate";
+  (...args: TArgs): TReturn;
 };
 ```
 
 **Why separate from Function:**
+
 - C# delegates support multicast (combine multiple delegates)
 - Delegates have `Invoke`, `BeginInvoke`, `EndInvoke` methods
 - Delegates can be combined with `+` operator
@@ -123,11 +127,13 @@ export type TSNullable<T> = T | null;
 ```
 
 **Difference from `T | null`:**
+
 - In C#, value types (struct, enum, primitives) cannot be null normally
 - `Nullable<T>` wraps value types to allow null
 - Reference types are already nullable
 
 **Usage:**
+
 ```typescript
 import { Int32 } from "System";
 
@@ -138,7 +144,7 @@ const x: TSNullable<number> = 42;
 const y: TSNullable<number> = null;
 
 // C#: int value = x.Value;
-const value: number = x!;  // Non-null assertion
+const value: number = x!; // Non-null assertion
 ```
 
 ---
@@ -159,10 +165,10 @@ Marker for C# fixed-size buffers (unsafe feature).
  * };
  */
 export type TSFixed<T, N extends number> = {
-    readonly __brand: "fixed-buffer";
-    readonly __type: T;
-    readonly __length: N;
-    [index: number]: T;
+  readonly __brand: "fixed-buffer";
+  readonly __type: T;
+  readonly __length: N;
+  [index: number]: T;
 };
 ```
 
@@ -186,8 +192,8 @@ Marker for C# stackalloc expressions.
  * declare function GetBuffer(): TSStackAlloc<Uint8Array>;
  */
 export type TSStackAlloc<T> = {
-    readonly __brand: "stackalloc";
-    readonly data: T;
+  readonly __brand: "stackalloc";
+  readonly data: T;
 };
 ```
 
@@ -202,19 +208,19 @@ export type TSStackAlloc<T> = {
 ```typescript
 // C# struct
 declare namespace System {
-    export class IntPtr {
-        static readonly Zero: IntPtr;
-        static readonly Size: number;
+  export class IntPtr {
+    static readonly Zero: IntPtr;
+    static readonly Size: number;
 
-        constructor(value: number);
-        constructor(value: TSUnsafePointer<void>);
+    constructor(value: number);
+    constructor(value: TSUnsafePointer<void>);
 
-        ToInt64(): number;
-        ToPointer(): TSUnsafePointer<void>;
+    ToInt64(): number;
+    ToPointer(): TSUnsafePointer<void>;
 
-        static Add(pointer: IntPtr, offset: number): IntPtr;
-        static Subtract(pointer: IntPtr, offset: number): IntPtr;
-    }
+    static Add(pointer: IntPtr, offset: number): IntPtr;
+    static Subtract(pointer: IntPtr, offset: number): IntPtr;
+  }
 }
 ```
 
@@ -223,18 +229,18 @@ declare namespace System {
 ```typescript
 // C# Nullable<T>
 declare namespace System {
-    export class Nullable_1<T> {
-        constructor(value: T);
+  export class Nullable_1<T> {
+    constructor(value: T);
 
-        readonly HasValue: boolean;
-        readonly Value: T;
+    readonly HasValue: boolean;
+    readonly Value: T;
 
-        GetValueOrDefault(): T;
-        GetValueOrDefault(defaultValue: T): T;
-    }
+    GetValueOrDefault(): T;
+    GetValueOrDefault(defaultValue: T): T;
+  }
 
-    // Alias for convenience
-    export type Nullable<T> = TSNullable<T>;
+  // Alias for convenience
+  export type Nullable<T> = TSNullable<T>;
 }
 ```
 
@@ -243,10 +249,10 @@ declare namespace System {
 ```typescript
 // C# delegate
 declare namespace System {
-    export type Action = TSDelegate<[], void>;
-    export type Action_1<T> = TSDelegate<[T], void>;
-    export type Func_1<TResult> = TSDelegate<[], TResult>;
-    export type Func_2<T, TResult> = TSDelegate<[T], TResult>;
+  export type Action = TSDelegate<[], void>;
+  export type Action_1<T> = TSDelegate<[T], void>;
+  export type Func_1<TResult> = TSDelegate<[], TResult>;
+  export type Func_2<T, TResult> = TSDelegate<[T], TResult>;
 }
 ```
 
@@ -257,14 +263,16 @@ declare namespace System {
 ### TSByRef<T>
 
 **Detection:**
+
 ```typescript
 if (type.symbol?.name === "TSByRef" && type.typeArguments?.length === 1) {
-    const wrappedType = type.typeArguments[0];
-    // Handle as ref/out parameter
+  const wrappedType = type.typeArguments[0];
+  // Handle as ref/out parameter
 }
 ```
 
 **Code Generation:**
+
 ```typescript
 // TypeScript: const x: TSByRef<number> = { value: 10 };
 // C#: int x = 10;
@@ -273,9 +281,10 @@ if (type.symbol?.name === "TSByRef" && type.typeArguments?.length === 1) {
 ### TSUnsafePointer<T>
 
 **Detection:**
+
 ```typescript
 if (type.symbol?.name === "TSUnsafePointer") {
-    diagnostic(TSN7001, "Unsafe pointers not supported in Tsonic");
+  diagnostic(TSN7001, "Unsafe pointers not supported in Tsonic");
 }
 ```
 
@@ -284,15 +293,17 @@ if (type.symbol?.name === "TSUnsafePointer") {
 ### TSNullable<T>
 
 **Detection:**
+
 ```typescript
 if (type.symbol?.name === "TSNullable" || isUnionWithNull(type)) {
-    // Emit nullable type in C#
-    emitType(getNonNullableType(type));
-    emit("?");
+  // Emit nullable type in C#
+  emitType(getNonNullableType(type));
+  emit("?");
 }
 ```
 
 **Code Generation:**
+
 ```typescript
 // TypeScript: const x: TSNullable<number> = null;
 // C#: int? x = null;
@@ -310,11 +321,25 @@ All support types must be declared in `_support/types.d.ts`:
 // File: node_modules/@types/dotnet/_support/types.d.ts
 
 export type TSByRef<T> = { value: T };
-export type TSUnsafePointer<T> = { readonly __brand: "unsafe-pointer"; readonly __type: T };
-export type TSDelegate<TArgs extends any[], TReturn> = { readonly __brand: "delegate"; (...args: TArgs): TReturn };
+export type TSUnsafePointer<T> = {
+  readonly __brand: "unsafe-pointer";
+  readonly __type: T;
+};
+export type TSDelegate<TArgs extends any[], TReturn> = {
+  readonly __brand: "delegate";
+  (...args: TArgs): TReturn;
+};
 export type TSNullable<T> = T | null;
-export type TSFixed<T, N extends number> = { readonly __brand: "fixed-buffer"; readonly __type: T; readonly __length: N; [index: number]: T };
-export type TSStackAlloc<T> = { readonly __brand: "stackalloc"; readonly data: T };
+export type TSFixed<T, N extends number> = {
+  readonly __brand: "fixed-buffer";
+  readonly __type: T;
+  readonly __length: N;
+  [index: number]: T;
+};
+export type TSStackAlloc<T> = {
+  readonly __brand: "stackalloc";
+  readonly data: T;
+};
 ```
 
 ### 2. Compiler Recognition
@@ -324,16 +349,23 @@ Tsonic must recognize these types by name:
 ```typescript
 // Compiler type checking
 function isSupportType(type: Type): SupportTypeKind | null {
-    const name = type.symbol?.name;
-    switch (name) {
-        case "TSByRef": return "byref";
-        case "TSUnsafePointer": return "pointer";
-        case "TSDelegate": return "delegate";
-        case "TSNullable": return "nullable";
-        case "TSFixed": return "fixed";
-        case "TSStackAlloc": return "stackalloc";
-        default: return null;
-    }
+  const name = type.symbol?.name;
+  switch (name) {
+    case "TSByRef":
+      return "byref";
+    case "TSUnsafePointer":
+      return "pointer";
+    case "TSDelegate":
+      return "delegate";
+    case "TSNullable":
+      return "nullable";
+    case "TSFixed":
+      return "fixed";
+    case "TSStackAlloc":
+      return "stackalloc";
+    default:
+      return null;
+  }
 }
 ```
 
@@ -344,17 +376,20 @@ Provide helpful errors for unsupported types:
 ```typescript
 // TSN7001: Unsafe pointer usage
 if (kind === "pointer") {
-    diagnostic(TSN7001, "Unsafe pointers are not supported. Use IntPtr for opaque handles.");
+  diagnostic(
+    TSN7001,
+    "Unsafe pointers are not supported. Use IntPtr for opaque handles."
+  );
 }
 
 // TSN7002: Fixed buffer usage
 if (kind === "fixed") {
-    diagnostic(TSN7002, "Fixed-size buffers are not supported in safe code.");
+  diagnostic(TSN7002, "Fixed-size buffers are not supported in safe code.");
 }
 
 // TSN7003: Stack allocation
 if (kind === "stackalloc") {
-    diagnostic(TSN7003, "stackalloc is not supported. Use heap allocation.");
+  diagnostic(TSN7003, "stackalloc is not supported. Use heap allocation.");
 }
 ```
 
@@ -399,14 +434,14 @@ Do not use for return types or fields.
 ```typescript
 // Future support for Span<T> and Memory<T>
 export type TSSpan<T> = {
-    readonly Length: number;
-    [index: number]: T;
+  readonly Length: number;
+  [index: number]: T;
 };
 
 export type TSMemory<T> = {
-    readonly Length: number;
-    Slice(start: number, length?: number): TSMemory<T>;
-    Span: TSSpan<T>;
+  readonly Length: number;
+  Slice(start: number, length?: number): TSMemory<T>;
+  Span: TSSpan<T>;
 };
 ```
 
@@ -423,13 +458,14 @@ Currently not supported, but future enhancement.
 
 ## Best Practices
 
-1. **Import from _support**: `import type { TSByRef } from "@types/dotnet/_support/types";`
+1. **Import from \_support**: `import type { TSByRef } from "@types/dotnet/_support/types";`
 2. **Use sparingly**: These types indicate CLR-specific features
 3. **Document usage**: Comment why support type is needed
 4. **Avoid unsafe types**: Don't use TSUnsafePointer unless absolutely necessary
 5. **Prefer safe alternatives**: Use IntPtr over TSUnsafePointer
 
 **Good:**
+
 ```typescript
 import type { TSByRef } from "@types/dotnet/_support/types";
 import { Int32 } from "System";
@@ -440,11 +476,12 @@ Int32.TryParse(input, result);
 ```
 
 **Bad:**
+
 ```typescript
 import type { TSUnsafePointer } from "@types/dotnet/_support/types";
 
 // Avoid unsafe pointers
-const ptr: TSUnsafePointer<number> = getSomePointer();  // ❌ Unsafe
+const ptr: TSUnsafePointer<number> = getSomePointer(); // ❌ Unsafe
 ```
 
 ---
@@ -454,4 +491,4 @@ const ptr: TSUnsafePointer<number> = getSomePointer();  // ❌ Unsafe
 - [ref-out-parameters.md](ref-out-parameters.md) - TSByRef<T> detailed documentation
 - [metadata.md](metadata.md) - Parameter metadata (isRef, isOut, isIn)
 - [type-mappings.md](type-mappings.md) - C# to TypeScript type conversions
-- [tsbindgen spec/output-layout.md](../../tsbindgen/spec/output-layout.md) - _support directory structure
+- [tsbindgen spec/output-layout.md](../../tsbindgen/spec/output-layout.md) - \_support directory structure

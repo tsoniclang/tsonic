@@ -564,6 +564,7 @@ npm test -- --grep "pattern"
 **NEVER create pull requests using `gh pr create` or similar CLI commands.**
 
 The user will create all pull requests manually through the GitHub web interface. Your job is to:
+
 1. Create feature branches
 2. Commit changes
 3. Push branches to remote

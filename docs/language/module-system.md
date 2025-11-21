@@ -41,6 +41,7 @@ import { config } from "../../config.ts";
 ```
 
 **Rules:**
+
 - Must end with `.ts`
 - Path is relative to current file
 - Case must match file exactly
@@ -58,6 +59,7 @@ import { List } from "System.Collections.Generic";
 ```
 
 **Rules:**
+
 - No extension
 - Uses dotted notation
 - Resolves to C# `using` statements
@@ -74,7 +76,7 @@ import { List } from "System.Collections.Generic";
 //   User.ts
 
 // In main.ts:
-import { User } from "./User.ts";  // ✅
+import { User } from "./User.ts"; // ✅
 ```
 
 ### Parent Directory
@@ -87,7 +89,7 @@ import { User } from "./User.ts";  // ✅
 //     User.ts
 
 // In models/User.ts:
-import { config } from "../config.ts";  // ✅
+import { config } from "../config.ts"; // ✅
 ```
 
 ### Nested Paths
@@ -102,7 +104,7 @@ import { config } from "../config.ts";  // ✅
 //       User.ts
 
 // In services/UserService.ts:
-import { User } from "../models/User.ts";  // ✅
+import { User } from "../models/User.ts"; // ✅
 ```
 
 ### Mixed Imports

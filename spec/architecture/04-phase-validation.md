@@ -39,6 +39,7 @@ packages/frontend/src/validation/
 ### 3.1 Import Validation (TSN1xxx)
 
 **TSN1001: Missing .ts Extension**
+
 ```typescript
 // ❌ Error
 import { User } from "./models/User";
@@ -48,6 +49,7 @@ import { User } from "./models/User.ts";
 ```
 
 **TSN1003: Case Mismatch**
+
 ```typescript
 // File: models/User.ts
 
@@ -59,21 +61,24 @@ import { User } from "./models/User.ts";
 ```
 
 **TSN1004: Module Not Found**
+
 ```typescript
 // ❌ Error (file doesn't exist)
 import { User } from "./models/Missing.ts";
 ```
 
 **TSN1005: Node.js Built-in Modules Not Supported**
+
 ```typescript
 // ❌ Error
-import * as fs from "fs";  // Unless bound in registry
+import * as fs from "fs"; // Unless bound in registry
 
 // ✅ Correct (if bound)
-import * as fs from "fs";  // With binding manifest entry
+import * as fs from "fs"; // With binding manifest entry
 ```
 
 **TSN1006: Circular Dependency**
+
 ```typescript
 // A.ts → B.ts → C.ts → A.ts
 // ❌ Error: Circular dependency detected
@@ -82,6 +87,7 @@ import * as fs from "fs";  // With binding manifest entry
 ### 3.2 Export Validation (TSN3xxx)
 
 **TSN3001: Export-All Not Supported**
+
 ```typescript
 // ❌ Error
 export * from "./models/User.ts";
@@ -91,6 +97,7 @@ export { User, Post } from "./models/User.ts";
 ```
 
 **TSN3002: Default Exports Not Supported**
+
 ```typescript
 // ❌ Error
 export default class User {}
@@ -100,6 +107,7 @@ export class User {}
 ```
 
 **TSN3003: Dynamic Imports Not Supported**
+
 ```typescript
 // ❌ Error
 const module = await import("./utils.ts");
@@ -111,28 +119,34 @@ import { utils } from "./utils.ts";
 ### 3.3 Type System Validation (TSN2xxx)
 
 **TSN2001: Literal Types Not Supported (MVP)**
+
 ```typescript
 // ❌ Error (not yet supported)
 type Status = "pending" | "complete";
 const status: "pending" = "pending";
 
 // ✅ Correct (use enum)
-enum Status { Pending, Complete }
+enum Status {
+  Pending,
+  Complete,
+}
 const status: Status = Status.Pending;
 ```
 
 **TSN2002: Conditional Types Not Supported**
+
 ```typescript
 // ❌ Error
 type NonNullable<T> = T extends null | undefined ? never : T;
 ```
 
 **TSN2003: File Name Conflicts with Export**
+
 ```typescript
 // File: main.ts
 
 // ❌ Error
-export function main() {}  // Conflicts with class name "main"
+export function main() {} // Conflicts with class name "main"
 
 // ✅ Correct
 export function runApp() {}
@@ -141,6 +155,7 @@ export function runApp() {}
 ### 3.4 Feature Validation (TSN3xxx)
 
 **TSN3004: Union Types Not Supported (MVP)**
+
 ```typescript
 // ❌ Error (not yet in MVP)
 function process(value: string | number) {}
@@ -184,8 +199,8 @@ const validateModules = (
   diagnostics.push(...collisionDiags);
 
   // Filter to errors only (warnings are returned separately)
-  const errors = diagnostics.filter(d => d.severity === "error");
-  const warnings = diagnostics.filter(d => d.severity === "warning");
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  const warnings = diagnostics.filter((d) => d.severity === "warning");
 
   if (errors.length > 0) {
     return error(errors);
@@ -392,7 +407,11 @@ const validateGenericConstraints = (
           for (const typeParam of node.typeParameters) {
             if (typeParam.constraint) {
               // Validate constraint is supported
-              const diag = validateConstraint(typeParam.constraint, filePath, sourceFile);
+              const diag = validateConstraint(
+                typeParam.constraint,
+                filePath,
+                sourceFile
+              );
               if (diag) diagnostics.push(diag);
             }
           }
@@ -446,9 +465,7 @@ const validateConstraint = (
 ### 5.1 Class Name vs Export Name
 
 ```typescript
-const checkNameCollisions = (
-  moduleGraph: ModuleGraph
-): Diagnostic[] => {
+const checkNameCollisions = (moduleGraph: ModuleGraph): Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
   for (const [filePath, module] of moduleGraph.modules) {
@@ -472,9 +489,7 @@ const checkNameCollisions = (
 ### 5.2 Duplicate Export Names
 
 ```typescript
-const checkDuplicateExports = (
-  module: ModuleInfo
-): Diagnostic[] => {
+const checkDuplicateExports = (module: ModuleInfo): Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
   const seen = new Set<string>();
 
@@ -513,7 +528,7 @@ const detectCircularDependencies = (
       // Found cycle
       const cycleStart = path.indexOf(node);
       const cycle = [...path.slice(cycleStart), node];
-      const cycleStr = cycle.map(f => path.basename(f)).join(" → ");
+      const cycleStr = cycle.map((f) => path.basename(f)).join(" → ");
 
       diagnostics.push({
         code: "TSN1006",
@@ -554,6 +569,7 @@ const detectCircularDependencies = (
 ### 7.1 Errors (Must Fix)
 
 All TSN codes are **errors** that halt compilation:
+
 - TSN1xxx - Import/module errors
 - TSN2xxx - Type system errors
 - TSN3xxx - Feature errors
@@ -563,6 +579,7 @@ All TSN codes are **errors** that halt compilation:
 No warnings currently - all diagnostics are errors.
 
 **Future warnings might include:**
+
 - Unused imports
 - Unused variables
 - Missing type annotations
@@ -575,18 +592,22 @@ No warnings currently - all diagnostics are errors.
 ### 8.1 Complexity
 
 **Import Validation:**
+
 - Time: O(I) where I = total imports
 - Space: O(1)
 
 **Export Validation:**
+
 - Time: O(E) where E = total exports
 - Space: O(E) for collision detection
 
 **Feature Detection:**
+
 - Time: O(N) where N = AST nodes
 - Space: O(1)
 
 **Circular Detection:**
+
 - Time: O(V + E) where V = modules, E = dependencies
 - Space: O(V)
 
@@ -595,6 +616,7 @@ No warnings currently - all diagnostics are errors.
 ### 8.2 Timing
 
 **Small Project (10 files):**
+
 - Import validation: ~5ms
 - Export validation: ~5ms
 - Feature detection: ~20ms
@@ -602,6 +624,7 @@ No warnings currently - all diagnostics are errors.
 - **Total: ~35ms**
 
 **Medium Project (100 files):**
+
 - Import validation: ~10ms
 - Export validation: ~10ms
 - Feature detection: ~50ms
@@ -622,6 +645,7 @@ No warnings currently - all diagnostics are errors.
 ---
 
 **Document Statistics:**
+
 - Lines: ~550
 - Sections: 9
 - Validation rules: 15+

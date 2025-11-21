@@ -59,9 +59,7 @@ type Specialization = {
 ### 2.2 Factory Functions
 
 ```typescript
-const createCallGraph = (
-  irModules: Map<string, IrModule>
-): CallGraph => {
+const createCallGraph = (irModules: Map<string, IrModule>): CallGraph => {
   const nodes = new Map<FunctionId, CallGraphNode>();
   const edges = new Map<FunctionId, CallEdge[]>();
   const entryPoints: FunctionId[] = [];
@@ -107,19 +105,17 @@ const extractFunctionDeclarations = (
       });
 
       // Check if this is an entry point
-      if (stmt.name === "main" && module.exports.some((e) => e.name === "main")) {
+      if (
+        stmt.name === "main" &&
+        module.exports.some((e) => e.name === "main")
+      ) {
         entryPoints.push(id);
       }
     }
 
     // Handle nested functions (arrow functions, closures)
     if (stmt.kind === "variable-declaration" && stmt.initializer) {
-      extractFunctionFromExpression(
-        stmt.initializer,
-        module,
-        filePath,
-        nodes
-      );
+      extractFunctionFromExpression(stmt.initializer, module, filePath, nodes);
     }
   }
 };
@@ -320,9 +316,7 @@ const findImportedModule = (
 When a generic function is called with concrete type arguments, track the specialization:
 
 ```typescript
-const trackSpecializations = (
-  callGraph: CallGraph
-): CallGraph => {
+const trackSpecializations = (callGraph: CallGraph): CallGraph => {
   const updatedNodes = new Map(callGraph.nodes);
 
   for (const [callerId, edges] of callGraph.edges) {
@@ -391,6 +385,7 @@ const irTypeToString = (type: IrType): string => {
 ### 5.2 Specialization Example
 
 **TypeScript:**
+
 ```typescript
 export function map<T, U>(arr: T[], fn: (x: T) => U): U[] {
   const result: U[] = [];
@@ -408,6 +403,7 @@ export function main(): void {
 ```
 
 **Call Graph:**
+
 ```typescript
 {
   nodes: {
@@ -465,9 +461,7 @@ export function main(): void {
 Mark functions reachable from entry points:
 
 ```typescript
-const markReachableFunctions = (
-  callGraph: CallGraph
-): CallGraph => {
+const markReachableFunctions = (callGraph: CallGraph): CallGraph => {
   const reachable = new Set<FunctionId>();
   const visited = new Set<FunctionId>();
 
@@ -592,6 +586,7 @@ const detectRecursiveFunctions = (
 ### 7.2 Mutual Recursion Example
 
 **TypeScript:**
+
 ```typescript
 export function isEven(n: number): boolean {
   if (n === 0) return true;
@@ -605,6 +600,7 @@ export function isOdd(n: number): boolean {
 ```
 
 **Call Graph (Cycle Detected):**
+
 ```
 isEven → isOdd → isEven
 ```
@@ -626,10 +622,7 @@ const findCallChains = (
 ): readonly FunctionId[][] => {
   const chains: FunctionId[][] = [];
 
-  const dfs = (
-    currentFunction: FunctionId,
-    path: FunctionId[]
-  ): void => {
+  const dfs = (currentFunction: FunctionId, path: FunctionId[]): void => {
     if (path.includes(currentFunction)) {
       return; // Avoid infinite recursion
     }
@@ -658,6 +651,7 @@ const findCallChains = (
 ### 8.2 Example Output
 
 **Call Chains to `map` function:**
+
 ```
 main → processUsers → map
 main → processOrders → formatOrder → map
@@ -688,9 +682,7 @@ type ModuleEdge = {
   readonly callCount: number; // Number of cross-module calls
 };
 
-const buildModuleCallGraph = (
-  callGraph: CallGraph
-): ModuleCallGraph => {
+const buildModuleCallGraph = (callGraph: CallGraph): ModuleCallGraph => {
   const modules = new Map<string, ModuleNode>();
   const edges = new Map<string, ModuleEdge[]>();
 
@@ -753,14 +745,17 @@ const buildModuleCallGraph = (
 ### 10.1 Complexity
 
 **Node Construction:**
+
 - Time: O(F) where F = total functions
 - Space: O(F)
 
 **Edge Construction:**
+
 - Time: O(F × S) where S = avg statements per function
 - Space: O(E) where E = total call edges
 
 **Reachability Analysis:**
+
 - Time: O(F + E) (DFS traversal)
 - Space: O(F)
 
@@ -769,6 +764,7 @@ const buildModuleCallGraph = (
 ### 10.2 Timing
 
 **Small Project (50 functions, 200 call sites):**
+
 - Node construction: ~5ms
 - Edge construction: ~10ms
 - Specialization tracking: ~5ms
@@ -776,6 +772,7 @@ const buildModuleCallGraph = (
 - **Total: ~25ms**
 
 **Medium Project (500 functions, 2000 call sites):**
+
 - Node construction: ~20ms
 - Edge construction: ~50ms
 - Specialization tracking: ~20ms
@@ -794,6 +791,7 @@ const buildModuleCallGraph = (
 ---
 
 **Document Statistics:**
+
 - Lines: ~700
 - Sections: 11
 - Code examples: 15+

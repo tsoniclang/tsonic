@@ -23,6 +23,7 @@ export function main() {
 ```
 
 **Build:**
+
 ```bash
 $ tsonic build src/main.ts
 $ ./main
@@ -43,7 +44,10 @@ src/
 ```typescript
 // models/User.ts
 export class User {
-  constructor(public id: number, public name: string) {}
+  constructor(
+    public id: number,
+    public name: string
+  ) {}
 }
 
 // services/UserService.ts

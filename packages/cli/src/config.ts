@@ -170,6 +170,11 @@ export const resolveConfig = (
   const defaultTypeRoots = ["node_modules/@tsonic/dotnet-types/types"];
   const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
 
+  // Merge libraries from config and CLI
+  const configLibraries = config.dotnet?.libraries ?? [];
+  const cliLibraries = cliOptions.lib ?? [];
+  const libraries = [...configLibraries, ...cliLibraries];
+
   // Resolve output configuration
   const outputConfig = resolveOutputConfig(config, cliOptions, entryPoint);
 
@@ -192,5 +197,6 @@ export const resolveConfig = (
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
     typeRoots,
+    libraries,
   };
 };

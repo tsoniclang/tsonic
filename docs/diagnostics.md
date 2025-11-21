@@ -22,13 +22,15 @@ Tsonic uses diagnostic codes in the format `TSNxxxx`:
 **Error:** Local import is missing the `.ts` extension.
 
 **Example:**
+
 ```typescript
-import { User } from "./models/User";  // ❌ Wrong
+import { User } from "./models/User"; // ❌ Wrong
 ```
 
 **Fix:**
+
 ```typescript
-import { User } from "./models/User.ts";  // ✅ Correct
+import { User } from "./models/User.ts"; // ✅ Correct
 ```
 
 **Why:** Tsonic requires explicit `.ts` extensions on all local imports for clarity and ESM compliance.
@@ -40,13 +42,15 @@ import { User } from "./models/User.ts";  // ✅ Correct
 **Error:** Import has an extension other than `.ts`.
 
 **Example:**
+
 ```typescript
-import { helper } from "./utils.js";  // ❌ Wrong
+import { helper } from "./utils.js"; // ❌ Wrong
 ```
 
 **Fix:**
+
 ```typescript
-import { helper } from "./utils.ts";  // ✅ Correct
+import { helper } from "./utils.ts"; // ✅ Correct
 ```
 
 ---
@@ -56,14 +60,16 @@ import { helper } from "./utils.ts";  // ✅ Correct
 **Error:** Import path case doesn't match the actual file case on disk.
 
 **Example:**
+
 ```typescript
 // File: ./models/User.ts
-import { User } from "./models/user.ts";  // ❌ Wrong case
+import { User } from "./models/user.ts"; // ❌ Wrong case
 ```
 
 **Fix:**
+
 ```typescript
-import { User } from "./models/User.ts";  // ✅ Matches file case
+import { User } from "./models/User.ts"; // ✅ Matches file case
 ```
 
 **Why:** Case sensitivity prevents issues when deploying to case-sensitive file systems.
@@ -75,13 +81,15 @@ import { User } from "./models/User.ts";  // ✅ Matches file case
 **Error:** Attempting to import Node.js built-in modules.
 
 **Example:**
+
 ```typescript
-import fs from "fs";  // ❌ Not supported
+import fs from "fs"; // ❌ Not supported
 ```
 
 **Fix:** Use .NET equivalents:
+
 ```typescript
-import { File } from "System.IO";  // ✅ Use .NET
+import { File } from "System.IO"; // ✅ Use .NET
 ```
 
 ---
@@ -91,11 +99,13 @@ import { File } from "System.IO";  // ✅ Use .NET
 **Error:** Trying to import JSON files directly.
 
 **Example:**
+
 ```typescript
-import config from "./config.json";  // ❌ Not supported in MVP
+import config from "./config.json"; // ❌ Not supported in MVP
 ```
 
 **Fix:** Read JSON at runtime:
+
 ```typescript
 import { File } from "System.IO";
 import { JSON } from "Tsonic.Runtime";
@@ -111,6 +121,7 @@ const config = JSON.parse(text);
 **Error:** Module dependency cycle detected.
 
 **Example:**
+
 ```typescript
 // A.ts imports B.ts
 // B.ts imports A.ts  // ❌ Circular
@@ -127,15 +138,17 @@ const config = JSON.parse(text);
 **Error:** String or numeric literal types.
 
 **Example:**
+
 ```typescript
-type Direction = "north" | "south";  // ❌ Not supported in MVP
+type Direction = "north" | "south"; // ❌ Not supported in MVP
 ```
 
 **Fix:** Use enums or string:
+
 ```typescript
 enum Direction {
   North = "north",
-  South = "south"
+  South = "south",
 }
 ```
 
@@ -146,8 +159,9 @@ enum Direction {
 **Error:** Conditional type expressions.
 
 **Example:**
+
 ```typescript
-type Result<T> = T extends string ? string : number;  // ❌ Not supported
+type Result<T> = T extends string ? string : number; // ❌ Not supported
 ```
 
 **Fix:** Use explicit types or function overloads.
@@ -159,8 +173,9 @@ type Result<T> = T extends string ? string : number;  // ❌ Not supported
 **Error:** Mapped type transformations.
 
 **Example:**
+
 ```typescript
-type Readonly<T> = { readonly [K in keyof T]: T[K] };  // ❌ Not supported
+type Readonly<T> = { readonly [K in keyof T]: T[K] }; // ❌ Not supported
 ```
 
 **Fix:** Define interfaces explicitly.
@@ -174,11 +189,13 @@ type Readonly<T> = { readonly [K in keyof T]: T[K] };  // ❌ Not supported
 **Error:** Re-export syntax.
 
 **Example:**
+
 ```typescript
-export * from "./other.ts";  // ❌ Not supported in MVP
+export * from "./other.ts"; // ❌ Not supported in MVP
 ```
 
 **Fix:** Export items explicitly:
+
 ```typescript
 export { Item1, Item2 } from "./other.ts";
 ```
@@ -190,11 +207,13 @@ export { Item1, Item2 } from "./other.ts";
 **Error:** Default export syntax.
 
 **Example:**
+
 ```typescript
-export default class User {}  // ❌ Not supported
+export default class User {} // ❌ Not supported
 ```
 
 **Fix:** Use named exports:
+
 ```typescript
 export class User {}
 ```
@@ -206,8 +225,9 @@ export class User {}
 **Error:** `import()` expressions.
 
 **Example:**
+
 ```typescript
-const module = await import("./dynamic.ts");  // ❌ Not supported
+const module = await import("./dynamic.ts"); // ❌ Not supported
 ```
 
 **Fix:** Use static imports only.
@@ -228,6 +248,7 @@ If you encounter an error not listed here:
 ---
 
 **See Also:**
+
 - [Troubleshooting Guide](troubleshooting.md) - Common issues
 - [Language Reference](language/module-system.md) - ESM rules
 - [Type Mappings](language/type-mappings.md) - Supported types

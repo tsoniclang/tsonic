@@ -5,6 +5,7 @@
 C# supports nested types (types defined inside other types). TypeScript doesn't have true nested type syntax, so tsbindgen flattens nested types using a special naming convention.
 
 **C# Nested Types:**
+
 ```csharp
 public class OuterClass
 {
@@ -15,22 +16,23 @@ public class OuterClass
 ```
 
 **TypeScript Equivalent:**
+
 ```typescript
 export class OuterClass {
-    // Outer class members
+  // Outer class members
 }
 
 // Nested type flattened with $ separator
 export class OuterClass$NestedClass {
-    // Nested class members
+  // Nested class members
 }
 
 export class OuterClass$NestedStruct {
-    // Nested struct members
+  // Nested struct members
 }
 
 export enum OuterClass$NestedEnum {
-    // Nested enum members
+  // Nested enum members
 }
 ```
 
@@ -40,14 +42,15 @@ export enum OuterClass$NestedEnum {
 
 ### CLR → TypeScript Name Mapping
 
-| CLR Name (Reflection) | TypeScript Name | Notes |
-|-----------------------|-----------------|-------|
-| `Outer+Nested` | `Outer$Nested` | Plus (`+`) becomes dollar (`$`) |
-| `List`1+Enumerator` | `List_1$Enumerator` | Generics use underscore, nesting uses dollar |
-| `A+B+C` | `A$B$C` | Multiple nesting levels |
-| `Generic`2+Nested`1` | `Generic_2$Nested_1` | Both outer and nested generic |
+| CLR Name (Reflection) | TypeScript Name      | Notes                                        |
+| --------------------- | -------------------- | -------------------------------------------- |
+| `Outer+Nested`        | `Outer$Nested`       | Plus (`+`) becomes dollar (`$`)              |
+| `List`1+Enumerator`   | `List_1$Enumerator`  | Generics use underscore, nesting uses dollar |
+| `A+B+C`               | `A$B$C`              | Multiple nesting levels                      |
+| `Generic`2+Nested`1`  | `Generic_2$Nested_1` | Both outer and nested generic                |
 
 **Rules:**
+
 1. CLR uses `+` for nested types (reflection metadata)
 2. TypeScript uses `$` (valid identifier character)
 3. Generic arity: backtick (\`) → underscore (`_`)
@@ -93,6 +96,7 @@ TypeScript-safe name with dollar sign:
 ### Simple Nested Class
 
 **C#:**
+
 ```csharp
 namespace System.IO
 {
@@ -104,24 +108,26 @@ namespace System.IO
 ```
 
 **TypeScript:**
+
 ```typescript
 declare namespace System.IO {
-    export class FileStream {
-        // Outer class members
-    }
+  export class FileStream {
+    // Outer class members
+  }
 
-    export class FileStream$SafeFileHandle {
-        // Nested class members
-    }
+  export class FileStream$SafeFileHandle {
+    // Nested class members
+  }
 
-    // Optional: Type alias for convenience
-    export namespace FileStream {
-        export type SafeFileHandle = FileStream$SafeFileHandle;
-    }
+  // Optional: Type alias for convenience
+  export namespace FileStream {
+    export type SafeFileHandle = FileStream$SafeFileHandle;
+  }
 }
 ```
 
 **Usage:**
+
 ```typescript
 import { FileStream } from "System.IO";
 
@@ -135,6 +141,7 @@ const handle2 = new FileStream.SafeFileHandle();
 ### Generic Nested Type
 
 **C#:**
+
 ```csharp
 public class List<T>
 {
@@ -143,24 +150,26 @@ public class List<T>
 ```
 
 **TypeScript:**
+
 ```typescript
 export class List_1<T> {
-    // List<T> members
+  // List<T> members
 }
 
 export class List_1$Enumerator {
-    // Enumerator members (not generic itself)
+  // Enumerator members (not generic itself)
 }
 
 // Type alias
 export namespace List_1 {
-    export type Enumerator = List_1$Enumerator;
+  export type Enumerator = List_1$Enumerator;
 }
 ```
 
 ### Nested Generic Type
 
 **C#:**
+
 ```csharp
 public class Dictionary<TKey, TValue>
 {
@@ -169,18 +178,19 @@ public class Dictionary<TKey, TValue>
 ```
 
 **TypeScript:**
+
 ```typescript
 export class Dictionary_2<TKey, TValue> {
-    // Dictionary members
+  // Dictionary members
 }
 
 export class Dictionary_2$KeyCollection_1<T> {
-    // Nested generic type
+  // Nested generic type
 }
 
 // Type alias
 export namespace Dictionary_2 {
-    export type KeyCollection<T> = Dictionary_2$KeyCollection_1<T>;
+  export type KeyCollection<T> = Dictionary_2$KeyCollection_1<T>;
 }
 ```
 
@@ -191,6 +201,7 @@ export namespace Dictionary_2 {
 ### List<T>.Enumerator
 
 **C# usage:**
+
 ```csharp
 var list = new List<int> { 1, 2, 3 };
 List<int>.Enumerator enumerator = list.GetEnumerator();
@@ -200,6 +211,7 @@ while (enumerator.MoveNext()) {
 ```
 
 **TypeScript:**
+
 ```typescript
 import { List, List_1$Enumerator } from "System.Collections.Generic";
 
@@ -210,21 +222,26 @@ list.Add(3);
 
 const enumerator: List_1$Enumerator = list.GetEnumerator();
 while (enumerator.MoveNext()) {
-    console.log(enumerator.Current);
+  console.log(enumerator.Current);
 }
 ```
 
 ### Dictionary<K, V>.KeyCollection
 
 **C# usage:**
+
 ```csharp
 var dict = new Dictionary<string, int>();
 Dictionary<string, int>.KeyCollection keys = dict.Keys;
 ```
 
 **TypeScript:**
+
 ```typescript
-import { Dictionary, Dictionary_2$KeyCollection } from "System.Collections.Generic";
+import {
+  Dictionary,
+  Dictionary_2$KeyCollection,
+} from "System.Collections.Generic";
 
 const dict = new Dictionary<string, number>();
 const keys: Dictionary_2$KeyCollection = dict.Keys;
@@ -233,11 +250,13 @@ const keys: Dictionary_2$KeyCollection = dict.Keys;
 ### Environment.SpecialFolder (Nested Enum)
 
 **C# usage:**
+
 ```csharp
 string path = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 ```
 
 **TypeScript:**
+
 ```typescript
 import { Environment, Environment$SpecialFolder } from "System";
 
@@ -249,6 +268,7 @@ const path = Environment.GetFolderPath(Environment$SpecialFolder.Desktop);
 ## Multiple Nesting Levels
 
 **C#:**
+
 ```csharp
 public class A
 {
@@ -260,25 +280,26 @@ public class A
 ```
 
 **TypeScript:**
+
 ```typescript
-export class A { }
-export class A$B { }
-export class A$B$C { }
+export class A {}
+export class A$B {}
+export class A$B$C {}
 
 // Type aliases for nested access
 export namespace A {
-    export type B = A$B;
-    export namespace B {
-        export type C = A$B$C;
-    }
+  export type B = A$B;
+  export namespace B {
+    export type C = A$B$C;
+  }
 }
 
 // Usage
 const a = new A();
-const b = new A$B();           // Direct
-const b2 = new A.B();          // Via alias
-const c = new A$B$C();         // Direct
-const c2 = new A.B.C();        // Via alias
+const b = new A$B(); // Direct
+const b2 = new A.B(); // Via alias
+const c = new A$B$C(); // Direct
+const c2 = new A.B.C(); // Via alias
 ```
 
 ---
@@ -298,24 +319,27 @@ const parts = typeName.split("$");
 const outerType = resolveType("List_1");
 
 // Find nested type in metadata
-const nestedType = metadata.types.find(t =>
-    t.tsEmitName === "List_1$Enumerator"
+const nestedType = metadata.types.find(
+  (t) => t.tsEmitName === "List_1$Enumerator"
 );
 ```
 
 ### 2. C# Emission
 
 **TypeScript:**
+
 ```typescript
 const enumerator = new List_1$Enumerator();
 ```
 
 **C# (generated):**
+
 ```csharp
 var enumerator = new List<T>.Enumerator();
 ```
 
 **Name Transformation:**
+
 1. Split on `$`: `List_1$Enumerator` → `["List_1", "Enumerator"]`
 2. Convert `List_1` → `List<T>` (apply generic arity)
 3. Combine with `.`: `List<T>.Enumerator`
@@ -323,17 +347,20 @@ var enumerator = new List<T>.Enumerator();
 ### 3. Generic Argument Inference
 
 **TypeScript:**
+
 ```typescript
 const list = new List<string>();
-const enumerator = list.GetEnumerator();  // Returns List_1$Enumerator
+const enumerator = list.GetEnumerator(); // Returns List_1$Enumerator
 ```
 
 **Type Analysis:**
+
 1. `list` has type `List<string>` → `List_1<string>`
 2. `GetEnumerator()` returns `List_1$Enumerator`
 3. Must use outer type's generic arguments for emission
 
 **C# (generated):**
+
 ```csharp
 var list = new List<string>();
 var enumerator = list.GetEnumerator();  // List<string>.Enumerator
@@ -365,6 +392,7 @@ var enumerator = list.GetEnumerator();  // List<string>.Enumerator
 ```
 
 **Optional Fields:**
+
 - `outerType`: CLR name of enclosing type
 - `nestingLevel`: How many levels deep (0 = not nested, 1 = first level, etc.)
 
@@ -404,35 +432,39 @@ const enumerator: Collections.List_1$Enumerator = list.GetEnumerator();
 ### Issue 1: Wrong Separator
 
 **Wrong:**
+
 ```typescript
 import { List.Enumerator } from "System.Collections.Generic";  // ❌
 ```
 
 **Correct:**
+
 ```typescript
-import { List_1$Enumerator } from "System.Collections.Generic";  // ✅
+import { List_1$Enumerator } from "System.Collections.Generic"; // ✅
 ```
 
 ### Issue 2: Missing Generic Arity
 
 **Wrong:**
+
 ```typescript
-import { List$Enumerator } from "System.Collections.Generic";  // ❌ Missing _1
+import { List$Enumerator } from "System.Collections.Generic"; // ❌ Missing _1
 ```
 
 **Correct:**
+
 ```typescript
-import { List_1$Enumerator } from "System.Collections.Generic";  // ✅
+import { List_1$Enumerator } from "System.Collections.Generic"; // ✅
 ```
 
 ### Issue 3: Confusion with Namespace
 
 ```typescript
 // This is a namespace
-namespace System.Collections { }
+namespace System.Collections {}
 
 // This is a nested type
-class List_1$Enumerator { }
+class List_1$Enumerator {}
 ```
 
 Nested types use `$`, namespaces use `.`.
@@ -448,17 +480,22 @@ Nested types use `$`, namespaces use `.`.
 5. **Document nested types**: Comment that type is nested
 
 **Good:**
+
 ```typescript
-import { Dictionary_2, Dictionary_2$KeyCollection } from "System.Collections.Generic";
+import {
+  Dictionary_2,
+  Dictionary_2$KeyCollection,
+} from "System.Collections.Generic";
 
 // Clear that KeyCollection is nested
 const keys: Dictionary_2$KeyCollection = dict.Keys;
 ```
 
 **Bad:**
+
 ```typescript
 // Confusing name without context
-import { KeyCollection } from "System.Collections.Generic";  // ❌ Which KeyCollection?
+import { KeyCollection } from "System.Collections.Generic"; // ❌ Which KeyCollection?
 ```
 
 ---

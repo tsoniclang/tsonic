@@ -9,19 +9,19 @@ Represents module dependencies for build ordering and circular dependency detect
 ```typescript
 type DependencyGraph = {
   modules: Map<string, ModuleNode>;
-  edges: Map<string, string[]>;  // module → dependencies
+  edges: Map<string, string[]>; // module → dependencies
 };
 
 type ModuleNode = {
   path: string;
   namespace: string;
-  exports: string[];  // Exported symbol names
+  exports: string[]; // Exported symbol names
   imports: ImportEdge[];
 };
 
 type ImportEdge = {
-  from: string;      // This module
-  to: string;        // Imported module
+  from: string; // This module
+  to: string; // Imported module
   symbols: string[]; // Imported symbols
   isDotNet: boolean; // Is this a .NET import?
 };
@@ -47,7 +47,9 @@ Circular dependency detected:
 ```typescript
 // A.ts
 import { B } from "./B.ts";
-export class A { b: B; }
+export class A {
+  b: B;
+}
 
 // B.ts
 import { File } from "System.IO";
@@ -55,6 +57,7 @@ export class B {}
 ```
 
 Graph:
+
 ```
 A.ts → B.ts
 B.ts → (no local dependencies)

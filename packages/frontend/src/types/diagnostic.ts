@@ -30,7 +30,41 @@ export type DiagnosticCode =
   | "TSN7201" // Recursive structural alias not supported
   | "TSN7202" // Conditional alias cannot be resolved
   | "TSN7203" // Symbol keys not supported
-  | "TSN7204"; // Variadic generic interface not supported
+  | "TSN7204" // Variadic generic interface not supported
+  // Metadata loading errors (TSN9001-TSN9018)
+  | "TSN9001" // Metadata file not found
+  | "TSN9002" // Failed to read metadata file
+  | "TSN9003" // Invalid JSON in metadata file
+  | "TSN9004" // Metadata file must be an object
+  | "TSN9005" // Missing or invalid 'namespace' field
+  | "TSN9006" // Missing or invalid 'contributingAssemblies' field
+  | "TSN9007" // All 'contributingAssemblies' must be strings
+  | "TSN9008" // Missing or invalid 'types' field
+  | "TSN9009" // Invalid type: must be an object
+  | "TSN9010" // Invalid type: missing or invalid field
+  | "TSN9011" // Invalid type: 'kind' must be one of ...
+  | "TSN9012" // Invalid type: 'accessibility' must be one of ...
+  | "TSN9013" // Invalid type: field must be a boolean
+  | "TSN9014" // Invalid type: 'arity' must be a non-negative number
+  | "TSN9015" // Invalid type: field must be an array
+  | "TSN9016" // Metadata directory not found
+  | "TSN9017" // Not a directory
+  | "TSN9018" // No .metadata.json files found
+  // Bindings loading errors (TSN9101-TSN9114)
+  | "TSN9101" // Bindings file not found
+  | "TSN9102" // Failed to read bindings file
+  | "TSN9103" // Invalid JSON in bindings file
+  | "TSN9104" // Bindings file must be an object
+  | "TSN9105" // Missing or invalid 'namespace' field
+  | "TSN9106" // Missing or invalid 'types' field
+  | "TSN9107" // Invalid type binding: must be an object
+  | "TSN9108" // Invalid type binding: missing or invalid field
+  | "TSN9109" // Invalid type binding: 'metadataToken' must be a number
+  | "TSN9110" // Invalid type binding: V1 field must be an array if present
+  | "TSN9111" // Invalid type binding: V2 field must be an array if present
+  | "TSN9112" // Bindings directory not found
+  | "TSN9113" // Not a directory
+  | "TSN9114"; // No .bindings.json files found
 
 export type SourceLocation = {
   readonly file: string;

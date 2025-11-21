@@ -5,6 +5,10 @@
 import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
+import {
+  isExplicitViewProperty,
+  extractInterfaceNameFromView,
+} from "@tsonic/frontend/types/explicit-views.js";
 
 /**
  * Emit a member access expression (dot notation or bracket notation)
@@ -66,6 +70,18 @@ export const emitMemberAccess = (
     const updatedContext = addUsing(newContext, "Tsonic.Runtime");
     const text = `Tsonic.Runtime.Array.length(${objectFrag.text})`;
     return [{ text }, updatedContext];
+  }
+
+  // Handle explicit interface view properties (As_IInterface)
+  if (isExplicitViewProperty(prop)) {
+    const interfaceName = extractInterfaceNameFromView(prop);
+    if (interfaceName) {
+      // Emit as C# interface cast: ((IInterface)obj)
+      // TODO: Need to look up full interface name from metadata
+      // For now, use the extracted short name
+      const text = `((${interfaceName})${objectFrag.text})`;
+      return [{ text }, newContext];
+    }
   }
 
   // Regular property access

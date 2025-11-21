@@ -3,6 +3,7 @@
 ## Purpose
 
 `.metadata.json` files provide CLR-specific semantics that TypeScript cannot express:
+
 - Virtual/override/abstract modifiers
 - Accessibility (public/protected/internal/private)
 - Static vs instance distinction
@@ -33,24 +34,28 @@ node_modules/@types/dotnet/
 
 ```typescript
 type MetadataFile = {
-  readonly namespace: string;                    // "System.Collections.Generic"
-  readonly contributingAssemblies: string[];     // ["System.Private.CoreLib", ...]
-  readonly types: TypeMetadata[];                // Array of all types in namespace
+  readonly namespace: string; // "System.Collections.Generic"
+  readonly contributingAssemblies: string[]; // ["System.Private.CoreLib", ...]
+  readonly types: TypeMetadata[]; // Array of all types in namespace
 };
 ```
 
 **Example:**
+
 ```json
 {
   "namespace": "System.Collections.Generic",
-  "contributingAssemblies": [
-    "System.Private.CoreLib",
-    "System.Runtime"
-  ],
+  "contributingAssemblies": ["System.Private.CoreLib", "System.Runtime"],
   "types": [
-    { /* TypeMetadata for IList<T> */ },
-    { /* TypeMetadata for List<T> */ },
-    { /* TypeMetadata for Dictionary<K,V> */ }
+    {
+      /* TypeMetadata for IList<T> */
+    },
+    {
+      /* TypeMetadata for List<T> */
+    },
+    {
+      /* TypeMetadata for Dictionary<K,V> */
+    }
   ]
 }
 ```
@@ -64,21 +69,21 @@ type MetadataFile = {
 ```typescript
 type TypeMetadata = {
   // Identity
-  readonly clrName: string;              // Full CLR name: "System.Collections.Generic.List`1"
-  readonly tsEmitName: string;           // TypeScript name: "List_1" (underscore for generics)
-  readonly kind: TypeKind;               // "Class" | "Interface" | "Struct" | ...
+  readonly clrName: string; // Full CLR name: "System.Collections.Generic.List`1"
+  readonly tsEmitName: string; // TypeScript name: "List_1" (underscore for generics)
+  readonly kind: TypeKind; // "Class" | "Interface" | "Struct" | ...
   readonly accessibility: Accessibility; // "Public" | "Internal" | ...
 
   // Modifiers
-  readonly isAbstract: boolean;          // Abstract type (cannot instantiate)
-  readonly isSealed: boolean;            // Sealed type (cannot inherit)
-  readonly isStatic: boolean;            // Static class (all members static)
-  readonly arity: number;                // Generic parameter count (0 for non-generic)
+  readonly isAbstract: boolean; // Abstract type (cannot instantiate)
+  readonly isSealed: boolean; // Sealed type (cannot inherit)
+  readonly isStatic: boolean; // Static class (all members static)
+  readonly arity: number; // Generic parameter count (0 for non-generic)
 
   // Inheritance
-  readonly baseType?: string | null;     // Base class CLR name, null for Object/interfaces
-  readonly interfaces?: string[];        // Implemented interface CLR names
-  readonly isValueType?: boolean;        // true for struct/enum, false for class/interface
+  readonly baseType?: string | null; // Base class CLR name, null for Object/interfaces
+  readonly interfaces?: string[]; // Implemented interface CLR names
+  readonly isValueType?: boolean; // true for struct/enum, false for class/interface
 
   // Members
   readonly methods: MethodMetadata[];
@@ -100,7 +105,7 @@ type TypeKind =
   | "Struct"
   | "Enum"
   | "Delegate"
-  | "StaticNamespace";  // For C# static classes
+  | "StaticNamespace"; // For C# static classes
 
 type Accessibility =
   | "Public"
@@ -111,21 +116,21 @@ type Accessibility =
   | "PrivateProtected";
 
 type IntentionalOmissions = {
-  readonly indexers?: OmittedMember[];           // Indexers omitted (TypeScript overload conflicts)
+  readonly indexers?: OmittedMember[]; // Indexers omitted (TypeScript overload conflicts)
   readonly genericStaticMembers?: OmittedMember[]; // Generic statics omitted (TS limitation)
-  readonly other?: OmittedMember[];              // Other omissions with reasons
+  readonly other?: OmittedMember[]; // Other omissions with reasons
 };
 
 type OmittedMember = {
-  readonly signature: string;            // C#-style signature
-  readonly reason: string;               // Human-readable explanation
+  readonly signature: string; // C#-style signature
+  readonly reason: string; // Human-readable explanation
 };
 
 type ExplicitView = {
-  readonly interfaceClrName: string;     // Interface CLR name
-  readonly interfaceTsEmitName: string;  // Interface TypeScript name
-  readonly propertyName: string;         // As_IInterface property name
-  readonly members: string[];            // Member StableIds in this view
+  readonly interfaceClrName: string; // Interface CLR name
+  readonly interfaceTsEmitName: string; // Interface TypeScript name
+  readonly propertyName: string; // As_IInterface property name
+  readonly members: string[]; // Member StableIds in this view
 };
 ```
 
@@ -136,49 +141,51 @@ type ExplicitView = {
 ```typescript
 type MethodMetadata = {
   // Identity
-  readonly clrName: string;              // "Add", "SelectMany"
-  readonly tsEmitName: string;           // "Add", "selectMany" (if camelCase)
-  readonly normalizedSignature: string;  // "Add|(T):System.Void|static=false"
+  readonly clrName: string; // "Add", "SelectMany"
+  readonly tsEmitName: string; // "Add", "selectMany" (if camelCase)
+  readonly normalizedSignature: string; // "Add|(T):System.Void|static=false"
 
   // Provenance
-  readonly provenance: Provenance;       // Where method came from
-  readonly emitScope: EmitScope;         // Where emitted in TypeScript
-  readonly sourceInterface?: string;     // For ViewOnly: "System.Collections.IList"
+  readonly provenance: Provenance; // Where method came from
+  readonly emitScope: EmitScope; // Where emitted in TypeScript
+  readonly sourceInterface?: string; // For ViewOnly: "System.Collections.IList"
 
   // Modifiers
   readonly isStatic: boolean;
   readonly isAbstract: boolean;
   readonly isVirtual: boolean;
   readonly isOverride: boolean;
-  readonly isSealed: boolean;            // sealed override
+  readonly isSealed: boolean; // sealed override
 
   // Signature
-  readonly arity: number;                // Generic method parameter count
-  readonly parameterCount: number;       // Total parameters
+  readonly arity: number; // Generic method parameter count
+  readonly parameterCount: number; // Total parameters
   readonly parameters?: ParameterMetadata[]; // Method parameters (may not be in all files)
-  readonly returnType?: string;          // Return type CLR name
+  readonly returnType?: string; // Return type CLR name
   readonly genericParameters?: string[]; // Generic parameter names ["TSource", "TResult"]
 };
 
 type Provenance =
-  | "Declared"           // Direct member on type
-  | "InlineFromInterface"  // Inherited from interface
-  | "InlineFromBase"     // Inherited from base class
-  | "SynthesizedViewOnly"  // Synthesized for explicit interface impl
-  | "ExplicitView";      // Explicit interface implementation
+  | "Declared" // Direct member on type
+  | "InlineFromInterface" // Inherited from interface
+  | "InlineFromBase" // Inherited from base class
+  | "SynthesizedViewOnly" // Synthesized for explicit interface impl
+  | "ExplicitView"; // Explicit interface implementation
 
 type EmitScope =
-  | "ClassSurface"       // Emitted directly on class/interface
-  | "ViewOnly"          // Emitted in As_IInterface view property
-  | "Omitted";          // Intentionally not emitted
+  | "ClassSurface" // Emitted directly on class/interface
+  | "ViewOnly" // Emitted in As_IInterface view property
+  | "Omitted"; // Intentionally not emitted
 ```
 
 **NormalizedSignature Format:**
+
 ```
 MethodName|(Param1Type,Param2Type,...):ReturnType|static=true/false
 ```
 
 Examples:
+
 ```
 "Add|(T):System.Void|static=false"
 "SelectMany[2]|(IEnumerable_1,Func_2):IEnumerable_1|static=true"
@@ -192,9 +199,9 @@ Examples:
 ```typescript
 type PropertyMetadata = {
   // Identity
-  readonly clrName: string;              // "Count", "Item"
-  readonly tsEmitName: string;           // "count" (if camelCase)
-  readonly normalizedSignature: string;  // "Count|:System.Int32|static=false|accessor=get"
+  readonly clrName: string; // "Count", "Item"
+  readonly tsEmitName: string; // "count" (if camelCase)
+  readonly normalizedSignature: string; // "Count|:System.Int32|static=false|accessor=get"
 
   // Provenance
   readonly provenance: Provenance;
@@ -209,18 +216,20 @@ type PropertyMetadata = {
   readonly isSealed: boolean;
 
   // Property-specific
-  readonly isIndexer: boolean;           // C# indexer (this[int index])
+  readonly isIndexer: boolean; // C# indexer (this[int index])
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
 };
 ```
 
 **NormalizedSignature Format:**
+
 ```
 PropertyName|:Type|static=true/false|accessor=get/set/getset
 ```
 
 Examples:
+
 ```
 "Count|:System.Int32|static=false|accessor=get"
 "Item|:T|static=false|accessor=getset"       // Indexer: list[0]
@@ -241,7 +250,7 @@ type FieldMetadata = {
   // Modifiers
   readonly isStatic: boolean;
   readonly isReadOnly: boolean;
-  readonly isLiteral: boolean;           // const field
+  readonly isLiteral: boolean; // const field
 };
 ```
 
@@ -270,8 +279,8 @@ type EventMetadata = {
 
 ```typescript
 type ConstructorMetadata = {
-  readonly normalizedSignature: string;  // "ctor()" or "ctor(System.Int32)"
-  readonly isStatic: boolean;            // Static constructor (type initializer)
+  readonly normalizedSignature: string; // "ctor()" or "ctor(System.Int32)"
+  readonly isStatic: boolean; // Static constructor (type initializer)
   readonly parameterCount: number;
   readonly parameters?: ParameterMetadata[]; // Constructor parameters
 };
@@ -285,23 +294,25 @@ type ConstructorMetadata = {
 
 ```typescript
 type ParameterMetadata = {
-  readonly name: string;                 // Parameter name
-  readonly type: string;                 // CLR type name (with generic args)
-  readonly isRef: boolean;               // ref parameter
-  readonly isOut: boolean;               // out parameter
-  readonly isIn?: boolean;               // in parameter (C# 7.2+)
-  readonly isParams: boolean;            // params array parameter
-  readonly defaultValue?: any | null;    // Default value for optional parameters
+  readonly name: string; // Parameter name
+  readonly type: string; // CLR type name (with generic args)
+  readonly isRef: boolean; // ref parameter
+  readonly isOut: boolean; // out parameter
+  readonly isIn?: boolean; // in parameter (C# 7.2+)
+  readonly isParams: boolean; // params array parameter
+  readonly defaultValue?: any | null; // Default value for optional parameters
 };
 ```
 
 **Ref/Out/In Parameters:**
+
 - `ref`: Parameter passed by reference (can read and write)
 - `out`: Output parameter (must be assigned before method returns)
 - `in`: Read-only reference parameter (C# 7.2+, performance optimization)
 - In TypeScript, these are wrapped in `TSByRef<T>` type
 
 **Example:**
+
 ```typescript
 // C#: void Method(ref int x, out string y, in double z, params int[] rest)
 {
@@ -519,6 +530,7 @@ From `System.Collections.Generic/internal/metadata.json`:
 ## How Tsonic Consumes Metadata
 
 ### 1. Type Lookup
+
 ```typescript
 // TypeScript: new List_1<string>()
 // Tsonic loads metadata:
@@ -526,19 +538,21 @@ const metadata = loadMetadata("System.Collections.Generic");
 const listMeta = metadata.Types["List_1"];
 
 // Get CLR name
-const clrName = listMeta.ClrName;  // "System.Collections.Generic.List`1"
+const clrName = listMeta.ClrName; // "System.Collections.Generic.List`1"
 
 // Emit C#:
-new List<string>()
+new List<string>();
 ```
 
 ### 2. Method Call with Virtual Detection
+
 ```typescript
 // TypeScript: list.Add("hello")
-const addMethod = listMeta.Methods.find(m =>
-  m.TsEmitName === "Add" &&
-  m.ParameterCount === 1 &&
-  m.EmitScope === "ClassSurface"
+const addMethod = listMeta.Methods.find(
+  (m) =>
+    m.TsEmitName === "Add" &&
+    m.ParameterCount === 1 &&
+    m.EmitScope === "ClassSurface"
 );
 
 // Check if virtual
@@ -552,36 +566,38 @@ if (addMethod.IsVirtual && !addMethod.IsSealed) {
 ```
 
 ### 3. Explicit Interface Member Access
+
 ```typescript
 // TypeScript: dict.As_ICollection_1.Add(kvp)
-const addView = dictMeta.Methods.find(m =>
-  m.TsEmitName === "Add$view" &&
-  m.EmitScope === "ViewOnly" &&
-  m.SourceInterface === "System.Collections.Generic.ICollection`1"
+const addView = dictMeta.Methods.find(
+  (m) =>
+    m.TsEmitName === "Add$view" &&
+    m.EmitScope === "ViewOnly" &&
+    m.SourceInterface === "System.Collections.Generic.ICollection`1"
 );
 
 // Emit C#: ((ICollection<KeyValuePair<TKey, TValue>>)dict).Add(kvp)
 ```
 
 ### 4. Property vs Indexer Distinction
+
 ```typescript
 // TypeScript: list.Count
-const countProp = listMeta.Properties.find(p =>
-  p.TsEmitName === "Count" &&
-  !p.IsIndexer
+const countProp = listMeta.Properties.find(
+  (p) => p.TsEmitName === "Count" && !p.IsIndexer
 );
 // Emit C#: list.Count
 
 // TypeScript: list.Item (indexer accessed as property in TS)
-const itemProp = listMeta.Properties.find(p =>
-  p.TsEmitName === "Item" &&
-  p.IsIndexer
+const itemProp = listMeta.Properties.find(
+  (p) => p.TsEmitName === "Item" && p.IsIndexer
 );
 // In TS declaration: Item: T
 // But actual access is: list[0] (not emitted, use array syntax)
 ```
 
 ### 5. Static Class Handling
+
 ```typescript
 // TypeScript: Math.Abs(value)
 const mathMeta = metadata.Types["Math"];

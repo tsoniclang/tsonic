@@ -8,23 +8,23 @@ Tsonic uses **native .NET types** directly - no wrapper classes. JavaScript sema
 
 ### Primitives
 
-| TypeScript | C# | Notes |
-|------------|-----|-------|
-| `number` | `double` | Default numeric type |
-| `string` | `string` | Native C# string |
-| `boolean` | `bool` | Direct mapping |
-| `void` | `void` | Direct mapping |
-| `null` / `undefined` | `null` | Both map to C# null |
-| `any` | `dynamic` | Runtime type resolution |
-| `unknown` | `object?` | Use with typeof guards |
+| TypeScript           | C#        | Notes                   |
+| -------------------- | --------- | ----------------------- |
+| `number`             | `double`  | Default numeric type    |
+| `string`             | `string`  | Native C# string        |
+| `boolean`            | `bool`    | Direct mapping          |
+| `void`               | `void`    | Direct mapping          |
+| `null` / `undefined` | `null`    | Both map to C# null     |
+| `any`                | `dynamic` | Runtime type resolution |
+| `unknown`            | `object?` | Use with typeof guards  |
 
 ### Collections
 
-| TypeScript | C# | Notes |
-|------------|-----|-------|
+| TypeScript          | C#        | Notes                             |
+| ------------------- | --------- | --------------------------------- |
 | `T[]` or `Array<T>` | `List<T>` | Native .NET list + static helpers |
-| `Promise<T>` | `Task<T>` | Native .NET async |
-| `ReadonlyArray<T>` | C# `T[]` | From .NET APIs |
+| `Promise<T>`        | `Task<T>` | Native .NET async                 |
+| `ReadonlyArray<T>`  | C# `T[]`  | From .NET APIs                    |
 
 ---
 
@@ -65,8 +65,8 @@ Tsonic.Runtime.console.log(sparse.Count); // 11
 All JavaScript array methods are available:
 
 ```typescript
-const doubled = nums.map(x => x * 2);
-const evens = nums.filter(x => x % 2 === 0);
+const doubled = nums.map((x) => x * 2);
+const evens = nums.filter((x) => x % 2 === 0);
 const first = nums.slice(0, 5);
 ```
 
@@ -106,11 +106,11 @@ List<string> parts = Tsonic.Runtime.String.split(name, " ");
 
 TypeScript uses `undefined` for optional values. C# uses nullable types:
 
-| TypeScript | C# |
-|------------|-----|
-| `string \| undefined` | `string?` |
-| `number \| undefined` | `double?` |
-| `boolean \| undefined` | `bool?` |
+| TypeScript             | C#        |
+| ---------------------- | --------- |
+| `string \| undefined`  | `string?` |
+| `number \| undefined`  | `double?` |
+| `boolean \| undefined` | `bool?`   |
 
 ### Example
 
@@ -144,13 +144,13 @@ public class User
 
 You can use precise C# numeric types for better .NET interop:
 
-| TypeScript | C# | Use Case |
-|------------|-----|----------|
-| `int` | `int` | 32-bit integers |
-| `long` | `long` | 64-bit integers |
-| `decimal` | `decimal` | Money calculations |
-| `byte` | `byte` | 0-255 values |
-| `float` | `float` | Single precision |
+| TypeScript | C#        | Use Case           |
+| ---------- | --------- | ------------------ |
+| `int`      | `int`     | 32-bit integers    |
+| `long`     | `long`    | 64-bit integers    |
+| `decimal`  | `decimal` | Money calculations |
+| `byte`     | `byte`    | 0-255 values       |
+| `float`    | `float`   | Single precision   |
 
 ### Example
 
@@ -175,7 +175,7 @@ const lines: ReadonlyArray<string> = File.ReadAllLines("file.txt");
 
 // To make mutable, use C# List
 const mutable = new List<string>(lines);
-mutable.Add("new line");  // C# method
+mutable.Add("new line"); // C# method
 
 // Pass back to .NET
 File.WriteAllLines("output.txt", mutable.ToArray());
@@ -187,10 +187,10 @@ File.WriteAllLines("output.txt", mutable.ToArray());
 
 ## Async Types
 
-| TypeScript | C# |
-|------------|-----|
-| `Promise<T>` | `Task<T>` |
-| `Promise<void>` | `Task` |
+| TypeScript       | C#           |
+| ---------------- | ------------ |
+| `Promise<T>`     | `Task<T>`    |
+| `Promise<void>`  | `Task`       |
 | `async function` | `async Task` |
 
 ```typescript
@@ -331,7 +331,7 @@ type Result = [success: boolean, value: string];
 enum Color {
   Red = 0,
   Green = 1,
-  Blue = 2
+  Blue = 2,
 }
 ```
 

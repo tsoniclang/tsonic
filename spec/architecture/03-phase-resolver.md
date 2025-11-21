@@ -46,6 +46,7 @@ type ModuleGraph = {
 ```
 
 **Fields:**
+
 - **modules** - All modules in the project (source + imported)
 - **dependencies** - Map of module → direct dependencies
 - **dependents** - Reverse map: module → modules that import it
@@ -205,7 +206,7 @@ const resolveDotNetImport = (
   }
 
   return ok({
-    resolvedPath: specifier,  // Namespace, not file path
+    resolvedPath: specifier, // Namespace, not file path
     isLocal: false,
     isDotNet: true,
     originalSpecifier: specifier,
@@ -232,6 +233,7 @@ const resolveModuleBinding = (
 ```
 
 **Example:**
+
 ```typescript
 // Binding manifest:
 {
@@ -271,7 +273,7 @@ const buildModuleGraph = (
 ): Result<ModuleGraph, Diagnostic[]> => {
   const modules = new Map<string, ModuleInfo>();
   const visited = new Set<string>();
-  const visiting = new Set<string>();  // For cycle detection
+  const visiting = new Set<string>(); // For cycle detection
   const diagnostics: Diagnostic[] = [];
 
   const visit = (filePath: string): void => {
@@ -331,7 +333,11 @@ const buildModuleGraph = (
     const exports = extractExports(sourceFile);
 
     // Compute namespace and class name
-    const namespace = computeNamespace(filePath, sourceRoot, program.options.rootNamespace);
+    const namespace = computeNamespace(
+      filePath,
+      sourceRoot,
+      program.options.rootNamespace
+    );
     const className = computeClassName(filePath);
 
     // Check for top-level code
@@ -365,8 +371,8 @@ const buildModuleGraph = (
 
   for (const [filePath, info] of modules) {
     const deps = info.imports
-      .filter(imp => imp.resolved.isLocal)
-      .map(imp => imp.resolved.resolvedPath);
+      .filter((imp) => imp.resolved.isLocal)
+      .map((imp) => imp.resolved.resolvedPath);
 
     dependencies.set(filePath, deps);
 
@@ -454,6 +460,7 @@ const computeNamespace = (
 ```
 
 **Examples:**
+
 ```
 sourceRoot: /home/user/project/src
 rootNamespace: MyApp
@@ -499,6 +506,7 @@ const computeClassName = (filePath: string): string => {
 ```
 
 **Examples:**
+
 ```
 User.ts          → User
 user-service.ts  → user-service  (hyphens preserved)
@@ -509,9 +517,7 @@ main.ts          → main
 ### 7.2 Name Collision Detection
 
 ```typescript
-const checkNameCollision = (
-  module: ModuleInfo
-): Diagnostic | null => {
+const checkNameCollision = (module: ModuleInfo): Diagnostic | null => {
   // Check if any export name matches the class name
   for (const exp of module.exports) {
     if (exp.name === module.className) {
@@ -529,9 +535,11 @@ const checkNameCollision = (
 ```
 
 **Example of collision:**
+
 ```typescript
 // File: main.ts
-export function main() {  // ❌ Collision with class name
+export function main() {
+  // ❌ Collision with class name
   // ...
 }
 
@@ -550,16 +558,19 @@ export function main() {  // ❌ Collision with class name
 Tsonic supports three import types:
 
 **Named imports:**
+
 ```typescript
 import { User, Post } from "./models/User.ts";
 ```
 
 **Namespace imports:**
+
 ```typescript
 import * as models from "./models/User.ts";
 ```
 
 **Side-effect imports:**
+
 ```typescript
 import "./setup.ts";
 ```
@@ -573,7 +584,7 @@ const extractImports = (
 ): readonly Import[] => {
   const imports: Import[] = [];
 
-  ts.forEachChild(sourceFile, node => {
+  ts.forEachChild(sourceFile, (node) => {
     if (ts.isImportDeclaration(node)) {
       const moduleSpecifier = (node.moduleSpecifier as ts.StringLiteral).text;
       const importClause = node.importClause;
@@ -621,13 +632,15 @@ const extractImports = (
 ### 9.1 Export Statement Types
 
 **Named exports:**
+
 ```typescript
-export function greet() { }
-export class User { }
+export function greet() {}
+export class User {}
 export const API_URL = "https://api.example.com";
 ```
 
 **Re-exports:**
+
 ```typescript
 export { User } from "./models/User.ts";
 export * as models from "./models/index.ts";
@@ -636,12 +649,10 @@ export * as models from "./models/index.ts";
 ### 9.2 Extraction Algorithm
 
 ```typescript
-const extractExports = (
-  sourceFile: ts.SourceFile
-): readonly Export[] => {
+const extractExports = (sourceFile: ts.SourceFile): readonly Export[] => {
   const exports: Export[] = [];
 
-  ts.forEachChild(sourceFile, node => {
+  ts.forEachChild(sourceFile, (node) => {
     // Export declaration (function, class, const, etc.)
     if (ts.isExportDeclaration(node) && node.exportClause) {
       if (ts.isNamedExports(node.exportClause)) {
@@ -679,20 +690,24 @@ const extractExports = (
 ### 10.1 Complexity Analysis
 
 **Import Resolution:**
-- Time: O(N * D) where N = files, D = average imports per file
+
+- Time: O(N \* D) where N = files, D = average imports per file
 - Space: O(N) for module graph
 
 **Graph Building:**
+
 - Time: O(N + E) where E = edges (imports)
 - Space: O(N + E)
 
 **Cycle Detection:**
+
 - Time: O(N + E) DFS traversal
 - Space: O(N) for recursion stack
 
 ### 10.2 Timing Breakdown
 
 **Small Project (10 files, 50 imports):**
+
 - Import resolution: ~20ms
 - Graph building: ~30ms
 - Namespace computation: ~5ms
@@ -700,6 +715,7 @@ const extractExports = (
 - **Total: ~60ms**
 
 **Medium Project (100 files, 500 imports):**
+
 - Import resolution: ~50ms
 - Graph building: ~80ms
 - Namespace computation: ~10ms
@@ -744,15 +760,21 @@ import { User } from "./models/Missing.ts";
 ```typescript
 // A.ts
 import { B } from "./B.ts";
-export class A { b: B; }
+export class A {
+  b: B;
+}
 
 // B.ts
 import { C } from "./C.ts";
-export class B { c: C; }
+export class B {
+  c: C;
+}
 
 // C.ts
-import { A } from "./A.ts";  // ❌ Circular: A → B → C → A
-export class C { a: A; }
+import { A } from "./A.ts"; // ❌ Circular: A → B → C → A
+export class C {
+  a: A;
+}
 ```
 
 ---
@@ -768,6 +790,7 @@ export class C { a: A; }
 ---
 
 **Document Statistics:**
+
 - Lines: ~750
 - Sections: 12
 - Code examples: 30+
