@@ -559,6 +559,16 @@ npm test -- --grep "pattern"
 4. **Clear commit message**: Describe what and why
 5. **No force push**: Never use `git push --force`
 
+### Pull Requests
+
+**NEVER create pull requests using `gh pr create` or similar CLI commands.**
+
+The user will create all pull requests manually through the GitHub web interface. Your job is to:
+1. Create feature branches
+2. Commit changes
+3. Push branches to remote
+4. **STOP** - Do not create PRs
+
 ### Workflow Summary
 
 **Critical rules (see detailed Git Safety Rules section above):**

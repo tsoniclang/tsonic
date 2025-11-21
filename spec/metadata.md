@@ -33,26 +33,29 @@ node_modules/@types/dotnet/
 
 ```typescript
 type MetadataFile = {
-  readonly Namespace: string;                    // "System.Collections.Generic"
-  readonly ContributingAssemblies: string[];     // ["System.Private.CoreLib", ...]
-  readonly Types: Record<string, TypeMetadata>;  // Key = TsEmitName
+  readonly namespace: string;                    // "System.Collections.Generic"
+  readonly contributingAssemblies: string[];     // ["System.Private.CoreLib", ...]
+  readonly types: TypeMetadata[];                // Array of all types in namespace
 };
 ```
 
 **Example:**
 ```json
 {
-  "Namespace": "System.Collections.Generic",
-  "ContributingAssemblies": [
+  "namespace": "System.Collections.Generic",
+  "contributingAssemblies": [
     "System.Private.CoreLib",
     "System.Runtime"
   ],
-  "Types": {
-    "List_1": { /* TypeMetadata for List<T> */ },
-    "Dictionary_2": { /* TypeMetadata for Dictionary<K,V> */ }
-  }
+  "types": [
+    { /* TypeMetadata for IList<T> */ },
+    { /* TypeMetadata for List<T> */ },
+    { /* TypeMetadata for Dictionary<K,V> */ }
+  ]
 }
 ```
+
+**Important:** `types` is an **array**, not a keyed object. Use `clrName` or `tsEmitName` to identify types.
 
 ---
 
@@ -61,23 +64,34 @@ type MetadataFile = {
 ```typescript
 type TypeMetadata = {
   // Identity
-  readonly ClrName: string;              // "List`1" (backtick for generics)
-  readonly TsEmitName: string;           // "List_1" (underscore for generics)
-  readonly Kind: TypeKind;               // "Class" | "Interface" | "Struct" | ...
-  readonly Accessibility: Accessibility; // "Public" | "Internal" | ...
+  readonly clrName: string;              // Full CLR name: "System.Collections.Generic.List`1"
+  readonly tsEmitName: string;           // TypeScript name: "List_1" (underscore for generics)
+  readonly kind: TypeKind;               // "Class" | "Interface" | "Struct" | ...
+  readonly accessibility: Accessibility; // "Public" | "Internal" | ...
 
   // Modifiers
-  readonly IsAbstract: boolean;
-  readonly IsSealed: boolean;
-  readonly IsStatic: boolean;
-  readonly Arity: number;                // Generic parameter count (0 for non-generic)
+  readonly isAbstract: boolean;          // Abstract type (cannot instantiate)
+  readonly isSealed: boolean;            // Sealed type (cannot inherit)
+  readonly isStatic: boolean;            // Static class (all members static)
+  readonly arity: number;                // Generic parameter count (0 for non-generic)
+
+  // Inheritance
+  readonly baseType?: string | null;     // Base class CLR name, null for Object/interfaces
+  readonly interfaces?: string[];        // Implemented interface CLR names
+  readonly isValueType?: boolean;        // true for struct/enum, false for class/interface
 
   // Members
-  readonly Methods: MethodMetadata[];
-  readonly Properties: PropertyMetadata[];
-  readonly Fields: FieldMetadata[];
-  readonly Events: EventMetadata[];
-  readonly Constructors: ConstructorMetadata[];
+  readonly methods: MethodMetadata[];
+  readonly properties: PropertyMetadata[];
+  readonly fields: FieldMetadata[];
+  readonly events: EventMetadata[];
+  readonly constructors: ConstructorMetadata[];
+
+  // Intentional Omissions (members not emitted to .d.ts due to TypeScript limitations)
+  readonly intentionalOmissions?: IntentionalOmissions;
+
+  // Explicit Views (As_IInterface properties for explicit interface implementations)
+  readonly explicitViews?: ExplicitView[];
 };
 
 type TypeKind =
@@ -95,6 +109,24 @@ type Accessibility =
   | "Private"
   | "ProtectedInternal"
   | "PrivateProtected";
+
+type IntentionalOmissions = {
+  readonly indexers?: OmittedMember[];           // Indexers omitted (TypeScript overload conflicts)
+  readonly genericStaticMembers?: OmittedMember[]; // Generic statics omitted (TS limitation)
+  readonly other?: OmittedMember[];              // Other omissions with reasons
+};
+
+type OmittedMember = {
+  readonly signature: string;            // C#-style signature
+  readonly reason: string;               // Human-readable explanation
+};
+
+type ExplicitView = {
+  readonly interfaceClrName: string;     // Interface CLR name
+  readonly interfaceTsEmitName: string;  // Interface TypeScript name
+  readonly propertyName: string;         // As_IInterface property name
+  readonly members: string[];            // Member StableIds in this view
+};
 ```
 
 ---
@@ -104,25 +136,28 @@ type Accessibility =
 ```typescript
 type MethodMetadata = {
   // Identity
-  readonly ClrName: string;              // "Add", "SelectMany"
-  readonly TsEmitName: string;           // "Add", "selectMany" (if camelCase)
-  readonly NormalizedSignature: string;  // "Add|(T):System.Void|static=false"
+  readonly clrName: string;              // "Add", "SelectMany"
+  readonly tsEmitName: string;           // "Add", "selectMany" (if camelCase)
+  readonly normalizedSignature: string;  // "Add|(T):System.Void|static=false"
 
   // Provenance
-  readonly Provenance: Provenance;       // Where method came from
-  readonly EmitScope: EmitScope;         // Where emitted in TypeScript
-  readonly SourceInterface?: string;     // For ViewOnly: "System.Collections.IList"
+  readonly provenance: Provenance;       // Where method came from
+  readonly emitScope: EmitScope;         // Where emitted in TypeScript
+  readonly sourceInterface?: string;     // For ViewOnly: "System.Collections.IList"
 
   // Modifiers
-  readonly IsStatic: boolean;
-  readonly IsAbstract: boolean;
-  readonly IsVirtual: boolean;
-  readonly IsOverride: boolean;
-  readonly IsSealed: boolean;            // sealed override
+  readonly isStatic: boolean;
+  readonly isAbstract: boolean;
+  readonly isVirtual: boolean;
+  readonly isOverride: boolean;
+  readonly isSealed: boolean;            // sealed override
 
   // Signature
-  readonly Arity: number;                // Generic method parameter count
-  readonly ParameterCount: number;       // Total parameters
+  readonly arity: number;                // Generic method parameter count
+  readonly parameterCount: number;       // Total parameters
+  readonly parameters?: ParameterMetadata[]; // Method parameters (may not be in all files)
+  readonly returnType?: string;          // Return type CLR name
+  readonly genericParameters?: string[]; // Generic parameter names ["TSource", "TResult"]
 };
 
 type Provenance =
@@ -157,26 +192,26 @@ Examples:
 ```typescript
 type PropertyMetadata = {
   // Identity
-  readonly ClrName: string;              // "Count", "Item"
-  readonly TsEmitName: string;           // "count" (if camelCase)
-  readonly NormalizedSignature: string;  // "Count|:System.Int32|static=false|accessor=get"
+  readonly clrName: string;              // "Count", "Item"
+  readonly tsEmitName: string;           // "count" (if camelCase)
+  readonly normalizedSignature: string;  // "Count|:System.Int32|static=false|accessor=get"
 
   // Provenance
-  readonly Provenance: Provenance;
-  readonly EmitScope: EmitScope;
-  readonly SourceInterface?: string;
+  readonly provenance: Provenance;
+  readonly emitScope: EmitScope;
+  readonly sourceInterface?: string;
 
   // Modifiers
-  readonly IsStatic: boolean;
-  readonly IsAbstract: boolean;
-  readonly IsVirtual: boolean;
-  readonly IsOverride: boolean;
-  readonly IsSealed: boolean;
+  readonly isStatic: boolean;
+  readonly isAbstract: boolean;
+  readonly isVirtual: boolean;
+  readonly isOverride: boolean;
+  readonly isSealed: boolean;
 
   // Property-specific
-  readonly IsIndexer: boolean;           // C# indexer (this[int index])
-  readonly HasGetter: boolean;
-  readonly HasSetter: boolean;
+  readonly isIndexer: boolean;           // C# indexer (this[int index])
+  readonly hasGetter: boolean;
+  readonly hasSetter: boolean;
 };
 ```
 
@@ -199,14 +234,14 @@ Examples:
 ```typescript
 type FieldMetadata = {
   // Identity
-  readonly ClrName: string;
-  readonly TsEmitName: string;
-  readonly NormalizedSignature: string;
+  readonly clrName: string;
+  readonly tsEmitName: string;
+  readonly normalizedSignature: string;
 
   // Modifiers
-  readonly IsStatic: boolean;
-  readonly IsReadOnly: boolean;
-  readonly IsLiteral: boolean;           // const field
+  readonly isStatic: boolean;
+  readonly isReadOnly: boolean;
+  readonly isLiteral: boolean;           // const field
 };
 ```
 
@@ -217,15 +252,15 @@ type FieldMetadata = {
 ```typescript
 type EventMetadata = {
   // Identity
-  readonly ClrName: string;
-  readonly TsEmitName: string;
-  readonly NormalizedSignature: string;
+  readonly clrName: string;
+  readonly tsEmitName: string;
+  readonly normalizedSignature: string;
 
   // Modifiers
-  readonly IsStatic: boolean;
-  readonly IsAbstract: boolean;
-  readonly IsVirtual: boolean;
-  readonly IsOverride: boolean;
+  readonly isStatic: boolean;
+  readonly isAbstract: boolean;
+  readonly isVirtual: boolean;
+  readonly isOverride: boolean;
 };
 ```
 
@@ -235,10 +270,47 @@ type EventMetadata = {
 
 ```typescript
 type ConstructorMetadata = {
-  readonly NormalizedSignature: string;  // "ctor()" or "ctor(System.Int32)"
-  readonly IsStatic: boolean;            // Static constructor (type initializer)
-  readonly ParameterCount: number;
+  readonly normalizedSignature: string;  // "ctor()" or "ctor(System.Int32)"
+  readonly isStatic: boolean;            // Static constructor (type initializer)
+  readonly parameterCount: number;
+  readonly parameters?: ParameterMetadata[]; // Constructor parameters
 };
+```
+
+---
+
+## ParameterMetadata Schema
+
+**Note:** Parameter metadata is included in method/constructor metadata in tsbindgen spec but may not be present in all actual output files.
+
+```typescript
+type ParameterMetadata = {
+  readonly name: string;                 // Parameter name
+  readonly type: string;                 // CLR type name (with generic args)
+  readonly isRef: boolean;               // ref parameter
+  readonly isOut: boolean;               // out parameter
+  readonly isIn?: boolean;               // in parameter (C# 7.2+)
+  readonly isParams: boolean;            // params array parameter
+  readonly defaultValue?: any | null;    // Default value for optional parameters
+};
+```
+
+**Ref/Out/In Parameters:**
+- `ref`: Parameter passed by reference (can read and write)
+- `out`: Output parameter (must be assigned before method returns)
+- `in`: Read-only reference parameter (C# 7.2+, performance optimization)
+- In TypeScript, these are wrapped in `TSByRef<T>` type
+
+**Example:**
+```typescript
+// C#: void Method(ref int x, out string y, in double z, params int[] rest)
+{
+  "name": "x",
+  "type": "System.Int32",
+  "isRef": true,
+  "isOut": false,
+  "isParams": false
+}
 ```
 
 ---
@@ -253,92 +325,92 @@ From `System.Collections.Generic/internal/metadata.json`:
   "ContributingAssemblies": ["System.Private.CoreLib"],
   "Types": {
     "List_1": {
-      "ClrName": "System.Collections.Generic.List`1",
-      "TsEmitName": "List_1",
+      "clrName": "System.Collections.Generic.List`1",
+      "tsEmitName": "List_1",
       "Kind": "Class",
       "Accessibility": "Public",
-      "IsAbstract": false,
-      "IsSealed": false,
-      "IsStatic": false,
-      "Arity": 1,
+      "isAbstract": false,
+      "isSealed": false,
+      "isStatic": false,
+      "arity": 1,
 
       "Methods": [
         {
-          "ClrName": "Add",
-          "TsEmitName": "Add",
-          "NormalizedSignature": "Add|(T):System.Void|static=false",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsStatic": false,
-          "IsAbstract": false,
-          "IsVirtual": true,
-          "IsOverride": false,
-          "IsSealed": true,
-          "Arity": 0,
-          "ParameterCount": 1
+          "clrName": "Add",
+          "tsEmitName": "Add",
+          "normalizedSignature": "Add|(T):System.Void|static=false",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isStatic": false,
+          "isAbstract": false,
+          "isVirtual": true,
+          "isOverride": false,
+          "isSealed": true,
+          "arity": 0,
+          "parameterCount": 1
         },
         {
-          "ClrName": "BinarySearch",
-          "TsEmitName": "BinarySearch",
-          "NormalizedSignature": "BinarySearch|(System.Int32,System.Int32,T,IComparer_1):System.Int32|static=false",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsStatic": false,
-          "ParameterCount": 4
+          "clrName": "BinarySearch",
+          "tsEmitName": "BinarySearch",
+          "normalizedSignature": "BinarySearch|(System.Int32,System.Int32,T,IComparer_1):System.Int32|static=false",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isStatic": false,
+          "parameterCount": 4
         },
         {
-          "ClrName": "BinarySearch",
-          "TsEmitName": "BinarySearch2",
-          "NormalizedSignature": "BinarySearch|(T):System.Int32|static=false",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "ParameterCount": 1
+          "clrName": "BinarySearch",
+          "tsEmitName": "BinarySearch2",
+          "normalizedSignature": "BinarySearch|(T):System.Int32|static=false",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "parameterCount": 1
         },
         {
-          "ClrName": "Contains",
-          "TsEmitName": "Contains",
-          "NormalizedSignature": "Contains|(T):System.Boolean|static=false",
-          "Provenance": "InlineFromInterface",
-          "EmitScope": "ClassSurface",
-          "SourceInterface": "System.Collections.Generic.ICollection`1",
-          "IsVirtual": true,
-          "IsSealed": true,
-          "ParameterCount": 1
+          "clrName": "Contains",
+          "tsEmitName": "Contains",
+          "normalizedSignature": "Contains|(T):System.Boolean|static=false",
+          "provenance": "InlineFromInterface",
+          "emitScope": "ClassSurface",
+          "sourceInterface": "System.Collections.Generic.ICollection`1",
+          "isVirtual": true,
+          "isSealed": true,
+          "parameterCount": 1
         }
       ],
 
       "Properties": [
         {
-          "ClrName": "Count",
-          "TsEmitName": "Count",
-          "NormalizedSignature": "Count|:System.Int32|static=false|accessor=get",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsStatic": false,
-          "IsVirtual": true,
-          "IsSealed": true,
-          "IsIndexer": false,
-          "HasGetter": true,
-          "HasSetter": false
+          "clrName": "Count",
+          "tsEmitName": "Count",
+          "normalizedSignature": "Count|:System.Int32|static=false|accessor=get",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isStatic": false,
+          "isVirtual": true,
+          "isSealed": true,
+          "isIndexer": false,
+          "hasGetter": true,
+          "hasSetter": false
         },
         {
-          "ClrName": "Item",
-          "TsEmitName": "Item",
-          "NormalizedSignature": "Item|:T|static=false|accessor=getset",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsIndexer": true,
-          "HasGetter": true,
-          "HasSetter": true
+          "clrName": "Item",
+          "tsEmitName": "Item",
+          "normalizedSignature": "Item|:T|static=false|accessor=getset",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isIndexer": true,
+          "hasGetter": true,
+          "hasSetter": true
         },
         {
-          "ClrName": "Capacity",
-          "TsEmitName": "Capacity",
-          "NormalizedSignature": "Capacity|:System.Int32|static=false|accessor=getset",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "HasGetter": true,
-          "HasSetter": true
+          "clrName": "Capacity",
+          "tsEmitName": "Capacity",
+          "normalizedSignature": "Capacity|:System.Int32|static=false|accessor=getset",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "hasGetter": true,
+          "hasSetter": true
         }
       ],
 
@@ -347,19 +419,19 @@ From `System.Collections.Generic/internal/metadata.json`:
 
       "Constructors": [
         {
-          "NormalizedSignature": "ctor()",
-          "IsStatic": false,
-          "ParameterCount": 0
+          "normalizedSignature": "ctor()",
+          "isStatic": false,
+          "parameterCount": 0
         },
         {
-          "NormalizedSignature": "ctor(System.Int32)",
-          "IsStatic": false,
-          "ParameterCount": 1
+          "normalizedSignature": "ctor(System.Int32)",
+          "isStatic": false,
+          "parameterCount": 1
         },
         {
-          "NormalizedSignature": "ctor(IEnumerable_1)",
-          "IsStatic": false,
-          "ParameterCount": 1
+          "normalizedSignature": "ctor(IEnumerable_1)",
+          "isStatic": false,
+          "parameterCount": 1
         }
       ]
     }
@@ -377,64 +449,64 @@ From `System.Collections.Generic/internal/metadata.json`:
 {
   "Types": {
     "Dictionary_2": {
-      "ClrName": "System.Collections.Generic.Dictionary`2",
-      "TsEmitName": "Dictionary_2",
-      "Arity": 2,
+      "clrName": "System.Collections.Generic.Dictionary`2",
+      "tsEmitName": "Dictionary_2",
+      "arity": 2,
 
       "Methods": [
         {
-          "ClrName": "Add",
-          "TsEmitName": "Add",
-          "NormalizedSignature": "Add|(TKey,TValue):System.Void|static=false",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsVirtual": true,
-          "IsSealed": true,
-          "ParameterCount": 2
+          "clrName": "Add",
+          "tsEmitName": "Add",
+          "normalizedSignature": "Add|(TKey,TValue):System.Void|static=false",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isVirtual": true,
+          "isSealed": true,
+          "parameterCount": 2
         },
         {
-          "ClrName": "Add",
-          "TsEmitName": "Add$view",
-          "NormalizedSignature": "Add|(KeyValuePair_2):System.Void|static=false",
-          "Provenance": "ExplicitView",
-          "EmitScope": "ViewOnly",
-          "SourceInterface": "System.Collections.Generic.ICollection`1",
-          "IsVirtual": true,
-          "ParameterCount": 1
+          "clrName": "Add",
+          "tsEmitName": "Add$view",
+          "normalizedSignature": "Add|(KeyValuePair_2):System.Void|static=false",
+          "provenance": "ExplicitView",
+          "emitScope": "ViewOnly",
+          "sourceInterface": "System.Collections.Generic.ICollection`1",
+          "isVirtual": true,
+          "parameterCount": 1
         },
         {
-          "ClrName": "TryGetValue",
-          "TsEmitName": "TryGetValue",
-          "NormalizedSignature": "TryGetValue|(TKey,TValue&):System.Boolean|static=false",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsVirtual": true,
-          "IsSealed": true,
-          "ParameterCount": 2
+          "clrName": "TryGetValue",
+          "tsEmitName": "TryGetValue",
+          "normalizedSignature": "TryGetValue|(TKey,TValue&):System.Boolean|static=false",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isVirtual": true,
+          "isSealed": true,
+          "parameterCount": 2
         }
       ],
 
       "Properties": [
         {
-          "ClrName": "Count",
-          "TsEmitName": "Count",
-          "NormalizedSignature": "Count|:System.Int32|static=false|accessor=get",
-          "Provenance": "InlineFromInterface",
-          "EmitScope": "ClassSurface",
-          "SourceInterface": "System.Collections.Generic.ICollection`1",
-          "IsVirtual": true,
-          "HasGetter": true,
-          "HasSetter": false
+          "clrName": "Count",
+          "tsEmitName": "Count",
+          "normalizedSignature": "Count|:System.Int32|static=false|accessor=get",
+          "provenance": "InlineFromInterface",
+          "emitScope": "ClassSurface",
+          "sourceInterface": "System.Collections.Generic.ICollection`1",
+          "isVirtual": true,
+          "hasGetter": true,
+          "hasSetter": false
         },
         {
-          "ClrName": "Item",
-          "TsEmitName": "Item",
-          "NormalizedSignature": "Item|:TValue|static=false|accessor=getset",
-          "Provenance": "Declared",
-          "EmitScope": "ClassSurface",
-          "IsIndexer": true,
-          "HasGetter": true,
-          "HasSetter": true
+          "clrName": "Item",
+          "tsEmitName": "Item",
+          "normalizedSignature": "Item|:TValue|static=false|accessor=getset",
+          "provenance": "Declared",
+          "emitScope": "ClassSurface",
+          "isIndexer": true,
+          "hasGetter": true,
+          "hasSetter": true
         }
       ]
     }

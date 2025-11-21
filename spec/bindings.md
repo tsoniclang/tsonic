@@ -36,23 +36,23 @@ node_modules/@types/dotnet/
 
 ```typescript
 type BindingsFile = {
-  readonly Namespace: string;              // "System.Collections.Generic"
-  readonly Types: TypeBinding[];           // Array of type bindings
+  readonly namespace: string;              // "System.Collections.Generic"
+  readonly types: TypeBinding[];           // Array of type bindings
 };
 ```
 
 **Example:**
 ```json
 {
-  "Namespace": "System.Collections.Generic",
-  "Types": [
+  "namespace": "System.Collections.Generic",
+  "types": [
     {
-      "ClrName": "List`1",
-      "TsEmitName": "List_1",
-      "AssemblyName": "System.Private.CoreLib",
-      "MetadataToken": 33554433,
-      "Methods": [ /* ... */ ],
-      "Properties": [ /* ... */ ]
+      "clrName": "List`1",
+      "tsEmitName": "List_1",
+      "assemblyName": "System.Private.CoreLib",
+      "metadataToken": 33554433,
+      "methods": [ /* ... */ ],
+      "properties": [ /* ... */ ]
     }
   ]
 }
@@ -65,10 +65,10 @@ type BindingsFile = {
 ```typescript
 type TypeBinding = {
   // Identity
-  readonly ClrName: string;              // "List`1" (backtick for generics)
-  readonly TsEmitName: string;           // "List_1" (underscore for generics)
-  readonly AssemblyName: string;         // "System.Private.CoreLib"
-  readonly MetadataToken: number;        // For runtime type resolution
+  readonly clrName: string;              // "List`1" (backtick for generics)
+  readonly tsEmitName: string;           // "List_1" (underscore for generics)
+  readonly assemblyName: string;         // "System.Private.CoreLib"
+  readonly metadataToken: number;        // For runtime type resolution
 
   // V1: Definitions (what CLR declares on this type)
   readonly Methods?: MethodBinding[];
@@ -92,22 +92,22 @@ type TypeBinding = {
 ```typescript
 type MethodBinding = {
   // Identity
-  readonly ClrName: string;              // "Add", "SelectMany"
-  readonly TsEmitName: string;           // "Add", "selectMany" (if camelCase)
-  readonly MetadataToken: number;        // For runtime method resolution
+  readonly clrName: string;              // "Add", "SelectMany"
+  readonly tsEmitName: string;           // "Add", "selectMany" (if camelCase)
+  readonly metadataToken: number;        // For runtime method resolution
 
   // Signatures
-  readonly CanonicalSignature: string;   // C#-style: "SelectMany[2](IEnumerable,Func)"
-  readonly NormalizedSignature: string;  // Normalized: "SelectMany(IEnumerable_1,Func_2)"
+  readonly canonicalSignature: string;   // C#-style: "SelectMany[2](IEnumerable,Func)"
+  readonly normalizedSignature: string;  // Normalized: "SelectMany(IEnumerable_1,Func_2)"
 
   // Metadata
-  readonly EmitScope: EmitScope;         // "ClassSurface" | "ViewOnly" | "Omitted"
-  readonly Arity: number;                // Generic method parameter count
-  readonly ParameterCount: number;       // Total parameter count
+  readonly emitScope: EmitScope;         // "ClassSurface" | "ViewOnly" | "Omitted"
+  readonly arity: number;                // Generic method parameter count
+  readonly parameterCount: number;       // Total parameter count
 
   // Target (where method is declared)
-  readonly DeclaringClrType: string;     // "System.Linq.Enumerable"
-  readonly DeclaringAssemblyName: string; // "System.Linq"
+  readonly declaringClrType: string;     // "System.Linq.Enumerable"
+  readonly declaringAssemblyName: string; // "System.Linq"
 };
 
 type EmitScope =
@@ -147,17 +147,17 @@ Examples:
 ```typescript
 type PropertyBinding = {
   // Identity
-  readonly ClrName: string;              // "Count", "Item"
-  readonly TsEmitName: string;           // "count" (if camelCase)
-  readonly MetadataToken: number;        // For runtime property resolution
+  readonly clrName: string;              // "Count", "Item"
+  readonly tsEmitName: string;           // "count" (if camelCase)
+  readonly metadataToken: number;        // For runtime property resolution
 
   // Metadata
-  readonly EmitScope: EmitScope;
-  readonly IsIndexer: boolean;           // C# indexer (this[int index])
+  readonly emitScope: EmitScope;
+  readonly isIndexer: boolean;           // C# indexer (this[int index])
 
   // Target
-  readonly DeclaringClrType: string;
-  readonly DeclaringAssemblyName: string;
+  readonly declaringClrType: string;
+  readonly declaringAssemblyName: string;
 };
 ```
 
@@ -168,13 +168,13 @@ type PropertyBinding = {
 ```typescript
 type FieldBinding = {
   // Identity
-  readonly ClrName: string;
-  readonly TsEmitName: string;
-  readonly MetadataToken: number;
+  readonly clrName: string;
+  readonly tsEmitName: string;
+  readonly metadataToken: number;
 
   // Target
-  readonly DeclaringClrType: string;
-  readonly DeclaringAssemblyName: string;
+  readonly declaringClrType: string;
+  readonly declaringAssemblyName: string;
 };
 ```
 
@@ -185,13 +185,13 @@ type FieldBinding = {
 ```typescript
 type EventBinding = {
   // Identity
-  readonly ClrName: string;
-  readonly TsEmitName: string;
-  readonly MetadataToken: number;
+  readonly clrName: string;
+  readonly tsEmitName: string;
+  readonly metadataToken: number;
 
   // Target
-  readonly DeclaringClrType: string;
-  readonly DeclaringAssemblyName: string;
+  readonly declaringClrType: string;
+  readonly declaringAssemblyName: string;
 };
 ```
 
@@ -201,9 +201,9 @@ type EventBinding = {
 
 ```typescript
 type ConstructorBinding = {
-  readonly MetadataToken: number;        // For runtime constructor resolution
-  readonly CanonicalSignature: string;   // "ctor()" or "ctor(Int32,String)"
-  readonly ParameterCount: number;
+  readonly metadataToken: number;        // For runtime constructor resolution
+  readonly canonicalSignature: string;   // "ctor()" or "ctor(Int32,String)"
+  readonly parameterCount: number;
 };
 ```
 
@@ -214,20 +214,20 @@ type ConstructorBinding = {
 ```typescript
 type ExposedMethodBinding = {
   // TypeScript-facing identity
-  readonly TsName: string;               // "selectMany" (after transforms)
-  readonly IsStatic: boolean;            // Static vs instance
+  readonly tsName: string;               // "selectMany" (after transforms)
+  readonly isStatic: boolean;            // Static vs instance
 
   // Signature in TypeScript terms
-  readonly TsSignatureId: string;        // "SelectMany(IEnumerable_1,Func_2)"
+  readonly tsSignatureId: string;        // "SelectMany(IEnumerable_1,Func_2)"
 
   // Runtime target (where method actually lives)
-  readonly Target: BindingTarget;
+  readonly target: BindingTarget;
 };
 
 type BindingTarget = {
-  readonly DeclaringClrType: string;     // "System.Linq.Enumerable"
-  readonly DeclaringAssemblyName: string; // "System.Linq"
-  readonly MetadataToken: number;        // For runtime resolution
+  readonly declaringClrType: string;     // "System.Linq.Enumerable"
+  readonly declaringAssemblyName: string; // "System.Linq"
+  readonly metadataToken: number;        // For runtime resolution
 };
 ```
 
@@ -243,9 +243,9 @@ type BindingTarget = {
 
 ```typescript
 type ExposedPropertyBinding = {
-  readonly TsName: string;
-  readonly IsStatic: boolean;
-  readonly Target: BindingTarget;
+  readonly tsName: string;
+  readonly isStatic: boolean;
+  readonly target: BindingTarget;
 };
 ```
 
@@ -255,9 +255,9 @@ type ExposedPropertyBinding = {
 
 ```typescript
 type ExposedFieldBinding = {
-  readonly TsName: string;
-  readonly IsStatic: boolean;
-  readonly Target: BindingTarget;
+  readonly tsName: string;
+  readonly isStatic: boolean;
+  readonly target: BindingTarget;
 };
 ```
 
@@ -267,9 +267,9 @@ type ExposedFieldBinding = {
 
 ```typescript
 type ExposedEventBinding = {
-  readonly TsName: string;
-  readonly IsStatic: boolean;
-  readonly Target: BindingTarget;
+  readonly tsName: string;
+  readonly isStatic: boolean;
+  readonly target: BindingTarget;
 };
 ```
 
@@ -281,110 +281,110 @@ From `System.Collections.Generic/bindings.json`:
 
 ```json
 {
-  "Namespace": "System.Collections.Generic",
-  "Types": [
+  "namespace": "System.Collections.Generic",
+  "types": [
     {
-      "ClrName": "List`1",
-      "TsEmitName": "List_1",
-      "AssemblyName": "System.Private.CoreLib",
-      "MetadataToken": 33554433,
+      "clrName": "List`1",
+      "tsEmitName": "List_1",
+      "assemblyName": "System.Private.CoreLib",
+      "metadataToken": 33554433,
 
-      "Methods": [
+      "methods": [
         {
-          "ClrName": "Add",
-          "TsEmitName": "Add",
-          "MetadataToken": 100663297,
-          "CanonicalSignature": "Add(T):Void",
-          "NormalizedSignature": "Add(T)",
-          "EmitScope": "ClassSurface",
-          "Arity": 0,
-          "ParameterCount": 1,
-          "DeclaringClrType": "System.Collections.Generic.List`1",
-          "DeclaringAssemblyName": "System.Private.CoreLib"
+          "clrName": "Add",
+          "tsEmitName": "Add",
+          "metadataToken": 100663297,
+          "canonicalSignature": "Add(T):Void",
+          "normalizedSignature": "Add(T)",
+          "emitScope": "ClassSurface",
+          "arity": 0,
+          "parameterCount": 1,
+          "declaringClrType": "System.Collections.Generic.List`1",
+          "declaringAssemblyName": "System.Private.CoreLib"
         },
         {
-          "ClrName": "BinarySearch",
-          "TsEmitName": "BinarySearch",
-          "MetadataToken": 100663298,
-          "CanonicalSignature": "BinarySearch(Int32,Int32,T,IComparer):Int32",
-          "NormalizedSignature": "BinarySearch(System.Int32,System.Int32,T,IComparer_1)",
-          "EmitScope": "ClassSurface",
-          "Arity": 0,
-          "ParameterCount": 4,
-          "DeclaringClrType": "System.Collections.Generic.List`1",
-          "DeclaringAssemblyName": "System.Private.CoreLib"
+          "clrName": "BinarySearch",
+          "tsEmitName": "BinarySearch",
+          "metadataToken": 100663298,
+          "canonicalSignature": "BinarySearch(Int32,Int32,T,IComparer):Int32",
+          "normalizedSignature": "BinarySearch(System.Int32,System.Int32,T,IComparer_1)",
+          "emitScope": "ClassSurface",
+          "arity": 0,
+          "parameterCount": 4,
+          "declaringClrType": "System.Collections.Generic.List`1",
+          "declaringAssemblyName": "System.Private.CoreLib"
         },
         {
-          "ClrName": "BinarySearch",
-          "TsEmitName": "BinarySearch2",
-          "MetadataToken": 100663299,
-          "CanonicalSignature": "BinarySearch(T):Int32",
-          "NormalizedSignature": "BinarySearch(T)",
-          "EmitScope": "ClassSurface",
-          "ParameterCount": 1,
-          "DeclaringClrType": "System.Collections.Generic.List`1",
-          "DeclaringAssemblyName": "System.Private.CoreLib"
+          "clrName": "BinarySearch",
+          "tsEmitName": "BinarySearch2",
+          "metadataToken": 100663299,
+          "canonicalSignature": "BinarySearch(T):Int32",
+          "normalizedSignature": "BinarySearch(T)",
+          "emitScope": "ClassSurface",
+          "parameterCount": 1,
+          "declaringClrType": "System.Collections.Generic.List`1",
+          "declaringAssemblyName": "System.Private.CoreLib"
         }
       ],
 
-      "Properties": [
+      "properties": [
         {
-          "ClrName": "Count",
-          "TsEmitName": "Count",
-          "MetadataToken": 100663300,
-          "EmitScope": "ClassSurface",
-          "IsIndexer": false,
-          "DeclaringClrType": "System.Collections.Generic.List`1",
-          "DeclaringAssemblyName": "System.Private.CoreLib"
+          "clrName": "Count",
+          "tsEmitName": "Count",
+          "metadataToken": 100663300,
+          "emitScope": "ClassSurface",
+          "isIndexer": false,
+          "declaringClrType": "System.Collections.Generic.List`1",
+          "declaringAssemblyName": "System.Private.CoreLib"
         },
         {
-          "ClrName": "Item",
-          "TsEmitName": "Item",
-          "MetadataToken": 100663301,
-          "EmitScope": "ClassSurface",
-          "IsIndexer": true,
-          "DeclaringClrType": "System.Collections.Generic.List`1",
-          "DeclaringAssemblyName": "System.Private.CoreLib"
+          "clrName": "Item",
+          "tsEmitName": "Item",
+          "metadataToken": 100663301,
+          "emitScope": "ClassSurface",
+          "isIndexer": true,
+          "declaringClrType": "System.Collections.Generic.List`1",
+          "declaringAssemblyName": "System.Private.CoreLib"
         }
       ],
 
-      "Constructors": [
+      "constructors": [
         {
-          "MetadataToken": 100663302,
-          "CanonicalSignature": "ctor()",
-          "ParameterCount": 0
+          "metadataToken": 100663302,
+          "canonicalSignature": "ctor()",
+          "parameterCount": 0
         },
         {
-          "MetadataToken": 100663303,
-          "CanonicalSignature": "ctor(Int32)",
-          "ParameterCount": 1
+          "metadataToken": 100663303,
+          "canonicalSignature": "ctor(Int32)",
+          "parameterCount": 1
         },
         {
-          "MetadataToken": 100663304,
-          "CanonicalSignature": "ctor(IEnumerable)",
-          "ParameterCount": 1
+          "metadataToken": 100663304,
+          "canonicalSignature": "ctor(IEnumerable)",
+          "parameterCount": 1
         }
       ],
 
-      "ExposedMethods": [
+      "exposedMethods": [
         {
-          "TsName": "Add",
-          "IsStatic": false,
-          "TsSignatureId": "Add(T)",
-          "Target": {
-            "DeclaringClrType": "System.Collections.Generic.List`1",
-            "DeclaringAssemblyName": "System.Private.CoreLib",
-            "MetadataToken": 100663297
+          "tsName": "Add",
+          "isStatic": false,
+          "tsSignatureId": "Add(T)",
+          "target": {
+            "declaringClrType": "System.Collections.Generic.List`1",
+            "declaringAssemblyName": "System.Private.CoreLib",
+            "metadataToken": 100663297
           }
         },
         {
-          "TsName": "Contains",
-          "IsStatic": false,
-          "TsSignatureId": "Contains(T)",
-          "Target": {
-            "DeclaringClrType": "System.Collections.Generic.ICollection`1",
-            "DeclaringAssemblyName": "System.Private.CoreLib",
-            "MetadataToken": 100663400
+          "tsName": "Contains",
+          "isStatic": false,
+          "tsSignatureId": "Contains(T)",
+          "target": {
+            "declaringClrType": "System.Collections.Generic.ICollection`1",
+            "declaringAssemblyName": "System.Private.CoreLib",
+            "metadataToken": 100663400
           }
         }
       ]
@@ -401,60 +401,60 @@ From `System.Linq/bindings.json`:
 
 ```json
 {
-  "Namespace": "System.Linq",
-  "Types": [
+  "namespace": "System.Linq",
+  "types": [
     {
-      "ClrName": "Enumerable",
-      "TsEmitName": "Enumerable",
-      "AssemblyName": "System.Linq",
-      "MetadataToken": 33554433,
+      "clrName": "Enumerable",
+      "tsEmitName": "Enumerable",
+      "assemblyName": "System.Linq",
+      "metadataToken": 33554433,
 
-      "Methods": [
+      "methods": [
         {
-          "ClrName": "SelectMany",
-          "TsEmitName": "selectMany",
-          "MetadataToken": 100663297,
-          "CanonicalSignature": "SelectMany[2](IEnumerable,Func):IEnumerable",
-          "NormalizedSignature": "SelectMany(IEnumerable_1,Func_2)",
-          "EmitScope": "ClassSurface",
-          "Arity": 2,
-          "ParameterCount": 2,
-          "DeclaringClrType": "System.Linq.Enumerable",
-          "DeclaringAssemblyName": "System.Linq"
+          "clrName": "SelectMany",
+          "tsEmitName": "selectMany",
+          "metadataToken": 100663297,
+          "canonicalSignature": "SelectMany[2](IEnumerable,Func):IEnumerable",
+          "normalizedSignature": "SelectMany(IEnumerable_1,Func_2)",
+          "emitScope": "ClassSurface",
+          "arity": 2,
+          "parameterCount": 2,
+          "declaringClrType": "System.Linq.Enumerable",
+          "declaringAssemblyName": "System.Linq"
         },
         {
-          "ClrName": "Where",
-          "TsEmitName": "where",
-          "MetadataToken": 100663298,
-          "CanonicalSignature": "Where[1](IEnumerable,Func):IEnumerable",
-          "NormalizedSignature": "Where(IEnumerable_1,Func_2)",
-          "EmitScope": "ClassSurface",
-          "Arity": 1,
-          "ParameterCount": 2,
-          "DeclaringClrType": "System.Linq.Enumerable",
-          "DeclaringAssemblyName": "System.Linq"
+          "clrName": "Where",
+          "tsEmitName": "where",
+          "metadataToken": 100663298,
+          "canonicalSignature": "Where[1](IEnumerable,Func):IEnumerable",
+          "normalizedSignature": "Where(IEnumerable_1,Func_2)",
+          "emitScope": "ClassSurface",
+          "arity": 1,
+          "parameterCount": 2,
+          "declaringClrType": "System.Linq.Enumerable",
+          "declaringAssemblyName": "System.Linq"
         }
       ],
 
-      "ExposedMethods": [
+      "exposedMethods": [
         {
-          "TsName": "selectMany",
-          "IsStatic": true,
-          "TsSignatureId": "SelectMany(IEnumerable_1,Func_2)",
-          "Target": {
-            "DeclaringClrType": "System.Linq.Enumerable",
-            "DeclaringAssemblyName": "System.Linq",
-            "MetadataToken": 100663297
+          "tsName": "selectMany",
+          "isStatic": true,
+          "tsSignatureId": "SelectMany(IEnumerable_1,Func_2)",
+          "target": {
+            "declaringClrType": "System.Linq.Enumerable",
+            "declaringAssemblyName": "System.Linq",
+            "metadataToken": 100663297
           }
         },
         {
-          "TsName": "where",
-          "IsStatic": true,
-          "TsSignatureId": "Where(IEnumerable_1,Func_2)",
-          "Target": {
-            "DeclaringClrType": "System.Linq.Enumerable",
-            "DeclaringAssemblyName": "System.Linq",
-            "MetadataToken": 100663298
+          "tsName": "where",
+          "isStatic": true,
+          "tsSignatureId": "Where(IEnumerable_1,Func_2)",
+          "target": {
+            "declaringClrType": "System.Linq.Enumerable",
+            "declaringAssemblyName": "System.Linq",
+            "metadataToken": 100663298
           }
         }
       ]
