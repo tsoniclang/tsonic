@@ -155,6 +155,9 @@ type MethodMetadata = {
   // Signature
   readonly arity: number;                // Generic method parameter count
   readonly parameterCount: number;       // Total parameters
+  readonly parameters?: ParameterMetadata[]; // Method parameters (may not be in all files)
+  readonly returnType?: string;          // Return type CLR name
+  readonly genericParameters?: string[]; // Generic parameter names ["TSource", "TResult"]
 };
 
 type Provenance =
@@ -270,7 +273,44 @@ type ConstructorMetadata = {
   readonly normalizedSignature: string;  // "ctor()" or "ctor(System.Int32)"
   readonly isStatic: boolean;            // Static constructor (type initializer)
   readonly parameterCount: number;
+  readonly parameters?: ParameterMetadata[]; // Constructor parameters
 };
+```
+
+---
+
+## ParameterMetadata Schema
+
+**Note:** Parameter metadata is included in method/constructor metadata in tsbindgen spec but may not be present in all actual output files.
+
+```typescript
+type ParameterMetadata = {
+  readonly name: string;                 // Parameter name
+  readonly type: string;                 // CLR type name (with generic args)
+  readonly isRef: boolean;               // ref parameter
+  readonly isOut: boolean;               // out parameter
+  readonly isIn?: boolean;               // in parameter (C# 7.2+)
+  readonly isParams: boolean;            // params array parameter
+  readonly defaultValue?: any | null;    // Default value for optional parameters
+};
+```
+
+**Ref/Out/In Parameters:**
+- `ref`: Parameter passed by reference (can read and write)
+- `out`: Output parameter (must be assigned before method returns)
+- `in`: Read-only reference parameter (C# 7.2+, performance optimization)
+- In TypeScript, these are wrapped in `TSByRef<T>` type
+
+**Example:**
+```typescript
+// C#: void Method(ref int x, out string y, in double z, params int[] rest)
+{
+  "name": "x",
+  "type": "System.Int32",
+  "isRef": true,
+  "isOut": false,
+  "isParams": false
+}
 ```
 
 ---
