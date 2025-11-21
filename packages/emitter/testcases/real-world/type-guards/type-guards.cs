@@ -104,7 +104,7 @@ namespace TestCases.realworld
 
         public static dynamic isStringArray(object? arr)
             {
-            return Array.isArray(arr) && arr.every((item) => Tsonic.Runtime.Operators.@typeof(item) == "string");
+            return Array.isArray(arr) && Tsonic.Runtime.Array.every(arr, (item) => Tsonic.Runtime.Operators.@typeof(item) == "string");
             }
     }
 }

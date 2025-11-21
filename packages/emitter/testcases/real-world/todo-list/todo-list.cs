@@ -1,6 +1,5 @@
 
 using Tsonic.Runtime;
-using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -50,7 +49,7 @@ namespace TestCases.realworld
 
         public List<Todo> getAllTodos()
             {
-            return this.todos;
+            return this.todos.ToList();
             }
     }
 

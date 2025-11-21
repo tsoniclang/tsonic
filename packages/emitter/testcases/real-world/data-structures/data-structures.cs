@@ -1,6 +1,5 @@
 
 using Tsonic.Runtime;
-using System.Collections.Generic;
 
 namespace TestCases.realworld
 {
@@ -129,7 +128,7 @@ namespace TestCases.realworld
 
         public List<T> toArray()
             {
-            var result = new List<T>();
+            List<T> result = new List<T>();
             var current = this.head;
             while (current != null)
                 {

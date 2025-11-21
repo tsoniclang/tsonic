@@ -1,6 +1,7 @@
 
 using Tsonic.Runtime;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace TestCases.realworld
 {
@@ -103,7 +104,7 @@ namespace TestCases.realworld
 
         public List<CartItem> getItems()
             {
-            return this.items;
+            return this.items.ToList();
             }
 
         public void clear()
@@ -154,7 +155,7 @@ namespace TestCases.realworld
         public Order createOrder(ShoppingCart cart)
             {
             var items = cart.getItems();
-            if (items.length == 0.0)
+            if (Tsonic.Runtime.Array.length(items) == 0.0)
                 {
                 throw new Error("Cannot create order from empty cart");
                 }
@@ -210,7 +211,7 @@ namespace TestCases.realworld
 
         public static List<Product> sortByPrice(List<Product> products, bool ascending = true)
             {
-            var sorted = products;
+            var sorted = products.ToList();
             Tsonic.Runtime.Array.sort(sorted, (a, b) =>
             {
             return ascending ? a.price - b.price : b.price - a.price;
