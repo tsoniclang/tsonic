@@ -149,16 +149,19 @@ See [Limitations](limitations.md) for complete list and rationale.
 | `null`      | `null`              | Null reference               |
 | `undefined` | `TSUndefined.Value` | Singleton value              |
 | `void`      | `void`              | No return value              |
+| `T[]`       | `List<T>`           | Dynamic array with JS semantics* |
 | `any`       | `object`            | Dynamic typing (discouraged) |
 | `unknown`   | `object`            | Type-safe any                |
 | `never`     | `void`              | Unreachable code             |
 
+*When `runtime: "js"`, array methods like `push()` use `Tsonic.Runtime.ArrayHelpers` static methods
+
 ### Arrays
 
-| TypeScript         | C# Output               | Runtime Type                   |
+| TypeScript         | C# Output               | Notes                          |
 | ------------------ | ----------------------- | ------------------------------ |
-| `number[]`         | `Array<double>`         | `Tsonic.Runtime.Array<double>` |
-| `Array<string>`    | `Array<string>`         | `Tsonic.Runtime.Array<string>` |
+| `number[]`         | `List<double>`          | Dynamic array                  |
+| `Array<string>`    | `List<string>`          | Same as `string[]`             |
 | `[number, string]` | `Tuple<double, string>` | `System.Tuple<double, string>` |
 
 ### Functions
@@ -397,7 +400,15 @@ try {
 
 ## See Also
 
-- **[Guide](../../guide/)** - Tutorial-style introduction
-- **[.NET Integration](../dotnet/INDEX.md)** - Using .NET libraries
-- **[Runtime API](../runtime/INDEX.md)** - Tsonic.Runtime reference
-- **[Examples](../../examples/)** - Complete code examples
+### Architecture Documentation (Implementation Details)
+- **[Module Resolution](architecture/03-phase-resolver.md)** - How imports are resolved internally
+- **[Type System](architecture/05-phase-ir.md)** - Type conversion implementation
+- **[Code Generation](architecture/07-phase-emitter.md)** - How TypeScript becomes C#
+- **[Runtime Implementation](architecture/09-phase-runtime.md)** - Tsonic.Runtime internals
+
+### User Documentation
+- **[.NET Integration](dotnet-reference.md)** - Using .NET libraries
+- **[Configuration](configuration.md)** - tsonic.json format
+- **[Contracts](contracts.md)** - Stable public interfaces
+- **[Guide](guide/)** - Tutorial-style introduction
+- **[Examples](examples/)** - Complete code examples

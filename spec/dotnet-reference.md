@@ -432,8 +432,16 @@ const data2 = await new HttpClient().GetStringAsync(url2);
 
 ## See Also
 
-- **[Guide: Using .NET Libraries](../../guide/03-using-dotnet.md)** - Tutorial introduction
-- **[Language Reference](../language/INDEX.md)** - TypeScript language features
-- **[Runtime API](../runtime/INDEX.md)** - Tsonic.Runtime reference
-- **[Cookbook](../../cookbook/INDEX.md)** - Common .NET patterns
+### Architecture Documentation (Implementation Details)
+- **[.NET Binding Resolution](architecture/05-phase-ir.md)** - How .NET types are resolved
+- **[Code Generation](architecture/07-phase-emitter.md)** - .NET interop code generation
+- **[Backend Compilation](architecture/08-phase-backend.md)** - NativeAOT compilation
+
+### User Documentation
+- **[Language Reference](language-reference.md)** - TypeScript language features
+- **[Configuration](configuration.md)** - tsonic.json format
+- **[Contracts](contracts.md)** - Binding/metadata file formats
+- **[Guide: Using .NET Libraries](guide/03-using-dotnet.md)** - Tutorial introduction
+
+### External Resources
 - **[.NET API Browser](https://learn.microsoft.com/en-us/dotnet/api/)** - Official .NET documentation

@@ -25,6 +25,8 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 }
 ```
 
+**Note**: The `rid` field specifies the Runtime Identifier (e.g., "linux-x64", "win-x64", "osx-arm64") for the target platform. If not specified, it's auto-detected from the current platform.
+
 ## Core Fields
 
 ### runtime

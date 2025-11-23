@@ -116,9 +116,9 @@ const buildCommand = async (options: BuildOptions): Promise<ExitCode> => {
   // 8. Emit C# (Phase 6)
   console.log("Emitting C#...");
   const emitResult = emitCSharp(irResult.value, {
-    outputDir: config.outDir ?? "./dist",
-    optimization: config.optimization ?? "speed",
-    runtime: config.runtimeMode ?? "js",
+    outputDir: config.outputDirectory ?? "./generated",
+    optimization: config.optimize ?? "speed",
+    runtime: config.runtime ?? "js",
   });
   if (!emitResult.ok) {
     printDiagnostics(emitResult.error);
@@ -128,10 +128,10 @@ const buildCommand = async (options: BuildOptions): Promise<ExitCode> => {
   // 9. Compile to NativeAOT (Phase 7)
   console.log("Compiling to native executable...");
   const backendResult = await compileNativeExecutable(emitResult.value, {
-    outputDir: config.outDir ?? "./dist",
-    runtime: config.runtime ?? detectRuntime(),
-    runtimeMode: config.runtimeMode ?? "js",
-    optimization: config.optimization ?? "speed",
+    outputDir: config.outputDirectory ?? "./generated",
+    rid: config.rid ?? detectRuntimeIdentifier(),
+    runtime: config.runtime ?? "js",
+    optimization: config.optimize ?? "speed",
   });
   if (!backendResult.ok) {
     printDiagnostics(backendResult.error);
@@ -264,12 +264,12 @@ type TsonicConfig = {
   readonly rootNamespace: string; // "MyApp"
 
   // Output configuration
-  readonly outDir: string; // "./dist"
+  readonly outputDirectory: string; // "./generated"
 
   // Runtime configuration
-  readonly runtime: RuntimeIdentifier; // "linux-x64"
-  readonly runtimeMode?: "js" | "dotnet"; // "js" (default) or "dotnet"
-  readonly optimization: "size" | "speed"; // "speed"
+  readonly rid?: RuntimeIdentifier; // "linux-x64" (auto-detected if not specified)
+  readonly runtime?: "js" | "dotnet"; // "js" (default) or "dotnet"
+  readonly optimize?: "size" | "speed"; // "speed"
 
   // Type roots for .NET bindings
   readonly typeRoots?: readonly string[]; // ["./node_modules/@types"]
@@ -352,10 +352,10 @@ const applyDefaults = (config: Partial<TsonicConfig>): TsonicConfig => ({
   entryPoint: config.entryPoint ?? "./src/main.ts",
   sourceRoot: config.sourceRoot ?? "./src",
   rootNamespace: config.rootNamespace ?? "MyApp",
-  outDir: config.outDir ?? "./dist",
-  runtime: config.runtime ?? detectRuntime(),
-  runtimeMode: config.runtimeMode ?? "js",
-  optimization: config.optimization ?? "speed",
+  outputDirectory: config.outputDirectory ?? "./generated",
+  rid: config.rid ?? detectRuntimeIdentifier(),
+  runtime: config.runtime ?? "js",
+  optimize: config.optimize ?? "speed",
   typeRoots: config.typeRoots ?? ["./node_modules/@types"],
   debug: config.debug,
 });
