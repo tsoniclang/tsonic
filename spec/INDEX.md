@@ -9,18 +9,23 @@
 ## Quick Navigation
 
 ### 👤 I'm a new user
+
 **Start here**: [Quickstart Guide](guide/01-quickstart.md) - Get your first program running in 5 minutes
 
 ### 🏗️ I'm building an application
+
 **See**:
+
 - [Language Reference](language-reference.md) - Complete TypeScript → C# mapping
 - [.NET Integration](dotnet-reference.md) - Using .NET libraries
 - [Cookbook](cookbook/INDEX.md) - Common patterns and recipes
 
 ### 💻 I want to contribute to the compiler
+
 **Start here**: [Architecture Overview](architecture/INDEX.md) - Compiler internals
 
 ### 🔌 I'm integrating with Tsonic
+
 **See**: [Contracts & File Formats](contracts.md) - Public interfaces and specifications
 
 ---
@@ -81,6 +86,7 @@ spec/
 **Time**: Ongoing reference
 
 **Core References**:
+
 - [Language Reference](language-reference.md) - Complete language spec
 - [.NET Integration](dotnet-reference.md) - Advanced .NET patterns
 - [Tsonic.Runtime API](reference/runtime/INDEX.md) - Runtime helper functions
@@ -88,9 +94,11 @@ spec/
 - [Error Codes](reference/diagnostics/INDEX.md) - Diagnostic catalog
 
 **Recipes**:
+
 - [Cookbook](cookbook/INDEX.md) - Solutions to common problems
 
 **Examples**:
+
 - [Complete Examples](examples/INDEX.md) - Real-world applications
 
 ---
@@ -328,32 +336,33 @@ architecture/
 
 ### Language Compatibility
 
-| TypeScript Feature | C# Output | Status | Details |
-|-------------------|-----------|--------|---------|
-| `import` with `.ts` | `using` | ✅ Required | [modules.md](reference/language/modules.md) |
-| `number` | `double` | ✅ Supported | [types.md](reference/language/types.md) |
-| `string` | `string` | ✅ Supported | [types.md](reference/language/types.md) |
-| `boolean` | `bool` | ✅ Supported | [types.md](reference/language/types.md) |
-| `Array<T>` | `List<T>` + helpers | ✅ Supported | [types.md](reference/language/types.md) |
-| `async/await` | `async/await` | ✅ Supported | [async.md](reference/language/async.md) |
-| Generics | Generics + monomorphization | ✅ Supported | [generics.md](reference/language/generics.md) |
-| Decorators | N/A | ❌ Unsupported | [limitations.md](reference/language/limitations.md) |
+| TypeScript Feature  | C# Output                   | Status         | Details                                             |
+| ------------------- | --------------------------- | -------------- | --------------------------------------------------- |
+| `import` with `.ts` | `using`                     | ✅ Required    | [modules.md](reference/language/modules.md)         |
+| `number`            | `double`                    | ✅ Supported   | [types.md](reference/language/types.md)             |
+| `string`            | `string`                    | ✅ Supported   | [types.md](reference/language/types.md)             |
+| `boolean`           | `bool`                      | ✅ Supported   | [types.md](reference/language/types.md)             |
+| `Array<T>`          | `List<T>` + helpers         | ✅ Supported   | [types.md](reference/language/types.md)             |
+| `async/await`       | `async/await`               | ✅ Supported   | [async.md](reference/language/async.md)             |
+| Generics            | Generics + monomorphization | ✅ Supported   | [generics.md](reference/language/generics.md)       |
+| Decorators          | N/A                         | ❌ Unsupported | [limitations.md](reference/language/limitations.md) |
 
 ### .NET Integration
 
-| Task | Pattern | Details |
-|------|---------|---------|
-| Import .NET type | `import { File } from "System.IO"` | [importing.md](reference/dotnet/importing.md) |
-| Call static method | `File.ReadAllText("file.txt")` | [importing.md](reference/dotnet/importing.md) |
-| Handle ref/out | `param: TSByRef<number>` | [ref-out.md](reference/dotnet/ref-out.md) |
-| Explicit interface | `obj.As_IInterface.Method()` | [explicit-interfaces.md](reference/dotnet/explicit-interfaces.md) |
-| Extension method | `list.Where(x => x > 0)` | [extension-methods.md](reference/dotnet/extension-methods.md) |
+| Task               | Pattern                            | Details                                                           |
+| ------------------ | ---------------------------------- | ----------------------------------------------------------------- |
+| Import .NET type   | `import { File } from "System.IO"` | [importing.md](reference/dotnet/importing.md)                     |
+| Call static method | `File.ReadAllText("file.txt")`     | [importing.md](reference/dotnet/importing.md)                     |
+| Handle ref/out     | `param: TSByRef<number>`           | [ref-out.md](reference/dotnet/ref-out.md)                         |
+| Explicit interface | `obj.As_IInterface.Method()`       | [explicit-interfaces.md](reference/dotnet/explicit-interfaces.md) |
+| Extension method   | `list.Where(x => x > 0)`           | [extension-methods.md](reference/dotnet/extension-methods.md)     |
 
 ---
 
 ## Contributing to These Docs
 
 See [Contributing Guide](meta/contributing.md) for:
+
 - How to improve documentation
 - Style guidelines
 - Review process
@@ -364,6 +373,7 @@ See [Contributing Guide](meta/contributing.md) for:
 ## Glossary
 
 See [Glossary](meta/glossary.md) for definitions of:
+
 - **IR** (Intermediate Representation)
 - **Monomorphization** (Generic specialization)
 - **NativeAOT** (Ahead-of-time compilation)

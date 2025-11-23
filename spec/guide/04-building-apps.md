@@ -53,6 +53,7 @@ src/services/api.ts      → MyApp.src.services.api
 ```
 
 **Rules**:
+
 - Exact case preserved
 - Dots in path become dots in namespace
 - Use meaningful directory names
@@ -68,7 +69,7 @@ export interface User {
 }
 
 // src/services/database.ts
-import { User } from "../models/User.ts";  // ← .ts extension!
+import { User } from "../models/User.ts"; // ← .ts extension!
 
 export function getUser(id: number): User {
   // ...
@@ -85,6 +86,7 @@ export function main(): void {
 ```
 
 **Key Rules**:
+
 1. **Always use `.ts` extension** for local imports
 2. **Relative paths** (`./`, `../`) for local modules
 3. **No extension** for .NET imports
@@ -163,9 +165,7 @@ Instead of exceptions, use Result types for recoverable errors:
 
 ```typescript
 // src/core/result.ts
-export type Result<T, E> =
-  | { ok: true; value: T }
-  | { ok: false; error: E };
+export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export function Ok<T>(value: T): Result<T, never> {
   return { ok: true, value };
@@ -241,7 +241,7 @@ export enum LogLevel {
   Debug = 0,
   Info = 1,
   Warning = 2,
-  Error = 3
+  Error = 3,
 }
 
 export interface Logger {
@@ -265,7 +265,7 @@ export function createLogger(level: LogLevel): Logger {
     debug: (msg) => log(LogLevel.Debug, "DEBUG", msg),
     info: (msg) => log(LogLevel.Info, "INFO", msg),
     warn: (msg) => log(LogLevel.Warning, "WARN", msg),
-    error: (msg) => log(LogLevel.Error, "ERROR", msg)
+    error: (msg) => log(LogLevel.Error, "ERROR", msg),
   };
 }
 ```
@@ -277,7 +277,7 @@ import { createLogger, LogLevel } from "./src/core/logger.ts";
 export function main(): void {
   const logger = createLogger(LogLevel.Info);
 
-  logger.debug("This won't show");  // Below threshold
+  logger.debug("This won't show"); // Below threshold
   logger.info("Starting application");
   logger.warn("Configuration file not found");
   logger.error("Database connection failed");
@@ -304,7 +304,7 @@ export function createFileLogger(path: string, level: LogLevel): Logger {
     debug: (msg) => log(LogLevel.Debug, "DEBUG", msg),
     info: (msg) => log(LogLevel.Info, "INFO", msg),
     warn: (msg) => log(LogLevel.Warning, "WARN", msg),
-    error: (msg) => log(LogLevel.Error, "ERROR", msg)
+    error: (msg) => log(LogLevel.Error, "ERROR", msg),
   };
 }
 ```
@@ -327,7 +327,7 @@ export function parseArgs(args: string[]): CliArgs {
   const result: CliArgs = {
     command: args[0] ?? "help",
     options: {},
-    flags: new Set()
+    flags: new Set(),
   };
 
   for (let i = 1; i < args.length; i++) {
@@ -397,6 +397,7 @@ export function main(): void {
 ```
 
 Usage:
+
 ```bash
 ./bin/main start --port=8080 --verbose
 ./bin/main status
@@ -459,7 +460,7 @@ export class Database {
           id: reader.GetInt32(0),
           name: reader.GetString(1),
           email: reader.GetString(2),
-          createdAt: reader.GetDateTime(3)
+          createdAt: reader.GetDateTime(3),
         };
         return Ok(user);
       }
@@ -486,7 +487,7 @@ export class Database {
           id: reader.GetInt32(0),
           name: reader.GetString(1),
           email: reader.GetString(2),
-          createdAt: reader.GetDateTime(3)
+          createdAt: reader.GetDateTime(3),
         };
         return Ok(user);
       }
@@ -511,7 +512,10 @@ export class Database {
 
 ```typescript
 // src/services/server.ts
-import { WebApplication, WebApplicationBuilder } from "Microsoft.AspNetCore.Builder";
+import {
+  WebApplication,
+  WebApplicationBuilder,
+} from "Microsoft.AspNetCore.Builder";
 import { Results } from "Microsoft.AspNetCore.Http";
 
 export function createServer(port: number): WebApplication {
@@ -597,6 +601,7 @@ export function main(): void {
 ```
 
 Run tests:
+
 ```bash
 tsonic build tests/unit/index.ts -o tests/bin/unit-tests
 ./tests/bin/unit-tests
@@ -642,7 +647,7 @@ export function addTask(title: string): Task {
     id: tasks.length + 1,
     title,
     done: false,
-    createdAt: new Date()
+    createdAt: new Date(),
   };
 
   tasks.push(newTask);
@@ -653,7 +658,7 @@ export function addTask(title: string): Task {
 
 export function completeTask(id: number): boolean {
   const tasks = loadTasks();
-  const task = tasks.find(t => t.id === id);
+  const task = tasks.find((t) => t.id === id);
 
   if (!task) {
     return false;
@@ -688,7 +693,7 @@ export function handleList(): void {
   const tasks = listTasks();
 
   if (tasks.length === 0) {
-    console.log("No tasks yet. Add one with: tasks add \"Your task\"");
+    console.log('No tasks yet. Add one with: tasks add "Your task"');
     return;
   }
 
@@ -710,7 +715,7 @@ export function main(): void {
   if (args.length === 0) {
     console.log("Usage:");
     console.log("  tasks list");
-    console.log("  tasks add \"Task title\"");
+    console.log('  tasks add "Task title"');
     console.log("  tasks done <id>");
     return;
   }
@@ -723,7 +728,7 @@ export function main(): void {
       break;
     case "add":
       if (args.length < 2) {
-        console.log("Usage: tasks add \"Task title\"");
+        console.log('Usage: tasks add "Task title"');
         return;
       }
       handleAdd(args[1]);
@@ -742,6 +747,7 @@ export function main(): void {
 ```
 
 Build and use:
+
 ```bash
 tsonic build main.ts -o bin/tasks
 
@@ -803,7 +809,7 @@ export function calculateTotal(items: CartItem[]): number {
 
 // ❌ BAD - Mixed concerns
 export function calculateTotal(cartId: string): number {
-  const items = database.getItems(cartId);  // I/O in business logic!
+  const items = database.getItems(cartId); // I/O in business logic!
   return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 }
 ```

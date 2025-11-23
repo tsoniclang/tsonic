@@ -141,44 +141,44 @@ See [Limitations](limitations.md) for complete list and rationale.
 
 ### Type Mappings
 
-| TypeScript | C# Output | Runtime Behavior |
-|------------|-----------|------------------|
-| `number` | `double` | IEEE 754 64-bit float |
-| `string` | `string` | UTF-16, immutable |
-| `boolean` | `bool` | true/false |
-| `null` | `null` | Null reference |
-| `undefined` | `TSUndefined.Value` | Singleton value |
-| `void` | `void` | No return value |
-| `any` | `object` | Dynamic typing (discouraged) |
-| `unknown` | `object` | Type-safe any |
-| `never` | `void` | Unreachable code |
+| TypeScript  | C# Output           | Runtime Behavior             |
+| ----------- | ------------------- | ---------------------------- |
+| `number`    | `double`            | IEEE 754 64-bit float        |
+| `string`    | `string`            | UTF-16, immutable            |
+| `boolean`   | `bool`              | true/false                   |
+| `null`      | `null`              | Null reference               |
+| `undefined` | `TSUndefined.Value` | Singleton value              |
+| `void`      | `void`              | No return value              |
+| `any`       | `object`            | Dynamic typing (discouraged) |
+| `unknown`   | `object`            | Type-safe any                |
+| `never`     | `void`              | Unreachable code             |
 
 ### Arrays
 
-| TypeScript | C# Output | Runtime Type |
-|------------|-----------|--------------|
-| `number[]` | `Array<double>` | `Tsonic.Runtime.Array<double>` |
-| `Array<string>` | `Array<string>` | `Tsonic.Runtime.Array<string>` |
+| TypeScript         | C# Output               | Runtime Type                   |
+| ------------------ | ----------------------- | ------------------------------ |
+| `number[]`         | `Array<double>`         | `Tsonic.Runtime.Array<double>` |
+| `Array<string>`    | `Array<string>`         | `Tsonic.Runtime.Array<string>` |
 | `[number, string]` | `Tuple<double, string>` | `System.Tuple<double, string>` |
 
 ### Functions
 
-| TypeScript | C# Output |
-|------------|-----------|
-| `function f() {}` | `public static void f()` |
-| `const f = () => {}` | `var f = () => {}` |
-| `function f(): number` | `public static double f()` |
+| TypeScript              | C# Output                        |
+| ----------------------- | -------------------------------- |
+| `function f() {}`       | `public static void f()`         |
+| `const f = () => {}`    | `var f = () => {}`               |
+| `function f(): number`  | `public static double f()`       |
 | `function f(x: number)` | `public static void f(double x)` |
 
 ### Classes
 
-| TypeScript | C# Output |
-|------------|-----------|
-| `class User {}` | `public class User` |
-| `private name: string` | `private string name` |
-| `public age: number` | `public double age` |
+| TypeScript             | C# Output                    |
+| ---------------------- | ---------------------------- |
+| `class User {}`        | `public class User`          |
+| `private name: string` | `private string name`        |
+| `public age: number`   | `public double age`          |
 | `static count: number` | `public static double count` |
-| `extends Base` | `: Base` |
+| `extends Base`         | `: Base`                     |
 
 ---
 
@@ -192,8 +192,8 @@ Tsonic guarantees JavaScript semantics for:
 // TypeScript
 const arr = [];
 arr[10] = "x";
-console.log(arr.length);  // 11
-console.log(arr[5]);      // undefined
+console.log(arr.length); // 11
+console.log(arr[5]); // undefined
 ```
 
 ```csharp
@@ -210,8 +210,8 @@ Console.WriteLine(arr[5]);      // TSUndefined.Value
 // TypeScript
 const a = 1;
 const b = 2.5;
-console.log(a + b);  // 3.5
-console.log(1 / 3);  // 0.3333...
+console.log(a + b); // 3.5
+console.log(1 / 3); // 0.3333...
 ```
 
 ```csharp
@@ -227,9 +227,9 @@ Console.WriteLine(1.0 / 3.0);  // 0.3333...
 ```typescript
 // TypeScript
 const name = "Alice";
-console.log(name.length);     // 5
-console.log(name[0]);         // "A"
-console.log(name.toUpperCase());  // "ALICE"
+console.log(name.length); // 5
+console.log(name[0]); // "A"
+console.log(name.toUpperCase()); // "ALICE"
 ```
 
 ```csharp
@@ -254,10 +254,10 @@ import { User } from "./models/User.ts";
 import { File } from "System.IO";
 
 // ❌ WRONG - Missing .ts extension
-import { User } from "./models/User";  // ERROR TSN1001
+import { User } from "./models/User"; // ERROR TSN1001
 
 // ❌ WRONG - .ts on .NET import
-import { File } from "System.IO.ts";   // Makes no sense
+import { File } from "System.IO.ts"; // Makes no sense
 ```
 
 ### Export Rules
@@ -291,7 +291,7 @@ Tsonic performs full TypeScript type checking:
 const x: number = 42;
 
 // ❌ Type error
-const y: number = "hello";  // TSN2001: Type 'string' not assignable to 'number'
+const y: number = "hello"; // TSN2001: Type 'string' not assignable to 'number'
 ```
 
 ### Null Safety
@@ -303,7 +303,7 @@ TypeScript's `strictNullChecks` is enforced:
 let x: string | null = null;
 
 // ❌ Type error
-let y: string = null;  // TSN2002: Type 'null' not assignable to 'string'
+let y: string = null; // TSN2002: Type 'null' not assignable to 'string'
 ```
 
 ### Monomorphization
@@ -342,7 +342,7 @@ var b = identity_string("hello");
 
 ```typescript
 // ✅ PREFERRED - Immutable
-const doubled = numbers.map(n => n * 2);
+const doubled = numbers.map((n) => n * 2);
 
 // ❌ DISCOURAGED - Mutable
 let result = [];

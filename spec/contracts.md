@@ -27,6 +27,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 **Schema Version**: 1.0
 
 **Contains**:
+
 - Namespace information
 - Contributing assemblies
 - Type definitions (classes, interfaces, structs, enums)
@@ -36,12 +37,14 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 - Accessibility levels
 
 **Consumers**:
+
 - Tsonic compiler frontend (type checking)
 - IDE intellisense providers
 - Documentation generators
 - Static analysis tools
 
 **Example**:
+
 ```json
 {
   "namespace": "System.Collections.Generic",
@@ -71,6 +74,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 **Schema Version**: 2.0 (supports both V1 and V2 formats)
 
 **Contains**:
+
 - Namespace information
 - CLR type to TypeScript name mappings
 - Method metadata tokens for direct invocation
@@ -78,11 +82,13 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 - Exposed methods (V2 format)
 
 **Consumers**:
+
 - Tsonic emitter (C# code generation)
 - Runtime binding resolver
 - Profiling and debugging tools
 
 **Example**:
+
 ```json
 {
   "namespace": "System.Collections.Generic",
@@ -116,6 +122,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 **Location**: `.tsonic/generated/`
 
 **Contains**:
+
 - Namespace organization
 - Class structure
 - Method signatures
@@ -123,6 +130,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 - Generic monomorphization
 
 **Consumers**:
+
 - Developers debugging generated code
 - Performance analysis tools
 - Code review tools
@@ -138,6 +146,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 **Stability**: Stable - follows semantic versioning
 
 **Commands**:
+
 - `tsonic build` - Compile TypeScript to executable
 - `tsonic emit` - Generate C# code only
 - `tsonic run` - Build and run immediately
@@ -154,6 +163,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 | 5 | Build system error |
 
 **Output Format**:
+
 - JSON diagnostics (`--format=json`)
 - Human-readable (`--format=pretty`)
 - Compiler messages (`--format=tsc`)
@@ -165,12 +175,14 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 **Stability**: Stable - semantic versioning
 
 **Namespaces**:
+
 - `Tsonic.Runtime.Array` - JavaScript array semantics
 - `Tsonic.Runtime.Object` - Dynamic objects
 - `Tsonic.Runtime.Console` - Console I/O
 - `Tsonic.Runtime.Promise` - Async operations
 
 **Semantic Guarantees**:
+
 - Exact JavaScript array behavior
 - Proper undefined handling
 - IEEE 754 number semantics
@@ -198,12 +210,14 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 ```
 
 **Rules**:
+
 1. Flat namespace structure (NO nesting: `System.IO` is one directory)
 2. `metadata.json` in `<Namespace>/internal/` subdirectory
 3. `bindings.json` at `<Namespace>/` root
 4. Support types in `_support/types.d.ts`
 
 **Example**:
+
 ```
 node_modules/@dotnet/types/
   _support/
@@ -235,6 +249,7 @@ All contracts follow [semver](https://semver.org/):
 - **PATCH**: Bug fixes, clarifications
 
 **Current Versions**:
+
 - metadata.json: v1.0
 - bindings.json: v2.0 (supports v1 compatibility)
 - CLI: v1.0
@@ -243,12 +258,14 @@ All contracts follow [semver](https://semver.org/):
 ### Breaking Change Policy
 
 **What constitutes a breaking change**:
+
 - Removing or renaming fields in metadata.json or bindings.json
 - Changing CLI command names or argument behavior
 - Removing or changing Tsonic.Runtime public APIs
 - Changing directory structure conventions
 
 **What is NOT a breaking change**:
+
 - Adding new optional fields to JSON formats
 - Adding new CLI options (as long as defaults don't change)
 - Adding new Tsonic.Runtime APIs
@@ -262,6 +279,7 @@ All contracts follow [semver](https://semver.org/):
 3. **Remove** - Remove in next major version
 
 **Example**:
+
 - v1.5.0: Add new `exposedMethods` format (V2)
 - v1.6.0: Deprecate old `methods` format (V1) with warnings
 - v2.0.0: Remove V1 format support
@@ -273,6 +291,7 @@ All contracts follow [semver](https://semver.org/):
 ### JSON Schema Files
 
 **Available** (future):
+
 - `schemas/metadata-v1.schema.json` - metadata.json validator
 - `schemas/bindings-v2.schema.json` - bindings.json validator
 
@@ -299,7 +318,7 @@ import { loadLibrary } from "@tsonic/metadata-loader";
 const library = loadLibrary("node_modules/@dotnet/types");
 
 // Look up type
-const listType = library.types.find(t => t.tsEmitName === "List_1");
+const listType = library.types.find((t) => t.tsEmitName === "List_1");
 
 // Show methods in autocomplete
 for (const method of listType.methods) {
@@ -315,7 +334,9 @@ for (const method of listType.methods) {
 // Generate docs from metadata
 import { loadMetadata } from "@tsonic/metadata-loader";
 
-const metadata = loadMetadata("System.Collections.Generic/internal/metadata.json");
+const metadata = loadMetadata(
+  "System.Collections.Generic/internal/metadata.json"
+);
 
 console.log(`# ${metadata.namespace}\n`);
 
@@ -383,6 +404,7 @@ for (const type of bindings.types) {
 Found a contract violation or unclear specification?
 
 **Report it**:
+
 1. Check if behavior is documented as guaranteed
 2. Create issue at https://github.com/tsoniclang/tsonic/issues
 3. Tag with `contract-violation` label

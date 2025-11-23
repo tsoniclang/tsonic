@@ -24,14 +24,14 @@ Tsonic compiles TypeScript to C#, preserving **exact JavaScript semantics**. Thi
 
 ### Primitive Types
 
-| TypeScript | C# Output | Runtime Type | Semantics |
-|------------|-----------|--------------|-----------|
-| `number` | `double` | `double` | JavaScript number (always float64) |
-| `string` | `string` | `string` | UTF-16 immutable string |
-| `boolean` | `bool` | `bool` | true/false |
-| `null` | `null` | `object?` | Nullable reference |
-| `undefined` | `TSUndefined.Value` | `Tsonic.Runtime.TSUndefined` | Singleton value |
-| `void` | `void` | `void` | No return value |
+| TypeScript  | C# Output           | Runtime Type                 | Semantics                          |
+| ----------- | ------------------- | ---------------------------- | ---------------------------------- |
+| `number`    | `double`            | `double`                     | JavaScript number (always float64) |
+| `string`    | `string`            | `string`                     | UTF-16 immutable string            |
+| `boolean`   | `bool`              | `bool`                       | true/false                         |
+| `null`      | `null`              | `object?`                    | Nullable reference                 |
+| `undefined` | `TSUndefined.Value` | `Tsonic.Runtime.TSUndefined` | Singleton value                    |
+| `void`      | `void`              | `void`                       | No return value                    |
 
 ### Example
 
@@ -65,9 +65,9 @@ TypeScript arrays compile to `Tsonic.Runtime.Array<T>` which preserves JavaScrip
 // TypeScript
 const arr: number[] = [];
 arr[0] = 10;
-arr[10] = 20;  // Sparse array!
-console.log(arr.length);  // 11
-console.log(arr[5]);      // undefined
+arr[10] = 20; // Sparse array!
+console.log(arr.length); // 11
+console.log(arr[5]); // undefined
 ```
 
 ```csharp
@@ -87,11 +87,11 @@ All JavaScript array methods are available:
 const numbers = [1, 2, 3, 4, 5];
 
 // map
-const doubled = numbers.map(n => n * 2);
+const doubled = numbers.map((n) => n * 2);
 // [2, 4, 6, 8, 10]
 
 // filter
-const evens = numbers.filter(n => n % 2 === 0);
+const evens = numbers.filter((n) => n % 2 === 0);
 // [2, 4]
 
 // reduce
@@ -99,12 +99,12 @@ const sum = numbers.reduce((acc, n) => acc + n, 0);
 // 15
 
 // find
-const first = numbers.find(n => n > 2);
+const first = numbers.find((n) => n > 2);
 // 3
 
 // every, some
-const allPositive = numbers.every(n => n > 0);  // true
-const hasNegative = numbers.some(n => n < 0);   // false
+const allPositive = numbers.every((n) => n > 0); // true
+const hasNegative = numbers.some((n) => n < 0); // false
 ```
 
 **Implementation**: These compile to C# extension methods in `Tsonic.Runtime.ArrayExtensions`
@@ -120,7 +120,7 @@ const hasNegative = numbers.some(n => n < 0);   // false
 const user = {
   name: "Alice",
   age: 30,
-  active: true
+  active: true,
 };
 ```
 
@@ -140,12 +140,12 @@ var user = new {
 interface User {
   name: string;
   age: number;
-  email?: string;  // Optional property
+  email?: string; // Optional property
 }
 
 const alice: User = {
   name: "Alice",
-  age: 30
+  age: 30,
 };
 ```
 
@@ -426,7 +426,7 @@ export class Calculator {
 
 ```typescript
 // main.ts
-import { add, PI, Calculator } from "./math.ts";  // ← .ts extension required!
+import { add, PI, Calculator } from "./math.ts"; // ← .ts extension required!
 
 export function main(): void {
   const result = add(2, 3);
@@ -435,6 +435,7 @@ export function main(): void {
 ```
 
 **Critical Rules**:
+
 1. **Local imports MUST have `.ts` extension**
 2. **.NET imports must NOT have `.ts` extension**
 3. **ESM-only** - no CommonJS (`require`)
@@ -558,33 +559,33 @@ do
 
 ### Arithmetic
 
-| TypeScript | C# | Semantics |
-|------------|-----|-----------|
-| `+` | `+` | Addition (number) or concatenation (string) |
-| `-` | `-` | Subtraction |
-| `*` | `*` | Multiplication |
-| `/` | `/` | Division (always float) |
-| `%` | `%` | Remainder |
-| `**` | `Math.Pow` | Exponentiation |
+| TypeScript | C#         | Semantics                                   |
+| ---------- | ---------- | ------------------------------------------- |
+| `+`        | `+`        | Addition (number) or concatenation (string) |
+| `-`        | `-`        | Subtraction                                 |
+| `*`        | `*`        | Multiplication                              |
+| `/`        | `/`        | Division (always float)                     |
+| `%`        | `%`        | Remainder                                   |
+| `**`       | `Math.Pow` | Exponentiation                              |
 
 ### Comparison
 
-| TypeScript | C# | Semantics |
-|------------|-----|-----------|
-| `===` | `==` | Strict equality |
-| `!==` | `!=` | Strict inequality |
+| TypeScript           | C#   | Semantics          |
+| -------------------- | ---- | ------------------ |
+| `===`                | `==` | Strict equality    |
+| `!==`                | `!=` | Strict inequality  |
 | `<`, `>`, `<=`, `>=` | Same | Numeric comparison |
 
 **Note**: `==` and `!=` (loose equality) are NOT supported - use strict equality `===` and `!==`.
 
 ### Logical
 
-| TypeScript | C# | Semantics |
-|------------|-----|-----------|
-| `&&` | `&&` | Logical AND |
-| `||` | `||` | Logical OR |
-| `!` | `!` | Logical NOT |
-| `??` | `??` | Nullish coalescing |
+| TypeScript | C#   | Semantics          |
+| ---------- | ---- | ------------------ | --- | --- | --- | ---------- |
+| `&&`       | `&&` | Logical AND        |
+| `          |      | `                  | `   |     | `   | Logical OR |
+| `!`        | `!`  | Logical NOT        |
+| `??`       | `??` | Nullish coalescing |
 
 ### Nullish Coalescing
 

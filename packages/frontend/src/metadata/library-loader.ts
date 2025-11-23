@@ -132,7 +132,11 @@ export const loadLibraries = (
 
   // If we have any diagnostics but also loaded some data, still succeed
   // (allows partial library loading)
-  if (allDiagnostics.length > 0 && allMetadata.length === 0 && allBindings.length === 0) {
+  if (
+    allDiagnostics.length > 0 &&
+    allMetadata.length === 0 &&
+    allBindings.length === 0
+  ) {
     return {
       ok: false,
       error: allDiagnostics,
