@@ -13,15 +13,15 @@
 
 ### 🏗️ I'm building an application
 **See**:
-- [Language Reference](reference/language/INDEX.md) - Complete TypeScript → C# mapping
-- [.NET Integration](reference/dotnet/INDEX.md) - Using .NET libraries
+- [Language Reference](language-reference.md) - Complete TypeScript → C# mapping
+- [.NET Integration](dotnet-reference.md) - Using .NET libraries
 - [Cookbook](cookbook/INDEX.md) - Common patterns and recipes
 
 ### 💻 I want to contribute to the compiler
 **Start here**: [Architecture Overview](architecture/INDEX.md) - Compiler internals
 
 ### 🔌 I'm integrating with Tsonic
-**See**: [Contracts & File Formats](contracts/INDEX.md) - Public interfaces and specifications
+**See**: [Contracts & File Formats](contracts.md) - Public interfaces and specifications
 
 ---
 
@@ -81,8 +81,8 @@ spec/
 **Time**: Ongoing reference
 
 **Core References**:
-- [Language Reference](reference/language/INDEX.md) - Complete language spec
-- [.NET Integration](reference/dotnet/INDEX.md) - Advanced .NET patterns
+- [Language Reference](language-reference.md) - Complete language spec
+- [.NET Integration](dotnet-reference.md) - Advanced .NET patterns
 - [Tsonic.Runtime API](reference/runtime/INDEX.md) - Runtime helper functions
 - [CLI Reference](reference/cli/INDEX.md) - Command-line tools
 - [Error Codes](reference/diagnostics/INDEX.md) - Diagnostic catalog
@@ -139,7 +139,7 @@ spec/
 **Goal**: Build tools that consume Tsonic output
 **Time**: ~1-2 hours
 
-1. **[Contracts Overview](contracts/INDEX.md)** (15 min)
+1. **[Contracts Overview](contracts.md)** (15 min)
    - What are contracts?
    - Versioning strategy
    - Stability guarantees
