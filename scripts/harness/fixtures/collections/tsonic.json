@@ -1,0 +1,10 @@
+{
+  "rootNamespace": "CollectionsTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "collections-test",
+  "dotnet": {
+    "libraries": ["@types/dotnet"]
+  }
+}

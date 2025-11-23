@@ -1,0 +1,7 @@
+{
+  "rootNamespace": "HelloWorld",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "hello-world"
+}
