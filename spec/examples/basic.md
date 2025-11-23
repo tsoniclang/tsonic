@@ -51,6 +51,7 @@ export function printInfo(): void {
 ### C# Output
 
 ```csharp
+using System.Collections.Generic;
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
 
@@ -61,7 +62,7 @@ namespace My.App
         private static readonly string name = "Alice";
         private static readonly double age = 25;
         private static readonly bool isActive = true;
-        private static readonly Array<double> scores = new Array<double>(95, 87, 92);
+        private static readonly List<double> scores = new List<double> { 95, 87, 92 };
         private static readonly object user = new { name = "Bob", age = 30.0 };
 
         public static void printInfo()
@@ -69,7 +70,7 @@ namespace My.App
             console.log($"Name: {name}");
             console.log($"Age: {age}");
             console.log($"Active: {isActive}");
-            console.log($"Scores: {scores.join(", ")}");
+            console.log($"Scores: {Tsonic.Runtime.Array.join(scores, ", ")}");
             console.log($"User: {user.name} ({user.age})");
         }
     }
@@ -259,6 +260,7 @@ export function processArray(items: string[]): void {
 ### C# Output
 
 ```csharp
+using System.Collections.Generic;
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
 
@@ -305,7 +307,7 @@ namespace My.App
             }
         }
 
-        public static void processArray(Array<string> items)
+        public static void processArray(List<string> items)
         {
             foreach (var item in items)
             {

@@ -38,6 +38,7 @@ export function arrayOperations(): void {
 ### C# Output
 
 ```csharp
+using System.Collections.Generic;
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
 
@@ -47,35 +48,40 @@ namespace My.App
     {
         public static void arrayOperations()
         {
-            // Create arrays
-            var numbers = new Array<double>(1, 2, 3, 4, 5);
-            var names = new Array<string>("Alice", "Bob", "Charlie");
-            var mixed = new Array<object>(1, "two", true);
+            // Create arrays - TypeScript arrays become List<T>
+            var numbers = new List<double> { 1, 2, 3, 4, 5 };
+            var names = new List<string> { "Alice", "Bob", "Charlie" };
+            var mixed = new List<object> { 1, "two", true };
 
-            // Access elements
+            // Access elements - direct indexing works
             console.log(numbers[0]);  // 1
-            console.log(names[names.length - 1]);  // Charlie
+            console.log(names[names.Count - 1]);  // Charlie
 
-            // Modify arrays
-            numbers.push(6, 7);
-            var last = numbers.pop();
+            // Modify arrays - use static helpers in Tsonic.Runtime.Array
+            Tsonic.Runtime.Array.push(numbers, 6);
+            Tsonic.Runtime.Array.push(numbers, 7);
+            var last = Tsonic.Runtime.Array.pop(numbers);
 
-            var first = names.shift();
-            names.unshift("Adam");
+            var first = Tsonic.Runtime.Array.shift(names);
+            Tsonic.Runtime.Array.unshift(names, "Adam");
 
-            // Array properties
-            console.log($"Length: {numbers.length}");
-            numbers.length = 3;  // Truncate
+            // Array properties - use helper for length setter
+            console.log($"Length: {numbers.Count}");
+            Tsonic.Runtime.Array.setLength(numbers, 3);  // Truncate
 
-            // Sparse arrays (JavaScript feature)
-            var sparse = new Array<double>();
-            sparse[10] = 100;
-            console.log($"Sparse length: {sparse.length}");  // 11
-            console.log($"Sparse[5]: {sparse[5]}");  // 0 (MVP: holes return default(T), not undefined)
+            // Sparse arrays - List doesn't support holes, so use helper
+            var sparse = Tsonic.Runtime.Array.createSparse<double>();
+            Tsonic.Runtime.Array.setSparse(sparse, 10, 100);
+            console.log($"Sparse length: {Tsonic.Runtime.Array.getSparseLength(sparse)}");  // 11
+            console.log($"Sparse[5]: {Tsonic.Runtime.Array.getSparse(sparse, 5)}");  // 0 in MVP
         }
     }
 }
 ```
+
+**Note**: In the MVP, sparse arrays use a helper class that wraps `List<T>` and tracks holes. Full sparse array support will be added in a future version.
+
+---
 
 ## Array Methods
 
@@ -99,7 +105,7 @@ export function supportedMethods(): void {
   const includes = arr.includes(4);
   console.log(`Includes 4: ${includes}`);
 
-  // These would throw runtime errors (not implemented)
+  // These would throw runtime errors (not implemented in MVP)
   // const mapped = arr.map(x => x * 2);  // ERROR
   // const filtered = arr.filter(x => x > 2);  // ERROR
   // const sum = arr.reduce((a, b) => a + b, 0);  // ERROR
@@ -137,6 +143,7 @@ export function manualIterations(): void {
 ### C# Output
 
 ```csharp
+using System.Collections.Generic;
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
 
@@ -146,45 +153,45 @@ namespace My.App
     {
         public static void supportedMethods()
         {
-            var arr = new Array<double>(1, 2, 3, 4, 5);
+            var arr = new List<double> { 1, 2, 3, 4, 5 };
 
-            // Supported methods
-            var joined = arr.join(", ");
+            // Supported methods - use static helpers
+            var joined = Tsonic.Runtime.Array.join(arr, ", ");
             console.log($"Joined: {joined}");
 
-            var sliced = arr.slice(1, 3);
-            console.log($"Sliced: {sliced.join(",")}");
+            var sliced = Tsonic.Runtime.Array.slice(arr, 1, 3);
+            console.log($"Sliced: {Tsonic.Runtime.Array.join(sliced, ",")}");
 
-            var index = arr.indexOf(3);
+            var index = Tsonic.Runtime.Array.indexOf(arr, 3);
             console.log($"Index of 3: {index}");
 
-            var includes = arr.includes(4);
+            var includes = Tsonic.Runtime.Array.includes(arr, 4);
             console.log($"Includes 4: {includes}");
 
-            // These would throw runtime errors (not implemented)
-            // var mapped = arr.map(x => x * 2);  // ERROR
-            // var filtered = arr.filter(x => x > 2);  // ERROR
-            // var sum = arr.reduce((a, b) => a + b, 0);  // ERROR
+            // These would throw runtime errors (not implemented in MVP)
+            // var mapped = Tsonic.Runtime.Array.map(arr, x => x * 2);  // ERROR
+            // var filtered = Tsonic.Runtime.Array.filter(arr, x => x > 2);  // ERROR
+            // var sum = Tsonic.Runtime.Array.reduce(arr, (a, b) => a + b, 0);  // ERROR
         }
 
         public static void manualIterations()
         {
-            var arr = new Array<double>(1, 2, 3, 4, 5);
+            var arr = new List<double> { 1, 2, 3, 4, 5 };
 
             // Manual map
-            var doubled = new Array<double>();
+            var doubled = new List<double>();
             foreach (var n in arr)
             {
-                doubled.push(n * 2);
+                Tsonic.Runtime.Array.push(doubled, n * 2);
             }
 
             // Manual filter
-            var evens = new Array<double>();
+            var evens = new List<double>();
             foreach (var n in arr)
             {
                 if (n % 2 == 0)
                 {
-                    evens.push(n);
+                    Tsonic.Runtime.Array.push(evens, n);
                 }
             }
 
@@ -195,13 +202,15 @@ namespace My.App
                 sum += n;
             }
 
-            console.log($"Doubled: {doubled.join(",")}");
-            console.log($"Evens: {evens.join(",")}");
+            console.log($"Doubled: {Tsonic.Runtime.Array.join(doubled, ",")}");
+            console.log($"Evens: {Tsonic.Runtime.Array.join(evens, ",")}");
             console.log($"Sum: {sum}");
         }
     }
 }
 ```
+
+---
 
 ## Multidimensional Arrays
 
@@ -241,6 +250,7 @@ export class Matrix {
 ### C# Output
 
 ```csharp
+using System.Collections.Generic;
 using Tsonic.Runtime;
 using static Tsonic.Runtime.Globals;
 
@@ -248,17 +258,20 @@ namespace My.App
 {
     public class Matrix
     {
-        private Array<Array<double>> data;
+        private List<List<double>> data;
 
         public Matrix(double rows, double cols)
         {
-            this.data = new Array<Array<double>>();
+            this.data = new List<List<double>>();
             for (var i = 0; i < rows; i++)
             {
-                this.data[i] = new Array<double>();
+                // Create new inner list
+                var row = new List<double>();
+                Tsonic.Runtime.Array.push(this.data, row);
+
                 for (var j = 0; j < cols; j++)
                 {
-                    this.data[i][j] = 0;
+                    Tsonic.Runtime.Array.push(this.data[(int)i], 0);
                 }
             }
         }
@@ -277,12 +290,14 @@ namespace My.App
         {
             foreach (var row in this.data)
             {
-                console.log(row.join(" "));
+                console.log(Tsonic.Runtime.Array.join(row, " "));
             }
         }
     }
 }
 ```
+
+---
 
 ## Array Type Conversions
 
@@ -293,17 +308,17 @@ namespace My.App
 import { List } from "System.Collections.Generic";
 
 export function mixedArrayTypes(): void {
-  // Tsonic.Runtime.Array (JS semantics)
-  const jsArray: number[] = [1, 2, 3];
-  jsArray[10] = 100; // Sparse array supported
+  // TypeScript array (becomes List<T>)
+  const tsArray: number[] = [1, 2, 3];
+  tsArray.push(4);  // Compiles to static helper
 
-  // .NET List (when explicitly imported)
+  // Explicit .NET List (when explicitly imported and newed)
   const dotnetList = new List<number>();
-  dotnetList.Add(1);
+  dotnetList.Add(1);  // C# method
   dotnetList.Add(2);
   dotnetList.Add(3);
 
-  console.log(`JS Array length: ${jsArray.length}`);
+  console.log(`TS Array length: ${tsArray.length}`);
   console.log(`NET List count: ${dotnetList.Count}`);
 }
 ```
@@ -321,19 +336,63 @@ namespace My.App
     {
         public static void mixedArrayTypes()
         {
-            // Tsonic.Runtime.Array (JS semantics)
-            var jsArray = new Array<double>(1, 2, 3);
-            jsArray[10] = 100;  // Sparse array supported
+            // TypeScript array (becomes List<T>)
+            var tsArray = new List<double> { 1, 2, 3 };
+            Tsonic.Runtime.Array.push(tsArray, 4);  // Static helper
 
-            // .NET List (when explicitly imported)
+            // Explicit .NET List
             var dotnetList = new List<double>();
-            dotnetList.Add(1);
+            dotnetList.Add(1);  // C# method
             dotnetList.Add(2);
             dotnetList.Add(3);
 
-            console.log($"JS Array length: {jsArray.length}");
+            console.log($"TS Array length: {tsArray.Count}");
             console.log($"NET List count: {dotnetList.Count}");
         }
     }
 }
 ```
+
+**Note**: Both TypeScript arrays and explicit `new List<T>()` compile to the same C# `List<T>`. The difference is in how you call methods:
+- TypeScript array methods → Static helpers
+- .NET List methods → Instance methods
+
+---
+
+## Array Semantics Reference
+
+### TypeScript → C# Mapping
+
+| TypeScript | C# |
+|------------|-----|
+| `number[]` | `List<double>` |
+| `string[]` | `List<string>` |
+| `T[]` | `List<T>` |
+| `arr[i]` | `arr[i]` (direct indexing) |
+| `arr.length` | `arr.Count` (read), `Tsonic.Runtime.Array.setLength(arr, n)` (write) |
+| `arr.push(x)` | `Tsonic.Runtime.Array.push(arr, x)` |
+| `arr.pop()` | `Tsonic.Runtime.Array.pop(arr)` |
+| `arr.shift()` | `Tsonic.Runtime.Array.shift(arr)` |
+| `arr.unshift(x)` | `Tsonic.Runtime.Array.unshift(arr, x)` |
+| `arr.join(sep)` | `Tsonic.Runtime.Array.join(arr, sep)` |
+| `arr.slice(start, end)` | `Tsonic.Runtime.Array.slice(arr, start, end)` |
+| `arr.indexOf(x)` | `Tsonic.Runtime.Array.indexOf(arr, x)` |
+| `arr.includes(x)` | `Tsonic.Runtime.Array.includes(arr, x)` |
+
+### Why Static Helpers?
+
+TypeScript arrays have JavaScript semantics (sparse arrays, length setter, etc.) that don't map directly to C# `List<T>`. Static helpers in `Tsonic.Runtime.Array` preserve exact JavaScript behavior while using `List<T>` as the underlying storage.
+
+**Benefits**:
+- Uses standard .NET collections (no custom classes)
+- Exact JavaScript semantics
+- Interoperates with .NET code
+- Clear distinction between Tsonic arrays and .NET collections
+
+---
+
+## See Also
+
+- [Type Mappings](../reference/language/types.md) - Complete type mapping reference
+- [Runtime Specification](../reference/runtime/array.md) - Full Array helper API
+- [Basic Examples](./basic.md) - More introductory examples
