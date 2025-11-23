@@ -9,6 +9,7 @@ Complete guide to using .NET libraries from Tsonic.
 Tsonic provides seamless interop with the entire .NET ecosystem. Import and use any .NET library as if it were a TypeScript module.
 
 **Key Benefits**:
+
 - No FFI or wrapper code
 - Full type safety
 - Access to mature .NET libraries
@@ -29,6 +30,7 @@ How to import .NET types and namespaces:
 - Static vs instance members
 
 **Quick Example**:
+
 ```typescript
 import { File, Directory, Path } from "System.IO";
 import { HttpClient } from "System.Net.Http";
@@ -63,13 +65,14 @@ Handling .NET methods with ref/out parameters:
 - Pattern and best practices
 
 **Quick Example**:
+
 ```typescript
 import { TSByRef } from "_support/types";
 import { Int32 } from "System";
 
 const result: TSByRef<number> = { value: 0 };
 const success = Int32.TryParse("42", result);
-console.log(result.value);  // 42
+console.log(result.value); // 42
 ```
 
 ### [Explicit Interface Implementation](explicit-interfaces.md)
@@ -81,6 +84,7 @@ Calling explicitly implemented interface methods:
 - Common scenarios (IDisposable, etc.)
 
 **Quick Example**:
+
 ```typescript
 resource.As_IDisposable.Dispose();
 ```
@@ -95,12 +99,11 @@ Using C# extension methods (especially LINQ):
 - Method chaining
 
 **Quick Example**:
+
 ```typescript
 import { Enumerable } from "System.Linq";
 
-const evens = Enumerable
-  .Where(numbers, n => n % 2 === 0)
-  .ToArray();
+const evens = Enumerable.Where(numbers, (n) => n % 2 === 0).ToArray();
 ```
 
 ### [Nested Types](nested-types.md)
@@ -112,6 +115,7 @@ Importing and using nested .NET types:
 - Generic nested types
 
 **Quick Example**:
+
 ```typescript
 // .NET: System.Environment.SpecialFolder
 import { Environment$SpecialFolder } from "System";
@@ -230,9 +234,8 @@ dict.Add("two", 2);
 ```typescript
 import { Enumerable } from "System.Linq";
 
-const evens = Enumerable
-  .Where(numbers, n => n % 2 === 0)
-  .Select(n => n * 2)
+const evens = Enumerable.Where(numbers, (n) => n % 2 === 0)
+  .Select((n) => n * 2)
   .ToArray();
 ```
 
@@ -243,26 +246,26 @@ const evens = Enumerable
 ### Primitives
 
 | TypeScript | .NET Input | .NET Output |
-|------------|------------|-------------|
-| `number` | `double` | `double` |
-| `string` | `string` | `string` |
-| `boolean` | `bool` | `bool` |
+| ---------- | ---------- | ----------- |
+| `number`   | `double`   | `double`    |
+| `string`   | `string`   | `string`    |
+| `boolean`  | `bool`     | `bool`      |
 
 ### Collections
 
-| TypeScript | .NET | Notes |
-|------------|------|-------|
-| `Array<T>` | `List<T>` | For passing to .NET APIs |
-| `Map<K,V>` | `Dictionary<K,V>` | Key-value pairs |
-| `Set<T>` | `HashSet<T>` | Unique values |
+| TypeScript | .NET              | Notes                    |
+| ---------- | ----------------- | ------------------------ |
+| `Array<T>` | `List<T>`         | For passing to .NET APIs |
+| `Map<K,V>` | `Dictionary<K,V>` | Key-value pairs          |
+| `Set<T>`   | `HashSet<T>`      | Unique values            |
 
 ### Special Cases
 
-| TypeScript | .NET | Pattern |
-|------------|------|---------|
-| out param | `TSByRef<T>` | `{ value: T }` wrapper |
-| ref param | `TSByRef<T>` | `{ value: T }` wrapper |
-| Nested type | `Outer$Inner` | Dollar-sign separator |
+| TypeScript  | .NET          | Pattern                |
+| ----------- | ------------- | ---------------------- |
+| out param   | `TSByRef<T>`  | `{ value: T }` wrapper |
+| ref param   | `TSByRef<T>`  | `{ value: T }` wrapper |
+| Nested type | `Outer$Inner` | Dollar-sign separator  |
 
 ---
 
@@ -298,7 +301,10 @@ const data = await client.GetStringAsync("https://api.example.com/data");
 // POST
 const json = '{"name": "Alice"}';
 const content = new StringContent(json, Encoding.UTF8, "application/json");
-const response = await client.PostAsync("https://api.example.com/users", content);
+const response = await client.PostAsync(
+  "https://api.example.com/users",
+  content
+);
 ```
 
 ### Working with JSON
@@ -330,16 +336,15 @@ import { Enumerable } from "System.Linq";
 const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 // Filter
-const evens = Enumerable.Where(numbers, n => n % 2 === 0).ToArray();
+const evens = Enumerable.Where(numbers, (n) => n % 2 === 0).ToArray();
 
 // Map
-const doubled = Enumerable.Select(numbers, n => n * 2).ToArray();
+const doubled = Enumerable.Select(numbers, (n) => n * 2).ToArray();
 
 // Chain
-const result = Enumerable
-  .Where(numbers, n => n > 5)
-  .Select(n => n * 2)
-  .OrderByDescending(n => n)
+const result = Enumerable.Where(numbers, (n) => n > 5)
+  .Select((n) => n * 2)
+  .OrderByDescending((n) => n)
   .ToArray();
 
 // Aggregate
@@ -391,7 +396,7 @@ list.Add(42);
 
 // ❌ BAD - Boxing to object
 const list = new List<object>();
-list.Add(42);  // Boxes to object
+list.Add(42); // Boxes to object
 ```
 
 ### 2. Use Appropriate Collections
@@ -406,7 +411,7 @@ const dict = new Dictionary<string, number>();
 // ❌ BAD - Array for frequent additions
 const arr: number[] = [];
 for (let i = 0; i < 10000; i++) {
-  arr.push(i);  // Slow for large arrays
+  arr.push(i); // Slow for large arrays
 }
 ```
 

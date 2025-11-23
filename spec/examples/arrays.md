@@ -310,11 +310,11 @@ import { List } from "System.Collections.Generic";
 export function mixedArrayTypes(): void {
   // TypeScript array (becomes List<T>)
   const tsArray: number[] = [1, 2, 3];
-  tsArray.push(4);  // Compiles to static helper
+  tsArray.push(4); // Compiles to static helper
 
   // Explicit .NET List (when explicitly imported and newed)
   const dotnetList = new List<number>();
-  dotnetList.Add(1);  // C# method
+  dotnetList.Add(1); // C# method
   dotnetList.Add(2);
   dotnetList.Add(3);
 
@@ -354,6 +354,7 @@ namespace My.App
 ```
 
 **Note**: Both TypeScript arrays and explicit `new List<T>()` compile to the same C# `List<T>`. The difference is in how you call methods:
+
 - TypeScript array methods → Static helpers
 - .NET List methods → Instance methods
 
@@ -363,27 +364,28 @@ namespace My.App
 
 ### TypeScript → C# Mapping
 
-| TypeScript | C# |
-|------------|-----|
-| `number[]` | `List<double>` |
-| `string[]` | `List<string>` |
-| `T[]` | `List<T>` |
-| `arr[i]` | `arr[i]` (direct indexing) |
-| `arr.length` | `arr.Count` (read), `Tsonic.Runtime.Array.setLength(arr, n)` (write) |
-| `arr.push(x)` | `Tsonic.Runtime.Array.push(arr, x)` |
-| `arr.pop()` | `Tsonic.Runtime.Array.pop(arr)` |
-| `arr.shift()` | `Tsonic.Runtime.Array.shift(arr)` |
-| `arr.unshift(x)` | `Tsonic.Runtime.Array.unshift(arr, x)` |
-| `arr.join(sep)` | `Tsonic.Runtime.Array.join(arr, sep)` |
-| `arr.slice(start, end)` | `Tsonic.Runtime.Array.slice(arr, start, end)` |
-| `arr.indexOf(x)` | `Tsonic.Runtime.Array.indexOf(arr, x)` |
-| `arr.includes(x)` | `Tsonic.Runtime.Array.includes(arr, x)` |
+| TypeScript              | C#                                                                   |
+| ----------------------- | -------------------------------------------------------------------- |
+| `number[]`              | `List<double>`                                                       |
+| `string[]`              | `List<string>`                                                       |
+| `T[]`                   | `List<T>`                                                            |
+| `arr[i]`                | `arr[i]` (direct indexing)                                           |
+| `arr.length`            | `arr.Count` (read), `Tsonic.Runtime.Array.setLength(arr, n)` (write) |
+| `arr.push(x)`           | `Tsonic.Runtime.Array.push(arr, x)`                                  |
+| `arr.pop()`             | `Tsonic.Runtime.Array.pop(arr)`                                      |
+| `arr.shift()`           | `Tsonic.Runtime.Array.shift(arr)`                                    |
+| `arr.unshift(x)`        | `Tsonic.Runtime.Array.unshift(arr, x)`                               |
+| `arr.join(sep)`         | `Tsonic.Runtime.Array.join(arr, sep)`                                |
+| `arr.slice(start, end)` | `Tsonic.Runtime.Array.slice(arr, start, end)`                        |
+| `arr.indexOf(x)`        | `Tsonic.Runtime.Array.indexOf(arr, x)`                               |
+| `arr.includes(x)`       | `Tsonic.Runtime.Array.includes(arr, x)`                              |
 
 ### Why Static Helpers?
 
 TypeScript arrays have JavaScript semantics (sparse arrays, length setter, etc.) that don't map directly to C# `List<T>`. Static helpers in `Tsonic.Runtime.Array` preserve exact JavaScript behavior while using `List<T>` as the underlying storage.
 
 **Benefits**:
+
 - Uses standard .NET collections (no custom classes)
 - Exact JavaScript semantics
 - Interoperates with .NET code

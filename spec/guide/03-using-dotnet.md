@@ -13,6 +13,7 @@
 One of Tsonic's key features is seamless .NET interop. You can import and use any .NET library just like a TypeScript module.
 
 **Key Benefits**:
+
 - Access to entire .NET ecosystem
 - File I/O, HTTP, JSON, XML, databases, and more
 - High-performance native libraries
@@ -107,13 +108,13 @@ export function main(): void {
   // Unix: data/users/alice.json
 
   // Get file name
-  const fileName = Path.GetFileName(filePath);  // "alice.json"
+  const fileName = Path.GetFileName(filePath); // "alice.json"
 
   // Get extension
-  const ext = Path.GetExtension(filePath);      // ".json"
+  const ext = Path.GetExtension(filePath); // ".json"
 
   // Get directory
-  const dir = Path.GetDirectoryName(filePath);  // "data/users"
+  const dir = Path.GetDirectoryName(filePath); // "data/users"
 
   // Check if file exists
   if (File.Exists(filePath)) {
@@ -140,7 +141,9 @@ export async function main(): Promise<void> {
   const client = new HttpClient();
 
   // GET request
-  const response = await client.GetStringAsync("https://api.github.com/users/github");
+  const response = await client.GetStringAsync(
+    "https://api.github.com/users/github"
+  );
   console.log(response);
 
   // With headers
@@ -162,7 +165,10 @@ export async function main(): Promise<void> {
   const json = '{"name": "Alice", "age": 30}';
   const content = new StringContent(json, Encoding.UTF8, "application/json");
 
-  const response = await client.PostAsync("https://api.example.com/users", content);
+  const response = await client.PostAsync(
+    "https://api.example.com/users",
+    content
+  );
   const result = await response.Content.ReadAsStringAsync();
   console.log(result);
 }
@@ -188,7 +194,7 @@ export function main(): void {
 
   // Deserialize
   const user = JsonSerializer.Deserialize<User>(json);
-  console.log(user.name);  // "Alice"
+  console.log(user.name); // "Alice"
 }
 ```
 
@@ -207,7 +213,7 @@ export function main(): void {
   const user: User = {
     name: "Alice",
     age: 30,
-    email: "alice@example.com"
+    email: "alice@example.com",
   };
 
   // Serialize
@@ -241,7 +247,7 @@ export function main(): void {
   numbers.Add(3);
 
   // Access by index
-  console.log(numbers[0]);  // 1
+  console.log(numbers[0]); // 1
 
   // Iterate
   for (const num of numbers) {
@@ -249,7 +255,7 @@ export function main(): void {
   }
 
   // Count
-  console.log(numbers.Count);  // 3
+  console.log(numbers.Count); // 3
 
   // Contains
   if (numbers.Contains(2)) {
@@ -264,7 +270,7 @@ export function main(): void {
 // JavaScript array (Tsonic.Runtime.Array)
 const jsArray: number[] = [1, 2, 3];
 jsArray.push(4);
-jsArray.map(n => n * 2);
+jsArray.map((n) => n * 2);
 
 // .NET List (System.Collections.Generic.List)
 import { List } from "System.Collections.Generic";
@@ -274,6 +280,7 @@ dotnetList.Add(2);
 ```
 
 **When to use each**:
+
 - **JavaScript arrays**: For TypeScript-style code, array methods (map/filter/reduce)
 - **.NET List**: For .NET interop, passing to .NET APIs
 
@@ -290,31 +297,26 @@ export function main(): void {
   const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
   // Filter
-  const evens = Enumerable
-    .Where(numbers, n => n % 2 === 0)
-    .ToArray();
+  const evens = Enumerable.Where(numbers, (n) => n % 2 === 0).ToArray();
   // [2, 4, 6, 8, 10]
 
   // Map (Select)
-  const doubled = Enumerable
-    .Select(numbers, n => n * 2)
-    .ToArray();
+  const doubled = Enumerable.Select(numbers, (n) => n * 2).ToArray();
   // [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
 
   // Filter and map
-  const result = Enumerable
-    .Where(numbers, n => n > 5)
-    .Select(n => n * 2)
+  const result = Enumerable.Where(numbers, (n) => n > 5)
+    .Select((n) => n * 2)
     .ToArray();
   // [12, 14, 16, 18, 20]
 
   // Aggregate (reduce)
-  const sum = Enumerable.Sum(numbers);  // 55
+  const sum = Enumerable.Sum(numbers); // 55
 
   // First/Last
-  const first = Enumerable.First(numbers);      // 1
-  const last = Enumerable.Last(numbers);        // 10
-  const firstEven = Enumerable.First(evens);    // 2
+  const first = Enumerable.First(numbers); // 1
+  const last = Enumerable.Last(numbers); // 10
+  const firstEven = Enumerable.First(evens); // 2
 }
 ```
 
@@ -338,7 +340,7 @@ export function main(): void {
   const success = Int32.TryParse(input, result);
 
   if (success) {
-    console.log(`Parsed: ${result.value}`);  // 42
+    console.log(`Parsed: ${result.value}`); // 42
   }
 }
 ```
@@ -355,7 +357,7 @@ export function main(): void {
   // Method modifies counter.value
   SomeClass.IncrementRef(counter);
 
-  console.log(counter.value);  // 1
+  console.log(counter.value); // 1
 }
 ```
 
@@ -400,7 +402,7 @@ export function main(): void {
 
   // Formatting
   const formatted = now.ToString("yyyy-MM-dd");
-  console.log(formatted);  // "2025-11-23"
+  console.log(formatted); // "2025-11-23"
 
   // Comparison
   if (now > birthday) {
@@ -423,7 +425,7 @@ export function main(): void {
 
   // Platform info
   const os = Environment.OSVersion.Platform;
-  console.log(os);  // Unix, Win32NT, etc.
+  console.log(os); // Unix, Win32NT, etc.
 
   // Current directory
   const cwd = Environment.CurrentDirectory;
@@ -453,11 +455,13 @@ export function main(): void {
 ```
 
 Run with:
+
 ```bash
 ./bin/main arg1 arg2 arg3
 ```
 
 Output:
+
 ```
 Arg 1: arg1
 Arg 2: arg2
@@ -483,7 +487,9 @@ async function fetchUsers(): Promise<User[]> {
   const client = new HttpClient();
   client.DefaultRequestHeaders.Add("User-Agent", "Tsonic-App");
 
-  const json = await client.GetStringAsync("https://jsonplaceholder.typicode.com/users");
+  const json = await client.GetStringAsync(
+    "https://jsonplaceholder.typicode.com/users"
+  );
   const users = JsonSerializer.Deserialize<User[]>(json);
 
   return users;
@@ -589,15 +595,15 @@ export function main(): void {
 
 ## Type Mappings Reference
 
-| .NET Type | TypeScript Type | Notes |
-|-----------|----------------|-------|
-| `string` | `string` | UTF-16 string |
-| `int`, `long` | `number` | Mapped to `double` |
-| `double`, `float` | `number` | Direct mapping |
-| `bool` | `boolean` | Direct mapping |
-| `DateTime` | `DateTime` | .NET type used directly |
-| `List<T>` | `List<T>` | .NET type used directly |
-| `T[]` | `number[]` | JavaScript array with Tsonic runtime |
+| .NET Type         | TypeScript Type | Notes                                |
+| ----------------- | --------------- | ------------------------------------ |
+| `string`          | `string`        | UTF-16 string                        |
+| `int`, `long`     | `number`        | Mapped to `double`                   |
+| `double`, `float` | `number`        | Direct mapping                       |
+| `bool`            | `boolean`       | Direct mapping                       |
+| `DateTime`        | `DateTime`      | .NET type used directly              |
+| `List<T>`         | `List<T>`       | .NET type used directly              |
+| `T[]`             | `number[]`      | JavaScript array with Tsonic runtime |
 
 See [.NET Type Mappings](../reference/dotnet/type-mappings.md) for complete reference.
 

@@ -3,6 +3,7 @@
 **Goal**: Get your first Tsonic program running in 5 minutes
 
 **Prerequisites**:
+
 - Node.js 18+ installed
 - .NET 8.0 SDK installed
 
@@ -50,6 +51,7 @@ export function main(): void {
 ```
 
 **Important**:
+
 - Entry point MUST export a `main()` function
 - File MUST be named `main.ts` at project root
 
@@ -62,12 +64,14 @@ tsonic build main.ts
 ```
 
 This will:
+
 1. Parse your TypeScript code
 2. Generate C# code in `.tsonic/generated/`
 3. Compile to native executable with NativeAOT
 4. Output executable: `./bin/main` (or `main.exe` on Windows)
 
 **Expected output**:
+
 ```
 [tsonic] Parsing TypeScript...
 [tsonic] Generating C#...
@@ -84,11 +88,13 @@ This will:
 ```
 
 **Output**:
+
 ```
 Hello from Tsonic!
 ```
 
 **Windows**:
+
 ```bash
 .\bin\main.exe
 ```
@@ -150,7 +156,7 @@ export function main(): void {
 // main.ts
 export function main(): void {
   const numbers = [1, 2, 3, 4, 5];
-  const doubled = numbers.map(n => n * 2);
+  const doubled = numbers.map((n) => n * 2);
   console.log(doubled); // [2, 4, 6, 8, 10]
 }
 ```
@@ -208,10 +214,10 @@ import { User } from "./models/User.ts";
 import { File } from "System.IO";
 
 // ❌ WRONG - Missing .ts for local import
-import { User } from "./models/User";  // ERROR TSN1001
+import { User } from "./models/User"; // ERROR TSN1001
 
 // ❌ WRONG - .ts extension on .NET import
-import { File } from "System.IO.ts";   // Makes no sense
+import { File } from "System.IO.ts"; // Makes no sense
 ```
 
 **Why?**: This is part of the ESM standard. It ensures imports are explicit and unambiguous.
@@ -223,11 +229,13 @@ import { File } from "System.IO.ts";   // Makes no sense
 ### "Cannot find module" Error
 
 **Problem**:
+
 ```
 ERROR TSN1001: Cannot resolve module './User'
 ```
 
 **Solution**: Add `.ts` extension:
+
 ```typescript
 // Change this:
 import { User } from "./User";
@@ -239,11 +247,13 @@ import { User } from "./User.ts";
 ### "No main() function found" Error
 
 **Problem**:
+
 ```
 ERROR TSN5001: No exported main() function found in main.ts
 ```
 
 **Solution**: Ensure your entry point exports `main()`:
+
 ```typescript
 // Add this to main.ts:
 export function main(): void {
@@ -254,11 +264,13 @@ export function main(): void {
 ### NativeAOT Build Fails
 
 **Problem**:
+
 ```
 ERROR TSN5003: NativeAOT compilation failed
 ```
 
 **Solution**: Ensure .NET 8.0 SDK is installed:
+
 ```bash
 dotnet --version  # Should show 8.0.x
 ```
@@ -278,13 +290,13 @@ Now that you have a working program, learn more:
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
+| Task          | Command                |
+| ------------- | ---------------------- |
 | Build program | `tsonic build main.ts` |
-| Run program | `./bin/main` |
-| Check version | `tsonic --version` |
-| Get help | `tsonic --help` |
-| Clean build | `rm -rf .tsonic bin` |
+| Run program   | `./bin/main`           |
+| Check version | `tsonic --version`     |
+| Get help      | `tsonic --help`        |
+| Clean build   | `rm -rf .tsonic bin`   |
 
 ---
 

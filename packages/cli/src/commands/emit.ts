@@ -2,7 +2,13 @@
  * tsonic emit command - Generate C# code only
  */
 
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  copyFileSync,
+} from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import {
   compile,
@@ -20,6 +26,16 @@ import {
   type LibraryConfig,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../types.js";
+
+/**
+ * Find project .csproj file in current directory
+ */
+const findProjectCsproj = (): string | null => {
+  const cwd = process.cwd();
+  const files = readdirSync(cwd);
+  const csprojFile = files.find((f) => f.endsWith(".csproj"));
+  return csprojFile ? join(cwd, csprojFile) : null;
+};
 
 /**
  * Extract entry point information from IR module
@@ -165,9 +181,20 @@ export const emitCommand = (
       }
     }
 
-    // Generate or preserve tsonic.csproj
+    // Generate or copy existing .csproj
     const csprojPath = join(outputDir, "tsonic.csproj");
-    if (!existsSync(csprojPath)) {
+    const projectCsproj = findProjectCsproj();
+
+    if (projectCsproj) {
+      // Copy existing .csproj from project root (preserves user edits)
+      copyFileSync(projectCsproj, csprojPath);
+
+      if (config.verbose) {
+        console.log(
+          `  Copied: ${relative(process.cwd(), projectCsproj)} → ${relative(process.cwd(), csprojPath)} (user edits preserved)`
+        );
+      }
+    } else if (!existsSync(csprojPath)) {
       // Find Tsonic.Runtime.csproj path - try multiple locations
       let runtimePath: string | undefined;
 

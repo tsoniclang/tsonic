@@ -10,6 +10,7 @@ import {
   rmSync,
   chmodSync,
   existsSync,
+  readdirSync,
 } from "fs";
 import { join, dirname } from "path";
 import { BuildOptions, BuildResult, BuildConfig, EntryInfo } from "./types.js";
@@ -42,6 +43,17 @@ const copyGeneratedFiles = (
     mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, csContent, "utf-8");
   }
+};
+
+/**
+ * Find project .csproj file in current directory
+ */
+const findProjectCsproj = (): string | null => {
+  const cwd = process.cwd();
+  // Look for *.csproj in current directory
+  const files = readdirSync(cwd);
+  const csprojFile = files.find((f) => f.endsWith(".csproj"));
+  return csprojFile ? join(cwd, csprojFile) : null;
 };
 
 /**
@@ -117,26 +129,34 @@ export const buildNativeAot = (
       writeFileSync(join(buildDir, "Program.cs"), programCs, "utf-8");
     }
 
-    // Generate .csproj
-    const buildConfig: BuildConfig = {
-      rootNamespace: options.namespace,
-      outputName: options.outputName || "tsonic",
-      dotnetVersion: options.dotnetVersion || "net10.0",
-      packages: [], // TODO: Auto-detect from imports
-      outputConfig: {
-        type: "executable",
-        nativeAot: true,
-        singleFile: true,
-        trimmed: true,
-        stripSymbols: options.stripSymbols ?? true,
-        optimization: options.optimizationPreference || "Speed",
-        invariantGlobalization: true,
-        selfContained: true,
-      },
-    };
+    // Use existing project .csproj if available, otherwise generate one
+    const projectCsproj = findProjectCsproj();
+    if (projectCsproj) {
+      // Copy existing .csproj to build directory (preserves user edits)
+      const csprojFilename = projectCsproj.split("/").pop() || "project.csproj";
+      copyFileSync(projectCsproj, join(buildDir, csprojFilename));
+    } else {
+      // Generate temporary .csproj for build
+      const buildConfig: BuildConfig = {
+        rootNamespace: options.namespace,
+        outputName: options.outputName || "tsonic",
+        dotnetVersion: options.dotnetVersion || "net10.0",
+        packages: [], // TODO: Auto-detect from imports
+        outputConfig: {
+          type: "executable",
+          nativeAot: true,
+          singleFile: true,
+          trimmed: true,
+          stripSymbols: options.stripSymbols ?? true,
+          optimization: options.optimizationPreference || "Speed",
+          invariantGlobalization: true,
+          selfContained: true,
+        },
+      };
 
-    const csprojContent = generateCsproj(buildConfig);
-    writeFileSync(join(buildDir, "tsonic.csproj"), csprojContent, "utf-8");
+      const csprojContent = generateCsproj(buildConfig);
+      writeFileSync(join(buildDir, "tsonic.csproj"), csprojContent, "utf-8");
+    }
 
     // Detect RID
     const rid = options.rid || detectRid();

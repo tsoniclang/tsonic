@@ -38,6 +38,7 @@ tsonic build main.ts --release
 ```
 
 **Optimizations applied**:
+
 - Code optimization (O3)
 - Dead code elimination
 - Assembly trimming
@@ -75,14 +76,14 @@ tsonic build main.ts --runtime osx-x64 --release
 
 ### Available Runtimes
 
-| Runtime ID | Platform | Architecture |
-|------------|----------|--------------|
-| `linux-x64` | Linux | x86_64 |
-| `linux-arm64` | Linux | ARM64 |
-| `win-x64` | Windows | x86_64 |
-| `win-arm64` | Windows | ARM64 |
-| `osx-x64` | macOS | x86_64 (Intel) |
-| `osx-arm64` | macOS | ARM64 (Apple Silicon) |
+| Runtime ID    | Platform | Architecture          |
+| ------------- | -------- | --------------------- |
+| `linux-x64`   | Linux    | x86_64                |
+| `linux-arm64` | Linux    | ARM64                 |
+| `win-x64`     | Windows  | x86_64                |
+| `win-arm64`   | Windows  | ARM64                 |
+| `osx-x64`     | macOS    | x86_64 (Intel)        |
+| `osx-arm64`   | macOS    | ARM64 (Apple Silicon) |
 
 ---
 
@@ -202,12 +203,12 @@ export function loadConfig(): AppConfig {
     database: {
       host: "localhost",
       port: 5432,
-      name: "myapp"
+      name: "myapp",
     },
     api: {
       baseUrl: "http://localhost:3000",
-      timeout: 30000
-    }
+      timeout: 30000,
+    },
   };
 }
 ```
@@ -232,12 +233,12 @@ export const PRODUCTION_CONFIG = {
   database: {
     host: "db.production.com",
     port: 5432,
-    name: "myapp_prod"
+    name: "myapp_prod",
   },
   api: {
     baseUrl: "https://api.production.com",
-    timeout: 30000
-  }
+    timeout: 30000,
+  },
 };
 ```
 
@@ -269,7 +270,8 @@ export function log(level: string, message: string): void {
   const logLine = `[${timestamp}] ${level}: ${message}\n`;
 
   // Get log path from environment or use default
-  const logDir = Environment.GetEnvironmentVariable("LOG_DIR") ?? "/var/log/myapp";
+  const logDir =
+    Environment.GetEnvironmentVariable("LOG_DIR") ?? "/var/log/myapp";
   const logPath = Path.Combine(logDir, "app.log");
 
   // Append to log file
@@ -308,12 +310,16 @@ interface LogEntry {
   metadata?: Record<string, unknown>;
 }
 
-export function log(level: string, message: string, metadata?: Record<string, unknown>): void {
+export function log(
+  level: string,
+  message: string,
+  metadata?: Record<string, unknown>
+): void {
   const entry: LogEntry = {
     timestamp: new Date().toISOString(),
     level,
     message,
-    metadata
+    metadata,
   };
 
   const json = JsonSerializer.Serialize(entry);
@@ -351,14 +357,14 @@ export function checkHealth(): HealthStatus {
   const checks = {
     database: checkDatabase(),
     disk: checkDisk(),
-    memory: checkMemory()
+    memory: checkMemory(),
   };
 
-  const allHealthy = Object.values(checks).every(c => c);
+  const allHealthy = Object.values(checks).every((c) => c);
 
   return {
     status: allHealthy ? "healthy" : "unhealthy",
-    checks
+    checks,
   };
 }
 
@@ -375,7 +381,8 @@ function checkDisk(): boolean {
   try {
     // Check disk space
     const driveInfo = new DriveInfo("/");
-    const freePercent = (driveInfo.AvailableFreeSpace / driveInfo.TotalSize) * 100;
+    const freePercent =
+      (driveInfo.AvailableFreeSpace / driveInfo.TotalSize) * 100;
     return freePercent > 10; // At least 10% free
   } catch {
     return false;
@@ -435,7 +442,7 @@ export function getMetrics(): Metrics {
     uptime: uptimeSec,
     requestsTotal: requestCount,
     requestsPerSecond: requestCount / uptimeSec,
-    errorRate: requestCount > 0 ? errorCount / requestCount : 0
+    errorRate: requestCount > 0 ? errorCount / requestCount : 0,
   };
 }
 
@@ -498,7 +505,10 @@ Usage:
 
 ```typescript
 // main.ts
-import { setupGracefulShutdown, registerShutdownHandler } from "./src/shutdown.ts";
+import {
+  setupGracefulShutdown,
+  registerShutdownHandler,
+} from "./src/shutdown.ts";
 import { Database } from "./src/database.ts";
 
 export function main(): void {
@@ -641,7 +651,7 @@ function processFile(path: string): void {
 import { HttpClient } from "System.Net.Http";
 
 const client = new HttpClient();
-client.BaseAddress = new Uri("https://api.example.com");  // ← HTTPS
+client.BaseAddress = new Uri("https://api.example.com"); // ← HTTPS
 ```
 
 ---
@@ -670,7 +680,10 @@ Before deploying to production:
 import { WebApplication } from "Microsoft.AspNetCore.Builder";
 import { loadConfig } from "./src/config.ts";
 import { setupLogging } from "./src/logger.ts";
-import { setupGracefulShutdown, registerShutdownHandler } from "./src/shutdown.ts";
+import {
+  setupGracefulShutdown,
+  registerShutdownHandler,
+} from "./src/shutdown.ts";
 import { checkHealth } from "./src/health.ts";
 import { exportPrometheus } from "./src/metrics.ts";
 

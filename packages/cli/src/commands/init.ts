@@ -5,7 +5,9 @@
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { generateCsproj } from "@tsonic/backend";
 import type { Result } from "../types.js";
+import type { BuildConfig, ExecutableConfig } from "@tsonic/backend";
 
 type InitOptions = {
   readonly skipTypes?: boolean;
@@ -257,10 +259,37 @@ export const initProject = (
       console.log("✓ Created README.md");
     }
 
+    // Create .csproj file
+    const csprojPath = join(cwd, "MyApp.csproj");
+    if (!existsSync(csprojPath)) {
+      const buildConfig: BuildConfig = {
+        rootNamespace: "MyApp",
+        outputName: "app",
+        dotnetVersion: "net10.0",
+        packages: [],
+        outputConfig: {
+          type: "executable",
+          nativeAot: true,
+          singleFile: true,
+          trimmed: true,
+          stripSymbols: true,
+          optimization: "Speed",
+          invariantGlobalization: true,
+          selfContained: true,
+        } satisfies ExecutableConfig,
+      };
+      const csprojContent = generateCsproj(buildConfig);
+      writeFileSync(csprojPath, csprojContent, "utf-8");
+      console.log("✓ Created MyApp.csproj");
+    }
+
     console.log("\n✓ Project initialized successfully!");
     console.log("\nNext steps:");
     console.log("  npm run build   # Build executable");
     console.log("  npm run dev     # Run directly");
+    console.log("\nYou can now:");
+    console.log("  - Edit MyApp.csproj to add NuGet packages");
+    console.log("  - Or run: dotnet add package <PackageName>");
 
     return { ok: true, value: undefined };
   } catch (error) {

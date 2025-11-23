@@ -109,15 +109,15 @@ Each reference page follows this structure:
 
 ### Type Mappings
 
-| TypeScript | C# | Tsonic.Runtime | Notes |
-|------------|-----|----------------|-------|
-| `number` | `double` | `double` | Always 64-bit float |
-| `string` | `string` | `string` | UTF-16 |
-| `boolean` | `bool` | `bool` | true/false |
-| `null` | `null` | `object?` | Nullable reference |
-| `undefined` | `TSUndefined.Value` | `TSUndefined` | Singleton |
-| `Array<T>` | `Array<T>` | `Tsonic.Runtime.Array<T>` | JS semantics |
-| `Promise<T>` | `Task<T>` | `System.Threading.Tasks.Task<T>` | async/await |
+| TypeScript   | C#                  | Tsonic.Runtime                   | Notes               |
+| ------------ | ------------------- | -------------------------------- | ------------------- |
+| `number`     | `double`            | `double`                         | Always 64-bit float |
+| `string`     | `string`            | `string`                         | UTF-16              |
+| `boolean`    | `bool`              | `bool`                           | true/false          |
+| `null`       | `null`              | `object?`                        | Nullable reference  |
+| `undefined`  | `TSUndefined.Value` | `TSUndefined`                    | Singleton           |
+| `Array<T>`   | `Array<T>`          | `Tsonic.Runtime.Array<T>`        | JS semantics        |
+| `Promise<T>` | `Task<T>`           | `System.Threading.Tasks.Task<T>` | async/await         |
 
 ### Import Syntax
 
@@ -137,30 +137,30 @@ import * as Utils from "./utils.ts";
 
 ### Generic Naming
 
-| TypeScript | C# (Monomorphized) |
-|------------|--------------------|
-| `Array<number>` | `Array_number` |
-| `List<string>` | `List_1_string` |
+| TypeScript            | C# (Monomorphized)    |
+| --------------------- | --------------------- |
+| `Array<number>`       | `Array_number`        |
+| `List<string>`        | `List_1_string`       |
 | `Map<string, number>` | `Map_2_string_number` |
 
 ### Nested Types
 
-| .NET Type | TypeScript Import |
-|-----------|-------------------|
-| `Outer.Inner` | `Outer$Inner` |
-| `A.B.C` | `A$B$C` |
+| .NET Type     | TypeScript Import |
+| ------------- | ----------------- |
+| `Outer.Inner` | `Outer$Inner`     |
+| `A.B.C`       | `A$B$C`           |
 
 ---
 
 ## Comparison with Guide
 
-| Guide (Tutorial) | Reference (Look-up) |
-|------------------|---------------------|
-| Learn by doing | Find specific answers |
-| Progressive examples | Comprehensive coverage |
-| Common cases | All cases including edge cases |
-| Step-by-step | Topic-based organization |
-| Start at beginning | Jump to any section |
+| Guide (Tutorial)     | Reference (Look-up)            |
+| -------------------- | ------------------------------ |
+| Learn by doing       | Find specific answers          |
+| Progressive examples | Comprehensive coverage         |
+| Common cases         | All cases including edge cases |
+| Step-by-step         | Topic-based organization       |
+| Start at beginning   | Jump to any section            |
 
 **When to use Guide**: Learning Tsonic for the first time
 
