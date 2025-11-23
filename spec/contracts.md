@@ -115,6 +115,46 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 }
 ```
 
+### [tsonic.json Configuration](file-formats/tsonic-config.md)
+
+**Purpose**: Project configuration for Tsonic compiler
+
+**Location**: Project root
+
+**Schema Version**: 1.0
+
+**Contains**:
+
+- Entry point specification
+- Source and output directories
+- Runtime mode selection (js/dotnet)
+- Target framework and optimization settings
+- NuGet package dependencies
+
+**Example**:
+
+```json
+{
+  "$schema": "https://tsonic.dev/schema/v1.json",
+  "runtime": "js",
+  "rootNamespace": "MyApp",
+  "entryPoint": "src/main.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "myapp",
+  "dotnetVersion": "net10.0",
+  "optimize": "speed"
+}
+```
+
+**Key Fields**:
+
+- `runtime`: `"js"` (default) or `"dotnet"` - Controls whether to use Tsonic.Runtime
+- `rootNamespace`: Root C# namespace for generated code
+- `entryPoint`: Path to main TypeScript file (for executables)
+- `outputDirectory`: Where to generate C# code
+- `dotnetVersion`: Target .NET version
+
 ### [Generated C# Code](file-formats/generated-code.md)
 
 **Purpose**: Understand compiler output structure
@@ -170,9 +210,11 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 
 ### [Runtime API](apis/runtime.md)
 
-**Purpose**: Tsonic.Runtime public surface
+**Purpose**: Tsonic.Runtime public surface (optional - only with `runtime: "js"`)
 
 **Stability**: Stable - semantic versioning
+
+**Availability**: Only when `runtime: "js"` in tsonic.json
 
 **Namespaces**:
 
@@ -187,6 +229,8 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 - Proper undefined handling
 - IEEE 754 number semantics
 - UTF-16 string operations
+
+**Note**: When `runtime: "dotnet"`, these APIs are not available and standard .NET APIs should be used instead.
 
 ---
 

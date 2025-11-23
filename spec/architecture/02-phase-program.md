@@ -69,6 +69,7 @@ type CompilerOptions = {
   readonly typeRoots?: readonly string[];
   readonly target?: ts.ScriptTarget;
   readonly module?: ts.ModuleKind;
+  readonly runtime?: "js" | "dotnet";
 };
 ```
 
@@ -78,6 +79,7 @@ type CompilerOptions = {
 - `typeRoots`: `["node_modules/@tsonic/dotnet-types/types"]`
 - `target`: ES2022
 - `module`: ESNext
+- `runtime`: "js"
 
 ---
 

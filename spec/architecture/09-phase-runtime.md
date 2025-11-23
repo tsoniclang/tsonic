@@ -1,8 +1,8 @@
-# Phase 8: Runtime (Tsonic.Runtime Package)
+# Phase 8: Runtime (Tsonic.Runtime Package) - OPTIONAL
 
 ## Purpose
 
-This phase provides the Tsonic.Runtime .NET package that implements JavaScript semantics for TypeScript code compiled to C#. It uses a .NET-First approach with static helper methods operating on native .NET types.
+This phase provides the **optional** Tsonic.Runtime .NET package that implements JavaScript semantics for TypeScript code compiled to C#. It is only required when using `runtime: "js"` mode (default). When using `runtime: "dotnet"` mode, this package is not needed.
 
 ---
 
@@ -12,11 +12,18 @@ This phase provides the Tsonic.Runtime .NET package that implements JavaScript s
 
 **Package:** `Tsonic.Runtime` (.NET package, not TypeScript)
 
-**Location:** `packages/runtime/` (C# project)
+**Location:** Separate repository (tsonic-runtime)
+
+**Usage:** Required only when `runtime: "js"` (default)
 
 **Input:** None (runtime library)
 
 **Output:** NuGet package consumed by generated C# code
+
+**When NOT Used:**
+- `runtime: "dotnet"` mode uses native .NET APIs directly
+- No Tsonic.Runtime reference in generated .csproj
+- JavaScript-specific methods cause compile errors (TSN2001)
 
 ---
 

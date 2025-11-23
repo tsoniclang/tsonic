@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This phase generates C# code from IR, applying specialization (monomorphization) for generics, creating structural adapters, generating entry points, and ensuring JavaScript semantics are preserved through Tsonic.Runtime calls.
+This phase generates C# code from IR, applying specialization (monomorphization) for generics, creating structural adapters, generating entry points. When `runtime: "js"` (default), JavaScript semantics are preserved through Tsonic.Runtime calls. When `runtime: "dotnet"`, native .NET APIs are used directly.
 
 ---
 
