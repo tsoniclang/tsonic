@@ -1,0 +1,4 @@
+Count: 5
+Even numbers doubled: [4, 8]
+Sum: 15
+Dictionary size: 2
