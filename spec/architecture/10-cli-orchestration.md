@@ -118,6 +118,7 @@ const buildCommand = async (options: BuildOptions): Promise<ExitCode> => {
   const emitResult = emitCSharp(irResult.value, {
     outputDir: config.outDir ?? "./dist",
     optimization: config.optimization ?? "speed",
+    runtime: config.runtimeMode ?? "js",
   });
   if (!emitResult.ok) {
     printDiagnostics(emitResult.error);
@@ -129,6 +130,7 @@ const buildCommand = async (options: BuildOptions): Promise<ExitCode> => {
   const backendResult = await compileNativeExecutable(emitResult.value, {
     outputDir: config.outDir ?? "./dist",
     runtime: config.runtime ?? detectRuntime(),
+    runtimeMode: config.runtimeMode ?? "js",
     optimization: config.optimization ?? "speed",
   });
   if (!backendResult.ok) {
@@ -266,6 +268,7 @@ type TsonicConfig = {
 
   // Runtime configuration
   readonly runtime: RuntimeIdentifier; // "linux-x64"
+  readonly runtimeMode?: "js" | "dotnet"; // "js" (default) or "dotnet"
   readonly optimization: "size" | "speed"; // "speed"
 
   // Type roots for .NET bindings
@@ -351,6 +354,7 @@ const applyDefaults = (config: Partial<TsonicConfig>): TsonicConfig => ({
   rootNamespace: config.rootNamespace ?? "MyApp",
   outDir: config.outDir ?? "./dist",
   runtime: config.runtime ?? detectRuntime(),
+  runtimeMode: config.runtimeMode ?? "js",
   optimization: config.optimization ?? "speed",
   typeRoots: config.typeRoots ?? ["./node_modules/@types"],
   debug: config.debug,

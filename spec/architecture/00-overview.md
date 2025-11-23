@@ -4,13 +4,15 @@
 
 ### What is Tsonic?
 
-**Tsonic** is a TypeScript-to-C#-to-NativeAOT compiler that produces fast, self-contained native executables using .NET's NativeAOT technology. It enables developers to write .NET applications using TypeScript syntax while preserving JavaScript semantics through the Tsonic.Runtime library.
+**Tsonic** is a TypeScript-to-C#-to-NativeAOT compiler that produces fast, self-contained native executables using .NET's NativeAOT technology. It can operate in two modes: with JavaScript semantics (using Tsonic.Runtime) or as a pure TypeScript-to-C# transpiler (using native .NET APIs directly).
 
 **Key Characteristics:**
 
 - **TypeScript Source** → **C# Code** → **Native Binary**
 - **.NET-First**: Uses native .NET types (List<T>, string, double), not JavaScript runtime ports
-- **JavaScript Semantics**: Preserves exact JS behavior through Tsonic.Runtime static helpers
+- **Dual Runtime Modes**:
+  - **JavaScript mode** (`runtime: "js"`, default): Preserves exact JS behavior through Tsonic.Runtime static helpers
+  - **Pure .NET mode** (`runtime: "dotnet"`): Direct .NET API usage without runtime dependency
 - **ESM-Only**: Strict `.ts` extension requirement on all local imports
 - **Functional Codebase**: Pure functions, immutable data structures throughout
 - **NativeAOT Output**: Single-file executables with no runtime dependencies
@@ -34,7 +36,7 @@ export function main() {
 }
 ```
 
-**Generated C#:**
+**Generated C# (with `runtime: "js"` - default):**
 
 ```csharp
 // Generated/MyApp/main.cs
@@ -53,6 +55,29 @@ public static class main {
     var nums = new List<double> { 1.0, 2.0, 3.0 };
     Tsonic.Runtime.Array.push(nums, 4.0);
     Console.WriteLine(Tsonic.Runtime.Array.join(nums, ", "));
+  }
+}
+```
+
+**Generated C# (with `runtime: "dotnet"`):**
+
+```csharp
+// Generated/MyApp/main.cs
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace MyApp;
+
+public static class main {
+  public static void mainFunction() {
+    var lines = File.ReadAllLines("data.txt");
+    Console.WriteLine($"Read {lines.Length} lines");
+
+    var nums = new List<double> { 1.0, 2.0, 3.0 };
+    nums.Add(4.0);  // Note: push() would be a compile error in dotnet mode
+    Console.WriteLine(string.Join(", ", nums));
   }
 }
 ```
@@ -81,11 +106,16 @@ Tsonic uses **native .NET types** directly rather than creating wrapper classes:
 const arr: number[] = [1, 2, 3];
 arr.push(4);
 
-// C# (Tsonic approach):
+// C# with runtime: "js" (default):
 var arr = new List<double> { 1.0, 2.0, 3.0 };
 Tsonic.Runtime.Array.push(arr, 4.0);  // Static helper
 
-// NOT creating a custom Array<T> class
+// C# with runtime: "dotnet":
+var arr = new List<double> { 1.0, 2.0, 3.0 };
+arr.Add(4.0);  // Direct .NET API
+// Note: arr.push(4) would cause compile error TSN2001
+
+// NOT creating a custom Array<T> class in either mode
 ```
 
 **Benefits:**
@@ -177,7 +207,39 @@ src/main.ts:5:8 - error TSN1001: Local import must have .ts extension
 Change to: "./models/User.ts"
 ```
 
-### 2.5 Layered Architecture
+### 2.5 Runtime Mode Configuration
+
+**Configuration in tsonic.json:**
+
+```json
+{
+  "runtime": "js",     // "js" (default) or "dotnet"
+  "rootNamespace": "MyApp",
+  // ... other config
+}
+```
+
+**JavaScript Mode (`runtime: "js"`):**
+- Default mode if not specified
+- Requires `Tsonic.Runtime` NuGet package
+- JavaScript array methods (`push`, `pop`, `map`, `filter`)
+- JavaScript string methods (`slice`, `charAt`, `indexOf`)
+- `console.log()` and other JS globals
+- Exact JavaScript semantics (sparse arrays, type coercion)
+
+**Pure .NET Mode (`runtime: "dotnet"`):**
+- No `Tsonic.Runtime` dependency
+- Direct .NET API usage (`Add`, `Remove`, `Select`, `Where`)
+- `Console.WriteLine()` instead of `console.log()`
+- Compile-time errors for JavaScript-specific methods
+- Smaller binary size, better performance
+
+**Method Name Resolution:**
+- Uses `bindings.json` from tsbindgen for name mapping
+- Maps TypeScript method names to C# names based on casing configuration
+- Example: `list.add()` (TypeScript with camelCase) → `list.Add()` (C#)
+
+### 2.6 Layered Architecture
 
 **Clean Phase Separation:**
 
@@ -705,7 +767,7 @@ ReadonlyArray<T>     →  IReadOnlyList<T>
 [T, U]               →  (T, U) tuple
 ```
 
-**JavaScript Semantics via Static Helpers:**
+**Array Method Handling by Runtime Mode:**
 
 ```typescript
 // TypeScript:
@@ -713,10 +775,15 @@ const arr = [1, 2, 3];
 arr.push(4);
 const result = arr.map(x => x * 2);
 
-// C#:
+// C# with runtime: "js":
 var arr = new List<double> { 1.0, 2.0, 3.0 };
 Tsonic.Runtime.Array.push(arr, 4.0);
 var result = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
+
+// C# with runtime: "dotnet":
+var arr = new List<double> { 1.0, 2.0, 3.0 };
+arr.Add(4.0);
+var result = arr.Select(x => x * 2.0).ToList();
 ```
 
 ### 7.3 Functions
@@ -978,7 +1045,7 @@ var doubled = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
 
 **TSN2xxx - Type System Errors:**
 
-- TSN2001: Literal types not supported
+- TSN2001: JavaScript method used in dotnet runtime mode
 - TSN2002: Conditional types not supported
 - TSN2003: File name conflicts with export
 
@@ -1150,7 +1217,39 @@ packages/backend/src/
 
 ---
 
-## 14. See Also
+## 14. Dependencies
+
+### 14.1 Required Dependencies
+
+**@tsonic/types** (npm package):
+- **Status**: REQUIRED for compilation
+- **Purpose**: Provides branded numeric types (`int`, `float`, `long`, etc.)
+- **Installation**: `npm install @tsonic/types`
+- **Usage**: Automatically loaded during compilation
+
+### 14.2 Optional Dependencies
+
+**Tsonic.Runtime** (.NET package):
+- **Status**: OPTIONAL (required only when `runtime: "js"`)
+- **Purpose**: Provides JavaScript semantics via static helper methods
+- **Installation**: Automatically added to .csproj when needed
+- **Size Impact**: ~500KB additional to binary size
+
+**@types/dotnet** (npm package):
+- **Status**: OPTIONAL (for .NET BCL type declarations)
+- **Generated by**: tsbindgen
+- **Purpose**: TypeScript declarations for .NET types
+- **Configuration**: Specified in `dotnet.libraries` in tsonic.json
+
+### 14.3 Bindings and Metadata
+
+**bindings.json**:
+- **Source**: Generated by tsbindgen alongside type declarations
+- **Purpose**: Maps TypeScript names to C# names (handles casing)
+- **Location**: Within each namespace directory of type declarations
+- **Usage**: Loaded during compilation for name resolution
+
+## 15. See Also
 
 - [01-pipeline-flow.md](01-pipeline-flow.md) - Detailed phase connections
 - [02-phase-program.md](02-phase-program.md) - Program creation phase

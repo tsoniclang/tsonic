@@ -54,6 +54,7 @@ Phase 8: Runtime       Runtime support (separate package)
   rootNamespace: string;           // "MyApp"
   typeRoots: readonly string[];    // ["node_modules/@tsonic/dotnet-types/types"]
   strict: boolean;                 // true
+  runtime: "js" | "dotnet";        // "js" (default) or "dotnet"
 }
 ```
 
@@ -411,6 +412,7 @@ type EmitterOptions = {
   readonly indent?: number;
   readonly isEntryPoint?: boolean;
   readonly entryPointPath?: string;
+  readonly runtime: "js" | "dotnet";  // Affects code generation
 };
 ```
 
@@ -588,6 +590,7 @@ type NuGetPackage = {
      </PropertyGroup>
 
      <ItemGroup>
+       <!-- Only included when runtime: "js" -->
        <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
      </ItemGroup>
    </Project>

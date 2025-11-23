@@ -41,8 +41,8 @@ This phase orchestrates the .NET build process, generating .csproj files, restor
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Reference Tsonic.Runtime -->
-    <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
+    <!-- Reference Tsonic.Runtime only when runtime: "js" -->
+    <PackageReference Include="Tsonic.Runtime" Version="1.0.0" Condition="'$(Runtime)' == 'js'" />
 
     <!-- Additional .NET packages if needed -->
     <PackageReference Include="System.Collections.Immutable" Version="10.0.0" />
@@ -56,7 +56,7 @@ This phase orchestrates the .NET build process, generating .csproj files, restor
 const buildNativeExecutable = async (
   csharpFiles: Map<string, string>,
   outputDir: string,
-  options: BuildOptions
+  options: BuildOptions & { runtime: "js" | "dotnet" }
 ): Promise<BuildResult> => {
   // 1. Create output directory
   await fs.mkdir(outputDir, { recursive: true });
@@ -217,6 +217,7 @@ error NU1101: Unable to find package Tsonic.Runtime
 ```
 
 **Resolution:** Ensure Tsonic.Runtime is published to NuGet or local feed.
+**Note:** This error only occurs when `runtime: "js"`. With `runtime: "dotnet"`, Tsonic.Runtime is not referenced.
 
 ---
 
