@@ -21,64 +21,85 @@ export const emitArray = (
   // Determine element type from expected type or inferred type
   let elementType = "object";
 
-  // First try expectedType
-  if (expectedType) {
-    if (expectedType.kind === "arrayType") {
-      const [elemTypeStr, newContext] = emitType(
-        expectedType.elementType,
-        currentContext
-      );
-      elementType = elemTypeStr;
-      currentContext = newContext;
-    } else if (
-      expectedType.kind === "referenceType" &&
-      expectedType.name === "Array" &&
-      expectedType.typeArguments &&
-      expectedType.typeArguments.length > 0
-    ) {
-      const firstArg = expectedType.typeArguments[0];
-      if (firstArg) {
-        const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
-        elementType = elemTypeStr;
-        currentContext = newContext;
-      }
-    }
-  }
-  // If no expectedType, try to use the inferredType from the expression
-  else if (expr.inferredType && expr.inferredType.kind === "arrayType") {
-    const [elemTypeStr, newContext] = emitType(
-      expr.inferredType.elementType,
-      currentContext
-    );
-    elementType = elemTypeStr;
-    currentContext = newContext;
-  }
-  // If we have numeric literals, infer the appropriate numeric type
-  else if (expr.elements.length > 0) {
-    // Check if all non-undefined elements are numeric literals
-    type NumericLiteral = Extract<IrExpression, { kind: "literal" }> & {
-      value: number;
-    };
-    const numericElements = expr.elements.filter(
-      (el): el is NumericLiteral =>
-        el !== undefined &&
-        el.kind === "literal" &&
-        typeof (el as any).value === "number"
-    );
+  // Check if all elements are integer literals first
+  // This takes precedence over inferred type to handle integer arrays correctly
+  const definedElements = expr.elements.filter(
+    (el): el is IrExpression => el !== undefined
+  );
 
-    if (numericElements.length > 0) {
-      const allNumbers = expr.elements.every(
-        (el) =>
-          el === undefined ||
-          (el.kind === "literal" && typeof (el as any).value === "number")
-      );
+  let hasIntegerLiterals = false;
+  if (definedElements.length > 0) {
+    const allLiterals = definedElements.every((el) => el.kind === "literal");
+
+    if (allLiterals) {
+      const literals = definedElements as Extract<
+        IrExpression,
+        { kind: "literal" }
+      >[];
+
+      // Check if all are numbers
+      const allNumbers = literals.every((lit) => typeof lit.value === "number");
 
       if (allNumbers) {
         // Check if all numbers are integers
-        const allIntegers = numericElements.every((el) =>
-          Number.isInteger(el.value)
+        const allIntegers = literals.every(
+          (lit) => typeof lit.value === "number" && Number.isInteger(lit.value)
         );
-        elementType = allIntegers ? "int" : "double";
+
+        if (allIntegers) {
+          elementType = "int";
+          hasIntegerLiterals = true;
+        } else {
+          elementType = "double";
+          hasIntegerLiterals = false;
+        }
+      }
+      // Check if all are strings
+      else if (literals.every((lit) => typeof lit.value === "string")) {
+        elementType = "string";
+      }
+      // Check if all are booleans
+      else if (literals.every((lit) => typeof lit.value === "boolean")) {
+        elementType = "bool";
+      }
+    }
+  }
+
+  // Only use inferred/expected type if we didn't find integer literals
+  if (!hasIntegerLiterals) {
+    // First try expectedType
+    if (expectedType) {
+      if (expectedType.kind === "arrayType") {
+        const [elemTypeStr, newContext] = emitType(
+          expectedType.elementType,
+          currentContext
+        );
+        elementType = elemTypeStr;
+        currentContext = newContext;
+      } else if (
+        expectedType.kind === "referenceType" &&
+        expectedType.name === "Array" &&
+        expectedType.typeArguments &&
+        expectedType.typeArguments.length > 0
+      ) {
+        const firstArg = expectedType.typeArguments[0];
+        if (firstArg) {
+          const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
+          elementType = elemTypeStr;
+          currentContext = newContext;
+        }
+      }
+    }
+    // If no expectedType, try to use the inferredType from the expression
+    else if (expr.inferredType && expr.inferredType.kind === "arrayType") {
+      // Only use inferredType if we didn't already determine the type from literals
+      if (elementType === "object") {
+        const [elemTypeStr, newContext] = emitType(
+          expr.inferredType.elementType,
+          currentContext
+        );
+        elementType = elemTypeStr;
+        currentContext = newContext;
       }
     }
   }

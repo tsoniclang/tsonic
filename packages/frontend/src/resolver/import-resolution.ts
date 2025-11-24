@@ -39,6 +39,18 @@ export const resolveImport = (
     });
   }
 
+  // @tsonic/types is a type-only package (phantom types) - no runtime code
+  if (importSpecifier === "@tsonic/types") {
+    return ok({
+      resolvedPath: "", // No file path for type-only packages
+      isLocal: false,
+      isDotNet: false,
+      originalSpecifier: importSpecifier,
+      resolvedClrType: undefined,
+      resolvedAssembly: undefined,
+    });
+  }
+
   return error(
     createDiagnostic(
       "TSN1004",
