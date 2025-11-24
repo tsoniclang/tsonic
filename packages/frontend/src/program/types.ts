@@ -11,6 +11,7 @@ export type CompilerOptions = {
   readonly rootNamespace: string;
   readonly strict?: boolean;
   readonly typeRoots?: readonly string[];
+  readonly verbose?: boolean;
 };
 
 export type TsonicProgram = {

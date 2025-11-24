@@ -36,6 +36,7 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
   return results;
 };
 
+
 /**
  * Create a Tsonic program from TypeScript source files
  */
@@ -49,6 +50,12 @@ export const createProgram = (
   const typeRoots = options.typeRoots ?? [
     "node_modules/@tsonic/dotnet-types/types",
   ];
+
+  // Debug log typeRoots
+  if (options.verbose && typeRoots.length > 0) {
+    console.log(`TypeRoots: ${typeRoots.join(", ")}`);
+  }
+
   const declarationFiles: string[] = [];
 
   for (const typeRoot of typeRoots) {
@@ -56,8 +63,31 @@ export const createProgram = (
     declarationFiles.push(...scanForDeclarationFiles(absoluteRoot));
   }
 
-  // Combine source files and declaration files
-  const allFiles = [...absolutePaths, ...declarationFiles];
+  // Add the main index.d.ts files for .NET namespaces directly to the file list
+  const namespaceIndexFiles: string[] = [];
+  for (const typeRoot of typeRoots) {
+    const absoluteRoot = path.resolve(typeRoot);
+    if (options.verbose) {
+      console.log(`Checking typeRoot: ${absoluteRoot}, exists: ${fs.existsSync(absoluteRoot)}`);
+    }
+    if (fs.existsSync(absoluteRoot)) {
+      const entries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith("_") && !entry.name.startsWith("internal")) {
+          const indexPath = path.join(absoluteRoot, entry.name, "index.d.ts");
+          if (fs.existsSync(indexPath)) {
+            namespaceIndexFiles.push(indexPath);
+            if (options.verbose) {
+              console.log(`  Found namespace: ${entry.name} -> ${indexPath}`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Combine source files, declaration files, and namespace index files
+  const allFiles = [...absolutePaths, ...declarationFiles, ...namespaceIndexFiles];
 
   const tsOptions: ts.CompilerOptions = {
     ...defaultTsConfig,
@@ -65,7 +95,92 @@ export const createProgram = (
     rootDir: options.sourceRoot,
   };
 
+  // Create custom compiler host with virtual .NET module declarations
   const host = ts.createCompilerHost(tsOptions);
+
+  // Map of .NET namespace names to their declaration file paths
+  const namespaceFiles = new Map<string, string>();
+  for (const indexFile of namespaceIndexFiles) {
+    // Extract namespace name from path (e.g., /path/to/System/index.d.ts -> System)
+    const dirName = path.basename(path.dirname(indexFile));
+    namespaceFiles.set(dirName, indexFile);
+  }
+
+  // Debug: Log namespace mappings
+  if (namespaceFiles.size > 0) {
+    console.log(`Found ${namespaceFiles.size} .NET namespace declarations`);
+    if (options.verbose) {
+      for (const [ns, file] of namespaceFiles) {
+        console.log(`  ${ns} -> ${file}`);
+      }
+    }
+  }
+
+  // Override getSourceFile to provide virtual module declarations
+  const originalGetSourceFile = host.getSourceFile;
+  host.getSourceFile = (
+    fileName: string,
+    languageVersion: ts.ScriptTarget,
+    onError?: (message: string) => void,
+    shouldCreateNewSourceFile?: boolean
+  ): ts.SourceFile | undefined => {
+    // Check if this is a .NET namespace being imported
+    const baseName = path.basename(fileName, path.extname(fileName));
+    if (namespaceFiles.has(baseName) && fileName.endsWith(".ts")) {
+      // Create a virtual source file that exports from the actual declaration
+      const declarationPath = namespaceFiles.get(baseName)!;
+      const virtualContent = `export * from '${declarationPath.replace(/\.d\.ts$/, "")}';`;
+      return ts.createSourceFile(
+        fileName,
+        virtualContent,
+        languageVersion,
+        true
+      );
+    }
+
+    return originalGetSourceFile.call(
+      host,
+      fileName,
+      languageVersion,
+      onError,
+      shouldCreateNewSourceFile
+    );
+  };
+
+  // Override resolveModuleNames to handle .NET imports
+  (host as any).resolveModuleNames = (
+    moduleNames: string[],
+    containingFile: string
+  ): (ts.ResolvedModule | undefined)[] => {
+    return moduleNames.map((moduleName) => {
+      // Debug log
+      if (options.verbose) {
+        console.log(`Resolving module: ${moduleName} from ${containingFile}`);
+      }
+
+      // Check if this is a .NET namespace
+      if (namespaceFiles.has(moduleName)) {
+        const resolvedFile = namespaceFiles.get(moduleName)!;
+        if (options.verbose) {
+          console.log(`  Resolved .NET namespace ${moduleName} to ${resolvedFile}`);
+        }
+        return {
+          resolvedFileName: resolvedFile,
+          isExternalLibraryImport: true,
+        };
+      }
+
+      // Use default resolution for other modules
+      const result = ts.resolveModuleName(
+        moduleName,
+        containingFile,
+        tsOptions,
+        host
+      );
+      return result.resolvedModule;
+    });
+  };
+
   const program = ts.createProgram(allFiles, tsOptions, host);
 
   const diagnostics = collectTsDiagnostics(program);

@@ -187,6 +187,7 @@ export const resolveConfig = (
     rid: cliOptions.rid ?? config.rid ?? detectRid(),
     dotnetVersion: config.dotnetVersion ?? "net10.0",
     optimize: cliOptions.optimize ?? config.optimize ?? "speed",
+    runtime: config.runtime ?? "js",
     packages: config.dotnet?.packages ?? config.packages ?? [],
     outputConfig,
     stripSymbols: cliOptions.noStrip

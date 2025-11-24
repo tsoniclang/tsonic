@@ -11,7 +11,7 @@ export const defaultTsConfig: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.NodeNext,
   moduleResolution: ts.ModuleResolutionKind.NodeNext,
-  strict: true,
+  strict: false, // Disabled to allow .NET type usage
   esModuleInterop: true,
   skipLibCheck: true,
   forceConsistentCasingInFileNames: true,
@@ -20,5 +20,6 @@ export const defaultTsConfig: ts.CompilerOptions = {
   noEmit: true,
   resolveJsonModule: false,
   isolatedModules: true,
-  verbatimModuleSyntax: true,
+  verbatimModuleSyntax: false, // Disabled to allow .NET type imports
+  noImplicitAny: false, // Allow any for .NET types
 };

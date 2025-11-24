@@ -1,4 +1,6 @@
-// Simple hello world test - no BCL imports
+// Simple hello world test - dotnet runtime mode
+import { Console } from "System";
+
 export function main(): void {
-  console.log("Hello from Tsonic E2E!");
+  Console.WriteLine("Hello from Tsonic E2E!");
 }

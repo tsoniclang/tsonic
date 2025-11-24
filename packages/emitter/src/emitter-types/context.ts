@@ -31,10 +31,16 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
     }
   }
 
+  // Only include Tsonic.Runtime for js runtime mode
+  const initialUsings = new Set<string>();
+  if (options.runtime !== "dotnet") {
+    initialUsings.add("Tsonic.Runtime");
+  }
+
   return {
     indentLevel: 0,
     options,
-    usings: new Set(["Tsonic.Runtime"]),
+    usings: initialUsings,
     isStatic: false,
     isAsync: false,
     metadata,

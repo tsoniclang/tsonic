@@ -94,6 +94,7 @@ export type EntryInfo = {
   readonly methodName: string;
   readonly isAsync: boolean;
   readonly needsProgram: boolean;
+  readonly runtime?: "js" | "dotnet";
 };
 
 /**

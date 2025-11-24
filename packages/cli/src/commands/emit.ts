@@ -40,7 +40,10 @@ const findProjectCsproj = (): string | null => {
 /**
  * Extract entry point information from IR module
  */
-const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
+const extractEntryInfo = (
+  entryModule: IrModule,
+  runtime?: "js" | "dotnet"
+): EntryInfo | null => {
   // Look for exported 'main' function
   for (const exp of entryModule.exports) {
     if (exp.kind === "declaration") {
@@ -52,6 +55,7 @@ const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
           methodName: "main",
           isAsync: decl.isAsync,
           needsProgram: true,
+          runtime,
         };
       }
     } else if (exp.kind === "named" && exp.name === "main") {
@@ -65,6 +69,7 @@ const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
             methodName: "main",
             isAsync: stmt.isAsync,
             needsProgram: true,
+            runtime,
           };
         }
       }
@@ -108,10 +113,15 @@ export const emitCommand = (
     const entryFiles = entryPoint
       ? [entryPoint]
       : [join(sourceRoot, "**/*.ts")];
+
+    // Combine typeRoots and libraries for TypeScript compilation
+    const allTypeRoots = [...typeRoots, ...config.libraries];
+
     const compileResult = compile(entryFiles, {
       sourceRoot,
       rootNamespace,
-      typeRoots,
+      typeRoots: allTypeRoots,
+      verbose: config.verbose,
     });
     if (!compileResult.ok) {
       return {
@@ -139,6 +149,7 @@ export const emitCommand = (
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: config.libraries,
+      runtime: config.runtime,
     });
 
     // Create output directory
@@ -168,7 +179,7 @@ export const emitCommand = (
       );
 
       if (entryModule) {
-        const entryInfo = extractEntryInfo(entryModule);
+        const entryInfo = extractEntryInfo(entryModule, config.runtime);
         if (entryInfo) {
           const programCs = generateProgramCs(entryInfo);
           const programPath = join(outputDir, "Program.cs");
