@@ -11,5 +11,9 @@ export {
   convertTsDiagnostic,
   getSourceLocation,
 } from "./diagnostics.js";
-export { createProgram } from "./creation.js";
+export { createProgram, createCompilerOptions } from "./creation.js";
 export { getSourceFile } from "./queries.js";
+export {
+  buildModuleDependencyGraph,
+  type ModuleDependencyGraphResult,
+} from "./dependency-graph.js";
