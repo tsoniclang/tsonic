@@ -35,6 +35,7 @@ scripts/
 ## Test Fixtures
 
 Each fixture is a complete Tsonic project with:
+
 - `src/index.ts` - TypeScript source code
 - `tsonic.json` - Project configuration
 - `*.csproj` - .NET project file (preserved during build)
@@ -68,6 +69,7 @@ Each fixture is a complete Tsonic project with:
 ## BCL Type Dependencies
 
 Tests that use .NET BCL types require:
+
 1. Generated types from tsbindgen (at `../tsbindgen/.tests/validate/`)
 2. `@types/dotnet` package declaration in package.json
 3. `dotnet.libraries` configuration in tsonic.json
@@ -75,9 +77,11 @@ Tests that use .NET BCL types require:
 ## Current Test Status
 
 ### Working Tests
+
 - ✅ hello-world - Basic console output without BCL imports
 
 ### Tests In Progress
+
 - ⚠️ file-io - Requires Tsonic.Runtime implementation
 - ⚠️ collections - Requires Tsonic.Runtime implementation
 

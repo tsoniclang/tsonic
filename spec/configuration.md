@@ -30,6 +30,7 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 ## Core Fields
 
 ### runtime
+
 - **Type**: `"js" | "dotnet"`
 - **Default**: `"js"`
 - **Description**: Determines runtime mode
@@ -37,44 +38,52 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
   - `"dotnet"`: Pure .NET mode without runtime dependency
 
 ### rootNamespace
+
 - **Type**: `string`
 - **Required**: Yes
 - **Description**: Root C# namespace for generated code
 - **Example**: `"MyApp"`
 
 ### entryPoint
+
 - **Type**: `string`
 - **Required**: For executables
 - **Description**: Path to main TypeScript file
 - **Example**: `"src/main.ts"`
 
 ### sourceRoot
+
 - **Type**: `string`
 - **Default**: `"src"`
 - **Description**: Root directory for TypeScript source files
 
 ### outputDirectory
+
 - **Type**: `string`
 - **Default**: `"generated"`
 - **Description**: Directory for generated C# code
 
 ### outputName
+
 - **Type**: `string`
 - **Default**: `"app"`
 - **Description**: Name of output executable or library
 
 ### rid
+
 - **Type**: `string`
 - **Default**: Current platform
 - **Description**: Runtime identifier for target platform
 - **Examples**: `"linux-x64"`, `"win-x64"`, `"osx-arm64"`
 
 ### dotnetVersion
+
 - **Type**: `string`
 - **Default**: `"net10.0"`
 - **Description**: Target .NET framework version
 
 ### optimize
+
 - **Type**: `"size" | "speed"`
 - **Default**: `"speed"`
 - **Description**: Optimization preference for NativeAOT
@@ -82,6 +91,7 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 ## Output Configuration
 
 ### output
+
 - **Type**: `object`
 - **Description**: Output-specific configuration
 
@@ -111,43 +121,44 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 ## .NET Interop Configuration
 
 ### dotnet
+
 - **Type**: `object`
 - **Description**: .NET integration settings
 
 ```json
 {
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@types/dotnet"
-    ],
+    "typeRoots": ["node_modules/@types/dotnet"],
     "packages": [
       {
         "name": "Newtonsoft.Json",
         "version": "13.0.3"
       }
     ],
-    "libraries": [
-      "@types/dotnet"
-    ]
+    "libraries": ["@types/dotnet"]
   }
 }
 ```
 
 #### dotnet.typeRoots
+
 - **Type**: `string[]`
 - **Description**: Paths to .NET type declaration directories
 
 #### dotnet.packages
+
 - **Type**: `NuGetPackage[]`
 - **Description**: NuGet packages to include (added to .csproj)
 
 #### dotnet.libraries
+
 - **Type**: `string[]`
 - **Description**: External library paths for .NET type declarations
 
 ## Build Options
 
 ### buildOptions
+
 - **Type**: `object`
 - **Description**: Additional build configuration
 
@@ -192,9 +203,7 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
   "dotnetVersion": "net10.0",
   "optimize": "speed",
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@types/dotnet-pure"
-    ],
+    "typeRoots": ["node_modules/@types/dotnet-pure"],
     "packages": [
       {
         "name": "System.Linq",
@@ -236,11 +245,13 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 ### When `runtime: "js"` (default)
 
 **Generated .csproj includes:**
+
 ```xml
 <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
 ```
 
 **JavaScript methods available:**
+
 - Array: `push()`, `pop()`, `map()`, `filter()`, etc.
 - String: `slice()`, `charAt()`, `indexOf()`, etc.
 - Console: `console.log()`, `console.error()`
@@ -251,12 +262,14 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 **No Tsonic.Runtime reference**
 
 **Must use .NET methods:**
+
 - List: `Add()`, `Remove()`, `Select()`, `Where()`
 - String: `Substring()`, `IndexOf()`, `Contains()`
 - Console: `Console.WriteLine()`, `Console.Error.WriteLine()`
 - Math: `Math.PI`, `Math.Sin()` (from System.Math)
 
 **Compile errors for JS methods:**
+
 ```
 TSN2001: JavaScript method 'push' is not available in dotnet runtime mode.
 Use 'Add' or set runtime to "js".

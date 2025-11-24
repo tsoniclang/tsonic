@@ -51,9 +51,11 @@ export const convertTsDiagnostic = (
   ) {
     // Check if this is a .NET import
     const sourceText = tsDiag.file.getText();
-    if (sourceText.includes('from "System') ||
-        sourceText.includes('from "Microsoft') ||
-        sourceText.includes('from "Windows')) {
+    if (
+      sourceText.includes('from "System') ||
+      sourceText.includes('from "Microsoft') ||
+      sourceText.includes('from "Windows')
+    ) {
       return null; // Ignore - will be handled by Tsonic
     }
   }

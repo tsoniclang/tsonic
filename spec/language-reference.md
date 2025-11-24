@@ -141,20 +141,20 @@ See [Limitations](limitations.md) for complete list and rationale.
 
 ### Type Mappings
 
-| TypeScript  | C# Output           | Runtime Behavior             |
-| ----------- | ------------------- | ---------------------------- |
-| `number`    | `double`            | IEEE 754 64-bit float        |
-| `string`    | `string`            | UTF-16, immutable            |
-| `boolean`   | `bool`              | true/false                   |
-| `null`      | `null`              | Null reference               |
-| `undefined` | `TSUndefined.Value` | Singleton value              |
-| `void`      | `void`              | No return value              |
-| `T[]`       | `List<T>`           | Dynamic array with JS semantics* |
-| `any`       | `object`            | Dynamic typing (discouraged) |
-| `unknown`   | `object`            | Type-safe any                |
-| `never`     | `void`              | Unreachable code             |
+| TypeScript  | C# Output           | Runtime Behavior                  |
+| ----------- | ------------------- | --------------------------------- |
+| `number`    | `double`            | IEEE 754 64-bit float             |
+| `string`    | `string`            | UTF-16, immutable                 |
+| `boolean`   | `bool`              | true/false                        |
+| `null`      | `null`              | Null reference                    |
+| `undefined` | `TSUndefined.Value` | Singleton value                   |
+| `void`      | `void`              | No return value                   |
+| `T[]`       | `List<T>`           | Dynamic array with JS semantics\* |
+| `any`       | `object`            | Dynamic typing (discouraged)      |
+| `unknown`   | `object`            | Type-safe any                     |
+| `never`     | `void`              | Unreachable code                  |
 
-*When `runtime: "js"`, array methods like `push()` use `Tsonic.Runtime.ArrayHelpers` static methods
+\*When `runtime: "js"`, array methods like `push()` use `Tsonic.Runtime.ArrayHelpers` static methods
 
 ### Arrays
 
@@ -401,12 +401,14 @@ try {
 ## See Also
 
 ### Architecture Documentation (Implementation Details)
+
 - **[Module Resolution](architecture/03-phase-resolver.md)** - How imports are resolved internally
 - **[Type System](architecture/05-phase-ir.md)** - Type conversion implementation
 - **[Code Generation](architecture/07-phase-emitter.md)** - How TypeScript becomes C#
 - **[Runtime Implementation](architecture/09-phase-runtime.md)** - Tsonic.Runtime internals
 
 ### User Documentation
+
 - **[.NET Integration](dotnet-reference.md)** - Using .NET libraries
 - **[Configuration](configuration.md)** - tsonic.json format
 - **[Contracts](contracts.md)** - Stable public interfaces

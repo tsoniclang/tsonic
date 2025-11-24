@@ -26,6 +26,7 @@ GLOBAL OPTIONS:
   -V, --verbose             Verbose output
   -q, --quiet               Suppress output
   -c, --config <file>       Config file path (default: tsonic.json)
+  --runtime <mode>          Runtime mode: js (default) or dotnet
 
 EMIT/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory
@@ -36,8 +37,14 @@ EMIT/BUILD/RUN OPTIONS:
   -k, --keep-temp           Keep build artifacts
   --no-strip                Keep debug symbols
 
+PROJECT INIT OPTIONS:
+  --runtime <mode>          Runtime mode: js (default) or dotnet
+  --skip-types              Skip installing @tsonic/dotnet-types
+  --types-version <ver>     Version of @tsonic/dotnet-types to install
+
 EXAMPLES:
   tsonic project init
+  tsonic project init --runtime dotnet
   tsonic emit src/main.ts
   tsonic build src/main.ts --rid linux-x64
   tsonic run src/main.ts -- --arg1 value1

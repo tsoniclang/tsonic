@@ -21,6 +21,7 @@ This phase provides the **optional** Tsonic.Runtime .NET package that implements
 **Output:** NuGet package consumed by generated C# code
 
 **When NOT Used:**
+
 - `runtime: "dotnet"` mode uses native .NET APIs directly
 - No Tsonic.Runtime reference in generated .csproj
 - JavaScript-specific methods cause compile errors (TSN2001)
