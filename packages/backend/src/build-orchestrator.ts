@@ -141,7 +141,9 @@ export const buildNativeAot = (
         rootNamespace: options.namespace,
         outputName: options.outputName || "tsonic",
         dotnetVersion: options.dotnetVersion || "net10.0",
-        packages: [], // TODO: Auto-detect from imports
+        packages: [
+          { name: "Tsonic.Runtime", version: "0.0.1" }, // Tsonic runtime library
+        ],
         outputConfig: {
           type: "executable",
           nativeAot: true,

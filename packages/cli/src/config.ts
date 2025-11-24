@@ -188,7 +188,10 @@ export const resolveConfig = (
     dotnetVersion: config.dotnetVersion ?? "net10.0",
     optimize: cliOptions.optimize ?? config.optimize ?? "speed",
     runtime: config.runtime ?? "js",
-    packages: config.dotnet?.packages ?? config.packages ?? [],
+    packages: [
+      { name: "Tsonic.Runtime", version: "0.0.1" },
+      ...(config.dotnet?.packages ?? config.packages ?? []),
+    ],
     outputConfig,
     stripSymbols: cliOptions.noStrip
       ? false

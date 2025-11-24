@@ -22,4 +22,5 @@ export const defaultTsConfig: ts.CompilerOptions = {
   isolatedModules: true,
   verbatimModuleSyntax: false, // Disabled to allow .NET type imports
   noImplicitAny: false, // Allow any for .NET types
+  allowImportingTsExtensions: true, // ESM requires .ts/.js extensions
 };

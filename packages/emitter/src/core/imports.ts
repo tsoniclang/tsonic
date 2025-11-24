@@ -49,16 +49,14 @@ export const resolveLocalImport = (
   currentFilePath: string,
   rootNamespace: string
 ): string | null => {
+  // Normalize paths - handle both Unix and Windows separators
+  const normalize = (p: string) => p.replace(/\\/g, "/");
+  const currentFile = normalize(currentFilePath);
+
   // Get the directory of the current file
-  // e.g., "/src/services/api.ts" -> "/src/services"
-  const currentDir = currentFilePath.substring(
-    0,
-    currentFilePath.lastIndexOf("/")
-  );
+  const currentDir = currentFile.substring(0, currentFile.lastIndexOf("/"));
 
   // Resolve the import path relative to current directory
-  // e.g., "./auth.ts" from "/src/services" -> "/src/services/auth.ts"
-  // e.g., "../models/User.ts" from "/src/services" -> "/src/models/User.ts"
   let resolvedPath: string;
   if (imp.source.startsWith("./")) {
     resolvedPath = `${currentDir}/${imp.source.substring(2)}`;
@@ -81,18 +79,32 @@ export const resolveLocalImport = (
     withoutExtension.lastIndexOf("/")
   );
 
-  // Convert directory path to namespace
-  // e.g., "/src/services" -> ["src", "services"]
-  const parts = dirPath.split("/").filter((p) => p !== "");
+  // Convert directory path to namespace - only use path after last "/src/"
+  // e.g., "/absolute/path/to/project/src/services" -> ["services"]
+  // e.g., "/absolute/path/to/project/src" -> [] (files in src/ have no sub-namespace)
+  const srcIndex = dirPath.lastIndexOf("/src/");
+  const endsWithSrc = dirPath.endsWith("/src");
+  let relativePath: string;
 
-  if (parts.length === 0) {
-    return rootNamespace;
+  if (srcIndex >= 0) {
+    // Found "/src/", use everything after it
+    relativePath = dirPath.substring(srcIndex + 5); // +5 to skip "/src/"
+  } else if (endsWithSrc) {
+    // Path ends with "/src", so files are directly in src/
+    relativePath = "";
+  } else if (dirPath.startsWith("src/")) {
+    // Path starts with "src/", skip it
+    relativePath = dirPath.substring(4); // Skip "src/"
+  } else if (dirPath === "src") {
+    // Just "src"
+    relativePath = "";
+  } else {
+    // No src directory found, this shouldn't happen
+    // but fallback to empty to use just root namespace
+    relativePath = "";
   }
 
-  // Remove "src" if it's the first part (common convention)
-  if (parts[0] === "src") {
-    parts.shift();
-  }
+  const parts = relativePath.split("/").filter((p) => p !== "" && p !== ".");
 
   if (parts.length === 0) {
     return rootNamespace;

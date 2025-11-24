@@ -80,7 +80,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   // The key should be the class name derived from the input file
   const className = path.basename(scenario.inputPath, ".ts");
   const generatedKey = Array.from(csharpFiles.keys()).find((key) =>
-    key.endsWith(`/${className}.cs`)
+    key.endsWith(`${className}.cs`)
   );
 
   if (!generatedKey) {

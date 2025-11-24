@@ -33,8 +33,8 @@ export const emitMemberAccess = (
     const objectType = expr.object.inferredType;
     const isArrayType = objectType?.kind === "arrayType";
 
-    if (isArrayType) {
-      // Rewrite: arr[index] → Tsonic.Runtime.Array.get(arr, index)
+    if (isArrayType && context.options.runtime !== "dotnet") {
+      // In JS runtime mode, rewrite: arr[index] → Tsonic.Runtime.Array.get(arr, index)
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
         expr.property as IrExpression,
@@ -56,6 +56,22 @@ export const emitMemberAccess = (
     );
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
+
+    // In dotnet mode with arrays, check if we need to cast index to int
+    if (isArrayType && context.options.runtime === "dotnet") {
+      const indexExpr = expr.property as IrExpression;
+      // Check if the index is a non-integer numeric literal (now that integers are emitted as int)
+      const needsCast =
+        indexExpr.kind === "literal" &&
+        typeof indexExpr.value === "number" &&
+        !Number.isInteger(indexExpr.value);
+
+      if (needsCast) {
+        const text = `${objectFrag.text}${accessor}(int)${propFrag.text}]`;
+        return [{ text }, finalContext];
+      }
+    }
+
     const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
   }
@@ -65,11 +81,25 @@ export const emitMemberAccess = (
   const objectType = expr.object.inferredType;
   const isArrayType = objectType?.kind === "arrayType";
 
-  // Rewrite array.length → Tsonic.Runtime.Array.length(array)
-  if (isArrayType && prop === "length") {
+  // In JS runtime mode, rewrite array.length → Tsonic.Runtime.Array.length(array)
+  if (
+    isArrayType &&
+    prop === "length" &&
+    context.options.runtime !== "dotnet"
+  ) {
     const updatedContext = addUsing(newContext, "Tsonic.Runtime");
     const text = `Tsonic.Runtime.Array.length(${objectFrag.text})`;
     return [{ text }, updatedContext];
+  }
+
+  // In dotnet mode, List<> uses Count property instead of length
+  if (
+    isArrayType &&
+    prop === "length" &&
+    context.options.runtime === "dotnet"
+  ) {
+    const text = `${objectFrag.text}.Count`;
+    return [{ text }, newContext];
   }
 
   // Handle explicit interface view properties (As_IInterface)

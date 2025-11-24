@@ -2,7 +2,7 @@
  * Parameter emission for functions and methods
  */
 
-import { IrParameter } from "@tsonic/frontend";
+import { IrParameter, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitParameterType } from "../../type-emitter.js";
@@ -21,11 +21,32 @@ export const emitParameters = (
     const isRest = param.isRest;
     const isOptional = param.isOptional;
 
+    // Check if this is a ref/out/in parameter modifier type
+    let paramModifier = "";
+    let actualType: IrType | undefined = param.type;
+
+    if (param.type && param.type.kind === "referenceType") {
+      const refType = param.type;
+      // Check if it's ref<T>, out<T>, or In<T>
+      if (
+        (refType.name === "ref" ||
+          refType.name === "out" ||
+          refType.name === "In") &&
+        refType.typeArguments &&
+        refType.typeArguments.length > 0
+      ) {
+        // Extract the modifier
+        paramModifier = refType.name === "In" ? "in" : refType.name;
+        // Extract the wrapped type
+        actualType = refType.typeArguments[0];
+      }
+    }
+
     // Parameter type
     let paramType = "object";
-    if (param.type) {
+    if (actualType) {
       const [typeName, newContext] = emitParameterType(
-        param.type,
+        actualType,
         isOptional,
         currentContext
       );
@@ -42,8 +63,10 @@ export const emitParameters = (
       paramName = param.pattern.name;
     }
 
-    // Default value - emit the actual default value in the parameter signature
-    let paramStr = `${paramType} ${paramName}`;
+    // Construct parameter string with modifier if present
+    let paramStr = paramModifier
+      ? `${paramModifier} ${paramType} ${paramName}`
+      : `${paramType} ${paramName}`;
     if (param.initializer) {
       // Emit the default value directly
       const [defaultExpr, newContext] = emitExpression(

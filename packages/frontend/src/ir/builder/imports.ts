@@ -5,6 +5,7 @@
 import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
+import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
 
 /**
  * Extract import declarations from source file
@@ -28,6 +29,11 @@ export const extractImports = (
       // Check for module binding (Node.js API, etc.)
       const binding = getBindingRegistry().getBinding(source);
       const hasModuleBinding = binding?.kind === "module";
+
+      // Track ref/out/In imports from @tsonic/types
+      if (source === "@tsonic/types") {
+        getParameterModifierRegistry().processImport(node);
+      }
 
       imports.push({
         kind: "import",

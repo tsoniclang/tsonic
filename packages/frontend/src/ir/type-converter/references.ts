@@ -5,6 +5,7 @@
 import * as ts from "typescript";
 import { IrType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
+import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
 
 /**
  * Convert TypeScript type reference to IR type
@@ -22,6 +23,24 @@ export const convertTypeReference = (
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
     return getPrimitiveType(typeName);
+  }
+
+  // Check if this is a parameter modifier type (ref/out/In) from @tsonic/types
+  const registry = getParameterModifierRegistry();
+  const modifierKind = registry.getParameterModifierKind(typeName);
+
+  if (modifierKind && node.typeArguments && node.typeArguments.length > 0) {
+    // This is ref<T>, out<T>, or In<T> from @tsonic/types
+    // Convert it to a special IR type that preserves the modifier
+    const wrappedType = convertType(node.typeArguments[0]!, checker);
+
+    return {
+      kind: "referenceType",
+      name: typeName,
+      typeArguments: [wrappedType],
+      // Add metadata to indicate this is a parameter modifier
+      parameterModifier: modifierKind,
+    } as IrType & { parameterModifier?: "ref" | "out" | "in" };
   }
 
   // Reference type (user-defined or library)
