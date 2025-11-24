@@ -18,8 +18,10 @@ export const emitArray = (
   let currentContext = addUsing(context, "System.Collections.Generic");
   const elements: string[] = [];
 
-  // Determine element type from expected type if available
+  // Determine element type from expected type or inferred type
   let elementType = "object";
+
+  // First try expectedType
   if (expectedType) {
     if (expectedType.kind === "arrayType") {
       const [elemTypeStr, newContext] = emitType(
@@ -40,6 +42,27 @@ export const emitArray = (
         elementType = elemTypeStr;
         currentContext = newContext;
       }
+    }
+  }
+  // If no expectedType, try to use the inferredType from the expression
+  else if (expr.inferredType && expr.inferredType.kind === "arrayType") {
+    const [elemTypeStr, newContext] = emitType(
+      expr.inferredType.elementType,
+      currentContext
+    );
+    elementType = elemTypeStr;
+    currentContext = newContext;
+  }
+  // In dotnet mode, if we have numeric literals, use double instead of object
+  else if (context.options.runtime === "dotnet" && expr.elements.length > 0) {
+    // Check if all non-undefined elements are numeric literals
+    const allNumbers = expr.elements.every(
+      (el) =>
+        el === undefined ||
+        (el.kind === "literal" && typeof el.value === "number")
+    );
+    if (allNumbers) {
+      elementType = "double";
     }
   }
 
