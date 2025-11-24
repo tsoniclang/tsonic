@@ -77,7 +77,7 @@ export const emitModule = (
     const containerResult = emitStaticContainer(
       module,
       staticContainerMembers,
-      exchangesContext,
+      namespaceResult.context, // Use context from namespace declarations to preserve usings
       hasInheritance
     );
     staticContainerCode = containerResult.code;
