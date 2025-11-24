@@ -68,11 +68,15 @@ export type CliOptions = {
   out?: string;
   namespace?: string;
   rid?: string;
+  runtime?: "js" | "dotnet"; // Runtime mode
   optimize?: "size" | "speed";
   keepTemp?: boolean;
   noStrip?: boolean;
   packages?: string;
   lib?: string[]; // External library paths for .NET interop
+  // Project init options
+  skipTypes?: boolean;
+  typesVersion?: string;
   // Output type options
   type?: OutputType;
   targetFramework?: string;

@@ -27,7 +27,7 @@ export const emitCSharpFiles = (
   const results = new Map<string, string>();
 
   // Find common root directory for all modules
-  const commonRoot = findCommonRoot(modules.map(m => m.filePath));
+  const commonRoot = findCommonRoot(modules.map((m) => m.filePath));
 
   for (const module of modules) {
     // Create relative path from common root
@@ -64,16 +64,16 @@ const findCommonRoot = (paths: readonly string[]): string => {
   }
 
   // Split all paths into segments
-  const segments = paths.map(p => p.split("/"));
+  const segments = paths.map((p) => p.split("/"));
   const firstSegments = segments[0];
   if (!firstSegments) return "";
 
-  const minLength = Math.min(...segments.map(s => s.length));
+  const minLength = Math.min(...segments.map((s) => s.length));
 
   let commonLength = 0;
   for (let i = 0; i < minLength; i++) {
     const segment = firstSegments[i];
-    if (segment && segments.every(s => s[i] === segment)) {
+    if (segment && segments.every((s) => s[i] === segment)) {
       commonLength = i + 1;
     } else {
       break;

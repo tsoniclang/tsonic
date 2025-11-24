@@ -91,6 +91,15 @@ export const parseArgs = (
       case "--rid":
         options.rid = args[++i] ?? "";
         break;
+      case "--runtime":
+        options.runtime = (args[++i] ?? "js") as "js" | "dotnet";
+        break;
+      case "--skip-types":
+        options.skipTypes = true;
+        break;
+      case "--types-version":
+        options.typesVersion = args[++i] ?? "";
+        break;
       case "-O":
       case "--optimize":
         options.optimize = (args[++i] ?? "speed") as "size" | "speed";

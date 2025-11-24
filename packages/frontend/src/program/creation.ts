@@ -36,7 +36,6 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
   return results;
 };
 
-
 /**
  * Create a Tsonic program from TypeScript source files
  */
@@ -68,12 +67,18 @@ export const createProgram = (
   for (const typeRoot of typeRoots) {
     const absoluteRoot = path.resolve(typeRoot);
     if (options.verbose) {
-      console.log(`Checking typeRoot: ${absoluteRoot}, exists: ${fs.existsSync(absoluteRoot)}`);
+      console.log(
+        `Checking typeRoot: ${absoluteRoot}, exists: ${fs.existsSync(absoluteRoot)}`
+      );
     }
     if (fs.existsSync(absoluteRoot)) {
       const entries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() && !entry.name.startsWith("_") && !entry.name.startsWith("internal")) {
+        if (
+          entry.isDirectory() &&
+          !entry.name.startsWith("_") &&
+          !entry.name.startsWith("internal")
+        ) {
           const indexPath = path.join(absoluteRoot, entry.name, "index.d.ts");
           if (fs.existsSync(indexPath)) {
             namespaceIndexFiles.push(indexPath);
@@ -87,7 +92,11 @@ export const createProgram = (
   }
 
   // Combine source files, declaration files, and namespace index files
-  const allFiles = [...absolutePaths, ...declarationFiles, ...namespaceIndexFiles];
+  const allFiles = [
+    ...absolutePaths,
+    ...declarationFiles,
+    ...namespaceIndexFiles,
+  ];
 
   const tsOptions: ts.CompilerOptions = {
     ...defaultTsConfig,
@@ -162,7 +171,9 @@ export const createProgram = (
       if (namespaceFiles.has(moduleName)) {
         const resolvedFile = namespaceFiles.get(moduleName)!;
         if (options.verbose) {
-          console.log(`  Resolved .NET namespace ${moduleName} to ${resolvedFile}`);
+          console.log(
+            `  Resolved .NET namespace ${moduleName} to ${resolvedFile}`
+          );
         }
         return {
           resolvedFileName: resolvedFile,

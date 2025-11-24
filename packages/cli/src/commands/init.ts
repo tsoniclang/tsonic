@@ -12,6 +12,7 @@ import type { BuildConfig, ExecutableConfig } from "@tsonic/backend";
 type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
+  readonly runtime?: "js" | "dotnet";
 };
 
 const DEFAULT_GITIGNORE = `# .NET build artifacts
@@ -68,7 +69,10 @@ npm run dev
 /**
  * Generate tsonic.json config
  */
-const generateConfig = (includeTypeRoots: boolean): string => {
+const generateConfig = (
+  includeTypeRoots: boolean,
+  runtime?: "js" | "dotnet"
+): string => {
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
     rootNamespace: "MyApp",
@@ -76,6 +80,7 @@ const generateConfig = (includeTypeRoots: boolean): string => {
     sourceRoot: "src",
     outputDirectory: "generated",
     outputName: "app",
+    runtime: runtime ?? "js",
     optimize: "speed",
     packages: [],
     buildOptions: {
@@ -224,7 +229,7 @@ export const initProject = (
     }
 
     // Create tsonic.json
-    const config = generateConfig(shouldInstallTypes);
+    const config = generateConfig(shouldInstallTypes, options.runtime);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 
