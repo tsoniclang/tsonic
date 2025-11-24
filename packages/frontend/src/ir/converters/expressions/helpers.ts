@@ -8,13 +8,21 @@ import { convertType } from "../../type-converter.js";
 
 /**
  * Helper to get inferred type from TypeScript node
+ * Prefers contextual type (from assignment target, return position, etc.)
+ * over literal type to handle cases like empty arrays `[]` correctly.
  */
 export const getInferredType = (
   node: ts.Node,
   checker: ts.TypeChecker
 ): IrType | undefined => {
   try {
-    const tsType = checker.getTypeAtLocation(node);
+    // Try contextual type first (from assignment target, parameter, return, etc.)
+    // This is essential for empty arrays: [] has literal type never[] but contextual
+    // type Player[] when assigned to a Player[] variable
+    const expr = ts.isExpression(node) ? node : undefined;
+    const contextualType = expr ? checker.getContextualType(expr) : undefined;
+    const tsType = contextualType ?? checker.getTypeAtLocation(node);
+
     const typeNode = checker.typeToTypeNode(
       tsType,
       node,
