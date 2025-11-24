@@ -89,16 +89,52 @@ export const emitFunctionDeclaration = (
   );
   const [bodyCode, finalContext] = emitBlockStatement(stmt.body, bodyContext);
 
-  // Inject initialization code for generators
-  let finalBodyCode = bodyCode;
-  if (stmt.isGenerator) {
-    const bodyInd = getIndent(bodyContext);
-    const exchangeName = `${stmt.name}_exchange`;
-    const initLine = `${bodyInd}var exchange = new ${exchangeName}();`;
+  // Collect out parameters that need initialization
+  const outParams: Array<{ name: string; type: string }> = [];
+  for (const param of stmt.parameters) {
+    if (param.type && param.type.kind === "referenceType") {
+      const refType = param.type;
+      if (
+        refType.name === "out" &&
+        refType.typeArguments &&
+        refType.typeArguments.length > 0 &&
+        param.pattern.kind === "identifierPattern"
+      ) {
+        // Get the type for default value
+        const actualType = refType.typeArguments[0];
+        let typeName = "object";
+        if (actualType) {
+          const [typeStr] = emitType(actualType!, currentContext);
+          typeName = typeStr;
+        }
+        outParams.push({ name: param.pattern.name, type: typeName });
+      }
+    }
+  }
 
+  // Inject initialization code for generators and out parameters
+  let finalBodyCode = bodyCode;
+  const bodyInd = getIndent(bodyContext);
+  const injectLines: string[] = [];
+
+  // Add generator exchange initialization
+  if (stmt.isGenerator) {
+    const exchangeName = `${stmt.name}_exchange`;
+    injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
+  }
+
+  // Add out parameter initializations
+  if (outParams.length > 0) {
+    for (const outParam of outParams) {
+      injectLines.push(`${bodyInd}${outParam.name} = default;`);
+    }
+  }
+
+  // Inject lines after opening brace
+  if (injectLines.length > 0) {
     const lines = bodyCode.split("\n");
     if (lines.length > 1) {
-      lines.splice(1, 0, initLine, "");
+      lines.splice(1, 0, ...injectLines, "");
       finalBodyCode = lines.join("\n");
     }
   }
