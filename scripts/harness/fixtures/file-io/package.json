@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "type": "module",
   "devDependencies": {
-    "@types/dotnet": "^10.0.0"
+    "@tsonic/dotnet": "^0.1.3"
   }
 }

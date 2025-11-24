@@ -1,10 +1,11 @@
 {
+  "runtime": "dotnet",
   "rootNamespace": "CollectionsTest",
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
   "outputName": "collections-test",
   "dotnet": {
-    "libraries": ["@types/dotnet"]
+    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
   }
 }

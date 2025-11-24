@@ -43,6 +43,7 @@ export type TsonicConfig = {
   readonly rid?: string;
   readonly dotnetVersion?: string;
   readonly optimize?: "size" | "speed";
+  readonly runtime?: "js" | "dotnet"; // Runtime mode
   readonly output?: TsonicOutputConfig;
   readonly packages?: readonly NuGetPackage[]; // Deprecated - use dotnet.packages
   readonly buildOptions?: {
@@ -96,6 +97,7 @@ export type ResolvedConfig = {
   readonly rid: string;
   readonly dotnetVersion: string;
   readonly optimize: "size" | "speed";
+  readonly runtime: "js" | "dotnet";
   readonly packages: readonly NuGetPackage[];
   readonly outputConfig: TsonicOutputConfig;
   readonly stripSymbols: boolean;
