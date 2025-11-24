@@ -60,9 +60,11 @@ export const emitMemberAccess = (
     // In dotnet mode with arrays, check if we need to cast index to int
     if (isArrayType && context.options.runtime === "dotnet") {
       const indexExpr = expr.property as IrExpression;
-      // Check if the index is a numeric literal (which gets emitted as double)
+      // Check if the index is a non-integer numeric literal (now that integers are emitted as int)
       const needsCast =
-        indexExpr.kind === "literal" && typeof indexExpr.value === "number";
+        indexExpr.kind === "literal" &&
+        typeof indexExpr.value === "number" &&
+        !Number.isInteger(indexExpr.value);
 
       if (needsCast) {
         const text = `${objectFrag.text}${accessor}(int)${propFrag.text}]`;

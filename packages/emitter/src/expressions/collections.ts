@@ -53,16 +53,33 @@ export const emitArray = (
     elementType = elemTypeStr;
     currentContext = newContext;
   }
-  // In dotnet mode, if we have numeric literals, use double instead of object
-  else if (context.options.runtime === "dotnet" && expr.elements.length > 0) {
+  // If we have numeric literals, infer the appropriate numeric type
+  else if (expr.elements.length > 0) {
     // Check if all non-undefined elements are numeric literals
-    const allNumbers = expr.elements.every(
-      (el) =>
-        el === undefined ||
-        (el.kind === "literal" && typeof el.value === "number")
+    type NumericLiteral = Extract<IrExpression, { kind: "literal" }> & {
+      value: number;
+    };
+    const numericElements = expr.elements.filter(
+      (el): el is NumericLiteral =>
+        el !== undefined &&
+        el.kind === "literal" &&
+        typeof (el as any).value === "number"
     );
-    if (allNumbers) {
-      elementType = "double";
+
+    if (numericElements.length > 0) {
+      const allNumbers = expr.elements.every(
+        (el) =>
+          el === undefined ||
+          (el.kind === "literal" && typeof (el as any).value === "number")
+      );
+
+      if (allNumbers) {
+        // Check if all numbers are integers
+        const allIntegers = numericElements.every((el) =>
+          Number.isInteger(el.value)
+        );
+        elementType = allIntegers ? "int" : "double";
+      }
     }
   }
 
