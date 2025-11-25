@@ -221,6 +221,7 @@ error NU1101: Unable to find package Tsonic.JSRuntime
 ```
 
 **Resolution:**
+
 - Ensure `Tsonic.Runtime` is published to NuGet or local feed (always required)
 - Ensure `Tsonic.JSRuntime` is published (only when `mode: "js"`)
 

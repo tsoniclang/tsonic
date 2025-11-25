@@ -4,5 +4,8 @@
   "type": "module",
   "devDependencies": {
     "@tsonic/dotnet": "^0.1.3"
+  },
+  "dependencies": {
+    "@tsonic/dotnet-globals": "^0.1.1"
   }
 }

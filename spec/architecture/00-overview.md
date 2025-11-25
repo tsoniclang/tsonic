@@ -239,12 +239,12 @@ Change to: "./models/User.ts"
 
 **Built-in Types Affected by Mode:**
 
-| Type | Built-in Methods |
-|------|------------------|
-| Array | `sort`, `map`, `filter`, `reduce`, `push`, `pop`, `slice`, etc. |
-| String | `toUpperCase`, `toLowerCase`, `slice`, `indexOf`, etc. |
-| Math | `floor`, `ceil`, `round`, `abs`, `min`, `max`, etc. |
-| console | `log`, `warn`, `error`, `info`, etc. |
+| Type    | Built-in Methods                                                |
+| ------- | --------------------------------------------------------------- |
+| Array   | `sort`, `map`, `filter`, `reduce`, `push`, `pop`, `slice`, etc. |
+| String  | `toUpperCase`, `toLowerCase`, `slice`, `indexOf`, etc.          |
+| Math    | `floor`, `ceil`, `round`, `abs`, `min`, `max`, etc.             |
+| console | `log`, `warn`, `error`, `info`, etc.                            |
 
 **Key Distinction:**
 

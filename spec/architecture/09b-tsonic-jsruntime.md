@@ -21,6 +21,7 @@ This document describes the **`Tsonic.JSRuntime`** .NET package that provides Ja
 **Output:** NuGet package consumed by generated C# code
 
 **When NOT Used:**
+
 - `mode: "dotnet"` (default) uses native .NET BCL APIs directly
 - No Tsonic.JSRuntime reference in generated .csproj
 - Built-in methods compile to BCL equivalents (e.g., `push()` → `Add()`)
@@ -44,6 +45,7 @@ JSArray<string> names = new() { "Alice", "Bob" };
 ```
 
 **Benefits:**
+
 - Full .NET interop without conversions
 - Better performance (no wrapper overhead)
 - AOT-friendly (no dynamic dispatch)
@@ -117,8 +119,8 @@ namespace Tsonic.JSRuntime
 ```typescript
 // TypeScript
 const numbers = [1, 2, 3, 4, 5];
-const doubled = numbers.map(x => x * 2);
-const evens = numbers.filter(x => x % 2 === 0);
+const doubled = numbers.map((x) => x * 2);
+const evens = numbers.filter((x) => x % 2 === 0);
 const sum = numbers.reduce((acc, x) => acc + x, 0);
 ```
 
@@ -232,9 +234,9 @@ namespace Tsonic.JSRuntime
 ```typescript
 // TypeScript
 const str = "Hello, World!";
-console.log(str.slice(0, 5));        // "Hello"
-console.log(str.slice(-6));          // "World!"
-console.log(str.toUpperCase());      // "HELLO, WORLD!"
+console.log(str.slice(0, 5)); // "Hello"
+console.log(str.slice(-6)); // "World!"
+console.log(str.toUpperCase()); // "HELLO, WORLD!"
 ```
 
 ```csharp
@@ -297,10 +299,10 @@ namespace Tsonic.JSRuntime
 
 ```typescript
 // TypeScript
-const x = Math.floor(4.7);     // 4
-const y = Math.ceil(4.2);      // 5
-const z = Math.round(4.5);     // 5 (half-up)
-const r = Math.random();       // [0, 1)
+const x = Math.floor(4.7); // 4
+const y = Math.ceil(4.2); // 5
+const z = Math.round(4.5); // 5 (half-up)
+const r = Math.random(); // [0, 1)
 ```
 
 ```csharp
@@ -548,6 +550,7 @@ Extension methods have **zero overhead** compared to wrapper classes:
 ### 11.2 Benchmarks
 
 **Array.map() - 10,000 elements:**
+
 - Tsonic JSRuntime: ~0.15ms
 - Native C# LINQ: ~0.12ms
 - Node.js: ~0.30ms

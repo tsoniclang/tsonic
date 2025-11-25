@@ -37,6 +37,7 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 The `mode` field is the key semantic switch in Tsonic. It determines whether built-in methods (Array, String, Math, console) use .NET BCL semantics or JavaScript semantics.
 
 **Important**: Mode does NOT change the underlying CLR types. In both modes:
+
 - `number[]` compiles to `List<int>` or `List<double>`
 - `string` compiles to `string`
 - All types remain .NET native for interop compatibility
@@ -172,12 +173,12 @@ Tsonic is primarily a **TypeScript syntax frontend for .NET**. The default mode 
 
 Mode affects lowering for these built-in types only:
 
-| Type | Methods affected |
-|------|------------------|
-| **Array** | `sort`, `reverse`, `map`, `filter`, `reduce`, `find`, `indexOf`, `includes`, `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `join`, `forEach`, `every`, `some`, `flat`, `flatMap`, etc. |
-| **String** | `toUpperCase`, `toLowerCase`, `slice`, `substring`, `charAt`, `indexOf`, `includes`, `split`, `trim`, `padStart`, `padEnd`, `repeat`, `replace`, `startsWith`, `endsWith`, etc. |
-| **Math** | `floor`, `ceil`, `round`, `abs`, `min`, `max`, `random`, `sin`, `cos`, `tan`, `sqrt`, `pow`, `log`, etc. |
-| **console** | `log`, `warn`, `error`, `info`, `debug`, `trace`, `assert`, `time`, `timeEnd`, etc. |
+| Type        | Methods affected                                                                                                                                                                                         |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Array**   | `sort`, `reverse`, `map`, `filter`, `reduce`, `find`, `indexOf`, `includes`, `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `join`, `forEach`, `every`, `some`, `flat`, `flatMap`, etc. |
+| **String**  | `toUpperCase`, `toLowerCase`, `slice`, `substring`, `charAt`, `indexOf`, `includes`, `split`, `trim`, `padStart`, `padEnd`, `repeat`, `replace`, `startsWith`, `endsWith`, etc.                          |
+| **Math**    | `floor`, `ceil`, `round`, `abs`, `min`, `max`, `random`, `sin`, `cos`, `tan`, `sqrt`, `pow`, `log`, etc.                                                                                                 |
+| **console** | `log`, `warn`, `error`, `info`, `debug`, `trace`, `assert`, `time`, `timeEnd`, etc.                                                                                                                      |
 
 Everything else uses normal binding-based lowering regardless of mode.
 
@@ -257,12 +258,14 @@ The library receives a standard `List<int>` - no wrapper types, no JS runtime ty
 ### When to Use Each Mode
 
 **Use `mode: "dotnet"` (default) when:**
+
 - Building a .NET application/library
 - Interoperating heavily with .NET libraries
 - You want BCL method behavior
 - Performance is critical (no runtime indirection)
 
 **Use `mode: "js"` when:**
+
 - Porting existing JavaScript/TypeScript code
 - You need exact JavaScript semantics (e.g., `sort()` string coercion)
 - Familiarity with JS behavior is more important than .NET conventions
@@ -342,10 +345,7 @@ Tsonic relies on `tsconfig.json` to define the TypeScript program. The compiler 
 {
   "compilerOptions": {
     "lib": [],
-    "typeRoots": [
-      "./node_modules/@types",
-      "./node_modules/@types/dotnet"
-    ],
+    "typeRoots": ["./node_modules/@types", "./node_modules/@types/dotnet"],
     "target": "ES2020",
     "module": "ES2020",
     "moduleResolution": "bundler",
@@ -358,10 +358,10 @@ Tsonic relies on `tsconfig.json` to define the TypeScript program. The compiler 
 
 **Critical settings explained:**
 
-| Setting | Value | Why |
-|---------|-------|-----|
-| `lib` | `[]` | Disables default TS libs (lib.es5.d.ts, etc.) that would conflict with .NET type surfaces |
-| `typeRoots` | Points to dotnet typings | Ensures TS sees .NET type declarations |
+| Setting     | Value                    | Why                                                                                       |
+| ----------- | ------------------------ | ----------------------------------------------------------------------------------------- |
+| `lib`       | `[]`                     | Disables default TS libs (lib.es5.d.ts, etc.) that would conflict with .NET type surfaces |
+| `typeRoots` | Points to dotnet typings | Ensures TS sees .NET type declarations                                                    |
 
 ### tsc Compatibility Guarantee
 
@@ -372,6 +372,7 @@ tsc --noEmit  # Must pass without errors
 ```
 
 This works because:
+
 1. `lib: []` removes conflicting JS prototypes
 2. `typeRoots` points to proper .NET type declarations
 3. The `.d.ts` files from `@types/dotnet` provide complete type coverage
@@ -396,6 +397,7 @@ The following should NOT be in `tsonic.json`:
 - **Library lists** - Managed via npm packages + tsconfig.json
 
 This separation ensures:
+
 1. No config duplication
 2. Users can freely edit `tsconfig.json`
 3. Future "stdlibs" (nodejs-clr, python-clr, etc.) work automatically

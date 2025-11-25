@@ -29,6 +29,7 @@ Deduplicate the list of packages.
 ### Step 4: Check for Bindings
 
 For each package, check if `internal/bindings.json` exists:
+
 - If yes → load bindings and metadata
 - If no → ignore for binding purposes (still used for TypeScript types)
 
@@ -41,7 +42,7 @@ const discoverBindings = (program: ts.Program): BindingRegistry => {
 
   for (const sourceFile of program.getSourceFiles()) {
     // Skip local project files
-    if (!sourceFile.fileName.includes('node_modules')) continue;
+    if (!sourceFile.fileName.includes("node_modules")) continue;
 
     // Extract package name from path
     const packageRoot = getPackageRoot(sourceFile.fileName);
@@ -49,9 +50,9 @@ const discoverBindings = (program: ts.Program): BindingRegistry => {
     seenPackages.add(packageRoot);
 
     // Check for bindings file
-    const bindingsPath = path.join(packageRoot, 'internal', 'bindings.json');
+    const bindingsPath = path.join(packageRoot, "internal", "bindings.json");
     if (fs.existsSync(bindingsPath)) {
-      const bindings = JSON.parse(fs.readFileSync(bindingsPath, 'utf-8'));
+      const bindings = JSON.parse(fs.readFileSync(bindingsPath, "utf-8"));
       registry.loadPackage(packageRoot, bindings);
     }
   }
@@ -96,13 +97,13 @@ node_modules/@types/dotnet/
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `internal/bindings.json` | Root bindings file - presence indicates this is a Tsonic binding package |
-| `internal/metadata.json` | Additional type metadata (generics, constraints, etc.) |
-| `internal/extensions/index.d.ts` | Extension method bucket interfaces and `ExtensionMethods<T>` helper |
-| `<Namespace>/bindings.json` | Per-namespace binding data |
-| `<Namespace>/internal/metadata.json` | Per-namespace metadata with method signatures |
+| File                                 | Purpose                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `internal/bindings.json`             | Root bindings file - presence indicates this is a Tsonic binding package |
+| `internal/metadata.json`             | Additional type metadata (generics, constraints, etc.)                   |
+| `internal/extensions/index.d.ts`     | Extension method bucket interfaces and `ExtensionMethods<T>` helper      |
+| `<Namespace>/bindings.json`          | Per-namespace binding data                                               |
+| `<Namespace>/internal/metadata.json` | Per-namespace metadata with method signatures                            |
 
 ---
 
@@ -175,6 +176,7 @@ The `stableId` uniquely identifies a CLR member:
 ```
 
 Examples:
+
 - Type: `System.Linq:System.Linq.Enumerable`
 - Method: `System.Linq:System.Linq.Enumerable::Where(IEnumerable_1,Func_2):IEnumerable_1`
 - Field: `System.Linq:System.Linq.ParallelExecutionMode::DefaultSystem.Linq.ParallelExecutionMode`
@@ -203,6 +205,7 @@ See [Extension Methods](../reference/dotnet/extension-methods.md) for how extens
 Binding discovery is **independent of mode**. Both `mode: "dotnet"` and `mode: "js"` load the same bindings.
 
 Mode affects only how **built-in methods** (Array, String, Math, console) are lowered:
+
 - `mode: "dotnet"` → uses BCL method names from bindings
 - `mode: "js"` → uses `Tsonic.JSRuntime` extension methods
 

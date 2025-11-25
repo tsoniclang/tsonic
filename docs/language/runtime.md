@@ -46,6 +46,7 @@ value.Match(
 ```
 
 **Union methods:**
+
 - `Is1()`, `Is2()`, ... - Check which type
 - `As1()`, `As2()`, ... - Extract value (throws if wrong type)
 - `TryAs1(out T1)`, ... - Try extract value
@@ -310,7 +311,7 @@ var ok = Globals.isFinite(num);
 ```typescript
 const arr = [1, 2, 3];
 arr.push(4);
-const doubled = arr.map(x => x * 2);
+const doubled = arr.map((x) => x * 2);
 ```
 
 ```csharp
@@ -324,6 +325,7 @@ var doubled = arr.Select(x => x * 2).ToList();  // LINQ
 ```
 
 **Package references:**
+
 ```xml
 <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
 <!-- NO Tsonic.JSRuntime -->
@@ -336,7 +338,7 @@ var doubled = arr.Select(x => x * 2).ToList();  // LINQ
 ```typescript
 const arr = [1, 2, 3];
 arr.push(4);
-const doubled = arr.map(x => x * 2);
+const doubled = arr.map((x) => x * 2);
 ```
 
 ```csharp
@@ -349,6 +351,7 @@ var doubled = arr.map(x => x * 2);  // Extension method
 ```
 
 **Package references:**
+
 ```xml
 <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
 <PackageReference Include="Tsonic.JSRuntime" Version="1.0.0" />
@@ -359,12 +362,14 @@ var doubled = arr.map(x => x * 2);  // Extension method
 ## When to Use Each Mode
 
 ### Use mode: "dotnet" (default) when:
+
 - Building .NET applications
 - Integrating with .NET libraries
 - Performance is critical (LINQ is highly optimized)
 - You want idiomatic C# code
 
 ### Use mode: "js" when:
+
 - Porting existing JavaScript/TypeScript code
 - Need exact JavaScript semantics
 - Working with algorithms that depend on JS behavior

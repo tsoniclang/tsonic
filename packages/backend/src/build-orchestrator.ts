@@ -13,7 +13,13 @@ import {
   readdirSync,
 } from "fs";
 import { join, dirname } from "path";
-import { BuildOptions, BuildResult, BuildConfig, EntryInfo } from "./types.js";
+import {
+  BuildOptions,
+  BuildResult,
+  BuildConfig,
+  EntryInfo,
+  NuGetPackage,
+} from "./types.js";
 import { generateCsproj } from "./project-generator.js";
 import { generateProgramCs } from "./program-generator.js";
 import { checkDotnetInstalled, detectRid, publishNativeAot } from "./dotnet.js";
@@ -137,13 +143,20 @@ export const buildNativeAot = (
       copyFileSync(projectCsproj, join(buildDir, csprojFilename));
     } else {
       // Generate temporary .csproj for build
+      // Tsonic.Runtime is ALWAYS required (for unions, typeof, structural)
+      // Tsonic.JSRuntime only when mode: "js" (for JS semantics)
+      const packages: NuGetPackage[] = [
+        { name: "Tsonic.Runtime", version: "0.0.1" },
+      ];
+      if (entryInfo.runtime === "js") {
+        packages.push({ name: "Tsonic.JSRuntime", version: "0.0.1" });
+      }
+
       const buildConfig: BuildConfig = {
         rootNamespace: options.namespace,
         outputName: options.outputName || "tsonic",
         dotnetVersion: options.dotnetVersion || "net10.0",
-        packages: [
-          { name: "Tsonic.Runtime", version: "0.0.1" }, // Tsonic runtime library
-        ],
+        packages,
         outputConfig: {
           type: "executable",
           nativeAot: true,

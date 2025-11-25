@@ -3,6 +3,7 @@
 ## Purpose
 
 This phase generates C# code from IR, applying specialization (monomorphization) for generics, creating structural adapters, generating entry points. The emitter routes built-in method calls based on the `mode` setting:
+
 - `mode: "dotnet"` (default): Built-in methods use .NET BCL semantics
 - `mode: "js"`: Built-in methods use `Tsonic.JSRuntime` extension methods
 
@@ -633,7 +634,10 @@ const emitExtensionMethodCall = (
 
   // Get the target object (becomes first argument to static method)
   const memberAccess = expr.callee as IrMemberAccessExpression;
-  const [targetFrag, ctx1] = emitExpression(memberAccess.object, currentContext);
+  const [targetFrag, ctx1] = emitExpression(
+    memberAccess.object,
+    currentContext
+  );
   currentContext = ctx1;
 
   // Emit remaining arguments
@@ -647,7 +651,9 @@ const emitExtensionMethodCall = (
   // Emit type arguments if present
   let typeArgsStr = "";
   if (expr.typeArguments && expr.typeArguments.length > 0) {
-    const typeArgs = expr.typeArguments.map((t) => emitType(t, currentContext)[0]);
+    const typeArgs = expr.typeArguments.map(
+      (t) => emitType(t, currentContext)[0]
+    );
     typeArgsStr = `<${typeArgs.join(", ")}>`;
   }
 
@@ -663,11 +669,11 @@ const emitExtensionMethodCall = (
 
 **Example transformation:**
 
-| TypeScript Input                  | C# Output                                  |
-| --------------------------------- | ------------------------------------------ |
-| `nums.Where(x => x > 0)`          | `Enumerable.Where(nums, x => x > 0)`       |
-| `nums.Select(x => x * 2)`         | `Enumerable.Select(nums, x => x * 2)`      |
-| `str.AsSpan()`                    | `MemoryExtensions.AsSpan(str)`             |
+| TypeScript Input          | C# Output                             |
+| ------------------------- | ------------------------------------- |
+| `nums.Where(x => x > 0)`  | `Enumerable.Where(nums, x => x > 0)`  |
+| `nums.Select(x => x * 2)` | `Enumerable.Select(nums, x => x * 2)` |
+| `str.AsSpan()`            | `MemoryExtensions.AsSpan(str)`        |
 
 For chained calls like `nums.Where(...).Select(...).OrderBy(...)`, each call is independently transformed, resulting in nested static calls.
 
@@ -683,12 +689,12 @@ The emitter routes built-in method calls based on the `mode` setting. Built-in d
 
 The following types are considered "built-in" and have mode-dependent lowering:
 
-| Type | Built-in Methods |
-|------|------------------|
-| **Array** | `sort`, `reverse`, `map`, `filter`, `reduce`, `find`, `indexOf`, `includes`, `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `join`, `forEach`, `every`, `some`, `flat`, `flatMap` |
-| **String** | `toUpperCase`, `toLowerCase`, `slice`, `substring`, `charAt`, `indexOf`, `includes`, `split`, `trim`, `padStart`, `padEnd`, `repeat`, `replace`, `startsWith`, `endsWith` |
-| **Math** | `floor`, `ceil`, `round`, `abs`, `min`, `max`, `random`, `sin`, `cos`, `tan`, `sqrt`, `pow`, `log` |
-| **console** | `log`, `warn`, `error`, `info`, `debug`, `trace`, `assert`, `time`, `timeEnd` |
+| Type        | Built-in Methods                                                                                                                                                                                   |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Array**   | `sort`, `reverse`, `map`, `filter`, `reduce`, `find`, `indexOf`, `includes`, `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `join`, `forEach`, `every`, `some`, `flat`, `flatMap` |
+| **String**  | `toUpperCase`, `toLowerCase`, `slice`, `substring`, `charAt`, `indexOf`, `includes`, `split`, `trim`, `padStart`, `padEnd`, `repeat`, `replace`, `startsWith`, `endsWith`                          |
+| **Math**    | `floor`, `ceil`, `round`, `abs`, `min`, `max`, `random`, `sin`, `cos`, `tan`, `sqrt`, `pow`, `log`                                                                                                 |
+| **console** | `log`, `warn`, `error`, `info`, `debug`, `trace`, `assert`, `time`, `timeEnd`                                                                                                                      |
 
 #### Detection Logic
 
@@ -712,14 +718,18 @@ const isBuiltinCall = (expr: IrCallExpression): boolean => {
   }
 
   // Check Math.* static calls
-  if (memberAccess.object.kind === "identifier" &&
-      memberAccess.object.name === "Math") {
+  if (
+    memberAccess.object.kind === "identifier" &&
+    memberAccess.object.name === "Math"
+  ) {
     return MATH_BUILTIN_METHODS.has(methodName);
   }
 
   // Check console.* static calls
-  if (memberAccess.object.kind === "identifier" &&
-      memberAccess.object.name === "console") {
+  if (
+    memberAccess.object.kind === "identifier" &&
+    memberAccess.object.name === "console"
+  ) {
     return CONSOLE_BUILTIN_METHODS.has(methodName);
   }
 
@@ -763,7 +773,10 @@ const emitJSRuntimeBuiltinCall = (
   const memberAccess = expr.callee as IrMemberAccessExpression;
 
   // Emit receiver
-  const [receiverFrag, ctx1] = emitExpression(memberAccess.object, currentContext);
+  const [receiverFrag, ctx1] = emitExpression(
+    memberAccess.object,
+    currentContext
+  );
   currentContext = ctx1;
 
   // Emit arguments
@@ -836,14 +849,14 @@ const emitBCLBuiltinCall = (
 const getBCLMethodName = (jsMethodName: string): string => {
   // Method-specific mappings
   const mappings: Record<string, string> = {
-    "toUpperCase": "ToUpper",
-    "toLowerCase": "ToLower",
-    "indexOf": "IndexOf",
-    "includes": "Contains",
-    "push": "Add",
-    "pop": "RemoveAt", // with special handling
-    "shift": "RemoveAt", // with special handling
-    "forEach": "ForEach",
+    toUpperCase: "ToUpper",
+    toLowerCase: "ToLower",
+    indexOf: "IndexOf",
+    includes: "Contains",
+    push: "Add",
+    pop: "RemoveAt", // with special handling
+    shift: "RemoveAt", // with special handling
+    forEach: "ForEach",
     // ... other mappings
   };
 

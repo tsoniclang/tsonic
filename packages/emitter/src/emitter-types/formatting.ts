@@ -19,8 +19,10 @@ export const formatUsings = (usings: ReadonlySet<string>): string => {
   const sorted = Array.from(usings).sort((a, b) => {
     // Tsonic packages first (Runtime, then JSRuntime)
     const getTsonicPriority = (ns: string): number => {
-      if (ns === "Tsonic.Runtime" || ns.startsWith("static Tsonic.Runtime")) return 1;
-      if (ns === "Tsonic.JSRuntime" || ns.startsWith("static Tsonic.JSRuntime")) return 2;
+      if (ns === "Tsonic.Runtime" || ns.startsWith("static Tsonic.Runtime"))
+        return 1;
+      if (ns === "Tsonic.JSRuntime" || ns.startsWith("static Tsonic.JSRuntime"))
+        return 2;
       return 3;
     };
 

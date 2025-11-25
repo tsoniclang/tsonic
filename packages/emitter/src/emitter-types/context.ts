@@ -33,7 +33,10 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
 
   // Tsonic.Runtime ALWAYS needed (for unions, typeof, structural)
   // Tsonic.JSRuntime only for runtime: "js"
-  const initialUsings = new Set<string>(["System.Collections.Generic", "Tsonic.Runtime"]);
+  const initialUsings = new Set<string>([
+    "System.Collections.Generic",
+    "Tsonic.Runtime",
+  ]);
   if (options.runtime !== "dotnet") {
     initialUsings.add("Tsonic.JSRuntime");
   }

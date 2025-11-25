@@ -31,10 +31,10 @@ Architecture docs are organized by **compilation phase**:
 
 ### Runtime Packages (09a-09b)
 
-| File                         | Lines | Description                                                   |
-| ---------------------------- | ----- | ------------------------------------------------------------- |
-| **09a-tsonic-runtime.md**    | ~400  | Tsonic.Runtime package: Union types, structural typing (always required) |
-| **09b-tsonic-jsruntime.md**  | ~400  | Tsonic.JSRuntime package: JS semantics via extension methods (mode: "js" only) |
+| File                        | Lines | Description                                                                    |
+| --------------------------- | ----- | ------------------------------------------------------------------------------ |
+| **09a-tsonic-runtime.md**   | ~400  | Tsonic.Runtime package: Union types, structural typing (always required)       |
+| **09b-tsonic-jsruntime.md** | ~400  | Tsonic.JSRuntime package: JS semantics via extension methods (mode: "js" only) |
 
 ### Supporting Systems (10-13)
 
@@ -78,17 +78,17 @@ Each phase doc follows the same structure:
 
 ### For Specific Tasks
 
-| Task                            | Start Here              | Then Read                                               |
-| ------------------------------- | ----------------------- | ------------------------------------------------------- |
-| **Adding TypeScript feature**   | 02-phase-program.md     | 05-phase-ir.md, 07-phase-emitter.md                     |
-| **Fixing module resolution**    | 03-phase-resolver.md    | 04-phase-validation.md                                  |
-| **Adding .NET binding**         | 02-phase-program.md     | 05-phase-ir.md (binding resolution)                     |
-| **Improving error messages**    | 11-diagnostics-flow.md  | 10-cli-orchestration.md (printing)                      |
-| **Optimizing code generation**  | 07-phase-emitter.md     | 12-call-graphs.md (dead code)                           |
-| **Adding CLI command**          | 10-cli-orchestration.md | 01-pipeline-flow.md                                     |
-| **Understanding generic types** | 05-phase-ir.md          | 07-phase-emitter.md (specialization), 12-call-graphs.md |
-| **Understanding union types**   | 09a-tsonic-runtime.md   | 05-phase-ir.md, 07-phase-emitter.md                     |
-| **Debugging JS runtime behavior** | 09b-tsonic-jsruntime.md | 07-phase-emitter.md (how it's used)                   |
+| Task                              | Start Here              | Then Read                                               |
+| --------------------------------- | ----------------------- | ------------------------------------------------------- |
+| **Adding TypeScript feature**     | 02-phase-program.md     | 05-phase-ir.md, 07-phase-emitter.md                     |
+| **Fixing module resolution**      | 03-phase-resolver.md    | 04-phase-validation.md                                  |
+| **Adding .NET binding**           | 02-phase-program.md     | 05-phase-ir.md (binding resolution)                     |
+| **Improving error messages**      | 11-diagnostics-flow.md  | 10-cli-orchestration.md (printing)                      |
+| **Optimizing code generation**    | 07-phase-emitter.md     | 12-call-graphs.md (dead code)                           |
+| **Adding CLI command**            | 10-cli-orchestration.md | 01-pipeline-flow.md                                     |
+| **Understanding generic types**   | 05-phase-ir.md          | 07-phase-emitter.md (specialization), 12-call-graphs.md |
+| **Understanding union types**     | 09a-tsonic-runtime.md   | 05-phase-ir.md, 07-phase-emitter.md                     |
+| **Debugging JS runtime behavior** | 09b-tsonic-jsruntime.md | 07-phase-emitter.md (how it's used)                     |
 
 ### For Architecture Changes
 

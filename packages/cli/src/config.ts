@@ -190,6 +190,9 @@ export const resolveConfig = (
     runtime: config.runtime ?? "js",
     packages: [
       { name: "Tsonic.Runtime", version: "0.0.1" },
+      ...((config.runtime ?? "js") === "js"
+        ? [{ name: "Tsonic.JSRuntime", version: "0.0.1" }]
+        : []),
       ...(config.dotnet?.packages ?? config.packages ?? []),
     ],
     outputConfig,
