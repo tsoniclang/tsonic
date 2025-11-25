@@ -21,26 +21,9 @@ export const emitParameters = (
     const isRest = param.isRest;
     const isOptional = param.isOptional;
 
-    // Check if this is a ref/out/in parameter modifier type
-    let paramModifier = "";
-    let actualType: IrType | undefined = param.type;
-
-    if (param.type && param.type.kind === "referenceType") {
-      const refType = param.type;
-      // Check if it's ref<T>, out<T>, or In<T>
-      if (
-        (refType.name === "ref" ||
-          refType.name === "out" ||
-          refType.name === "In") &&
-        refType.typeArguments &&
-        refType.typeArguments.length > 0
-      ) {
-        // Extract the modifier
-        paramModifier = refType.name === "In" ? "in" : refType.name;
-        // Extract the wrapped type
-        actualType = refType.typeArguments[0];
-      }
-    }
+    // Use the passing mode from IR (frontend already unwrapped ref<T>/out<T>/in<T>)
+    const paramModifier = param.passing !== "value" ? param.passing : "";
+    const actualType: IrType | undefined = param.type;
 
     // Parameter type
     let paramType = "object";

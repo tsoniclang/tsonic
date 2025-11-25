@@ -89,21 +89,47 @@ Calling explicitly implemented interface methods:
 resource.As_IDisposable.Dispose();
 ```
 
-### [Extension Methods](extension-methods.md)
+### [Extension Methods](reference/dotnet/extension-methods.md)
 
 Using C# extension methods (especially LINQ):
 
-- Extension method syntax
-- LINQ methods (Where, Select, etc.)
-- Custom extension methods
-- Method chaining
+- **Rich<T> pattern**: Type intersection to bring extension methods into scope
+- **LINQ methods**: Where, Select, Aggregate, GroupBy, Join, OrderBy, etc.
+- **Chained calls**: Each method in a chain compiles to nested static calls
+- **Overload handling**: tsbindgen renames overloads (Where, Where2, etc.)
+
+**How it works**: C# extension methods are syntactic sugar for static method calls. `nums.Where(...)` compiles to `Enumerable.Where(nums, ...)`. Tsonic performs this same transformation.
 
 **Quick Example**:
 
 ```typescript
-import { Enumerable } from "System.Linq";
+import { IEnumerable_1 } from "@tsonic/dotnet/System.Collections.Generic";
+import { ExtensionMethods } from "@tsonic/dotnet";
 
-const evens = Enumerable.Where(numbers, (n) => n % 2 === 0).ToArray();
+// Rich<T> adds extension methods to any type
+type Rich<T> = T & ExtensionMethods<T>;
+
+function processNumbers(nums: Rich<IEnumerable_1<int>>): Rich<IEnumerable_1<int>> {
+  return nums
+    .Where((x) => x > 0)
+    .Select((x) => x * 2)
+    .OrderBy((x) => x);
+}
+```
+
+**Generated C#**:
+
+```csharp
+public static IEnumerable<int> processNumbers(IEnumerable<int> nums)
+{
+    return Enumerable.OrderBy(
+        Enumerable.Select(
+            Enumerable.Where(nums, x => x > 0),
+            x => x * 2
+        ),
+        x => x
+    );
+}
 ```
 
 ### [Nested Types](nested-types.md)

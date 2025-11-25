@@ -207,6 +207,32 @@ type IrIdentifierExpression = {
 };
 ```
 
+**IrCallExpression with Extension Method Support:**
+
+```typescript
+type IrCallExpression = {
+  readonly kind: "call";
+  readonly callee: IrExpression;
+  readonly arguments: readonly IrExpression[];
+  readonly typeArguments?: readonly IrType[];
+
+  // Extension method support (added when call is on Rich<T> type)
+  readonly isExtensionMethod?: boolean;
+  readonly extensionInfo?: {
+    readonly targetType: string; // "IEnumerable_1"
+    readonly declaringClass: string; // "System.Linq.Enumerable"
+    readonly declaringNamespace: string; // "System.Linq"
+    readonly clrMethodName: string; // "Where"
+  };
+};
+```
+
+When `isExtensionMethod` is true, the emitter transforms:
+
+- `nums.Where(x => x > 0)` → `Enumerable.Where(nums, x => x > 0)`
+
+See [Extension Methods](../reference/dotnet/extension-methods.md) for full documentation.
+
 ### 3.6 IrStatement
 
 ```typescript

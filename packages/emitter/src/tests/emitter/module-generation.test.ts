@@ -40,6 +40,7 @@ describe("Module Generation", () => {
               type: { kind: "primitiveType", name: "number" },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
             {
               kind: "parameter",
@@ -47,6 +48,7 @@ describe("Module Generation", () => {
               type: { kind: "primitiveType", name: "number" },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
           ],
           returnType: { kind: "primitiveType", name: "number" },

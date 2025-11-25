@@ -61,6 +61,7 @@ export type IrParameter = {
   readonly initializer?: IrExpression;
   readonly isOptional: boolean;
   readonly isRest: boolean;
+  readonly passing: "value" | "ref" | "out" | "in"; // C# parameter passing mode
 };
 
 // ============================================================================

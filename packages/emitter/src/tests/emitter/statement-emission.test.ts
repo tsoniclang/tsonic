@@ -28,6 +28,7 @@ describe("Statement Emission", () => {
               type: { kind: "primitiveType", name: "number" },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
           ],
           returnType: { kind: "primitiveType", name: "string" },

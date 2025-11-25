@@ -64,16 +64,41 @@ export const convertParameters = (
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
   checker: ts.TypeChecker
 ): readonly IrParameter[] => {
-  return parameters.map((param) => ({
-    kind: "parameter",
-    pattern: convertBindingName(param.name),
-    type: param.type ? convertType(param.type, checker) : undefined,
-    initializer: param.initializer
-      ? convertExpression(param.initializer, checker)
-      : undefined,
-    isOptional: !!param.questionToken,
-    isRest: !!param.dotDotDotToken,
-  }));
+  return parameters.map((param) => {
+    let passing: "value" | "ref" | "out" | "in" = "value";
+    let actualType: ts.TypeNode | undefined = param.type;
+
+    // Detect ref<T>, out<T>, in<T> wrapper types
+    if (
+      param.type &&
+      ts.isTypeReferenceNode(param.type) &&
+      ts.isIdentifier(param.type.typeName)
+    ) {
+      const typeName = param.type.typeName.text;
+      if (
+        (typeName === "ref" || typeName === "out" || typeName === "in") &&
+        param.type.typeArguments &&
+        param.type.typeArguments.length > 0
+      ) {
+        // Set passing mode
+        passing = typeName === "in" ? "in" : typeName;
+        // Extract wrapped type
+        actualType = param.type.typeArguments[0];
+      }
+    }
+
+    return {
+      kind: "parameter",
+      pattern: convertBindingName(param.name),
+      type: actualType ? convertType(actualType, checker) : undefined,
+      initializer: param.initializer
+        ? convertExpression(param.initializer, checker)
+        : undefined,
+      isOptional: !!param.questionToken,
+      isRest: !!param.dotDotDotToken,
+      passing,
+    };
+  });
 };
 
 /**

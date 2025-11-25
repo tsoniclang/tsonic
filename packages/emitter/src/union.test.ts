@@ -155,6 +155,7 @@ describe("Union Type Emission", () => {
               },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
           ],
           returnType: { kind: "voidType" },

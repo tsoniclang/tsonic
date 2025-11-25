@@ -560,6 +560,11 @@ const emitCall = (
   expr: IrCallExpression,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Handle extension method calls first
+  if (expr.isExtensionMethod && expr.extensionInfo) {
+    return emitExtensionMethodCall(expr, context);
+  }
+
   let currentContext = context;
 
   // Emit callee
@@ -607,6 +612,63 @@ const emitCall = (
   return [{ code }, currentContext];
 };
 ```
+
+### 7.5 Extension Method Call Emission
+
+Extension methods are transformed from instance-style calls to static method calls:
+
+```typescript
+const emitExtensionMethodCall = (
+  expr: IrCallExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const { declaringClass, declaringNamespace, clrMethodName } =
+    expr.extensionInfo!;
+
+  // Add using directive for declaring namespace
+  let currentContext = addUsing(context, declaringNamespace);
+
+  // Get the target object (becomes first argument to static method)
+  const memberAccess = expr.callee as IrMemberAccessExpression;
+  const [targetFrag, ctx1] = emitExpression(memberAccess.object, currentContext);
+  currentContext = ctx1;
+
+  // Emit remaining arguments
+  const args: string[] = [targetFrag.code];
+  for (const arg of expr.arguments) {
+    const [argFrag, ctx] = emitExpression(arg, currentContext);
+    args.push(argFrag.code);
+    currentContext = ctx;
+  }
+
+  // Emit type arguments if present
+  let typeArgsStr = "";
+  if (expr.typeArguments && expr.typeArguments.length > 0) {
+    const typeArgs = expr.typeArguments.map((t) => emitType(t, currentContext)[0]);
+    typeArgsStr = `<${typeArgs.join(", ")}>`;
+  }
+
+  // Get short class name from fully qualified
+  const shortClassName = declaringClass.split(".").pop();
+
+  // Emit: ClassName.MethodName<TypeArgs>(target, args...)
+  const code = `${shortClassName}.${clrMethodName}${typeArgsStr}(${args.join(", ")})`;
+
+  return [{ code }, currentContext];
+};
+```
+
+**Example transformation:**
+
+| TypeScript Input                  | C# Output                                  |
+| --------------------------------- | ------------------------------------------ |
+| `nums.Where(x => x > 0)`          | `Enumerable.Where(nums, x => x > 0)`       |
+| `nums.Select(x => x * 2)`         | `Enumerable.Select(nums, x => x * 2)`      |
+| `str.AsSpan()`                    | `MemoryExtensions.AsSpan(str)`             |
+
+For chained calls like `nums.Where(...).Select(...).OrderBy(...)`, each call is independently transformed, resulting in nested static calls.
+
+See [Extension Methods](../reference/dotnet/extension-methods.md) for full documentation.
 
 ---
 

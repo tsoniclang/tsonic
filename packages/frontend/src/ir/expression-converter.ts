@@ -6,6 +6,7 @@
 import * as ts from "typescript";
 import { IrExpression } from "./types.js";
 import { getBindingRegistry } from "./converters/statements/declarations/registry.js";
+import { convertType } from "./type-converter.js";
 
 // Import expression converters from specialized modules
 import { convertLiteral } from "./converters/expressions/literals.js";
@@ -183,11 +184,15 @@ export const convertExpression = (
     return convertExpression(node.expression, checker);
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-    // Type assertions are ignored in IR (runtime doesn't need them)
-    return convertExpression(
+    // Convert the inner expression
+    const innerExpr = convertExpression(
       ts.isAsExpression(node) ? node.expression : node.expression,
       checker
     );
+    // Preserve the asserted type - this is needed for casts like `x as int`
+    const assertedTypeNode = ts.isAsExpression(node) ? node.type : node.type;
+    const assertedType = convertType(assertedTypeNode, checker);
+    return { ...innerExpr, inferredType: assertedType };
   }
 
   // Fallback - treat as identifier

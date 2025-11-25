@@ -8,15 +8,58 @@ import { emitExpression } from "../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
 
 /**
- * TODO: Ref/out parameter handling
- *
- * Full implementation requires:
- * 1. Type information from the TypeScript checker
- * 2. Parameter metadata from .metadata.json
- * 3. Integration with ref-parameters.ts helpers
- *
- * See packages/frontend/src/types/ref-parameters.ts for the infrastructure.
+ * Ref/out/in parameter handling:
+ * The frontend extracts parameter passing modes from resolved signatures
+ * and attaches them to IrCallExpression.argumentPassing array.
+ * The emitter reads this array and prefixes arguments with ref/out/in keywords.
  */
+
+/**
+ * Check if an expression is an lvalue (can be passed by reference)
+ * Only identifiers and member accesses are lvalues in C#
+ */
+const isLValue = (expr: IrExpression): boolean => {
+  return expr.kind === "identifier" || expr.kind === "memberAccess";
+};
+
+/**
+ * Check if a call expression needs an explicit cast because the inferred type
+ * differs from the C# return type. This handles cases like Math.floor() which
+ * returns double in C# but is cast to int in TypeScript via `as int`.
+ */
+const needsIntCast = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  calleeName: string
+): boolean => {
+  // Check if the inferred type is int (a reference type from @tsonic/types)
+  const inferredType = expr.inferredType;
+  if (
+    !inferredType ||
+    inferredType.kind !== "referenceType" ||
+    inferredType.name !== "int"
+  ) {
+    return false;
+  }
+
+  // Check if this is a Math method that returns double
+  const mathMethodsReturningDouble = [
+    "Math.floor",
+    "Math.ceil",
+    "Math.round",
+    "Math.abs",
+    "Math.pow",
+    "Math.sqrt",
+    "Math.min",
+    "Math.max",
+    "Tsonic.Runtime.Math.floor",
+    "Tsonic.Runtime.Math.ceil",
+    "Tsonic.Runtime.Math.round",
+  ];
+
+  return mathMethodsReturningDouble.some(
+    (m) => calleeName === m || calleeName.endsWith(`.${m.split(".").pop()}`)
+  );
+};
 
 /**
  * Emit a function call expression
@@ -67,7 +110,8 @@ export const emitCall = (
       let currentContext = addUsing(objContext, "Tsonic.Runtime");
 
       const args: string[] = [objectFrag.text]; // Object becomes first argument
-      for (const arg of expr.arguments) {
+      for (let i = 0; i < expr.arguments.length; i++) {
+        const arg = expr.arguments[i]!;
         if (arg.kind === "spread") {
           const [spreadFrag, ctx] = emitExpression(
             arg.expression,
@@ -77,7 +121,15 @@ export const emitCall = (
           currentContext = ctx;
         } else {
           const [argFrag, ctx] = emitExpression(arg, currentContext);
-          args.push(argFrag.text);
+          // Check if this argument needs ref/out/in prefix
+          // Note: argumentPassing[i] corresponds to method parameter i+1 (first param is the object)
+          // Only add prefix if argument is an lvalue (identifier or member access)
+          const passingMode = expr.argumentPassing?.[i + 1];
+          const prefix =
+            passingMode && passingMode !== "value" && isLValue(arg)
+              ? `${passingMode} `
+              : "";
+          args.push(`${prefix}${argFrag.text}`);
           currentContext = ctx;
         }
       }
@@ -119,7 +171,8 @@ export const emitCall = (
   }
 
   const args: string[] = [];
-  for (const arg of expr.arguments) {
+  for (let i = 0; i < expr.arguments.length; i++) {
+    const arg = expr.arguments[i]!;
     if (arg.kind === "spread") {
       // Spread in function call
       const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
@@ -127,13 +180,26 @@ export const emitCall = (
       currentContext = ctx;
     } else {
       const [argFrag, ctx] = emitExpression(arg, currentContext);
-      args.push(argFrag.text);
+      // Check if this argument needs ref/out/in prefix
+      // Only add prefix if argument is an lvalue (identifier or member access)
+      const passingMode = expr.argumentPassing?.[i];
+      const prefix =
+        passingMode && passingMode !== "value" && isLValue(arg)
+          ? `${passingMode} `
+          : "";
+      args.push(`${prefix}${argFrag.text}`);
       currentContext = ctx;
     }
   }
 
   const callOp = expr.isOptional ? "?." : "";
-  const text = `${finalCalleeName}${typeArgsStr}${callOp}(${args.join(", ")})`;
+  const callText = `${finalCalleeName}${typeArgsStr}${callOp}(${args.join(", ")})`;
+
+  // Add cast if needed (e.g., Math.floor returning double but asserted as int)
+  const text = needsIntCast(expr, finalCalleeName)
+    ? `(int)${callText}`
+    : callText;
+
   return [{ text }, currentContext];
 };
 

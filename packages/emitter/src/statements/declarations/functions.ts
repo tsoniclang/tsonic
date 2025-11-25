@@ -92,23 +92,15 @@ export const emitFunctionDeclaration = (
   // Collect out parameters that need initialization
   const outParams: Array<{ name: string; type: string }> = [];
   for (const param of stmt.parameters) {
-    if (param.type && param.type.kind === "referenceType") {
-      const refType = param.type;
-      if (
-        refType.name === "out" &&
-        refType.typeArguments &&
-        refType.typeArguments.length > 0 &&
-        param.pattern.kind === "identifierPattern"
-      ) {
-        // Get the type for default value
-        const actualType = refType.typeArguments[0];
-        let typeName = "object";
-        if (actualType) {
-          const [typeStr] = emitType(actualType!, currentContext);
-          typeName = typeStr;
-        }
-        outParams.push({ name: param.pattern.name, type: typeName });
+    // Use param.passing to detect out parameters (type is already unwrapped by frontend)
+    if (param.passing === "out" && param.pattern.kind === "identifierPattern") {
+      // Get the type for default value
+      let typeName = "object";
+      if (param.type) {
+        const [typeStr] = emitType(param.type, currentContext);
+        typeName = typeStr;
       }
+      outParams.push({ name: param.pattern.name, type: typeName });
     }
   }
 
