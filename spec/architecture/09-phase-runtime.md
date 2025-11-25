@@ -1,20 +1,20 @@
-# Phase 8: Runtime (Tsonic.Runtime Package) - OPTIONAL
+# Phase 8: Runtime (Tsonic.JSRuntime Package) - OPTIONAL
 
 ## Purpose
 
-This phase provides the **optional** Tsonic.Runtime .NET package that implements JavaScript semantics for TypeScript code compiled to C#. It is only required when using `runtime: "js"` mode (default). When using `runtime: "dotnet"` mode, this package is not needed.
+This phase provides the **optional** Tsonic.JSRuntime .NET package that implements JavaScript semantics for built-in types in TypeScript code compiled to C#. It is only required when using `mode: "js"`. When using `mode: "dotnet"` (default), this package is not needed.
 
 ---
 
 ## 1. Overview
 
-**Responsibility:** JavaScript semantics preservation via static helper methods
+**Responsibility:** JavaScript semantics preservation via extension methods on .NET types
 
-**Package:** `Tsonic.Runtime` (.NET package, not TypeScript)
+**Package:** `Tsonic.JSRuntime` (.NET package, not TypeScript)
 
 **Location:** Separate repository (tsonic-runtime)
 
-**Usage:** Required only when `runtime: "js"` (default)
+**Usage:** Required only when `mode: "js"` (not the default)
 
 **Input:** None (runtime library)
 
@@ -22,22 +22,23 @@ This phase provides the **optional** Tsonic.Runtime .NET package that implements
 
 **When NOT Used:**
 
-- `runtime: "dotnet"` mode uses native .NET APIs directly
-- No Tsonic.Runtime reference in generated .csproj
-- JavaScript-specific methods cause compile errors (TSN2001)
+- `mode: "dotnet"` (default) uses native .NET BCL APIs directly
+- No Tsonic.JSRuntime reference in generated .csproj
+- Built-in methods compile to BCL equivalents (e.g., `push()` → `Add()`)
 
 ---
 
 ## 2. Design Philosophy
 
-### 2.1 .NET-First Approach
+### 2.1 .NET-First with Extension Methods
 
-**Key Principle:** Use native .NET types with static helper methods, NOT wrapper classes.
+**Key Principle:** Use native .NET types with extension methods, NOT wrapper classes.
 
 ```csharp
-// ✅ CORRECT - .NET-First approach
+// ✅ CORRECT - Extension method approach (Tsonic.JSRuntime)
+using Tsonic.JSRuntime;
 List<string> names = new List<string> { "Alice", "Bob" };
-var upperNames = ArrayHelpers.Map(names, name => name.ToUpper());
+var upperNames = names.map(name => name.toUpperCase());  // Extension methods
 
 // ❌ WRONG - Wrapper class approach (NOT used in Tsonic)
 JSArray<string> names = new JSArray<string> { "Alice", "Bob" };
@@ -325,7 +326,7 @@ console.log(arr[0]); // undefined
 console.log(arr[10]); // "ten"
 ```
 
-**C# with Tsonic.Runtime:**
+**C# with Tsonic.JSRuntime:**
 
 ```csharp
 var arr = new List<object?>();
@@ -617,7 +618,7 @@ ConsoleHelper.Log("Hello", 42, true, Undefined.Value, null);
 
 ### 8.1 Singleton Pattern
 
-JavaScript `undefined` is a singleton value. Tsonic.Runtime implements this as:
+JavaScript `undefined` is a singleton value. Tsonic.JSRuntime implements this as:
 
 ```csharp
 public sealed class Undefined
@@ -796,7 +797,7 @@ public static bool StrictEquals(object? left, object? right)
 
 ```
 packages/runtime/
-├── Tsonic.Runtime.csproj
+├── Tsonic.JSRuntime.csproj
 ├── src/
 │   ├── Helpers/
 │   │   ├── ArrayHelpers.cs
@@ -822,7 +823,7 @@ packages/runtime/
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <PackageId>Tsonic.Runtime</PackageId>
+    <PackageId>Tsonic.JSRuntime</PackageId>
     <Version>1.0.0</Version>
     <Authors>Tsonic Team</Authors>
     <Description>Runtime support for Tsonic-compiled TypeScript code</Description>
@@ -885,7 +886,7 @@ packages/runtime/
 
 ### 12.1 AOT-Friendly Patterns
 
-**All Tsonic.Runtime code is NativeAOT compatible:**
+**All Tsonic.JSRuntime code is NativeAOT compatible:**
 
 ✅ **No reflection** - All types known at compile time
 ✅ **No dynamic dispatch** - Static methods only
@@ -895,7 +896,7 @@ packages/runtime/
 
 ### 12.2 Trim-Safe
 
-All Tsonic.Runtime types are trim-safe:
+All Tsonic.JSRuntime types are trim-safe:
 
 ```xml
 <PropertyGroup>

@@ -109,15 +109,15 @@ Each reference page follows this structure:
 
 ### Type Mappings
 
-| TypeScript   | C#                  | Tsonic.Runtime                   | Notes               |
-| ------------ | ------------------- | -------------------------------- | ------------------- |
-| `number`     | `double`            | `double`                         | Always 64-bit float |
-| `string`     | `string`            | `string`                         | UTF-16              |
-| `boolean`    | `bool`              | `bool`                           | true/false          |
-| `null`       | `null`              | `object?`                        | Nullable reference  |
-| `undefined`  | `TSUndefined.Value` | `TSUndefined`                    | Singleton           |
-| `Array<T>`   | `Array<T>`          | `Tsonic.Runtime.Array<T>`        | JS semantics        |
-| `Promise<T>` | `Task<T>`           | `System.Threading.Tasks.Task<T>` | async/await         |
+| TypeScript   | C# (mode: "dotnet")  | C# (mode: "js")             | Notes               |
+| ------------ | -------------------- | --------------------------- | ------------------- |
+| `number`     | `double`             | `double`                    | Always 64-bit float |
+| `string`     | `string`             | `string`                    | UTF-16              |
+| `boolean`    | `bool`               | `bool`                      | true/false          |
+| `null`       | `null`               | `object?`                   | Nullable reference  |
+| `undefined`  | `TSUndefined.Value`  | `TSUndefined`               | Singleton           |
+| `Array<T>`   | `List<T>`            | `List<T>` + extensions      | JS semantics via Tsonic.JSRuntime |
+| `Promise<T>` | `Task<T>`            | `Task<T>`                   | async/await         |
 
 ### Import Syntax
 

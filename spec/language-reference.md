@@ -6,7 +6,7 @@ Complete TypeScript → C# language mapping for Tsonic.
 
 ## Overview
 
-This section documents how TypeScript language features map to C#. Tsonic preserves **exact JavaScript semantics** through the `Tsonic.Runtime` library.
+This section documents how TypeScript language features map to C#. In `mode: "js"`, Tsonic preserves **exact JavaScript semantics** through the `Tsonic.JSRuntime` library. In `mode: "dotnet"` (default), built-in methods compile directly to .NET BCL equivalents.
 
 ---
 
@@ -154,7 +154,7 @@ See [Limitations](limitations.md) for complete list and rationale.
 | `unknown`   | `object`            | Type-safe any                     |
 | `never`     | `void`              | Unreachable code                  |
 
-\*When `runtime: "js"`, array methods like `push()` use `Tsonic.Runtime.ArrayHelpers` static methods
+\*When `mode: "js"`, array methods like `push()` use `Tsonic.JSRuntime` extension methods. When `mode: "dotnet"` (default), they compile to BCL equivalents (e.g., `push()` → `Add()`).
 
 ### Arrays
 

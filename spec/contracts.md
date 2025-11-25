@@ -127,7 +127,7 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 
 - Entry point specification
 - Source and output directories
-- Runtime mode selection (js/dotnet)
+- Mode selection (dotnet/js) for built-in method routing
 - Target framework and optimization settings
 - NuGet package dependencies
 
@@ -136,9 +136,9 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 ```json
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
-  "runtime": "js",
+  "mode": "dotnet",
   "rootNamespace": "MyApp",
-  "entryPoint": "src/main.ts",
+  "entry": "src/main.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
   "outputName": "myapp",
@@ -149,11 +149,13 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 
 **Key Fields**:
 
-- `runtime`: `"js"` (default) or `"dotnet"` - Controls whether to use Tsonic.Runtime
+- `mode`: `"dotnet"` (default) or `"js"` - Controls how built-in methods are lowered (see [Mode Semantics](configuration.md#mode-semantics))
 - `rootNamespace`: Root C# namespace for generated code
-- `entryPoint`: Path to main TypeScript file (for executables)
+- `entry`: Path to main TypeScript file (for executables)
 - `outputDirectory`: Where to generate C# code
 - `dotnetVersion`: Target .NET version
+
+**Note**: Library surfaces come from the TypeScript program via `tsconfig.json`, not from `tsonic.json`. See [Configuration](configuration.md) for full details.
 
 ### [Generated C# Code](file-formats/generated-code.md)
 
@@ -210,27 +212,29 @@ This section documents Tsonic's public contracts - file formats, CLI interfaces,
 
 ### [Runtime API](apis/runtime.md)
 
-**Purpose**: Tsonic.Runtime public surface (optional - only with `runtime: "js"`)
+**Purpose**: Tsonic.JSRuntime public surface (optional - only with `mode: "js"`)
 
 **Stability**: Stable - semantic versioning
 
-**Availability**: Only when `runtime: "js"` in tsonic.json
+**Availability**: Only when `mode: "js"` in tsonic.json
 
-**Namespaces**:
+**Namespace**: `Tsonic.JSRuntime`
 
-- `Tsonic.Runtime.Array` - JavaScript array semantics
-- `Tsonic.Runtime.Object` - Dynamic objects
-- `Tsonic.Runtime.Console` - Console I/O
-- `Tsonic.Runtime.Promise` - Async operations
+Provides extension methods on .NET types with JavaScript semantics:
+
+- `List<T>` extensions - JavaScript array semantics (`sort`, `map`, `filter`, etc.)
+- `string` extensions - JavaScript string methods (`toUpperCase`, `slice`, etc.)
+- `Math` static class - JavaScript Math API
+- `Console` static class - JavaScript console API
 
 **Semantic Guarantees**:
 
-- Exact JavaScript array behavior
+- Exact JavaScript array behavior (e.g., `sort()` with string coercion)
 - Proper undefined handling
 - IEEE 754 number semantics
 - UTF-16 string operations
 
-**Note**: When `runtime: "dotnet"`, these APIs are not available and standard .NET APIs should be used instead.
+**Note**: When `mode: "dotnet"` (default), the compiler uses BCL method names directly and `Tsonic.JSRuntime` is not required.
 
 ---
 
@@ -305,14 +309,14 @@ All contracts follow [semver](https://semver.org/):
 
 - Removing or renaming fields in metadata.json or bindings.json
 - Changing CLI command names or argument behavior
-- Removing or changing Tsonic.Runtime public APIs
+- Removing or changing Tsonic.JSRuntime public APIs
 - Changing directory structure conventions
 
 **What is NOT a breaking change**:
 
 - Adding new optional fields to JSON formats
 - Adding new CLI options (as long as defaults don't change)
-- Adding new Tsonic.Runtime APIs
+- Adding new Tsonic.JSRuntime APIs
 - Performance improvements
 - Bug fixes that correct incorrect behavior
 
@@ -427,7 +431,7 @@ for (const type of bindings.types) {
 
 ✅ **CLI Exit Codes**: Error codes will maintain same meanings
 
-✅ **Semantic Behavior**: Tsonic.Runtime will preserve JavaScript semantics
+✅ **Semantic Behavior**: Tsonic.JSRuntime will preserve JavaScript semantics (when mode: "js")
 
 ### What We Don't Guarantee
 
@@ -460,7 +464,9 @@ Found a contract violation or unclear specification?
 
 ## See Also
 
-- **[Architecture](../architecture/INDEX.md)** - Internal compiler design (not stable)
-- **[Reference](../reference/INDEX.md)** - Language and API reference
+- **[Bindings Discovery](contracts/bindings-discovery.md)** - How the compiler discovers binding packages
+- **[Configuration](configuration.md)** - tsonic.json and tsconfig.json setup
+- **[Architecture](architecture/INDEX.md)** - Internal compiler design (not stable)
+- **[Reference](reference/INDEX.md)** - Language and API reference
 - **[Metadata Spec Details](file-formats/metadata.md)** - Complete metadata.json specification
 - **[Bindings Spec Details](file-formats/bindings.md)** - Complete bindings.json specification
