@@ -78,14 +78,15 @@ export interface __Ext_IEnumerable_1<T> {
 }
 
 // Conditional type maps shapes to buckets
-export type ExtensionMethods<TShape> = TShape extends IEnumerable_1<infer T>
-  ? __Ext_IEnumerable_1<T>
-  : TShape extends String
-    ? __Ext_String
-    : TShape extends Span_1<infer T>
-      ? __Ext_Span_1<T>
-      : // ... 100+ more mappings
-        {};
+export type ExtensionMethods<TShape> =
+  TShape extends IEnumerable_1<infer T>
+    ? __Ext_IEnumerable_1<T>
+    : TShape extends String
+      ? __Ext_String
+      : TShape extends Span_1<infer T>
+        ? __Ext_Span_1<T>
+        : // ... 100+ more mappings
+          {};
 ```
 
 ---
@@ -269,7 +270,8 @@ Each call in a chain is independently resolved:
 
 ```typescript
 // TypeScript
-nums.Where((x) => x > 0)
+nums
+  .Where((x) => x > 0)
   .Select((x) => x * 2)
   .OrderBy((x) => x)
   .ToList();
@@ -309,13 +311,13 @@ tsbindgen emits metadata that Tsonic uses to resolve extension methods:
 
 **Key fields:**
 
-| Field               | Purpose                                                |
-| ------------------- | ------------------------------------------------------ |
-| `isExtensionMethod` | Identifies this as an extension method                 |
-| `stableId`          | Contains declaring class: `System.Linq.Enumerable`     |
+| Field                 | Purpose                                              |
+| --------------------- | ---------------------------------------------------- |
+| `isExtensionMethod`   | Identifies this as an extension method               |
+| `stableId`            | Contains declaring class: `System.Linq.Enumerable`   |
 | `normalizedSignature` | Contains target type: `IEnumerable_1`                |
-| `clrName`           | The actual C# method name to emit                      |
-| `tsEmitName`        | TypeScript name (may differ for overloads: `Where2`)   |
+| `clrName`             | The actual C# method name to emit                    |
+| `tsEmitName`          | TypeScript name (may differ for overloads: `Where2`) |
 
 ---
 

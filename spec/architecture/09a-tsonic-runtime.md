@@ -26,17 +26,18 @@ This document describes the **`Tsonic.Runtime`** .NET package that provides Type
 
 ### 2.1 What Belongs Here
 
-| Component | Purpose | Why Mode-Independent |
-|-----------|---------|---------------------|
-| `Union<T1..T8>` | TypeScript union type representation | TS language feature |
-| `Structural.Clone<T>()` | Structural typing support | TS type system |
-| `DictionaryAdapter<T>` | Index signature support `{ [key: string]: T }` | TS type system |
-| `Operators.typeof()` | `typeof` operator semantics | TS language operator |
-| `DynamicObject` | Dynamic property access | TS structural typing |
+| Component               | Purpose                                        | Why Mode-Independent |
+| ----------------------- | ---------------------------------------------- | -------------------- |
+| `Union<T1..T8>`         | TypeScript union type representation           | TS language feature  |
+| `Structural.Clone<T>()` | Structural typing support                      | TS type system       |
+| `DictionaryAdapter<T>`  | Index signature support `{ [key: string]: T }` | TS type system       |
+| `Operators.typeof()`    | `typeof` operator semantics                    | TS language operator |
+| `DynamicObject`         | Dynamic property access                        | TS structural typing |
 
 ### 2.2 What Does NOT Belong Here
 
 **JavaScript semantics** - These belong in `Tsonic.JSRuntime`:
+
 - Array methods (map, filter, push, etc.)
 - String methods (slice, charAt, etc.)
 - Math object
@@ -54,11 +55,11 @@ TypeScript unions (`string | number`) don't exist in C#. We provide `Union<T1, T
 
 ### 3.2 Implementation Strategy
 
-| Union Type | C# Emission | Notes |
-|------------|-------------|-------|
-| `T \| null \| undefined` | `T?` | Use C# nullable syntax |
-| 2-8 type unions | `Union<T1, T2, ...>` | Generic union types |
-| 9+ type unions | `object` | Fallback (rare) |
+| Union Type               | C# Emission          | Notes                  |
+| ------------------------ | -------------------- | ---------------------- |
+| `T \| null \| undefined` | `T?`                 | Use C# nullable syntax |
+| 2-8 type unions          | `Union<T1, T2, ...>` | Generic union types    |
+| 9+ type unions           | `object`             | Fallback (rare)        |
 
 ### 3.3 Union Type Definitions
 
@@ -107,6 +108,7 @@ namespace Tsonic.Runtime
 ### 3.4 Usage Example
 
 **TypeScript:**
+
 ```typescript
 function getValue(): string | number {
   return Math.random() > 0.5 ? "hello" : 42;
@@ -121,6 +123,7 @@ if (typeof value === "string") {
 ```
 
 **Generated C#:**
+
 ```csharp
 using Tsonic.Runtime;
 
@@ -207,6 +210,7 @@ namespace Tsonic.Runtime
 ### 4.3 Usage Example
 
 **TypeScript:**
+
 ```typescript
 interface Point {
   x: number;
@@ -228,6 +232,7 @@ use2DPoint(p3d); // OK - structural typing
 ```
 
 **Generated C#:**
+
 ```csharp
 using Tsonic.Runtime;
 
@@ -301,6 +306,7 @@ namespace Tsonic.Runtime
 ### 5.3 Usage Example
 
 **TypeScript:**
+
 ```typescript
 interface StringMap {
   [key: string]: string;
@@ -312,6 +318,7 @@ console.log(map["hello"]); // "world"
 ```
 
 **Generated C#:**
+
 ```csharp
 using Tsonic.Runtime;
 
@@ -358,6 +365,7 @@ namespace Tsonic.Runtime
 ### 6.3 Usage Example
 
 **TypeScript:**
+
 ```typescript
 const value = "hello";
 console.log(typeof value); // "string"
@@ -370,6 +378,7 @@ console.log(typeof fn); // "function"
 ```
 
 **Generated C#:**
+
 ```csharp
 using Tsonic.Runtime;
 
@@ -501,6 +510,7 @@ tsonic-runtime/
 ### 10.2 Emitter Behavior
 
 The emitter adds `using Tsonic.Runtime;` when the IR contains:
+
 - Union types
 - typeof operator usage
 - Structural cloning needs

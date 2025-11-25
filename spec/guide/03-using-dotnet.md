@@ -276,10 +276,12 @@ arr.map((n) => n * 2);
 ```
 
 **In `mode: "dotnet"` (default)**:
+
 - `push(4)` → `Add(4)`
 - `map(fn)` → `Select(fn).ToList()`
 
 **In `mode: "js"` (opt-in)**:
+
 - `push(4)` → `arr.push(4)` (Tsonic.JSRuntime extension)
 - `map(fn)` → `arr.map(fn)` (Tsonic.JSRuntime extension with JS semantics)
 

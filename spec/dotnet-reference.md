@@ -109,7 +109,9 @@ import { ExtensionMethods } from "@tsonic/dotnet";
 // Rich<T> adds extension methods to any type
 type Rich<T> = T & ExtensionMethods<T>;
 
-function processNumbers(nums: Rich<IEnumerable_1<int>>): Rich<IEnumerable_1<int>> {
+function processNumbers(
+  nums: Rich<IEnumerable_1<int>>
+): Rich<IEnumerable_1<int>> {
   return nums
     .Where((x) => x > 0)
     .Select((x) => x * 2)
