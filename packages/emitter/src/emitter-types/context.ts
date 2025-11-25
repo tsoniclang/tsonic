@@ -36,6 +36,8 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
   if (options.runtime !== "dotnet") {
     initialUsings.add("Tsonic.Runtime");
   }
+  // Always include System.Collections.Generic for List<T>
+  initialUsings.add("System.Collections.Generic");
 
   return {
     indentLevel: 0,

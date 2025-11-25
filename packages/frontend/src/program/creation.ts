@@ -37,6 +37,18 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
 };
 
 /**
+ * Create TypeScript compiler options from Tsonic options
+ * Exported for use by dependency graph builder
+ */
+export const createCompilerOptions = (
+  options: CompilerOptions
+): ts.CompilerOptions => ({
+  ...defaultTsConfig,
+  strict: options.strict ?? true,
+  rootDir: options.sourceRoot,
+});
+
+/**
  * Create a Tsonic program from TypeScript source files
  */
 export const createProgram = (
@@ -98,11 +110,7 @@ export const createProgram = (
     ...namespaceIndexFiles,
   ];
 
-  const tsOptions: ts.CompilerOptions = {
-    ...defaultTsConfig,
-    strict: options.strict ?? true,
-    rootDir: options.sourceRoot,
-  };
+  const tsOptions = createCompilerOptions(options);
 
   // Create custom compiler host with virtual .NET module declarations
   const host = ts.createCompilerHost(tsOptions);

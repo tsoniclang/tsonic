@@ -34,6 +34,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
         },
         isOptional: false,
         isRest: false,
+        passing: "out",
       },
     ];
 
@@ -58,6 +59,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
         },
         isOptional: false,
         isRest: false,
+        passing: "ref",
       },
     ];
 
@@ -82,6 +84,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
         },
         isOptional: false,
         isRest: false,
+        passing: "in",
       },
     ];
 
@@ -100,6 +103,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
         },
         isOptional: false,
         isRest: false,
+        passing: "value",
       },
       {
         kind: "parameter",
@@ -116,6 +120,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
         },
         isOptional: false,
         isRest: false,
+        passing: "out",
       },
       {
         kind: "parameter",
@@ -132,6 +137,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
         },
         isOptional: false,
         isRest: false,
+        passing: "ref",
       },
     ];
 

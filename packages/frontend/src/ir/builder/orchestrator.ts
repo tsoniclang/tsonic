@@ -3,6 +3,7 @@
  */
 
 import * as ts from "typescript";
+import { relative } from "path";
 import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
@@ -98,9 +99,16 @@ export const buildIrModule = (
     const isStaticContainer =
       !hasClassMatchingFilename && !hasTopLevelCode && exports.length > 0;
 
+    // Compute relative file path from source root
+    // Normalize to forward slashes for cross-platform consistency
+    const relativePath = relative(
+      options.sourceRoot,
+      sourceFile.fileName
+    ).replace(/\\/g, "/");
+
     const module: IrModule = {
       kind: "module",
-      filePath: sourceFile.fileName,
+      filePath: relativePath, // Now stores relative path instead of absolute
       namespace,
       className,
       isStaticContainer,

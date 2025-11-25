@@ -116,6 +116,7 @@ export type IrCallExpression = {
   readonly inferredType?: IrType;
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
+  readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
 };
 
 export type IrNewExpression = {

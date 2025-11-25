@@ -74,7 +74,25 @@ export const emitBinary = (
 };
 
 /**
+ * Check if an IR type is boolean
+ */
+const isBooleanType = (type: IrExpression["inferredType"]): boolean => {
+  if (!type) return false;
+  return type.kind === "primitiveType" && type.name === "boolean";
+};
+
+/**
  * Emit a logical operator expression (&&, ||, ??)
+ *
+ * In TypeScript, || is used both for:
+ * 1. Boolean OR (when operands are booleans)
+ * 2. Nullish coalescing fallback (when left operand is nullable)
+ *
+ * In C#:
+ * - || only works with booleans
+ * - ?? is used for nullish coalescing
+ *
+ * We check if || is used with non-boolean operands and emit ?? instead.
  */
 export const emitLogical = (
   expr: Extract<IrExpression, { kind: "logical" }>,
@@ -83,7 +101,13 @@ export const emitLogical = (
   const [leftFrag, leftContext] = emitExpression(expr.left, context);
   const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
 
-  const text = `${leftFrag.text} ${expr.operator} ${rightFrag.text}`;
+  // If || is used with non-boolean left operand, use ?? instead for nullish coalescing
+  const operator =
+    expr.operator === "||" && !isBooleanType(expr.left.inferredType)
+      ? "??"
+      : expr.operator;
+
+  const text = `${leftFrag.text} ${operator} ${rightFrag.text}`;
   return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];
 };
 

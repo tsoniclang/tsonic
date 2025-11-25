@@ -4,8 +4,10 @@
  */
 
 export type { CompilerOptions, TsonicProgram } from "./program/index.js";
+export type { ModuleDependencyGraphResult } from "./program/dependency-graph.js";
 export {
   createProgram,
   getSourceFile,
   BindingRegistry,
+  buildModuleDependencyGraph,
 } from "./program/index.js";

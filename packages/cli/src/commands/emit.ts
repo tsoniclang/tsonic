@@ -11,10 +11,10 @@ import {
 } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import {
-  compile,
-  buildIr,
+  buildModuleDependencyGraph,
   type Diagnostic,
   type IrModule,
+  type CompilerOptions,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/emitter";
 import {
@@ -109,39 +109,54 @@ export const emitCommand = (
   }
 
   try {
-    // Parse TypeScript - use entry point or all files in sourceRoot
-    const entryFiles = entryPoint
-      ? [entryPoint]
-      : [join(sourceRoot, "**/*.ts")];
+    // For libraries without entry point, we need a different approach
+    // For now, require entry point (library multi-file support can be added later)
+    if (!entryPoint) {
+      return {
+        ok: false,
+        error:
+          "Entry point is required (library multi-file support coming soon)",
+      };
+    }
 
     // Combine typeRoots and libraries for TypeScript compilation
     const allTypeRoots = [...typeRoots, ...config.libraries];
 
-    const compileResult = compile(entryFiles, {
+    // Build dependency graph - this traverses all imports and builds IR for all modules
+    const compilerOptions: CompilerOptions = {
       sourceRoot,
       rootNamespace,
       typeRoots: allTypeRoots,
       verbose: config.verbose,
-    });
-    if (!compileResult.ok) {
+    };
+    const graphResult = buildModuleDependencyGraph(entryPoint, compilerOptions);
+
+    if (!graphResult.ok) {
+      const errorMessages = graphResult.error
+        .map((d: Diagnostic) => {
+          if (d.location) {
+            return `${d.location.file}:${d.location.line} ${d.message}`;
+          }
+          return d.message;
+        })
+        .join("\n");
       return {
         ok: false,
-        error: `TypeScript compilation failed:\n${compileResult.error.diagnostics.map((d: Diagnostic) => d.message).join("\n")}`,
+        error: `TypeScript compilation failed:\n${errorMessages}`,
       };
     }
 
-    // Build IR
-    const irResult = buildIr(compileResult.value.program, {
-      sourceRoot,
-      rootNamespace,
-    });
+    const { modules, entryModule } = graphResult.value;
 
-    if (!irResult.ok) {
-      return {
-        ok: false,
-        error: `IR build failed:\n${irResult.error.map((d: Diagnostic) => d.message).join("\n")}`,
-      };
+    if (config.verbose) {
+      console.log(`  Discovered ${modules.length} TypeScript modules`);
+      for (const module of modules) {
+        console.log(`    - ${module.filePath}`);
+      }
     }
+
+    // irResult.value was an array of modules, now it's graphResult.value.modules
+    const irResult = { ok: true as const, value: modules };
 
     // Emit C# code
     const absoluteEntryPoint = entryPoint ? resolve(entryPoint) : undefined;
@@ -174,12 +189,18 @@ export const emitCommand = (
 
     // Generate Program.cs entry point wrapper (only for executables)
     if (absoluteEntryPoint) {
-      const entryModule = irResult.value.find(
-        (m) => resolve(m.filePath) === absoluteEntryPoint
+      // entryModule is already provided by buildDependencyGraph
+      // But double-check by comparing relative paths
+      const entryRelative = relative(sourceRoot, absoluteEntryPoint).replace(
+        /\\/g,
+        "/"
       );
+      const foundEntryModule =
+        irResult.value.find((m: IrModule) => m.filePath === entryRelative) ??
+        entryModule;
 
-      if (entryModule) {
-        const entryInfo = extractEntryInfo(entryModule, config.runtime);
+      if (foundEntryModule) {
+        const entryInfo = extractEntryInfo(foundEntryModule, config.runtime);
         if (entryInfo) {
           const programCs = generateProgramCs(entryInfo);
           const programPath = join(outputDir, "Program.cs");

@@ -28,6 +28,7 @@ describe("Type Emission", () => {
               type: { kind: "primitiveType", name: "string" },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
             {
               kind: "parameter",
@@ -35,6 +36,7 @@ describe("Type Emission", () => {
               type: { kind: "primitiveType", name: "number" },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
             {
               kind: "parameter",
@@ -42,6 +44,7 @@ describe("Type Emission", () => {
               type: { kind: "primitiveType", name: "boolean" },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
           ],
           returnType: { kind: "voidType" },

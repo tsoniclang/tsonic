@@ -111,6 +111,7 @@ describe("Type Assertion Emission", () => {
               },
               isOptional: false,
               isRest: false,
+              passing: "value",
             },
           ],
           returnType: { kind: "primitiveType", name: "string" },
