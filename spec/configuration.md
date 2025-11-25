@@ -4,14 +4,16 @@
 
 The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#. It must be present in your project root.
 
+**Key principle**: The TypeScript program (via `tsconfig.json`) is the single source of truth for what library surfaces are available. `tsonic.json` contains only compiler semantics and build settings - it does not duplicate library configuration.
+
 ## Configuration Schema
 
 ```json
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
-  "runtime": "js" | "dotnet",
+  "mode": "dotnet" | "js",
   "rootNamespace": "string",
-  "entryPoint": "string",
+  "entry": "string",
   "sourceRoot": "string",
   "outputDirectory": "string",
   "outputName": "string",
@@ -20,22 +22,28 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
   "optimize": "size" | "speed",
   "output": { /* output configuration */ },
   "packages": [ /* NuGet packages */ ],
-  "buildOptions": { /* build options */ },
-  "dotnet": { /* .NET interop configuration */ }
+  "buildOptions": { /* build options */ }
 }
 ```
 
-**Note**: The `rid` field specifies the Runtime Identifier (e.g., "linux-x64", "win-x64", "osx-arm64") for the target platform. If not specified, it's auto-detected from the current platform.
-
 ## Core Fields
 
-### runtime
+### mode
 
-- **Type**: `"js" | "dotnet"`
-- **Default**: `"js"`
-- **Description**: Determines runtime mode
-  - `"js"`: JavaScript semantics with Tsonic.Runtime (default)
-  - `"dotnet"`: Pure .NET mode without runtime dependency
+- **Type**: `"dotnet" | "js"`
+- **Default**: `"dotnet"`
+- **Description**: Controls how built-in type methods are lowered
+
+The `mode` field is the key semantic switch in Tsonic. It determines whether built-in methods (Array, String, Math, console) use .NET BCL semantics or JavaScript semantics.
+
+**Important**: Mode does NOT change the underlying CLR types. In both modes:
+- `number[]` compiles to `List<int>` or `List<double>`
+- `string` compiles to `string`
+- All types remain .NET native for interop compatibility
+
+Mode only affects **how method calls on built-in types are lowered**.
+
+See [Mode Semantics](#mode-semantics) below for details.
 
 ### rootNamespace
 
@@ -44,12 +52,12 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 - **Description**: Root C# namespace for generated code
 - **Example**: `"MyApp"`
 
-### entryPoint
+### entry
 
 - **Type**: `string`
 - **Required**: For executables
 - **Description**: Path to main TypeScript file
-- **Example**: `"src/main.ts"`
+- **Example**: `"src/index.ts"`
 
 ### sourceRoot
 
@@ -118,42 +126,23 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 }
 ```
 
-## .NET Interop Configuration
+## NuGet Packages
 
-### dotnet
+### packages
 
-- **Type**: `object`
-- **Description**: .NET integration settings
+- **Type**: `NuGetPackage[]`
+- **Description**: Additional NuGet packages to include in the generated .csproj
 
 ```json
 {
-  "dotnet": {
-    "typeRoots": ["node_modules/@types/dotnet"],
-    "packages": [
-      {
-        "name": "Newtonsoft.Json",
-        "version": "13.0.3"
-      }
-    ],
-    "libraries": ["@types/dotnet"]
-  }
+  "packages": [
+    {
+      "name": "Newtonsoft.Json",
+      "version": "13.0.3"
+    }
+  ]
 }
 ```
-
-#### dotnet.typeRoots
-
-- **Type**: `string[]`
-- **Description**: Paths to .NET type declaration directories
-
-#### dotnet.packages
-
-- **Type**: `NuGetPackage[]`
-- **Description**: NuGet packages to include (added to .csproj)
-
-#### dotnet.libraries
-
-- **Type**: `string[]`
-- **Description**: External library paths for .NET type declarations
 
 ## Build Options
 
@@ -171,16 +160,124 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 }
 ```
 
+---
+
+## Mode Semantics
+
+### Overview
+
+Tsonic is primarily a **TypeScript syntax frontend for .NET**. The default mode (`"dotnet"`) compiles TypeScript to C# using .NET BCL semantics. The optional `"js"` mode provides JavaScript-like behavior for built-in types via the `Tsonic.JSRuntime` library.
+
+### Built-in Types Affected by Mode
+
+Mode affects lowering for these built-in types only:
+
+| Type | Methods affected |
+|------|------------------|
+| **Array** | `sort`, `reverse`, `map`, `filter`, `reduce`, `find`, `indexOf`, `includes`, `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `join`, `forEach`, `every`, `some`, `flat`, `flatMap`, etc. |
+| **String** | `toUpperCase`, `toLowerCase`, `slice`, `substring`, `charAt`, `indexOf`, `includes`, `split`, `trim`, `padStart`, `padEnd`, `repeat`, `replace`, `startsWith`, `endsWith`, etc. |
+| **Math** | `floor`, `ceil`, `round`, `abs`, `min`, `max`, `random`, `sin`, `cos`, `tan`, `sqrt`, `pow`, `log`, etc. |
+| **console** | `log`, `warn`, `error`, `info`, `debug`, `trace`, `assert`, `time`, `timeEnd`, etc. |
+
+Everything else uses normal binding-based lowering regardless of mode.
+
+### mode: "dotnet" (Default)
+
+Built-in methods compile to .NET BCL equivalents:
+
+```typescript
+const a = [13, 4, 5, 6];
+a.sort();
+```
+
+Generated C#:
+
+```csharp
+List<int> a = new() { 13, 4, 5, 6 };
+a.Sort();
+```
+
+```typescript
+const s = "hello";
+s.toUpperCase();
+```
+
+Generated C#:
+
+```csharp
+string s = "hello";
+s.ToUpper();
+```
+
+### mode: "js" (Opt-in)
+
+Built-in methods compile to JavaScript-semantics extension methods from `Tsonic.JSRuntime`:
+
+```typescript
+const a = [13, 4, 5, 6];
+a.sort();
+```
+
+Generated C#:
+
+```csharp
+using Tsonic.JSRuntime;
+
+List<int> a = new() { 13, 4, 5, 6 };
+a.sort(); // Extension method with JS semantics
+```
+
+```typescript
+const s = "hello";
+s.toUpperCase();
+```
+
+Generated C#:
+
+```csharp
+using Tsonic.JSRuntime;
+
+string s = "hello";
+s.toUpperCase(); // Extension method with JS semantics
+```
+
+### Interop Guarantee
+
+In both modes, the underlying types are always .NET native:
+
+```typescript
+import { SomeDotnetLib } from "SomeLibrary";
+
+const a = [1, 2, 3];
+SomeDotnetLib.consume(a);
+```
+
+The library receives a standard `List<int>` - no wrapper types, no JS runtime types. This ensures full interop compatibility.
+
+### When to Use Each Mode
+
+**Use `mode: "dotnet"` (default) when:**
+- Building a .NET application/library
+- Interoperating heavily with .NET libraries
+- You want BCL method behavior
+- Performance is critical (no runtime indirection)
+
+**Use `mode: "js"` when:**
+- Porting existing JavaScript/TypeScript code
+- You need exact JavaScript semantics (e.g., `sort()` string coercion)
+- Familiarity with JS behavior is more important than .NET conventions
+
+---
+
 ## Example Configurations
 
-### JavaScript Runtime Mode (Default)
+### Default .NET Mode
 
 ```json
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
-  "runtime": "js",
   "rootNamespace": "MyApp",
-  "entryPoint": "src/main.ts",
+  "entry": "src/main.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
   "outputName": "myapp",
@@ -189,28 +286,20 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 }
 ```
 
-### Pure .NET Mode
+Note: `mode` is omitted, defaulting to `"dotnet"`.
+
+### JavaScript Semantics Mode
 
 ```json
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
-  "runtime": "dotnet",
+  "mode": "js",
   "rootNamespace": "MyApp",
-  "entryPoint": "src/main.ts",
+  "entry": "src/main.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
   "outputName": "myapp",
-  "dotnetVersion": "net10.0",
-  "optimize": "speed",
-  "dotnet": {
-    "typeRoots": ["node_modules/@types/dotnet-pure"],
-    "packages": [
-      {
-        "name": "System.Linq",
-        "version": "4.8.0"
-      }
-    ]
-  }
+  "dotnetVersion": "net10.0"
 }
 ```
 
@@ -219,7 +308,6 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 ```json
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
-  "runtime": "js",
   "rootNamespace": "MyLibrary",
   "sourceRoot": "src",
   "outputDirectory": "generated",
@@ -240,55 +328,82 @@ The `tsonic.json` file configures how Tsonic compiles your TypeScript code to C#
 }
 ```
 
-## Runtime Mode Behavior
+---
 
-### When `runtime: "js"` (default)
+## TypeScript Configuration (tsconfig.json)
 
-**Generated .csproj includes:**
+Tsonic relies on `tsconfig.json` to define the TypeScript program. The compiler discovers available library surfaces from the TS program - it does not maintain a parallel list.
 
-```xml
-<PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
+### Required Settings
+
+`tsonic init` generates a `tsconfig.json` with these critical settings:
+
+```json
+{
+  "compilerOptions": {
+    "lib": [],
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules/@types/dotnet"
+    ],
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  }
+}
 ```
 
-**JavaScript methods available:**
+**Critical settings explained:**
 
-- Array: `push()`, `pop()`, `map()`, `filter()`, etc.
-- String: `slice()`, `charAt()`, `indexOf()`, etc.
-- Console: `console.log()`, `console.error()`
-- Math: `Math.PI`, `Math.sin()`, etc.
+| Setting | Value | Why |
+|---------|-------|-----|
+| `lib` | `[]` | Disables default TS libs (lib.es5.d.ts, etc.) that would conflict with .NET type surfaces |
+| `typeRoots` | Points to dotnet typings | Ensures TS sees .NET type declarations |
 
-### When `runtime: "dotnet"`
+### tsc Compatibility Guarantee
 
-**No Tsonic.Runtime reference**
+All Tsonic programs must successfully typecheck with vanilla `tsc`:
 
-**Must use .NET methods:**
-
-- List: `Add()`, `Remove()`, `Select()`, `Where()`
-- String: `Substring()`, `IndexOf()`, `Contains()`
-- Console: `Console.WriteLine()`, `Console.Error.WriteLine()`
-- Math: `Math.PI`, `Math.Sin()` (from System.Math)
-
-**Compile errors for JS methods:**
-
-```
-TSN2001: JavaScript method 'push' is not available in dotnet runtime mode.
-Use 'Add' or set runtime to "js".
+```bash
+tsc --noEmit  # Must pass without errors
 ```
 
-## Migration Between Modes
+This works because:
+1. `lib: []` removes conflicting JS prototypes
+2. `typeRoots` points to proper .NET type declarations
+3. The `.d.ts` files from `@types/dotnet` provide complete type coverage
 
-To migrate from `"js"` to `"dotnet"`:
+---
 
-1. Change `runtime` to `"dotnet"`
-2. Replace JavaScript method calls:
-   - `arr.push(x)` → `arr.Add(x)`
-   - `arr.pop()` → `arr.RemoveAt(arr.Count - 1)`
-   - `console.log()` → `Console.WriteLine()`
-3. Update type declarations if using camelCase
-4. Remove Tsonic.Runtime from dependencies
+## Binding Discovery
+
+The compiler discovers bindings by scanning packages in the TypeScript program that contain `internal/bindings.json`.
+
+See [Bindings Discovery](contracts/bindings-discovery.md) for the full specification.
+
+---
+
+## What NOT to Put in tsonic.json
+
+The following should NOT be in `tsonic.json`:
+
+- **`typeRoots`** - Goes in `tsconfig.json`
+- **`lib`** - Goes in `tsconfig.json`
+- **`stdlib`** - No such field; library surfaces come from TS program
+- **Library lists** - Managed via npm packages + tsconfig.json
+
+This separation ensures:
+1. No config duplication
+2. Users can freely edit `tsconfig.json`
+3. Future "stdlibs" (nodejs-clr, python-clr, etc.) work automatically
+
+---
 
 ## See Also
 
-- [CLI Options](cli/options.md) - Override config via command line
-- [Runtime API](runtime/INDEX.md) - Tsonic.Runtime documentation
-- [.NET Integration](dotnet/INDEX.md) - Using .NET types
+- [Bindings Discovery](contracts/bindings-discovery.md) - How the compiler finds binding metadata
+- [CLI Reference](cli.md) - Command-line interface
+- [.NET Integration](dotnet-reference.md) - Using .NET types

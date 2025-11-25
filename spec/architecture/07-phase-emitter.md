@@ -2,7 +2,9 @@
 
 ## Purpose
 
-This phase generates C# code from IR, applying specialization (monomorphization) for generics, creating structural adapters, generating entry points. When `runtime: "js"` (default), JavaScript semantics are preserved through Tsonic.Runtime calls. When `runtime: "dotnet"`, native .NET APIs are used directly.
+This phase generates C# code from IR, applying specialization (monomorphization) for generics, creating structural adapters, generating entry points. The emitter routes built-in method calls based on the `mode` setting:
+- `mode: "dotnet"` (default): Built-in methods use .NET BCL semantics
+- `mode: "js"`: Built-in methods use `Tsonic.JSRuntime` extension methods
 
 ---
 
@@ -93,6 +95,7 @@ type EmitterOptions = {
   readonly sourceRoot: string; // "/src"
   readonly isEntryPoint: boolean; // Generate Main() method
   readonly entryPointPath?: string; // Path to entry point module
+  readonly mode: "dotnet" | "js"; // Built-in method routing
 };
 ```
 
@@ -672,6 +675,232 @@ See [Extension Methods](../reference/dotnet/extension-methods.md) for full docum
 
 ---
 
+### 7.6 Built-in Method Routing
+
+The emitter routes built-in method calls based on the `mode` setting. Built-in detection is **hardcoded in the compiler**, not derived from binding metadata.
+
+#### Built-in Types
+
+The following types are considered "built-in" and have mode-dependent lowering:
+
+| Type | Built-in Methods |
+|------|------------------|
+| **Array** | `sort`, `reverse`, `map`, `filter`, `reduce`, `find`, `indexOf`, `includes`, `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `join`, `forEach`, `every`, `some`, `flat`, `flatMap` |
+| **String** | `toUpperCase`, `toLowerCase`, `slice`, `substring`, `charAt`, `indexOf`, `includes`, `split`, `trim`, `padStart`, `padEnd`, `repeat`, `replace`, `startsWith`, `endsWith` |
+| **Math** | `floor`, `ceil`, `round`, `abs`, `min`, `max`, `random`, `sin`, `cos`, `tan`, `sqrt`, `pow`, `log` |
+| **console** | `log`, `warn`, `error`, `info`, `debug`, `trace`, `assert`, `time`, `timeEnd` |
+
+#### Detection Logic
+
+```typescript
+const isBuiltinCall = (expr: IrCallExpression): boolean => {
+  // Check if this is a method call on a built-in type
+  if (expr.callee.kind !== "memberAccess") return false;
+
+  const memberAccess = expr.callee as IrMemberAccessExpression;
+  const objectType = memberAccess.object.resolvedType;
+  const methodName = memberAccess.property;
+
+  // Check Array methods
+  if (objectType?.kind === "arrayType") {
+    return ARRAY_BUILTIN_METHODS.has(methodName);
+  }
+
+  // Check String methods
+  if (objectType?.kind === "primitiveType" && objectType.name === "string") {
+    return STRING_BUILTIN_METHODS.has(methodName);
+  }
+
+  // Check Math.* static calls
+  if (memberAccess.object.kind === "identifier" &&
+      memberAccess.object.name === "Math") {
+    return MATH_BUILTIN_METHODS.has(methodName);
+  }
+
+  // Check console.* static calls
+  if (memberAccess.object.kind === "identifier" &&
+      memberAccess.object.name === "console") {
+    return CONSOLE_BUILTIN_METHODS.has(methodName);
+  }
+
+  return false;
+};
+```
+
+#### Mode-Based Routing
+
+```typescript
+const emitBuiltinCall = (
+  expr: IrCallExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const mode = context.options.mode;
+
+  if (mode === "js") {
+    // Emit extension method call using Tsonic.JSRuntime
+    // The method name is preserved exactly (e.g., "sort" stays "sort")
+    return emitJSRuntimeBuiltinCall(expr, context);
+  } else {
+    // mode === "dotnet" (default)
+    // Emit BCL call with camel→pascal transformation
+    return emitBCLBuiltinCall(expr, context);
+  }
+};
+```
+
+#### JS Mode Emission
+
+In `mode: "js"`, built-in methods use `Tsonic.JSRuntime` extension methods:
+
+```typescript
+const emitJSRuntimeBuiltinCall = (
+  expr: IrCallExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  // Add using directive for Tsonic.JSRuntime
+  let currentContext = addUsing(context, "Tsonic.JSRuntime");
+
+  const memberAccess = expr.callee as IrMemberAccessExpression;
+
+  // Emit receiver
+  const [receiverFrag, ctx1] = emitExpression(memberAccess.object, currentContext);
+  currentContext = ctx1;
+
+  // Emit arguments
+  const args: string[] = [];
+  for (const arg of expr.arguments) {
+    const [argFrag, ctx] = emitExpression(arg, currentContext);
+    args.push(argFrag.code);
+    currentContext = ctx;
+  }
+
+  // JS method name preserved exactly
+  const methodName = memberAccess.property;
+
+  // Emit as extension method call: receiver.method(args...)
+  const code = `${receiverFrag.code}.${methodName}(${args.join(", ")})`;
+
+  return [{ code }, currentContext];
+};
+```
+
+**Example (js mode):**
+
+```typescript
+// TypeScript
+const a = [13, 4, 5, 6];
+a.sort();
+```
+
+```csharp
+// Generated C# (mode: "js")
+using Tsonic.JSRuntime;
+
+List<int> a = new() { 13, 4, 5, 6 };
+a.sort(); // Extension method with JS semantics
+```
+
+#### .NET Mode Emission
+
+In `mode: "dotnet"` (default), built-in methods use BCL equivalents:
+
+```typescript
+const emitBCLBuiltinCall = (
+  expr: IrCallExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const memberAccess = expr.callee as IrMemberAccessExpression;
+  const methodName = memberAccess.property;
+
+  // Get BCL method name (camel→pascal, method-specific mappings)
+  const bclMethodName = getBCLMethodName(methodName);
+
+  // Emit receiver
+  const [receiverFrag, ctx1] = emitExpression(memberAccess.object, context);
+  let currentContext = ctx1;
+
+  // Emit arguments
+  const args: string[] = [];
+  for (const arg of expr.arguments) {
+    const [argFrag, ctx] = emitExpression(arg, currentContext);
+    args.push(argFrag.code);
+    currentContext = ctx;
+  }
+
+  // Emit BCL call
+  const code = `${receiverFrag.code}.${bclMethodName}(${args.join(", ")})`;
+
+  return [{ code }, currentContext];
+};
+
+const getBCLMethodName = (jsMethodName: string): string => {
+  // Method-specific mappings
+  const mappings: Record<string, string> = {
+    "toUpperCase": "ToUpper",
+    "toLowerCase": "ToLower",
+    "indexOf": "IndexOf",
+    "includes": "Contains",
+    "push": "Add",
+    "pop": "RemoveAt", // with special handling
+    "shift": "RemoveAt", // with special handling
+    "forEach": "ForEach",
+    // ... other mappings
+  };
+
+  return mappings[jsMethodName] ?? toPascalCase(jsMethodName);
+};
+```
+
+**Example (dotnet mode, default):**
+
+```typescript
+// TypeScript
+const a = [13, 4, 5, 6];
+a.sort();
+```
+
+```csharp
+// Generated C# (mode: "dotnet")
+List<int> a = new() { 13, 4, 5, 6 };
+a.Sort(); // BCL method
+```
+
+#### Call Emission Decision Tree
+
+The full call emission logic follows this decision tree:
+
+```typescript
+const emitCall = (
+  expr: IrCallExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  // 1. Check for built-in calls first (mode-dependent)
+  if (isBuiltinCall(expr)) {
+    return emitBuiltinCall(expr, context);
+  }
+
+  // 2. Check for extension method calls (from bindings)
+  if (expr.isExtensionMethod && expr.extensionInfo) {
+    return emitExtensionMethodCall(expr, context);
+  }
+
+  // 3. Normal call emission
+  return emitNormalCall(expr, context);
+};
+```
+
+**Key points:**
+
+1. Built-in detection is **hardcoded in the compiler**
+2. Mode affects **only built-in types** (Array, String, Math, console)
+3. All other calls use normal binding-based lowering regardless of mode
+4. `mode: "dotnet"` is the **default** - no extra dependencies
+5. `mode: "js"` requires `Tsonic.JSRuntime` package and explicit `using` directive
+
+See [Configuration - Mode Semantics](../configuration.md#mode-semantics) for user-facing documentation.
+
+---
+
 ## 8. Statement Emission
 
 ### 8.1 Variable Declaration
@@ -1128,7 +1357,7 @@ const assembleOutput = (
 
 **Document Statistics:**
 
-- Lines: ~1,100
+- Lines: ~1,350
 - Sections: 14
-- Code examples: 30+
-- Coverage: Complete C# emission with specialization, adapters, and runtime integration
+- Code examples: 35+
+- Coverage: Complete C# emission with specialization, adapters, mode-based built-in routing, and runtime integration
