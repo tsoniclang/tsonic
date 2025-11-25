@@ -104,6 +104,7 @@ export const createProgram = (
   }
 
   // Combine source files, declaration files, and namespace index files
+  // Note: globals.d.ts should be in the BCL bindings directory (typeRoots)
   const allFiles = [
     ...absolutePaths,
     ...declarationFiles,
