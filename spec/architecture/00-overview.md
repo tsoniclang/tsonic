@@ -4,15 +4,15 @@
 
 ### What is Tsonic?
 
-**Tsonic** is a TypeScript-to-C#-to-NativeAOT compiler that produces fast, self-contained native executables using .NET's NativeAOT technology. It can operate in two modes: with JavaScript semantics (using Tsonic.Runtime) or as a pure TypeScript-to-C# transpiler (using native .NET APIs directly).
+**Tsonic** is a TypeScript-to-C#-to-NativeAOT compiler that produces fast, self-contained native executables using .NET's NativeAOT technology. It is primarily a **TypeScript syntax frontend for .NET**, with an optional JavaScript semantics mode for built-in types.
 
 **Key Characteristics:**
 
 - **TypeScript Source** → **C# Code** → **Native Binary**
 - **.NET-First**: Uses native .NET types (List<T>, string, double), not JavaScript runtime ports
-- **Dual Runtime Modes**:
-  - **JavaScript mode** (`runtime: "js"`, default): Preserves exact JS behavior through Tsonic.Runtime static helpers
-  - **Pure .NET mode** (`runtime: "dotnet"`): Direct .NET API usage without runtime dependency
+- **Mode-Based Built-in Routing**:
+  - **.NET mode** (`mode: "dotnet"`, default): Built-in methods use BCL semantics
+  - **JavaScript mode** (`mode: "js"`): Built-in methods use `Tsonic.JSRuntime` extension methods
 - **ESM-Only**: Strict `.ts` extension requirement on all local imports
 - **Functional Codebase**: Pure functions, immutable data structures throughout
 - **NativeAOT Output**: Single-file executables with no runtime dependencies
@@ -36,11 +36,33 @@ export function main() {
 }
 ```
 
-**Generated C# (with `runtime: "js"` - default):**
+**Generated C# (with `mode: "dotnet"` - default):**
 
 ```csharp
 // Generated/MyApp/main.cs
-using Tsonic.Runtime;
+using System;
+using System.IO;
+using System.Collections.Generic;
+
+namespace MyApp;
+
+public static class main {
+  public static void mainFunction() {
+    var lines = File.ReadAllLines("data.txt");
+    Console.WriteLine($"Read {lines.Length} lines");
+
+    var nums = new List<double> { 1.0, 2.0, 3.0 };
+    nums.Add(4.0);  // push() → Add() in dotnet mode
+    Console.WriteLine(string.Join(", ", nums));  // join() → string.Join() in dotnet mode
+  }
+}
+```
+
+**Generated C# (with `mode: "js"`):**
+
+```csharp
+// Generated/MyApp/main.cs
+using Tsonic.JSRuntime;
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -53,31 +75,8 @@ public static class main {
     Console.WriteLine($"Read {lines.Count} lines");
 
     var nums = new List<double> { 1.0, 2.0, 3.0 };
-    Tsonic.Runtime.Array.push(nums, 4.0);
-    Console.WriteLine(Tsonic.Runtime.Array.join(nums, ", "));
-  }
-}
-```
-
-**Generated C# (with `runtime: "dotnet"`):**
-
-```csharp
-// Generated/MyApp/main.cs
-using System;
-using System.IO;
-using System.Collections.Generic;
-using System.Linq;
-
-namespace MyApp;
-
-public static class main {
-  public static void mainFunction() {
-    var lines = File.ReadAllLines("data.txt");
-    Console.WriteLine($"Read {lines.Length} lines");
-
-    var nums = new List<double> { 1.0, 2.0, 3.0 };
-    nums.Add(4.0);  // Note: push() would be a compile error in dotnet mode
-    Console.WriteLine(string.Join(", ", nums));
+    nums.push(4.0);  // Extension method with JS semantics
+    Console.WriteLine(nums.join(", "));  // Extension method with JS semantics
   }
 }
 ```
@@ -106,14 +105,14 @@ Tsonic uses **native .NET types** directly rather than creating wrapper classes:
 const arr: number[] = [1, 2, 3];
 arr.push(4);
 
-// C# with runtime: "js" (default):
+// C# with mode: "dotnet" (default):
 var arr = new List<double> { 1.0, 2.0, 3.0 };
-Tsonic.Runtime.Array.push(arr, 4.0);  // Static helper
+arr.Add(4.0);  // push() → Add() (BCL method)
 
-// C# with runtime: "dotnet":
+// C# with mode: "js":
+using Tsonic.JSRuntime;
 var arr = new List<double> { 1.0, 2.0, 3.0 };
-arr.Add(4.0);  // Direct .NET API
-// Note: arr.push(4) would cause compile error TSN2001
+arr.push(4.0);  // Extension method with JS semantics
 
 // NOT creating a custom Array<T> class in either mode
 ```
@@ -207,40 +206,51 @@ src/main.ts:5:8 - error TSN1001: Local import must have .ts extension
 Change to: "./models/User.ts"
 ```
 
-### 2.5 Runtime Mode Configuration
+### 2.5 Mode Configuration
 
 **Configuration in tsonic.json:**
 
 ```json
 {
-  "runtime": "js", // "js" (default) or "dotnet"
+  "mode": "dotnet", // "dotnet" (default) or "js"
   "rootNamespace": "MyApp"
   // ... other config
 }
 ```
 
-**JavaScript Mode (`runtime: "js"`):**
+**Mode affects only built-in types** (Array, String, Math, console). All other .NET interop uses normal binding-based lowering regardless of mode.
 
-- Default mode if not specified
-- Requires `Tsonic.Runtime` NuGet package
-- JavaScript array methods (`push`, `pop`, `map`, `filter`)
-- JavaScript string methods (`slice`, `charAt`, `indexOf`)
-- `console.log()` and other JS globals
+**.NET Mode (`mode: "dotnet"`) - Default:**
+
+- Default mode - no extra dependencies required
+- Built-in methods use .NET BCL semantics
+- `[1,2,3].sort()` → `list.Sort()` (BCL method)
+- `"hello".toUpperCase()` → `"hello".ToUpper()` (BCL method)
+- Best for .NET-native applications
+
+**JavaScript Mode (`mode: "js"`):**
+
+- Opt-in for JavaScript semantics on built-in types
+- Requires `Tsonic.JSRuntime` NuGet package
+- Built-in methods use extension methods with JS semantics
+- `[1,2,3].sort()` → `list.sort()` (extension method with JS string coercion)
 - Exact JavaScript semantics (sparse arrays, type coercion)
+- Generated code includes `using Tsonic.JSRuntime;`
 
-**Pure .NET Mode (`runtime: "dotnet"`):**
+**Built-in Types Affected by Mode:**
 
-- No `Tsonic.Runtime` dependency
-- Direct .NET API usage (`Add`, `Remove`, `Select`, `Where`)
-- `Console.WriteLine()` instead of `console.log()`
-- Compile-time errors for JavaScript-specific methods
-- Smaller binary size, better performance
+| Type | Built-in Methods |
+|------|------------------|
+| Array | `sort`, `map`, `filter`, `reduce`, `push`, `pop`, `slice`, etc. |
+| String | `toUpperCase`, `toLowerCase`, `slice`, `indexOf`, etc. |
+| Math | `floor`, `ceil`, `round`, `abs`, `min`, `max`, etc. |
+| console | `log`, `warn`, `error`, `info`, etc. |
 
-**Method Name Resolution:**
+**Key Distinction:**
 
-- Uses `bindings.json` from tsbindgen for name mapping
-- Maps TypeScript method names to C# names based on casing configuration
-- Example: `list.add()` (TypeScript with camelCase) → `list.Add()` (C#)
+- Mode detection is **hardcoded in the compiler** (not from bindings)
+- Extension methods from bindings (LINQ, etc.) work the same in both modes
+- See [Configuration - Mode Semantics](../configuration.md#mode-semantics) for details
 
 ### 2.6 Layered Architecture
 
@@ -341,13 +351,13 @@ Each layer has clear input/output contracts and no knowledge of adjacent layers.
              │
              ▼
   ┌─────────────────────┐
-  │ Phase 8: Runtime    │  Runtime Support (separate package)
+  │ Phase 8: Runtime    │  Runtime Support (separate package, mode: "js" only)
   ├─────────────────────┤
-  │ • Array helpers     │  Package: Tsonic.Runtime (C#)
-  │ • String helpers    │  Location: (separate repo)
+  │ • Array extensions  │  Package: Tsonic.JSRuntime (C#)
+  │ • String extensions │  Location: (separate repo)
   │ • Math functions    │
   │ • console, JSON     │  Data: Runtime APIs
-  └─────────────────────┘        (compiled into binary)
+  └─────────────────────┘        (compiled into binary when mode: "js")
              │
              ▼
     Native Executable Binary
@@ -661,8 +671,8 @@ type IrIdentifierExpression = {
   readonly kind: "identifier";
   readonly name: string;
   readonly inferredType?: IrType;
-  readonly resolvedClrType?: string; // "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string; // "Tsonic.Runtime"
+  readonly resolvedClrType?: string; // "System.Console" or "Tsonic.JSRuntime.Console"
+  readonly resolvedAssembly?: string; // "System.Console" or "Tsonic.JSRuntime"
   readonly csharpName?: string; // Optional C# rename
 };
 
@@ -778,15 +788,16 @@ const arr = [1, 2, 3];
 arr.push(4);
 const result = arr.map(x => x * 2);
 
-// C# with runtime: "js":
+// C# with mode: "dotnet" (default):
 var arr = new List<double> { 1.0, 2.0, 3.0 };
-Tsonic.Runtime.Array.push(arr, 4.0);
-var result = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
+arr.Add(4.0);  // push() → Add()
+var result = arr.Select(x => x * 2.0).ToList();  // map() → Select().ToList()
 
-// C# with runtime: "dotnet":
+// C# with mode: "js":
+using Tsonic.JSRuntime;
 var arr = new List<double> { 1.0, 2.0, 3.0 };
-arr.Add(4.0);
-var result = arr.Select(x => x * 2.0).ToList();
+arr.push(4.0);  // Extension method
+var result = arr.map(x => x * 2.0);  // Extension method
 ```
 
 ### 7.3 Functions
@@ -1019,11 +1030,13 @@ arr.push(4);
 arr.pop();
 const doubled = arr.map(x => x * 2);
 
-// C#:
+// C# (mode: "js"):
+using Tsonic.JSRuntime;
+
 var arr = new List<double> { 1.0, 2.0, 3.0 };
-Tsonic.Runtime.Array.push(arr, 4.0);
-Tsonic.Runtime.Array.pop(arr);
-var doubled = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
+arr.push(4.0);  // Extension method
+arr.pop();
+var doubled = arr.map(x => x * 2.0);
 ```
 
 **Why Not Custom Array<T> Class?**
@@ -1233,19 +1246,28 @@ packages/backend/src/
 
 ### 14.2 Optional Dependencies
 
-**Tsonic.Runtime** (.NET package):
+**Tsonic.Runtime** (.NET NuGet package):
 
-- **Status**: OPTIONAL (required only when `runtime: "js"`)
-- **Purpose**: Provides JavaScript semantics via static helper methods
-- **Installation**: Automatically added to .csproj when needed
-- **Size Impact**: ~500KB additional to binary size
+- **Status**: REQUIRED (always)
+- **Purpose**: TypeScript language primitives (Union types, typeof operator, structural typing)
+- **Repository**: `tsoniclang/tsonic-runtime`
+- **Installation**: Automatically added to all generated .csproj files
+- **Size Impact**: ~100KB
+
+**Tsonic.JSRuntime** (.NET NuGet package):
+
+- **Status**: OPTIONAL (required only when `mode: "js"`)
+- **Purpose**: JavaScript semantics via extension methods on .NET types (Array, String, Math, console)
+- **Repository**: `tsoniclang/js-runtime`
+- **Installation**: Automatically added to .csproj when `mode: "js"`
+- **Size Impact**: ~400KB additional to binary size
 
 **@types/dotnet** (npm package):
 
-- **Status**: OPTIONAL (for .NET BCL type declarations)
+- **Status**: REQUIRED (for .NET BCL type declarations)
 - **Generated by**: tsbindgen
 - **Purpose**: TypeScript declarations for .NET types
-- **Configuration**: Specified in `dotnet.libraries` in tsonic.json
+- **Configuration**: Specified in tsconfig.json `typeRoots`
 
 ### 14.3 Bindings and Metadata
 
@@ -1266,7 +1288,8 @@ packages/backend/src/
 - [06-phase-analysis.md](06-phase-analysis.md) - Dependency analysis phase
 - [07-phase-emitter.md](07-phase-emitter.md) - C# emission phase
 - [08-phase-backend.md](08-phase-backend.md) - NativeAOT build phase
-- [09-phase-runtime.md](09-phase-runtime.md) - Runtime implementation
+- [09a-tsonic-runtime.md](09a-tsonic-runtime.md) - TypeScript language primitives package
+- [09b-tsonic-jsruntime.md](09b-tsonic-jsruntime.md) - JavaScript semantics package
 
 ---
 

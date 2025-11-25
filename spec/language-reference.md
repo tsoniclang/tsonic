@@ -6,7 +6,7 @@ Complete TypeScript → C# language mapping for Tsonic.
 
 ## Overview
 
-This section documents how TypeScript language features map to C#. Tsonic preserves **exact JavaScript semantics** through the `Tsonic.Runtime` library.
+This section documents how TypeScript language features map to C#. In `mode: "js"`, Tsonic preserves **exact JavaScript semantics** through the `Tsonic.JSRuntime` library. In `mode: "dotnet"` (default), built-in methods compile directly to .NET BCL equivalents.
 
 ---
 
@@ -154,7 +154,7 @@ See [Limitations](limitations.md) for complete list and rationale.
 | `unknown`   | `object`            | Type-safe any                     |
 | `never`     | `void`              | Unreachable code                  |
 
-\*When `runtime: "js"`, array methods like `push()` use `Tsonic.Runtime.ArrayHelpers` static methods
+\*When `mode: "js"`, array methods like `push()` use `Tsonic.JSRuntime` extension methods. When `mode: "dotnet"` (default), they compile to BCL equivalents (e.g., `push()` → `Add()`).
 
 ### Arrays
 
@@ -200,11 +200,12 @@ console.log(arr[5]); // undefined
 ```
 
 ```csharp
-// Generated C# (semantically equivalent)
-var arr = new Tsonic.Runtime.Array<string>();
-arr[10] = "x";
+// Generated C# (mode: "js" - for exact JS sparse array semantics)
+using Tsonic.JSRuntime;
+var arr = new List<string>();
+arr[10] = "x";  // Extension method handles sparse indexing
 Console.WriteLine(arr.length);  // 11
-Console.WriteLine(arr[5]);      // TSUndefined.Value
+Console.WriteLine(arr[5]);      // undefined
 ```
 
 ### 2. Number Behavior
@@ -405,7 +406,7 @@ try {
 - **[Module Resolution](architecture/03-phase-resolver.md)** - How imports are resolved internally
 - **[Type System](architecture/05-phase-ir.md)** - Type conversion implementation
 - **[Code Generation](architecture/07-phase-emitter.md)** - How TypeScript becomes C#
-- **[Runtime Implementation](architecture/09-phase-runtime.md)** - Tsonic.Runtime internals
+- **[Runtime Implementation](architecture/09-phase-runtime.md)** - Tsonic.JSRuntime internals
 
 ### User Documentation
 

@@ -10,6 +10,8 @@ C# extension methods allow adding methods to existing types without modifying th
 
 **Key Concept**: In C#, `numbers.Where(...)` is syntactic sugar for `Enumerable.Where(numbers, ...)`. Tsonic performs the same transformation during compilation.
 
+**Note**: This document covers .NET extension methods discovered from binding packages (tsbindgen output). This is separate from the mode-dependent built-in method routing for Array, String, Math, and console. See [Configuration - Mode Semantics](../../configuration.md#mode-semantics) for built-in method handling.
+
 ---
 
 ## How Extension Methods Work in C#
@@ -392,6 +394,8 @@ const list = nums.Where((x) => x > 0).ToList();
 ## See Also
 
 - [.NET Integration Overview](../../dotnet-reference.md) - General .NET interop
+- [Configuration - Mode Semantics](../../configuration.md#mode-semantics) - Built-in method routing (separate from extension methods)
+- [Bindings Discovery](../../contracts/bindings-discovery.md) - How binding packages are discovered
 - [Type Mappings](type-mappings.md) - TypeScript to C# type conversions
 - [Ref/Out Parameters](ref-out.md) - Using ref/out with extension methods
 - [Architecture: IR Building](../../architecture/05-phase-ir.md) - How extension calls are detected

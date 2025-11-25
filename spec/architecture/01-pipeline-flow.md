@@ -52,9 +52,9 @@ Phase 8: Runtime       Runtime support (separate package)
   entryPoint: string;              // "src/main.ts"
   sourceRoot: string;              // "src"
   rootNamespace: string;           // "MyApp"
-  typeRoots: readonly string[];    // ["node_modules/@tsonic/dotnet-types/types"]
+  typeRoots: readonly string[];    // ["node_modules/@types"]
   strict: boolean;                 // true
-  runtime: "js" | "dotnet";        // "js" (default) or "dotnet"
+  mode: "dotnet" | "js";           // "dotnet" (default) or "js"
 }
 ```
 
@@ -412,7 +412,7 @@ type EmitterOptions = {
   readonly indent?: number;
   readonly isEntryPoint?: boolean;
   readonly entryPointPath?: string;
-  readonly runtime: "js" | "dotnet";  // Affects code generation
+  readonly mode: "dotnet" | "js";     // Affects built-in method code generation
 };
 ```
 
@@ -590,8 +590,8 @@ type NuGetPackage = {
      </PropertyGroup>
 
      <ItemGroup>
-       <!-- Only included when runtime: "js" -->
-       <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
+       <!-- Only included when mode: "js" -->
+       <PackageReference Include="Tsonic.JSRuntime" Version="1.0.0" />
      </ItemGroup>
    </Project>
    ```
@@ -637,21 +637,21 @@ type Diagnostic[] = [
 
 ### 3.8 Phase 7 → Phase 8 (Runtime)
 
-**Note:** Phase 8 (Runtime) is not part of the compilation pipeline but rather a separate package that provides runtime support.
+**Note:** Phase 8 (Runtime) is not part of the compilation pipeline but rather a separate package that provides runtime support. It is **only used when `mode: "js"`**.
 
-**Runtime Package:** `Tsonic.Runtime` (C# library)
+**Runtime Package:** `Tsonic.JSRuntime` (C# library)
 
-**Provided APIs:**
+**Provided Extension Methods (on .NET types):**
 
-- **Array static methods:** `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `map`, `filter`, `reduce`, `find`, `some`, `every`, `join`, etc.
-- **String static methods:** `toUpperCase`, `toLowerCase`, `substring`, `indexOf`, `split`, `trim`, etc.
-- **Math static methods:** `abs`, `ceil`, `floor`, `round`, `sqrt`, `pow`, `min`, `max`, etc.
-- **JSON static methods:** `parse`, `stringify`
-- **console static methods:** `log`, `error`, `warn`, `info`
+- **List<T> extensions:** `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `map`, `filter`, `reduce`, `find`, `some`, `every`, `join`, etc.
+- **string extensions:** `toUpperCase`, `toLowerCase`, `substring`, `indexOf`, `split`, `trim`, etc.
+- **Math static class:** `abs`, `ceil`, `floor`, `round`, `sqrt`, `pow`, `min`, `max`, etc.
+- **Console static class:** `log`, `error`, `warn`, `info`
 
 **Integration:**
 
-- Runtime is referenced as NuGet package in .csproj
+- Runtime is referenced as NuGet package in .csproj only when `mode: "js"`
+- In `mode: "dotnet"` (default), these methods compile to BCL equivalents
 - Compiled into final binary
 - No runtime dependencies after compilation
 

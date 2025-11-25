@@ -264,25 +264,24 @@ export function main(): void {
 }
 ```
 
-### JavaScript Array vs .NET List
+### TypeScript Arrays and .NET
+
+TypeScript arrays compile to `List<T>`. The `mode` setting controls how array methods are lowered:
 
 ```typescript
-// JavaScript array (Tsonic.Runtime.Array)
-const jsArray: number[] = [1, 2, 3];
-jsArray.push(4);
-jsArray.map((n) => n * 2);
-
-// .NET List (System.Collections.Generic.List)
-import { List } from "System.Collections.Generic";
-const dotnetList = new List<number>();
-dotnetList.Add(1);
-dotnetList.Add(2);
+// TypeScript array (compiles to List<T>)
+const arr: number[] = [1, 2, 3];
+arr.push(4);
+arr.map((n) => n * 2);
 ```
 
-**When to use each**:
+**In `mode: "dotnet"` (default)**:
+- `push(4)` → `Add(4)`
+- `map(fn)` → `Select(fn).ToList()`
 
-- **JavaScript arrays**: For TypeScript-style code, array methods (map/filter/reduce)
-- **.NET List**: For .NET interop, passing to .NET APIs
+**In `mode: "js"` (opt-in)**:
+- `push(4)` → `arr.push(4)` (Tsonic.JSRuntime extension)
+- `map(fn)` → `arr.map(fn)` (Tsonic.JSRuntime extension with JS semantics)
 
 ---
 

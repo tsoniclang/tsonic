@@ -17,13 +17,16 @@ export const getIndent = (context: EmitterContext): string => {
  */
 export const formatUsings = (usings: ReadonlySet<string>): string => {
   const sorted = Array.from(usings).sort((a, b) => {
-    // Tsonic.Runtime ALWAYS FIRST (per spec/06-code-generation.md)
-    const aIsTsonicRuntime =
-      a === "Tsonic.Runtime" || a.startsWith("static Tsonic.Runtime");
-    const bIsTsonicRuntime =
-      b === "Tsonic.Runtime" || b.startsWith("static Tsonic.Runtime");
-    if (aIsTsonicRuntime && !bIsTsonicRuntime) return -1;
-    if (!aIsTsonicRuntime && bIsTsonicRuntime) return 1;
+    // Tsonic packages first (Runtime, then JSRuntime)
+    const getTsonicPriority = (ns: string): number => {
+      if (ns === "Tsonic.Runtime" || ns.startsWith("static Tsonic.Runtime")) return 1;
+      if (ns === "Tsonic.JSRuntime" || ns.startsWith("static Tsonic.JSRuntime")) return 2;
+      return 3;
+    };
+
+    const aPriority = getTsonicPriority(a);
+    const bPriority = getTsonicPriority(b);
+    if (aPriority !== bPriority) return aPriority - bPriority;
 
     // System namespaces second
     const aIsSystem = a.startsWith("System");

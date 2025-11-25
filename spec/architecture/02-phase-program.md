@@ -69,17 +69,17 @@ type CompilerOptions = {
   readonly typeRoots?: readonly string[];
   readonly target?: ts.ScriptTarget;
   readonly module?: ts.ModuleKind;
-  readonly runtime?: "js" | "dotnet";
+  readonly mode?: "dotnet" | "js";
 };
 ```
 
 **Default Values:**
 
 - `strict`: true
-- `typeRoots`: `["node_modules/@tsonic/dotnet-types/types"]`
+- `typeRoots`: `["node_modules/@types"]`
 - `target`: ES2022
 - `module`: ESNext
-- `runtime`: "js"
+- `mode`: "dotnet"
 
 ---
 
@@ -315,8 +315,8 @@ class BindingRegistry {
   "bindings": {
     "console": {
       "kind": "module",
-      "assembly": "Tsonic.Runtime",
-      "type": "Tsonic.Runtime.console"
+      "assembly": "System.Console",
+      "type": "System.Console"
     }
   }
 }

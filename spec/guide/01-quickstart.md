@@ -123,7 +123,7 @@ namespace MyProgram
     {
         public static void main()
         {
-            Tsonic.Runtime.Console.log("Hello from Tsonic!");
+            Console.WriteLine("Hello from Tsonic!");
         }
     }
 }
@@ -132,7 +132,7 @@ namespace MyProgram
 ↓ Compiled to native code
 
 ```
-Native executable with exact JavaScript semantics
+Native executable (mode: "dotnet" uses BCL APIs, mode: "js" uses Tsonic.JSRuntime)
 ```
 
 ---

@@ -31,13 +31,12 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
     }
   }
 
-  // Only include Tsonic.Runtime for js runtime mode
-  const initialUsings = new Set<string>();
+  // Tsonic.Runtime ALWAYS needed (for unions, typeof, structural)
+  // Tsonic.JSRuntime only for runtime: "js"
+  const initialUsings = new Set<string>(["System.Collections.Generic", "Tsonic.Runtime"]);
   if (options.runtime !== "dotnet") {
-    initialUsings.add("Tsonic.Runtime");
+    initialUsings.add("Tsonic.JSRuntime");
   }
-  // Always include System.Collections.Generic for List<T>
-  initialUsings.add("System.Collections.Generic");
 
   return {
     indentLevel: 0,

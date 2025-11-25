@@ -89,7 +89,7 @@ spec/
 
 - [Language Reference](language-reference.md) - Complete language spec
 - [.NET Integration](dotnet-reference.md) - Advanced .NET patterns
-- [Tsonic.Runtime API](reference/runtime/INDEX.md) - Runtime helper functions
+- [Tsonic.JSRuntime API](reference/runtime/INDEX.md) - Runtime helpers (mode: "js" only)
 - [CLI Reference](reference/cli/INDEX.md) - Command-line tools
 - [Error Codes](reference/diagnostics/INDEX.md) - Diagnostic catalog
 
@@ -163,7 +163,7 @@ spec/
    - Output formats
 
 4. **[Runtime API](contracts/apis/runtime.md)** (15 min)
-   - Tsonic.Runtime public surface
+   - Tsonic.JSRuntime public surface (mode: "js" only)
    - Semantic guarantees
 
 **Next steps**: Build your integration, reference contracts as needed

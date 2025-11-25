@@ -100,8 +100,8 @@ type IrImport = {
   readonly isDotNet: boolean; // true for .NET imports
   readonly specifiers: readonly IrImportSpecifier[];
   readonly resolvedNamespace?: string; // For .NET: "System.IO"
-  readonly resolvedClrType?: string; // For bindings: "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string; // For bindings: "Tsonic.Runtime"
+  readonly resolvedClrType?: string; // For bindings: e.g., "System.Console"
+  readonly resolvedAssembly?: string; // For bindings: e.g., "System.Console"
 };
 
 type IrImportSpecifier =
@@ -201,8 +201,8 @@ type IrIdentifierExpression = {
   readonly name: string;
   readonly inferredType?: IrType;
   // Resolved binding for globals (console, Math, etc.)
-  readonly resolvedClrType?: string; // "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string; // "Tsonic.Runtime"
+  readonly resolvedClrType?: string; // "System.Console" (dotnet mode) or "Tsonic.JSRuntime.Console" (js mode)
+  readonly resolvedAssembly?: string; // "System.Console" or "Tsonic.JSRuntime"
   readonly csharpName?: string; // Optional renamed identifier
 };
 ```

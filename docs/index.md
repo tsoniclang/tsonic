@@ -136,7 +136,7 @@ See [.NET Interop](./language/dotnet-interop.md) for details.
 - [Module System](./language/module-system.md) - ESM imports and rules
 - [Namespaces](./language/namespaces.md) - Directory to namespace mapping
 - [Type Mappings](./language/type-mappings.md) - TypeScript to C# types
-- [Runtime](./language/runtime.md) - Tsonic.Runtime API
+- [Runtime](./language/runtime.md) - Tsonic.Runtime & Tsonic.JSRuntime packages
 - [.NET Interop](./language/dotnet-interop.md) - Using .NET libraries
 - [Generators](./language/generators.md) - Generator functions
 - [Types & Interfaces](./language/types-and-interfaces.md) - Interfaces and type aliases

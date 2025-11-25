@@ -41,8 +41,11 @@ This phase orchestrates the .NET build process, generating .csproj files, restor
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Reference Tsonic.Runtime only when runtime: "js" -->
-    <PackageReference Include="Tsonic.Runtime" Version="1.0.0" Condition="'$(Runtime)' == 'js'" />
+    <!-- Tsonic.Runtime ALWAYS required (Union types, typeof, structural typing) -->
+    <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
+
+    <!-- Tsonic.JSRuntime only when mode: "js" (Array/String extensions, console, Math) -->
+    <PackageReference Include="Tsonic.JSRuntime" Version="1.0.0" Condition="'$(Mode)' == 'js'" />
 
     <!-- Additional .NET packages if needed -->
     <PackageReference Include="System.Collections.Immutable" Version="10.0.0" />
@@ -56,7 +59,7 @@ This phase orchestrates the .NET build process, generating .csproj files, restor
 const buildNativeExecutable = async (
   csharpFiles: Map<string, string>,
   outputDir: string,
-  options: BuildOptions & { runtime: "js" | "dotnet" }
+  options: BuildOptions & { mode: "dotnet" | "js" }
 ): Promise<BuildResult> => {
   // 1. Create output directory
   await fs.mkdir(outputDir, { recursive: true });
@@ -214,10 +217,14 @@ IL3050: Using member 'X' which has RequiresDynamicCodeAttribute can break functi
 
 ```
 error NU1101: Unable to find package Tsonic.Runtime
+error NU1101: Unable to find package Tsonic.JSRuntime
 ```
 
-**Resolution:** Ensure Tsonic.Runtime is published to NuGet or local feed.
-**Note:** This error only occurs when `runtime: "js"`. With `runtime: "dotnet"`, Tsonic.Runtime is not referenced.
+**Resolution:**
+- Ensure `Tsonic.Runtime` is published to NuGet or local feed (always required)
+- Ensure `Tsonic.JSRuntime` is published (only when `mode: "js"`)
+
+**Note:** `Tsonic.Runtime` is always referenced. `Tsonic.JSRuntime` only when `mode: "js"`.
 
 ---
 
@@ -260,7 +267,8 @@ Incremental compilation is handled by dotnet CLI:
 
 - [00-overview.md](00-overview.md) - System architecture
 - [07-phase-emitter.md](07-phase-emitter.md) - C# emission (previous phase)
-- [09-phase-runtime.md](09-phase-runtime.md) - Runtime APIs
+- [09a-tsonic-runtime.md](09a-tsonic-runtime.md) - TypeScript language primitives
+- [09b-tsonic-jsruntime.md](09b-tsonic-jsruntime.md) - JavaScript semantics (mode: "js" only)
 
 ---
 

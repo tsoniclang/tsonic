@@ -11,13 +11,13 @@ import { emitType } from "../type-emitter.js";
  * Used when binding manifests are not available (e.g., in tests)
  */
 const RUNTIME_FALLBACKS: Record<string, string> = {
-  console: "Tsonic.Runtime.console",
-  Math: "Tsonic.Runtime.Math",
-  JSON: "Tsonic.Runtime.JSON",
-  parseInt: "Tsonic.Runtime.Globals.parseInt",
-  parseFloat: "Tsonic.Runtime.Globals.parseFloat",
-  isNaN: "Tsonic.Runtime.Globals.isNaN",
-  isFinite: "Tsonic.Runtime.Globals.isFinite",
+  console: "Tsonic.JSRuntime.console",
+  Math: "Tsonic.JSRuntime.Math",
+  JSON: "Tsonic.JSRuntime.JSON",
+  parseInt: "Tsonic.JSRuntime.Globals.parseInt",
+  parseFloat: "Tsonic.JSRuntime.Globals.parseFloat",
+  isNaN: "Tsonic.JSRuntime.Globals.isNaN",
+  isFinite: "Tsonic.JSRuntime.Globals.isFinite",
 };
 
 /**
@@ -47,7 +47,7 @@ export const emitIdentifier = (
   // Fallback for well-known runtime globals (when bindings not available)
   const fallback = RUNTIME_FALLBACKS[expr.name];
   if (fallback) {
-    const updatedContext = addUsing(context, "Tsonic.Runtime");
+    const updatedContext = addUsing(context, "Tsonic.JSRuntime");
     return [{ text: fallback }, updatedContext];
   }
 
