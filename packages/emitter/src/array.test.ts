@@ -1,6 +1,6 @@
 /**
  * Tests for array emission
- * Verifies Tsonic.Runtime.Array<T> usage and JavaScript semantics
+ * Verifies Tsonic.JSRuntime extension methods usage and JavaScript semantics
  */
 
 import { describe, it } from "mocha";
@@ -286,6 +286,6 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should use static helper for array access with double literal
-    expect(code).to.include("Tsonic.Runtime.Array.get(arr, 0.0)");
+    expect(code).to.include("Tsonic.JSRuntime.Array.get(arr, 0.0)");
   });
 });

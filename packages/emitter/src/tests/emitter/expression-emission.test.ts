@@ -184,8 +184,8 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "Math",
-                resolvedClrType: "Tsonic.Runtime.Math",
-                resolvedAssembly: "Tsonic.Runtime",
+                resolvedClrType: "Tsonic.JSRuntime.Math",
+                resolvedAssembly: "Tsonic.JSRuntime",
                 // No csharpName specified
               },
               property: "sqrt",
@@ -203,8 +203,8 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     // Should use full type name when no csharpName
-    expect(result).to.include("Tsonic.Runtime.Math.sqrt");
-    expect(result).to.include("using Tsonic.Runtime");
+    expect(result).to.include("Tsonic.JSRuntime.Math.sqrt");
+    expect(result).to.include("using Tsonic.JSRuntime");
   });
 
   it("should emit hierarchical member bindings correctly", () => {

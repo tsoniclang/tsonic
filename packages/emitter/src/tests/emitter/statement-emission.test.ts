@@ -138,7 +138,7 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("foreach (var item in items)");
-    expect(result).to.include("Tsonic.Runtime.console.log(item)");
-    expect(result).to.include("using Tsonic.Runtime");
+    expect(result).to.include("Tsonic.JSRuntime.console.log(item)");
+    expect(result).to.include("using Tsonic.JSRuntime");
   });
 });

@@ -25,7 +25,7 @@ export type EmitterOptions = {
   readonly entryPointPath?: string;
   /** External library paths (contain .metadata and .bindings directories) */
   readonly libraries?: readonly string[];
-  /** Runtime mode: "js" uses Tsonic.Runtime, "dotnet" uses pure .NET */
+  /** Runtime mode: "js" uses Tsonic.JSRuntime extensions, "dotnet" uses pure .NET */
   readonly runtime?: "js" | "dotnet";
 };
 

@@ -51,9 +51,9 @@ const needsIntCast = (
     "Math.sqrt",
     "Math.min",
     "Math.max",
-    "Tsonic.Runtime.Math.floor",
-    "Tsonic.Runtime.Math.ceil",
-    "Tsonic.Runtime.Math.round",
+    "Tsonic.JSRuntime.Math.floor",
+    "Tsonic.JSRuntime.Math.ceil",
+    "Tsonic.JSRuntime.Math.round",
   ];
 
   return mathMethodsReturningDouble.some(
@@ -78,9 +78,9 @@ export const emitCall = (
     const objectType = expr.callee.object.inferredType;
 
     // Rewrite based on type:
-    // - string → Tsonic.Runtime.String.method()
-    // - number → Tsonic.Runtime.Number.method()
-    // - Array<T> → Tsonic.Runtime.Array.method() (now uses native List<T>)
+    // - string → Tsonic.JSRuntime.String.method()
+    // - number → Tsonic.JSRuntime.Number.method()
+    // - Array<T> → Tsonic.JSRuntime.Array.method() (extension methods on List<T>)
     // - Other custom types → Keep as instance method
 
     const isStringType =
@@ -102,12 +102,12 @@ export const emitCall = (
         runtimeClass = "Array";
       }
 
-      // Rewrite: obj.method(args) → Tsonic.Runtime.{Class}.method(obj, args)
+      // Rewrite: obj.method(args) → Tsonic.JSRuntime.{Class}.method(obj, args)
       const [objectFrag, objContext] = emitExpression(
         expr.callee.object,
         context
       );
-      let currentContext = addUsing(objContext, "Tsonic.Runtime");
+      let currentContext = addUsing(objContext, "Tsonic.JSRuntime");
 
       const args: string[] = [objectFrag.text]; // Object becomes first argument
       for (let i = 0; i < expr.arguments.length; i++) {
@@ -134,7 +134,7 @@ export const emitCall = (
         }
       }
 
-      const text = `Tsonic.Runtime.${runtimeClass}.${methodName}(${args.join(", ")})`;
+      const text = `Tsonic.JSRuntime.${runtimeClass}.${methodName}(${args.join(", ")})`;
       return [{ text }, currentContext];
     }
   }
