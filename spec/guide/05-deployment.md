@@ -591,9 +591,15 @@ sudo journalctl -u myapp -f
 # See what's included in binary
 tsonic build main.ts --release --analyze
 
-# Output:
+# Output (mode: "dotnet" - smaller, no runtime):
+# Total size: 7.1 MB
+# - System.Net.Http: 3.2 MB
+# - Application code: 2.5 MB
+# - Other: 1.4 MB
+
+# Output (mode: "js" - includes Tsonic.JSRuntime):
 # Total size: 15.2 MB
-# - Tsonic.Runtime: 8.1 MB
+# - Tsonic.JSRuntime: 8.1 MB
 # - System.Net.Http: 3.2 MB
 # - Application code: 2.5 MB
 # - Other: 1.4 MB

@@ -29,17 +29,23 @@ Architecture docs are organized by **compilation phase**:
 | **07-phase-emitter.md**    | ~1,039 | IR → C# code generation, specialization (monomorphization)              |
 | **08-phase-backend.md**    | ~250   | .csproj generation, dotnet publish, NativeAOT compilation               |
 
-### Supporting Systems (09-13)
+### Runtime Packages (09a-09b)
+
+| File                         | Lines | Description                                                   |
+| ---------------------------- | ----- | ------------------------------------------------------------- |
+| **09a-tsonic-runtime.md**    | ~400  | Tsonic.Runtime package: Union types, structural typing (always required) |
+| **09b-tsonic-jsruntime.md**  | ~400  | Tsonic.JSRuntime package: JS semantics via extension methods (mode: "js" only) |
+
+### Supporting Systems (10-13)
 
 | File                        | Lines | Description                                                                    |
 | --------------------------- | ----- | ------------------------------------------------------------------------------ |
-| **09-phase-runtime.md**     | ~948  | Tsonic.Runtime package with static helpers (ArrayHelpers, StringHelpers, etc.) |
 | **10-cli-orchestration.md** | ~806  | CLI commands, configuration management, watch mode                             |
 | **11-diagnostics-flow.md**  | ~757  | Error reporting, diagnostic codes (TSN1xxx-TSN6xxx), user-facing messages      |
 | **12-call-graphs.md**       | ~801  | Function call graph construction, specialization tracking, dead code detection |
 | **13-renaming.md**          | ~652  | TypeScript → C# identifier transformation, reserved keyword handling           |
 
-**Total Documentation:** ~11,495 lines across 14 comprehensive architecture documents
+**Total Documentation:** ~11,000 lines across 15 comprehensive architecture documents
 
 Each phase doc follows the same structure:
 
@@ -66,7 +72,8 @@ Each phase doc follows the same structure:
 **Optional Deep Dives:**
 
 - **05-phase-ir.md** - IR data structures (critical for understanding the compiler)
-- **09-phase-runtime.md** - JavaScript semantics preservation
+- **09a-tsonic-runtime.md** - TypeScript language primitives
+- **09b-tsonic-jsruntime.md** - JavaScript semantics preservation
 - **12-call-graphs.md** - Advanced analysis techniques
 
 ### For Specific Tasks
@@ -80,7 +87,8 @@ Each phase doc follows the same structure:
 | **Optimizing code generation**  | 07-phase-emitter.md     | 12-call-graphs.md (dead code)                           |
 | **Adding CLI command**          | 10-cli-orchestration.md | 01-pipeline-flow.md                                     |
 | **Understanding generic types** | 05-phase-ir.md          | 07-phase-emitter.md (specialization), 12-call-graphs.md |
-| **Debugging runtime behavior**  | 09-phase-runtime.md     | 07-phase-emitter.md (how it's used)                     |
+| **Understanding union types**   | 09a-tsonic-runtime.md   | 05-phase-ir.md, 07-phase-emitter.md                     |
+| **Debugging JS runtime behavior** | 09b-tsonic-jsruntime.md | 07-phase-emitter.md (how it's used)                   |
 
 ### For Architecture Changes
 
@@ -165,12 +173,18 @@ These docs follow the **tsbindgen spec/architecture/** style:
                            ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Phase 7: Backend Compilation (08)         ┌────────────────┐│
-│ - .csproj file generation                 │ Tsonic.Runtime ││
-│ - dotnet restore (NuGet packages)         │ (09)           ││
-│ - dotnet publish with NativeAOT           │ - ArrayHelpers ││
-│                                            │ - StringHelpers││
-│                                            │ - MathHelpers  ││
-│                                            │ - Undefined    ││
+│ - .csproj file generation                 │ Runtime Pkgs   ││
+│ - dotnet restore (NuGet packages)         │ (09a, 09b)     ││
+│ - dotnet publish with NativeAOT           │ ┌──────────────┤│
+│                                            │ │Tsonic.Runtime││
+│ Mode: "dotnet" (default)                  │ │- Union<>     ││
+│   → Tsonic.Runtime only                   │ │- Structural  ││
+│                                            │ │- typeof      ││
+│ Mode: "js"                                 │ └──────────────┤│
+│   → Tsonic.Runtime + Tsonic.JSRuntime     │ │JSRuntime (js)││
+│                                            │ │- Array ext   ││
+│                                            │ │- String ext  ││
+│                                            │ │- Math/console││
 └────────────────────────────────────────────┴────────────────┘
                            │
                            ↓

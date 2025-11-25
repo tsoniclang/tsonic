@@ -24,14 +24,14 @@ Tsonic compiles TypeScript to C#, preserving **exact JavaScript semantics**. Thi
 
 ### Primitive Types
 
-| TypeScript  | C# Output           | Runtime Type                 | Semantics                          |
-| ----------- | ------------------- | ---------------------------- | ---------------------------------- |
-| `number`    | `double`            | `double`                     | JavaScript number (always float64) |
-| `string`    | `string`            | `string`                     | UTF-16 immutable string            |
-| `boolean`   | `bool`              | `bool`                       | true/false                         |
-| `null`      | `null`              | `object?`                    | Nullable reference                 |
-| `undefined` | `TSUndefined.Value` | `Tsonic.Runtime.TSUndefined` | Singleton value                    |
-| `void`      | `void`              | `void`                       | No return value                    |
+| TypeScript  | C# Output           | Notes                              |
+| ----------- | ------------------- | ---------------------------------- |
+| `number`    | `double`            | JavaScript number (always float64) |
+| `string`    | `string`            | UTF-16 immutable string            |
+| `boolean`   | `bool`              | true/false                         |
+| `null`      | `null`              | Nullable reference                 |
+| `undefined` | `TSUndefined.Value` | Singleton value                    |
+| `void`      | `void`              | No return value                    |
 
 ### Example
 
@@ -57,7 +57,7 @@ TSUndefined missing = TSUndefined.Value;
 
 ## Arrays
 
-TypeScript arrays compile to `Tsonic.Runtime.Array<T>` which preserves JavaScript semantics:
+TypeScript arrays compile to `List<T>`. In `mode: "js"`, array methods use `Tsonic.JSRuntime` extension methods to preserve JavaScript semantics. In `mode: "dotnet"` (default), they compile to BCL equivalents.
 
 ### Dynamic and Sparse
 
@@ -71,12 +71,19 @@ console.log(arr[5]); // undefined
 ```
 
 ```csharp
-// Generated C# (conceptual)
-var arr = new Tsonic.Runtime.Array<double>();
+// Generated C# (mode: "dotnet" - default)
+var arr = new List<double>();
+arr.Add(10);  // Note: Sparse arrays require mode: "js" for full JS semantics
+```
+
+```csharp
+// Generated C# (mode: "js" - for exact JS semantics)
+using Tsonic.JSRuntime;
+var arr = new List<double>();
 arr[0] = 10;
-arr[10] = 20;  // Creates sparse array
+arr[10] = 20;  // Creates sparse array with JS semantics
 Console.WriteLine(arr.length);  // 11
-Console.WriteLine(arr[5]);      // TSUndefined.Value
+Console.WriteLine(arr[5]);      // undefined
 ```
 
 ### Array Methods
@@ -107,7 +114,7 @@ const allPositive = numbers.every((n) => n > 0); // true
 const hasNegative = numbers.some((n) => n < 0); // false
 ```
 
-**Implementation**: These compile to C# extension methods in `Tsonic.Runtime.ArrayExtensions`
+**Implementation**: In `mode: "dotnet"` (default), these compile to BCL equivalents (e.g., `map` → `Select`, `filter` → `Where`). In `mode: "js"`, they compile to `Tsonic.JSRuntime` extension methods with exact JavaScript semantics.
 
 ---
 
@@ -704,10 +711,10 @@ See [Limitations](../reference/language/limitations.md) for complete list.
 ## Key Takeaways
 
 1. **Numbers are always `double`** - JavaScript has only one number type
-2. **Arrays preserve JS semantics** - Sparse, dynamic, with all methods
+2. **Arrays compile to `List<T>`** - With mode-dependent method handling
 3. **Generics use monomorphization** - Each usage becomes concrete type
 4. **Modules require `.ts` extensions** - For local imports only
-5. **Exact JavaScript behavior** - Via `Tsonic.Runtime` library
+5. **Mode controls built-in behavior** - `mode: "dotnet"` (default) uses BCL, `mode: "js"` uses `Tsonic.JSRuntime`
 
 ---
 

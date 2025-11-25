@@ -315,8 +315,8 @@ class BindingRegistry {
   "bindings": {
     "console": {
       "kind": "module",
-      "assembly": "Tsonic.Runtime",
-      "type": "Tsonic.Runtime.console"
+      "assembly": "System.Console",
+      "type": "System.Console"
     }
   }
 }

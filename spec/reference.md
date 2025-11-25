@@ -43,14 +43,14 @@ Using .NET libraries from Tsonic:
 - **[Support Types](dotnet/support-types.md)** - TSByRef, TSUnsafePointer, etc.
 - **[Common Patterns](dotnet/patterns.md)** - Best practices for .NET interop
 
-### [Tsonic.Runtime API](runtime/INDEX.md)
+### [Tsonic.JSRuntime API](runtime/INDEX.md)
 
-Runtime library for JavaScript semantics:
+Runtime library for JavaScript semantics (only used with `mode: "js"`):
 
-- **[Array](runtime/array.md)** - Tsonic.Runtime.Array<T> and methods
-- **[Object](runtime/object.md)** - Dynamic objects and property access
-- **[Console](runtime/console.md)** - Console logging methods
-- **[Promise](runtime/promise.md)** - Async operations
+- **[Array Extensions](runtime/array.md)** - JavaScript array methods on List<T>
+- **[String Extensions](runtime/string.md)** - JavaScript string methods
+- **[Math](runtime/math.md)** - JavaScript Math API
+- **[Console](runtime/console.md)** - JavaScript console API
 - **[Utilities](runtime/utilities.md)** - Helper functions and conversions
 
 ### [CLI Reference](cli/INDEX.md)

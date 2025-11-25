@@ -1351,7 +1351,8 @@ const assembleOutput = (
 - [01-pipeline-flow.md](01-pipeline-flow.md) - Phase connections
 - [05-phase-ir.md](05-phase-ir.md) - IR building (previous phase)
 - [08-phase-backend.md](08-phase-backend.md) - NativeAOT compilation (next phase)
-- [09-phase-runtime.md](09-phase-runtime.md) - Runtime APIs
+- [09a-tsonic-runtime.md](09a-tsonic-runtime.md) - TypeScript language primitives
+- [09b-tsonic-jsruntime.md](09b-tsonic-jsruntime.md) - JavaScript semantics
 
 ---
 

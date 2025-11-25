@@ -351,13 +351,13 @@ Each layer has clear input/output contracts and no knowledge of adjacent layers.
              │
              ▼
   ┌─────────────────────┐
-  │ Phase 8: Runtime    │  Runtime Support (separate package)
+  │ Phase 8: Runtime    │  Runtime Support (separate package, mode: "js" only)
   ├─────────────────────┤
-  │ • Array helpers     │  Package: Tsonic.Runtime (C#)
-  │ • String helpers    │  Location: (separate repo)
+  │ • Array extensions  │  Package: Tsonic.JSRuntime (C#)
+  │ • String extensions │  Location: (separate repo)
   │ • Math functions    │
   │ • console, JSON     │  Data: Runtime APIs
-  └─────────────────────┘        (compiled into binary)
+  └─────────────────────┘        (compiled into binary when mode: "js")
              │
              ▼
     Native Executable Binary
@@ -671,8 +671,8 @@ type IrIdentifierExpression = {
   readonly kind: "identifier";
   readonly name: string;
   readonly inferredType?: IrType;
-  readonly resolvedClrType?: string; // "Tsonic.Runtime.console"
-  readonly resolvedAssembly?: string; // "Tsonic.Runtime"
+  readonly resolvedClrType?: string; // "System.Console" or "Tsonic.JSRuntime.Console"
+  readonly resolvedAssembly?: string; // "System.Console" or "Tsonic.JSRuntime"
   readonly csharpName?: string; // Optional C# rename
 };
 
@@ -1030,11 +1030,13 @@ arr.push(4);
 arr.pop();
 const doubled = arr.map(x => x * 2);
 
-// C#:
+// C# (mode: "js"):
+using Tsonic.JSRuntime;
+
 var arr = new List<double> { 1.0, 2.0, 3.0 };
-Tsonic.Runtime.Array.push(arr, 4.0);
-Tsonic.Runtime.Array.pop(arr);
-var doubled = Tsonic.Runtime.Array.map(arr, x => x * 2.0);
+arr.push(4.0);  // Extension method
+arr.pop();
+var doubled = arr.map(x => x * 2.0);
 ```
 
 **Why Not Custom Array<T> Class?**
@@ -1244,12 +1246,21 @@ packages/backend/src/
 
 ### 14.2 Optional Dependencies
 
-**Tsonic.JSRuntime** (.NET package):
+**Tsonic.Runtime** (.NET NuGet package):
+
+- **Status**: REQUIRED (always)
+- **Purpose**: TypeScript language primitives (Union types, typeof operator, structural typing)
+- **Repository**: `tsoniclang/tsonic-runtime`
+- **Installation**: Automatically added to all generated .csproj files
+- **Size Impact**: ~100KB
+
+**Tsonic.JSRuntime** (.NET NuGet package):
 
 - **Status**: OPTIONAL (required only when `mode: "js"`)
-- **Purpose**: Provides JavaScript semantics via extension methods on .NET types
+- **Purpose**: JavaScript semantics via extension methods on .NET types (Array, String, Math, console)
+- **Repository**: `tsoniclang/js-runtime`
 - **Installation**: Automatically added to .csproj when `mode: "js"`
-- **Size Impact**: ~500KB additional to binary size
+- **Size Impact**: ~400KB additional to binary size
 
 **@types/dotnet** (npm package):
 
@@ -1277,7 +1288,8 @@ packages/backend/src/
 - [06-phase-analysis.md](06-phase-analysis.md) - Dependency analysis phase
 - [07-phase-emitter.md](07-phase-emitter.md) - C# emission phase
 - [08-phase-backend.md](08-phase-backend.md) - NativeAOT build phase
-- [09-phase-runtime.md](09-phase-runtime.md) - Runtime implementation
+- [09a-tsonic-runtime.md](09a-tsonic-runtime.md) - TypeScript language primitives package
+- [09b-tsonic-jsruntime.md](09b-tsonic-jsruntime.md) - JavaScript semantics package
 
 ---
 

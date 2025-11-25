@@ -232,7 +232,7 @@ const nativeAotError = createDiagnostic(
   "error",
   "NativeAOT compilation failed: ILCompiler exited with code 1",
   {
-    hint: "Check that Tsonic.Runtime package is available",
+    hint: "If using mode: 'js', check that Tsonic.JSRuntime package is available",
     file: undefined, // Backend error, no specific file
   }
 );
