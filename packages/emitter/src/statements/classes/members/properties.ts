@@ -35,14 +35,12 @@ export const emitPropertyMember = (
     parts.push("readonly");
   }
 
-  // Property type - prefer resolved CLR type, then explicit type, then fallback
+  // Property type - uses standard type emission pipeline
+  // Note: type is always set for class fields (from annotation or inference)
   if (member.type) {
     const [typeName, newContext] = emitType(member.type, currentContext);
     currentContext = newContext;
     parts.push(typeName);
-  } else if (member.resolvedClrType) {
-    // Use pre-resolved CLR type from type checker (for inferred types)
-    parts.push(member.resolvedClrType);
   } else {
     parts.push("object");
   }

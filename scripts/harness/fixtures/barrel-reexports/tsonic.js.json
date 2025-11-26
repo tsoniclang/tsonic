@@ -1,0 +1,11 @@
+{
+  "runtime": "js",
+  "rootNamespace": "BarrelReexports",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "barrel-reexports",
+  "dotnet": {
+    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
+  }
+}

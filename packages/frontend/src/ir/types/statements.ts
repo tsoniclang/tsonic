@@ -43,10 +43,9 @@ export type IrVariableDeclaration = {
 export type IrVariableDeclarator = {
   readonly kind: "variableDeclarator";
   readonly name: IrPattern;
+  /** Type from annotation or inferred. Always set for module-level exports (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
-  /** CLR type for emission (e.g., "double", "string"). Required for class/module-level fields. */
-  readonly resolvedClrType?: string;
 };
 
 export type IrFunctionDeclaration = {
@@ -98,6 +97,7 @@ export type IrMethodDeclaration = {
 export type IrPropertyDeclaration = {
   readonly kind: "propertyDeclaration";
   readonly name: string;
+  /** Type from annotation or inferred. Always set for class fields (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
   readonly isStatic: boolean;
@@ -107,8 +107,6 @@ export type IrPropertyDeclaration = {
   readonly isOverride?: boolean;
   /** True if this property shadows a non-virtual base property (future: emit 'new' keyword) */
   readonly isShadow?: boolean;
-  /** CLR type for emission (e.g., "double", "string"). Required for class fields. */
-  readonly resolvedClrType?: string;
 };
 
 export type IrConstructorDeclaration = {

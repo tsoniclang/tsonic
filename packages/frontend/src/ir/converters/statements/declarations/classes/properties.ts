@@ -5,13 +5,30 @@
 import * as ts from "typescript";
 import { IrClassMember } from "../../../../types.js";
 import { convertExpression } from "../../../../expression-converter.js";
-import { convertType, resolveClrType } from "../../../../type-converter.js";
+import { convertType, inferType } from "../../../../type-converter.js";
 import {
   hasStaticModifier,
   hasReadonlyModifier,
   getAccessibility,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+
+/**
+ * Get the IR type for a property declaration.
+ * Uses explicit annotation if present, otherwise infers from TypeChecker.
+ * C# requires explicit types for class fields (no 'var').
+ */
+const getPropertyType = (
+  node: ts.PropertyDeclaration,
+  checker: ts.TypeChecker
+) => {
+  // If there's an explicit type annotation, use it
+  if (node.type) {
+    return convertType(node.type, checker);
+  }
+  // Infer type from checker (always needed for class fields)
+  return inferType(node, checker);
+};
 
 /**
  * Convert property declaration to IR
@@ -33,7 +50,7 @@ export const convertProperty = (
   return {
     kind: "propertyDeclaration",
     name: memberName,
-    type: node.type ? convertType(node.type, checker) : undefined,
+    type: getPropertyType(node, checker),
     initializer: node.initializer
       ? convertExpression(node.initializer, checker)
       : undefined,
@@ -42,7 +59,5 @@ export const convertProperty = (
     accessibility: getAccessibility(node),
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,
-    // Resolve CLR type for class fields - C# doesn't allow 'var' for fields
-    resolvedClrType: resolveClrType(node, checker),
   };
 };

@@ -8,4 +8,4 @@ export {
   convertObjectType,
 } from "./converter.js";
 export { convertBindingName } from "./patterns.js";
-export { resolveClrType } from "./clr-type-resolver.js";
+export { inferType } from "./inference.js";

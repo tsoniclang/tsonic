@@ -102,12 +102,10 @@ export const buildModuleMap = (
   // Build the map
   for (const module of modules) {
     const canonicalPath = canonicalizeFilePath(module.filePath);
-    const typeExports = extractTypeExports(module);
     map.set(canonicalPath, {
       namespace: module.namespace,
       className: module.className,
       filePath: canonicalPath,
-      typeExports,
     });
   }
 
@@ -217,52 +215,4 @@ export const resolveImportPath = (
 
   // Canonicalize the result
   return canonicalizeFilePath(resolvedPath);
-};
-
-/**
- * Extract type export names from a module.
- * Types (interfaces, classes) are emitted at namespace level in C#,
- * while values (functions, variables) are inside the container class.
- */
-const extractTypeExports = (module: IrModule): ReadonlySet<string> => {
-  const typeNames = new Set<string>();
-
-  // Check exported declarations in exports array
-  for (const exp of module.exports) {
-    if (exp.kind === "declaration") {
-      const decl = exp.declaration;
-      if (
-        decl.kind === "classDeclaration" ||
-        decl.kind === "interfaceDeclaration"
-      ) {
-        typeNames.add(decl.name);
-      }
-    }
-    // Named exports referencing types in body are handled below
-    if (exp.kind === "named") {
-      // Check if the local name refers to a type in the module body
-      const localDecl = module.body.find(
-        (stmt) =>
-          (stmt.kind === "classDeclaration" ||
-            stmt.kind === "interfaceDeclaration") &&
-          stmt.name === exp.localName
-      );
-      if (localDecl) {
-        typeNames.add(exp.name);
-      }
-    }
-  }
-
-  // Check module body for exported class/interface declarations
-  for (const stmt of module.body) {
-    if (
-      (stmt.kind === "classDeclaration" ||
-        stmt.kind === "interfaceDeclaration") &&
-      stmt.isExported
-    ) {
-      typeNames.add(stmt.name);
-    }
-  }
-
-  return typeNames;
 };

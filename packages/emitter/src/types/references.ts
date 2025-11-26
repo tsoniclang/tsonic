@@ -11,15 +11,6 @@ import {
 } from "@tsonic/frontend/types/nested-types.js";
 
 /**
- * Extract namespace from a fully-qualified container name.
- * Example: "MultiFileTypes.models.user" → "MultiFileTypes.models"
- */
-const getNamespaceFromContainer = (fullyQualifiedContainer: string): string => {
-  const lastDot = fullyQualifiedContainer.lastIndexOf(".");
-  return lastDot >= 0 ? fullyQualifiedContainer.slice(0, lastDot) : "";
-};
-
-/**
  * Check if a type name indicates an unsupported support type.
  *
  * TODO: This is a basic check. Full implementation requires:
@@ -69,21 +60,20 @@ export const emitReferenceType = (
     return [resolvedClrType, context];
   }
 
-  // Check if this type is imported - resolve to fully-qualified name
+  // Check if this type is imported - use pre-computed CLR name directly
   const importBinding = context.importBindings?.get(name);
   if (importBinding) {
-    // Imported type - use fully-qualified reference
-    // For type imports (interfaces/classes), use namespace.TypeName since types
-    // are emitted at namespace level in C#.
-    // For value imports (functions/variables), use namespace.className.exportName
-    // since values are inside the container class.
-    const qualifiedName = importBinding.isType
-      ? getNamespaceFromContainer(importBinding.fullyQualifiedContainer) +
-        "." +
-        importBinding.exportName
-      : importBinding.exportName
-        ? `${importBinding.fullyQualifiedContainer}.${importBinding.exportName}`
-        : importBinding.fullyQualifiedContainer;
+    // Use clrName directly - all resolution was done when building the binding
+    // For type imports: clrName is the type's FQN (e.g., "MultiFileTypes.models.User")
+    // For value imports: clrName is container, member is the export name
+    // Note: Type references should only match type bindings; value bindings
+    // appearing here would be a bug (referencing a function as a type)
+    const qualifiedName =
+      importBinding.kind === "type"
+        ? importBinding.clrName
+        : importBinding.member
+          ? `${importBinding.clrName}.${importBinding.member}`
+          : importBinding.clrName;
 
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];

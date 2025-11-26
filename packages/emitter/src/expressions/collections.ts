@@ -210,7 +210,7 @@ export const emitObject = (
 
 /**
  * Resolve contextual type name, qualifying imports as needed.
- * Returns fully-qualified name for imported types, or the simple name for local types.
+ * Uses pre-computed clrName from ImportBinding - no string parsing.
  */
 const resolveContextualTypeName = (
   typeName: string | undefined,
@@ -220,32 +220,20 @@ const resolveContextualTypeName = (
     return undefined;
   }
 
-  // Check if this type is imported - resolve to fully-qualified name
+  // Check if this type is imported - use pre-computed clrName directly
   const importBinding = context.importBindings?.get(typeName);
   if (importBinding) {
-    // For type imports, use namespace.TypeName
+    // For type imports, clrName is the fully-qualified type name
     // For value imports (shouldn't happen for contextual types), use full path
-    if (importBinding.isType) {
-      const namespace = getNamespaceFromContainer(
-        importBinding.fullyQualifiedContainer
-      );
-      return `${namespace}.${importBinding.exportName}`;
+    if (importBinding.kind === "type") {
+      return importBinding.clrName;
     }
     // Fallback for non-type imports
-    return importBinding.exportName
-      ? `${importBinding.fullyQualifiedContainer}.${importBinding.exportName}`
-      : importBinding.fullyQualifiedContainer;
+    return importBinding.member
+      ? `${importBinding.clrName}.${importBinding.member}`
+      : importBinding.clrName;
   }
 
   // Local type - use simple name
   return typeName;
-};
-
-/**
- * Extract namespace from a fully-qualified container name.
- * Example: "MultiFileTypes.models.user" → "MultiFileTypes.models"
- */
-const getNamespaceFromContainer = (fullyQualifiedContainer: string): string => {
-  const lastDot = fullyQualifiedContainer.lastIndexOf(".");
-  return lastDot >= 0 ? fullyQualifiedContainer.slice(0, lastDot) : "";
 };

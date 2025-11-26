@@ -200,6 +200,12 @@ export const isAssignmentOperator = (
  * Get the contextual type name for an expression (for object literals).
  * Returns the simple type name if the contextual type is a named type
  * (interface, class), or undefined if it's an anonymous/primitive type.
+ *
+ * Note: This returns the simple name. The emitter is responsible for
+ * qualifying imported types using importBindings. For local types defined
+ * in the same file, the emitter uses the current module's namespace.
+ * TODO: Consider passing source file context to make this fully-qualified
+ *       in the frontend (requires architectural change to converters).
  */
 export const getContextualTypeName = (
   node: ts.Expression,

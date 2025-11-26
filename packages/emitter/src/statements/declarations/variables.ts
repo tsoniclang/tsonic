@@ -30,18 +30,17 @@ export const emitVariableDeclaration = (
     }
 
     // Determine the C# type
+    // Priority: 1) Explicit/inferred IR type, 2) Arrow function inference, 3) var
     if (
       decl.type &&
       !(decl.type.kind === "functionType" && !context.isStatic)
     ) {
       // Emit explicit type UNLESS it's a function type in a non-static context
       // (let C# infer lambda types in local contexts)
+      // Note: For module-level exports, type is always set (from annotation or inference)
       const [typeName, newContext] = emitType(decl.type, currentContext);
       currentContext = newContext;
       varDecl += `${typeName} `;
-    } else if (decl.resolvedClrType && context.isStatic) {
-      // Use pre-resolved CLR type for module-level fields (C# doesn't allow 'var' for class fields)
-      varDecl += `${decl.resolvedClrType} `;
     } else if (
       decl.initializer &&
       decl.initializer.kind === "arrowFunction" &&
