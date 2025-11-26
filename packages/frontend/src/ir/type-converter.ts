@@ -8,4 +8,5 @@ export {
   convertFunctionType,
   convertObjectType,
   convertBindingName,
+  resolveClrType,
 } from "./type-converter/index.js";

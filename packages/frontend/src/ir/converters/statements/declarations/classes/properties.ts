@@ -5,7 +5,7 @@
 import * as ts from "typescript";
 import { IrClassMember } from "../../../../types.js";
 import { convertExpression } from "../../../../expression-converter.js";
-import { convertType } from "../../../../type-converter.js";
+import { convertType, resolveClrType } from "../../../../type-converter.js";
 import {
   hasStaticModifier,
   hasReadonlyModifier,
@@ -42,5 +42,7 @@ export const convertProperty = (
     accessibility: getAccessibility(node),
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,
+    // Resolve CLR type for class fields - C# doesn't allow 'var' for fields
+    resolvedClrType: resolveClrType(node, checker),
   };
 };

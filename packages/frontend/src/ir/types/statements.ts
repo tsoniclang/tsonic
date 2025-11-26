@@ -45,6 +45,8 @@ export type IrVariableDeclarator = {
   readonly name: IrPattern;
   readonly type?: IrType;
   readonly initializer?: IrExpression;
+  /** CLR type for emission (e.g., "double", "string"). Required for class/module-level fields. */
+  readonly resolvedClrType?: string;
 };
 
 export type IrFunctionDeclaration = {
@@ -105,6 +107,8 @@ export type IrPropertyDeclaration = {
   readonly isOverride?: boolean;
   /** True if this property shadows a non-virtual base property (future: emit 'new' keyword) */
   readonly isShadow?: boolean;
+  /** CLR type for emission (e.g., "double", "string"). Required for class fields. */
+  readonly resolvedClrType?: string;
 };
 
 export type IrConstructorDeclaration = {

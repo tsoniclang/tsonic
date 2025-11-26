@@ -1,0 +1,1 @@
+- ModuleConstants.ts: should emit module-level constants with explicit CLR types

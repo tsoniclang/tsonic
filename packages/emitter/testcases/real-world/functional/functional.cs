@@ -7,7 +7,7 @@ namespace TestCases.realworld.functional
 {
     public class Some<T>
     {
-        public readonly object _tag = "Some";
+        public readonly string _tag = "Some";
 
         public Some(T value)
             {
@@ -16,7 +16,7 @@ namespace TestCases.realworld.functional
     }
     public class None
     {
-        public readonly object _tag = "None";
+        public readonly string _tag = "None";
     }
     public class Lazy<T>
     {

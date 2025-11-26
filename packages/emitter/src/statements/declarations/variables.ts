@@ -39,6 +39,9 @@ export const emitVariableDeclaration = (
       const [typeName, newContext] = emitType(decl.type, currentContext);
       currentContext = newContext;
       varDecl += `${typeName} `;
+    } else if (decl.resolvedClrType && context.isStatic) {
+      // Use pre-resolved CLR type for module-level fields (C# doesn't allow 'var' for class fields)
+      varDecl += `${decl.resolvedClrType} `;
     } else if (
       decl.initializer &&
       decl.initializer.kind === "arrowFunction" &&

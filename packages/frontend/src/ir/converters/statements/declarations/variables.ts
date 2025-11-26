@@ -5,7 +5,11 @@
 import * as ts from "typescript";
 import { IrVariableDeclaration } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
-import { convertType, convertBindingName } from "../../../type-converter.js";
+import {
+  convertType,
+  convertBindingName,
+  resolveClrType,
+} from "../../../type-converter.js";
 import { hasExportModifier } from "../helpers.js";
 
 /**
@@ -18,6 +22,7 @@ export const convertVariableStatement = (
   const isConst = !!(node.declarationList.flags & ts.NodeFlags.Const);
   const isLet = !!(node.declarationList.flags & ts.NodeFlags.Let);
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
+  const isExported = hasExportModifier(node);
 
   return {
     kind: "variableDeclaration",
@@ -29,7 +34,10 @@ export const convertVariableStatement = (
       initializer: decl.initializer
         ? convertExpression(decl.initializer, checker)
         : undefined,
+      // For module-level declarations (exported), resolve CLR type for emission
+      // C# doesn't allow 'var' for class-level fields
+      resolvedClrType: isExported ? resolveClrType(decl, checker) : undefined,
     })),
-    isExported: hasExportModifier(node),
+    isExported,
   };
 };
