@@ -1,10 +1,13 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.classes
+namespace TestCases.classes.basic
 {
     public class Person
     {
         public string name;
+
         public double age;
 
         public string greet()

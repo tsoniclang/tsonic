@@ -117,16 +117,20 @@ describe("Config", () => {
       expect(result.optimize).to.equal("speed");
     });
 
-    it("should default packages to empty array", () => {
+    it("should include runtime packages by default", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
       };
 
       const result = resolveConfig(config, {});
-      expect(result.packages).to.deep.equal([]);
+      // Default runtime is "js", so includes both Tsonic.Runtime and Tsonic.JSRuntime
+      expect(result.packages).to.deep.equal([
+        { name: "Tsonic.Runtime", version: "0.0.1" },
+        { name: "Tsonic.JSRuntime", version: "0.0.1" },
+      ]);
     });
 
-    it("should include packages from config", () => {
+    it("should include packages from config after runtime packages", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
         packages: [
@@ -136,7 +140,10 @@ describe("Config", () => {
       };
 
       const result = resolveConfig(config, {});
+      // Runtime packages come first, then user packages
       expect(result.packages).to.deep.equal([
+        { name: "Tsonic.Runtime", version: "0.0.1" },
+        { name: "Tsonic.JSRuntime", version: "0.0.1" },
         { name: "System.Text.Json", version: "8.0.0" },
         { name: "Newtonsoft.Json", version: "13.0.3" },
       ]);
@@ -316,6 +323,8 @@ describe("Config", () => {
       expect(result.dotnetVersion).to.equal("net9.0");
       expect(result.optimize).to.equal("speed");
       expect(result.packages).to.deep.equal([
+        { name: "Tsonic.Runtime", version: "0.0.1" },
+        { name: "Tsonic.JSRuntime", version: "0.0.1" },
         { name: "Package.Name", version: "1.0.0" },
       ]);
       expect(result.stripSymbols).to.equal(false);

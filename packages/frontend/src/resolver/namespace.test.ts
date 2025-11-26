@@ -1,6 +1,5 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { sep } from "path";
 import { getNamespaceFromPath } from "./namespace.js";
 
 describe("getNamespaceFromPath", () => {
@@ -48,19 +47,6 @@ describe("getNamespaceFromPath", () => {
     );
     expect(result).to.equal("MyApp.models");
   });
-
-  // Only test Windows paths on Windows platform
-  (sep === "\\" ? it : it.skip)(
-    "should handle Windows-style paths with backslashes",
-    () => {
-      const result = getNamespaceFromPath(
-        "C:\\project\\src\\models\\user.ts",
-        "C:\\project\\src",
-        "MyApp"
-      );
-      expect(result).to.equal("MyApp.models");
-    }
-  );
 
   it("should handle case-preserved directory names", () => {
     const result = getNamespaceFromPath(

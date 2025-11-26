@@ -1,0 +1,10 @@
+// Multi-file import test
+import { Console } from "System";
+import { add, multiply } from "./utils/Math.ts";
+
+export function main(): void {
+  const sum = add(5, 3);
+  const product = multiply(4, 7);
+  Console.WriteLine(`Sum: ${sum}`);
+  Console.WriteLine(`Product: ${product}`);
+}

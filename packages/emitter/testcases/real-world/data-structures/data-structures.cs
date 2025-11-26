@@ -1,30 +1,31 @@
-
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.realworld
+namespace TestCases.realworld.datastructures
 {
     public class Stack<T>
     {
-        private List<T> items = new List<object>();
+        private List<T> items = new List<T>();
 
         public void push(T item)
             {
-            Tsonic.Runtime.Array.push(this.items, item);
+            Tsonic.JSRuntime.Array.push(this.items, item);
             }
 
         public T? pop()
             {
-            return Tsonic.Runtime.Array.pop(this.items);
+            return Tsonic.JSRuntime.Array.pop(this.items);
             }
 
         public T? peek()
             {
-            return Tsonic.Runtime.Array.get(this.items, Tsonic.Runtime.Array.length(this.items) - 1.0);
+            return Tsonic.Runtime.Array.get(this.items, Tsonic.Runtime.Array.length(this.items) - 1);
             }
 
         public bool isEmpty()
             {
-            return Tsonic.Runtime.Array.length(this.items) == 0.0;
+            return Tsonic.Runtime.Array.length(this.items) == 0;
             }
 
         public double size()
@@ -34,31 +35,31 @@ namespace TestCases.realworld
 
         public void clear()
             {
-            this.items = new List<object>();
+            this.items = new List<T>();
             }
     }
     public class Queue<T>
     {
-        private List<T> items = new List<object>();
+        private List<T> items = new List<T>();
 
         public void enqueue(T item)
             {
-            Tsonic.Runtime.Array.push(this.items, item);
+            Tsonic.JSRuntime.Array.push(this.items, item);
             }
 
         public T? dequeue()
             {
-            return Tsonic.Runtime.Array.shift(this.items);
+            return Tsonic.JSRuntime.Array.shift(this.items);
             }
 
         public T? front()
             {
-            return Tsonic.Runtime.Array.get(this.items, 0.0);
+            return Tsonic.Runtime.Array.get(this.items, 0);
             }
 
         public bool isEmpty()
             {
-            return Tsonic.Runtime.Array.length(this.items) == 0.0;
+            return Tsonic.Runtime.Array.length(this.items) == 0;
             }
 
         public double size()
@@ -68,7 +69,7 @@ namespace TestCases.realworld
 
         public void clear()
             {
-            this.items = new List<object>();
+            this.items = new List<T>();
             }
     }
     public class LinkedListNode<T>
@@ -89,7 +90,7 @@ namespace TestCases.realworld
 
         private LinkedListNode<T>? tail = null;
 
-        private double length = 0.0;
+        private double length = 0;
 
         public void append(T value)
             {
@@ -101,7 +102,7 @@ namespace TestCases.realworld
                 }
             else
                 {
-                if (this.tail)
+                if (this.tail != null)
                     {
                     this.tail.next = node;
                     }
@@ -132,34 +133,34 @@ namespace TestCases.realworld
             var current = this.head;
             while (current != null)
                 {
-                Tsonic.Runtime.Array.push(result, current.value);
+                Tsonic.JSRuntime.Array.push(result, current.value);
                 current = current.next;
                 }
             return result;
             }
     }
 
-    public static class datastructures
-    {
-        public static void testDataStructures()
+            public static class datastructures
             {
-            var stack = new Stack<double>();
-            stack.push(1.0);
-            stack.push(2.0);
-            stack.push(3.0);
-            Tsonic.Runtime.console.log("Stack size:", stack.size());
-            Tsonic.Runtime.console.log("Stack pop:", stack.pop());
-            var queue = new Queue<string>();
-            queue.enqueue("first");
-            queue.enqueue("second");
-            queue.enqueue("third");
-            Tsonic.Runtime.console.log("Queue size:", queue.size());
-            Tsonic.Runtime.console.log("Queue dequeue:", queue.dequeue());
-            var list = new LinkedList<double>();
-            list.append(10.0);
-            list.append(20.0);
-            list.prepend(5.0);
-            Tsonic.Runtime.console.log("List as array:", list.toArray());
+                public static void testDataStructures()
+                    {
+                    var stack = new Stack<double>();
+                    stack.push(1);
+                    stack.push(2);
+                    stack.push(3);
+                    Tsonic.JSRuntime.console.log("Stack size:", stack.size());
+                    Tsonic.JSRuntime.console.log("Stack pop:", stack.pop());
+                    var queue = new Queue<string>();
+                    queue.enqueue("first");
+                    queue.enqueue("second");
+                    queue.enqueue("third");
+                    Tsonic.JSRuntime.console.log("Queue size:", queue.size());
+                    Tsonic.JSRuntime.console.log("Queue dequeue:", queue.dequeue());
+                    var list = new LinkedList<double>();
+                    list.append(10);
+                    list.append(20);
+                    list.prepend(5);
+                    Tsonic.JSRuntime.console.log("List as array:", list.toArray());
+                    }
             }
-    }
 }

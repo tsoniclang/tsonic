@@ -1,6 +1,8 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.classes
+namespace TestCases.classes.inheritance
 {
     public class Animal
     {
@@ -16,7 +18,6 @@ namespace TestCases.classes
             return "Some sound";
             }
     }
-
     public class Dog : Animal
     {
         public string breed;
@@ -32,7 +33,7 @@ namespace TestCases.classes
             }
     }
 
-    public static class Inheritance
-    {
-    }
+            public static class Inheritance
+            {
+            }
 }

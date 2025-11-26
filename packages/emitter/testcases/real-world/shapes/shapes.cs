@@ -1,8 +1,8 @@
-
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System.Collections.Generic;
 
-namespace TestCases.realworld
+namespace TestCases.realworld.shapes
 {
     public class Shape
     {
@@ -34,12 +34,12 @@ namespace TestCases.realworld
 
         public override double area()
             {
-            return Tsonic.Runtime.Math.PI * this.radius * this.radius;
+            return Tsonic.JSRuntime.Math.PI * this.radius * this.radius;
             }
 
         public override double perimeter()
             {
-            return 2.0 * Tsonic.Runtime.Math.PI * this.radius;
+            return 2 * Tsonic.JSRuntime.Math.PI * this.radius;
             }
     }
     public class Rectangle : Shape
@@ -61,7 +61,7 @@ namespace TestCases.realworld
 
         public override double perimeter()
             {
-            return 2.0 * this.width + this.height;
+            return 2 * this.width + this.height;
             }
 
         public bool isSquare()
@@ -87,7 +87,7 @@ namespace TestCases.realworld
 
         public override double area()
             {
-            return this.base * this.height / 2.0;
+            return this.base * this.height / 2;
             }
 
         public override double perimeter()
@@ -96,28 +96,28 @@ namespace TestCases.realworld
             }
     }
 
-    public static class shapes
-    {
-        public static double totalArea(List<Shape> shapes)
+            public static class shapes
             {
-            return Tsonic.Runtime.Array.reduce(shapes, (sum, shape) => sum + shape.area(), 0.0);
-            }
-
-        public static Shape? findLargestShape(List<Shape> shapes)
-            {
-            if (Tsonic.Runtime.Array.length(shapes) == 0.0)
-                {
-                return default;
-                }
-            var largest = Tsonic.Runtime.Array.get(shapes, 0.0);
-            foreach (var shape in shapes)
-                {
-                if (shape.area() > largest.area())
+                public static double totalArea(List<Shape> shapes)
                     {
-                    largest = shape;
+                    return Tsonic.JSRuntime.Array.reduce(shapes, (sum, shape) => sum + shape.area(), 0);
                     }
-                }
-            return largest;
+
+                public static Shape? findLargestShape(List<Shape> shapes)
+                    {
+                    if (Tsonic.Runtime.Array.length(shapes) == 0)
+                        {
+                        return default;
+                        }
+                    var largest = Tsonic.Runtime.Array.get(shapes, 0);
+                    foreach (var shape in shapes)
+                        {
+                        if (shape.area() > largest.area())
+                            {
+                            largest = shape;
+                            }
+                        }
+                    return largest;
+                    }
             }
-    }
 }

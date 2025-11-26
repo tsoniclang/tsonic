@@ -1,10 +1,13 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.classes
+namespace TestCases.classes.staticmembers
 {
     public class MathHelper
     {
         public static double PI = 3.14159;
+
         public static double E = 2.71828;
 
         public static double square(double x)

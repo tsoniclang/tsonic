@@ -1,7 +1,8 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System.Collections.Generic;
 
-namespace TestCases.classes
+namespace TestCases.classes.abstract
 {
     public class Shape
     {
@@ -14,7 +15,6 @@ namespace TestCases.classes
             return $"Area: {this.getArea()}, Perimeter: {this.getPerimeter()}";
             }
     }
-
     public class Rectangle : Shape
     {
         public double width;
@@ -34,10 +34,9 @@ namespace TestCases.classes
 
         public override double getPerimeter()
             {
-            return 2.0 * this.width + this.height;
+            return 2 * this.width + this.height;
             }
     }
-
     public class Circle : Shape
     {
         public double radius;
@@ -49,20 +48,20 @@ namespace TestCases.classes
 
         public override double getArea()
             {
-            return Tsonic.Runtime.Math.PI * this.radius * this.radius;
+            return Tsonic.JSRuntime.Math.PI * this.radius * this.radius;
             }
 
         public override double getPerimeter()
             {
-            return 2.0 * Tsonic.Runtime.Math.PI * this.radius;
+            return 2 * Tsonic.JSRuntime.Math.PI * this.radius;
             }
     }
 
-    public static class AbstractClasses
-    {
-        public static double calculateTotalArea(List<Shape> shapes)
+            public static class AbstractClasses
             {
-            return Tsonic.Runtime.Array.reduce(shapes, (total, shape) => total + shape.getArea(), 0.0);
+                public static double calculateTotalArea(List<Shape> shapes)
+                    {
+                    return Tsonic.JSRuntime.Array.reduce(shapes, (total, shape) => total + shape.getArea(), 0);
+                    }
             }
-    }
 }

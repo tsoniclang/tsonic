@@ -1,9 +1,9 @@
-
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System;
 using System.Collections.Generic;
 
-namespace TestCases.realworld
+namespace TestCases.realworld.advancedgenerics
 {
     public class Pair<T, U>
     {
@@ -31,7 +31,7 @@ namespace TestCases.realworld
     {
         public T value;
 
-        public List<TreeNode<T>> children = new List<object>();
+        public List<TreeNode<T>> children = new List<TreeNode<T>>();
 
         public TreeNode(T value)
             {
@@ -41,7 +41,7 @@ namespace TestCases.realworld
         public TreeNode<T> addChild(T value)
             {
             var child = new TreeNode(value);
-            Tsonic.Runtime.Array.push(this.children, child);
+            Tsonic.JSRuntime.Array.push(this.children, child);
             return child;
             }
 
@@ -59,7 +59,7 @@ namespace TestCases.realworld
             var mapped = new TreeNode(mapper(this.value));
             foreach (var child in this.children)
                 {
-                Tsonic.Runtime.Array.push(mapped.children, child.map(mapper));
+                Tsonic.JSRuntime.Array.push(mapped.children, child.map(mapper));
                 }
             return mapped;
             }
@@ -85,64 +85,64 @@ namespace TestCases.realworld
             }
     }
 
-    public static class advancedgenerics
-    {
-        // type Result = Union<dynamic, dynamic>
-
-        public static Result<T, E> ok<T, E>(T value)
+            public static class advancedgenerics
             {
-            return new { ok = true, value = value };
-            }
+                // type Result = Union<dynamic, dynamic>
 
-        public static Result<T, E> err<T, E>(E error)
-            {
-            return new { ok = false, error = error };
-            }
-
-        public static dynamic isOk<T, E>(Result<T, E> result)
-            {
-            return result.ok == true;
-            }
-
-        public static dynamic isErr<T, E>(Result<T, E> result)
-            {
-            return result.ok == false;
-            }
-
-        public static T? min<T>(List<T> items)
-            where T : Comparable<T>
-            {
-            if (Tsonic.Runtime.Array.length(items) == 0.0)
-                {
-                return default;
-                }
-            var result = Tsonic.Runtime.Array.get(items, 0.0);
-            for (var i = 1.0; i < Tsonic.Runtime.Array.length(items); i++)
-                {
-                if (Tsonic.Runtime.Array.get(items, i).compareTo(result) < 0.0)
+                public static Result<T, E> ok<T, E>(T value)
                     {
-                    result = Tsonic.Runtime.Array.get(items, i);
+                    return new { ok = true, value = value };
                     }
-                }
-            return result;
-            }
 
-        public static T? max<T>(List<T> items)
-            where T : Comparable<T>
-            {
-            if (Tsonic.Runtime.Array.length(items) == 0.0)
-                {
-                return default;
-                }
-            var result = Tsonic.Runtime.Array.get(items, 0.0);
-            for (var i = 1.0; i < Tsonic.Runtime.Array.length(items); i++)
-                {
-                if (Tsonic.Runtime.Array.get(items, i).compareTo(result) > 0.0)
+                public static Result<T, E> err<T, E>(E error)
                     {
-                    result = Tsonic.Runtime.Array.get(items, i);
+                    return new { ok = false, error = error };
                     }
-                }
-            return result;
+
+                public static dynamic isOk<T, E>(Result<T, E> result)
+                    {
+                    return result.ok == true;
+                    }
+
+                public static dynamic isErr<T, E>(Result<T, E> result)
+                    {
+                    return result.ok == false;
+                    }
+
+                public static T? min<T>(List<T> items)
+                    where T : Comparable<T>
+                    {
+                    if (Tsonic.Runtime.Array.length(items) == 0)
+                        {
+                        return default;
+                        }
+                    var result = Tsonic.Runtime.Array.get(items, 0);
+                    for (var i = 1; i < Tsonic.Runtime.Array.length(items); i++)
+                        {
+                        if (Tsonic.Runtime.Array.get(items, i).compareTo(result) < 0)
+                            {
+                            result = Tsonic.Runtime.Array.get(items, i);
+                            }
+                        }
+                    return result;
+                    }
+
+                public static T? max<T>(List<T> items)
+                    where T : Comparable<T>
+                    {
+                    if (Tsonic.Runtime.Array.length(items) == 0)
+                        {
+                        return default;
+                        }
+                    var result = Tsonic.Runtime.Array.get(items, 0);
+                    for (var i = 1; i < Tsonic.Runtime.Array.length(items); i++)
+                        {
+                        if (Tsonic.Runtime.Array.get(items, i).compareTo(result) > 0)
+                            {
+                            result = Tsonic.Runtime.Array.get(items, i);
+                            }
+                        }
+                    return result;
+                    }
             }
-    }
 }

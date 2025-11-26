@@ -1,11 +1,15 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.classes
+namespace TestCases.classes.constructor
 {
     public class User
     {
         public string name;
+
         public string email;
+
         private string password;
 
         public User(string name, string email, string password)

@@ -1,0 +1,168 @@
+/**
+ * Module map for resolving cross-file imports
+ */
+
+import { IrModule, Diagnostic } from "@tsonic/frontend";
+
+/**
+ * Module identity for import resolution
+ */
+export type ModuleIdentity = {
+  /** Full namespace (e.g., "MultiFileCheck.utils") */
+  readonly namespace: string;
+  /** Container class name (e.g., "Math") */
+  readonly className: string;
+  /** Canonical file path (normalized, relative) */
+  readonly filePath: string;
+};
+
+/**
+ * Map from canonical file paths to module identities
+ */
+export type ModuleMap = ReadonlyMap<string, ModuleIdentity>;
+
+/**
+ * Normalize a file path for use as module map key
+ * - Convert backslashes to forward slashes
+ * - Remove .ts extension if present
+ * - Normalize . and .. segments
+ */
+export const canonicalizeFilePath = (filePath: string): string => {
+  // Normalize slashes
+  let normalized = filePath.replace(/\\/g, "/");
+
+  // Remove .ts extension
+  if (normalized.endsWith(".ts")) {
+    normalized = normalized.slice(0, -3);
+  }
+
+  // Split into segments and resolve . and ..
+  const segments: string[] = [];
+  for (const segment of normalized.split("/")) {
+    if (segment === "" || segment === ".") {
+      continue; // Skip empty and current directory
+    } else if (segment === "..") {
+      segments.pop(); // Go up one directory
+    } else {
+      segments.push(segment);
+    }
+  }
+
+  return segments.join("/");
+};
+
+/**
+ * Result of building module map
+ */
+export type ModuleMapResult =
+  | { readonly ok: true; readonly value: ModuleMap }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+/**
+ * Build module map from IR modules.
+ * Returns an error if any two files in the same namespace have the same
+ * normalized class name (e.g., api-client.ts and apiclient.ts both map to "apiclient").
+ */
+export const buildModuleMap = (
+  modules: readonly IrModule[]
+): ModuleMapResult => {
+  const map = new Map<string, ModuleIdentity>();
+  const errors: Diagnostic[] = [];
+
+  // Group modules by namespace to detect class name collisions
+  const byNamespace = new Map<string, IrModule[]>();
+  for (const module of modules) {
+    const existing = byNamespace.get(module.namespace) ?? [];
+    byNamespace.set(module.namespace, [...existing, module]);
+  }
+
+  // Check for collisions within each namespace
+  for (const [namespace, nsModules] of byNamespace) {
+    const byClassName = new Map<string, IrModule[]>();
+    for (const module of nsModules) {
+      const existing = byClassName.get(module.className) ?? [];
+      byClassName.set(module.className, [...existing, module]);
+    }
+
+    // Report collisions
+    for (const [className, colliding] of byClassName) {
+      if (colliding.length > 1) {
+        const fileNames = colliding
+          .map((m) => `'${m.filePath.split("/").pop()}'`)
+          .join(" and ");
+        errors.push({
+          code: "TSN9001",
+          message: `File name collision after normalization: ${fileNames} both map to class '${className}' in namespace '${namespace}'. Rename one file.`,
+          severity: "error",
+        });
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  // Build the map
+  for (const module of modules) {
+    const canonicalPath = canonicalizeFilePath(module.filePath);
+    map.set(canonicalPath, {
+      namespace: module.namespace,
+      className: module.className,
+      filePath: canonicalPath,
+    });
+  }
+
+  return { ok: true, value: map };
+};
+
+/**
+ * Resolve a relative import path to a canonical file path
+ */
+export const resolveImportPath = (
+  currentFilePath: string,
+  importSource: string
+): string => {
+  // Normalize current file path
+  const currentCanonical = canonicalizeFilePath(currentFilePath);
+
+  // Get directory of current file
+  const lastSlash = currentCanonical.lastIndexOf("/");
+  const currentDir = lastSlash >= 0 ? currentCanonical.slice(0, lastSlash) : "";
+
+  // Normalize import source
+  let source = importSource.replace(/\\/g, "/");
+
+  // Remove .ts extension if present
+  if (source.endsWith(".ts")) {
+    source = source.slice(0, -3);
+  }
+
+  // Resolve relative path
+  let resolvedPath: string;
+  if (source.startsWith("./")) {
+    // Same directory or subdirectory
+    resolvedPath = currentDir
+      ? `${currentDir}/${source.slice(2)}`
+      : source.slice(2);
+  } else if (source.startsWith("../")) {
+    // Parent directory
+    const parts = currentDir.split("/");
+    let remaining = source;
+    while (remaining.startsWith("../")) {
+      parts.pop();
+      remaining = remaining.slice(3);
+    }
+    resolvedPath =
+      parts.length > 0 ? `${parts.join("/")}/${remaining}` : remaining;
+  } else if (source.startsWith("/")) {
+    // Absolute path (remove leading slash)
+    resolvedPath = source.slice(1);
+  } else {
+    // No ./ or ../, treat as same directory
+    resolvedPath = currentDir ? `${currentDir}/${source}` : source;
+  }
+
+  // Canonicalize the result
+  return canonicalizeFilePath(resolvedPath);
+};

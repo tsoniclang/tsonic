@@ -44,7 +44,9 @@ describe("Import Handling", () => {
     expect(result).to.include("using System.Text.Json");
   });
 
-  it("should handle local imports", () => {
+  it("should NOT emit using directives for local imports", () => {
+    // Local module imports are always emitted as fully-qualified references,
+    // so we don't need using directives for them
     const module: IrModule = {
       kind: "module",
       filePath: "/src/services/api.ts",
@@ -73,7 +75,9 @@ describe("Import Handling", () => {
 
     const result = emitModule(module, { rootNamespace: "MyApp" });
 
-    expect(result).to.include("using MyApp.services");
-    expect(result).to.include("using MyApp.models");
+    // Should NOT include using directives for local modules
+    // (identifiers from local imports are emitted fully-qualified)
+    expect(result).to.not.include("using MyApp.services;");
+    expect(result).to.not.include("using MyApp.models;");
   });
 });

@@ -160,12 +160,22 @@ export const emitCommand = (
 
     // Emit C# code
     const absoluteEntryPoint = entryPoint ? resolve(entryPoint) : undefined;
-    const csFiles = emitCSharpFiles(irResult.value, {
+    const emitResult = emitCSharpFiles(irResult.value, {
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: config.libraries,
       runtime: config.runtime,
     });
+
+    if (!emitResult.ok) {
+      // Handle file name collision errors
+      for (const error of emitResult.errors) {
+        console.error(`error ${error.code}: ${error.message}`);
+      }
+      process.exit(1);
+    }
+
+    const csFiles = emitResult.files;
 
     // Create output directory
     const outputDir = join(process.cwd(), outputDirectory);

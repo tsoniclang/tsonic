@@ -1,17 +1,19 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.functions
+namespace TestCases.functions.defaultparams
 {
-    public static class DefaultParams
-    {
-        public static string greet(string name, string greeting = "Hello")
-            {
-            return $"{greeting} {name}";
-            }
+        public static class DefaultParams
+        {
+            public static string greet(string name, string greeting = "Hello")
+                {
+                return $"{greeting} {name}";
+                }
 
-        public static double multiply(double a, double b = 2.0)
-            {
-            return a * b;
-            }
-    }
+            public static double multiply(double a, double b = 2)
+                {
+                return a * b;
+                }
+        }
 }

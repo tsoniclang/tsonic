@@ -47,7 +47,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include('"hello"');
-    expect(result).to.include("42.0");
+    expect(result).to.include("42"); // C# handles implicit conversion
     expect(result).to.include("true");
   });
 
@@ -86,7 +86,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("new List<");
-    expect(result).to.include("1.0, 2.0, 3.0");
+    expect(result).to.include("1, 2, 3"); // C# handles implicit conversion
     expect(result).to.include("using System.Collections.Generic");
   });
 

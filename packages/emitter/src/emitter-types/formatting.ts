@@ -13,7 +13,7 @@ export const getIndent = (context: EmitterContext): string => {
 };
 
 /**
- * Format a list of using statements
+ * Format a list of using statements (BCL/runtime only, not local modules)
  */
 export const formatUsings = (usings: ReadonlySet<string>): string => {
   const sorted = Array.from(usings).sort((a, b) => {

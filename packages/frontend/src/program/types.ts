@@ -12,6 +12,8 @@ export type CompilerOptions = {
   readonly strict?: boolean;
   readonly typeRoots?: readonly string[];
   readonly verbose?: boolean;
+  /** Use TypeScript standard lib (Array, Promise, etc.) instead of noLib mode */
+  readonly useStandardLib?: boolean;
 };
 
 export type TsonicProgram = {

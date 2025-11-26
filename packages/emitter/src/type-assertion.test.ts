@@ -79,8 +79,8 @@ describe("Type Assertion Emission", () => {
 
     const code = emitModule(module);
 
-    // Should emit clean C# without type assertions
-    expect(code).to.include("return 42.0");
+    // Should emit clean C# without type assertions - C# handles implicit conversion
+    expect(code).to.include("return 42");
     // Note: "as" might appear in "class" or "namespace" - check for actual cast syntax
     expect(code).not.to.match(/\sas\s/);
   });
