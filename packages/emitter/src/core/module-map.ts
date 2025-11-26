@@ -22,6 +22,23 @@ export type ModuleIdentity = {
 export type ModuleMap = ReadonlyMap<string, ModuleIdentity>;
 
 /**
+ * Export source: where an export actually comes from
+ * Used to resolve re-exports to their original source
+ */
+export type ExportSource = {
+  /** Canonical file path of the actual source */
+  readonly sourceFile: string;
+  /** Name of the export in the source file */
+  readonly sourceName: string;
+};
+
+/**
+ * Map from (moduleFilePath, exportName) to actual source
+ * Key format: "moduleFilePath:exportName"
+ */
+export type ExportMap = ReadonlyMap<string, ExportSource>;
+
+/**
  * Normalize a file path for use as module map key
  * - Convert backslashes to forward slashes
  * - Remove .ts extension if present
@@ -55,7 +72,11 @@ export const canonicalizeFilePath = (filePath: string): string => {
  * Result of building module map
  */
 export type ModuleMapResult =
-  | { readonly ok: true; readonly value: ModuleMap }
+  | {
+      readonly ok: true;
+      readonly value: ModuleMap;
+      readonly exportMap: ExportMap;
+    }
   | { readonly ok: false; readonly errors: readonly Diagnostic[] };
 
 /**
@@ -113,7 +134,61 @@ export const buildModuleMap = (
     });
   }
 
-  return { ok: true, value: map };
+  // Build the export map
+  const exportMap = buildExportMap(modules);
+
+  return { ok: true, value: map, exportMap };
+};
+
+/**
+ * Build export map from IR modules.
+ * Maps (modulePath, exportName) -> actual source for re-exports.
+ */
+const buildExportMap = (modules: readonly IrModule[]): ExportMap => {
+  const exportMap = new Map<string, ExportSource>();
+
+  // First pass: collect all re-exports
+  for (const module of modules) {
+    const modulePath = canonicalizeFilePath(module.filePath);
+
+    for (const exp of module.exports) {
+      if (exp.kind === "reexport") {
+        // Resolve the source module path
+        const sourcePath = resolveImportPath(module.filePath, exp.fromModule);
+        const key = `${modulePath}:${exp.name}`;
+        exportMap.set(key, {
+          sourceFile: sourcePath,
+          sourceName: exp.originalName,
+        });
+      }
+    }
+  }
+
+  // Second pass: resolve transitive re-exports
+  // Keep resolving until no changes (handles chains like A re-exports from B re-exports from C)
+  const resolveTransitive = (): boolean => {
+    let changed = false;
+
+    for (const [key, source] of exportMap) {
+      const transitiveKey = `${source.sourceFile}:${source.sourceName}`;
+      const transitiveSource = exportMap.get(transitiveKey);
+
+      if (transitiveSource) {
+        // This is a transitive re-export - update to point to the actual source
+        exportMap.set(key, transitiveSource);
+        changed = true;
+      }
+    }
+
+    return changed;
+  };
+
+  // Resolve transitive re-exports (max 10 iterations to prevent infinite loops)
+  for (let i = 0; i < 10 && resolveTransitive(); i++) {
+    // Keep resolving
+  }
+
+  return exportMap;
 };
 
 /**

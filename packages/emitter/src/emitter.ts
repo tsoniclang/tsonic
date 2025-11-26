@@ -41,6 +41,7 @@ export const emitCSharpFiles = (
   }
 
   const moduleMap = moduleMapResult.value;
+  const exportMap = moduleMapResult.exportMap;
   const results = new Map<string, string>();
 
   // Find common root directory for all modules
@@ -61,6 +62,7 @@ export const emitCSharpFiles = (
       ...options,
       isEntryPoint,
       moduleMap, // Pass module map to each module emission
+      exportMap, // Pass export map for re-export resolution
     };
     const code = emitModule(module, moduleOptions);
     results.set(outputPath, code);

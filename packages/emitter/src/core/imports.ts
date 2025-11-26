@@ -37,17 +37,36 @@ export const processImports = (
       // Local import - build ImportBindings with fully-qualified containers
       // NO using directive for local modules
       const moduleMap = ctx.options.moduleMap;
+      const exportMap = ctx.options.exportMap;
       if (moduleMap) {
         const targetPath = resolveImportPath(module.filePath, imp.source);
-        const targetModule = moduleMap.get(targetPath);
 
-        if (targetModule) {
-          // Build fully-qualified container reference
-          const fullyQualifiedContainer = `${targetModule.namespace}.${targetModule.className}`;
+        // Process each import specifier - may need to resolve re-exports
+        for (const spec of imp.specifiers) {
+          const exportName =
+            spec.kind === "named"
+              ? spec.name
+              : spec.kind === "default"
+                ? ""
+                : "";
 
-          // Process each import specifier
-          for (const spec of imp.specifiers) {
-            const binding = createImportBinding(spec, fullyQualifiedContainer);
+          // Check if this is a re-export - look up in export map
+          const reexportKey = `${targetPath}:${exportName}`;
+          const reexportSource = exportMap?.get(reexportKey);
+
+          // Determine the actual source module
+          const actualSourcePath = reexportSource?.sourceFile ?? targetPath;
+          const actualExportName = reexportSource?.sourceName ?? exportName;
+          const targetModule = moduleMap.get(actualSourcePath);
+
+          if (targetModule) {
+            // Build fully-qualified container reference to actual source
+            const fullyQualifiedContainer = `${targetModule.namespace}.${targetModule.className}`;
+            const binding = createImportBindingWithName(
+              spec,
+              fullyQualifiedContainer,
+              actualExportName
+            );
             if (binding) {
               importBindings.set(binding.localName, binding.importBinding);
             }
@@ -70,14 +89,15 @@ export const processImports = (
 };
 
 /**
- * Create import binding for a single import specifier.
- * Returns the local name and fully-qualified binding.
+ * Create import binding with explicit export name.
+ * Used for re-exports where the resolved name may differ from spec.name.
  */
-const createImportBinding = (
+const createImportBindingWithName = (
   spec: IrImportSpecifier,
-  fullyQualifiedContainer: string
+  fullyQualifiedContainer: string,
+  resolvedExportName: string
 ): { localName: string; importBinding: ImportBinding } | null => {
-  // Determine local name and export name based on specifier kind
+  // Determine local name based on specifier kind
   const localName = spec.localName;
 
   if (spec.kind === "named") {
@@ -85,7 +105,7 @@ const createImportBinding = (
       localName,
       importBinding: {
         fullyQualifiedContainer,
-        exportName: spec.name, // Original exported name
+        exportName: resolvedExportName, // Use resolved name (may differ for re-exports)
       },
     };
   }

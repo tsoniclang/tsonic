@@ -1,0 +1,11 @@
+{
+  "runtime": "js",
+  "rootNamespace": "MultiFileImports",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "multi-file-imports",
+  "dotnet": {
+    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
+  }
+}

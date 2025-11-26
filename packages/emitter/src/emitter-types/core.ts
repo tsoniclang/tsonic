@@ -20,6 +20,23 @@ export type ModuleIdentity = {
 export type ModuleMap = ReadonlyMap<string, ModuleIdentity>;
 
 /**
+ * Export source: where an export actually comes from
+ * Used to resolve re-exports to their original source
+ */
+export type ExportSource = {
+  /** Canonical file path of the actual source */
+  readonly sourceFile: string;
+  /** Name of the export in the source file */
+  readonly sourceName: string;
+};
+
+/**
+ * Map from (moduleFilePath, exportName) to actual source
+ * Key format: "moduleFilePath:exportName"
+ */
+export type ExportMap = ReadonlyMap<string, ExportSource>;
+
+/**
  * Options for C# code generation
  */
 export type EmitterOptions = {
@@ -43,6 +60,8 @@ export type EmitterOptions = {
   readonly runtime?: "js" | "dotnet";
   /** Module map for resolving cross-file imports (populated during batch emission) */
   readonly moduleMap?: ModuleMap;
+  /** Export map for resolving re-exports to actual source (populated during batch emission) */
+  readonly exportMap?: ExportMap;
 };
 
 /**

@@ -15,6 +15,8 @@ export type {
   ImportBinding,
   ModuleIdentity,
   ModuleMap,
+  ExportSource,
+  ExportMap,
 } from "./emitter-types/index.js";
 export {
   createContext,

@@ -10,6 +10,8 @@ export type {
   ImportBinding,
   ModuleIdentity,
   ModuleMap,
+  ExportSource,
+  ExportMap,
 } from "./core.js";
 export type {
   CSharpAccessModifier,

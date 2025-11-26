@@ -20,13 +20,28 @@ export const extractExports = (
   const visitor = (node: ts.Node): void => {
     if (ts.isExportDeclaration(node)) {
       if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        node.exportClause.elements.forEach((spec) => {
-          exports.push({
-            kind: "named",
-            name: spec.name.text,
-            localName: (spec.propertyName ?? spec.name).text,
+        // Check if this is a re-export (has moduleSpecifier)
+        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+          // Re-export: export { x } from "./other.ts"
+          const fromModule = node.moduleSpecifier.text;
+          node.exportClause.elements.forEach((spec) => {
+            exports.push({
+              kind: "reexport",
+              name: spec.name.text, // Exported name
+              originalName: (spec.propertyName ?? spec.name).text, // Name in source module
+              fromModule,
+            });
           });
-        });
+        } else {
+          // Regular named export: export { x }
+          node.exportClause.elements.forEach((spec) => {
+            exports.push({
+              kind: "named",
+              name: spec.name.text,
+              localName: (spec.propertyName ?? spec.name).text,
+            });
+          });
+        }
       }
     } else if (ts.isExportAssignment(node)) {
       exports.push({

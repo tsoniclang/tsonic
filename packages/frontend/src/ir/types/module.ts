@@ -46,4 +46,10 @@ export type IrExport =
       readonly localName: string;
     }
   | { readonly kind: "default"; readonly expression: IrExpression }
-  | { readonly kind: "declaration"; readonly declaration: IrStatement };
+  | { readonly kind: "declaration"; readonly declaration: IrStatement }
+  | {
+      readonly kind: "reexport";
+      readonly name: string; // Exported name
+      readonly originalName: string; // Name in source module (may differ if aliased)
+      readonly fromModule: string; // Source module path (e.g., "./math.ts")
+    };
