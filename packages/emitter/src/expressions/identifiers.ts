@@ -32,6 +32,22 @@ export const emitIdentifier = (
     return [{ text: "default" }, context];
   }
 
+  // Check if this identifier is from an import
+  if (context.importBindings) {
+    const binding = context.importBindings.get(expr.name);
+    if (binding) {
+      // Imported identifier - always use fully-qualified reference
+      if (binding.exportName === "") {
+        // Namespace or default import - just use the fully-qualified container
+        return [{ text: binding.fullyQualifiedContainer }, context];
+      } else {
+        // Named import - fully qualified: Container.exportName
+        const qualified = `${binding.fullyQualifiedContainer}.${binding.exportName}`;
+        return [{ text: qualified }, context];
+      }
+    }
+  }
+
   // Use custom C# name from binding if specified
   if (expr.csharpName && expr.resolvedAssembly) {
     const updatedContext = addUsing(context, expr.resolvedAssembly);

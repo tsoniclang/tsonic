@@ -47,6 +47,28 @@ export const emitTypeParameters = (
 };
 
 /**
+ * Check if a type is a ref/out/in wrapper type and return the inner type
+ */
+const unwrapParameterModifierType = (type: IrType): IrType | null => {
+  if (type.kind !== "referenceType") {
+    return null;
+  }
+
+  const name = type.name;
+  // Check for wrapper types: out<T>, ref<T>, In<T>
+  if (
+    (name === "out" || name === "ref" || name === "In") &&
+    type.typeArguments &&
+    type.typeArguments.length === 1
+  ) {
+    const innerType = type.typeArguments[0];
+    return innerType ?? null;
+  }
+
+  return null;
+};
+
+/**
  * Emit a parameter type with optional and default value handling
  */
 export const emitParameterType = (
@@ -55,7 +77,12 @@ export const emitParameterType = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const typeNode = type ?? { kind: "anyType" as const };
-  const [baseType, newContext] = emitType(typeNode, context);
+
+  // Unwrap ref/out/in wrapper types - the modifier is handled separately
+  const unwrapped = unwrapParameterModifierType(typeNode);
+  const actualType = unwrapped ?? typeNode;
+
+  const [baseType, newContext] = emitType(actualType, context);
 
   // For optional parameters, add ? suffix for nullable types
   // This includes both value types (double?, int?) and reference types (string?)

@@ -12,6 +12,11 @@ export type {
   CSharpClassModifier,
   CSharpMethodModifier,
   CSharpUsing,
+  ImportBinding,
+  ModuleIdentity,
+  ModuleMap,
+  ExportSource,
+  ExportMap,
 } from "./emitter-types/index.js";
 export {
   createContext,

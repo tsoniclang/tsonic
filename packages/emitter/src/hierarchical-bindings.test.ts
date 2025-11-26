@@ -11,7 +11,7 @@ import {
   DotnetMetadataRegistry,
   BindingRegistry,
 } from "@tsonic/frontend";
-import { emitModule } from "../emitter.js";
+import { emitModule } from "./emitter.js";
 
 describe("Hierarchical Bindings - Full Pipeline", () => {
   it("should compile TypeScript with hierarchical bindings to correct C#", () => {

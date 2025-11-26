@@ -22,10 +22,12 @@ export type IrImport = {
   readonly isLocal: boolean;
   readonly isDotNet: boolean;
   readonly specifiers: readonly IrImportSpecifier[];
-  readonly resolvedNamespace?: string; // For .NET imports
+  readonly resolvedNamespace?: string; // For .NET imports or local imports (e.g., "MultiFileCheck.utils")
   // For module bindings (Node.js APIs mapped to CLR types)
   readonly resolvedClrType?: string; // e.g., "Tsonic.NodeApi.fs"
   readonly resolvedAssembly?: string; // e.g., "Tsonic.NodeApi"
+  // For local imports: the target module's container class name
+  readonly targetContainerName?: string; // e.g., "Math" for ./utils/Math.ts
 };
 
 export type IrImportSpecifier =
@@ -44,4 +46,10 @@ export type IrExport =
       readonly localName: string;
     }
   | { readonly kind: "default"; readonly expression: IrExpression }
-  | { readonly kind: "declaration"; readonly declaration: IrStatement };
+  | { readonly kind: "declaration"; readonly declaration: IrStatement }
+  | {
+      readonly kind: "reexport";
+      readonly name: string; // Exported name
+      readonly originalName: string; // Name in source module (may differ if aliased)
+      readonly fromModule: string; // Source module path (e.g., "./math.ts")
+    };

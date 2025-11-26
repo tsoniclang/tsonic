@@ -1,7 +1,8 @@
-
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.realworld
+namespace TestCases.realworld.calculator
 {
     public class Calculator
     {
@@ -22,7 +23,7 @@ namespace TestCases.realworld
 
         public double divide(double a, double b)
             {
-            if (b == 0.0)
+            if (b == 0)
                 {
                 throw new Error("Division by zero");
                 }
@@ -30,15 +31,15 @@ namespace TestCases.realworld
             }
     }
 
-    public static class calculator
-    {
-        public static void runCalculatorTests()
+            public static class calculator
             {
-            var calc = new Calculator();
-            Tsonic.Runtime.console.log("5 + 3 =", calc.add(5.0, 3.0));
-            Tsonic.Runtime.console.log("10 - 4 =", calc.subtract(10.0, 4.0));
-            Tsonic.Runtime.console.log("6 * 7 =", calc.multiply(6.0, 7.0));
-            Tsonic.Runtime.console.log("20 / 5 =", calc.divide(20.0, 5.0));
+                public static void runCalculatorTests()
+                    {
+                    var calc = new Calculator();
+                    Tsonic.JSRuntime.console.log("5 + 3 =", calc.add(5, 3));
+                    Tsonic.JSRuntime.console.log("10 - 4 =", calc.subtract(10, 4));
+                    Tsonic.JSRuntime.console.log("6 * 7 =", calc.multiply(6, 7));
+                    Tsonic.JSRuntime.console.log("20 / 5 =", calc.divide(20, 5));
+                    }
             }
-    }
 }

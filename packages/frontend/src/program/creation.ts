@@ -42,11 +42,25 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
  */
 export const createCompilerOptions = (
   options: CompilerOptions
-): ts.CompilerOptions => ({
-  ...defaultTsConfig,
-  strict: options.strict ?? true,
-  rootDir: options.sourceRoot,
-});
+): ts.CompilerOptions => {
+  const baseConfig = {
+    ...defaultTsConfig,
+    strict: options.strict ?? true,
+    rootDir: options.sourceRoot,
+  };
+
+  // When useStandardLib is true, disable noLib to use TypeScript's built-in types
+  // This is useful for tests that don't have access to BCL bindings
+  if (options.useStandardLib) {
+    return {
+      ...baseConfig,
+      noLib: false,
+      types: undefined, // Use default type resolution
+    };
+  }
+
+  return baseConfig;
+};
 
 /**
  * Create a Tsonic program from TypeScript source files

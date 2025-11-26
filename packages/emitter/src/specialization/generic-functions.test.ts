@@ -5,7 +5,7 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { emitModule } from "../../emitter.js";
+import { emitModule } from "../emitter.js";
 import { IrModule } from "@tsonic/frontend";
 
 describe("Generic Functions (spec/15 §3-5)", () => {

@@ -1,6 +1,7 @@
 #!/bin/bash
 # E2E Test Runner for Tsonic
 # Tests the complete pipeline: TypeScript → IR → C# → NativeAOT executable
+# Supports dual-mode testing: dotnet and js runtime modes
 
 set -euo pipefail
 
@@ -24,6 +25,7 @@ TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
 VERBOSE=${VERBOSE:-0}
+MODE=${MODE:-"both"}  # dotnet, js, or both
 
 # Functions
 log_info() {
@@ -78,6 +80,8 @@ check_prerequisites() {
         fi
     fi
     log_success "BCL types found at $BCL_TYPES_DIR"
+
+    log_info "Running in mode: $MODE"
 }
 
 # Clean test output directory
@@ -87,16 +91,92 @@ clean_output() {
     mkdir -p "$TESTS_OUTPUT_DIR"
 }
 
-# Run a single test fixture
-run_test() {
+# Get supported modes for a fixture
+get_supported_modes() {
+    local fixture_path=$1
+    local meta_file="$fixture_path/e2e.meta.json"
+
+    if [ -f "$meta_file" ]; then
+        # Read modes from meta file
+        local modes=$(grep -o '"modes".*\[.*\]' "$meta_file" | grep -oE '\["[^"]*"(,"[^"]*")*\]' | tr -d '[]"' | tr ',' ' ')
+        echo "$modes"
+    else
+        # Default: both modes if configs exist
+        local modes=""
+        [ -f "$fixture_path/tsonic.dotnet.json" ] && modes="$modes dotnet"
+        [ -f "$fixture_path/tsonic.js.json" ] && modes="$modes js"
+        echo "$modes"
+    fi
+}
+
+# Run a single test fixture in a specific mode
+run_test_mode() {
     local fixture_name=$1
+    local runtime_mode=$2
     local fixture_path="$FIXTURES_DIR/$fixture_name"
-    local output_dir="$TESTS_OUTPUT_DIR/$fixture_name"
+    local output_dir="$TESTS_OUTPUT_DIR/$fixture_name/$runtime_mode"
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
+    echo ""
+    echo "  [$runtime_mode] Testing: $fixture_name"
+
+    # Check for required config file
+    local config_file="$fixture_path/tsonic.$runtime_mode.json"
+    if [ ! -f "$config_file" ]; then
+        log_error "Config not found: tsonic.$runtime_mode.json"
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        return 1
+    fi
+
+    # Check for expected output
+    local expected_file="$fixture_path/expected/$runtime_mode.txt"
+    if [ ! -f "$expected_file" ]; then
+        log_warning "Expected output not found: expected/$runtime_mode.txt"
+    fi
+
+    # Create output directory
+    mkdir -p "$output_dir"
+
+    # Copy fixture to output directory
+    cp -r "$fixture_path"/src "$output_dir/"
+    [ -f "$fixture_path/package.json" ] && cp "$fixture_path/package.json" "$output_dir/"
+    [ -f "$fixture_path/package-lock.json" ] && cp "$fixture_path/package-lock.json" "$output_dir/"
+    [ -f "$fixture_path/tsconfig.json" ] && cp "$fixture_path/tsconfig.json" "$output_dir/"
+
+    # Copy the mode-specific config as tsonic.json
+    cp "$config_file" "$output_dir/tsonic.json"
+
+    # Copy expected output
+    if [ -f "$expected_file" ]; then
+        cp "$expected_file" "$output_dir/expected-output.txt"
+    fi
+
+    # Run the test using helper script
+    if "$HELPERS_DIR/run-single-test.sh" "$fixture_name" "$output_dir" "$BCL_TYPES_DIR" "$runtime_mode"; then
+        log_success "[$runtime_mode] Test passed: $fixture_name"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        return 0
+    else
+        log_error "[$runtime_mode] Test failed: $fixture_name"
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        if [ "$VERBOSE" -eq 1 ]; then
+            echo "--- Error details ---"
+            tail -30 "$output_dir/test.log" 2>/dev/null || echo "No log file found"
+            echo "---"
+        fi
+        return 1
+    fi
+}
+
+# Run a single test fixture (all applicable modes)
+run_test() {
+    local fixture_name=$1
+    local fixture_path="$FIXTURES_DIR/$fixture_name"
+
     if [ ! -d "$fixture_path" ]; then
         log_error "Fixture not found: $fixture_name"
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
         FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
     fi
@@ -106,27 +186,28 @@ run_test() {
     echo "Testing: $fixture_name"
     echo "----------------------------------------"
 
-    # Create output directory
-    mkdir -p "$output_dir"
+    # Get supported modes for this fixture
+    local supported_modes=$(get_supported_modes "$fixture_path")
 
-    # Copy fixture to output directory
-    cp -r "$fixture_path"/* "$output_dir/"
-
-    # Run the test using helper script
-    if "$HELPERS_DIR/run-single-test.sh" "$fixture_name" "$output_dir" "$BCL_TYPES_DIR"; then
-        log_success "Test passed: $fixture_name"
-        PASSED_TESTS=$((PASSED_TESTS + 1))
-        return 0
-    else
-        log_error "Test failed: $fixture_name"
+    if [ -z "$supported_modes" ]; then
+        log_warning "No config files found for $fixture_name (need tsonic.dotnet.json or tsonic.js.json)"
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
         FAILED_TESTS=$((FAILED_TESTS + 1))
-        if [ "$VERBOSE" -eq 1 ]; then
-            echo "--- Error details ---"
-            tail -20 "$output_dir/test.log" 2>/dev/null || echo "No log file found"
-            echo "---"
-        fi
         return 1
     fi
+
+    # Run tests for each applicable mode
+    local test_failed=0
+    for supported_mode in $supported_modes; do
+        # Check if this mode should be run based on --mode flag
+        if [ "$MODE" = "both" ] || [ "$MODE" = "$supported_mode" ]; then
+            if ! run_test_mode "$fixture_name" "$supported_mode"; then
+                test_failed=1
+            fi
+        fi
+    done
+
+    return $test_failed
 }
 
 # Run all tests or specific tests
@@ -153,6 +234,7 @@ run_tests() {
 print_summary() {
     print_header "Test Summary"
 
+    echo "Mode: $MODE"
     echo "Total tests: $TOTAL_TESTS"
     echo -e "${GREEN}Passed: $PASSED_TESTS${NC}"
     echo -e "${RED}Failed: $FAILED_TESTS${NC}"
@@ -182,30 +264,42 @@ main() {
 }
 
 # Handle script arguments
+TEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --verbose|-v)
             VERBOSE=1
             shift
             ;;
+        --mode)
+            MODE="${2:-both}"
+            if [[ ! "$MODE" =~ ^(dotnet|js|both)$ ]]; then
+                echo "Error: --mode must be 'dotnet', 'js', or 'both'"
+                exit 1
+            fi
+            shift 2
+            ;;
         --help|-h)
             echo "Usage: $0 [options] [test-names...]"
             echo ""
             echo "Options:"
-            echo "  -v, --verbose    Show detailed error output"
-            echo "  -h, --help       Show this help message"
+            echo "  -v, --verbose         Show detailed error output"
+            echo "  --mode <mode>         Runtime mode: dotnet, js, or both (default: both)"
+            echo "  -h, --help            Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0                    # Run all tests"
-            echo "  $0 hello-world        # Run specific test"
-            echo "  $0 -v hello-world     # Run with verbose output"
+            echo "  $0                    # Run all tests in both modes"
+            echo "  $0 --mode dotnet      # Run all tests in dotnet mode only"
+            echo "  $0 hello-world        # Run specific test in both modes"
+            echo "  $0 -v --mode js       # Run all tests in js mode with verbose"
             exit 0
             ;;
         *)
             # Assume it's a test name
-            break
+            TEST_ARGS+=("$1")
+            shift
             ;;
     esac
 done
 
-main "$@"
+main "${TEST_ARGS[@]}"

@@ -1,10 +1,10 @@
-
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace TestCases.realworld
+namespace TestCases.realworld.asyncops
 {
     public class AsyncCache<K, V>
     {
@@ -43,44 +43,44 @@ namespace TestCases.realworld
             }
     }
 
-    public static class asyncops
-    {
-        public static async Task delay(double ms)
+            public static class asyncops
             {
-            return new Promise((resolve) =>
-            {
-            setTimeout(resolve, ms);
-            });
-            }
+                public static async Task delay(double ms)
+                    {
+                    return new Promise((resolve) =>
+                    {
+                    setTimeout(resolve, ms);
+                    });
+                    }
 
-        public static async Task<string> fetchData(double id)
-            {
-            await delay(100.0);
-            return $"Data for ID {id}";
-            }
+                public static async Task<string> fetchData(double id)
+                    {
+                    await delay(100);
+                    return $"Data for ID {id}";
+                    }
 
-        public static async Task<List<string>> fetchMultiple(List<double> ids)
-            {
-            var promises = Tsonic.Runtime.Array.map(ids, (id) => fetchData(id));
-            return Promise.all(promises);
-            }
+                public static async Task<List<string>> fetchMultiple(List<double> ids)
+                    {
+                    var promises = Tsonic.JSRuntime.Array.map(ids, (id) => fetchData(id));
+                    return Promise.all(promises);
+                    }
 
-        public static async Task<T> processWithRetry<T>(Func<Task<T>> fn, double maxRetries = 3.0)
-            {
-            System.Exception? lastError;
-            for (var i = 0.0; i < maxRetries; i++)
-                {
-                try
-                {
-                return await fn();
-                }
-                catch (Exception error)
-                {
-                lastError = error;
-                await delay(100.0 * i + 1.0);
-                }
-                }
-            throw lastError || new Error("Max retries exceeded");
+                public static async Task<T> processWithRetry<T>(Func<Task<T>> fn, double maxRetries = 3)
+                    {
+                    System.Exception? lastError;
+                    for (var i = 0; i < maxRetries; i++)
+                        {
+                        try
+                        {
+                        return await fn();
+                        }
+                        catch (Exception error)
+                        {
+                        lastError = error;
+                        await delay(100 * i + 1);
+                        }
+                        }
+                    throw lastError ?? new Error("Max retries exceeded");
+                    }
             }
-    }
 }

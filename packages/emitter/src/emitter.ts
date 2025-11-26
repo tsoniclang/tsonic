@@ -3,9 +3,17 @@
  * Orchestrates code generation from IR
  */
 
-import { IrModule } from "@tsonic/frontend";
+import { IrModule, Diagnostic } from "@tsonic/frontend";
 import { EmitterOptions } from "./types.js";
 import { emitModule } from "./core/module-emitter.js";
+import { buildModuleMap } from "./core/module-map.js";
+
+/**
+ * Result of batch emission
+ */
+export type EmitResult =
+  | { readonly ok: true; readonly files: Map<string, string> }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };
 
 /**
  * Emit a complete C# file from an IR module
@@ -18,12 +26,22 @@ export const emitCSharpFile = (
 };
 
 /**
- * Batch emit multiple IR modules
+ * Batch emit multiple IR modules.
+ * Returns an error if there are file name collisions after normalization.
  */
 export const emitCSharpFiles = (
   modules: readonly IrModule[],
   options: Partial<EmitterOptions> = {}
-): Map<string, string> => {
+): EmitResult => {
+  // Build module map for cross-file import resolution
+  const moduleMapResult = buildModuleMap(modules);
+
+  if (!moduleMapResult.ok) {
+    return { ok: false, errors: moduleMapResult.errors };
+  }
+
+  const moduleMap = moduleMapResult.value;
+  const exportMap = moduleMapResult.exportMap;
   const results = new Map<string, string>();
 
   // Find common root directory for all modules
@@ -43,12 +61,14 @@ export const emitCSharpFiles = (
     const moduleOptions = {
       ...options,
       isEntryPoint,
+      moduleMap, // Pass module map to each module emission
+      exportMap, // Pass export map for re-export resolution
     };
     const code = emitModule(module, moduleOptions);
     results.set(outputPath, code);
   }
 
-  return results;
+  return { ok: true, files: results };
 };
 
 /**

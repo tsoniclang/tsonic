@@ -1,7 +1,8 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System.Collections.Generic;
 
-namespace TestCases.types
+namespace TestCases.types.generics
 {
     public class Box<T>
     {
@@ -18,16 +19,16 @@ namespace TestCases.types
             }
     }
 
-    public static class Generics
-    {
-        public static T identity<T>(T value)
+            public static class Generics
             {
-            return value;
-            }
+                public static T identity<T>(T value)
+                    {
+                    return value;
+                    }
 
-        public static T? firstElement<T>(List<T> arr)
-            {
-            return Tsonic.Runtime.Array.get(arr, 0.0);
+                public static T? firstElement<T>(List<T> arr)
+                    {
+                    return Tsonic.Runtime.Array.get(arr, 0);
+                    }
             }
-    }
 }

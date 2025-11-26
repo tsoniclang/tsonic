@@ -6,6 +6,37 @@ import type { MetadataFile } from "@tsonic/frontend/types/metadata.js";
 import type { TypeBinding } from "@tsonic/frontend/types/bindings.js";
 
 /**
+ * Module identity for import resolution
+ */
+export type ModuleIdentity = {
+  readonly namespace: string;
+  readonly className: string;
+  readonly filePath: string;
+};
+
+/**
+ * Module map for resolving cross-file imports
+ */
+export type ModuleMap = ReadonlyMap<string, ModuleIdentity>;
+
+/**
+ * Export source: where an export actually comes from
+ * Used to resolve re-exports to their original source
+ */
+export type ExportSource = {
+  /** Canonical file path of the actual source */
+  readonly sourceFile: string;
+  /** Name of the export in the source file */
+  readonly sourceName: string;
+};
+
+/**
+ * Map from (moduleFilePath, exportName) to actual source
+ * Key format: "moduleFilePath:exportName"
+ */
+export type ExportMap = ReadonlyMap<string, ExportSource>;
+
+/**
  * Options for C# code generation
  */
 export type EmitterOptions = {
@@ -27,6 +58,22 @@ export type EmitterOptions = {
   readonly libraries?: readonly string[];
   /** Runtime mode: "js" uses Tsonic.JSRuntime extensions, "dotnet" uses pure .NET */
   readonly runtime?: "js" | "dotnet";
+  /** Module map for resolving cross-file imports (populated during batch emission) */
+  readonly moduleMap?: ModuleMap;
+  /** Export map for resolving re-exports to actual source (populated during batch emission) */
+  readonly exportMap?: ExportMap;
+};
+
+/**
+ * Import binding information for qualifying imported identifiers.
+ * Local module imports are always emitted as fully-qualified references
+ * to avoid C# name ambiguity.
+ */
+export type ImportBinding = {
+  /** Fully qualified container (e.g., "MultiFileCheck.utils.Math") */
+  readonly fullyQualifiedContainer: string;
+  /** Exported name from target module (e.g., "add"), empty string for namespace imports */
+  readonly exportName: string;
 };
 
 /**
@@ -37,7 +84,7 @@ export type EmitterContext = {
   readonly indentLevel: number;
   /** Options for emission */
   readonly options: EmitterOptions;
-  /** Set of using statements needed */
+  /** Set of using statements needed (BCL/runtime only, not local modules) */
   readonly usings: ReadonlySet<string>;
   /** Whether currently in static context */
   readonly isStatic: boolean;
@@ -55,6 +102,8 @@ export type EmitterContext = {
   readonly metadata?: ReadonlyArray<MetadataFile>;
   /** Registry mapping TypeScript emit names to type bindings */
   readonly bindingsRegistry?: ReadonlyMap<string, TypeBinding>;
+  /** Map of local names to import binding info (for qualifying imported identifiers) */
+  readonly importBindings?: ReadonlyMap<string, ImportBinding>;
 };
 
 /**

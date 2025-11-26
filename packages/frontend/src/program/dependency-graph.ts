@@ -18,6 +18,31 @@ export type ModuleDependencyGraphResult = {
 };
 
 /**
+ * Extract module specifier from import or re-export declaration
+ * Returns the module specifier string literal, or null if not applicable
+ */
+const getModuleSpecifier = (stmt: ts.Statement): ts.StringLiteral | null => {
+  // Handle: import { x } from "./module"
+  if (
+    ts.isImportDeclaration(stmt) &&
+    ts.isStringLiteral(stmt.moduleSpecifier)
+  ) {
+    return stmt.moduleSpecifier;
+  }
+
+  // Handle: export { x } from "./module" (re-exports)
+  if (
+    ts.isExportDeclaration(stmt) &&
+    stmt.moduleSpecifier &&
+    ts.isStringLiteral(stmt.moduleSpecifier)
+  ) {
+    return stmt.moduleSpecifier;
+  }
+
+  return null;
+};
+
+/**
  * Build complete module dependency graph from entry point
  * Traverses all local imports and builds IR for all discovered modules
  * Uses TypeScript's ts.resolveModuleName() for correct module resolution
@@ -83,16 +108,16 @@ export const buildModuleDependencyGraph = (
       true
     );
 
-    // Extract local imports using TypeScript's resolution
+    // Extract local imports and re-exports using TypeScript's resolution
     for (const stmt of sourceFile.statements) {
-      if (
-        !ts.isImportDeclaration(stmt) ||
-        !ts.isStringLiteral(stmt.moduleSpecifier)
-      ) {
+      // Handle import declarations: import { x } from "./module"
+      // Handle re-export declarations: export { x } from "./module"
+      const moduleSpecifier = getModuleSpecifier(stmt);
+      if (!moduleSpecifier) {
         continue;
       }
 
-      const importSpecifier = stmt.moduleSpecifier.text;
+      const importSpecifier = moduleSpecifier.text;
 
       // Only process local imports (starts with . or /)
       if (

@@ -48,6 +48,12 @@ export type IrIdentifierExpression = {
   readonly resolvedClrType?: string; // e.g., "Tsonic.Runtime.console"
   readonly resolvedAssembly?: string; // e.g., "Tsonic.Runtime"
   readonly csharpName?: string; // Optional: renamed identifier in C# (from binding)
+  // For imported symbols from local modules
+  readonly importedFrom?: {
+    readonly containerName: string; // e.g., "Math"
+    readonly exportName: string; // e.g., "add" (may differ from local name if aliased)
+    readonly namespace: string; // e.g., "MultiFileCheck.utils"
+  };
 };
 
 export type IrArrayExpression = {

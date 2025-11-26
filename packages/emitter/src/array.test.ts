@@ -48,8 +48,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use List<T>
-    expect(code).to.include("new List<double> { 1.0, 2.0, 3.0 }");
+    // Integer literals create List<int> - C# infers type from literal values
+    expect(code).to.include("new List<int> { 1, 2, 3 }");
     expect(code).to.include("using System.Collections.Generic");
   });
 
@@ -92,8 +92,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should handle sparse array with default
-    expect(code).to.include("new List<double> { 1.0, default, 3.0 }");
+    // Should handle sparse array with default - integer literals create List<int>
+    expect(code).to.include("new List<int> { 1, default, 3 }");
   });
 
   it("should emit array with string elements", () => {
@@ -226,8 +226,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should call push method on array instance
-    expect(code).to.include("arr.push(3.0)");
+    // Should call push method on array instance - C# implicitly converts int to double
+    expect(code).to.include("arr.push(3)");
   });
 
   it("should handle array element access", () => {
@@ -285,7 +285,7 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use static helper for array access with double literal
-    expect(code).to.include("Tsonic.JSRuntime.Array.get(arr, 0.0)");
+    // Should use static helper for array access
+    expect(code).to.include("Tsonic.Runtime.Array.get(arr, 0)");
   });
 });

@@ -1,9 +1,9 @@
-
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace TestCases.realworld
+namespace TestCases.realworld.businesslogic
 {
     public class Product
     {
@@ -37,16 +37,16 @@ namespace TestCases.realworld
     }
     public class ShoppingCart
     {
-        private List<CartItem> items = new List<object>();
+        private List<CartItem> items = new List<CartItem>();
 
         public bool addItem(Product product, double quantity)
             {
-            if (quantity <= 0.0 || quantity > product.stock)
+            if (quantity <= 0 || quantity > product.stock)
                 {
                 return false;
                 }
-            var existingItem = Tsonic.Runtime.Array.find(this.items, (item) => item.product.id == product.id);
-            if (existingItem)
+            var existingItem = Tsonic.JSRuntime.Array.find(this.items, (item) => item.product.id == product.id);
+            if (existingItem != null)
                 {
                 var newQuantity = existingItem.quantity + quantity;
                 if (newQuantity > product.stock)
@@ -57,17 +57,17 @@ namespace TestCases.realworld
                 }
             else
                 {
-                Tsonic.Runtime.Array.push(this.items, new { product = product, quantity = quantity });
+                Tsonic.JSRuntime.Array.push(this.items, new { product = product, quantity = quantity });
                 }
             return true;
             }
 
         public bool removeItem(string productId)
             {
-            var index = Tsonic.Runtime.Array.findIndex(this.items, (item) => item.product.id == productId);
-            if (index != -1.0)
+            var index = Tsonic.JSRuntime.Array.findIndex(this.items, (item) => item.product.id == productId);
+            if (index != -1)
                 {
-                Tsonic.Runtime.Array.splice(this.items, index, 1.0);
+                Tsonic.JSRuntime.Array.splice(this.items, index, 1);
                 return true;
                 }
             return false;
@@ -75,12 +75,12 @@ namespace TestCases.realworld
 
         public bool updateQuantity(string productId, double quantity)
             {
-            var item = Tsonic.Runtime.Array.find(this.items, (item) => item.product.id == productId);
+            var item = Tsonic.JSRuntime.Array.find(this.items, (item) => item.product.id == productId);
             if (!item)
                 {
                 return false;
                 }
-            if (quantity <= 0.0)
+            if (quantity <= 0)
                 {
                 return this.removeItem(productId);
                 }
@@ -94,12 +94,12 @@ namespace TestCases.realworld
 
         public double getTotal()
             {
-            return Tsonic.Runtime.Array.reduce(this.items, (sum, item) => sum + item.product.price * item.quantity, 0.0);
+            return Tsonic.JSRuntime.Array.reduce(this.items, (sum, item) => sum + item.product.price * item.quantity, 0);
             }
 
         public double getItemCount()
             {
-            return Tsonic.Runtime.Array.reduce(this.items, (sum, item) => sum + item.quantity, 0.0);
+            return Tsonic.JSRuntime.Array.reduce(this.items, (sum, item) => sum + item.quantity, 0);
             }
 
         public List<CartItem> getItems()
@@ -109,53 +109,53 @@ namespace TestCases.realworld
 
         public void clear()
             {
-            this.items = new List<object>();
+            this.items = new List<CartItem>();
             }
     }
     public class DiscountCalculator
     {
         public static double applyPercentageDiscount(double price, double percentage)
             {
-            if (percentage < 0.0 || percentage > 100.0)
+            if (percentage < 0 || percentage > 100)
                 {
                 throw new Error("Invalid discount percentage");
                 }
-            return price * 1.0 - percentage / 100.0;
+            return price * 1 - percentage / 100;
             }
 
         public static double applyFixedDiscount(double price, double discount)
             {
             var result = price - discount;
-            return result < 0.0 ? 0.0 : result;
+            return result < 0 ? 0 : result;
             }
 
         public static double calculateBulkDiscount(double quantity, double price)
             {
-            if (quantity >= 100.0)
+            if (quantity >= 100)
                 {
-                return this.applyPercentageDiscount(price, 20.0);
+                return this.applyPercentageDiscount(price, 20);
                 }
             else
-                if (quantity >= 50.0)
+                if (quantity >= 50)
                     {
-                    return this.applyPercentageDiscount(price, 15.0);
+                    return this.applyPercentageDiscount(price, 15);
                     }
                 else
-                    if (quantity >= 10.0)
+                    if (quantity >= 10)
                         {
-                        return this.applyPercentageDiscount(price, 10.0);
+                        return this.applyPercentageDiscount(price, 10);
                         }
             return price;
             }
     }
     public class OrderProcessor
     {
-        private double nextOrderId = 1.0;
+        private double nextOrderId = 1;
 
         public Order createOrder(ShoppingCart cart)
             {
             var items = cart.getItems();
-            if (Tsonic.Runtime.Array.length(items) == 0.0)
+            if (Tsonic.Runtime.Array.length(items) == 0)
                 {
                 throw new Error("Cannot create order from empty cart");
                 }
@@ -165,9 +165,9 @@ namespace TestCases.realworld
 
         public void updateOrderStatus(Order order, OrderStatus newStatus)
             {
-            Record<OrderStatus, List<OrderStatus>> validTransitions = new { pending = new List<object> { "processing", "cancelled" }, processing = new List<object> { "shipped", "cancelled" }, shipped = new List<object> { "delivered" }, delivered = new List<object>(), cancelled = new List<object>() };
+            Record<OrderStatus, List<OrderStatus>> validTransitions = new { pending = new List<string> { "processing", "cancelled" }, processing = new List<string> { "shipped", "cancelled" }, shipped = new List<string> { "delivered" }, delivered = new List<OrderStatus>(), cancelled = new List<OrderStatus>() };
             var allowed = validTransitions[order.status];
-            if (!Tsonic.Runtime.Array.includes(allowed, newStatus))
+            if (!Tsonic.JSRuntime.Array.includes(allowed, newStatus))
                 {
                 throw new Error($"Cannot transition from {order.status} to {newStatus}");
                 }
@@ -189,34 +189,34 @@ namespace TestCases.realworld
             }
     }
 
-    public static class businesslogic
-    {
-        // type OrderStatus = Union<string, string, string, string, string>
+            public static class businesslogic
+            {
+                // type OrderStatus = Union<string, string, string, string, string>
 
-        public static List<Product> searchProducts(List<Product> products, string query)
-            {
-            var lowerQuery = Tsonic.Runtime.String.toLowerCase(query);
-            return Tsonic.Runtime.Array.filter(products, (p) => Tsonic.Runtime.String.includes(Tsonic.Runtime.String.toLowerCase(p.name), lowerQuery) || Tsonic.Runtime.String.includes(Tsonic.Runtime.String.toLowerCase(p.category), lowerQuery));
-            }
+                public static List<Product> searchProducts(List<Product> products, string query)
+                    {
+                    var lowerQuery = Tsonic.JSRuntime.String.toLowerCase(query);
+                    return Tsonic.JSRuntime.Array.filter(products, (p) => Tsonic.JSRuntime.String.includes(Tsonic.JSRuntime.String.toLowerCase(p.name), lowerQuery) ?? Tsonic.JSRuntime.String.includes(Tsonic.JSRuntime.String.toLowerCase(p.category), lowerQuery));
+                    }
 
-        public static List<Product> filterByCategory(List<Product> products, string category)
-            {
-            return Tsonic.Runtime.Array.filter(products, (p) => p.category == category);
-            }
+                public static List<Product> filterByCategory(List<Product> products, string category)
+                    {
+                    return Tsonic.JSRuntime.Array.filter(products, (p) => p.category == category);
+                    }
 
-        public static List<Product> filterByPriceRange(List<Product> products, double minPrice, double maxPrice)
-            {
-            return Tsonic.Runtime.Array.filter(products, (p) => p.price >= minPrice && p.price <= maxPrice);
-            }
+                public static List<Product> filterByPriceRange(List<Product> products, double minPrice, double maxPrice)
+                    {
+                    return Tsonic.JSRuntime.Array.filter(products, (p) => p.price >= minPrice && p.price <= maxPrice);
+                    }
 
-        public static List<Product> sortByPrice(List<Product> products, bool ascending = true)
-            {
-            var sorted = products.ToList();
-            Tsonic.Runtime.Array.sort(sorted, (a, b) =>
-            {
-            return ascending ? a.price - b.price : b.price - a.price;
-            });
-            return sorted;
+                public static List<Product> sortByPrice(List<Product> products, bool ascending = true)
+                    {
+                    var sorted = products.ToList();
+                    Tsonic.JSRuntime.Array.sort(sorted, (a, b) =>
+                    {
+                    return ascending ? a.price - b.price : b.price - a.price;
+                    });
+                    return sorted;
+                    }
             }
-    }
 }

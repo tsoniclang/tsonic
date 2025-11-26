@@ -7,6 +7,11 @@ export type {
   EmitterContext,
   EmitResult,
   CSharpFragment,
+  ImportBinding,
+  ModuleIdentity,
+  ModuleMap,
+  ExportSource,
+  ExportMap,
 } from "./core.js";
 export type {
   CSharpAccessModifier,

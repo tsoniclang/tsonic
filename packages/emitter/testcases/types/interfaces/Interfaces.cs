@@ -1,25 +1,29 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.types
+namespace TestCases.types.interfaces
 {
     public class User
     {
         public string name { get; set; }
+
         public string email { get; set; }
+
         public double age { get; set; }
     }
-
     public class Point
     {
         public double x { get; }
+
         public double y { get; }
     }
 
-    public static class Interfaces
-    {
-        public static string greetUser(User user)
+            public static class Interfaces
             {
-            return $"Hello {user.name}, age {user.age}";
+                public static string greetUser(User user)
+                    {
+                    return $"Hello {user.name}, age {user.age}";
+                    }
             }
-    }
 }

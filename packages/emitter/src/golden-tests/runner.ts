@@ -23,6 +23,8 @@ export const normalizeCs = (code: string): string => {
       .replace(/\s+$/gm, "")
       // Normalize timestamp line (make comparison timestamp-agnostic)
       .replace(/\/\/ Generated at: .+/, "// Generated at: TIMESTAMP")
+      // Normalize file path to just filename (strip directory path)
+      .replace(/\/\/ Generated from: .+\/([^/]+)$/, "// Generated from: $1")
   );
 };
 
@@ -37,16 +39,19 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   const sourceRoot = path.dirname(scenario.inputPath);
 
   // Build namespace from path parts (case-preserved, hyphens stripped per spec)
-  // e.g., ['control-flow', 'error-handling'] → 'TestCases.controlflow'
-  const namespaceParts = scenario.pathParts
-    .slice(0, -1)
-    .map((part) => part.replace(/-/g, "")); // Strip hyphens
+  // e.g., ['types', 'interfaces'] → 'TestCases.types.interfaces'
+  // Note: pathParts contains directory path only (no filename), so no slicing needed
+  const namespaceParts = scenario.pathParts.map((part) =>
+    part.replace(/-/g, "")
+  ); // Strip hyphens
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
+  // Use standard lib for golden tests (they don't have BCL bindings)
   const compileResult = compile([scenario.inputPath], {
     sourceRoot,
     rootNamespace,
+    useStandardLib: true,
   });
 
   if (!compileResult.ok) {
@@ -72,9 +77,18 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
 
   // Step 3: Emit IR → C#
   // Note: Don't set entryPointPath - golden tests are NOT entry points
-  const csharpFiles = emitCSharpFiles(irResult.value, {
+  const emitResult = emitCSharpFiles(irResult.value, {
     rootNamespace,
   });
+
+  if (!emitResult.ok) {
+    const errors = emitResult.errors
+      .map((d) => `${d.code}: ${d.message}`)
+      .join("\n");
+    throw new Error(`Emit failed:\n${errors}`);
+  }
+
+  const csharpFiles = emitResult.files;
 
   // Find the generated file for our input
   // The key should be the class name derived from the input file
@@ -97,7 +111,9 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   }
 
   // Generate expected header using shared constant (with TIMESTAMP placeholder)
-  const expectedHeader = generateFileHeader(scenario.inputPath, {
+  // Use just the filename for comparison (actual files may have full paths)
+  const fileName = path.basename(scenario.inputPath);
+  const expectedHeader = generateFileHeader(fileName, {
     timestamp: "TIMESTAMP",
   });
 

@@ -1,14 +1,15 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
 using System.Collections.Generic;
 
-namespace TestCases.arrays
+namespace TestCases.arrays.basic
 {
-    public static class ArrayLiteral
-    {
-        public static List<double> createArray()
-            {
-            var arr = new List<object> { 1.0, 2.0, 3.0 };
-            return arr;
-            }
-    }
+        public static class ArrayLiteral
+        {
+            public static List<double> createArray()
+                {
+                var arr = new List<int> { 1, 2, 3 };
+                return arr;
+                }
+        }
 }

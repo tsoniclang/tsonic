@@ -1,30 +1,32 @@
 using Tsonic.Runtime;
+using Tsonic.JSRuntime;
+using System.Collections.Generic;
 
-namespace TestCases.controlflow
+namespace TestCases.controlflow.switch
 {
-    public static class SwitchStatement
-    {
-        public static string getDayType(double day)
-            {
-            switch (day)
-            {
-                case 0.0:
-                    break;
-                case 6.0:
-                    return "weekend";
-                case 1.0:
+        public static class SwitchStatement
+        {
+            public static string getDayType(double day)
+                {
+                switch (day)
+                {
+                    case 0:
                         break;
-                case 2.0:
-                        break;
-                case 3.0:
-                        break;
-                case 4.0:
-                        break;
-                case 5.0:
-                        return "weekday";
-                default:
-                            return "invalid";
-            }
-            }
-    }
+                    case 6:
+                        return "weekend";
+                    case 1:
+                            break;
+                    case 2:
+                            break;
+                    case 3:
+                            break;
+                    case 4:
+                            break;
+                    case 5:
+                            return "weekday";
+                    default:
+                                return "invalid";
+                }
+                }
+        }
 }

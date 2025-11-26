@@ -1,48 +1,142 @@
 /**
  * Import processing and resolution
+ *
+ * Local module imports are always emitted as fully-qualified references.
+ * This eliminates the need for collision detection and using aliases.
  */
 
-import { IrImport, IrModule } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
+import { EmitterContext, addUsing, ImportBinding } from "../types.js";
+import { resolveImportPath } from "./module-map.js";
 
 /**
- * Process imports and collect using statements
+ * Process imports and collect using statements.
+ *
+ * - BCL/runtime imports: Add to using statements
+ * - Local module imports: Build ImportBindings with fully-qualified containers (no using)
  */
 export const processImports = (
   imports: readonly IrImport[],
   context: EmitterContext,
   module: IrModule
 ): EmitterContext => {
-  let currentContext = context;
+  const importBindings = new Map<string, ImportBinding>();
 
-  for (const imp of imports) {
+  const updatedContext = imports.reduce((ctx, imp) => {
     if (imp.resolvedAssembly) {
       // Module binding (Node.js API, etc.) - add assembly using
-      currentContext = addUsing(currentContext, imp.resolvedAssembly);
-    } else if (imp.isDotNet) {
-      // .NET import - add to using statements
-      if (imp.resolvedNamespace) {
-        currentContext = addUsing(currentContext, imp.resolvedNamespace);
-      }
-    } else if (imp.isLocal) {
-      // Local import - resolve to namespace
-      const namespace = resolveLocalImport(
-        imp,
-        module.filePath,
-        context.options.rootNamespace
-      );
-      if (namespace) {
-        currentContext = addUsing(currentContext, namespace);
-      }
+      return addUsing(ctx, imp.resolvedAssembly);
     }
-    // External packages not supported in MVP
-  }
 
-  return currentContext;
+    if (imp.isDotNet) {
+      // .NET import - add to using statements
+      return imp.resolvedNamespace ? addUsing(ctx, imp.resolvedNamespace) : ctx;
+    }
+
+    if (imp.isLocal) {
+      // Local import - build ImportBindings with fully-qualified containers
+      // NO using directive for local modules
+      const moduleMap = ctx.options.moduleMap;
+      const exportMap = ctx.options.exportMap;
+      if (moduleMap) {
+        const targetPath = resolveImportPath(module.filePath, imp.source);
+
+        // Process each import specifier - may need to resolve re-exports
+        for (const spec of imp.specifiers) {
+          const exportName =
+            spec.kind === "named"
+              ? spec.name
+              : spec.kind === "default"
+                ? ""
+                : "";
+
+          // Check if this is a re-export - look up in export map
+          const reexportKey = `${targetPath}:${exportName}`;
+          const reexportSource = exportMap?.get(reexportKey);
+
+          // Determine the actual source module
+          const actualSourcePath = reexportSource?.sourceFile ?? targetPath;
+          const actualExportName = reexportSource?.sourceName ?? exportName;
+          const targetModule = moduleMap.get(actualSourcePath);
+
+          if (targetModule) {
+            // Build fully-qualified container reference to actual source
+            const fullyQualifiedContainer = `${targetModule.namespace}.${targetModule.className}`;
+            const binding = createImportBindingWithName(
+              spec,
+              fullyQualifiedContainer,
+              actualExportName
+            );
+            if (binding) {
+              importBindings.set(binding.localName, binding.importBinding);
+            }
+          }
+        }
+        // If module not found in map, it's a compilation error - will be caught elsewhere
+      }
+      // No module map = single file compilation, no import bindings needed
+    }
+
+    // External packages not supported in MVP
+    return ctx;
+  }, context);
+
+  // Add import bindings to context
+  return {
+    ...updatedContext,
+    importBindings,
+  };
 };
 
 /**
- * Resolve local import to a namespace
+ * Create import binding with explicit export name.
+ * Used for re-exports where the resolved name may differ from spec.name.
+ */
+const createImportBindingWithName = (
+  spec: IrImportSpecifier,
+  fullyQualifiedContainer: string,
+  resolvedExportName: string
+): { localName: string; importBinding: ImportBinding } | null => {
+  // Determine local name based on specifier kind
+  const localName = spec.localName;
+
+  if (spec.kind === "named") {
+    return {
+      localName,
+      importBinding: {
+        fullyQualifiedContainer,
+        exportName: resolvedExportName, // Use resolved name (may differ for re-exports)
+      },
+    };
+  }
+
+  if (spec.kind === "default") {
+    // Default export binds to the container class itself
+    return {
+      localName,
+      importBinding: {
+        fullyQualifiedContainer,
+        exportName: "", // Empty = container class itself
+      },
+    };
+  }
+
+  if (spec.kind === "namespace") {
+    // Namespace imports (import * as M) - bind to the container class
+    return {
+      localName,
+      importBinding: {
+        fullyQualifiedContainer,
+        exportName: "", // Empty = the whole module/container
+      },
+    };
+  }
+
+  return null;
+};
+
+/**
+ * Resolve local import to a namespace (legacy fallback for single-file compilation)
  */
 export const resolveLocalImport = (
   imp: IrImport,
@@ -57,20 +151,7 @@ export const resolveLocalImport = (
   const currentDir = currentFile.substring(0, currentFile.lastIndexOf("/"));
 
   // Resolve the import path relative to current directory
-  let resolvedPath: string;
-  if (imp.source.startsWith("./")) {
-    resolvedPath = `${currentDir}/${imp.source.substring(2)}`;
-  } else if (imp.source.startsWith("../")) {
-    const parts = currentDir.split("/");
-    let source = imp.source;
-    while (source.startsWith("../")) {
-      parts.pop(); // Go up one directory
-      source = source.substring(3);
-    }
-    resolvedPath = `${parts.join("/")}/${source}`;
-  } else {
-    resolvedPath = `${currentDir}/${imp.source}`;
-  }
+  const resolvedPath = resolveRelativePath(currentDir, imp.source);
 
   // Remove .ts extension and get directory path
   const withoutExtension = resolvedPath.replace(/\.ts$/, "");
@@ -80,35 +161,62 @@ export const resolveLocalImport = (
   );
 
   // Convert directory path to namespace - only use path after last "/src/"
-  // e.g., "/absolute/path/to/project/src/services" -> ["services"]
-  // e.g., "/absolute/path/to/project/src" -> [] (files in src/ have no sub-namespace)
-  const srcIndex = dirPath.lastIndexOf("/src/");
-  const endsWithSrc = dirPath.endsWith("/src");
-  let relativePath: string;
-
-  if (srcIndex >= 0) {
-    // Found "/src/", use everything after it
-    relativePath = dirPath.substring(srcIndex + 5); // +5 to skip "/src/"
-  } else if (endsWithSrc) {
-    // Path ends with "/src", so files are directly in src/
-    relativePath = "";
-  } else if (dirPath.startsWith("src/")) {
-    // Path starts with "src/", skip it
-    relativePath = dirPath.substring(4); // Skip "src/"
-  } else if (dirPath === "src") {
-    // Just "src"
-    relativePath = "";
-  } else {
-    // No src directory found, this shouldn't happen
-    // but fallback to empty to use just root namespace
-    relativePath = "";
-  }
-
+  const relativePath = extractRelativePath(dirPath);
   const parts = relativePath.split("/").filter((p) => p !== "" && p !== ".");
 
-  if (parts.length === 0) {
-    return rootNamespace;
+  return parts.length === 0
+    ? rootNamespace
+    : `${rootNamespace}.${parts.join(".")}`;
+};
+
+/**
+ * Resolve a relative import path from a given directory
+ */
+const resolveRelativePath = (currentDir: string, source: string): string => {
+  if (source.startsWith("./")) {
+    return `${currentDir}/${source.substring(2)}`;
   }
 
-  return `${rootNamespace}.${parts.join(".")}`;
+  if (source.startsWith("../")) {
+    const parts = currentDir.split("/");
+    const sourceCopy = source;
+    return resolveParentPath(parts, sourceCopy);
+  }
+
+  return `${currentDir}/${source}`;
+};
+
+/**
+ * Resolve parent path references (..)
+ */
+const resolveParentPath = (parts: string[], source: string): string => {
+  if (!source.startsWith("../")) {
+    return `${parts.join("/")}/${source}`;
+  }
+  return resolveParentPath(parts.slice(0, -1), source.substring(3));
+};
+
+/**
+ * Extract relative path from a directory path
+ */
+const extractRelativePath = (dirPath: string): string => {
+  const srcIndex = dirPath.lastIndexOf("/src/");
+
+  if (srcIndex >= 0) {
+    return dirPath.substring(srcIndex + 5);
+  }
+
+  if (dirPath.endsWith("/src")) {
+    return "";
+  }
+
+  if (dirPath.startsWith("src/")) {
+    return dirPath.substring(4);
+  }
+
+  if (dirPath === "src") {
+    return "";
+  }
+
+  return "";
 };
