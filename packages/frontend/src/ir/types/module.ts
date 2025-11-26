@@ -37,6 +37,8 @@ export type IrImportSpecifier =
       readonly kind: "named";
       readonly name: string;
       readonly localName: string;
+      /** Whether this import is a type (interface/class) - emitted at namespace level in C# */
+      readonly isType?: boolean;
     };
 
 export type IrExport =

@@ -62,10 +62,13 @@ export const processImports = (
           if (targetModule) {
             // Build fully-qualified container reference to actual source
             const fullyQualifiedContainer = `${targetModule.namespace}.${targetModule.className}`;
+            // Check if this export is a type (interface/class)
+            const isType = targetModule.typeExports.has(actualExportName);
             const binding = createImportBindingWithName(
               spec,
               fullyQualifiedContainer,
-              actualExportName
+              actualExportName,
+              isType
             );
             if (binding) {
               importBindings.set(binding.localName, binding.importBinding);
@@ -95,7 +98,8 @@ export const processImports = (
 const createImportBindingWithName = (
   spec: IrImportSpecifier,
   fullyQualifiedContainer: string,
-  resolvedExportName: string
+  resolvedExportName: string,
+  isType: boolean
 ): { localName: string; importBinding: ImportBinding } | null => {
   // Determine local name based on specifier kind
   const localName = spec.localName;
@@ -106,6 +110,7 @@ const createImportBindingWithName = (
       importBinding: {
         fullyQualifiedContainer,
         exportName: resolvedExportName, // Use resolved name (may differ for re-exports)
+        isType, // Types are emitted at namespace level, not inside container
       },
     };
   }

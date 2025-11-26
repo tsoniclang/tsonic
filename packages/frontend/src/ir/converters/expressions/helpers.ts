@@ -195,3 +195,52 @@ export const isAssignmentOperator = (
     token.kind <= ts.SyntaxKind.LastAssignment
   );
 };
+
+/**
+ * Get the contextual type name for an expression (for object literals).
+ * Returns the simple type name if the contextual type is a named type
+ * (interface, class), or undefined if it's an anonymous/primitive type.
+ */
+export const getContextualTypeName = (
+  node: ts.Expression,
+  checker: ts.TypeChecker
+): string | undefined => {
+  try {
+    const contextualType = checker.getContextualType(node);
+    if (!contextualType) {
+      return undefined;
+    }
+
+    // Check if it's an object type with a symbol (named type)
+    const symbol = contextualType.getSymbol();
+    if (!symbol) {
+      return undefined;
+    }
+
+    // Get the symbol name
+    const name = symbol.getName();
+
+    // Skip anonymous types and built-in types
+    if (name === "__type" || name === "__object" || name === "Object") {
+      return undefined;
+    }
+
+    // Check that it's actually a class or interface declaration
+    const declarations = symbol.getDeclarations();
+    if (declarations && declarations.length > 0) {
+      const firstDecl = declarations[0];
+      if (
+        firstDecl &&
+        (ts.isInterfaceDeclaration(firstDecl) ||
+          ts.isClassDeclaration(firstDecl) ||
+          ts.isTypeAliasDeclaration(firstDecl))
+      ) {
+        return name;
+      }
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+};

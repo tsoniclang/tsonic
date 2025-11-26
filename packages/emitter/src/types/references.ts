@@ -11,6 +11,15 @@ import {
 } from "@tsonic/frontend/types/nested-types.js";
 
 /**
+ * Extract namespace from a fully-qualified container name.
+ * Example: "MultiFileTypes.models.user" → "MultiFileTypes.models"
+ */
+const getNamespaceFromContainer = (fullyQualifiedContainer: string): string => {
+  const lastDot = fullyQualifiedContainer.lastIndexOf(".");
+  return lastDot >= 0 ? fullyQualifiedContainer.slice(0, lastDot) : "";
+};
+
+/**
  * Check if a type name indicates an unsupported support type.
  *
  * TODO: This is a basic check. Full implementation requires:
@@ -43,7 +52,51 @@ export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  const { name, typeArguments } = type;
+  const { name, typeArguments, resolvedClrType } = type;
+
+  // If the type has a pre-resolved CLR type (from IR), use it
+  if (resolvedClrType) {
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${resolvedClrType}<${typeParams.join(", ")}>`, currentContext];
+    }
+    return [resolvedClrType, context];
+  }
+
+  // Check if this type is imported - resolve to fully-qualified name
+  const importBinding = context.importBindings?.get(name);
+  if (importBinding) {
+    // Imported type - use fully-qualified reference
+    // For type imports (interfaces/classes), use namespace.TypeName since types
+    // are emitted at namespace level in C#.
+    // For value imports (functions/variables), use namespace.className.exportName
+    // since values are inside the container class.
+    const qualifiedName = importBinding.isType
+      ? getNamespaceFromContainer(importBinding.fullyQualifiedContainer) +
+        "." +
+        importBinding.exportName
+      : importBinding.exportName
+        ? `${importBinding.fullyQualifiedContainer}.${importBinding.exportName}`
+        : importBinding.fullyQualifiedContainer;
+
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${qualifiedName}<${typeParams.join(", ")}>`, currentContext];
+    }
+    return [qualifiedName, context];
+  }
 
   // Check for unsupported support types
   const unsupportedError = checkUnsupportedSupportType(name);

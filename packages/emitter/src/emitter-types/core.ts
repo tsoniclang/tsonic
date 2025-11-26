@@ -12,6 +12,8 @@ export type ModuleIdentity = {
   readonly namespace: string;
   readonly className: string;
   readonly filePath: string;
+  /** Set of exported type names (interfaces/classes) - emitted at namespace level in C# */
+  readonly typeExports: ReadonlySet<string>;
 };
 
 /**
@@ -74,6 +76,8 @@ export type ImportBinding = {
   readonly fullyQualifiedContainer: string;
   /** Exported name from target module (e.g., "add"), empty string for namespace imports */
   readonly exportName: string;
+  /** Whether this is a type export (interface/class) - emitted at namespace level, not inside container */
+  readonly isType?: boolean;
 };
 
 /**

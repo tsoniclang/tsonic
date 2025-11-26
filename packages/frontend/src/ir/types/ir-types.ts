@@ -27,6 +27,8 @@ export type IrReferenceType = {
   readonly kind: "referenceType";
   readonly name: string;
   readonly typeArguments?: readonly IrType[];
+  /** Fully-qualified CLR type for imported types (e.g., "MyApp.models.User") */
+  readonly resolvedClrType?: string;
 };
 
 export type IrArrayType = {

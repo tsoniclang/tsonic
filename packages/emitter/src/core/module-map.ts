@@ -3,40 +3,15 @@
  */
 
 import { IrModule, Diagnostic } from "@tsonic/frontend";
+import type {
+  ModuleIdentity,
+  ModuleMap,
+  ExportSource,
+  ExportMap,
+} from "../emitter-types/core.js";
 
-/**
- * Module identity for import resolution
- */
-export type ModuleIdentity = {
-  /** Full namespace (e.g., "MultiFileCheck.utils") */
-  readonly namespace: string;
-  /** Container class name (e.g., "Math") */
-  readonly className: string;
-  /** Canonical file path (normalized, relative) */
-  readonly filePath: string;
-};
-
-/**
- * Map from canonical file paths to module identities
- */
-export type ModuleMap = ReadonlyMap<string, ModuleIdentity>;
-
-/**
- * Export source: where an export actually comes from
- * Used to resolve re-exports to their original source
- */
-export type ExportSource = {
-  /** Canonical file path of the actual source */
-  readonly sourceFile: string;
-  /** Name of the export in the source file */
-  readonly sourceName: string;
-};
-
-/**
- * Map from (moduleFilePath, exportName) to actual source
- * Key format: "moduleFilePath:exportName"
- */
-export type ExportMap = ReadonlyMap<string, ExportSource>;
+// Re-export types for backward compatibility
+export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
 
 /**
  * Normalize a file path for use as module map key
@@ -127,10 +102,12 @@ export const buildModuleMap = (
   // Build the map
   for (const module of modules) {
     const canonicalPath = canonicalizeFilePath(module.filePath);
+    const typeExports = extractTypeExports(module);
     map.set(canonicalPath, {
       namespace: module.namespace,
       className: module.className,
       filePath: canonicalPath,
+      typeExports,
     });
   }
 
@@ -240,4 +217,52 @@ export const resolveImportPath = (
 
   // Canonicalize the result
   return canonicalizeFilePath(resolvedPath);
+};
+
+/**
+ * Extract type export names from a module.
+ * Types (interfaces, classes) are emitted at namespace level in C#,
+ * while values (functions, variables) are inside the container class.
+ */
+const extractTypeExports = (module: IrModule): ReadonlySet<string> => {
+  const typeNames = new Set<string>();
+
+  // Check exported declarations in exports array
+  for (const exp of module.exports) {
+    if (exp.kind === "declaration") {
+      const decl = exp.declaration;
+      if (
+        decl.kind === "classDeclaration" ||
+        decl.kind === "interfaceDeclaration"
+      ) {
+        typeNames.add(decl.name);
+      }
+    }
+    // Named exports referencing types in body are handled below
+    if (exp.kind === "named") {
+      // Check if the local name refers to a type in the module body
+      const localDecl = module.body.find(
+        (stmt) =>
+          (stmt.kind === "classDeclaration" ||
+            stmt.kind === "interfaceDeclaration") &&
+          stmt.name === exp.localName
+      );
+      if (localDecl) {
+        typeNames.add(exp.name);
+      }
+    }
+  }
+
+  // Check module body for exported class/interface declarations
+  for (const stmt of module.body) {
+    if (
+      (stmt.kind === "classDeclaration" ||
+        stmt.kind === "interfaceDeclaration") &&
+      stmt.isExported
+    ) {
+      typeNames.add(stmt.name);
+    }
+  }
+
+  return typeNames;
 };
