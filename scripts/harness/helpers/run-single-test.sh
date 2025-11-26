@@ -1,5 +1,5 @@
 #!/bin/bash
-# Helper script to run a single E2E test fixture
+# Helper script to run a single E2E test fixture in a specific runtime mode
 
 set -euo pipefail
 
@@ -7,6 +7,7 @@ set -euo pipefail
 FIXTURE_NAME=$1
 OUTPUT_DIR=$2
 BCL_TYPES_DIR=$3
+RUNTIME_MODE=${4:-dotnet}
 
 # Paths
 PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -17,7 +18,7 @@ LOG_FILE="$OUTPUT_DIR/test.log"
 exec > >(tee -a "$LOG_FILE")
 exec 2>&1
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running test: $FIXTURE_NAME"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running test: $FIXTURE_NAME (mode: $RUNTIME_MODE)"
 
 # Change to test directory
 cd "$OUTPUT_DIR"
@@ -45,7 +46,7 @@ if [ -f "package.json" ]; then
 fi
 
 # Step 3: Build the project
-echo "Building project..."
+echo "Building project (mode: $RUNTIME_MODE)..."
 
 # Check if fixture needs BCL types
 if grep -q '"libraries"' tsonic.json 2>/dev/null; then
@@ -57,6 +58,9 @@ if grep -q '"libraries"' tsonic.json 2>/dev/null; then
         --keep-temp \
         --quiet || {
         echo "ERROR: Build failed"
+        echo "Mode: $RUNTIME_MODE"
+        echo "Config: $OUTPUT_DIR/tsonic.json"
+        echo "Generated project: $OUTPUT_DIR/generated/"
         exit 1
     }
 else
@@ -65,6 +69,8 @@ else
         --keep-temp \
         --quiet || {
         echo "ERROR: Build failed"
+        echo "Mode: $RUNTIME_MODE"
+        echo "Config: $OUTPUT_DIR/tsonic.json"
         exit 1
     }
 fi
@@ -83,6 +89,9 @@ fi
 
 if [ ! -f "$EXECUTABLE" ]; then
     echo "ERROR: Executable not found: $EXECUTABLE"
+    echo "Mode: $RUNTIME_MODE"
+    echo "Looking in: $OUTPUT_DIR"
+    ls -la "$OUTPUT_DIR" || true
     exit 1
 fi
 
@@ -95,9 +104,13 @@ else
     EXIT_CODE=$?
     if [ $EXIT_CODE -eq 124 ]; then
         echo "ERROR: Executable timed out after 10 seconds"
+        echo "Mode: $RUNTIME_MODE"
         exit 1
     else
         echo "ERROR: Executable failed with exit code $EXIT_CODE"
+        echo "Mode: $RUNTIME_MODE"
+        echo "--- stdout/stderr ---"
+        cat "$ACTUAL_OUTPUT_FILE" || true
         exit 1
     fi
 fi
@@ -110,6 +123,7 @@ if [ -f "$EXPECTED_OUTPUT_FILE" ]; then
         echo "Output matches expected!"
     else
         echo "ERROR: Output mismatch"
+        echo "Mode: $RUNTIME_MODE"
         echo "--- Expected output ---"
         cat "$EXPECTED_OUTPUT_FILE"
         echo "--- Actual output ---"
@@ -127,9 +141,10 @@ if [ -f "test.sh" ]; then
     echo "Running additional test script..."
     bash test.sh || {
         echo "ERROR: Additional test script failed"
+        echo "Mode: $RUNTIME_MODE"
         exit 1
     }
 fi
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Test completed successfully: $FIXTURE_NAME"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Test completed successfully: $FIXTURE_NAME (mode: $RUNTIME_MODE)"
 exit 0
