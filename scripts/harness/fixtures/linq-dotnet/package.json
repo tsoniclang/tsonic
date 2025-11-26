@@ -1,0 +1,10 @@
+{
+  "name": "linq-dotnet-test",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@tsonic/types": "^0.1.0",
+    "@tsonic/dotnet": "^0.1.0",
+    "@tsonic/dotnet-globals": "^0.1.2"
+  }
+}
