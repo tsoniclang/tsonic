@@ -30,12 +30,15 @@ Type system and mappings:
 
 - Primitive types (number, string, boolean, null, undefined)
 - Arrays and tuples
-- Objects and interfaces
+- Objects and interfaces (nominalized to C# classes)
 - Union and intersection types
-- Type aliases
+- Type aliases (nominalized to C# classes)
 - Literal types
 
-**Key Rule**: `number` always maps to `double`
+**Key Rules**:
+
+- `number` always maps to `double`
+- Interfaces and type aliases become C# classes (not interfaces)
 
 ### [Expressions](expressions.md)
 
@@ -92,6 +95,57 @@ Object-oriented programming:
 - Abstract classes
 - Getters and setters
 
+### Interfaces and Nominalization
+
+**Key Rule**: TypeScript interfaces map to C# classes (not C# interfaces)
+
+TypeScript interfaces are structural types - any object with matching properties satisfies the interface. C# requires nominal types for object initialization. Tsonic "nominalizes" TypeScript interfaces to C# classes so that:
+
+1. Object literals can use C# object initializer syntax (`new Type { ... }`)
+2. Interface types can be used in variable declarations and return types
+3. Generic type arguments work correctly
+
+**Example**:
+
+```typescript
+// TypeScript
+interface User {
+  name: string;
+  age: number;
+}
+
+function createUser(name: string, age: number): User {
+  return { name: name, age: age };
+}
+```
+
+```csharp
+// Generated C# - interface becomes class
+public class User
+{
+    public string name { get; set; }
+    public double age { get; set; }
+}
+
+public static User createUser(string name, double age)
+{
+    return new User { name = name, age = age };
+}
+```
+
+**Implications**:
+
+- Interfaces are **not** C# interfaces - they cannot be implemented by multiple classes
+- Type aliases for object shapes behave the same way
+- Anonymous object types remain as C# anonymous types (`new { ... }`)
+- This is a **deliberate semantic shift** from structural to nominal typing
+
+**When to use**:
+
+- Use interfaces for data transfer objects (DTOs), records, and value objects
+- Use classes when you need methods, inheritance, or polymorphism
+- Both compile to C# classes; the distinction is conceptual in TypeScript
+
 ### [Generics](generics.md)
 
 Parametric polymorphism:
@@ -141,20 +195,24 @@ See [Limitations](limitations.md) for complete list and rationale.
 
 ### Type Mappings
 
-| TypeScript  | C# Output           | Runtime Behavior                  |
-| ----------- | ------------------- | --------------------------------- |
-| `number`    | `double`            | IEEE 754 64-bit float             |
-| `string`    | `string`            | UTF-16, immutable                 |
-| `boolean`   | `bool`              | true/false                        |
-| `null`      | `null`              | Null reference                    |
-| `undefined` | `TSUndefined.Value` | Singleton value                   |
-| `void`      | `void`              | No return value                   |
-| `T[]`       | `List<T>`           | Dynamic array with JS semantics\* |
-| `any`       | `object`            | Dynamic typing (discouraged)      |
-| `unknown`   | `object`            | Type-safe any                     |
-| `never`     | `void`              | Unreachable code                  |
+| TypeScript    | C# Output           | Runtime Behavior                  |
+| ------------- | ------------------- | --------------------------------- |
+| `number`      | `double`            | IEEE 754 64-bit float             |
+| `string`      | `string`            | UTF-16, immutable                 |
+| `boolean`     | `bool`              | true/false                        |
+| `null`        | `null`              | Null reference                    |
+| `undefined`   | `TSUndefined.Value` | Singleton value                   |
+| `void`        | `void`              | No return value                   |
+| `T[]`         | `List<T>`           | Dynamic array with JS semantics\* |
+| `any`         | `object`            | Dynamic typing (discouraged)      |
+| `unknown`     | `object`            | Type-safe any                     |
+| `never`       | `void`              | Unreachable code                  |
+| `interface X` | `class X`           | Nominalized to C# class\*\*       |
+| `type X = {}` | `class X`           | Nominalized to C# class\*\*       |
 
 \*When `mode: "js"`, array methods like `push()` use `Tsonic.JSRuntime` extension methods. When `mode: "dotnet"` (default), they compile to BCL equivalents (e.g., `push()` → `Add()`).
+
+\*\*TypeScript interfaces and type aliases are nominalized to C# classes. This allows object literals to use C# object initializer syntax (`new Type { ... }`). See [Interfaces and Nominalization](#interfaces-and-nominalization) for details.
 
 ### Arrays
 
