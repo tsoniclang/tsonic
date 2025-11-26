@@ -1,0 +1,11 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "GenericContextual",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "generic-contextual",
+  "dotnet": {
+    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
+  }
+}

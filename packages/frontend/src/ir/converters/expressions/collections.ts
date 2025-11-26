@@ -8,7 +8,7 @@ import {
   IrObjectExpression,
   IrObjectProperty,
 } from "../../types.js";
-import { getInferredType, getContextualTypeName } from "./helpers.js";
+import { getInferredType, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 
 /**
@@ -79,6 +79,6 @@ export const convertObjectLiteral = (
     kind: "object",
     properties,
     inferredType: getInferredType(node, checker),
-    contextualClrType: getContextualTypeName(node, checker),
+    contextualType: getContextualType(node, checker),
   };
 };

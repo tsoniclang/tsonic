@@ -4,7 +4,7 @@
 
 import * as ts from "typescript";
 import { IrType } from "../../types.js";
-import { convertType } from "../../type-converter.js";
+import { convertType, convertTsTypeToIr } from "../../type-converter.js";
 
 /**
  * Helper to get inferred type from TypeScript node
@@ -197,20 +197,17 @@ export const isAssignmentOperator = (
 };
 
 /**
- * Get the contextual type name for an expression (for object literals).
- * Returns the simple type name if the contextual type is a named type
- * (interface, class), or undefined if it's an anonymous/primitive type.
+ * Get the contextual type for an expression (for object literals).
+ * Returns an IrType with type arguments if the contextual type is a named type
+ * (interface, class, generic), or undefined if it's an anonymous/primitive type.
  *
- * Note: This returns the simple name. The emitter is responsible for
- * qualifying imported types using importBindings. For local types defined
- * in the same file, the emitter uses the current module's namespace.
- * TODO: Consider passing source file context to make this fully-qualified
- *       in the frontend (requires architectural change to converters).
+ * This captures the full type including generic type arguments (e.g., Container<T>),
+ * which is essential for emitting correct C# object initializers.
  */
-export const getContextualTypeName = (
+export const getContextualType = (
   node: ts.Expression,
   checker: ts.TypeChecker
-): string | undefined => {
+): IrType | undefined => {
   try {
     const contextualType = checker.getContextualType(node);
     if (!contextualType) {
@@ -241,7 +238,8 @@ export const getContextualTypeName = (
           ts.isClassDeclaration(firstDecl) ||
           ts.isTypeAliasDeclaration(firstDecl))
       ) {
-        return name;
+        // Convert the full contextual type to IR, capturing type arguments
+        return convertTsTypeToIr(contextualType, checker);
       }
     }
 
@@ -249,4 +247,18 @@ export const getContextualTypeName = (
   } catch {
     return undefined;
   }
+};
+
+/**
+ * @deprecated Use getContextualType instead - returns IrType with type arguments
+ */
+export const getContextualTypeName = (
+  node: ts.Expression,
+  checker: ts.TypeChecker
+): string | undefined => {
+  const irType = getContextualType(node, checker);
+  if (irType && irType.kind === "referenceType") {
+    return irType.name;
+  }
+  return undefined;
 };

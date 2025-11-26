@@ -25,7 +25,7 @@ export const inferType = (
  * Convert a TypeScript Type (from checker) to IR type.
  * This is different from convertType which takes a TypeNode (syntax).
  */
-const convertTsTypeToIr = (
+export const convertTsTypeToIr = (
   type: ts.Type,
   checker: ts.TypeChecker
 ): IrType | undefined => {
@@ -80,14 +80,32 @@ const convertTsTypeToIr = (
       if (name.startsWith("__")) {
         return undefined;
       }
-      // For named types, return as reference type
+      // For named types, return as reference type with type arguments if generic
       if (name && name !== "Object" && name !== "Array") {
+        // Extract type arguments for generic types
+        const typeRef = type as ts.TypeReference;
+        const typeArgs = checker.getTypeArguments(typeRef);
+        if (typeArgs && typeArgs.length > 0) {
+          const irTypeArgs = typeArgs
+            .map((arg) => convertTsTypeToIr(arg, checker))
+            .filter((t): t is IrType => t !== undefined);
+          if (irTypeArgs.length === typeArgs.length) {
+            return { kind: "referenceType", name, typeArguments: irTypeArgs };
+          }
+        }
         return { kind: "referenceType", name };
       }
     }
 
     // Anonymous object type
     return undefined;
+  }
+
+  // Type parameters (e.g., T in Container<T>)
+  if (flags & ts.TypeFlags.TypeParameter) {
+    const typeParam = type as ts.TypeParameter;
+    const name = typeParam.symbol?.name ?? "T";
+    return { kind: "referenceType", name };
   }
 
   // Any and unknown

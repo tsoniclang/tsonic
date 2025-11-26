@@ -197,43 +197,63 @@ export const emitObject = (
 
   // Check for contextual type (from return type, variable annotation, etc.)
   // If present, emit `new TypeName { ... }` instead of anonymous `new { ... }`
-  const typeName = resolveContextualTypeName(
-    expr.contextualClrType,
+  const [typeName, finalContext] = resolveContextualType(
+    expr.contextualType,
     currentContext
   );
 
   const text = typeName
     ? `new ${typeName} { ${properties.join(", ")} }`
     : `new { ${properties.join(", ")} }`;
-  return [{ text }, currentContext];
+  return [{ text }, finalContext];
 };
 
 /**
- * Resolve contextual type name, qualifying imports as needed.
- * Uses pre-computed clrName from ImportBinding - no string parsing.
+ * Resolve contextual type to C# type string.
+ * Uses emitType to properly handle generic type arguments.
+ * For imported types, qualifies using importBindings.
  */
-const resolveContextualTypeName = (
-  typeName: string | undefined,
+const resolveContextualType = (
+  contextualType: IrType | undefined,
   context: EmitterContext
-): string | undefined => {
-  if (!typeName) {
-    return undefined;
+): [string | undefined, EmitterContext] => {
+  if (!contextualType) {
+    return [undefined, context];
   }
 
-  // Check if this type is imported - use pre-computed clrName directly
-  const importBinding = context.importBindings?.get(typeName);
-  if (importBinding) {
-    // For type imports, clrName is the fully-qualified type name
-    // For value imports (shouldn't happen for contextual types), use full path
-    if (importBinding.kind === "type") {
-      return importBinding.clrName;
+  // For reference types, check if imported and qualify if needed
+  if (contextualType.kind === "referenceType") {
+    const typeName = contextualType.name;
+    const importBinding = context.importBindings?.get(typeName);
+
+    if (importBinding && importBinding.kind === "type") {
+      // Imported type - use qualified name from binding
+      // Emit type arguments if present
+      if (
+        contextualType.typeArguments &&
+        contextualType.typeArguments.length > 0
+      ) {
+        let currentContext = context;
+        const typeArgStrs: string[] = [];
+        for (const typeArg of contextualType.typeArguments) {
+          const [typeArgStr, newContext] = emitType(typeArg, currentContext);
+          typeArgStrs.push(typeArgStr);
+          currentContext = newContext;
+        }
+        return [
+          `${importBinding.clrName}<${typeArgStrs.join(", ")}>`,
+          currentContext,
+        ];
+      }
+      return [importBinding.clrName, context];
     }
-    // Fallback for non-type imports
-    return importBinding.member
-      ? `${importBinding.clrName}.${importBinding.member}`
-      : importBinding.clrName;
+
+    // Local type - use emitType to handle type arguments
+    const [typeStr, newContext] = emitType(contextualType, context);
+    return [typeStr, newContext];
   }
 
-  // Local type - use simple name
-  return typeName;
+  // For other types, use standard emitType
+  const [typeStr, newContext] = emitType(contextualType, context);
+  return [typeStr, newContext];
 };

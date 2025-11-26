@@ -66,8 +66,8 @@ export type IrObjectExpression = {
   readonly kind: "object";
   readonly properties: readonly IrObjectProperty[];
   readonly inferredType?: IrType;
-  /** Contextual CLR type for object literals in typed positions (return, assignment, etc.) */
-  readonly contextualClrType?: string;
+  /** Contextual type for object literals in typed positions (return, assignment, etc.) */
+  readonly contextualType?: IrType;
 };
 
 export type IrObjectProperty =
