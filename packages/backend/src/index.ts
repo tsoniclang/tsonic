@@ -19,6 +19,7 @@ export type {
   LibraryConfig,
   ConsoleAppConfig,
   PackageMetadata,
+  AssemblyReference,
 } from "./types.js";
 
 // Export utilities
