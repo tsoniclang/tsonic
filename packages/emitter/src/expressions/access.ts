@@ -36,8 +36,11 @@ export const emitMemberAccess = (
     const objectType = expr.object.inferredType;
     const isArrayType = objectType?.kind === "arrayType";
 
-    if (isArrayType && runtime === "js") {
-      // In JS runtime mode, rewrite: arr[index] → Tsonic.Runtime.Array.get(arr, index)
+    // For TS arrays, use Tsonic.Runtime.Array.get() in BOTH modes
+    // This provides TS array semantics (auto-grow, sparse arrays, etc.)
+    // Note: Tsonic.Runtime is compiler support for lowered TS constructs (both modes)
+    //       Tsonic.JSRuntime is JS built-ins like .map/.filter (js mode only)
+    if (isArrayType) {
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
         expr.property as IrExpression,
@@ -51,7 +54,7 @@ export const emitMemberAccess = (
       return [{ text }, finalContext];
     }
 
-    // Regular computed access
+    // Regular computed access (non-array types)
     const indexContext = { ...newContext, isArrayIndex: true };
     const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
@@ -59,21 +62,6 @@ export const emitMemberAccess = (
     );
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
-
-    // In dotnet mode with arrays, check if we need to cast index to int
-    if (isArrayType && runtime === "dotnet") {
-      const indexExpr = expr.property as IrExpression;
-      // Check if the index is a non-integer numeric literal (now that integers are emitted as int)
-      const needsCast =
-        indexExpr.kind === "literal" &&
-        typeof indexExpr.value === "number" &&
-        !Number.isInteger(indexExpr.value);
-
-      if (needsCast) {
-        const text = `${objectFrag.text}${accessor}(int)${propFrag.text}]`;
-        return [{ text }, finalContext];
-      }
-    }
 
     const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
