@@ -494,4 +494,85 @@ describe("IR Builder", () => {
       }
     });
   });
+
+  describe("Interface Implements Validation (TSN7301)", () => {
+    it("should report error when class implements a nominalized interface", () => {
+      const source = `
+        interface Printable {
+          print(): void;
+        }
+
+        export class Document implements Printable {
+          print(): void {}
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN7301");
+        expect(result.error.message).to.include("Printable");
+        expect(result.error.message).to.include("nominalized");
+      }
+    });
+
+    it("should allow struct marker in implements clause", () => {
+      const source = `
+        interface struct {
+          readonly __brand: "struct";
+        }
+
+        export class Point implements struct {
+          x: number;
+          y: number;
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(true);
+    });
+
+    it("should report error when class implements a type alias", () => {
+      const source = `
+        type Serializable = {
+          serialize(): string;
+        };
+
+        export class Config implements Serializable {
+          serialize(): string { return "{}"; }
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN7301");
+        expect(result.error.message).to.include("Serializable");
+      }
+    });
+  });
 });

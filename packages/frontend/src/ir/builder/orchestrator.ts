@@ -17,6 +17,7 @@ import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
 import { extractStatements, isExecutableStatement } from "./statements.js";
+import { validateClassImplements } from "./validation.js";
 
 /**
  * Build IR module from TypeScript source file
@@ -86,6 +87,17 @@ export const buildIrModule = (
           }
         )
       );
+    }
+
+    // Validate class implements patterns
+    // TypeScript interfaces are nominalized to C# classes, so "implements" is invalid
+    const implementsDiagnostics = validateClassImplements(
+      sourceFile,
+      program.checker
+    );
+    const firstImplementsDiagnostic = implementsDiagnostics[0];
+    if (firstImplementsDiagnostic) {
+      return error(firstImplementsDiagnostic);
     }
 
     // Determine if this should be a static container

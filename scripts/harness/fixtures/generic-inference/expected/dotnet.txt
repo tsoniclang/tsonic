@@ -1,0 +1,7 @@
+hello
+42
+world
+100
+3.14
+pi
+Done

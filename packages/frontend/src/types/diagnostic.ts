@@ -31,6 +31,7 @@ export type DiagnosticCode =
   | "TSN7202" // Conditional alias cannot be resolved
   | "TSN7203" // Symbol keys not supported
   | "TSN7204" // Variadic generic interface not supported
+  | "TSN7301" // Class cannot implement nominalized interface
   // Metadata loading errors (TSN9001-TSN9018)
   | "TSN9001" // Metadata file not found
   | "TSN9002" // Failed to read metadata file
