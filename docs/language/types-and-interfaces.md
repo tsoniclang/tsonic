@@ -28,6 +28,7 @@ class Document implements Printable {
 ```
 
 **Alternatives:**
+
 - Use `extends` for inheritance
 - Use composition (pass interface instances as parameters)
 - Use duck typing (just define matching methods)
@@ -58,8 +59,8 @@ public class User
 Simple type aliases are substituted directly:
 
 ```typescript
-type ID = number;    // Becomes: double
-type Name = string;  // Becomes: string
+type ID = number; // Becomes: double
+type Name = string; // Becomes: string
 ```
 
 Object type aliases become classes (same as interfaces):
