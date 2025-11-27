@@ -344,4 +344,163 @@ describe("Expression Emission", () => {
     // Should emit regular property access
     expect(result).to.include("obj.property");
   });
+
+  it("should escape special characters in dictionary keys", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "dict" },
+              type: {
+                kind: "dictionaryType",
+                keyType: { kind: "primitiveType", name: "string" },
+                valueType: { kind: "primitiveType", name: "number" },
+              },
+              initializer: {
+                kind: "object",
+                properties: [
+                  {
+                    kind: "property",
+                    key: 'key"with"quotes',
+                    value: { kind: "literal", value: 1 },
+                    shorthand: false,
+                  },
+                  {
+                    kind: "property",
+                    key: "key\\with\\backslashes",
+                    value: { kind: "literal", value: 2 },
+                    shorthand: false,
+                  },
+                  {
+                    kind: "property",
+                    key: "key\nwith\nnewlines",
+                    value: { kind: "literal", value: 3 },
+                    shorthand: false,
+                  },
+                ],
+                contextualType: {
+                  kind: "dictionaryType",
+                  keyType: { kind: "primitiveType", name: "string" },
+                  valueType: { kind: "primitiveType", name: "number" },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Should escape quotes
+    expect(result).to.include('["key\\"with\\"quotes"]');
+    // Should escape backslashes
+    expect(result).to.include('["key\\\\with\\\\backslashes"]');
+    // Should escape newlines
+    expect(result).to.include('["key\\nwith\\nnewlines"]');
+    // Should be a Dictionary
+    expect(result).to.include("new Dictionary<string, double>");
+  });
+
+  it("should infer arrow function return type from inferredType", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: true,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "add" },
+              // No explicit type annotation
+              initializer: {
+                kind: "arrowFunction",
+                parameters: [
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "a" },
+                    type: { kind: "primitiveType", name: "number" },
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                  {
+                    kind: "parameter",
+                    pattern: { kind: "identifierPattern", name: "b" },
+                    type: { kind: "primitiveType", name: "number" },
+                    isOptional: false,
+                    isRest: false,
+                    passing: "value",
+                  },
+                ],
+                // No explicit returnType
+                body: {
+                  kind: "binary",
+                  operator: "+",
+                  left: { kind: "identifier", name: "a" },
+                  right: { kind: "identifier", name: "b" },
+                },
+                isAsync: false,
+                // TypeScript inferred type
+                inferredType: {
+                  kind: "functionType",
+                  parameters: [
+                    {
+                      kind: "parameter",
+                      pattern: { kind: "identifierPattern", name: "a" },
+                      type: { kind: "primitiveType", name: "number" },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                    {
+                      kind: "parameter",
+                      pattern: { kind: "identifierPattern", name: "b" },
+                      type: { kind: "primitiveType", name: "number" },
+                      isOptional: false,
+                      isRest: false,
+                      passing: "value",
+                    },
+                  ],
+                  returnType: { kind: "primitiveType", name: "number" },
+                },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [
+        {
+          kind: "named",
+          name: "add",
+          localName: "add",
+        },
+      ],
+    };
+
+    const result = emitModule(module);
+
+    // Should infer Func<double, double, double> from inferredType
+    expect(result).to.include("Func<double, double, double>");
+    expect(result).to.include("public static");
+  });
 });

@@ -3,7 +3,7 @@
  */
 
 import * as ts from "typescript";
-import { IrType } from "../types.js";
+import { IrType, IrDictionaryType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
 import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
 
@@ -23,6 +23,18 @@ export const convertTypeReference = (
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
     return getPrimitiveType(typeName);
+  }
+
+  // Check for Record<K, V> utility type → convert to IrDictionaryType
+  if (typeName === "Record" && node.typeArguments?.length === 2) {
+    const keyType = convertType(node.typeArguments[0]!, checker);
+    const valueType = convertType(node.typeArguments[1]!, checker);
+
+    return {
+      kind: "dictionaryType",
+      keyType,
+      valueType,
+    } as IrDictionaryType;
   }
 
   // Check if this is a parameter modifier type (ref/out/In) from @tsonic/types

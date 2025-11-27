@@ -1,18 +1,27 @@
 /**
  * Object type emission
+ *
+ * IrObjectType represents anonymous object types like `{ x: number }`.
+ * These should be caught by frontend validation (TSN7403) and never reach the emitter.
+ *
+ * Named types (interfaces, type aliases, classes) become IrReferenceType instead.
  */
 
 import { IrType } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { EmitterContext } from "../types.js";
 
 /**
- * Emit object types as dynamic
+ * Emit object types
+ *
+ * ICE: This should never be called. Frontend validation (TSN7403) should
+ * reject anonymous object types. If we reach here, validation has a gap.
  */
 export const emitObjectType = (
   _type: Extract<IrType, { kind: "objectType" }>,
-  context: EmitterContext
+  _context: EmitterContext
 ): [string, EmitterContext] => {
-  // For anonymous object types, we use dynamic or object
-  // In a more complete implementation, we might generate anonymous types
-  return ["dynamic", addUsing(context, "System")];
+  // ICE: Frontend validation (TSN7403) should have caught this.
+  throw new Error(
+    "ICE: Anonymous object type reached emitter - validation missed TSN7403"
+  );
 };

@@ -8,6 +8,18 @@ import { emitType } from "../type-emitter.js";
 import { emitExpression } from "../expression-emitter.js";
 
 /**
+ * Escape a string for use in a C# string literal.
+ * Handles backslashes, quotes, newlines, carriage returns, and tabs.
+ */
+const escapeCSharpString = (str: string): string =>
+  str
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+
+/**
  * Emit an array literal
  */
 export const emitArray = (
@@ -158,12 +170,25 @@ export const emitArray = (
 
 /**
  * Emit an object literal
+ *
+ * Handles two cases based on contextual type:
+ * 1. Dictionary type (Record<K,V> or index signature) → Dictionary<string, T> initializer
+ * 2. Nominal type (interface, class) → new TypeName { prop = value, ... }
+ *
+ * Anonymous object types should be caught by validation (TSN7403) before reaching here.
  */
 export const emitObject = (
   expr: Extract<IrExpression, { kind: "object" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
+
+  // Check if contextual type is a dictionary type
+  if (expr.contextualType?.kind === "dictionaryType") {
+    return emitDictionaryLiteral(expr, currentContext);
+  }
+
+  // Regular object literal with nominal type
   const properties: string[] = [];
 
   for (const prop of expr.properties) {
@@ -188,10 +213,87 @@ export const emitObject = (
     currentContext
   );
 
-  const text = typeName
-    ? `new ${typeName} { ${properties.join(", ")} }`
-    : `new { ${properties.join(", ")} }`;
+  if (!typeName) {
+    // ICE: Validation (TSN7403) should have caught anonymous object literals
+    throw new Error(
+      "ICE: Object literal without contextual type reached emitter - validation missed TSN7403"
+    );
+  }
+
+  const text = `new ${typeName} { ${properties.join(", ")} }`;
   return [{ text }, finalContext];
+};
+
+/**
+ * Emit a dictionary literal using C# collection initializer syntax.
+ *
+ * Input:  const d: Record<string, number> = { a: 1, b: 2 };
+ * Output: new Dictionary<string, double> { ["a"] = 1.0, ["b"] = 2.0 }
+ */
+const emitDictionaryLiteral = (
+  expr: Extract<IrExpression, { kind: "object" }>,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  let currentContext = addUsing(context, "System.Collections.Generic");
+
+  const dictType = expr.contextualType as Extract<
+    IrType,
+    { kind: "dictionaryType" }
+  >;
+
+  // Get key and value type strings
+  const [keyTypeStr, ctx1] = emitDictKeyType(dictType.keyType, currentContext);
+  const [valueTypeStr, ctx2] = emitType(dictType.valueType, ctx1);
+  currentContext = ctx2;
+
+  // Emit dictionary entries
+  const entries: string[] = [];
+
+  for (const prop of expr.properties) {
+    if (prop.kind === "spread") {
+      // Spread in dictionary literal - not supported
+      throw new Error("ICE: Spread in dictionary literal not supported");
+    } else {
+      // Key must be a string literal for dictionary initialization
+      if (typeof prop.key !== "string") {
+        throw new Error(
+          "ICE: Computed property key in dictionary literal - validation gap"
+        );
+      }
+
+      const [valueFrag, newContext] = emitExpression(
+        prop.value,
+        currentContext
+      );
+      entries.push(`["${escapeCSharpString(prop.key)}"] = ${valueFrag.text}`);
+      currentContext = newContext;
+    }
+  }
+
+  const text =
+    entries.length === 0
+      ? `new Dictionary<${keyTypeStr}, ${valueTypeStr}>()`
+      : `new Dictionary<${keyTypeStr}, ${valueTypeStr}> { ${entries.join(", ")} }`;
+
+  return [{ text }, currentContext];
+};
+
+/**
+ * Emit dictionary key type.
+ * TS dictionaries only support string keys (enforced by TSN7413).
+ */
+const emitDictKeyType = (
+  keyType: IrType,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  if (keyType.kind === "primitiveType" && keyType.name === "string") {
+    return ["string", context];
+  }
+
+  // ICE: Only string keys allowed (enforced by TSN7413)
+  throw new Error(
+    `ICE: Non-string dictionary key type reached emitter - validation missed TSN7413. Got: ${keyType.kind}`
+  );
 };
 
 /**

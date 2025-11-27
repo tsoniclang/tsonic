@@ -10,6 +10,7 @@ export type IrType =
   | IrArrayType
   | IrFunctionType
   | IrObjectType
+  | IrDictionaryType
   | IrUnionType
   | IrIntersectionType
   | IrLiteralType
@@ -45,6 +46,22 @@ export type IrFunctionType = {
 export type IrObjectType = {
   readonly kind: "objectType";
   readonly members: readonly IrInterfaceMember[];
+};
+
+/**
+ * Dictionary/map type for index signatures and Record<K, V>
+ *
+ * Examples:
+ * - `{ [k: string]: T }` → IrDictionaryType { keyType: string, valueType: T }
+ * - `Record<string, T>` → IrDictionaryType { keyType: string, valueType: T }
+ *
+ * Emits to C# Dictionary<TKey, TValue>.
+ * Access should be via indexer `d["key"]` (dot property access will fail in C#).
+ */
+export type IrDictionaryType = {
+  readonly kind: "dictionaryType";
+  readonly keyType: IrType;
+  readonly valueType: IrType;
 };
 
 export type IrUnionType = {
