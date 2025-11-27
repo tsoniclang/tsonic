@@ -1,0 +1,11 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "ArrayIndexTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "array-index-test",
+  "dotnet": {
+    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
+  }
+}

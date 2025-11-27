@@ -1,0 +1,12 @@
+{
+  "expectFailure": true,
+  "skip": true,
+  "modes": [],
+  "description": "Verifies that JS built-ins (.length, .some, .map, .filter) fail to compile in dotnet mode. Run with scripts/harness/run-negative-tests.sh",
+  "expectedErrors": [
+    "does not contain a definition for 'length'",
+    "does not contain a definition for 'some'",
+    "does not contain a definition for 'map'",
+    "does not contain a definition for 'filter'"
+  ]
+}
