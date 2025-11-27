@@ -501,6 +501,11 @@ const emitLiteral = (
     if (expr.value === -Infinity) {
       return [{ code: "double.NegativeInfinity" }, context];
     }
+    // TypeScript number is always double in C#
+    // Ensure integer literals have decimal point to enforce double type
+    if (Number.isInteger(expr.value) && !expr.value.toString().includes(".")) {
+      return [{ code: `${expr.value}.0` }, context];
+    }
     return [{ code: expr.value.toString() }, context];
   }
   if (typeof expr.value === "boolean") {
@@ -809,7 +814,7 @@ a.sort();
 // Generated C# (mode: "js")
 using Tsonic.JSRuntime;
 
-List<int> a = new() { 13, 4, 5, 6 };
+List<double> a = new() { 13.0, 4.0, 5.0, 6.0 };
 a.sort(); // Extension method with JS semantics
 ```
 
@@ -874,7 +879,7 @@ a.sort();
 
 ```csharp
 // Generated C# (mode: "dotnet")
-List<int> a = new() { 13, 4, 5, 6 };
+List<double> a = new() { 13.0, 4.0, 5.0, 6.0 };
 a.Sort(); // BCL method
 ```
 

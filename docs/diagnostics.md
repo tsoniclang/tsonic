@@ -8,10 +8,12 @@ Tsonic uses diagnostic codes in the format `TSNxxxx`:
 
 - **TSN1xxx** - Module resolution and import errors
 - **TSN2xxx** - Type system errors
-- **TSN3xxx** - Unsupported language features
-- **TSN4xxx** - Code generation errors
+- **TSN3xxx** - C# keyword and identifier errors
+- **TSN4xxx** - .NET interop errors
 - **TSN5xxx** - Build and backend errors
-- **TSN6xxx** - Configuration errors
+- **TSN6xxx** - Internal compiler errors
+- **TSN7xxx** - Language semantics and validation errors
+- **TSN9xxx** - Metadata and bindings loading errors
 
 ---
 
@@ -231,6 +233,83 @@ const module = await import("./dynamic.ts"); // ❌ Not supported
 ```
 
 **Fix:** Use static imports only.
+
+---
+
+## TSN7xxx: Language Semantics Errors
+
+These errors relate to Tsonic's language semantics and type system validation.
+
+### TSN7301: Class Cannot Implement Nominalized Interface
+
+**Error:** Attempting to use `implements` with a TypeScript interface.
+
+**Example:**
+
+```typescript
+interface Printable {
+  print(): void;
+}
+
+class Document implements Printable {
+  // ❌ TSN7301: Class cannot implement 'Printable'
+  print(): void {
+    console.log("printing...");
+  }
+}
+```
+
+**Why:** In Tsonic, TypeScript interfaces are "nominalized" to C# classes (not C# interfaces). This allows object literals to use C# object initializer syntax. Since interfaces become classes, you cannot "implement" them - C# classes cannot implement other classes.
+
+**Fix options:**
+
+1. **Use `extends` for inheritance:**
+
+```typescript
+interface Printable {
+  print(): void;
+}
+
+class Document extends Printable {
+  // ✅ Works - inherits from Printable class
+  print(): void {
+    console.log("printing...");
+  }
+}
+```
+
+2. **Use composition:**
+
+```typescript
+interface Printable {
+  print(): void;
+}
+
+class Document {
+  private printer: Printable;
+
+  constructor(printer: Printable) {
+    this.printer = printer;
+  }
+
+  print(): void {
+    this.printer.print();
+  }
+}
+```
+
+3. **Use duck typing (just define matching methods):**
+
+```typescript
+class Document {
+  // Just define the method - no interface needed
+  print(): void {
+    console.log("printing...");
+  }
+}
+```
+
+**Note:** The special `struct` marker interface is exempt from this rule - `implements struct` is allowed to mark value types.
 
 ---
 

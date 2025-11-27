@@ -2,6 +2,36 @@
 
 Working with TypeScript interfaces and type aliases in Tsonic.
 
+## Interface Nominalization
+
+**Key Concept:** TypeScript interfaces become C# **classes**, not C# interfaces.
+
+TypeScript uses structural typing - any object with matching properties satisfies an interface. C# requires nominal types for object initialization syntax. Tsonic "nominalizes" interfaces to classes to enable:
+
+- Object literal syntax: `return { id: 1, name: "John" };` → `new User { id = 1.0, name = "John" }`
+- Generic type arguments: `Container<User>` works correctly
+- Variable declarations: `const user: User = ...`
+
+### Implements Restriction
+
+Because interfaces become classes, you **cannot** use `implements` with TypeScript interfaces:
+
+```typescript
+// ❌ ERROR: TSN7301 - Class cannot implement nominalized interface
+interface Printable {
+  print(): void;
+}
+
+class Document implements Printable {
+  // This will fail to compile
+}
+```
+
+**Alternatives:**
+- Use `extends` for inheritance
+- Use composition (pass interface instances as parameters)
+- Use duck typing (just define matching methods)
+
 ## Interfaces
 
 Interfaces compile to C# classes:
@@ -25,12 +55,25 @@ public class User
 
 ## Type Aliases
 
-Simple type aliases work:
+Simple type aliases are substituted directly:
 
 ```typescript
-type ID = number;
-type Name = string;
+type ID = number;    // Becomes: double
+type Name = string;  // Becomes: string
+```
+
+Object type aliases become classes (same as interfaces):
+
+```typescript
 type Point = { x: number; y: number };
+```
+
+```csharp
+public class Point
+{
+    public double x { get; set; }
+    public double y { get; set; }
+}
 ```
 
 ## Optional Properties

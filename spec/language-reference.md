@@ -136,6 +136,7 @@ public static User createUser(string name, double age)
 **Implications**:
 
 - Interfaces are **not** C# interfaces - they cannot be implemented by multiple classes
+- Using `class Foo implements Bar` where `Bar` is an interface will produce error **TSN7301**
 - Type aliases for object shapes behave the same way
 - Anonymous object types remain as C# anonymous types (`new { ... }`)
 - This is a **deliberate semantic shift** from structural to nominal typing

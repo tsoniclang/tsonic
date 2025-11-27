@@ -62,7 +62,7 @@ namespace My.App
         private static readonly string name = "Alice";
         private static readonly double age = 25;
         private static readonly bool isActive = true;
-        private static readonly List<double> scores = new List<double> { 95, 87, 92 };
+        private static readonly List<double> scores = new List<double> { 95.0, 87.0, 92.0 };
         private static readonly object user = new { name = "Bob", age = 30.0 };
 
         public static void printInfo()

@@ -48,13 +48,13 @@ console.log(sparse.length); // 11
 ### Generated C#
 
 ```csharp
-var nums = new List<double> { 1, 2, 3 };
-Tsonic.Runtime.Array.push(nums, 4);
+var nums = new List<double> { 1.0, 2.0, 3.0 };
+Tsonic.Runtime.Array.push(nums, 4.0);
 Tsonic.Runtime.console.log(nums.Count);
 
 // Sparse array (fills 0-9 with 0.0)
 var sparse = new List<double>();
-Tsonic.Runtime.Array.set(sparse, 10, 42);
+Tsonic.Runtime.Array.set(sparse, 10, 42.0);
 Tsonic.Runtime.console.log(sparse.Count); // 11
 ```
 
@@ -211,6 +211,16 @@ public static async Task<string> fetchData()
 ---
 
 ## Interfaces and Classes
+
+**Key Rule:** TypeScript interfaces map to C# **classes**, not C# interfaces.
+
+TypeScript interfaces are structural types - any object with matching properties satisfies the interface. C# requires nominal types for object initialization. Tsonic "nominalizes" TypeScript interfaces to C# classes so that:
+
+1. Object literals can use C# object initializer syntax (`new Type { ... }`)
+2. Interface types work in variable declarations and return types
+3. Generic type arguments work correctly
+
+**Important:** Because interfaces become classes, you cannot use `implements` with TypeScript interfaces in Tsonic. Use `extends` for inheritance, or composition patterns.
 
 ```typescript
 interface User {

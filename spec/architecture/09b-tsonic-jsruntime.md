@@ -128,7 +128,7 @@ const sum = numbers.reduce((acc, x) => acc + x, 0);
 // Generated C# (mode: "js")
 using Tsonic.JSRuntime;
 
-var numbers = new List<double> { 1, 2, 3, 4, 5 };
+var numbers = new List<double> { 1.0, 2.0, 3.0, 4.0, 5.0 };
 var doubled = numbers.map(x => x * 2);
 var evens = numbers.filter(x => x % 2 == 0);
 var sum = numbers.reduce((acc, x) => acc + x, 0.0);
@@ -505,8 +505,8 @@ arr.push(4);
 
 ```csharp
 // Generated C# (mode: "dotnet")
-var arr = new List<double> { 1, 2, 3 };
-arr.Add(4);  // Direct BCL method
+var arr = new List<double> { 1.0, 2.0, 3.0 };
+arr.Add(4.0);  // Direct BCL method
 ```
 
 ### 10.2 mode: "js"
@@ -531,8 +531,8 @@ arr.push(4);
 // Generated C# (mode: "js")
 using Tsonic.JSRuntime;
 
-var arr = new List<double> { 1, 2, 3 };
-arr.push(4);  // Extension method from JSRuntime
+var arr = new List<double> { 1.0, 2.0, 3.0 };
+arr.push(4.0);  // Extension method from JSRuntime
 ```
 
 ---
