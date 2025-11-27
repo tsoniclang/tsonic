@@ -91,20 +91,11 @@ export const emitCall = (
 
     const shouldRewriteAsStatic = isStringType || isNumberType || isArrayType;
 
-    if (shouldRewriteAsStatic) {
-      const runtime = context.options.runtime ?? "js";
-
-      // Runtime mode "dotnet": Use BCL/LINQ instead of JSRuntime
-      if (runtime === "dotnet" && isArrayType) {
-        return emitArrayMethodAsDotnet(
-          methodName,
-          expr.callee.object,
-          expr.arguments,
-          context
-        );
-      }
-
-      // Runtime mode "js" (default): Use Tsonic.JSRuntime
+    // Only rewrite to JSRuntime in "js" mode
+    // In "dotnet" mode, there is no JS emulation - use .NET APIs directly
+    const runtime = context.options.runtime ?? "js";
+    if (shouldRewriteAsStatic && runtime === "js") {
+      // Runtime mode "js": Use Tsonic.JSRuntime
       // Determine which runtime class based on type
       let runtimeClass: string;
       if (isStringType) {
@@ -216,132 +207,6 @@ export const emitCall = (
     : callText;
 
   return [{ text }, currentContext];
-};
-
-/**
- * Emit array method calls as BCL/LINQ for runtime mode "dotnet"
- */
-const emitArrayMethodAsDotnet = (
-  methodName: string,
-  objectExpr: IrExpression,
-  args: readonly IrExpression[],
-  context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  const [objectFrag, objContext] = emitExpression(objectExpr, context);
-
-  // Map JS array methods to BCL/LINQ equivalents
-  switch (methodName) {
-    case "filter": {
-      // arr.filter(fn) → arr.Where(fn).ToList()
-      const predicateArg = args[0];
-      if (!predicateArg) {
-        throw new Error("Array.filter requires a predicate function");
-      }
-      const [predicateFrag, predContext] = emitExpression(
-        predicateArg,
-        objContext
-      );
-      const linqContext = addUsing(predContext, "System.Linq");
-      const text = `${objectFrag.text}.Where(${predicateFrag.text}).ToList()`;
-      return [{ text }, linqContext];
-    }
-
-    case "map": {
-      // arr.map(fn) → arr.Select(fn).ToList()
-      const selectorArg = args[0];
-      if (!selectorArg) {
-        throw new Error("Array.map requires a selector function");
-      }
-      const [selectorFrag, selContext] = emitExpression(
-        selectorArg,
-        objContext
-      );
-      const linqContext = addUsing(selContext, "System.Linq");
-      const text = `${objectFrag.text}.Select(${selectorFrag.text}).ToList()`;
-      return [{ text }, linqContext];
-    }
-
-    case "find": {
-      // arr.find(fn) → arr.FirstOrDefault(fn)
-      const predicateArg = args[0];
-      if (!predicateArg) {
-        throw new Error("Array.find requires a predicate function");
-      }
-      const [predicateFrag, predContext] = emitExpression(
-        predicateArg,
-        objContext
-      );
-      const linqContext = addUsing(predContext, "System.Linq");
-      const text = `${objectFrag.text}.FirstOrDefault(${predicateFrag.text})`;
-      return [{ text }, linqContext];
-    }
-
-    case "every": {
-      // arr.every(fn) → arr.All(fn)
-      const predicateArg = args[0];
-      if (!predicateArg) {
-        throw new Error("Array.every requires a predicate function");
-      }
-      const [predicateFrag, predContext] = emitExpression(
-        predicateArg,
-        objContext
-      );
-      const linqContext = addUsing(predContext, "System.Linq");
-      const text = `${objectFrag.text}.All(${predicateFrag.text})`;
-      return [{ text }, linqContext];
-    }
-
-    case "some": {
-      // arr.some(fn) → arr.Any(fn)
-      const predicateArg = args[0];
-      if (!predicateArg) {
-        throw new Error("Array.some requires a predicate function");
-      }
-      const [predicateFrag, predContext] = emitExpression(
-        predicateArg,
-        objContext
-      );
-      const linqContext = addUsing(predContext, "System.Linq");
-      const text = `${objectFrag.text}.Any(${predicateFrag.text})`;
-      return [{ text }, linqContext];
-    }
-
-    case "reduce": {
-      // arr.reduce(fn, init) → arr.Aggregate(init, fn)
-      const reducerArg = args[0];
-      const initialArg = args[1];
-      if (!reducerArg || !initialArg) {
-        throw new Error(
-          "Array.reduce requires a reducer function and initial value in dotnet mode"
-        );
-      }
-      const [reducerFrag, redContext] = emitExpression(reducerArg, objContext);
-      const [initialFrag, initContext] = emitExpression(initialArg, redContext);
-      const linqContext = addUsing(initContext, "System.Linq");
-      const text = `${objectFrag.text}.Aggregate(${initialFrag.text}, ${reducerFrag.text})`;
-      return [{ text }, linqContext];
-    }
-
-    case "push":
-    case "pop":
-    case "shift":
-    case "unshift":
-    case "splice":
-      // Mutating methods - not supported in dotnet mode
-      throw new Error(
-        `Array.${methodName}() is a mutating method and is not supported in runtime: "dotnet". ` +
-          `Use runtime: "js" or refactor to use immutable patterns (map, filter, concat, slice).`
-      );
-
-    default:
-      // Unknown method - fall back to regular method call
-      // This allows user-defined extension methods to work
-      throw new Error(
-        `Array.${methodName}() is not supported in runtime: "dotnet". ` +
-          `Supported methods: filter, map, find, every, some, reduce. ` +
-          `For mutating methods (push, pop, etc.), use runtime: "js".`
-      );
-  }
 };
 
 /**

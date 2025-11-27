@@ -59,11 +59,15 @@ export const emitIdentifier = (
     return [{ text: expr.resolvedClrType }, updatedContext];
   }
 
-  // Fallback for well-known runtime globals (when bindings not available)
-  const fallback = RUNTIME_FALLBACKS[expr.name];
-  if (fallback) {
-    const updatedContext = addUsing(context, "Tsonic.JSRuntime");
-    return [{ text: fallback }, updatedContext];
+  // Fallback for well-known runtime globals (only in js mode)
+  // In dotnet mode, there is no JS emulation - these globals don't exist
+  const runtime = context.options.runtime ?? "js";
+  if (runtime === "js") {
+    const fallback = RUNTIME_FALLBACKS[expr.name];
+    if (fallback) {
+      const updatedContext = addUsing(context, "Tsonic.JSRuntime");
+      return [{ text: fallback }, updatedContext];
+    }
   }
 
   // Fallback: use identifier as-is
