@@ -28,12 +28,15 @@ export const emitMemberAccess = (
 
   const [objectFrag, newContext] = emitExpression(expr.object, context);
 
+  // Default runtime to "js" when not specified
+  const runtime = context.options.runtime ?? "js";
+
   if (expr.isComputed) {
     // Check if this is array index access - rewrite to static helper
     const objectType = expr.object.inferredType;
     const isArrayType = objectType?.kind === "arrayType";
 
-    if (isArrayType && context.options.runtime !== "dotnet") {
+    if (isArrayType && runtime === "js") {
       // In JS runtime mode, rewrite: arr[index] → Tsonic.Runtime.Array.get(arr, index)
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
@@ -58,7 +61,7 @@ export const emitMemberAccess = (
     const accessor = expr.isOptional ? "?[" : "[";
 
     // In dotnet mode with arrays, check if we need to cast index to int
-    if (isArrayType && context.options.runtime === "dotnet") {
+    if (isArrayType && runtime === "dotnet") {
       const indexExpr = expr.property as IrExpression;
       // Check if the index is a non-integer numeric literal (now that integers are emitted as int)
       const needsCast =
@@ -82,24 +85,11 @@ export const emitMemberAccess = (
   const isArrayType = objectType?.kind === "arrayType";
 
   // In JS runtime mode, rewrite array.length → Tsonic.Runtime.Array.length(array)
-  if (
-    isArrayType &&
-    prop === "length" &&
-    context.options.runtime !== "dotnet"
-  ) {
+  // In dotnet mode, there is no JS emulation - users access .Count directly on List<T>
+  if (isArrayType && prop === "length" && runtime === "js") {
     const updatedContext = addUsing(newContext, "Tsonic.Runtime");
     const text = `Tsonic.Runtime.Array.length(${objectFrag.text})`;
     return [{ text }, updatedContext];
-  }
-
-  // In dotnet mode, List<> uses Count property instead of length
-  if (
-    isArrayType &&
-    prop === "length" &&
-    context.options.runtime === "dotnet"
-  ) {
-    const text = `${objectFrag.text}.Count`;
-    return [{ text }, newContext];
   }
 
   // Handle explicit interface view properties (As_IInterface)
