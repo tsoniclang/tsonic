@@ -35,7 +35,8 @@ export const emitPropertyMember = (
     parts.push("readonly");
   }
 
-  // Property type
+  // Property type - uses standard type emission pipeline
+  // Note: type is always set for class fields (from annotation or inference)
   if (member.type) {
     const [typeName, newContext] = emitType(member.type, currentContext);
     currentContext = newContext;

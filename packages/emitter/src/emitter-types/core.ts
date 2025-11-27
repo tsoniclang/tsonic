@@ -68,12 +68,21 @@ export type EmitterOptions = {
  * Import binding information for qualifying imported identifiers.
  * Local module imports are always emitted as fully-qualified references
  * to avoid C# name ambiguity.
+ *
+ * All CLR name resolution is done in the frontend - the emitter just uses
+ * the pre-computed clrName directly (no string parsing or type lookup).
  */
 export type ImportBinding = {
-  /** Fully qualified container (e.g., "MultiFileCheck.utils.Math") */
-  readonly fullyQualifiedContainer: string;
-  /** Exported name from target module (e.g., "add"), empty string for namespace imports */
-  readonly exportName: string;
+  /** Import kind: type (interface/class), value (function/variable), or namespace (import *) */
+  readonly kind: "type" | "value" | "namespace";
+  /**
+   * Fully-qualified CLR name.
+   * - For types: the type's FQN (e.g., "MultiFileTypes.models.User")
+   * - For values/namespaces: the container class FQN (e.g., "MultiFileTypes.models.user")
+   */
+  readonly clrName: string;
+  /** For value imports: the member name inside the container (e.g., "createUser") */
+  readonly member?: string;
 };
 
 /**

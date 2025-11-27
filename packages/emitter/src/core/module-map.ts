@@ -3,40 +3,15 @@
  */
 
 import { IrModule, Diagnostic } from "@tsonic/frontend";
+import type {
+  ModuleIdentity,
+  ModuleMap,
+  ExportSource,
+  ExportMap,
+} from "../emitter-types/core.js";
 
-/**
- * Module identity for import resolution
- */
-export type ModuleIdentity = {
-  /** Full namespace (e.g., "MultiFileCheck.utils") */
-  readonly namespace: string;
-  /** Container class name (e.g., "Math") */
-  readonly className: string;
-  /** Canonical file path (normalized, relative) */
-  readonly filePath: string;
-};
-
-/**
- * Map from canonical file paths to module identities
- */
-export type ModuleMap = ReadonlyMap<string, ModuleIdentity>;
-
-/**
- * Export source: where an export actually comes from
- * Used to resolve re-exports to their original source
- */
-export type ExportSource = {
-  /** Canonical file path of the actual source */
-  readonly sourceFile: string;
-  /** Name of the export in the source file */
-  readonly sourceName: string;
-};
-
-/**
- * Map from (moduleFilePath, exportName) to actual source
- * Key format: "moduleFilePath:exportName"
- */
-export type ExportMap = ReadonlyMap<string, ExportSource>;
+// Re-export types for backward compatibility
+export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
 
 /**
  * Normalize a file path for use as module map key

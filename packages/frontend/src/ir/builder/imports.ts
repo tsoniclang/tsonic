@@ -8,10 +8,12 @@ import { getBindingRegistry } from "../converters/statements/declarations/regist
 import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
 
 /**
- * Extract import declarations from source file
+ * Extract import declarations from source file.
+ * Uses TypeChecker to determine if each import is a type or value.
  */
 export const extractImports = (
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
 
@@ -24,7 +26,7 @@ export const extractImports = (
       const isLocal = source.startsWith(".") || source.startsWith("/");
       const isDotNet =
         !isLocal && !source.includes("/") && /^[A-Z]/.test(source);
-      const specifiers = extractImportSpecifiers(node);
+      const specifiers = extractImportSpecifiers(node, checker);
 
       // Check for module binding (Node.js API, etc.)
       const binding = getBindingRegistry().getBinding(source);
@@ -54,10 +56,12 @@ export const extractImports = (
 };
 
 /**
- * Extract import specifiers from an import declaration
+ * Extract import specifiers from an import declaration.
+ * Uses TypeChecker to determine if each named import is a type or value.
  */
 export const extractImportSpecifiers = (
-  node: ts.ImportDeclaration
+  node: ts.ImportDeclaration,
+  checker: ts.TypeChecker
 ): readonly IrImportSpecifier[] => {
   const specifiers: IrImportSpecifier[] = [];
 
@@ -79,10 +83,12 @@ export const extractImportSpecifiers = (
         });
       } else if (ts.isNamedImports(node.importClause.namedBindings)) {
         node.importClause.namedBindings.elements.forEach((spec) => {
+          const isType = isTypeImport(spec, checker);
           specifiers.push({
             kind: "named",
             name: (spec.propertyName ?? spec.name).text,
             localName: spec.name.text,
+            isType,
           });
         });
       }
@@ -90,4 +96,48 @@ export const extractImportSpecifiers = (
   }
 
   return specifiers;
+};
+
+/**
+ * Determine if an import specifier refers to a type (interface, class, type alias, enum).
+ * Uses TypeChecker to resolve the symbol and check its declaration kind.
+ */
+const isTypeImport = (
+  spec: ts.ImportSpecifier,
+  checker: ts.TypeChecker
+): boolean => {
+  try {
+    // TypeScript's isTypeOnly flag on the specifier itself (for `import { type Foo }`)
+    if (spec.isTypeOnly) {
+      return true;
+    }
+
+    // Get the symbol for this import specifier
+    const symbol = checker.getSymbolAtLocation(spec.name);
+    if (!symbol) {
+      return false;
+    }
+
+    // Follow aliases to get the actual symbol
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+
+    if (!resolvedSymbol) {
+      return false;
+    }
+
+    // Check if the symbol is a type
+    const flags = resolvedSymbol.flags;
+    return !!(
+      flags & ts.SymbolFlags.Interface ||
+      flags & ts.SymbolFlags.Class ||
+      flags & ts.SymbolFlags.TypeAlias ||
+      flags & ts.SymbolFlags.Enum ||
+      flags & ts.SymbolFlags.TypeParameter
+    );
+  } catch {
+    return false;
+  }
 };

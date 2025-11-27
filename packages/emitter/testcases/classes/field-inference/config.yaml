@@ -1,0 +1,1 @@
+- Counter.ts: should infer CLR types for class fields without type annotations

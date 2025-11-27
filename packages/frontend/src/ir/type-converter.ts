@@ -8,4 +8,6 @@ export {
   convertFunctionType,
   convertObjectType,
   convertBindingName,
+  inferType,
+  convertTsTypeToIr,
 } from "./type-converter/index.js";

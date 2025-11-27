@@ -3,6 +3,9 @@
  *
  * Local module imports are always emitted as fully-qualified references.
  * This eliminates the need for collision detection and using aliases.
+ *
+ * All CLR name resolution happens here using module map - the emitter
+ * just uses the pre-computed clrName directly (no string parsing).
  */
 
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
@@ -13,7 +16,7 @@ import { resolveImportPath } from "./module-map.js";
  * Process imports and collect using statements.
  *
  * - BCL/runtime imports: Add to using statements
- * - Local module imports: Build ImportBindings with fully-qualified containers (no using)
+ * - Local module imports: Build ImportBindings with fully-qualified CLR names (no using)
  */
 export const processImports = (
   imports: readonly IrImport[],
@@ -34,7 +37,7 @@ export const processImports = (
     }
 
     if (imp.isLocal) {
-      // Local import - build ImportBindings with fully-qualified containers
+      // Local import - build ImportBindings with fully-qualified CLR names
       // NO using directive for local modules
       const moduleMap = ctx.options.moduleMap;
       const exportMap = ctx.options.exportMap;
@@ -60,11 +63,10 @@ export const processImports = (
           const targetModule = moduleMap.get(actualSourcePath);
 
           if (targetModule) {
-            // Build fully-qualified container reference to actual source
-            const fullyQualifiedContainer = `${targetModule.namespace}.${targetModule.className}`;
-            const binding = createImportBindingWithName(
+            const binding = createImportBinding(
               spec,
-              fullyQualifiedContainer,
+              targetModule.namespace,
+              targetModule.className,
               actualExportName
             );
             if (binding) {
@@ -89,34 +91,57 @@ export const processImports = (
 };
 
 /**
- * Create import binding with explicit export name.
- * Used for re-exports where the resolved name may differ from spec.name.
+ * Create import binding with fully-qualified CLR names.
+ * Uses isType from frontend (set by TS checker) to determine kind.
+ *
+ * - Type imports: clrName is the type's FQN (namespace.TypeName)
+ * - Value imports: clrName is the container FQN, member is the export name
+ * - Namespace imports: clrName is the container FQN
  */
-const createImportBindingWithName = (
+const createImportBinding = (
   spec: IrImportSpecifier,
-  fullyQualifiedContainer: string,
+  namespace: string,
+  containerClassName: string,
   resolvedExportName: string
 ): { localName: string; importBinding: ImportBinding } | null => {
-  // Determine local name based on specifier kind
   const localName = spec.localName;
+  const containerFqn = `${namespace}.${containerClassName}`;
 
   if (spec.kind === "named") {
-    return {
-      localName,
-      importBinding: {
-        fullyQualifiedContainer,
-        exportName: resolvedExportName, // Use resolved name (may differ for re-exports)
-      },
-    };
+    // Use isType from frontend (determined by TS checker)
+    const isType = spec.isType === true;
+
+    if (isType) {
+      // Type import: clrName is the type's FQN at namespace level
+      // Types are emitted at namespace level, not inside container class
+      return {
+        localName,
+        importBinding: {
+          kind: "type",
+          clrName: `${namespace}.${resolvedExportName}`,
+        },
+      };
+    } else {
+      // Value import: clrName is container, member is the export name
+      return {
+        localName,
+        importBinding: {
+          kind: "value",
+          clrName: containerFqn,
+          member: resolvedExportName,
+        },
+      };
+    }
   }
 
   if (spec.kind === "default") {
     // Default export binds to the container class itself
+    // TODO: Consider adding diagnostic for unsupported default exports
     return {
       localName,
       importBinding: {
-        fullyQualifiedContainer,
-        exportName: "", // Empty = container class itself
+        kind: "value",
+        clrName: containerFqn,
       },
     };
   }
@@ -126,8 +151,8 @@ const createImportBindingWithName = (
     return {
       localName,
       importBinding: {
-        fullyQualifiedContainer,
-        exportName: "", // Empty = the whole module/container
+        kind: "namespace",
+        clrName: containerFqn,
       },
     };
   }

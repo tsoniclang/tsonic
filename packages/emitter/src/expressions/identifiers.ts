@@ -37,14 +37,13 @@ export const emitIdentifier = (
     const binding = context.importBindings.get(expr.name);
     if (binding) {
       // Imported identifier - always use fully-qualified reference
-      if (binding.exportName === "") {
-        // Namespace or default import - just use the fully-qualified container
-        return [{ text: binding.fullyQualifiedContainer }, context];
-      } else {
-        // Named import - fully qualified: Container.exportName
-        const qualified = `${binding.fullyQualifiedContainer}.${binding.exportName}`;
-        return [{ text: qualified }, context];
+      // Use pre-computed clrName directly (all resolution done when building binding)
+      if (binding.member) {
+        // Value import with member - Container.member
+        return [{ text: `${binding.clrName}.${binding.member}` }, context];
       }
+      // Type, namespace, or default import - use clrName directly
+      return [{ text: binding.clrName }, context];
     }
   }
 

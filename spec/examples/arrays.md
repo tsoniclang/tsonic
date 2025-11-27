@@ -49,7 +49,7 @@ namespace My.App
         public static void arrayOperations()
         {
             // Create arrays - TypeScript arrays become List<T>
-            var numbers = new List<double> { 1, 2, 3, 4, 5 };
+            var numbers = new List<double> { 1.0, 2.0, 3.0, 4.0, 5.0 };
             var names = new List<string> { "Alice", "Bob", "Charlie" };
             var mixed = new List<object> { 1, "two", true };
 
@@ -153,7 +153,7 @@ namespace My.App
     {
         public static void supportedMethods()
         {
-            var arr = new List<double> { 1, 2, 3, 4, 5 };
+            var arr = new List<double> { 1.0, 2.0, 3.0, 4.0, 5.0 };
 
             // Supported methods - use static helpers
             var joined = Tsonic.Runtime.Array.join(arr, ", ");
@@ -176,7 +176,7 @@ namespace My.App
 
         public static void manualIterations()
         {
-            var arr = new List<double> { 1, 2, 3, 4, 5 };
+            var arr = new List<double> { 1.0, 2.0, 3.0, 4.0, 5.0 };
 
             // Manual map
             var doubled = new List<double>();
@@ -337,7 +337,7 @@ namespace My.App
         public static void mixedArrayTypes()
         {
             // TypeScript array (becomes List<T>)
-            var tsArray = new List<double> { 1, 2, 3 };
+            var tsArray = new List<double> { 1.0, 2.0, 3.0 };
             Tsonic.Runtime.Array.push(tsArray, 4);  // Static helper
 
             // Explicit .NET List

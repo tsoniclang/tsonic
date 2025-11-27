@@ -21,13 +21,11 @@ export const emitArray = (
   // Determine element type from expected type or inferred type
   let elementType = "object";
 
-  // Check if all elements are integer literals first
-  // This takes precedence over inferred type to handle integer arrays correctly
+  // Check if all elements are literals to infer element type
   const definedElements = expr.elements.filter(
     (el): el is IrExpression => el !== undefined
   );
 
-  let hasIntegerLiterals = false;
   if (definedElements.length > 0) {
     const allLiterals = definedElements.every((el) => el.kind === "literal");
 
@@ -41,18 +39,9 @@ export const emitArray = (
       const allNumbers = literals.every((lit) => typeof lit.value === "number");
 
       if (allNumbers) {
-        // Check if all numbers are integers
-        const allIntegers = literals.every(
-          (lit) => typeof lit.value === "number" && Number.isInteger(lit.value)
-        );
-
-        if (allIntegers) {
-          elementType = "int";
-          hasIntegerLiterals = true;
-        } else {
-          elementType = "double";
-          hasIntegerLiterals = false;
-        }
+        // TypeScript `number` is always `double` in C#
+        // Even if all literals are integers, use double for TS semantics
+        elementType = "double";
       }
       // Check if all are strings
       else if (literals.every((lit) => typeof lit.value === "string")) {
@@ -65,42 +54,39 @@ export const emitArray = (
     }
   }
 
-  // Only use inferred/expected type if we didn't find integer literals
-  if (!hasIntegerLiterals) {
-    // First try expectedType
-    if (expectedType) {
-      if (expectedType.kind === "arrayType") {
-        const [elemTypeStr, newContext] = emitType(
-          expectedType.elementType,
-          currentContext
-        );
+  // Use expected/inferred type if available (takes precedence over literal inference)
+  if (expectedType) {
+    if (expectedType.kind === "arrayType") {
+      const [elemTypeStr, newContext] = emitType(
+        expectedType.elementType,
+        currentContext
+      );
+      elementType = elemTypeStr;
+      currentContext = newContext;
+    } else if (
+      expectedType.kind === "referenceType" &&
+      expectedType.name === "Array" &&
+      expectedType.typeArguments &&
+      expectedType.typeArguments.length > 0
+    ) {
+      const firstArg = expectedType.typeArguments[0];
+      if (firstArg) {
+        const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
         elementType = elemTypeStr;
         currentContext = newContext;
-      } else if (
-        expectedType.kind === "referenceType" &&
-        expectedType.name === "Array" &&
-        expectedType.typeArguments &&
-        expectedType.typeArguments.length > 0
-      ) {
-        const firstArg = expectedType.typeArguments[0];
-        if (firstArg) {
-          const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
-          elementType = elemTypeStr;
-          currentContext = newContext;
-        }
       }
     }
-    // If no expectedType, try to use the inferredType from the expression
-    else if (expr.inferredType && expr.inferredType.kind === "arrayType") {
-      // Only use inferredType if we didn't already determine the type from literals
-      if (elementType === "object") {
-        const [elemTypeStr, newContext] = emitType(
-          expr.inferredType.elementType,
-          currentContext
-        );
-        elementType = elemTypeStr;
-        currentContext = newContext;
-      }
+  }
+  // If no expectedType, try to use the inferredType from the expression
+  else if (expr.inferredType && expr.inferredType.kind === "arrayType") {
+    // Only use inferredType if we didn't already determine the type from literals
+    if (elementType === "object") {
+      const [elemTypeStr, newContext] = emitType(
+        expr.inferredType.elementType,
+        currentContext
+      );
+      elementType = elemTypeStr;
+      currentContext = newContext;
     }
   }
 
@@ -195,6 +181,65 @@ export const emitObject = (
     }
   }
 
-  const text = `new { ${properties.join(", ")} }`;
-  return [{ text }, currentContext];
+  // Check for contextual type (from return type, variable annotation, etc.)
+  // If present, emit `new TypeName { ... }` instead of anonymous `new { ... }`
+  const [typeName, finalContext] = resolveContextualType(
+    expr.contextualType,
+    currentContext
+  );
+
+  const text = typeName
+    ? `new ${typeName} { ${properties.join(", ")} }`
+    : `new { ${properties.join(", ")} }`;
+  return [{ text }, finalContext];
+};
+
+/**
+ * Resolve contextual type to C# type string.
+ * Uses emitType to properly handle generic type arguments.
+ * For imported types, qualifies using importBindings.
+ */
+const resolveContextualType = (
+  contextualType: IrType | undefined,
+  context: EmitterContext
+): [string | undefined, EmitterContext] => {
+  if (!contextualType) {
+    return [undefined, context];
+  }
+
+  // For reference types, check if imported and qualify if needed
+  if (contextualType.kind === "referenceType") {
+    const typeName = contextualType.name;
+    const importBinding = context.importBindings?.get(typeName);
+
+    if (importBinding && importBinding.kind === "type") {
+      // Imported type - use qualified name from binding
+      // Emit type arguments if present
+      if (
+        contextualType.typeArguments &&
+        contextualType.typeArguments.length > 0
+      ) {
+        let currentContext = context;
+        const typeArgStrs: string[] = [];
+        for (const typeArg of contextualType.typeArguments) {
+          const [typeArgStr, newContext] = emitType(typeArg, currentContext);
+          typeArgStrs.push(typeArgStr);
+          currentContext = newContext;
+        }
+        return [
+          `${importBinding.clrName}<${typeArgStrs.join(", ")}>`,
+          currentContext,
+        ];
+      }
+      return [importBinding.clrName, context];
+    }
+
+    // Local type - use emitType to handle type arguments
+    const [typeStr, newContext] = emitType(contextualType, context);
+    return [typeStr, newContext];
+  }
+
+  // For other types, use standard emitType
+  const [typeStr, newContext] = emitType(contextualType, context);
+  return [typeStr, newContext];
 };

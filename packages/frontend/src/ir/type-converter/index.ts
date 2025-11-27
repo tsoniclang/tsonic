@@ -8,3 +8,4 @@ export {
   convertObjectType,
 } from "./converter.js";
 export { convertBindingName } from "./patterns.js";
+export { inferType, convertTsTypeToIr } from "./inference.js";

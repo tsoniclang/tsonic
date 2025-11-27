@@ -43,6 +43,7 @@ export type IrVariableDeclaration = {
 export type IrVariableDeclarator = {
   readonly kind: "variableDeclarator";
   readonly name: IrPattern;
+  /** Type from annotation or inferred. Always set for module-level exports (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
 };
@@ -96,6 +97,7 @@ export type IrMethodDeclaration = {
 export type IrPropertyDeclaration = {
   readonly kind: "propertyDeclaration";
   readonly name: string;
+  /** Type from annotation or inferred. Always set for class fields (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
   readonly isStatic: boolean;

@@ -43,7 +43,50 @@ export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  const { name, typeArguments } = type;
+  const { name, typeArguments, resolvedClrType } = type;
+
+  // If the type has a pre-resolved CLR type (from IR), use it
+  if (resolvedClrType) {
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${resolvedClrType}<${typeParams.join(", ")}>`, currentContext];
+    }
+    return [resolvedClrType, context];
+  }
+
+  // Check if this type is imported - use pre-computed CLR name directly
+  const importBinding = context.importBindings?.get(name);
+  if (importBinding) {
+    // Use clrName directly - all resolution was done when building the binding
+    // For type imports: clrName is the type's FQN (e.g., "MultiFileTypes.models.User")
+    // For value imports: clrName is container, member is the export name
+    // Note: Type references should only match type bindings; value bindings
+    // appearing here would be a bug (referencing a function as a type)
+    const qualifiedName =
+      importBinding.kind === "type"
+        ? importBinding.clrName
+        : importBinding.member
+          ? `${importBinding.clrName}.${importBinding.member}`
+          : importBinding.clrName;
+
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${qualifiedName}<${typeParams.join(", ")}>`, currentContext];
+    }
+    return [qualifiedName, context];
+  }
 
   // Check for unsupported support types
   const unsupportedError = checkUnsupportedSupportType(name);

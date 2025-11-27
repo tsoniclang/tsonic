@@ -38,7 +38,7 @@ The `mode` field is the key semantic switch in Tsonic. It determines whether bui
 
 **Important**: Mode does NOT change the underlying CLR types. In both modes:
 
-- `number[]` compiles to `List<int>` or `List<double>`
+- `number[]` compiles to `List<double>`
 - `string` compiles to `string`
 - All types remain .NET native for interop compatibility
 
@@ -194,7 +194,7 @@ a.sort();
 Generated C#:
 
 ```csharp
-List<int> a = new() { 13, 4, 5, 6 };
+List<double> a = new() { 13.0, 4.0, 5.0, 6.0 };
 a.Sort();
 ```
 
@@ -224,7 +224,7 @@ Generated C#:
 ```csharp
 using Tsonic.JSRuntime;
 
-List<int> a = new() { 13, 4, 5, 6 };
+List<double> a = new() { 13.0, 4.0, 5.0, 6.0 };
 a.sort(); // Extension method with JS semantics
 ```
 
@@ -253,7 +253,7 @@ const a = [1, 2, 3];
 SomeDotnetLib.consume(a);
 ```
 
-The library receives a standard `List<int>` - no wrapper types, no JS runtime types. This ensures full interop compatibility.
+The library receives a standard `List<double>` - no wrapper types, no JS runtime types. This ensures full interop compatibility.
 
 ### When to Use Each Mode
 
