@@ -84,6 +84,119 @@ describe("Statement Emission", () => {
     expect(result).to.include('return "negative or zero"');
   });
 
+  it("should emit canonical for loops with int counter and no cast", () => {
+    // Test: for (let i = 0; i < list.Count; i++) { list[i] }
+    // Should emit: for (int i = 0; ...) { list[i] } - NO (int) cast
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "functionDeclaration",
+          name: "process",
+          parameters: [
+            {
+              kind: "parameter",
+              pattern: { kind: "identifierPattern", name: "items" },
+              type: {
+                kind: "referenceType",
+                name: "List",
+                typeArguments: [{ kind: "primitiveType", name: "number" }],
+              },
+              isOptional: false,
+              isRest: false,
+              passing: "value",
+            },
+          ],
+          returnType: { kind: "voidType" },
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "forStatement",
+                initializer: {
+                  kind: "variableDeclaration",
+                  declarationKind: "let",
+                  declarations: [
+                    {
+                      kind: "variableDeclarator",
+                      name: { kind: "identifierPattern", name: "i" },
+                      initializer: { kind: "literal", value: 0 },
+                    },
+                  ],
+                  isExported: false,
+                },
+                condition: {
+                  kind: "binary",
+                  operator: "<",
+                  left: { kind: "identifier", name: "i" },
+                  right: {
+                    kind: "memberAccess",
+                    object: { kind: "identifier", name: "items" },
+                    property: "Count",
+                    isComputed: false,
+                    isOptional: false,
+                  },
+                },
+                update: {
+                  kind: "update",
+                  operator: "++",
+                  prefix: false,
+                  expression: { kind: "identifier", name: "i" },
+                },
+                body: {
+                  kind: "blockStatement",
+                  statements: [
+                    {
+                      kind: "expressionStatement",
+                      expression: {
+                        kind: "call",
+                        callee: {
+                          kind: "memberAccess",
+                          object: { kind: "identifier", name: "console" },
+                          property: "log",
+                          isComputed: false,
+                          isOptional: false,
+                        },
+                        arguments: [
+                          {
+                            kind: "memberAccess",
+                            object: { kind: "identifier", name: "items" },
+                            property: { kind: "identifier", name: "i" },
+                            isComputed: true,
+                            isOptional: false,
+                          },
+                        ],
+                        isOptional: false,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          isExported: true,
+          isAsync: false,
+          isGenerator: false,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Canonical loop: int i = 0 (not var i = 0.0)
+    expect(result).to.include("for (int i = 0;");
+    // CLR indexer without cast: items[i] (not items[(int)(i)])
+    expect(result).to.include("items[i]");
+    // Must NOT contain the redundant cast
+    expect(result).to.not.include("[(int)");
+  });
+
   it("should emit for loops", () => {
     const module: IrModule = {
       kind: "module",

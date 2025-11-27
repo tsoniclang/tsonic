@@ -54,7 +54,9 @@ export const emitMemberAccess = (
       return [{ text }, finalContext];
     }
 
-    // Regular computed access (non-array types)
+    // CLR indexer access (non-TS-array types like List<T>, string, etc.)
+    // CLR indexers require integral indices.
+    // This applies in BOTH js and dotnet modes - CLR type requirements are mode-independent.
     const indexContext = { ...newContext, isArrayIndex: true };
     const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
@@ -63,7 +65,15 @@ export const emitMemberAccess = (
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
 
-    const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
+    // Check if the index is already known to be int (e.g., canonical loop counter)
+    const indexExpr = expr.property as IrExpression;
+    const isKnownInt =
+      indexExpr.kind === "identifier" &&
+      context.intLoopVars?.has(indexExpr.name);
+
+    // Skip cast if index is known int, otherwise cast for safety
+    const indexText = isKnownInt ? propFrag.text : `(int)(${propFrag.text})`;
+    const text = `${objectFrag.text}${accessor}${indexText}]`;
     return [{ text }, finalContext];
   }
 
