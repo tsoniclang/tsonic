@@ -79,14 +79,9 @@ const autoDetectOutputType = (entryPoint: string | undefined): OutputType => {
     return "library";
   }
 
-  // If entry point exists and contains main/index, it's likely an executable
-  const entryName = entryPoint.toLowerCase();
-  if (entryName.includes("main") || entryName.includes("index")) {
-    return "executable";
-  }
-
-  // Default to library
-  return "library";
+  // If entry point is provided, default to executable
+  // The user specified an entry point, so they want a runnable program
+  return "executable";
 };
 
 /**
@@ -188,13 +183,9 @@ export const resolveConfig = (
     dotnetVersion: config.dotnetVersion ?? "net10.0",
     optimize: cliOptions.optimize ?? config.optimize ?? "speed",
     runtime: config.runtime ?? "js",
-    packages: [
-      { name: "Tsonic.Runtime", version: "0.0.1" },
-      ...((config.runtime ?? "js") === "js"
-        ? [{ name: "Tsonic.JSRuntime", version: "0.0.1" }]
-        : []),
-      ...(config.dotnet?.packages ?? config.packages ?? []),
-    ],
+    // Only include user-specified packages
+    // Runtime DLLs are bundled with @tsonic/tsonic and added as assembly references
+    packages: config.dotnet?.packages ?? config.packages ?? [],
     outputConfig,
     stripSymbols: cliOptions.noStrip
       ? false

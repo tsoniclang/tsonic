@@ -70,6 +70,14 @@ export type ConsoleAppConfig = {
 export type OutputConfig = ExecutableConfig | LibraryConfig | ConsoleAppConfig;
 
 /**
+ * Assembly reference (for DLL files)
+ */
+export type AssemblyReference = {
+  readonly name: string;
+  readonly hintPath: string;
+};
+
+/**
  * Build configuration options
  */
 export type BuildConfig = {
@@ -77,6 +85,7 @@ export type BuildConfig = {
   readonly outputName: string;
   readonly dotnetVersion: string;
   readonly runtimePath?: string;
+  readonly assemblyReferences?: readonly AssemblyReference[];
   readonly packages: readonly NuGetPackage[];
   readonly outputConfig: OutputConfig;
   // Legacy fields for backward compatibility

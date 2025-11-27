@@ -24,6 +24,7 @@ import {
   type BuildConfig,
   type ExecutableConfig,
   type LibraryConfig,
+  type AssemblyReference,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../types.js";
 
@@ -35,6 +36,63 @@ const findProjectCsproj = (): string | null => {
   const files = readdirSync(cwd);
   const csprojFile = files.find((f) => f.endsWith(".csproj"));
   return csprojFile ? join(cwd, csprojFile) : null;
+};
+
+/**
+ * Find runtime DLLs from @tsonic/tsonic npm package
+ * Returns assembly references for the csproj file
+ */
+const findRuntimeDlls = (
+  runtime: "js" | "dotnet",
+  outputDir: string
+): readonly AssemblyReference[] => {
+  // Try to find @tsonic/tsonic package runtime directory
+  const possiblePaths = [
+    // From project's node_modules
+    join(process.cwd(), "node_modules/@tsonic/tsonic/runtime"),
+    // From CLI's node_modules (when installed globally or via npx)
+    join(import.meta.dirname, "../../runtime"),
+    join(import.meta.dirname, "../../../runtime"),
+  ];
+
+  let runtimeDir: string | null = null;
+  for (const p of possiblePaths) {
+    if (existsSync(p)) {
+      runtimeDir = p;
+      break;
+    }
+  }
+
+  if (!runtimeDir) {
+    return [];
+  }
+
+  const refs: AssemblyReference[] = [];
+
+  // Calculate relative path from output directory to runtime directory
+  const relativeRuntimeDir = relative(outputDir, runtimeDir);
+
+  // Always include Tsonic.Runtime
+  const runtimeDll = join(runtimeDir, "Tsonic.Runtime.dll");
+  if (existsSync(runtimeDll)) {
+    refs.push({
+      name: "Tsonic.Runtime",
+      hintPath: join(relativeRuntimeDir, "Tsonic.Runtime.dll"),
+    });
+  }
+
+  // Include Tsonic.JSRuntime for js mode
+  if (runtime === "js") {
+    const jsRuntimeDll = join(runtimeDir, "Tsonic.JSRuntime.dll");
+    if (existsSync(jsRuntimeDll)) {
+      refs.push({
+        name: "Tsonic.JSRuntime",
+        hintPath: join(relativeRuntimeDir, "Tsonic.JSRuntime.dll"),
+      });
+    }
+  }
+
+  return refs;
 };
 
 /**
@@ -237,17 +295,20 @@ export const emitCommand = (
         );
       }
     } else if (!existsSync(csprojPath)) {
-      // Find Tsonic.Runtime.csproj path - try multiple locations
+      // Find Tsonic runtime - try multiple approaches:
+      // 1. ProjectReference to .csproj (development/monorepo)
+      // 2. Assembly references to DLLs (npm installed package)
       let runtimePath: string | undefined;
+      let assemblyReferences: readonly AssemblyReference[] = [];
 
-      // 1. Try monorepo structure (development)
+      // 1. Try monorepo structure (development) - ProjectReference
       const monorepoPath = resolve(
         join(import.meta.dirname, "../../../runtime/src/Tsonic.Runtime.csproj")
       );
       if (existsSync(monorepoPath)) {
         runtimePath = monorepoPath;
       } else {
-        // 2. Try installed package structure
+        // 2. Try installed package structure - ProjectReference
         const installedPath = resolve(
           join(
             import.meta.dirname,
@@ -256,13 +317,19 @@ export const emitCommand = (
         );
         if (existsSync(installedPath)) {
           runtimePath = installedPath;
+        } else {
+          // 3. Try to find runtime DLLs from npm package
+          assemblyReferences = findRuntimeDlls(
+            config.runtime ?? "js",
+            outputDir
+          );
         }
       }
 
       // Warn if no runtime found
-      if (!runtimePath && !config.quiet) {
+      if (!runtimePath && assemblyReferences.length === 0 && !config.quiet) {
         console.warn(
-          "Warning: Tsonic.Runtime.csproj not found. You may need to add a reference manually."
+          "Warning: Tsonic runtime not found. You may need to add references manually."
         );
       }
 
@@ -300,6 +367,7 @@ export const emitCommand = (
         outputName: config.outputName,
         dotnetVersion: config.dotnetVersion,
         runtimePath,
+        assemblyReferences,
         packages,
         outputConfig,
       };

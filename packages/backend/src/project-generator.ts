@@ -10,6 +10,7 @@ import {
   LibraryConfig,
   ConsoleAppConfig,
   PackageMetadata,
+  AssemblyReference,
 } from "./types.js";
 
 /**
@@ -30,6 +31,31 @@ const formatPackageReferences = (packages: readonly NuGetPackage[]): string => {
   return `
   <ItemGroup>
 ${refs}
+  </ItemGroup>`;
+};
+
+/**
+ * Generate assembly references XML (for DLL files)
+ */
+const formatAssemblyReferences = (
+  refs: readonly AssemblyReference[]
+): string => {
+  if (refs.length === 0) {
+    return "";
+  }
+
+  const refElements = refs
+    .map(
+      (ref) =>
+        `    <Reference Include="${ref.name}">
+      <HintPath>${ref.hintPath}</HintPath>
+    </Reference>`
+    )
+    .join("\n");
+
+  return `
+  <ItemGroup>
+${refElements}
   </ItemGroup>`;
 };
 
@@ -169,6 +195,9 @@ const generatePropertyGroup = (
  */
 export const generateCsproj = (config: BuildConfig): string => {
   const packageRefs = formatPackageReferences(config.packages);
+  const assemblyRefs = formatAssemblyReferences(
+    config.assemblyReferences ?? []
+  );
   const runtimeRef = config.runtimePath
     ? `
   <ItemGroup>
@@ -179,7 +208,7 @@ export const generateCsproj = (config: BuildConfig): string => {
   const propertyGroup = generatePropertyGroup(config, config.outputConfig);
 
   return `<Project Sdk="Microsoft.NET.Sdk">
-${propertyGroup}${packageRefs}${runtimeRef}
+${propertyGroup}${packageRefs}${assemblyRefs}${runtimeRef}
 </Project>
 `;
 };
