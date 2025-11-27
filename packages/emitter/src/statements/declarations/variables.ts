@@ -56,20 +56,33 @@ export const emitVariableDeclaration = (
           paramTypes.push(paramType);
           currentContext = newCtx;
         } else {
-          paramTypes.push("dynamic");
+          // ICE: Frontend validation (TSN7405) should have caught this.
+          const paramName =
+            param.pattern.kind === "identifierPattern"
+              ? param.pattern.name
+              : "unknown";
+          throw new Error(
+            `ICE: Untyped parameter '${paramName}' reached emitter - validation missed TSN7405`
+          );
         }
       }
 
-      // Infer return type from arrow function if available
-      let returnType = "dynamic";
-      if (arrowFunc.returnType) {
-        const [retType, newCtx] = emitType(
-          arrowFunc.returnType,
-          currentContext
+      // Get return type: explicit annotation, or infer from TS checker
+      const arrowReturnType =
+        arrowFunc.returnType ??
+        (arrowFunc.inferredType?.kind === "functionType"
+          ? arrowFunc.inferredType.returnType
+          : undefined);
+
+      if (!arrowReturnType) {
+        // ICE: Neither explicit nor inferred return type available
+        throw new Error(
+          "ICE: Arrow function without return type reached emitter - neither explicit nor inferred type available"
         );
-        returnType = retType;
-        currentContext = newCtx;
       }
+
+      const [returnType, retCtx] = emitType(arrowReturnType, currentContext);
+      currentContext = retCtx;
 
       const allTypes = [...paramTypes, returnType];
       const funcType = `Func<${allTypes.join(", ")}>`;

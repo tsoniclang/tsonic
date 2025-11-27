@@ -9,6 +9,7 @@ import { emitReferenceType } from "./references.js";
 import { emitArrayType } from "./arrays.js";
 import { emitFunctionType } from "./functions.js";
 import { emitObjectType } from "./objects.js";
+import { emitDictionaryType } from "./dictionaries.js";
 import { emitUnionType } from "./unions.js";
 import { emitIntersectionType } from "./intersections.js";
 import { emitLiteralType } from "./literals.js";
@@ -36,6 +37,9 @@ export const emitType = (
     case "objectType":
       return emitObjectType(type, context);
 
+    case "dictionaryType":
+      return emitDictionaryType(type, context);
+
     case "unionType":
       return emitUnionType(type, context);
 
@@ -46,9 +50,13 @@ export const emitType = (
       return emitLiteralType(type, context);
 
     case "anyType":
-      return ["dynamic", context];
+      // ICE: Frontend validation (TSN7401) should have caught this.
+      throw new Error(
+        "ICE: 'any' type reached emitter - validation missed TSN7401"
+      );
 
     case "unknownType":
+      // 'unknown' is a legitimate type - emit as nullable object
       return ["object?", context];
 
     case "voidType":
@@ -57,8 +65,12 @@ export const emitType = (
     case "neverType":
       return ["void", context];
 
-    default:
-      // Fallback for unhandled types
-      return ["object", context];
+    default: {
+      // ICE: All IR types should be handled explicitly
+      const exhaustiveCheck: never = type;
+      throw new Error(
+        `ICE: Unhandled IR type kind: ${(exhaustiveCheck as IrType).kind}`
+      );
+    }
   }
 };

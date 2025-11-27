@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import {
   IrType,
   IrObjectType,
+  IrDictionaryType,
   IrInterfaceMember,
   IrPropertySignature,
   IrMethodSignature,
@@ -13,13 +14,49 @@ import {
 import { convertParameters as convertParametersFromStatement } from "../statement-converter.js";
 
 /**
- * Convert TypeScript object literal type to IR object type
+ * Convert TypeScript object literal type to IR type.
+ *
+ * Returns IrDictionaryType for pure index signature types like:
+ * - `{ [k: string]: T }`
+ * - `{ [k: number]: T }`
+ *
+ * Returns IrObjectType for regular object types with named members.
  */
 export const convertObjectType = (
   node: ts.TypeLiteralNode,
   checker: ts.TypeChecker,
   convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
-): IrObjectType => {
+): IrObjectType | IrDictionaryType => {
+  // Check for pure index signature type (no other members)
+  const indexSignatures = node.members.filter(ts.isIndexSignatureDeclaration);
+  const otherMembers = node.members.filter(
+    (m) => !ts.isIndexSignatureDeclaration(m)
+  );
+
+  // If ONLY index signature(s) exist, convert to dictionary type
+  if (indexSignatures.length > 0 && otherMembers.length === 0) {
+    // Use the first index signature (TypeScript allows multiple, but we take first)
+    const indexSig = indexSignatures[0]!;
+    const keyParam = indexSig.parameters[0];
+
+    // Determine key type from parameter type
+    const keyType: IrType = keyParam?.type
+      ? convertKeyType(keyParam.type)
+      : { kind: "primitiveType", name: "string" };
+
+    // Determine value type
+    const valueType: IrType = indexSig.type
+      ? convertType(indexSig.type, checker)
+      : { kind: "anyType" };
+
+    return {
+      kind: "dictionaryType",
+      keyType,
+      valueType,
+    };
+  }
+
+  // Regular object type with named members
   const members: IrInterfaceMember[] = [];
 
   node.members.forEach((member) => {
@@ -52,4 +89,19 @@ export const convertObjectType = (
   });
 
   return { kind: "objectType", members };
+};
+
+/**
+ * Convert index signature key type to IR type.
+ * Only string and number are valid as index signature keys.
+ */
+const convertKeyType = (typeNode: ts.TypeNode): IrType => {
+  if (typeNode.kind === ts.SyntaxKind.StringKeyword) {
+    return { kind: "primitiveType", name: "string" };
+  }
+  if (typeNode.kind === ts.SyntaxKind.NumberKeyword) {
+    return { kind: "primitiveType", name: "number" };
+  }
+  // Fallback to string for other cases
+  return { kind: "primitiveType", name: "string" };
 };

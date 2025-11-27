@@ -236,11 +236,231 @@ describe("Generic Validation", () => {
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
 
-      // Should have NO generic-related diagnostics (TSN7xxx)
-      const genericDiags = diagnostics.diagnostics.filter((d) =>
-        d.code.startsWith("TSN7")
+      // Should have NO generic-specific diagnostics (TSN71xx, TSN72xx)
+      // Note: TSN74xx (static safety) may fire due to 'any' in test code, but that's expected
+      const genericDiags = diagnostics.diagnostics.filter(
+        (d) => d.code.startsWith("TSN71") || d.code.startsWith("TSN72")
       );
       expect(genericDiags).to.have.lengthOf(0);
+    });
+  });
+});
+
+describe("Static Safety Validation", () => {
+  describe("TSN7401 - 'any' type banned", () => {
+    it("should reject explicit any type annotation", () => {
+      const source = `
+        export const x: any = 1;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
+      expect(anyDiag).not.to.equal(undefined);
+      expect(anyDiag?.message).to.include("'any' type is not supported");
+    });
+
+    it("should reject 'as any' type assertion", () => {
+      const source = `
+        export const x = (123 as any);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
+      expect(anyDiag).not.to.equal(undefined);
+      expect(anyDiag?.message).to.include("'as any'");
+    });
+
+    it("should allow unknown type", () => {
+      const source = `
+        export function process(data: unknown): void {
+          console.log(data);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
+      expect(anyDiag).to.equal(undefined);
+    });
+  });
+
+  describe("TSN7403 - Object literal requires nominal type", () => {
+    it("should reject object literal without contextual type", () => {
+      const source = `
+        const a = { x: 1 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).not.to.equal(undefined);
+      expect(objDiag?.message).to.include("contextual nominal type");
+    });
+
+    it("should allow object literal with interface type", () => {
+      const source = `
+        interface Point { x: number; y: number }
+        const p: Point = { x: 1, y: 2 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should allow object literal with Record type", () => {
+      const source = `
+        const d: Record<string, number> = { a: 1, b: 2 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+  });
+
+  describe("TSN7405 - Untyped function parameters", () => {
+    it("should reject untyped function parameter", () => {
+      const source = `
+        export function greet(name): void {
+          console.log(name);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).not.to.equal(undefined);
+      expect(paramDiag?.message).to.include("explicit type annotation");
+    });
+
+    it("should reject untyped arrow function parameter", () => {
+      const source = `
+        const fn = (x) => x + 1;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).not.to.equal(undefined);
+      expect(paramDiag?.message).to.include("explicit type annotation");
+    });
+
+    it("should reject untyped function expression parameter", () => {
+      const source = `
+        const fn = function(x) { return x + 1; };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).not.to.equal(undefined);
+      expect(paramDiag?.message).to.include("explicit type annotation");
+    });
+
+    it("should allow typed function parameter", () => {
+      const source = `
+        export function greet(name: string): void {
+          console.log(name);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow typed arrow function parameter", () => {
+      const source = `
+        const fn = (x: number): number => x + 1;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+  });
+
+  describe("TSN7413 - Dictionary key must be string", () => {
+    it("should reject Record with number key", () => {
+      const source = `
+        const d: Record<number, string> = {};
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).not.to.equal(undefined);
+      expect(keyDiag?.message).to.include("string");
+    });
+
+    it("should reject index signature with number key", () => {
+      const source = `
+        interface NumIndexed {
+          [key: number]: string;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).not.to.equal(undefined);
+      expect(keyDiag?.message).to.include("string");
+    });
+
+    it("should allow Record with string key", () => {
+      const source = `
+        const d: Record<string, number> = {};
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow index signature with string key", () => {
+      const source = `
+        interface StringIndexed {
+          [key: string]: number;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).to.equal(undefined);
     });
   });
 });

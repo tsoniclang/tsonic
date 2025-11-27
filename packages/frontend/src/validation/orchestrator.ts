@@ -12,6 +12,7 @@ import { validateImports } from "./imports.js";
 import { validateExports } from "./exports.js";
 import { validateUnsupportedFeatures } from "./features.js";
 import { validateGenerics } from "./generics.js";
+import { validateStaticSafety } from "./static-safety.js";
 
 /**
  * Validate an entire Tsonic program
@@ -40,6 +41,7 @@ export const validateSourceFile = (
     validateExports,
     validateUnsupportedFeatures,
     validateGenerics,
+    validateStaticSafety,
   ];
 
   return validationFns.reduce(

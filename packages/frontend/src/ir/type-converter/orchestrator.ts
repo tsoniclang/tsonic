@@ -3,7 +3,12 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrFunctionType, IrObjectType } from "../types.js";
+import {
+  IrType,
+  IrFunctionType,
+  IrObjectType,
+  IrDictionaryType,
+} from "../types.js";
 import { convertPrimitiveKeyword } from "./primitives.js";
 import { convertTypeReference } from "./references.js";
 import { convertArrayType } from "./arrays.js";
@@ -77,4 +82,4 @@ export { convertFunctionType } from "./functions.js";
 export { convertObjectType } from "./objects.js";
 
 // Export types
-export type { IrFunctionType, IrObjectType };
+export type { IrFunctionType, IrObjectType, IrDictionaryType };

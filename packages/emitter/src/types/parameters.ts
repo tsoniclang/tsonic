@@ -27,17 +27,17 @@ export const emitTypeParameters = (
 
   for (const tp of typeParams) {
     if (tp.constraint) {
-      const [constraintStr, newContext] = emitType(
-        tp.constraint,
-        currentContext
-      );
-      currentContext = newContext;
-
-      // Handle structural constraints specially
+      // Handle structural constraints specially - they generate adapter interfaces
+      // Don't call emitType on objectType constraints (would trigger ICE)
       if (tp.isStructuralConstraint) {
         // Structural constraints generate interfaces - reference them
         whereClauses.push(`where ${tp.name} : __Constraint_${tp.name}`);
       } else {
+        const [constraintStr, newContext] = emitType(
+          tp.constraint,
+          currentContext
+        );
+        currentContext = newContext;
         whereClauses.push(`where ${tp.name} : ${constraintStr}`);
       }
     }

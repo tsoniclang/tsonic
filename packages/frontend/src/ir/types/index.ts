@@ -77,6 +77,7 @@ export type {
   IrArrayType,
   IrFunctionType,
   IrObjectType,
+  IrDictionaryType,
   IrUnionType,
   IrIntersectionType,
   IrLiteralType,
