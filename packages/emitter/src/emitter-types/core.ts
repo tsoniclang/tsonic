@@ -113,6 +113,8 @@ export type EmitterContext = {
   readonly bindingsRegistry?: ReadonlyMap<string, TypeBinding>;
   /** Map of local names to import binding info (for qualifying imported identifiers) */
   readonly importBindings?: ReadonlyMap<string, ImportBinding>;
+  /** Set of variable names known to be int (from canonical for-loop counters) */
+  readonly intLoopVars?: ReadonlySet<string>;
 };
 
 /**
