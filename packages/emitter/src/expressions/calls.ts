@@ -3,7 +3,7 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
+import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
 
@@ -106,12 +106,12 @@ export const emitCall = (
         runtimeClass = "Array";
       }
 
-      // Rewrite: obj.method(args) → Tsonic.JSRuntime.{Class}.method(obj, args)
+      // Rewrite: obj.method(args) → global::Tsonic.JSRuntime.{Class}.method(obj, args)
       const [objectFrag, objContext] = emitExpression(
         expr.callee.object,
         context
       );
-      let currentContext = addUsing(objContext, "Tsonic.JSRuntime");
+      let currentContext = objContext;
 
       const args: string[] = [objectFrag.text]; // Object becomes first argument
       for (let i = 0; i < expr.arguments.length; i++) {
@@ -139,7 +139,7 @@ export const emitCall = (
         }
       }
 
-      const text = `Tsonic.JSRuntime.${runtimeClass}.${methodName}(${args.join(", ")})`;
+      const text = `global::Tsonic.JSRuntime.${runtimeClass}.${methodName}(${args.join(", ")})`;
       return [{ text }, currentContext];
     }
   }

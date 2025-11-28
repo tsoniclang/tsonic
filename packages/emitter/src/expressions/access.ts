@@ -3,7 +3,7 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
+import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import {
   isExplicitViewProperty,
@@ -19,11 +19,10 @@ export const emitMemberAccess = (
 ): [CSharpFragment, EmitterContext] => {
   // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
-    // Emit the full CLR type and member from the binding
+    // Emit the full CLR type and member with global:: prefix
     const { assembly, type, member } = expr.memberBinding;
-    const updatedContext = addUsing(context, assembly);
-    const text = `${type}.${member}`;
-    return [{ text }, updatedContext];
+    const text = `global::${assembly}.${type}.${member}`;
+    return [{ text }, context];
   }
 
   const [objectFrag, newContext] = emitExpression(expr.object, context);
@@ -46,11 +45,8 @@ export const emitMemberAccess = (
         expr.property as IrExpression,
         indexContext
       );
-      const finalContext = addUsing(
-        { ...contextWithIndex, isArrayIndex: false },
-        "Tsonic.Runtime"
-      );
-      const text = `Tsonic.Runtime.Array.get(${objectFrag.text}, ${propFrag.text})`;
+      const finalContext = { ...contextWithIndex, isArrayIndex: false };
+      const text = `global::Tsonic.Runtime.Array.get(${objectFrag.text}, ${propFrag.text})`;
       return [{ text }, finalContext];
     }
 
@@ -82,12 +78,11 @@ export const emitMemberAccess = (
   const objectType = expr.object.inferredType;
   const isArrayType = objectType?.kind === "arrayType";
 
-  // In JS runtime mode, rewrite array.length → Tsonic.Runtime.Array.length(array)
+  // In JS runtime mode, rewrite array.length → global::Tsonic.Runtime.Array.length(array)
   // In dotnet mode, there is no JS emulation - users access .Count directly on List<T>
   if (isArrayType && prop === "length" && runtime === "js") {
-    const updatedContext = addUsing(newContext, "Tsonic.Runtime");
-    const text = `Tsonic.Runtime.Array.length(${objectFrag.text})`;
-    return [{ text }, updatedContext];
+    const text = `global::Tsonic.Runtime.Array.length(${objectFrag.text})`;
+    return [{ text }, newContext];
   }
 
   // Handle explicit interface view properties (As_IInterface)

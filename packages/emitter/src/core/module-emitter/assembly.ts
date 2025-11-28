@@ -1,9 +1,12 @@
 /**
  * Final output assembly
+ *
+ * NOTE: No using statements are emitted. All type and member references
+ * use fully-qualified global:: names to eliminate any ambiguity.
  */
 
 import { IrModule } from "@tsonic/frontend";
-import { EmitterContext, formatUsings } from "../../types.js";
+import { EmitterContext } from "../../types.js";
 
 export type AssemblyParts = {
   readonly header: string;
@@ -20,18 +23,14 @@ export type AssemblyParts = {
 export const assembleOutput = (
   module: IrModule,
   parts: AssemblyParts,
-  finalContext: EmitterContext
+  _finalContext: EmitterContext
 ): string => {
-  const usings = formatUsings(finalContext.usings);
-
   const result: string[] = [];
 
   if (parts.header) {
     result.push(parts.header);
   }
 
-  result.push(usings);
-  result.push("");
   result.push(`namespace ${module.namespace}`);
   result.push("{");
 

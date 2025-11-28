@@ -1,9 +1,11 @@
 /**
  * Reference type emission (Array, Promise, Error, etc.)
+ *
+ * All types are emitted with global:: prefix for unambiguous resolution.
  */
 
 import { IrType } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 import {
   isNestedType,
@@ -101,32 +103,30 @@ export const emitReferenceType = (
   if (name === "Array" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
-      const updatedContext = addUsing(context, "System.Collections.Generic");
-      return [`List<object>`, updatedContext];
+      return [`global::System.Collections.Generic.List<object>`, context];
     }
     const [elementType, newContext] = emitType(firstArg, context);
-    const updatedContext = addUsing(newContext, "System.Collections.Generic");
-    return [`List<${elementType}>`, updatedContext];
+    return [
+      `global::System.Collections.Generic.List<${elementType}>`,
+      newContext,
+    ];
   }
 
   if (name === "Promise" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
-      const updatedContext = addUsing(context, "System.Threading.Tasks");
-      return [`Task`, updatedContext];
+      return [`global::System.Threading.Tasks.Task`, context];
     }
     const [elementType, newContext] = emitType(firstArg, context);
-    const updatedContext = addUsing(newContext, "System.Threading.Tasks");
     // Promise<void> should map to Task (not Task<void>)
     if (elementType === "void") {
-      return [`Task`, updatedContext];
+      return [`global::System.Threading.Tasks.Task`, newContext];
     }
-    return [`Task<${elementType}>`, updatedContext];
+    return [`global::System.Threading.Tasks.Task<${elementType}>`, newContext];
   }
 
   if (name === "Promise") {
-    const updatedContext = addUsing(context, "System.Threading.Tasks");
-    return ["Task", updatedContext];
+    return ["global::System.Threading.Tasks.Task", context];
   }
 
   // Map common JS types to .NET equivalents
@@ -143,17 +143,12 @@ export const emitReferenceType = (
       return [name, context];
     }
 
-    let updatedContext = context;
-
-    if (csharpType.startsWith("Tsonic.Runtime")) {
-      updatedContext = addUsing(context, "Tsonic.Runtime");
-    } else if (csharpType.startsWith("System")) {
-      updatedContext = addUsing(context, "System");
-    }
+    // Always emit with global:: prefix for unambiguous resolution
+    const fqnType = `global::${csharpType}`;
 
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];
-      let currentContext = updatedContext;
+      let currentContext = context;
 
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
@@ -161,10 +156,10 @@ export const emitReferenceType = (
         currentContext = newContext;
       }
 
-      return [`${csharpType}<${typeParams.join(", ")}>`, currentContext];
+      return [`${fqnType}<${typeParams.join(", ")}>`, currentContext];
     }
 
-    return [csharpType, updatedContext];
+    return [fqnType, context];
   }
 
   // Handle type arguments for other reference types

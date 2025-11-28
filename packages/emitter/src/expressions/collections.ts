@@ -3,7 +3,7 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
+import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitType } from "../type-emitter.js";
 import { emitExpression } from "../expression-emitter.js";
 
@@ -27,7 +27,7 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
-  let currentContext = addUsing(context, "System.Collections.Generic");
+  let currentContext = context;
   const elements: string[] = [];
 
   // Determine element type from expected type or inferred type
@@ -108,8 +108,8 @@ export const emitArray = (
   );
 
   if (allSpreads && expr.elements.length > 0) {
-    // Emit as chained Concat calls: arr1.Concat(arr2).Concat(arr3)
-    // Note: Concat returns IEnumerable<T>, so wrap in ToList() at the end
+    // Emit as chained Enumerable.Concat calls using explicit static invocation
+    // Note: Concat returns IEnumerable<T>, so wrap in Enumerable.ToList() at the end
     const spreadElements = expr.elements.filter(
       (el): el is Extract<IrExpression, { kind: "spread" }> =>
         el !== undefined && el.kind === "spread"
@@ -118,14 +118,17 @@ export const emitArray = (
     const firstSpread = spreadElements[0];
     if (!firstSpread) {
       // Should never happen due to allSpreads check, but satisfy TypeScript
-      return [{ text: "new List<object>()" }, currentContext];
+      return [
+        { text: "new global::System.Collections.Generic.List<object>()" },
+        currentContext,
+      ];
     }
 
     const [firstFrag, firstContext] = emitExpression(
       firstSpread.expression,
       currentContext
     );
-    currentContext = addUsing(firstContext, "System.Linq");
+    currentContext = firstContext;
 
     let result = firstFrag.text;
     for (let i = 1; i < spreadElements.length; i++) {
@@ -135,13 +138,17 @@ export const emitArray = (
           spread.expression,
           currentContext
         );
-        result = `${result}.Concat(${spreadFrag.text})`;
+        // Use explicit static call for extension method
+        result = `global::System.Linq.Enumerable.Concat(${result}, ${spreadFrag.text})`;
         currentContext = newContext;
       }
     }
 
-    // Wrap in ToList() to return List<T>
-    return [{ text: `${result}.ToList()` }, currentContext];
+    // Wrap in Enumerable.ToList() using explicit static call
+    return [
+      { text: `global::System.Linq.Enumerable.ToList(${result})` },
+      currentContext,
+    ];
   }
 
   // Regular array or mixed spreads/elements
@@ -162,8 +169,8 @@ export const emitArray = (
   // Use constructor syntax for empty arrays, initializer syntax for non-empty
   const text =
     elements.length === 0
-      ? `new List<${elementType}>()`
-      : `new List<${elementType}> { ${elements.join(", ")} }`;
+      ? `new global::System.Collections.Generic.List<${elementType}>()`
+      : `new global::System.Collections.Generic.List<${elementType}> { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };
@@ -234,7 +241,7 @@ const emitDictionaryLiteral = (
   expr: Extract<IrExpression, { kind: "object" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  let currentContext = addUsing(context, "System.Collections.Generic");
+  let currentContext = context;
 
   const dictType = expr.contextualType as Extract<
     IrType,
@@ -272,8 +279,8 @@ const emitDictionaryLiteral = (
 
   const text =
     entries.length === 0
-      ? `new Dictionary<${keyTypeStr}, ${valueTypeStr}>()`
-      : `new Dictionary<${keyTypeStr}, ${valueTypeStr}> { ${entries.join(", ")} }`;
+      ? `new global::System.Collections.Generic.Dictionary<${keyTypeStr}, ${valueTypeStr}>()`
+      : `new global::System.Collections.Generic.Dictionary<${keyTypeStr}, ${valueTypeStr}> { ${entries.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

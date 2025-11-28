@@ -9,7 +9,6 @@ import {
   indent,
   withAsync,
   withStatic,
-  addUsing,
 } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
@@ -36,7 +35,6 @@ export const emitFunctionDeclaration = (
 
   if (stmt.isAsync && !stmt.isGenerator) {
     parts.push("async");
-    currentContext = addUsing(currentContext, "System.Threading.Tasks");
   }
 
   // Return type
@@ -44,11 +42,13 @@ export const emitFunctionDeclaration = (
     // Generator functions return IEnumerable<exchange> or IAsyncEnumerable<exchange>
     const exchangeName = `${stmt.name}_exchange`;
     if (stmt.isAsync) {
-      parts.push(`async IAsyncEnumerable<${exchangeName}>`);
-      currentContext = addUsing(currentContext, "System.Collections.Generic");
+      parts.push(
+        `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
+      );
     } else {
-      parts.push(`IEnumerable<${exchangeName}>`);
-      currentContext = addUsing(currentContext, "System.Collections.Generic");
+      parts.push(
+        `global::System.Collections.Generic.IEnumerable<${exchangeName}>`
+      );
     }
   } else if (stmt.returnType) {
     const [returnType, newContext] = emitType(stmt.returnType, currentContext);
@@ -62,10 +62,14 @@ export const emitFunctionDeclaration = (
     ) {
       parts.push(returnType); // Already Task<T> from emitType
     } else {
-      parts.push(stmt.isAsync ? `Task<${returnType}>` : returnType);
+      parts.push(
+        stmt.isAsync
+          ? `global::System.Threading.Tasks.Task<${returnType}>`
+          : returnType
+      );
     }
   } else {
-    parts.push(stmt.isAsync ? "Task" : "void");
+    parts.push(stmt.isAsync ? "global::System.Threading.Tasks.Task" : "void");
   }
 
   // Function name
@@ -87,7 +91,7 @@ export const emitFunctionDeclaration = (
     withStatic(indent(currentContext), false),
     stmt.isAsync
   );
-  const [bodyCode, finalContext] = emitBlockStatement(stmt.body, bodyContext);
+  const [bodyCode] = emitBlockStatement(stmt.body, bodyContext);
 
   // Collect out parameters that need initialization
   const outParams: Array<{ name: string; type: string }> = [];
@@ -138,6 +142,6 @@ export const emitFunctionDeclaration = (
       : "";
   const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
 
-  // Return context preserving usings from body but keeping original context flags
-  return [code, { ...currentContext, usings: finalContext.usings }];
+  // Return context - no usings tracking needed with global:: FQN approach
+  return [code, currentContext];
 };

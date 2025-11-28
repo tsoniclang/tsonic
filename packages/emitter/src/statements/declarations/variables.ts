@@ -3,7 +3,7 @@
  */
 
 import { IrStatement, IrArrayPattern } from "@tsonic/frontend";
-import { EmitterContext, getIndent, addUsing } from "../../types.js";
+import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
 
@@ -85,8 +85,7 @@ export const emitVariableDeclaration = (
       currentContext = retCtx;
 
       const allTypes = [...paramTypes, returnType];
-      const funcType = `Func<${allTypes.join(", ")}>`;
-      currentContext = addUsing(currentContext, "System");
+      const funcType = `global::System.Func<${allTypes.join(", ")}>`;
       varDecl += `${funcType} `;
     } else {
       varDecl += "var ";
@@ -127,13 +126,12 @@ export const emitVariableDeclaration = (
       currentContext = newContext;
 
       const arrayPattern = decl.name as IrArrayPattern;
-      // Add using for Tsonic.Runtime.Array static helpers
-      currentContext = addUsing(currentContext, "Tsonic.Runtime");
+      // Use global:: prefix for Tsonic.Runtime.Array static helpers
       for (let i = 0; i < arrayPattern.elements.length; i++) {
         const element = arrayPattern.elements[i];
         if (element && element.kind === "identifierPattern") {
           // Use double literal for index (JavaScript uses doubles for all numbers)
-          const elementVarDecl = `${varDecl}${element.name} = Tsonic.Runtime.Array.get(${initFrag.text}, ${i}.0);`;
+          const elementVarDecl = `${varDecl}${element.name} = global::Tsonic.Runtime.Array.get(${initFrag.text}, ${i}.0);`;
           declarations.push(`${ind}${elementVarDecl}`);
         }
         // Skip undefined elements (holes in array pattern)

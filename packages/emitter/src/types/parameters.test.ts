@@ -13,7 +13,6 @@ describe("Parameter modifiers (ref/out/in)", () => {
     indentLevel: 0,
     isStatic: false,
     isAsync: false,
-    usings: new Set(),
     options: { runtime: "dotnet", rootNamespace: "Test" },
   };
 

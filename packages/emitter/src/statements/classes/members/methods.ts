@@ -9,7 +9,6 @@ import {
   indent,
   dedent,
   withAsync,
-  addUsing,
 } from "../../../types.js";
 import { emitType, emitTypeParameters } from "../../../type-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
@@ -41,7 +40,6 @@ export const emitMethodMember = (
 
   if (member.isAsync) {
     parts.push("async");
-    currentContext = addUsing(currentContext, "System.Threading.Tasks");
   }
 
   // Return type
@@ -60,10 +58,14 @@ export const emitMethodMember = (
     ) {
       parts.push(returnType); // Already Task<T> from emitType
     } else {
-      parts.push(member.isAsync ? `Task<${returnType}>` : returnType);
+      parts.push(
+        member.isAsync
+          ? `global::System.Threading.Tasks.Task<${returnType}>`
+          : returnType
+      );
     }
   } else {
-    parts.push(member.isAsync ? "Task" : "void");
+    parts.push(member.isAsync ? "global::System.Threading.Tasks.Task" : "void");
   }
 
   // Method name

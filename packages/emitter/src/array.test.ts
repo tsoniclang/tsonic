@@ -49,8 +49,12 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Integer literals create List<int> - C# infers type from literal values
-    expect(code).to.include("new List<int> { 1, 2, 3 }");
-    expect(code).to.include("using System.Collections.Generic");
+    // Uses global:: FQN for unambiguous resolution
+    expect(code).to.include(
+      "new global::System.Collections.Generic.List<int> { 1, 2, 3 }"
+    );
+    // No using statements - all types use global:: FQN
+    expect(code).not.to.include("using System.Collections.Generic");
   });
 
   it("should emit sparse array with holes", () => {
@@ -93,7 +97,9 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should handle sparse array with default - integer literals create List<int>
-    expect(code).to.include("new List<int> { 1, default, 3 }");
+    expect(code).to.include(
+      "new global::System.Collections.Generic.List<int> { 1, default, 3 }"
+    );
   });
 
   it("should emit array with string elements", () => {
@@ -135,7 +141,9 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should use string type parameter
-    expect(code).to.include("new List<string>");
+    expect(code).to.include(
+      "new global::System.Collections.Generic.List<string>"
+    );
     expect(code).to.include('"hello", "world"');
   });
 
@@ -175,7 +183,9 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should create empty array
-    expect(code).to.include("new List<double>()");
+    expect(code).to.include(
+      "new global::System.Collections.Generic.List<double>()"
+    );
   });
 
   it("should emit array method calls correctly", () => {
@@ -285,7 +295,7 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use static helper for array access
-    expect(code).to.include("Tsonic.Runtime.Array.get(arr, 0)");
+    // Should use static helper for array access with global:: prefix
+    expect(code).to.include("global::Tsonic.Runtime.Array.get(arr, 0)");
   });
 });

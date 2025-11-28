@@ -3,7 +3,7 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
+import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 
 /**
@@ -121,10 +121,9 @@ export const emitUnary = (
   const [operandFrag, newContext] = emitExpression(expr.expression, context);
 
   if (expr.operator === "typeof") {
-    // typeof becomes Tsonic.Runtime.Operators.typeof()
-    const updatedContext = addUsing(newContext, "Tsonic.Runtime");
-    const text = `Tsonic.Runtime.Operators.@typeof(${operandFrag.text})`;
-    return [{ text }, updatedContext];
+    // typeof becomes global::Tsonic.Runtime.Operators.typeof()
+    const text = `global::Tsonic.Runtime.Operators.@typeof(${operandFrag.text})`;
+    return [{ text }, newContext];
   }
 
   if (expr.operator === "void") {

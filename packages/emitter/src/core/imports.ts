@@ -1,22 +1,25 @@
 /**
  * Import processing and resolution
  *
- * Local module imports are always emitted as fully-qualified references.
- * This eliminates the need for collision detection and using aliases.
+ * All imports are resolved to fully-qualified global:: references.
+ * No using statements are emitted - everything uses explicit FQN.
  *
  * All CLR name resolution happens here using module map - the emitter
  * just uses the pre-computed clrName directly (no string parsing).
  */
 
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
-import { EmitterContext, addUsing, ImportBinding } from "../types.js";
+import { EmitterContext, ImportBinding } from "../types.js";
 import { resolveImportPath } from "./module-map.js";
 
 /**
- * Process imports and collect using statements.
+ * Process imports and build ImportBindings for local modules.
  *
- * - BCL/runtime imports: Add to using statements
- * - Local module imports: Build ImportBindings with fully-qualified CLR names (no using)
+ * NOTE: No using statements are collected. All type/member references
+ * are emitted as fully-qualified global:: names.
+ *
+ * - BCL/runtime imports: No action needed (types use global:: FQN)
+ * - Local module imports: Build ImportBindings with fully-qualified CLR names
  */
 export const processImports = (
   imports: readonly IrImport[],
@@ -26,15 +29,8 @@ export const processImports = (
   const importBindings = new Map<string, ImportBinding>();
 
   const updatedContext = imports.reduce((ctx, imp) => {
-    if (imp.resolvedAssembly) {
-      // Module binding (Node.js API, etc.) - add assembly using
-      return addUsing(ctx, imp.resolvedAssembly);
-    }
-
-    if (imp.isDotNet) {
-      // .NET import - add to using statements
-      return imp.resolvedNamespace ? addUsing(ctx, imp.resolvedNamespace) : ctx;
-    }
+    // BCL/runtime imports: No using needed, types are emitted with global:: FQN
+    // .NET imports: No using needed, types are emitted with global:: FQN
 
     if (imp.isLocal) {
       // Local import - build ImportBindings with fully-qualified CLR names
@@ -91,12 +87,12 @@ export const processImports = (
 };
 
 /**
- * Create import binding with fully-qualified CLR names.
+ * Create import binding with fully-qualified global:: CLR names.
  * Uses isType from frontend (set by TS checker) to determine kind.
  *
- * - Type imports: clrName is the type's FQN (namespace.TypeName)
- * - Value imports: clrName is the container FQN, member is the export name
- * - Namespace imports: clrName is the container FQN
+ * - Type imports: clrName is the type's global:: FQN (global::namespace.TypeName)
+ * - Value imports: clrName is the container global:: FQN, member is the export name
+ * - Namespace imports: clrName is the container global:: FQN
  */
 const createImportBinding = (
   spec: IrImportSpecifier,
@@ -105,7 +101,7 @@ const createImportBinding = (
   resolvedExportName: string
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
-  const containerFqn = `${namespace}.${containerClassName}`;
+  const containerFqn = `global::${namespace}.${containerClassName}`;
 
   if (spec.kind === "named") {
     // Use isType from frontend (determined by TS checker)
@@ -118,7 +114,7 @@ const createImportBinding = (
         localName,
         importBinding: {
           kind: "type",
-          clrName: `${namespace}.${resolvedExportName}`,
+          clrName: `global::${namespace}.${resolvedExportName}`,
         },
       };
     } else {

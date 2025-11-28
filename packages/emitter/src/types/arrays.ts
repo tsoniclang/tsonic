@@ -3,17 +3,19 @@
  */
 
 import { IrType } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 
 /**
- * Emit array types as List<T>
+ * Emit array types as global::System.Collections.Generic.List<T>
  */
 export const emitArrayType = (
   type: Extract<IrType, { kind: "arrayType" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
   const [elementType, newContext] = emitType(type.elementType, context);
-  const updatedContext = addUsing(newContext, "System.Collections.Generic");
-  return [`List<${elementType}>`, updatedContext];
+  return [
+    `global::System.Collections.Generic.List<${elementType}>`,
+    newContext,
+  ];
 };
