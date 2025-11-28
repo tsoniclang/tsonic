@@ -43,7 +43,7 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         expect(result.value.isLocal).to.equal(true);
-        expect(result.value.isDotNet).to.equal(false);
+        expect(result.value.isClr).to.equal(false);
         expect(result.value.resolvedPath).to.equal(
           path.join(tempDir, "src", "models", "User.ts")
         );

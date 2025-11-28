@@ -6,17 +6,18 @@ import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
 import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
-import { DotNetImportResolver } from "../../resolver/dotnet-import-resolver.js";
+import { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import { loadBindingsFromPath } from "../../program/bindings.js";
 
 /**
  * Extract import declarations from source file.
  * Uses TypeChecker to determine if each import is a type or value.
- * Uses DotNetImportResolver to detect CLR namespace imports.
+ * Uses ClrBindingsResolver to detect CLR namespace imports.
  */
 export const extractImports = (
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker,
-  dotnetResolver: DotNetImportResolver
+  clrResolver: ClrBindingsResolver
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
 
@@ -28,13 +29,19 @@ export const extractImports = (
       const source = node.moduleSpecifier.text;
       const isLocal = source.startsWith(".") || source.startsWith("/");
 
-      // Use import-driven resolution to detect .NET imports
+      // Use import-driven resolution to detect CLR imports
       // This works for any package that provides bindings.json
-      const dotnetResolution = dotnetResolver.resolve(source);
-      const isDotNet = dotnetResolution.isDotNet;
-      const resolvedNamespace = dotnetResolution.isDotNet
-        ? dotnetResolution.resolvedNamespace
+      const clrResolution = clrResolver.resolve(source);
+      const isClr = clrResolution.isClr;
+      const resolvedNamespace = clrResolution.isClr
+        ? clrResolution.resolvedNamespace
         : undefined;
+
+      // Load bindings from the CLR package if discovered
+      // This ensures member bindings are available for FQN emission
+      if (clrResolution.isClr) {
+        loadBindingsFromPath(getBindingRegistry(), clrResolution.bindingsPath);
+      }
 
       const specifiers = extractImportSpecifiers(node, checker);
 
@@ -51,7 +58,7 @@ export const extractImports = (
         kind: "import",
         source,
         isLocal,
-        isDotNet,
+        isClr,
         specifiers,
         resolvedNamespace,
         resolvedClrType: hasModuleBinding ? binding.type : undefined,

@@ -1,11 +1,12 @@
 /**
- * Import-driven .NET namespace resolution
+ * CLR bindings resolution for package imports
  *
  * Determines if an import specifier refers to a CLR namespace by checking
  * if bindings.json exists in the package's namespace directory.
  *
- * This is the ONLY mechanism for detecting .NET imports - no heuristics,
- * no special-casing for @tsonic/dotnet or any other package.
+ * This is the ONLY mechanism for detecting CLR imports - no heuristics,
+ * no special-casing for any particular package. Any package that provides
+ * bindings.json in its namespace directories will be recognized.
  */
 
 import { existsSync } from "node:fs";
@@ -13,18 +14,18 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
 /**
- * Result of resolving a .NET import
+ * Result of resolving a CLR import
  */
-export type ResolvedDotNetImport =
+export type ResolvedClrImport =
   | {
-      readonly isDotNet: true;
+      readonly isClr: true;
       readonly packageName: string;
       readonly resolvedNamespace: string;
       readonly bindingsPath: string;
       readonly metadataPath: string | undefined;
     }
   | {
-      readonly isDotNet: false;
+      readonly isClr: false;
     };
 
 /**
@@ -36,15 +37,15 @@ type ParsedSpecifier = {
 };
 
 /**
- * Resolver for .NET namespace imports
+ * Resolver for CLR namespace imports
  *
  * An import is a CLR namespace import iff:
  * - It's a package import with a subpath (e.g., @scope/pkg/Namespace)
  * - The package contains bindings.json in that subpath directory
  *
- * This works for any bindings provider package, not just @tsonic/dotnet.
+ * This works for any bindings provider package.
  */
-export class DotNetImportResolver {
+export class ClrBindingsResolver {
   // Cache: packageName -> packageRoot (or null if not found)
   private readonly pkgRootCache = new Map<string, string | null>();
 
@@ -62,35 +63,35 @@ export class DotNetImportResolver {
   /**
    * Resolve an import specifier to determine if it's a CLR namespace import
    */
-  resolve(moduleSpecifier: string): ResolvedDotNetImport {
+  resolve(moduleSpecifier: string): ResolvedClrImport {
     // Skip local imports
     if (moduleSpecifier.startsWith(".") || moduleSpecifier.startsWith("/")) {
-      return { isDotNet: false };
+      return { isClr: false };
     }
 
     // Parse the specifier into package name and subpath
     const parsed = this.parseModuleSpecifier(moduleSpecifier);
     if (!parsed) {
-      return { isDotNet: false };
+      return { isClr: false };
     }
 
     const { packageName, subpath } = parsed;
 
-    // No subpath means it's not a namespace import (e.g., just "@tsonic/dotnet")
+    // No subpath means it's not a namespace import (e.g., just "@scope/pkg")
     if (!subpath) {
-      return { isDotNet: false };
+      return { isClr: false };
     }
 
     // Resolve package root using Node resolution
     const pkgRoot = this.resolvePkgRoot(packageName);
     if (!pkgRoot) {
-      return { isDotNet: false };
+      return { isClr: false };
     }
 
     // Check if bindings.json exists in the namespace directory
     const bindingsPath = join(pkgRoot, subpath, "bindings.json");
     if (!this.hasBindings(bindingsPath)) {
-      return { isDotNet: false };
+      return { isClr: false };
     }
 
     // Check for optional metadata.json
@@ -98,7 +99,7 @@ export class DotNetImportResolver {
     const hasMetadata = this.fileExists(metadataPath);
 
     return {
-      isDotNet: true,
+      isClr: true,
       packageName,
       resolvedNamespace: subpath,
       bindingsPath,
@@ -110,10 +111,10 @@ export class DotNetImportResolver {
    * Parse a module specifier into package name and subpath
    *
    * Examples:
-   * - "@tsonic/dotnet/System.IO" -> { packageName: "@tsonic/dotnet", subpath: "System.IO" }
-   * - "lodash/fp" -> { packageName: "lodash", subpath: "fp" }
-   * - "@tsonic/dotnet" -> null (no subpath)
-   * - "lodash" -> null (no subpath)
+   * - "@scope/pkg/System.IO" -> { packageName: "@scope/pkg", subpath: "System.IO" }
+   * - "mypkg/Namespace" -> { packageName: "mypkg", subpath: "Namespace" }
+   * - "@scope/pkg" -> null (no subpath)
+   * - "mypkg" -> null (no subpath)
    */
   private parseModuleSpecifier(spec: string): ParsedSpecifier | null {
     if (spec.startsWith("@")) {
@@ -219,8 +220,8 @@ export class DotNetImportResolver {
 /**
  * Create a resolver instance for a given source root
  */
-export const createDotNetImportResolver = (
+export const createClrBindingsResolver = (
   sourceRoot: string
-): DotNetImportResolver => {
-  return new DotNetImportResolver(sourceRoot);
+): ClrBindingsResolver => {
+  return new ClrBindingsResolver(sourceRoot);
 };

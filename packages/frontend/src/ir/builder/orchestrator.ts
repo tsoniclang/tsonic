@@ -44,7 +44,7 @@ export const buildIrModule = (
     const imports = extractImports(
       sourceFile,
       program.checker,
-      program.dotnetResolver
+      program.clrResolver
     );
     const exports = extractExports(sourceFile, program.checker);
     const statements = extractStatements(sourceFile, program.checker);

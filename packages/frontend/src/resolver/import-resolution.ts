@@ -9,7 +9,7 @@ import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import { getBindingRegistry } from "../ir/converters/statements/declarations/registry.js";
-import { DotNetImportResolver } from "./dotnet-import-resolver.js";
+import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
 
 /**
  * Resolve import specifier to module
@@ -18,22 +18,22 @@ export const resolveImport = (
   importSpecifier: string,
   containingFile: string,
   sourceRoot: string,
-  dotnetResolver?: DotNetImportResolver
+  clrResolver?: ClrBindingsResolver
 ): Result<ResolvedModule, Diagnostic> => {
   if (isLocalImport(importSpecifier)) {
     return resolveLocalImport(importSpecifier, containingFile, sourceRoot);
   }
 
-  // Use import-driven resolution for .NET imports (if resolver provided)
-  if (dotnetResolver) {
-    const dotnetResolution = dotnetResolver.resolve(importSpecifier);
-    if (dotnetResolution.isDotNet) {
+  // Use import-driven resolution for CLR imports (if resolver provided)
+  if (clrResolver) {
+    const clrResolution = clrResolver.resolve(importSpecifier);
+    if (clrResolution.isClr) {
       return ok({
-        resolvedPath: "", // No file path for .NET imports
+        resolvedPath: "", // No file path for CLR imports
         isLocal: false,
-        isDotNet: true,
+        isClr: true,
         originalSpecifier: importSpecifier,
-        resolvedNamespace: dotnetResolution.resolvedNamespace,
+        resolvedNamespace: clrResolution.resolvedNamespace,
       });
     }
   }
@@ -44,7 +44,7 @@ export const resolveImport = (
     return ok({
       resolvedPath: "", // No file path for bound modules
       isLocal: false,
-      isDotNet: false,
+      isClr: false,
       originalSpecifier: importSpecifier,
       resolvedClrType: binding.type,
       resolvedAssembly: binding.assembly,
@@ -56,7 +56,7 @@ export const resolveImport = (
     return ok({
       resolvedPath: "", // No file path for type-only packages
       isLocal: false,
-      isDotNet: false,
+      isClr: false,
       originalSpecifier: importSpecifier,
       resolvedClrType: undefined,
       resolvedAssembly: undefined,
@@ -141,18 +141,18 @@ export const resolveLocalImport = (
   return ok({
     resolvedPath,
     isLocal: true,
-    isDotNet: false,
+    isClr: false,
     originalSpecifier: importSpecifier,
   });
 };
 
 /**
- * Resolve .NET import (namespace validation)
+ * Resolve CLR import (namespace validation)
  */
-export const resolveDotNetImport = (
+export const resolveClrImport = (
   importSpecifier: string
 ): Result<ResolvedModule, Diagnostic> => {
-  // For .NET imports, we don't resolve to a file
+  // For CLR imports, we don't resolve to a file
   // We just validate the format and return the namespace
 
   // Check for invalid characters
@@ -161,17 +161,17 @@ export const resolveDotNetImport = (
       createDiagnostic(
         "TSN4001",
         "error",
-        `Invalid .NET namespace: "${importSpecifier}"`,
+        `Invalid CLR namespace: "${importSpecifier}"`,
         undefined,
-        "Must be a valid .NET namespace identifier"
+        "Must be a valid CLR namespace identifier"
       )
     );
   }
 
   return ok({
-    resolvedPath: "", // No file path for .NET imports
+    resolvedPath: "", // No file path for CLR imports
     isLocal: false,
-    isDotNet: true,
+    isClr: true,
     originalSpecifier: importSpecifier,
   });
 };

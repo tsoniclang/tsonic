@@ -1,10 +1,13 @@
 {
   "name": "@tsonic/emitter",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "C# code generator for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,7 +21,7 @@
     "test:watch": "mocha 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/frontend": "0.0.1"
+    "@tsonic/frontend": "0.0.2"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",

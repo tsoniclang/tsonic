@@ -10,7 +10,7 @@ import { getBindingRegistry } from "../statements/declarations/registry.js";
 
 /**
  * Resolve hierarchical binding for a member access
- * Handles namespace.type and type.member patterns
+ * Handles namespace.type, type.member, and directType.member patterns
  */
 const resolveHierarchicalBinding = (
   object: ReturnType<typeof convertExpression>,
@@ -29,6 +29,21 @@ const resolveHierarchicalBinding = (
         // This member access is namespace.type - we don't emit a member binding here
         // because we're just accessing a type, not calling a member
         return undefined;
+      }
+    }
+
+    // Case 1b: object is a direct type import (like `Console` imported directly)
+    // Check if the identifier is a type alias, and if so, look up the member
+    const directType = registry.getType(object.name);
+    if (directType) {
+      const member = directType.members.find((m) => m.alias === propertyName);
+      if (member) {
+        // Found a member binding for direct type import!
+        return {
+          assembly: member.binding.assembly,
+          type: member.binding.type,
+          member: member.binding.member,
+        };
       }
     }
   }

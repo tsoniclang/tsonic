@@ -10,7 +10,7 @@ import {
   buildIrModule,
   DotnetMetadataRegistry,
   BindingRegistry,
-  createDotNetImportResolver,
+  createClrBindingsResolver,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -68,7 +68,7 @@ const compileToCSharp = (
     sourceFiles: [sourceFile],
     metadata: new DotnetMetadataRegistry(),
     bindings: new BindingRegistry(),
-    dotnetResolver: createDotNetImportResolver("/test"),
+    clrResolver: createClrBindingsResolver("/test"),
   };
 
   // Build IR

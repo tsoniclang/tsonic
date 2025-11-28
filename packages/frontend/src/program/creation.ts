@@ -12,7 +12,7 @@ import { defaultTsConfig } from "./config.js";
 import { loadDotnetMetadata } from "./metadata.js";
 import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
-import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
+import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -234,8 +234,8 @@ export const createProgram = (
   // Load binding manifests (from typeRoots - for ambient globals)
   const bindings = loadBindings(typeRoots);
 
-  // Create resolver for import-driven .NET namespace discovery
-  const dotnetResolver = createDotNetImportResolver(options.sourceRoot);
+  // Create resolver for import-driven CLR namespace discovery
+  const clrResolver = createClrBindingsResolver(options.sourceRoot);
 
   return ok({
     program,
@@ -244,6 +244,6 @@ export const createProgram = (
     sourceFiles,
     metadata,
     bindings,
-    dotnetResolver,
+    clrResolver,
   });
 };

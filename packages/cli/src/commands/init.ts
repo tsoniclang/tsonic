@@ -78,6 +78,9 @@ type TypePackageInfo = {
   readonly typeRoots: readonly string[];
 };
 
+// CLI package version - installed as devDependency for npm run build/dev
+const CLI_PACKAGE = { name: "@tsonic/cli", version: "0.0.4" };
+
 /**
  * Get type package info based on runtime mode
  *
@@ -87,10 +90,12 @@ type TypePackageInfo = {
 const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
   if (runtime === "js") {
     // JS mode:
+    // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
     // - @tsonic/js-globals: ambient globals (Array, console, etc.) - needs typeRoots
     // - @tsonic/types: explicit imports (int, float, etc.) - just npm dep
     return {
       packages: [
+        CLI_PACKAGE,
         { name: "@tsonic/js-globals", version: "0.1.1" },
         { name: "@tsonic/types", version: "0.2.0" },
       ],
@@ -98,13 +103,15 @@ const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
     };
   }
   // Dotnet mode:
+  // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
   // - @tsonic/dotnet-globals: ambient globals - needs typeRoots
   // - @tsonic/dotnet: explicit imports (System.*, etc.) - just npm dep
   // - @tsonic/types: transitive dep of @tsonic/dotnet
   return {
     packages: [
+      CLI_PACKAGE,
       { name: "@tsonic/dotnet-globals", version: "0.1.2" },
-      { name: "@tsonic/dotnet", version: "0.4.0" },
+      { name: "@tsonic/dotnet", version: "0.5.1" },
     ],
     typeRoots: ["node_modules/@tsonic/dotnet-globals"],
   };

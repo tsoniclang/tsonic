@@ -10,7 +10,7 @@ import {
   buildIrModule,
   DotnetMetadataRegistry,
   BindingRegistry,
-  createDotNetImportResolver,
+  createClrBindingsResolver,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -92,7 +92,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings,
-      dotnetResolver: createDotNetImportResolver("/test"),
+      clrResolver: createClrBindingsResolver("/test"),
     };
 
     // Step 1: Build IR
@@ -232,7 +232,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings,
-      dotnetResolver: createDotNetImportResolver("/test"),
+      clrResolver: createClrBindingsResolver("/test"),
     };
 
     const irResult = buildIrModule(sourceFile, testProgram, {

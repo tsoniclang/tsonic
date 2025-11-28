@@ -20,8 +20,10 @@ export const emitMemberAccess = (
   // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
     // Emit the full CLR type and member with global:: prefix
-    const { assembly, type, member } = expr.memberBinding;
-    const text = `global::${assembly}.${type}.${member}`;
+    // Note: `type` is already the full CLR type name (e.g., "System.Console")
+    // so we don't need to include assembly in the path
+    const { type, member } = expr.memberBinding;
+    const text = `global::${type}.${member}`;
     return [{ text }, context];
   }
 
