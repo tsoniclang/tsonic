@@ -41,7 +41,11 @@ export const buildIrModule = (
     );
     const className = getClassNameFromPath(sourceFile.fileName);
 
-    const imports = extractImports(sourceFile, program.checker);
+    const imports = extractImports(
+      sourceFile,
+      program.checker,
+      program.dotnetResolver
+    );
     const exports = extractExports(sourceFile, program.checker);
     const statements = extractStatements(sourceFile, program.checker);
 

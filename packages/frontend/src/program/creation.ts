@@ -12,6 +12,7 @@ import { defaultTsConfig } from "./config.js";
 import { loadDotnetMetadata } from "./metadata.js";
 import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
+import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -138,13 +139,11 @@ export const createProgram = (
     namespaceFiles.set(dirName, indexFile);
   }
 
-  // Debug: Log namespace mappings
-  if (namespaceFiles.size > 0) {
+  // Log namespace mappings when verbose
+  if (options.verbose && namespaceFiles.size > 0) {
     console.log(`Found ${namespaceFiles.size} .NET namespace declarations`);
-    if (options.verbose) {
-      for (const [ns, file] of namespaceFiles) {
-        console.log(`  ${ns} -> ${file}`);
-      }
+    for (const [ns, file] of namespaceFiles) {
+      console.log(`  ${ns} -> ${file}`);
     }
   }
 
@@ -232,8 +231,11 @@ export const createProgram = (
   // Load .NET metadata files
   const metadata = loadDotnetMetadata(typeRoots);
 
-  // Load binding manifests
+  // Load binding manifests (from typeRoots - for ambient globals)
   const bindings = loadBindings(typeRoots);
+
+  // Create resolver for import-driven .NET namespace discovery
+  const dotnetResolver = createDotNetImportResolver(options.sourceRoot);
 
   return ok({
     program,
@@ -242,5 +244,6 @@ export const createProgram = (
     sourceFiles,
     metadata,
     bindings,
+    dotnetResolver,
   });
 };

@@ -39,15 +39,15 @@ EMIT/BUILD/RUN OPTIONS:
 
 PROJECT INIT OPTIONS:
   --runtime <mode>          Runtime mode: js (default) or dotnet
-  --skip-types              Skip installing @tsonic/dotnet-types
-  --types-version <ver>     Version of @tsonic/dotnet-types to install
+  --skip-types              Skip installing type declarations
+  --types-version <ver>     Version of type declarations to install
 
 EXAMPLES:
   tsonic project init
   tsonic project init --runtime dotnet
-  tsonic emit src/main.ts
-  tsonic build src/main.ts --rid linux-x64
-  tsonic run src/main.ts -- --arg1 value1
+  tsonic emit src/app.ts
+  tsonic build src/app.ts --rid linux-x64
+  tsonic run src/app.ts -- --arg1 value1
 
 LEARN MORE:
   Documentation: https://tsonic.dev/docs

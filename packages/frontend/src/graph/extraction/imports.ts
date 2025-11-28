@@ -23,7 +23,8 @@ export const extractImport = (
   const result = resolveImport(
     specifier,
     sourceFile.fileName,
-    program.options.sourceRoot
+    program.options.sourceRoot,
+    program.dotnetResolver
   );
 
   const importedNames: { readonly name: string; readonly alias?: string }[] =
@@ -67,7 +68,7 @@ export const extractImport = (
           : "node_module",
       specifier,
       resolvedPath: result.value.resolvedPath || undefined,
-      namespace: result.value.isDotNet ? specifier : undefined,
+      namespace: result.value.resolvedNamespace,
       importedNames,
     };
   }

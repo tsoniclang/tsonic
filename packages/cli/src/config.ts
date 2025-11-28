@@ -161,8 +161,13 @@ export const resolveConfig = (
     config.sourceRoot ??
     (entryPoint ? dirname(entryPoint) : "src");
 
-  // Default type roots: node_modules/@tsonic/dotnet-types/types
-  const defaultTypeRoots = ["node_modules/@tsonic/dotnet-types/types"];
+  // Default type roots based on runtime mode
+  // Only ambient globals packages need typeRoots - explicit import packages are resolved normally
+  const runtime = config.runtime ?? "js";
+  const defaultTypeRoots =
+    runtime === "js"
+      ? ["node_modules/@tsonic/js-globals"]
+      : ["node_modules/@tsonic/dotnet-globals"];
   const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
 
   // Merge libraries from config and CLI

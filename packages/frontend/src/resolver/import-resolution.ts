@@ -6,9 +6,10 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import { isLocalImport, isDotNetImport } from "../types/module.js";
+import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
 import { getBindingRegistry } from "../ir/converters/statements/declarations/registry.js";
+import { DotNetImportResolver } from "./dotnet-import-resolver.js";
 
 /**
  * Resolve import specifier to module
@@ -16,14 +17,25 @@ import { getBindingRegistry } from "../ir/converters/statements/declarations/reg
 export const resolveImport = (
   importSpecifier: string,
   containingFile: string,
-  sourceRoot: string
+  sourceRoot: string,
+  dotnetResolver?: DotNetImportResolver
 ): Result<ResolvedModule, Diagnostic> => {
   if (isLocalImport(importSpecifier)) {
     return resolveLocalImport(importSpecifier, containingFile, sourceRoot);
   }
 
-  if (isDotNetImport(importSpecifier)) {
-    return resolveDotNetImport(importSpecifier);
+  // Use import-driven resolution for .NET imports (if resolver provided)
+  if (dotnetResolver) {
+    const dotnetResolution = dotnetResolver.resolve(importSpecifier);
+    if (dotnetResolution.isDotNet) {
+      return ok({
+        resolvedPath: "", // No file path for .NET imports
+        isLocal: false,
+        isDotNet: true,
+        originalSpecifier: importSpecifier,
+        resolvedNamespace: dotnetResolution.resolvedNamespace,
+      });
+    }
   }
 
   // Check if this is a module binding (e.g., Node.js API)

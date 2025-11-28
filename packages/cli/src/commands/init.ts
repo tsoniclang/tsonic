@@ -5,9 +5,7 @@
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { generateCsproj } from "@tsonic/backend";
 import type { Result } from "../types.js";
-import type { BuildConfig, ExecutableConfig } from "@tsonic/backend";
 
 type InitOptions = {
   readonly skipTypes?: boolean;
@@ -30,8 +28,17 @@ app
 node_modules/
 `;
 
-const SAMPLE_MAIN_TS = `import { Console } from "System";
-import { File } from "System.IO";
+const SAMPLE_MAIN_TS_JS = `export function main(): void {
+  console.log("Hello from Tsonic!");
+
+  const numbers = [1, 2, 3, 4, 5];
+  const doubled = numbers.map((n) => n * 2);
+  console.log("Doubled:", doubled.join(", "));
+}
+`;
+
+const SAMPLE_MAIN_TS_DOTNET = `import { Console } from "@tsonic/dotnet/System";
+import { File } from "@tsonic/dotnet/System.IO";
 
 export function main(): void {
   Console.WriteLine("Reading README.md...");
@@ -66,21 +73,58 @@ npm run dev
 - \`generated/\` - Generated C# code (gitignored)
 `;
 
+type TypePackageInfo = {
+  readonly packages: readonly { name: string; version: string }[];
+  readonly typeRoots: readonly string[];
+};
+
+/**
+ * Get type package info based on runtime mode
+ *
+ * typeRoots: Only ambient globals packages (provide global types without imports)
+ * packages: All type packages to install (includes explicit import packages)
+ */
+const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
+  if (runtime === "js") {
+    // JS mode:
+    // - @tsonic/js-globals: ambient globals (Array, console, etc.) - needs typeRoots
+    // - @tsonic/types: explicit imports (int, float, etc.) - just npm dep
+    return {
+      packages: [
+        { name: "@tsonic/js-globals", version: "0.1.1" },
+        { name: "@tsonic/types", version: "0.2.0" },
+      ],
+      typeRoots: ["node_modules/@tsonic/js-globals"],
+    };
+  }
+  // Dotnet mode:
+  // - @tsonic/dotnet-globals: ambient globals - needs typeRoots
+  // - @tsonic/dotnet: explicit imports (System.*, etc.) - just npm dep
+  // - @tsonic/types: transitive dep of @tsonic/dotnet
+  return {
+    packages: [
+      { name: "@tsonic/dotnet-globals", version: "0.1.2" },
+      { name: "@tsonic/dotnet", version: "0.4.0" },
+    ],
+    typeRoots: ["node_modules/@tsonic/dotnet-globals"],
+  };
+};
+
 /**
  * Generate tsonic.json config
  */
 const generateConfig = (
   includeTypeRoots: boolean,
-  runtime?: "js" | "dotnet"
+  runtime: "js" | "dotnet"
 ): string => {
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
     rootNamespace: "MyApp",
-    entryPoint: "src/main.ts",
+    entryPoint: "src/app.ts",
     sourceRoot: "src",
     outputDirectory: "generated",
     outputName: "app",
-    runtime: runtime ?? "js",
+    runtime: runtime,
     optimize: "speed",
     packages: [],
     buildOptions: {
@@ -90,8 +134,9 @@ const generateConfig = (
   };
 
   if (includeTypeRoots) {
+    const typeInfo = getTypePackageInfo(runtime);
     config.dotnet = {
-      typeRoots: ["node_modules/@tsonic/dotnet-types/types"],
+      typeRoots: typeInfo.typeRoots,
     };
   }
 
@@ -125,8 +170,8 @@ const createOrUpdatePackageJson = (packageJsonPath: string): void => {
       (packageJson.scripts as Record<string, string>) || {};
     packageJson.scripts = {
       ...existingScripts,
-      build: "tsonic build src/main.ts",
-      dev: "tsonic run src/main.ts",
+      build: "tsonic build src/app.ts",
+      dev: "tsonic run src/app.ts",
     };
 
     // Ensure devDependencies exists
@@ -140,8 +185,8 @@ const createOrUpdatePackageJson = (packageJsonPath: string): void => {
       version: "1.0.0",
       type: "module",
       scripts: {
-        build: "tsonic build src/main.ts",
-        dev: "tsonic run src/main.ts",
+        build: "tsonic build src/app.ts",
+        dev: "tsonic run src/app.ts",
       },
       devDependencies: {},
     };
@@ -187,10 +232,11 @@ export const initProject = (
   cwd: string,
   options: InitOptions = {}
 ): Result<void, string> => {
+  const runtime = options.runtime ?? "js";
   const tsonicJsonPath = join(cwd, "tsonic.json");
   const gitignorePath = join(cwd, ".gitignore");
   const srcDir = join(cwd, "src");
-  const mainTsPath = join(srcDir, "main.ts");
+  const appTsPath = join(srcDir, "app.ts");
   const readmePath = join(cwd, "README.md");
   const packageJsonPath = join(cwd, "package.json");
 
@@ -210,26 +256,24 @@ export const initProject = (
       packageJsonExists ? "✓ Updated package.json" : "✓ Created package.json"
     );
 
-    // Install .NET type declarations
+    // Install type declarations based on runtime mode
     const shouldInstallTypes = !options.skipTypes;
-    const typesVersion = options.typesVersion ?? "10.0.0";
+    const typeInfo = getTypePackageInfo(runtime);
 
     if (shouldInstallTypes) {
-      console.log(
-        `Installing .NET type declarations (@tsonic/dotnet-types@${typesVersion})...`
-      );
-      const installResult = installPackage(
-        "@tsonic/dotnet-types",
-        typesVersion
-      );
-      if (!installResult.ok) {
-        return installResult;
+      for (const pkg of typeInfo.packages) {
+        const version = options.typesVersion ?? pkg.version;
+        console.log(`Installing type declarations (${pkg.name}@${version})...`);
+        const installResult = installPackage(pkg.name, version);
+        if (!installResult.ok) {
+          return installResult;
+        }
+        console.log(`✓ Installed ${pkg.name}`);
       }
-      console.log("✓ Installed @tsonic/dotnet-types");
     }
 
     // Create tsonic.json
-    const config = generateConfig(shouldInstallTypes, options.runtime);
+    const config = generateConfig(shouldInstallTypes, runtime);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 
@@ -249,13 +293,15 @@ export const initProject = (
       console.log("✓ Created .gitignore");
     }
 
-    // Create src directory and main.ts
+    // Create src directory and app.ts with runtime-appropriate code
     if (!existsSync(srcDir)) {
       mkdirSync(srcDir, { recursive: true });
     }
-    if (!existsSync(mainTsPath)) {
-      writeFileSync(mainTsPath, SAMPLE_MAIN_TS, "utf-8");
-      console.log("✓ Created src/main.ts");
+    if (!existsSync(appTsPath)) {
+      const sampleCode =
+        runtime === "js" ? SAMPLE_MAIN_TS_JS : SAMPLE_MAIN_TS_DOTNET;
+      writeFileSync(appTsPath, sampleCode, "utf-8");
+      console.log("✓ Created src/app.ts");
     }
 
     // Create README.md
@@ -264,37 +310,12 @@ export const initProject = (
       console.log("✓ Created README.md");
     }
 
-    // Create .csproj file
-    const csprojPath = join(cwd, "MyApp.csproj");
-    if (!existsSync(csprojPath)) {
-      const buildConfig: BuildConfig = {
-        rootNamespace: "MyApp",
-        outputName: "app",
-        dotnetVersion: "net10.0",
-        packages: [],
-        outputConfig: {
-          type: "executable",
-          nativeAot: true,
-          singleFile: true,
-          trimmed: true,
-          stripSymbols: true,
-          optimization: "Speed",
-          invariantGlobalization: true,
-          selfContained: true,
-        } satisfies ExecutableConfig,
-      };
-      const csprojContent = generateCsproj(buildConfig);
-      writeFileSync(csprojPath, csprojContent, "utf-8");
-      console.log("✓ Created MyApp.csproj");
-    }
+    // Note: .csproj is generated by the build command with proper runtime DLL references
 
     console.log("\n✓ Project initialized successfully!");
     console.log("\nNext steps:");
     console.log("  npm run build   # Build executable");
     console.log("  npm run dev     # Run directly");
-    console.log("\nYou can now:");
-    console.log("  - Edit MyApp.csproj to add NuGet packages");
-    console.log("  - Or run: dotnet add package <PackageName>");
 
     return { ok: true, value: undefined };
   } catch (error) {

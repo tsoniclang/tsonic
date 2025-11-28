@@ -10,6 +10,7 @@ import {
   buildIrModule,
   DotnetMetadataRegistry,
   BindingRegistry,
+  createDotNetImportResolver,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -91,6 +92,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings,
+      dotnetResolver: createDotNetImportResolver("/test"),
     };
 
     // Step 1: Build IR
@@ -100,19 +102,15 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     });
 
     if (!irResult.ok) {
-      console.error("IR build failed:", irResult.error);
-      throw new Error("IR build must succeed for full pipeline test");
+      throw new Error(
+        `IR build must succeed for full pipeline test: ${JSON.stringify(irResult.error)}`
+      );
     }
 
     const irModule = irResult.value;
 
     // Step 2: Emit C# code
     const csharpCode = emitModule(irModule);
-
-    // Step 3: Verify C# output
-    console.log("\n=== Generated C# Code ===");
-    console.log(csharpCode);
-    console.log("=== End ===\n");
 
     // Verify correct CLR member call
     expect(csharpCode).to.include(
@@ -140,10 +138,6 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     expect(csharpCode).to.match(
       /public static (void|object) processData\(/,
       "C# should have processData function"
-    );
-
-    console.log(
-      "✅ Full pipeline test passed: TypeScript -> IR -> C# with hierarchical bindings"
     );
   });
 
@@ -238,6 +232,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings,
+      dotnetResolver: createDotNetImportResolver("/test"),
     };
 
     const irResult = buildIrModule(sourceFile, testProgram, {
@@ -251,10 +246,6 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
 
     const csharpCode = emitModule(irResult.value);
 
-    console.log("\n=== Multiple Bindings C# ===");
-    console.log(csharpCode);
-    console.log("=== End ===\n");
-
     // Both CLR calls should be present
     expect(csharpCode).to.include("MyLib.TypeA.MethodA");
     expect(csharpCode).to.include("MyLib.TypeB.MethodB");
@@ -263,7 +254,5 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
     expect(csharpCode).to.not.include("myLib");
     expect(csharpCode).to.not.include("typeA");
     expect(csharpCode).to.not.include("typeB");
-
-    console.log("✅ Multiple bindings test passed");
   });
 });

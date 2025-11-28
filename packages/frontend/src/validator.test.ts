@@ -15,6 +15,7 @@ import { TsonicProgram } from "./program.js";
 import { validateProgram } from "./validator.js";
 import { DotnetMetadataRegistry } from "./dotnet-metadata.js";
 import { BindingRegistry } from "./program/bindings.js";
+import { createDotNetImportResolver } from "./resolver/dotnet-import-resolver.js";
 
 /**
  * Helper to create a test program from source code
@@ -70,6 +71,7 @@ const createTestProgram = (
     sourceFiles: [sourceFile],
     metadata: new DotnetMetadataRegistry(),
     bindings: new BindingRegistry(),
+    dotnetResolver: createDotNetImportResolver("/test"),
   };
 };
 

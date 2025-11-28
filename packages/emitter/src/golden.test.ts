@@ -29,8 +29,6 @@ try {
   if (scenarios.length === 0) {
     console.warn("⚠️  No golden test cases found in testcases/");
   } else {
-    console.log(`📋 Discovered ${scenarios.length} golden test case(s)`);
-
     const tree = buildDescribeTree(scenarios);
     if (tree) {
       registerNode(tree);

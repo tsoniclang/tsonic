@@ -70,7 +70,8 @@ export const validateImportDeclaration = (
   const result = resolveImport(
     importPath,
     sourceFile.fileName,
-    program.options.sourceRoot
+    program.options.sourceRoot,
+    program.dotnetResolver
   );
 
   if (!result.ok) {
