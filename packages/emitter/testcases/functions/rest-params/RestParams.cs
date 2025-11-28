@@ -1,19 +1,15 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.functions.restparams
 {
         public static class RestParams
         {
-            public static double sum(List<double> numbers)
+            public static double sum(global::System.Collections.Generic.List<double> numbers)
                 {
-                return Tsonic.JSRuntime.Array.reduce(numbers, (acc, n) => acc + n, 0);
+                return global::Tsonic.JSRuntime.Array.reduce(numbers, (acc, n) => acc + n, 0);
                 }
 
-            public static string concat(string separator, List<string> strings)
+            public static string concat(string separator, global::System.Collections.Generic.List<string> strings)
                 {
-                return Tsonic.JSRuntime.Array.join(strings, separator);
+                return global::Tsonic.JSRuntime.Array.join(strings, separator);
                 }
         }
 }

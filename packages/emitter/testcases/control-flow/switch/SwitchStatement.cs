@@ -1,8 +1,4 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
-namespace TestCases.controlflow.switch
+namespace TestCases.controlflow.@switch
 {
         public static class SwitchStatement
         {

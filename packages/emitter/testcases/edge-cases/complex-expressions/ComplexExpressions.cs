@@ -1,7 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.edgecases.complexexpressions
 {
         public static class ComplexExpressions
@@ -11,9 +7,9 @@ namespace TestCases.edgecases.complexexpressions
                 return a + b * c - a / b + c % a * b - a / c + 1;
                 }
 
-            public static double chainedCalls(List<double> arr)
+            public static double chainedCalls(global::System.Collections.Generic.List<double> arr)
                 {
-                return Tsonic.JSRuntime.Array.reduce(Tsonic.JSRuntime.Array.filter(Tsonic.JSRuntime.Array.map(arr, (x) => x * 2), (x) => x > 10), (acc, x) => acc + x, 0);
+                return global::Tsonic.JSRuntime.Array.reduce(global::Tsonic.JSRuntime.Array.filter(global::Tsonic.JSRuntime.Array.map(arr, (x) => x * 2), (x) => x > 10), (acc, x) => acc + x, 0);
                 }
         }
 }

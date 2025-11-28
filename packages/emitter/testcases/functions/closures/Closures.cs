@@ -1,13 +1,8 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System;
-using System.Collections.Generic;
-
 namespace TestCases.functions.closures
 {
         public static class Closures
         {
-            public static Func<double> makeCounter()
+            public static global::System.Func<double> makeCounter()
                 {
                 var count = 0;
                 return () =>
@@ -17,7 +12,7 @@ namespace TestCases.functions.closures
                 };
                 }
 
-            public static Func<double, double> makeAdder(double x)
+            public static global::System.Func<double, double> makeAdder(double x)
                 {
                 return (y) => x + y;
                 }

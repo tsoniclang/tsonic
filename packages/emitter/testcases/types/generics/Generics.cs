@@ -1,7 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.types.generics
 {
     public class Box<T>
@@ -26,9 +22,9 @@ namespace TestCases.types.generics
                     return value;
                     }
 
-                public static T? firstElement<T>(List<T> arr)
+                public static T? firstElement<T>(global::System.Collections.Generic.List<T> arr)
                     {
-                    return Tsonic.Runtime.Array.get(arr, 0);
+                    return global::Tsonic.Runtime.Array.get(arr, 0);
                     }
             }
 }

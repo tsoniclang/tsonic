@@ -1,7 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.realworld.typeguards
 {
     public class User
@@ -24,7 +20,7 @@ namespace TestCases.realworld.typeguards
 
         public string email { get; set; }
 
-        public List<string> permissions { get; set; }
+        public global::System.Collections.Generic.List<string> permissions { get; set; }
     }
     public class Guest
     {
@@ -61,7 +57,7 @@ namespace TestCases.realworld.typeguards
                     else
                         if (isAdmin(account))
                             {
-                            return $"Admin: {account.username} with {Tsonic.Runtime.Array.length(account.permissions)} permissions";
+                            return $"Admin: {account.username} with {global::Tsonic.Runtime.Array.length(account.permissions)} permissions";
                             }
                         else
                             if (isGuest(account))
@@ -76,25 +72,25 @@ namespace TestCases.realworld.typeguards
                     return isUser(account) || isAdmin(account);
                     }
 
-                public static List<string> getPermissions(Account account)
+                public static global::System.Collections.Generic.List<string> getPermissions(Account account)
                     {
                     if (isAdmin(account))
                         {
                         return account.permissions;
                         }
-                    return new List<string>();
+                    return new global::System.Collections.Generic.List<string>();
                     }
 
-                public static string processValue(Union<string, double, bool> value)
+                public static string processValue(global::Tsonic.Runtime.Union<string, double, bool> value)
                     {
-                    if (Tsonic.Runtime.Operators.@typeof(value) == "string")
+                    if (global::Tsonic.Runtime.Operators.@typeof(value) == "string")
                         {
-                        return Tsonic.JSRuntime.String.toUpperCase(value);
+                        return global::Tsonic.JSRuntime.String.toUpperCase(value);
                         }
                     else
-                        if (Tsonic.Runtime.Operators.@typeof(value) == "number")
+                        if (global::Tsonic.Runtime.Operators.@typeof(value) == "number")
                             {
-                            return Tsonic.JSRuntime.Number.toFixed(value, 2);
+                            return global::Tsonic.JSRuntime.Number.toFixed(value, 2);
                             }
                         else
                             {
@@ -104,7 +100,7 @@ namespace TestCases.realworld.typeguards
 
                 public static dynamic isStringArray(object? arr)
                     {
-                    return Array.isArray(arr) && Tsonic.JSRuntime.Array.every(arr, (item) => Tsonic.Runtime.Operators.@typeof(item) == "string");
+                    return global::Tsonic.JSRuntime.Array.isArray(arr) && global::Tsonic.JSRuntime.Array.every(arr, (item) => global::Tsonic.Runtime.Operators.@typeof(item) == "string");
                     }
             }
 }

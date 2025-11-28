@@ -1,8 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace TestCases.realworld.todolist
 {
     public class Todo
@@ -17,20 +12,20 @@ namespace TestCases.realworld.todolist
     }
     public class TodoList
     {
-        private List<Todo> todos = new List<Todo>();
+        private global::System.Collections.Generic.List<Todo> todos = new global::System.Collections.Generic.List<Todo>();
 
         private double nextId = 1;
 
         public Todo addTodo(string title)
             {
             Todo todo = new { id = this.nextId++, title = title, completed = false, createdAt = new Date() };
-            Tsonic.JSRuntime.Array.push(this.todos, todo);
+            global::Tsonic.JSRuntime.Array.push(this.todos, todo);
             return todo;
             }
 
         public bool completeTodo(double id)
             {
-            var todo = Tsonic.JSRuntime.Array.find(this.todos, (t) => t.id == id);
+            var todo = global::Tsonic.JSRuntime.Array.find(this.todos, (t) => t.id == id);
             if (todo != null)
                 {
                 todo.completed = true;
@@ -39,19 +34,19 @@ namespace TestCases.realworld.todolist
             return false;
             }
 
-        public List<Todo> getActiveTodos()
+        public global::System.Collections.Generic.List<Todo> getActiveTodos()
             {
-            return Tsonic.JSRuntime.Array.filter(this.todos, (t) => !t.completed);
+            return global::Tsonic.JSRuntime.Array.filter(this.todos, (t) => !t.completed);
             }
 
-        public List<Todo> getCompletedTodos()
+        public global::System.Collections.Generic.List<Todo> getCompletedTodos()
             {
-            return Tsonic.JSRuntime.Array.filter(this.todos, (t) => t.completed);
+            return global::Tsonic.JSRuntime.Array.filter(this.todos, (t) => t.completed);
             }
 
-        public List<Todo> getAllTodos()
+        public global::System.Collections.Generic.List<Todo> getAllTodos()
             {
-            return this.todos.ToList();
+            return global::System.Linq.Enumerable.ToList(this.todos);
             }
     }
 

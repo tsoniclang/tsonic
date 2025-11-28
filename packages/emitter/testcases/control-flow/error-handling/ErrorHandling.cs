@@ -1,7 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.controlflow.errorhandling
 {
         public static class ErrorHandling
@@ -12,18 +8,18 @@ namespace TestCases.controlflow.errorhandling
                 {
                 if (b == 0)
                     {
-                    throw new Error("Division by zero");
+                    throw new global::System.Exception("Division by zero");
                     }
                 return a / b;
                 }
-                catch (Exception error)
+                catch (global::System.Exception error)
                 {
-                Tsonic.JSRuntime.console.log(error);
+                global::Tsonic.JSRuntime.console.log(error);
                 return 0;
                 }
                 finally
                 {
-                Tsonic.JSRuntime.console.log("Operation complete");
+                global::Tsonic.JSRuntime.console.log("Operation complete");
                 }
                 }
         }

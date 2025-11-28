@@ -1,8 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-
 namespace TestCases.types.conditional
 {
         public static class ConditionalTypes
@@ -28,13 +23,13 @@ namespace TestCases.types.conditional
             // type UnwrappedNumber = Unwrap<double>
 
             public static dynamic processValue<T>(T value)
-                where T : Union<string, double>
+                where T : global::Tsonic.Runtime.Union<string, double>
                 {
-                if (Tsonic.Runtime.Operators.@typeof(value) == "string")
+                if (global::Tsonic.Runtime.Operators.@typeof(value) == "string")
                     {
                     return value.length;
                     }
-                return Tsonic.JSRuntime.Number.toString(value);
+                return global::Tsonic.JSRuntime.Number.toString(value);
                 }
 
             public static string greet(string name)

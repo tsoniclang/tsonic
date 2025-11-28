@@ -1,75 +1,71 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.realworld.datastructures
 {
     public class Stack<T>
     {
-        private List<T> items = new List<T>();
+        private global::System.Collections.Generic.List<T> items = new global::System.Collections.Generic.List<T>();
 
         public void push(T item)
             {
-            Tsonic.JSRuntime.Array.push(this.items, item);
+            global::Tsonic.JSRuntime.Array.push(this.items, item);
             }
 
         public T? pop()
             {
-            return Tsonic.JSRuntime.Array.pop(this.items);
+            return global::Tsonic.JSRuntime.Array.pop(this.items);
             }
 
         public T? peek()
             {
-            return Tsonic.Runtime.Array.get(this.items, Tsonic.Runtime.Array.length(this.items) - 1);
+            return global::Tsonic.Runtime.Array.get(this.items, global::Tsonic.Runtime.Array.length(this.items) - 1);
             }
 
         public bool isEmpty()
             {
-            return Tsonic.Runtime.Array.length(this.items) == 0;
+            return global::Tsonic.Runtime.Array.length(this.items) == 0;
             }
 
         public double size()
             {
-            return Tsonic.Runtime.Array.length(this.items);
+            return global::Tsonic.Runtime.Array.length(this.items);
             }
 
         public void clear()
             {
-            this.items = new List<T>();
+            this.items = new global::System.Collections.Generic.List<T>();
             }
     }
     public class Queue<T>
     {
-        private List<T> items = new List<T>();
+        private global::System.Collections.Generic.List<T> items = new global::System.Collections.Generic.List<T>();
 
         public void enqueue(T item)
             {
-            Tsonic.JSRuntime.Array.push(this.items, item);
+            global::Tsonic.JSRuntime.Array.push(this.items, item);
             }
 
         public T? dequeue()
             {
-            return Tsonic.JSRuntime.Array.shift(this.items);
+            return global::Tsonic.JSRuntime.Array.shift(this.items);
             }
 
         public T? front()
             {
-            return Tsonic.Runtime.Array.get(this.items, 0);
+            return global::Tsonic.Runtime.Array.get(this.items, 0);
             }
 
         public bool isEmpty()
             {
-            return Tsonic.Runtime.Array.length(this.items) == 0;
+            return global::Tsonic.Runtime.Array.length(this.items) == 0;
             }
 
         public double size()
             {
-            return Tsonic.Runtime.Array.length(this.items);
+            return global::Tsonic.Runtime.Array.length(this.items);
             }
 
         public void clear()
             {
-            this.items = new List<T>();
+            this.items = new global::System.Collections.Generic.List<T>();
             }
     }
     public class LinkedListNode<T>
@@ -127,13 +123,13 @@ namespace TestCases.realworld.datastructures
             return this.length;
             }
 
-        public List<T> toArray()
+        public global::System.Collections.Generic.List<T> toArray()
             {
-            List<T> result = new List<T>();
+            global::System.Collections.Generic.List<T> result = new global::System.Collections.Generic.List<T>();
             var current = this.head;
             while (current != null)
                 {
-                Tsonic.JSRuntime.Array.push(result, current.value);
+                global::Tsonic.JSRuntime.Array.push(result, current.value);
                 current = current.next;
                 }
             return result;
@@ -148,19 +144,19 @@ namespace TestCases.realworld.datastructures
                     stack.push(1);
                     stack.push(2);
                     stack.push(3);
-                    Tsonic.JSRuntime.console.log("Stack size:", stack.size());
-                    Tsonic.JSRuntime.console.log("Stack pop:", stack.pop());
+                    global::Tsonic.JSRuntime.console.log("Stack size:", stack.size());
+                    global::Tsonic.JSRuntime.console.log("Stack pop:", stack.pop());
                     var queue = new Queue<string>();
                     queue.enqueue("first");
                     queue.enqueue("second");
                     queue.enqueue("third");
-                    Tsonic.JSRuntime.console.log("Queue size:", queue.size());
-                    Tsonic.JSRuntime.console.log("Queue dequeue:", queue.dequeue());
+                    global::Tsonic.JSRuntime.console.log("Queue size:", queue.size());
+                    global::Tsonic.JSRuntime.console.log("Queue dequeue:", queue.dequeue());
                     var list = new LinkedList<double>();
                     list.append(10);
                     list.append(20);
                     list.prepend(5);
-                    Tsonic.JSRuntime.console.log("List as array:", list.toArray());
+                    global::Tsonic.JSRuntime.console.log("List as array:", list.toArray());
                     }
             }
 }

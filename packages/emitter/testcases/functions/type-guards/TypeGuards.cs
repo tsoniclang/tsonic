@@ -1,20 +1,16 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.functions.typeguards
 {
     public class Dog
     {
         public string type { get; set; }
 
-        public void bark() => throw new NotImplementedException();
+        public void bark() => throw new global::System.NotImplementedException();
     }
     public class Cat
     {
         public string type { get; set; }
 
-        public void meow() => throw new NotImplementedException();
+        public void meow() => throw new global::System.NotImplementedException();
     }
     public class Circle
     {
@@ -53,20 +49,20 @@ namespace TestCases.functions.typeguards
                             }
                     }
 
-                public static string processValue(Union<string, double> value)
+                public static string processValue(global::Tsonic.Runtime.Union<string, double> value)
                     {
-                    if (Tsonic.Runtime.Operators.@typeof(value) == "string")
+                    if (global::Tsonic.Runtime.Operators.@typeof(value) == "string")
                         {
-                        return Tsonic.JSRuntime.String.toUpperCase(value);
+                        return global::Tsonic.JSRuntime.String.toUpperCase(value);
                         }
-                    return Tsonic.JSRuntime.Number.toString(value);
+                    return global::Tsonic.JSRuntime.Number.toString(value);
                     }
 
-                public static double getArea(Union<Circle, double> shape)
+                public static double getArea(global::Tsonic.Runtime.Union<Circle, double> shape)
                     {
                     if (shape is Circle)
                         {
-                        return Tsonic.JSRuntime.Math.PI * shape.radius * shape.radius;
+                        return global::Tsonic.JSRuntime.Math.PI * shape.radius * shape.radius;
                         }
                     return shape;
                     }
