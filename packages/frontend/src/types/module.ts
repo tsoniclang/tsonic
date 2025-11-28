@@ -97,8 +97,3 @@ export const addModule = (
 
 export const isLocalImport = (importSpec: string): boolean =>
   importSpec.startsWith(".") || importSpec.startsWith("/");
-
-export const isDotNetImport = (importSpec: string): boolean =>
-  !isLocalImport(importSpec) &&
-  !importSpec.includes("/") &&
-  /^[A-Z]/.test(importSpec);

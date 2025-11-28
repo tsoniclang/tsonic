@@ -11,3 +11,8 @@ export {
 export { resolveModulePath } from "./path-resolution.js";
 export { getNamespaceFromPath } from "./namespace.js";
 export { getClassNameFromPath } from "./naming.js";
+export {
+  DotNetImportResolver,
+  createDotNetImportResolver,
+  type ResolvedDotNetImport,
+} from "./dotnet-import-resolver.js";

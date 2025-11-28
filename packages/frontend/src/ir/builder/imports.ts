@@ -6,14 +6,17 @@ import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
 import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
+import { DotNetImportResolver } from "../../resolver/dotnet-import-resolver.js";
 
 /**
  * Extract import declarations from source file.
  * Uses TypeChecker to determine if each import is a type or value.
+ * Uses DotNetImportResolver to detect CLR namespace imports.
  */
 export const extractImports = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  dotnetResolver: DotNetImportResolver
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
 
@@ -24,8 +27,15 @@ export const extractImports = (
     ) {
       const source = node.moduleSpecifier.text;
       const isLocal = source.startsWith(".") || source.startsWith("/");
-      const isDotNet =
-        !isLocal && !source.includes("/") && /^[A-Z]/.test(source);
+
+      // Use import-driven resolution to detect .NET imports
+      // This works for any package that provides bindings.json
+      const dotnetResolution = dotnetResolver.resolve(source);
+      const isDotNet = dotnetResolution.isDotNet;
+      const resolvedNamespace = dotnetResolution.isDotNet
+        ? dotnetResolution.resolvedNamespace
+        : undefined;
+
       const specifiers = extractImportSpecifiers(node, checker);
 
       // Check for module binding (Node.js API, etc.)
@@ -43,7 +53,7 @@ export const extractImports = (
         isLocal,
         isDotNet,
         specifiers,
-        resolvedNamespace: isDotNet ? source : undefined,
+        resolvedNamespace,
         resolvedClrType: hasModuleBinding ? binding.type : undefined,
         resolvedAssembly: hasModuleBinding ? binding.assembly : undefined,
       });

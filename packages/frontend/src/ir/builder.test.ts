@@ -13,6 +13,7 @@ import {
 } from "./types.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
+import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -51,6 +52,7 @@ describe("IR Builder", () => {
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings: new BindingRegistry(),
+      dotnetResolver: createDotNetImportResolver("/test"),
     };
   };
 
@@ -71,9 +73,6 @@ describe("IR Builder", () => {
         rootNamespace: "TestApp",
       });
 
-      if (!result.ok) {
-        console.error("Error in test:", result.error);
-      }
       expect(result.ok).to.equal(true);
       if (result.ok) {
         const module = result.value;
@@ -142,7 +141,10 @@ describe("IR Builder", () => {
       }
     });
 
-    it("should detect .NET imports", () => {
+    it("should not detect bare imports as .NET without package bindings", () => {
+      // Import-driven resolution: bare imports like "System.IO" are only detected as .NET
+      // if they come from a package with bindings.json. Without an actual package,
+      // the import is not recognized as .NET.
       const source = `
         import { File } from "System.IO";
       `;
@@ -161,8 +163,9 @@ describe("IR Builder", () => {
         const imports = result.value.imports;
         const firstImport = imports[0];
         if (!firstImport) throw new Error("Missing import");
-        expect(firstImport.isDotNet).to.equal(true);
-        expect(firstImport.resolvedNamespace).to.equal("System.IO");
+        // Without an actual package with bindings.json, this is NOT detected as .NET
+        expect(firstImport.isDotNet).to.equal(false);
+        expect(firstImport.resolvedNamespace).to.equal(undefined);
       }
     });
   });

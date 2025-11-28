@@ -64,18 +64,21 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should resolve .NET imports", () => {
+    it("should not detect bare imports as .NET without resolver with bindings", () => {
+      // Import-driven resolution: bare imports like "System.IO" are only detected as .NET
+      // if a resolver is provided and the import resolves to a package with bindings.json.
+      // Without a resolver or package, bare imports are treated as unsupported node_modules.
       const result = resolveImport(
         "System.IO",
         path.join(tempDir, "src", "index.ts"),
         sourceRoot
+        // No dotnetResolver passed
       );
 
-      expect(result.ok).to.equal(true);
-      if (result.ok) {
-        expect(result.value.isLocal).to.equal(false);
-        expect(result.value.isDotNet).to.equal(true);
-        expect(result.value.originalSpecifier).to.equal("System.IO");
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error.code).to.equal("TSN1004");
+        expect(result.error.message).to.include("Unsupported module import");
       }
     });
 
