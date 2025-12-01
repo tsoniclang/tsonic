@@ -304,3 +304,17 @@ export function main(): void {
   console.log(parsed.name); // Bob
 }
 ```
+
+### NativeAOT Compatibility
+
+Tsonic automatically generates a `JsonSerializerContext` for NativeAOT compatibility.
+You don't need to do anything special—just use `JsonSerializer` as shown above.
+
+Behind the scenes, Tsonic:
+
+1. Detects all `JsonSerializer.Serialize()` and `Deserialize<T>()` calls
+2. Collects the types being serialized
+3. Generates `__tsonic_json.g.cs` with `[JsonSerializable]` attributes
+4. Rewrites calls to use the generated context
+
+This ensures your code works in NativeAOT without reflection-based serialization.

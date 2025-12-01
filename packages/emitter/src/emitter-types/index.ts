@@ -12,6 +12,7 @@ export type {
   ModuleMap,
   ExportSource,
   ExportMap,
+  JsonAotRegistry,
 } from "./core.js";
 export type {
   CSharpAccessModifier,

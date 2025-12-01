@@ -345,6 +345,56 @@ var n = identity<double>(42);
 
 Complex cases require monomorphization.
 
+## JSON AOT Support
+
+The emitter provides automatic NativeAOT-compatible JSON serialization:
+
+### Detection
+
+`expressions/calls.ts` detects `JsonSerializer` calls via binding resolution:
+
+```typescript
+const isJsonSerializerCall = (callee: IrExpression): boolean => {
+  if (callee.kind !== "memberAccess") return false;
+  return callee.memberBinding?.type === "System.Text.Json.JsonSerializer";
+};
+```
+
+### Type Collection
+
+Types are collected in a shared registry during emission:
+
+```typescript
+type JsonAotRegistry = {
+  rootTypes: Set<string>; // e.g., "global::MyApp.User"
+  needsJsonAot: boolean;
+};
+```
+
+### Call Rewriting
+
+Calls are rewritten to use generated options:
+
+```typescript
+// Before: JsonSerializer.Serialize(user)
+// After:  JsonSerializer.Serialize(user, TsonicJson.Options)
+```
+
+### Context Generation
+
+When `needsJsonAot` is true, generates `__tsonic_json.g.cs`:
+
+```csharp
+[JsonSerializable(typeof(global::MyApp.User))]
+internal partial class __TsonicJsonContext : JsonSerializerContext { }
+
+internal static class TsonicJson {
+    internal static readonly JsonSerializerOptions Options = new() {
+        TypeInfoResolver = __TsonicJsonContext.Default
+    };
+}
+```
+
 ## Module Map
 
 For cross-file import resolution:

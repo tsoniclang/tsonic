@@ -17,6 +17,7 @@ export type {
   ModuleMap,
   ExportSource,
   ExportMap,
+  JsonAotRegistry,
 } from "./emitter-types/index.js";
 export {
   createContext,
