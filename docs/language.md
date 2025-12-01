@@ -283,17 +283,119 @@ import { Console } from "@tsonic/dotnet/System.ts";
 
 ## Entry Point
 
-Every executable needs a `main()` function exported from the entry point:
+Every executable needs a `main()` function exported from the entry point.
+
+### Basic Entry Point
 
 ```typescript
-// src/App.ts
 export function main(): void {
   console.log("Hello!");
 }
+```
 
-// Async main is supported
+### Async Entry Point
+
+```typescript
 export async function main(): Promise<void> {
-  await doAsyncWork();
+  const data = await fetchData();
+  console.log(data);
+}
+```
+
+### Command-Line Arguments
+
+```typescript
+export function main(args: string[]): void {
+  for (const arg of args) {
+    console.log(arg);
+  }
+}
+```
+
+Run with:
+```bash
+./myapp arg1 arg2 arg3
+```
+
+### Exit Codes
+
+Return an exit code to indicate success or failure:
+
+```typescript
+import { int } from "@tsonic/types";
+
+export function main(): int {
+  if (errorCondition) {
+    return 1;  // Error
+  }
+  return 0;  // Success
+}
+```
+
+### Library Output
+
+For libraries without an entry point, use `--output-type library`:
+
+```bash
+tsonic build src/index.ts --output-type library
+```
+
+This produces a `.dll` instead of an executable.
+
+## Generators
+
+Generator functions compile to C# iterators:
+
+```typescript
+function* counter(): Generator<number> {
+  let i = 0;
+  while (i < 5) {
+    yield i++;
+  }
+}
+
+export function main(): void {
+  for (const n of counter()) {
+    console.log(n);
+  }
+}
+```
+
+### Bidirectional Generators
+
+Generators can receive values via `next(value)`:
+
+```typescript
+function* accumulator(start: number): Generator<number, void, number> {
+  let total = start;
+  while (true) {
+    const value = yield total;
+    total += value ?? 0;
+  }
+}
+
+export function main(): void {
+  const gen = accumulator(10);
+  console.log(gen.next().value);     // 10
+  console.log(gen.next(5).value);    // 15
+  console.log(gen.next(3).value);    // 18
+}
+```
+
+### Async Generators
+
+```typescript
+async function* fetchItems(): AsyncGenerator<string> {
+  for (let i = 0; i < 5; i++) {
+    await delay(100);
+    yield `Item ${i}`;
+  }
+}
+
+export async function main(): Promise<void> {
+  for await (const item of fetchItems()) {
+    console.log(item);
+  }
 }
 ```
 
@@ -342,19 +444,123 @@ function add(a: number, b: number): number {
 }
 ```
 
-## Naming Conventions
+## Namespace and Class Mapping
+
+Tsonic maps your directory structure directly to C# namespaces.
+
+### The Mapping Rule
+
+**Directory path = C# namespace (case-preserved)**
+
+```
+src/models/User.ts  ->  namespace MyApp.src.models { class User {} }
+src/api/v1/handlers.ts  ->  namespace MyApp.src.api.v1 { class handlers {} }
+```
+
+### Root Namespace
+
+Set via CLI or config:
+
+```bash
+tsonic build src/main.ts --namespace MyApp
+```
+
+Or in `tsonic.json`:
+
+```json
+{
+  "rootNamespace": "MyApp"
+}
+```
 
 ### File to Class Mapping
 
+The file name (without `.ts`) becomes the C# class name:
+
 | File | Generated Class |
 |------|-----------------|
-| `App.ts` | `App` |
-| `UserService.ts` | `UserService` |
-| `my-utils.ts` | `my_utils` |
+| `App.ts` | `class App` |
+| `UserService.ts` | `class UserService` |
+| `my-utils.ts` | `class my_utils` (hyphens to underscores) |
 
 ### Directory to Namespace Mapping
 
-| Path | Namespace |
-|------|-----------|
-| `src/App.ts` | `MyApp.src.App` |
-| `src/models/User.ts` | `MyApp.src.models.User` |
+Each directory becomes a namespace segment:
+
+```
+MyApp/              (root namespace)
+├── models/         -> MyApp.models
+│   ├── User.ts     -> MyApp.models.User
+│   └── Product.ts  -> MyApp.models.Product
+└── services/       -> MyApp.services
+    └── api.ts      -> MyApp.services.api
+```
+
+### Case Preservation
+
+Directory names keep their exact case:
+
+```
+src/Models/User.ts   -> MyApp.src.Models.User  (capital M)
+src/models/User.ts   -> MyApp.src.models.User  (lowercase m)
+```
+
+Be consistent with casing across your project.
+
+### Static Container Classes
+
+Files with top-level exports become static classes:
+
+```typescript
+// math.ts
+export const PI = 3.14159;
+export function add(a: number, b: number): number {
+  return a + b;
+}
+```
+
+Becomes:
+
+```csharp
+namespace MyApp
+{
+    public static class math
+    {
+        public static readonly double PI = 3.14159;
+        public static double add(double a, double b)
+        {
+            return a + b;
+        }
+    }
+}
+```
+
+### Importing Across Namespaces
+
+TypeScript imports resolve to C# namespace references:
+
+```typescript
+// src/services/UserService.ts
+import { User } from "../models/User.ts";
+
+export class UserService {
+  getUser(): User {
+    return new User("John");
+  }
+}
+```
+
+Becomes:
+
+```csharp
+namespace MyApp.src.services
+{
+    public class UserService
+    {
+        public MyApp.src.models.User getUser()
+        {
+            return new MyApp.src.models.User("John");
+        }
+    }
+}
+```

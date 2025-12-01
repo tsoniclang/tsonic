@@ -4,15 +4,24 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 
 ## Table of Contents
 
-1. [Getting Started](getting-started.md)
-2. [CLI Reference](cli.md)
-3. [Configuration](configuration.md)
-4. [Language Guide](language.md)
-5. [Runtime Modes](runtime-modes.md)
-6. [.NET Interop](dotnet-interop.md)
-7. [Type System](type-system.md)
-8. [Build Output](build-output.md)
-9. [Troubleshooting](troubleshooting.md)
+### Getting Started
+1. [Getting Started](getting-started.md) - Installation and first project
+2. [CLI Reference](cli.md) - Commands and options
+3. [Configuration](configuration.md) - tsonic.json reference
+
+### Language
+4. [Language Guide](language.md) - Supported features
+5. [Type System](type-system.md) - Type mappings
+6. [Runtime Modes](runtime-modes.md) - JS vs dotnet mode
+7. [.NET Interop](dotnet-interop.md) - Using .NET BCL
+
+### Build
+8. [Build Output](build-output.md) - Pipeline and output
+9. [Diagnostics](diagnostics.md) - Error codes reference
+
+### Reference
+10. [Examples](examples/README.md) - Code examples
+11. [Troubleshooting](troubleshooting.md) - Common issues
 
 ## Quick Links
 
