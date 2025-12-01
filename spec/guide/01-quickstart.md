@@ -18,7 +18,7 @@ cd tsonic
 
 # Install dependencies and build
 npm install
-./scripts/build.sh
+./scripts/build/all.sh
 
 # Link CLI globally
 npm link packages/cli
