@@ -1,355 +1,198 @@
-# Getting Started with Tsonic
+# Getting Started
 
-This guide will help you install Tsonic and compile your first TypeScript program to a native executable.
+This guide walks you through installing Tsonic and building your first program.
 
 ## Prerequisites
 
-Before you begin, make sure you have:
+### Node.js 18+
 
-1. **.NET SDK 8.0 or later**
+Download from [nodejs.org](https://nodejs.org/) or use a version manager:
 
-   ```bash
-   dotnet --version  # Should show 8.0 or higher
-   ```
+```bash
+# Using nvm
+nvm install 18
+nvm use 18
 
-   If not installed, download from [dot.net](https://dot.net)
+# Verify
+node --version
+```
 
-2. **Node.js 18.0 or later**
+### .NET 10 SDK
 
-   ```bash
-   node --version  # Should show v18.0 or higher
-   ```
+Download from [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/10.0):
 
-   If not installed, download from [nodejs.org](https://nodejs.org)
+```bash
+# Linux (Ubuntu/Debian)
+sudo apt-get install dotnet-sdk-10.0
+
+# macOS
+brew install dotnet-sdk
+
+# Verify
+dotnet --version
+```
 
 ## Installation
 
-Install Tsonic globally via npm:
+### Global Installation (Recommended)
 
 ```bash
 npm install -g @tsonic/cli
 ```
 
-Verify the installation:
+Verify:
 
 ```bash
 tsonic --version
 ```
 
-## Your First Program
+### Local Installation
 
-Let's create a simple "Hello World" program.
-
-### Step 1: Create a TypeScript File
-
-Create a file named `hello.ts`:
-
-```typescript
-// hello.ts
-export function main(): void {
-  console.log("Hello from Tsonic!");
-  console.log("TypeScript → C# → NativeAOT");
-}
-```
-
-**Important**: The entry file must export a `main()` function that serves as the program's entry point.
-
-### Step 2: Compile and Run
-
-Compile and run in one command:
+For project-specific usage:
 
 ```bash
-tsonic run hello.ts
+npm install --save-dev @tsonic/cli
+npx tsonic --version
 ```
 
-You should see:
+## Creating a Project
 
-```
-Hello from Tsonic!
-TypeScript → C# → NativeAOT
-```
+### Using project init
 
-### Step 3: Build an Executable
-
-To create a standalone executable:
+The easiest way to start:
 
 ```bash
-tsonic build hello.ts --out hello
+mkdir my-app
+cd my-app
+tsonic project init
 ```
 
-This creates a native executable named `hello` (or `hello.exe` on Windows). Run it:
-
-```bash
-./hello  # Linux/macOS
-hello    # Windows
-```
-
-The executable:
-
-- Is a single file with no dependencies
-- Starts instantly (no JIT compilation)
-- Is typically 10-50 MB depending on features used
-
-## A More Realistic Example
-
-Let's build a simple file processor that uses .NET libraries.
-
-Create `processor.ts`:
-
-```typescript
-import { File, Directory } from "System.IO";
-
-export function main(): void {
-  const dir = "data";
-
-  // Create directory if it doesn't exist
-  if (!Directory.Exists(dir)) {
-    Directory.CreateDirectory(dir);
-    console.log(`Created directory: ${dir}`);
-  }
-
-  // Write a file
-  const content = "Tsonic is awesome!";
-  const filePath = `${dir}/message.txt`;
-  File.WriteAllText(filePath, content);
-  console.log(`Wrote: ${filePath}`);
-
-  // Read it back
-  const readContent = File.ReadAllText(filePath);
-  console.log(`Read: ${readContent}`);
-
-  // Count files in directory
-  const files = Directory.GetFiles(dir);
-  console.log(`Files in ${dir}: ${files.length}`);
-}
-```
-
-Build and run:
-
-```bash
-tsonic run processor.ts
-```
-
-Output:
-
-```
-Created directory: data
-Wrote: data/message.txt
-Read: Tsonic is awesome!
-Files in data: 1
-```
-
-## Project Structure
-
-For larger projects, organize your code into modules:
+This creates:
 
 ```
 my-app/
-├── tsonic.json          # Configuration
 ├── src/
-│   ├── main.ts          # Entry point
-│   ├── models/
-│   │   └── User.ts
-│   └── services/
-│       └── DataService.ts
-└── README.md
+│   └── App.ts           # Entry point
+├── tsonic.json          # Configuration
+├── package.json         # NPM package with scripts
+├── .gitignore           # Ignores generated/ and out/
+└── README.md            # Project readme
 ```
 
-### tsonic.json
+### Project Init Options
 
-Create a configuration file to customize build settings:
+```bash
+# Initialize with dotnet runtime mode
+tsonic project init --runtime dotnet
+
+# Skip installing type packages
+tsonic project init --skip-types
+
+# Specify type package version
+tsonic project init --types-version 0.2.0
+```
+
+### Manual Setup
+
+If you prefer manual setup:
+
+1. Create `tsonic.json`:
 
 ```json
 {
-  "$schema": "https://tsonic.dev/schema/v1.json",
   "rootNamespace": "MyApp",
-  "entryPoint": "src/main.ts",
+  "entryPoint": "src/App.ts",
   "sourceRoot": "src",
-  "outputDirectory": "dist",
-  "outputName": "myapp"
+  "runtime": "js"
 }
 ```
 
-Now you can just run:
-
-```bash
-tsonic build
-```
-
-It will use the config file automatically.
-
-## Common Commands
-
-### Development
-
-```bash
-# Run immediately without saving executable
-tsonic run src/main.ts
-
-# Check generated C# code
-tsonic emit src/main.ts --out generated/
-
-# Watch for changes and rebuild (future feature)
-tsonic watch src/
-```
-
-### Building
-
-```bash
-# Build for current platform
-tsonic build src/main.ts
-
-# Build for specific platform
-tsonic build src/main.ts --rid linux-x64 --out myapp-linux
-
-# Optimize for size
-tsonic build src/main.ts --optimize size
-
-# Keep debug symbols
-tsonic build src/main.ts --no-strip
-```
-
-### Debugging
-
-```bash
-# See what's happening
-tsonic build src/main.ts --verbose
-
-# Keep temporary build files
-tsonic build src/main.ts --keep-temp
-
-# Check diagnostics in JSON format
-tsonic build src/main.ts --diagnostics json
-```
-
-## Module System Basics
-
-Tsonic uses ES Modules with a few important rules:
-
-### Local Imports
-
-**Always include `.ts` extension** for local files:
-
-```typescript
-// ✅ Correct
-import { User } from "./models/User.ts";
-import { helper } from "../utils/helper.ts";
-
-// ❌ Wrong - Missing extension
-import { User } from "./models/User";
-```
-
-### .NET Imports
-
-**No extension** for .NET namespaces:
-
-```typescript
-// ✅ Correct
-import { File } from "System.IO";
-import { HttpClient } from "System.Net.Http";
-
-// ❌ Wrong - Extension on .NET import
-import { File } from "System.IO.ts";
-```
-
-See [Module System](./language/module-system.md) for complete rules.
-
-## Understanding Namespaces
-
-Your directory structure becomes C# namespaces automatically:
-
-```
-src/models/User.ts       → MyApp.models.User
-src/services/api.ts      → MyApp.services.api
-src/utils/string/fmt.ts  → MyApp.utils.string.fmt
-```
-
-The root namespace comes from `tsonic.json` (`rootNamespace` field).
-
-See [Namespaces](./language/namespaces.md) for details.
-
-## Type System Basics
-
-TypeScript types map to native .NET types:
-
-```typescript
-// Primitives
-const name: string = "Alice"; // → string
-const age: number = 25; // → double
-const active: boolean = true; // → bool
-
-// Arrays
-const nums: number[] = [1, 2, 3]; // → List<double>
-
-// Async
-async function fetch(): Promise<string> {
-  // ...
-}
-// → async Task<string> fetch()
-
-// Optional
-function greet(name?: string): void {
-  // ...
-}
-// → void greet(string? name = null)
-```
-
-See [Type Mappings](./language/type-mappings.md) for complete reference.
-
-## Common Errors
-
-### TSN1001: Missing .ts Extension
-
-```
-ERROR TSN1001: Local import missing .ts extension
-  import { User } from "./User";
-                        ^^^^^^^^
-```
-
-**Fix**: Add `.ts` extension:
-
-```typescript
-import { User } from "./User.ts";
-```
-
-### TSN5001: .NET SDK Not Found
-
-```
-ERROR TSN5001: .NET SDK not found
-```
-
-**Fix**: Install .NET SDK from [dot.net](https://dot.net)
-
-### TSN1020: No Entry Point
-
-```
-ERROR TSN1020: Entry file has top-level code but no main() export
-```
-
-**Fix**: Export a `main()` function:
+2. Create `src/App.ts`:
 
 ```typescript
 export function main(): void {
-  // Your code here
+  console.log("Hello!");
 }
 ```
 
-See [Diagnostics](./diagnostics.md) for all error codes.
+3. Install type packages:
+
+```bash
+npm install --save-dev @tsonic/cli @tsonic/types @tsonic/js-globals
+```
+
+## Building and Running
+
+### Build Command
+
+Generate C# and compile to native:
+
+```bash
+tsonic build src/App.ts
+```
+
+Output goes to `out/app` (or `out/app.exe` on Windows).
+
+### Run Command
+
+Build and execute in one step:
+
+```bash
+tsonic run src/App.ts
+```
+
+### NPM Scripts
+
+The generated `package.json` includes convenience scripts:
+
+```bash
+npm run build    # tsonic build src/App.ts
+npm run dev      # tsonic run src/App.ts
+```
+
+## Understanding the Output
+
+After building:
+
+```
+my-app/
+├── generated/           # Generated C# code
+│   ├── src/
+│   │   └── App.cs       # Your code as C#
+│   ├── Program.cs       # Entry point wrapper
+│   └── tsonic.csproj    # .NET project file
+└── out/
+    └── app              # Native executable
+```
+
+### Generated C# (Example)
+
+Your TypeScript:
+
+```typescript
+export function main(): void {
+  console.log("Hello!");
+}
+```
+
+Becomes:
+
+```csharp
+namespace MyApp.src
+{
+    public static class App
+    {
+        public static void main()
+        {
+            global::System.Console.WriteLine("Hello!");
+        }
+    }
+}
+```
 
 ## Next Steps
 
-Now that you have Tsonic installed and working:
-
-1. **Learn the CLI** - See [CLI Reference](./cli.md) for all commands and options
-2. **Explore Examples** - Check out [Examples](./examples/index.md) for working code
-3. **Use .NET Libraries** - Read [.NET Interop](./language/dotnet-interop.md) to leverage the ecosystem
-4. **Build Something** - Start with a simple CLI tool or HTTP service
-
-## Getting Help
-
-- **Documentation**: You're reading it! Browse the [full docs](./index.md)
-- **Examples**: See [working examples](./examples/index.md)
-- **Troubleshooting**: Check [common issues](./troubleshooting.md)
-- **Community**: Ask on GitHub Discussions
-
-Happy coding with Tsonic!
+- [CLI Reference](cli.md) - All commands and options
+- [Configuration](configuration.md) - tsonic.json in detail
+- [Language Guide](language.md) - TypeScript features supported
+- [Runtime Modes](runtime-modes.md) - JS vs Dotnet mode

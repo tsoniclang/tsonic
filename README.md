@@ -1,38 +1,16 @@
 # Tsonic
 
-**Compile TypeScript to NativeAOT executables.**
+Tsonic is a TypeScript to C# compiler that produces native executables via .NET NativeAOT. Write TypeScript, get fast native binaries.
 
-Tsonic is a compiler that takes TypeScript code and produces fast, self-contained native binaries using .NET's NativeAOT technology.
+## Key Features
 
-## Quick Start
-
-```typescript
-// hello.ts
-export function main() {
-  console.log("Hello, Tsonic!");
-}
-```
-
-```bash
-$ npm install -g @tsonic/cli
-$ tsonic build hello.ts
-$ ./hello
-Hello, Tsonic!
-```
-
-## Documentation
-
-- **[User Guide](docs/index.md)** - Getting started, language guide, examples
-- **[Engineering Specs](spec/index.md)** - Internal architecture (for contributors)
-
-## Features
-
-- ✅ TypeScript → C# → NativeAOT compilation
-- ✅ Single-file executables, no runtime dependencies
-- ✅ Full .NET library access
-- ✅ Native performance
-- ✅ ESM modules with `.ts` extensions
-- ✅ Direct namespace mapping (directory → C# namespace)
+- **TypeScript to Native**: Compile TypeScript directly to native executables
+- **Two Runtime Modes**:
+  - `js` mode: JavaScript semantics via Tsonic.JSRuntime
+  - `dotnet` mode: Direct .NET BCL access with C# semantics
+- **NativeAOT Compilation**: Single-file, self-contained executables
+- **Full .NET Interop**: Import and use any .NET library
+- **ESM Module System**: Standard ES modules with `.ts` extensions
 
 ## Installation
 
@@ -40,62 +18,153 @@ Hello, Tsonic!
 npm install -g @tsonic/cli
 ```
 
-**Requirements:**
+**Prerequisites:**
+- Node.js 18+
+- .NET 10 SDK
 
-- Node.js 22+
-- .NET SDK 8.0+
+## Quick Start
 
-## Commands
+### Initialize a New Project
 
 ```bash
-tsonic build <file>     # Compile to executable
-tsonic emit <file>      # Generate C# only
-tsonic run <file>       # Build and run
-tsonic init             # Initialize project
+mkdir my-app && cd my-app
+tsonic project init
 ```
 
-See [CLI Reference](docs/cli.md) for all options.
+This creates:
+- `src/App.ts` - Entry point
+- `tsonic.json` - Configuration
+- `package.json` - With build scripts
 
-## Example
+### Build and Run
+
+```bash
+npm run build    # Build native executable
+./out/app        # Run it
+
+# Or build and run in one step
+npm run dev
+```
+
+### Example Program
 
 ```typescript
-// File I/O with .NET
-import { File } from "System.IO";
+// src/App.ts
+export function main(): void {
+  const message = "Hello from Tsonic!";
+  console.log(message);
 
-export function main() {
-  File.WriteAllText("hello.txt", "Hello from Tsonic!");
-  const content = File.ReadAllText("hello.txt");
-  console.log(content);
+  const numbers = [1, 2, 3, 4, 5];
+  const doubled = numbers.map(n => n * 2);
+  console.log("Doubled:", doubled.join(", "));
 }
 ```
 
-## Project Status
+## Runtime Modes
 
-**Current Phase:** MVP (Phases 0-6 complete, Phase 7-8 in progress)
+### JS Mode (Default)
 
-- ✅ TypeScript parsing
-- ✅ IR building
-- ✅ C# emission (basic features)
-- ✅ NativeAOT compilation
-- 🔄 Advanced generics
-- 🔄 Generators
-- 🔄 Full .NET interop
+Uses Tsonic.JSRuntime for JavaScript-compatible semantics:
 
-See [Implementation Plan](spec/appendices/implementation-plan.md) for roadmap.
+```typescript
+// Arrays behave like JavaScript
+const arr: number[] = [];
+arr[10] = 42;
+console.log(arr.length);  // 11 (sparse array)
+```
 
-## Contributing
+### Dotnet Mode
 
-1. Read [CLAUDE.md](CLAUDE.md) for development guidelines
-2. Read [CODING-STANDARDS.md](CODING-STANDARDS.md) for functional programming rules
-3. Review [Engineering Specs](spec/index.md) for architecture
-4. Follow the functional programming patterns (no mutations!)
+Direct .NET BCL access with C# semantics:
+
+```bash
+tsonic project init --runtime dotnet
+```
+
+```typescript
+import { Console } from "@tsonic/dotnet/System";
+import { File } from "@tsonic/dotnet/System.IO";
+import { List } from "@tsonic/dotnet/System.Collections.Generic";
+
+export function main(): void {
+  // Use .NET APIs directly
+  const content = File.ReadAllText("./README.md");
+  Console.WriteLine(content);
+
+  // .NET collections
+  const list = new List<number>();
+  list.Add(1);
+  list.Add(2);
+  Console.WriteLine(`Count: ${list.Count}`);
+}
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `tsonic project init` | Initialize new project |
+| `tsonic emit <entry>` | Generate C# code only |
+| `tsonic build <entry>` | Build native executable |
+| `tsonic run <entry>` | Build and run |
+
+### Common Options
+
+| Option | Description |
+|--------|-------------|
+| `-c, --config <file>` | Config file (default: tsonic.json) |
+| `-o, --out <path>` | Output path |
+| `-r, --rid <rid>` | Runtime identifier (e.g., linux-x64) |
+| `-O, --optimize <level>` | Optimization: size or speed |
+| `-k, --keep-temp` | Keep build artifacts |
+| `-V, --verbose` | Verbose output |
+| `-q, --quiet` | Suppress output |
+
+## Configuration (tsonic.json)
+
+```json
+{
+  "$schema": "https://tsonic.dev/schema/v1.json",
+  "rootNamespace": "MyApp",
+  "entryPoint": "src/App.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "app",
+  "runtime": "js",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  }
+}
+```
+
+## Project Structure
+
+```
+my-app/
+├── src/
+│   └── App.ts           # Entry point (exports main())
+├── tsonic.json          # Configuration
+├── package.json         # NPM package
+├── generated/           # Generated C# (gitignored)
+└── out/                 # Output executable (gitignored)
+```
+
+## Documentation
+
+- **[User Guide](docs/README.md)** - Complete user documentation
+- **[Architecture](docs/architecture/README.md)** - Technical details
+
+## Type Packages
+
+| Package | Description |
+|---------|-------------|
+| `@tsonic/types` | Core types (int, float, etc.) |
+| `@tsonic/js-globals` | JS mode ambient types |
+| `@tsonic/dotnet-globals` | Dotnet mode ambient types |
+| `@tsonic/dotnet` | .NET BCL type declarations |
 
 ## License
 
 MIT
-
-## Links
-
-- [GitHub](https://github.com/tsoniclang/tsonic)
-- [Documentation](docs/index.md)
-- [Examples](docs/examples/index.md)
