@@ -1,226 +1,278 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-Common issues and solutions when using Tsonic.
+Common issues and solutions.
 
 ## Installation Issues
 
-### "dotnet not found"
-
-**Problem:** Tsonic requires .NET SDK 8.0 or later.
-
-**Solution:**
-
-```bash
-# Check .NET installation
-dotnet --version
-
-# If not installed, download from:
-# https://dotnet.microsoft.com/download
-```
-
----
-
 ### "tsonic: command not found"
 
-**Problem:** Tsonic CLI not installed or not in PATH.
+**Cause**: CLI not installed globally or PATH not set.
 
-**Solution:**
+**Solutions**:
 
 ```bash
-# Install globally
+# Reinstall globally
 npm install -g @tsonic/cli
 
 # Or use npx
-npx @tsonic/cli build src/main.ts
+npx tsonic --version
+
+# Check npm global path
+npm config get prefix
+# Add to PATH if needed
 ```
 
----
+### ".NET SDK not found"
 
-## Compilation Errors
+**Cause**: .NET 10 SDK not installed.
 
-### Import Errors
+**Solutions**:
 
-**Problem:** "TSN1001: Missing .ts extension"
+```bash
+# Check installation
+dotnet --version
 
-**Solution:** All local imports must have `.ts`:
+# Install from https://dotnet.microsoft.com/download/dotnet/10.0
 
-```typescript
-// ❌ Wrong
-import { User } from "./models/User";
-
-// ✅ Correct
-import { User } from "./models/User.ts";
+# Linux (Ubuntu/Debian)
+sudo apt-get install dotnet-sdk-10.0
 ```
 
----
+## Build Errors
 
-### Case Sensitivity
+### "Config file not found"
 
-**Problem:** "TSN1003: Case mismatch"
-
-**Solution:** Import paths must match file case exactly:
-
-```typescript
-// File: User.ts (capital U)
-import { User } from "./user.ts"; // ❌ Wrong
-
-import { User } from "./User.ts"; // ✅ Correct
+```
+Error: Config file not found: tsonic.json
 ```
 
----
+**Solutions**:
 
-### Circular Dependencies
+1. Run from project root (where `tsonic.json` is)
+2. Create config: `tsonic project init`
+3. Specify path: `tsonic build --config path/to/tsonic.json`
 
-**Problem:** "TSN1006: Circular dependency detected"
+### "Entry point is required"
 
-**Solution:** Refactor to break the cycle:
-
-```typescript
-// Before:
-// A.ts imports B.ts
-// B.ts imports A.ts  // ❌ Circular!
-
-// After: Extract shared code
-// A.ts imports Shared.ts
-// B.ts imports Shared.ts  // ✅ No cycle
+```
+Error: Entry point is required for executable builds
 ```
 
----
+**Solutions**:
 
-## Build Issues
-
-### NativeAOT Build Fails
-
-**Problem:** `dotnet publish` fails with NativeAOT errors.
-
-**Check:**
-
-1. .NET SDK version is 8.0+
-2. NativeAOT workload installed:
-   ```bash
-   dotnet workload install wasm-tools
+1. Provide entry file: `tsonic build src/App.ts`
+2. Add to config:
+   ```json
+   { "entryPoint": "src/App.ts" }
    ```
-3. Valid RID for your platform
 
----
+### "No exported main() function"
 
-### "Assembly not found"
+```
+Error: No exported main() function found
+```
 
-**Problem:** Missing .NET assembly reference.
+**Solutions**:
 
-**Solution:** Check that required NuGet packages are in `tsonic.json`:
+Ensure your entry file exports `main`:
 
-```json
-{
-  "dotnet": {
-    "packages": {
-      "Newtonsoft.Json": "13.0.3"
-    }
-  }
+```typescript
+// ✅ Correct
+export function main(): void {
+  // ...
+}
+
+// ❌ Wrong - not exported
+function main(): void {
+  // ...
 }
 ```
 
----
+### "Cannot resolve module"
+
+```
+Error TSN1001: Cannot resolve module './User'
+```
+
+**Solutions**:
+
+Add `.ts` extension to local imports:
+
+```typescript
+// ✅ Correct
+import { User } from "./User.ts";
+
+// ❌ Wrong
+import { User } from "./User";
+```
+
+### "TypeScript compilation failed"
+
+**Solutions**:
+
+1. Check TypeScript errors in output
+2. Ensure type packages are installed:
+   ```bash
+   npm install --save-dev @tsonic/types @tsonic/js-globals
+   ```
+3. Run emit only to see generated C#:
+   ```bash
+   tsonic emit src/App.ts --verbose
+   ```
+
+### "dotnet publish failed"
+
+**Solutions**:
+
+1. Check .NET SDK version:
+   ```bash
+   dotnet --version  # Should be 10.x
+   ```
+
+2. Try manual build:
+   ```bash
+   cd generated
+   dotnet build
+   ```
+
+3. Check for C# compilation errors in output
+
+4. Ensure NuGet packages exist:
+   ```bash
+   dotnet restore
+   ```
 
 ## Runtime Errors
 
-### "Method not found" at Runtime
+### "File not found" at runtime
 
-**Problem:** Using a .NET method that was trimmed by NativeAOT.
+**Cause**: Working directory different from expected.
 
-**Solution:** Add to `tsonic.json`:
+**Solutions**:
 
-```json
-{
-  "dotnet": {
-    "trimming": "partial"
-  }
-}
+1. Use absolute paths
+2. Use `Path.Combine` for cross-platform paths:
+   ```typescript
+   import { Path, File } from "@tsonic/dotnet/System.IO";
+   const path = Path.Combine(".", "data", "file.txt");
+   ```
+
+### Null reference exceptions
+
+**Cause**: Accessing property on null value.
+
+**Solutions**:
+
+1. Check for null:
+   ```typescript
+   if (value !== null) {
+     // safe to use
+   }
+   ```
+
+2. Use optional chaining:
+   ```typescript
+   const name = user?.profile?.name;
+   ```
+
+## Type Issues
+
+### "Type 'any' is not supported"
+
+**Solutions**:
+
+Replace `any` with specific types:
+
+```typescript
+// ❌ Wrong
+function process(data: any): any { ... }
+
+// ✅ Correct
+function process(data: unknown): string { ... }
+function process<T>(data: T): T { ... }
 ```
 
----
+### "Promise.then is not supported"
 
-### Type Conversion Errors
+**Solutions**:
 
-**Problem:** Mismatched types between TypeScript and C#.
+Use async/await instead of promise chaining:
 
-**Common issues:**
+```typescript
+// ❌ Wrong
+fetch(url).then(r => r.json()).then(data => console.log(data));
 
-- TypeScript arrays → `List<T>` (not `T[]`)
-- C# arrays → `ReadonlyArray<T>` in TypeScript
-
-**Solution:** Check [type mappings](language/type-mappings.md) guide.
-
----
+// ✅ Correct
+const response = await fetch(url);
+const data = await response.json();
+console.log(data);
+```
 
 ## Performance Issues
 
-### Slow Compilation
+### Large binary size
 
-**Problem:** Compilation takes too long.
-
-**Solutions:**
-
-1. Use incremental builds (coming soon)
-2. Reduce project size
-3. Check for circular dependencies
-
----
-
-### Large Output Binary
-
-**Problem:** Executable is too large.
-
-**Solutions:**
+**Solutions**:
 
 1. Enable trimming:
    ```json
-   {
-     "dotnet": {
-       "trimming": "full"
-     }
-   }
+   { "output": { "trimmed": true } }
    ```
-2. Use shared runtime instead of self-contained
-3. Remove unused .NET packages
 
----
+2. Optimize for size:
+   ```json
+   { "optimize": "size" }
+   ```
 
-## Language Feature Issues
+3. Strip symbols:
+   ```json
+   { "output": { "stripSymbols": true } }
+   ```
 
-### Feature Not Supported
+### Slow compilation
 
-**Problem:** "TSN3xxx: Feature not supported"
+**Solutions**:
 
-**Common unsupported features:**
+1. Use incremental builds (don't clean every time)
+2. Reduce number of source files
+3. Simplify generic usage
 
-- Default exports
-- CommonJS modules
-- Dynamic imports
-- Decorators
-- Namespaces (use ESM modules)
+## Debugging
 
-**Solution:** Use supported alternatives. See [diagnostics guide](diagnostics.md).
+### View generated C#
 
----
+```bash
+tsonic emit src/App.ts
+cat generated/src/App.cs
+```
 
-## Getting More Help
+### Verbose output
 
-If your issue isn't covered here:
+```bash
+tsonic build src/App.ts --verbose
+```
 
-1. **Check diagnostics** - See [error codes](diagnostics.md)
-2. **Search issues** - [GitHub Issues](https://github.com/tsoniclang/tsonic/issues)
-3. **Ask community** - Discord/Discussions
-4. **File a bug** - Include:
-   - Tsonic version (`tsonic --version`)
-   - .NET version (`dotnet --version`)
-   - Minimal reproduction
-   - Full error message
+### Keep build artifacts
 
----
+```bash
+tsonic build src/App.ts --keep-temp
+```
 
-**See Also:**
+### Manual .NET build
 
-- [Diagnostic Codes](diagnostics.md) - All error codes
-- [Getting Started](getting-started.md) - Setup guide
-- [Language Reference](language/module-system.md) - Language features
+```bash
+cd generated
+dotnet build --verbosity detailed
+```
+
+### Include debug symbols
+
+```bash
+tsonic build src/App.ts --no-strip
+```
+
+## Getting Help
+
+- **Documentation**: [docs/](.)
+- **GitHub Issues**: https://github.com/tsoniclang/tsonic/issues
+- **Source Code**: https://github.com/tsoniclang/tsonic

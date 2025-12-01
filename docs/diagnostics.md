@@ -1,333 +1,307 @@
 # Diagnostic Error Codes
 
-This guide explains Tsonic's error codes and how to fix them.
+Tsonic uses diagnostic codes in the format `TSNxxxx` to identify specific errors.
 
-## Error Code Format
+## Error Code Ranges
 
-Tsonic uses diagnostic codes in the format `TSNxxxx`:
+| Range | Category |
+|-------|----------|
+| TSN1xxx | Module resolution and imports |
+| TSN2xxx | Type system errors |
+| TSN3xxx | C# identifier and keyword errors |
+| TSN4xxx | .NET interop errors |
+| TSN5xxx | NativeAOT and runtime errors |
+| TSN6xxx | Internal compiler errors |
+| TSN7xxx | Language semantics and validation |
+| TSN9xxx | Metadata and bindings loading |
 
-- **TSN1xxx** - Module resolution and import errors
-- **TSN2xxx** - Type system errors
-- **TSN3xxx** - C# keyword and identifier errors
-- **TSN4xxx** - .NET interop errors
-- **TSN5xxx** - Build and backend errors
-- **TSN6xxx** - Internal compiler errors
-- **TSN7xxx** - Language semantics and validation errors
-- **TSN9xxx** - Metadata and bindings loading errors
-
----
-
-## TSN1xxx: Module Resolution Errors
+## TSN1xxx: Module Resolution
 
 ### TSN1001: Missing .ts Extension
 
-**Error:** Local import is missing the `.ts` extension.
-
-**Example:**
+Local imports must use the `.ts` extension.
 
 ```typescript
-import { User } from "./models/User"; // ❌ Wrong
+// Wrong
+import { User } from "./models/User";
+
+// Correct
+import { User } from "./models/User.ts";
 ```
 
-**Fix:**
+### TSN1002: Circular Dependency
 
-```typescript
-import { User } from "./models/User.ts"; // ✅ Correct
-```
-
-**Why:** Tsonic requires explicit `.ts` extensions on all local imports for clarity and ESM compliance.
-
----
-
-### TSN1002: Wrong Extension
-
-**Error:** Import has an extension other than `.ts`.
-
-**Example:**
-
-```typescript
-import { helper } from "./utils.js"; // ❌ Wrong
-```
-
-**Fix:**
-
-```typescript
-import { helper } from "./utils.ts"; // ✅ Correct
-```
-
----
-
-### TSN1003: Case Mismatch
-
-**Error:** Import path case doesn't match the actual file case on disk.
-
-**Example:**
-
-```typescript
-// File: ./models/User.ts
-import { User } from "./models/user.ts"; // ❌ Wrong case
-```
-
-**Fix:**
-
-```typescript
-import { User } from "./models/User.ts"; // ✅ Matches file case
-```
-
-**Why:** Case sensitivity prevents issues when deploying to case-sensitive file systems.
-
----
-
-### TSN1004: Node.js Modules Not Supported
-
-**Error:** Attempting to import Node.js built-in modules.
-
-**Example:**
-
-```typescript
-import fs from "fs"; // ❌ Not supported
-```
-
-**Fix:** Use .NET equivalents:
-
-```typescript
-import { File } from "System.IO"; // ✅ Use .NET
-```
-
----
-
-### TSN1005: JSON Imports Not Supported
-
-**Error:** Trying to import JSON files directly.
-
-**Example:**
-
-```typescript
-import config from "./config.json"; // ❌ Not supported in MVP
-```
-
-**Fix:** Read JSON at runtime:
-
-```typescript
-import { File } from "System.IO";
-import { JSON } from "Tsonic.Runtime";
-
-const text = File.ReadAllText("config.json");
-const config = JSON.parse(text);
-```
-
----
-
-### TSN1006: Circular Dependency
-
-**Error:** Module dependency cycle detected.
-
-**Example:**
+Modules have a circular import dependency.
 
 ```typescript
 // A.ts imports B.ts
-// B.ts imports A.ts  // ❌ Circular
+// B.ts imports A.ts  // Circular
 ```
 
-**Fix:** Refactor to break the cycle - extract shared code to a third module.
+**Fix:** Extract shared code to a third module.
 
----
+### TSN1003: Case Mismatch
 
-## TSN2xxx: Type System Errors
-
-### TSN2001: Literal Types Not Supported
-
-**Error:** String or numeric literal types.
-
-**Example:**
+Import path case doesn't match file on disk.
 
 ```typescript
-type Direction = "north" | "south"; // ❌ Not supported in MVP
+// File: ./models/User.ts
+import { User } from "./models/user.ts";  // Wrong case
 ```
 
-**Fix:** Use enums or string:
+### TSN1004: Module Not Found
+
+Referenced module doesn't exist.
+
+### TSN1005: Conflicting Exports
+
+Multiple modules export the same name creating ambiguity.
+
+### TSN1006: Invalid Namespace
+
+The import specifier doesn't form a valid namespace.
+
+## TSN2xxx: Type System
+
+### TSN2001: Unsupported TypeScript Feature
+
+Feature not supported in Tsonic.
 
 ```typescript
-enum Direction {
-  North = "north",
-  South = "south",
-}
+// Examples of unsupported features:
+type Readonly<T> = { readonly [K in keyof T]: T[K] };  // Mapped types
+type Result<T> = T extends string ? string : number;   // Conditional types
 ```
 
----
+### TSN2002: Invalid Type Mapping
 
-### TSN2002: Conditional Types Not Supported
+Type cannot be mapped to C#.
 
-**Error:** Conditional type expressions.
+### TSN2003: Name Conflict
 
-**Example:**
+File name conflicts with an exported member name.
 
 ```typescript
-type Result<T> = T extends string ? string : number; // ❌ Not supported
+// File: User.ts
+export class User {}  // Conflicts with file name
 ```
 
-**Fix:** Use explicit types or function overloads.
+**Fix:** Rename either the file or the export.
 
----
+## TSN3xxx: C# Identifiers
 
-### TSN2003: Mapped Types Not Supported
+### TSN3001: C# Reserved Keyword
 
-**Error:** Mapped type transformations.
-
-**Example:**
+Identifier uses a C# reserved keyword.
 
 ```typescript
-type Readonly<T> = { readonly [K in keyof T]: T[K] }; // ❌ Not supported
+// "class", "namespace", "event", etc. are reserved in C#
+const event = "click";  // Error
 ```
 
-**Fix:** Define interfaces explicitly.
+### TSN3002: Invalid C# Identifier
 
----
+Identifier cannot be used in C#.
 
-## TSN3xxx: Unsupported Features
+### TSN3011: Promise Chaining Not Supported
 
-### TSN3001: Export All Not Supported
-
-**Error:** Re-export syntax.
-
-**Example:**
+`.then()`, `.catch()`, `.finally()` are not supported.
 
 ```typescript
-export * from "./other.ts"; // ❌ Not supported in MVP
+// Wrong
+promise.then(result => doSomething(result));
+
+// Correct - use async/await
+const result = await promise;
+doSomething(result);
 ```
 
-**Fix:** Export items explicitly:
+## TSN4xxx: .NET Interop
 
-```typescript
-export { Item1, Item2 } from "./other.ts";
-```
+### TSN4001: .NET Interop Error
 
----
+Error accessing .NET types or members.
 
-### TSN3002: Default Exports Not Supported
+### TSN4002: Missing .NET Type Declaration
 
-**Error:** Default export syntax.
+.NET type is used but not declared in typings.
 
-**Example:**
+## TSN5xxx: NativeAOT/Runtime
 
-```typescript
-export default class User {} // ❌ Not supported
-```
+### TSN5001: NativeAOT Limitation
 
-**Fix:** Use named exports:
+Code uses feature incompatible with NativeAOT.
 
-```typescript
-export class User {}
-```
+### TSN5002: Runtime Implementation Missing
 
----
+Required runtime feature not available.
 
-### TSN3003: Dynamic Imports Not Supported
+## TSN6xxx: Internal Compiler
 
-**Error:** `import()` expressions.
+### TSN6001: Internal Compiler Error
 
-**Example:**
+Unexpected error in compilation. Please report this as a bug.
 
-```typescript
-const module = await import("./dynamic.ts"); // ❌ Not supported
-```
+## TSN7xxx: Language Semantics
 
-**Fix:** Use static imports only.
+### TSN7101: Recursive Mapped Types
 
----
+Recursive mapped types are not supported.
 
-## TSN7xxx: Language Semantics Errors
+### TSN7102: Conditional Types with Infer
 
-These errors relate to Tsonic's language semantics and type system validation.
+Conditional types using `infer` are not supported.
 
-### TSN7301: Class Cannot Implement Nominalized Interface
+### TSN7103: `this` Typing
 
-**Error:** Attempting to use `implements` with a TypeScript interface.
+`this` type expressions are not supported.
 
-**Example:**
+### TSN7104: Generic Constructor Constraints
 
-```typescript
-interface Printable {
-  print(): void;
-}
+Generic constructor constraints with rest parameters are not supported.
 
-class Document implements Printable {
-  // ❌ TSN7301: Class cannot implement 'Printable'
-  print(): void {
-    console.log("printing...");
-  }
-}
-```
+### TSN7105: Type Specialization
 
-**Why:** In Tsonic, TypeScript interfaces are "nominalized" to C# classes (not C# interfaces). This allows object literals to use C# object initializer syntax. Since interfaces become classes, you cannot "implement" them - C# classes cannot implement other classes.
+Cannot determine required type specializations for generics.
 
-**Fix options:**
+### TSN7201: Recursive Structural Alias
 
-1. **Use `extends` for inheritance:**
+Recursive structural type aliases are not supported.
 
-```typescript
-interface Printable {
-  print(): void;
-}
+### TSN7202: Conditional Alias Resolution
 
-class Document extends Printable {
-  // ✅ Works - inherits from Printable class
-  print(): void {
-    console.log("printing...");
-  }
-}
-```
+Conditional type alias cannot be resolved statically.
 
-2. **Use composition:**
+### TSN7203: Symbol Keys
+
+Symbol keys in objects are not supported.
+
+### TSN7204: Variadic Generic Interface
+
+Variadic generic interfaces are not supported.
+
+### TSN7301: Implements Nominalized Interface
+
+Classes cannot implement TypeScript interfaces directly.
 
 ```typescript
 interface Printable {
   print(): void;
 }
 
-class Document {
-  private printer: Printable;
-
-  constructor(printer: Printable) {
-    this.printer = printer;
-  }
-
-  print(): void {
-    this.printer.print();
-  }
+class Document implements Printable {  // Error
+  print(): void {}
 }
 ```
 
-3. **Use duck typing (just define matching methods):**
+In Tsonic, TypeScript interfaces become C# classes. Use `extends` instead:
 
 ```typescript
-class Document {
-  // Just define the method - no interface needed
-  print(): void {
-    console.log("printing...");
-  }
+class Document extends Printable {  // Correct
+  print(): void {}
 }
 ```
 
-**Note:** The special `struct` marker interface is exempt from this rule - `implements struct` is allowed to mark value types.
+Or use composition/duck typing.
 
----
+### TSN7401: `any` Type Not Supported
+
+The `any` type cannot be used. Provide explicit types.
+
+```typescript
+// Wrong
+function process(data: any) {}
+
+// Correct
+function process(data: unknown) {}
+function process(data: string) {}
+```
+
+### TSN7403: Object Literal Requires Type
+
+Object literals need a contextual nominal type.
+
+```typescript
+// Wrong
+const obj = { x: 1, y: 2 };
+
+// Correct
+interface Point { x: number; y: number; }
+const obj: Point = { x: 1, y: 2 };
+```
+
+### TSN7405: Untyped Lambda Parameter
+
+Lambda parameters require explicit type annotations.
+
+```typescript
+// Wrong
+const fn = (x) => x * 2;
+
+// Correct
+const fn = (x: number): number => x * 2;
+```
+
+### TSN7413: Dictionary Key Type
+
+Dictionary keys must be string type.
+
+## TSN9xxx: Metadata Loading
+
+### TSN9001-TSN9018: Metadata Errors
+
+Errors loading `.metadata.json` files:
+
+| Code | Error |
+|------|-------|
+| TSN9001 | Metadata file not found |
+| TSN9002 | Failed to read metadata file |
+| TSN9003 | Invalid JSON in metadata file |
+| TSN9004 | Metadata file must be an object |
+| TSN9005 | Missing or invalid 'namespace' field |
+| TSN9006 | Missing or invalid 'contributingAssemblies' field |
+| TSN9007 | All 'contributingAssemblies' must be strings |
+| TSN9008 | Missing or invalid 'types' field |
+| TSN9009 | Invalid type: must be an object |
+| TSN9010 | Invalid type: missing or invalid field |
+| TSN9011 | Invalid type: 'kind' must be one of ... |
+| TSN9012 | Invalid type: 'accessibility' must be one of ... |
+| TSN9013 | Invalid type: field must be a boolean |
+| TSN9014 | Invalid type: 'arity' must be a non-negative number |
+| TSN9015 | Invalid type: field must be an array |
+| TSN9016 | Metadata directory not found |
+| TSN9017 | Not a directory |
+| TSN9018 | No .metadata.json files found |
+
+### TSN9101-TSN9114: Bindings Errors
+
+Errors loading `.bindings.json` files:
+
+| Code | Error |
+|------|-------|
+| TSN9101 | Bindings file not found |
+| TSN9102 | Failed to read bindings file |
+| TSN9103 | Invalid JSON in bindings file |
+| TSN9104 | Bindings file must be an object |
+| TSN9105 | Missing or invalid 'namespace' field |
+| TSN9106 | Missing or invalid 'types' field |
+| TSN9107 | Invalid type binding: must be an object |
+| TSN9108 | Invalid type binding: missing or invalid field |
+| TSN9109 | Invalid type binding: 'metadataToken' must be a number |
+| TSN9110 | Invalid type binding: V1 field must be an array if present |
+| TSN9111 | Invalid type binding: V2 field must be an array if present |
+| TSN9112 | Bindings directory not found |
+| TSN9113 | Not a directory |
+| TSN9114 | No .bindings.json files found |
 
 ## Getting Help
 
-If you encounter an error not listed here:
+If you encounter an error:
 
-1. Check the [troubleshooting guide](troubleshooting.md)
-2. Search existing GitHub issues
-3. Open a new issue with:
+1. Check this guide for the specific error code
+2. Check the [troubleshooting guide](troubleshooting.md)
+3. Search [GitHub issues](https://github.com/tsoniclang/tsonic/issues)
+4. Open a new issue with:
    - Error code and message
    - Minimal reproduction case
-   - Tsonic version
-
----
-
-**See Also:**
-
-- [Troubleshooting Guide](troubleshooting.md) - Common issues
-- [Language Reference](language/module-system.md) - ESM rules
-- [Type Mappings](language/type-mappings.md) - Supported types
+   - Tsonic version (`tsonic --version`)

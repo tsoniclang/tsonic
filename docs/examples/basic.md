@@ -1,26 +1,26 @@
 # Basic Examples
 
-Get started with simple Tsonic programs.
+Simple Tsonic programs to get started.
 
 ## Hello World
 
 ```typescript
 // hello.ts
-export function main() {
+export function main(): void {
   console.log("Hello, Tsonic!");
 }
 ```
 
 ```bash
-$ tsonic build hello.ts
-$ ./hello
-Hello, Tsonic!
+tsonic build hello.ts
+./hello
+# Output: Hello, Tsonic!
 ```
 
 ## Variables
 
 ```typescript
-export function main() {
+export function main(): void {
   const name = "Alice";
   const age = 30;
   const active = true;
@@ -41,7 +41,7 @@ function add(a: number, b: number): number {
   return a + b;
 }
 
-export function main() {
+export function main(): void {
   console.log(greet("Bob"));
   console.log(add(5, 3));
 }
@@ -51,17 +51,20 @@ export function main() {
 
 ```typescript
 class Person {
-  constructor(
-    public name: string,
-    public age: number
-  ) {}
+  private name: string;
+  private age: number;
+
+  constructor(name: string, age: number) {
+    this.name = name;
+    this.age = age;
+  }
 
   greet(): string {
     return `Hi, I'm ${this.name}`;
   }
 }
 
-export function main() {
+export function main(): void {
   const person = new Person("Alice", 30);
   console.log(person.greet());
 }
@@ -76,18 +79,18 @@ interface User {
   email?: string;
 }
 
-function displayUser(user: User) {
+function displayUser(user: User): void {
   console.log(`User: ${user.name} (${user.id})`);
   if (user.email) {
     console.log(`Email: ${user.email}`);
   }
 }
 
-export function main() {
+export function main(): void {
   const user: User = {
     id: 1,
     name: "Bob",
-    email: "bob@example.com",
+    email: "bob@example.com"
   };
   displayUser(user);
 }
@@ -96,7 +99,7 @@ export function main() {
 ## Control Flow
 
 ```typescript
-export function main() {
+export function main(): void {
   // If/else
   const x = 10;
   if (x > 5) {
@@ -110,17 +113,118 @@ export function main() {
     console.log(i);
   }
 
+  // For-of loop
+  const items = ["a", "b", "c"];
+  for (const item of items) {
+    console.log(item);
+  }
+
   // While loop
   let count = 0;
   while (count < 3) {
     console.log(count);
     count++;
   }
+
+  // Switch
+  const value = 2;
+  switch (value) {
+    case 1:
+      console.log("one");
+      break;
+    case 2:
+      console.log("two");
+      break;
+    default:
+      console.log("other");
+  }
 }
 ```
 
-## See Also
+## Enums
 
-- [Arrays](arrays.md)
-- [.NET Integration](dotnet.md)
-- [Imports](imports.md)
+```typescript
+enum Status {
+  Pending,
+  Active,
+  Completed
+}
+
+enum Color {
+  Red = "red",
+  Green = "green",
+  Blue = "blue"
+}
+
+export function main(): void {
+  const status = Status.Active;
+  console.log(status);  // 1
+
+  const color = Color.Green;
+  console.log(color);  // "green"
+}
+```
+
+## Generics
+
+```typescript
+function identity<T>(value: T): T {
+  return value;
+}
+
+class Container<T> {
+  private value: T;
+
+  constructor(value: T) {
+    this.value = value;
+  }
+
+  get(): T {
+    return this.value;
+  }
+}
+
+export function main(): void {
+  const num = identity(42);
+  const str = identity("hello");
+
+  const box = new Container("contents");
+  console.log(box.get());
+}
+```
+
+## Async/Await
+
+```typescript
+async function delay(ms: number): Promise<void> {
+  // Simulated delay
+}
+
+async function fetchData(): Promise<string> {
+  await delay(100);
+  return "data";
+}
+
+export async function main(): Promise<void> {
+  const data = await fetchData();
+  console.log(data);
+}
+```
+
+## Error Handling
+
+```typescript
+function riskyOperation(): void {
+  throw new Error("Something went wrong");
+}
+
+export function main(): void {
+  try {
+    riskyOperation();
+  } catch (error) {
+    console.log("Caught error");
+  } finally {
+    console.log("Cleanup");
+  }
+}
+```
