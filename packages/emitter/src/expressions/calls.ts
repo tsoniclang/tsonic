@@ -2,10 +2,11 @@
  * Call and new expression emitters
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
+import { emitType } from "../type-emitter.js";
 
 /**
  * Ref/out/in parameter handling:
@@ -20,6 +21,78 @@ import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
  */
 const isLValue = (expr: IrExpression): boolean => {
   return expr.kind === "identifier" || expr.kind === "memberAccess";
+};
+
+/**
+ * Check if a member access expression targets System.Text.Json.JsonSerializer
+ */
+const isJsonSerializerCall = (
+  callee: IrExpression
+): { method: "Serialize" | "Deserialize" } | null => {
+  if (callee.kind !== "memberAccess") return null;
+  if (!callee.memberBinding) return null;
+
+  const { type, member } = callee.memberBinding;
+
+  // Check if this is System.Text.Json.JsonSerializer
+  if (type !== "System.Text.Json.JsonSerializer") return null;
+
+  // Check if the member is Serialize or Deserialize
+  if (member === "Serialize") return { method: "Serialize" };
+  if (member === "Deserialize") return { method: "Deserialize" };
+
+  return null;
+};
+
+/**
+ * Ensure a C# type string has global:: prefix for unambiguous resolution
+ */
+const ensureGlobalPrefix = (typeStr: string): string => {
+  // Skip primitives and already-prefixed types
+  if (
+    typeStr.startsWith("global::") ||
+    typeStr === "string" ||
+    typeStr === "int" ||
+    typeStr === "long" ||
+    typeStr === "short" ||
+    typeStr === "byte" ||
+    typeStr === "sbyte" ||
+    typeStr === "uint" ||
+    typeStr === "ulong" ||
+    typeStr === "ushort" ||
+    typeStr === "float" ||
+    typeStr === "double" ||
+    typeStr === "decimal" ||
+    typeStr === "bool" ||
+    typeStr === "char" ||
+    typeStr === "object" ||
+    typeStr === "void"
+  ) {
+    return typeStr;
+  }
+
+  // Handle generic types: List<Foo> -> global::List<global::Foo>
+  // For now, just add prefix to the outer type
+  // The inner types should already be handled by emitType
+  return `global::${typeStr}`;
+};
+
+/**
+ * Register a type with the JSON AOT registry
+ */
+const registerJsonAotType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): void => {
+  if (!type) return;
+  if (!context.options.jsonAotRegistry) return;
+
+  const registry = context.options.jsonAotRegistry;
+  const [typeStr] = emitType(type, context);
+  const globalType = ensureGlobalPrefix(typeStr);
+
+  registry.rootTypes.add(globalType);
+  registry.needsJsonAot = true;
 };
 
 /**
@@ -62,12 +135,78 @@ const needsIntCast = (
 };
 
 /**
+ * Emit a JsonSerializer call with NativeAOT-compatible options.
+ * Rewrites:
+ *   JsonSerializer.Serialize(value) → JsonSerializer.Serialize(value, TsonicJson.Options)
+ *   JsonSerializer.Deserialize<T>(json) → JsonSerializer.Deserialize<T>(json, TsonicJson.Options)
+ */
+const emitJsonSerializerCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext,
+  method: "Serialize" | "Deserialize"
+): [CSharpFragment, EmitterContext] => {
+  let currentContext = context;
+
+  // Register the type with the JSON AOT registry
+  if (method === "Serialize") {
+    // For Serialize, get type from first argument's inferredType
+    const firstArg = expr.arguments[0];
+    if (firstArg && firstArg.kind !== "spread") {
+      registerJsonAotType(firstArg.inferredType, context);
+    }
+  } else {
+    // For Deserialize, get type from type arguments
+    const typeArg = expr.typeArguments?.[0];
+    if (typeArg) {
+      registerJsonAotType(typeArg, context);
+    }
+  }
+
+  // Emit type arguments for Deserialize<T>
+  let typeArgsStr = "";
+  if (expr.typeArguments && expr.typeArguments.length > 0) {
+    const [typeArgs, typeContext] = emitTypeArguments(
+      expr.typeArguments,
+      currentContext
+    );
+    typeArgsStr = typeArgs;
+    currentContext = typeContext;
+  }
+
+  // Emit arguments
+  const args: string[] = [];
+  for (const arg of expr.arguments) {
+    if (arg.kind === "spread") {
+      const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
+      args.push(spreadFrag.text);
+      currentContext = ctx;
+    } else {
+      const [argFrag, ctx] = emitExpression(arg, currentContext);
+      args.push(argFrag.text);
+      currentContext = ctx;
+    }
+  }
+
+  // Add TsonicJson.Options as the last argument for NativeAOT compatibility
+  args.push("TsonicJson.Options");
+
+  const text = `global::System.Text.Json.JsonSerializer.${method}${typeArgsStr}(${args.join(", ")})`;
+  return [{ text }, currentContext];
+};
+
+/**
  * Emit a function call expression
  */
 export const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Check for JsonSerializer calls (NativeAOT support)
+  const jsonCall = isJsonSerializerCall(expr.callee);
+  if (jsonCall) {
+    return emitJsonSerializerCall(expr, context, jsonCall.method);
+  }
+
   // Type-aware method call rewriting
   // Use inferredType to determine if we need to rewrite as static helper
   if (

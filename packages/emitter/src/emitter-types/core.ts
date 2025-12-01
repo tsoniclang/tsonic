@@ -62,6 +62,8 @@ export type EmitterOptions = {
   readonly moduleMap?: ModuleMap;
   /** Export map for resolving re-exports to actual source (populated during batch emission) */
   readonly exportMap?: ExportMap;
+  /** JSON AOT registry for collecting types used with JsonSerializer (shared across modules) */
+  readonly jsonAotRegistry?: JsonAotRegistry;
 };
 
 /**
@@ -135,4 +137,16 @@ export type CSharpFragment = {
   readonly needsParens?: boolean;
   /** Precedence level for operator expressions */
   readonly precedence?: number;
+};
+
+/**
+ * Registry for collecting types used with JsonSerializer.
+ * Used to generate NativeAOT-compatible JsonSerializerContext.
+ * This is a mutable structure shared across all modules during emission.
+ */
+export type JsonAotRegistry = {
+  /** Set of C# type strings used at JsonSerializer call sites */
+  readonly rootTypes: Set<string>;
+  /** Whether any JsonSerializer calls were detected */
+  needsJsonAot: boolean;
 };

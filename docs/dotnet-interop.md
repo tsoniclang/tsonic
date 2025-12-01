@@ -139,6 +139,34 @@ const duration = TimeSpan.FromHours(2);
 const later = now.Add(duration);
 ```
 
+### JSON Serialization
+
+```typescript
+import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json";
+import { List } from "@tsonic/dotnet/System.Collections.Generic";
+
+interface User {
+  id: number;
+  name: string;
+}
+
+// Serialize object to JSON
+const user: User = { id: 1, name: "Alice" };
+const json = JsonSerializer.Serialize(user);
+
+// Deserialize JSON to object
+const parsed = JsonSerializer.Deserialize<User>(json);
+
+// Works with collections too
+const users = new List<User>();
+users.Add({ id: 1, name: "Alice" });
+users.Add({ id: 2, name: "Bob" });
+const usersJson = JsonSerializer.Serialize(users);
+```
+
+**NativeAOT Support**: Tsonic automatically generates the required `JsonSerializerContext`
+for NativeAOT compatibility. No additional configuration needed.
+
 ### String Operations
 
 ```typescript
