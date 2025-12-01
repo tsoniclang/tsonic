@@ -109,14 +109,13 @@ See [IR Documentation](ir.md) for complete type definitions.
 All operations return `Result<T, E>` instead of throwing exceptions:
 
 ```typescript
-type Result<T, E> =
-  | { ok: true; value: T }
-  | { ok: false; error: E };
+type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 ```
 
 ### Diagnostics
 
 Errors are collected as `Diagnostic` objects with:
+
 - Error code (TSN1xxx - TSN9xxx)
 - Severity (error, warning)
 - Message and hint
@@ -129,6 +128,7 @@ See [Diagnostics](diagnostics.md) for error handling details.
 ### Why IR?
 
 The IR provides:
+
 1. **Separation of concerns**: Frontend knows nothing about C#
 2. **Optimization opportunities**: Can transform IR before emission
 3. **Testability**: Test IR building and emission independently
@@ -137,6 +137,7 @@ The IR provides:
 ### Why Functional Programming?
 
 The compiler uses strict FP principles:
+
 - **Immutable data**: No unexpected mutations during compilation
 - **Pure functions**: Same inputs always produce same outputs
 - **Explicit dependencies**: No hidden global state
@@ -145,6 +146,7 @@ The compiler uses strict FP principles:
 ### Why NativeAOT?
 
 NativeAOT provides:
+
 - Fast startup (no JIT warmup)
 - Small binaries (tree shaking)
 - No runtime dependency
@@ -153,18 +155,21 @@ NativeAOT provides:
 ## Table of Contents
 
 ### Core Architecture
+
 - [Overview](overview.md) - Design principles and goals
 - [Pipeline](pipeline.md) - 7-stage compilation pipeline
 - [IR](ir.md) - Intermediate Representation types
 - [Diagnostics](diagnostics.md) - Error handling and reporting
 
 ### Packages
+
 - [Packages](packages.md) - Monorepo structure
 - [Frontend](frontend.md) - TypeScript parsing and IR building
 - [Emitter](emitter.md) - C# code generation
 - [Backend](backend.md) - .NET build orchestration
 
 ### Reference
+
 - [Type Mappings](type-mappings.md) - TypeScript to C# conversion
 - [Runtime](runtime.md) - Tsonic.Runtime and JSRuntime libraries
 

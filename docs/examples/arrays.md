@@ -31,10 +31,7 @@ const evens = numbers.filter((n: number): boolean => n % 2 === 0);
 // [2, 4]
 
 // reduce - accumulate to single value
-const sum = numbers.reduce(
-  (acc: number, n: number): number => acc + n,
-  0
-);
+const sum = numbers.reduce((acc: number, n: number): number => acc + n, 0);
 // 15
 
 // forEach - iterate without return
@@ -164,11 +161,11 @@ const [head, ...tail] = numbers;
 const matrix: number[][] = [
   [1, 2, 3],
   [4, 5, 6],
-  [7, 8, 9]
+  [7, 8, 9],
 ];
 
 // Access element
-const value = matrix[1][2];  // 6
+const value = matrix[1][2]; // 6
 
 // Iterate
 for (const row of matrix) {
@@ -188,7 +185,7 @@ interface User {
 
 const users: User[] = [
   { id: 1, name: "Alice" },
-  { id: 2, name: "Bob" }
+  { id: 2, name: "Bob" },
 ];
 
 // Find user by id (JS mode)

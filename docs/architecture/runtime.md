@@ -4,10 +4,10 @@ Tsonic uses two .NET runtime libraries to support TypeScript semantics.
 
 ## Overview
 
-| Package | Purpose | Required |
-|---------|---------|----------|
-| `Tsonic.Runtime` | TypeScript language primitives | Always |
-| `Tsonic.JSRuntime` | JavaScript built-in semantics | Only in `js` mode |
+| Package            | Purpose                        | Required          |
+| ------------------ | ------------------------------ | ----------------- |
+| `Tsonic.Runtime`   | TypeScript language primitives | Always            |
+| `Tsonic.JSRuntime` | JavaScript built-in semantics  | Only in `js` mode |
 
 ## Tsonic.Runtime
 
@@ -54,11 +54,11 @@ namespace Tsonic.Runtime
 
 Usage mapping:
 
-| TypeScript | C# |
-|------------|-----|
-| `T \| null \| undefined` | `T?` |
-| 2-8 type unions | `Union<T1, T2, ...>` |
-| 9+ type unions | `object` (fallback) |
+| TypeScript               | C#                   |
+| ------------------------ | -------------------- |
+| `T \| null \| undefined` | `T?`                 |
+| 2-8 type unions          | `Union<T1, T2, ...>` |
+| 9+ type unions           | `object` (fallback)  |
 
 Example:
 
@@ -133,12 +133,21 @@ Example:
 
 ```typescript
 // TypeScript - structural compatibility
-interface Point { x: number; y: number; }
-interface Point3D { x: number; y: number; z: number; }
+interface Point {
+  x: number;
+  y: number;
+}
+interface Point3D {
+  x: number;
+  y: number;
+  z: number;
+}
 
-function use2DPoint(p: Point): void { /* ... */ }
+function use2DPoint(p: Point): void {
+  /* ... */
+}
 const p3d: Point3D = { x: 1, y: 2, z: 3 };
-use2DPoint(p3d);  // OK - structural typing
+use2DPoint(p3d); // OK - structural typing
 ```
 
 ```csharp
@@ -247,6 +256,7 @@ var upper = names.map(name => name.toUpperCase());
 ```
 
 Benefits:
+
 - Full .NET interop without conversions
 - Better performance (no wrapper overhead)
 - AOT-friendly (no dynamic dispatch)

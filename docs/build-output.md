@@ -106,6 +106,7 @@ out/app.exe    (Windows)
 ```
 
 Configuration:
+
 ```json
 {
   "output": {
@@ -129,6 +130,7 @@ dist/
 ```
 
 Configuration:
+
 ```json
 {
   "output": {
@@ -142,38 +144,39 @@ Configuration:
 
 ### NativeAOT Settings
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `nativeAot` | `true` | Enable AOT compilation |
-| `singleFile` | `true` | Single executable |
-| `trimmed` | `true` | Remove unused code |
-| `stripSymbols` | `true` | Remove debug info |
-| `selfContained` | `true` | Include runtime |
+| Option          | Default | Description            |
+| --------------- | ------- | ---------------------- |
+| `nativeAot`     | `true`  | Enable AOT compilation |
+| `singleFile`    | `true`  | Single executable      |
+| `trimmed`       | `true`  | Remove unused code     |
+| `stripSymbols`  | `true`  | Remove debug info      |
+| `selfContained` | `true`  | Include runtime        |
 
 ### Optimization
 
 ```json
 {
-  "optimize": "speed"  // or "size"
+  "optimize": "speed" // or "size"
 }
 ```
 
-| Mode | Binary Size | Performance |
-|------|-------------|-------------|
-| `speed` | Larger | Faster |
-| `size` | Smaller | Slightly slower |
+| Mode    | Binary Size | Performance     |
+| ------- | ----------- | --------------- |
+| `speed` | Larger      | Faster          |
+| `size`  | Smaller     | Slightly slower |
 
 ## Binary Size
 
 Typical sizes for "Hello World":
 
-| Platform | Size |
-|----------|------|
-| Linux x64 | ~3 MB |
-| macOS ARM64 | ~3 MB |
+| Platform    | Size    |
+| ----------- | ------- |
+| Linux x64   | ~3 MB   |
+| macOS ARM64 | ~3 MB   |
 | Windows x64 | ~3.5 MB |
 
 Size increases with:
+
 - More code
 - More .NET dependencies
 - Disabled trimming
@@ -254,6 +257,7 @@ tsonic build src/App.ts --verbose
 ```
 
 Shows:
+
 - Files being processed
 - Generated file paths
 - dotnet command output

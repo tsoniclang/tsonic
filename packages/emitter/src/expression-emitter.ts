@@ -73,13 +73,13 @@ export const emitExpression = (
       return emitNew(expr, context);
 
     case "binary":
-      return emitBinary(expr, context);
+      return emitBinary(expr, context, expectedType);
 
     case "logical":
       return emitLogical(expr, context);
 
     case "unary":
-      return emitUnary(expr, context);
+      return emitUnary(expr, context, expectedType);
 
     case "update":
       return emitUpdate(expr, context);

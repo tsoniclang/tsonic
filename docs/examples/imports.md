@@ -99,10 +99,16 @@ Create index files to re-export from multiple modules:
 
 ```typescript
 // models/User.ts
-export interface User { id: number; name: string; }
+export interface User {
+  id: number;
+  name: string;
+}
 
 // models/Product.ts
-export interface Product { id: number; price: number; }
+export interface Product {
+  id: number;
+  price: number;
+}
 
 // models/index.ts
 export { User } from "./User.ts";
@@ -232,6 +238,7 @@ export function main(): void {
 ```
 
 Build with:
+
 ```bash
 tsonic build src/App.ts --namespace MyApp
 ```

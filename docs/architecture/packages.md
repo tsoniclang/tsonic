@@ -33,6 +33,7 @@ backend (standalone)
 TypeScript parsing and IR building.
 
 ### Responsibilities
+
 - Create TypeScript programs
 - Resolve module imports
 - Validate source code
@@ -40,15 +41,22 @@ TypeScript parsing and IR building.
 - Analyze dependencies
 
 ### Key Exports
+
 ```typescript
 export { createProgram, buildModuleDependencyGraph } from "./program.js";
 export { validateProgram } from "./validator.js";
 export { buildIr, buildIrModule } from "./ir/builder.js";
-export type { IrModule, IrStatement, IrExpression, IrType } from "./ir/types.js";
+export type {
+  IrModule,
+  IrStatement,
+  IrExpression,
+  IrType,
+} from "./ir/types.js";
 export type { Diagnostic, DiagnosticsCollector } from "./types/diagnostic.js";
 ```
 
 ### Directory Structure
+
 ```
 frontend/src/
 ├── program/          # TS program creation
@@ -68,6 +76,7 @@ frontend/src/
 C# code generation from IR.
 
 ### Responsibilities
+
 - Emit C# types from IR types
 - Emit C# expressions from IR expressions
 - Emit C# statements from IR statements
@@ -75,6 +84,7 @@ C# code generation from IR.
 - Handle generic specialization
 
 ### Key Exports
+
 ```typescript
 export { emitCSharpFile, emitCSharpFiles } from "./emitter.js";
 export { emitModule } from "./core/module-emitter.js";
@@ -84,6 +94,7 @@ export { emitStatement } from "./statement-emitter.js";
 ```
 
 ### Directory Structure
+
 ```
 emitter/src/
 ├── core/             # Module emission
@@ -104,12 +115,14 @@ emitter/src/
 .NET build orchestration.
 
 ### Responsibilities
+
 - Generate .csproj files
 - Generate Program.cs entry point
 - Run dotnet commands
 - Handle NativeAOT configuration
 
 ### Key Exports
+
 ```typescript
 export { buildNativeAot } from "./build-orchestrator.js";
 export { generateCsproj } from "./project-generator.js";
@@ -119,6 +132,7 @@ export type { BuildConfig, BuildResult, EntryInfo } from "./types.js";
 ```
 
 ### Directory Structure
+
 ```
 backend/src/
 ├── build-orchestrator.ts  # Main build logic
@@ -133,12 +147,14 @@ backend/src/
 Command-line interface.
 
 ### Responsibilities
+
 - Parse CLI arguments
 - Load configuration
 - Dispatch to commands
 - Report errors and progress
 
 ### Key Exports
+
 ```typescript
 export { runCli, parseArgs, showHelp } from "./cli.js";
 export { loadConfig, resolveConfig } from "./config.js";
@@ -146,6 +162,7 @@ export type { TsonicConfig, CliOptions, ResolvedConfig } from "./types.js";
 ```
 
 ### Directory Structure
+
 ```
 cli/src/
 ├── index.ts          # Entry point
@@ -168,7 +185,10 @@ cli/src/
 ### CLI to Frontend
 
 ```typescript
-import { buildModuleDependencyGraph, type CompilerOptions } from "@tsonic/frontend";
+import {
+  buildModuleDependencyGraph,
+  type CompilerOptions,
+} from "@tsonic/frontend";
 
 const result = buildModuleDependencyGraph(entryPoint, {
   projectRoot,
@@ -217,6 +237,7 @@ cd packages/cli && npm run build
 ### Package Build Order
 
 Due to dependencies, build in this order:
+
 1. frontend (no dependencies)
 2. backend (no dependencies)
 3. emitter (depends on frontend)
@@ -229,9 +250,7 @@ Each package uses TypeScript project references:
 ```json
 // packages/emitter/tsconfig.json
 {
-  "references": [
-    { "path": "../frontend" }
-  ]
+  "references": [{ "path": "../frontend" }]
 }
 ```
 

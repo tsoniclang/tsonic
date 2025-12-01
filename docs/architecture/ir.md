@@ -5,6 +5,7 @@ The IR is the core data structure that bridges TypeScript and C#.
 ## Purpose
 
 The IR provides:
+
 - Language-independent representation
 - Semantic preservation
 - Optimization opportunities
@@ -16,9 +17,9 @@ Top-level structure representing a TypeScript file:
 
 ```typescript
 type IrModule = {
-  readonly filePath: string;      // Relative path: "src/utils/math.ts"
-  readonly namespace: string;     // C# namespace: "MyApp.src.utils"
-  readonly className: string;     // C# class name: "math"
+  readonly filePath: string; // Relative path: "src/utils/math.ts"
+  readonly namespace: string; // C# namespace: "MyApp.src.utils"
+  readonly className: string; // C# class name: "math"
   readonly imports: readonly IrImport[];
   readonly exports: readonly IrExport[];
   readonly body: readonly IrStatement[];
@@ -32,7 +33,7 @@ type IrModule = {
 ```typescript
 type IrImport = {
   readonly kind: "import";
-  readonly moduleSpecifier: string;  // "./utils.ts" or "@tsonic/dotnet/System"
+  readonly moduleSpecifier: string; // "./utils.ts" or "@tsonic/dotnet/System"
   readonly specifiers: readonly IrImportSpecifier[];
   readonly isTypeOnly: boolean;
   readonly resolved?: {
@@ -186,11 +187,27 @@ type IrBinaryExpression = {
 };
 
 type IrBinaryOperator =
-  | "+" | "-" | "*" | "/" | "%"
-  | "==" | "!=" | "===" | "!=="
-  | "<" | ">" | "<=" | ">="
-  | "&&" | "||" | "??"
-  | "&" | "|" | "^" | "<<" | ">>";
+  | "+"
+  | "-"
+  | "*"
+  | "/"
+  | "%"
+  | "=="
+  | "!="
+  | "==="
+  | "!=="
+  | "<"
+  | ">"
+  | "<="
+  | ">="
+  | "&&"
+  | "||"
+  | "??"
+  | "&"
+  | "|"
+  | "^"
+  | "<<"
+  | ">>";
 ```
 
 ### Call Expressions
@@ -211,8 +228,8 @@ type IrMemberExpression = {
   readonly kind: "member";
   readonly object: IrExpression;
   readonly property: string | IrExpression;
-  readonly computed: boolean;  // obj[prop] vs obj.prop
-  readonly optional: boolean;  // obj?.prop
+  readonly computed: boolean; // obj[prop] vs obj.prop
+  readonly optional: boolean; // obj?.prop
 };
 ```
 
@@ -221,7 +238,7 @@ type IrMemberExpression = {
 ```typescript
 type IrArrayExpression = {
   readonly kind: "array";
-  readonly elements: readonly (IrExpression | null)[];  // null = hole
+  readonly elements: readonly (IrExpression | null)[]; // null = hole
 };
 
 type IrObjectExpression = {
@@ -256,7 +273,7 @@ type IrReferenceType = {
   readonly kind: "referenceType";
   readonly name: string;
   readonly typeArguments?: readonly IrType[];
-  readonly clrType?: string;  // e.g., "System.Collections.Generic.List"
+  readonly clrType?: string; // e.g., "System.Collections.Generic.List"
 };
 ```
 
@@ -299,10 +316,7 @@ type IrIntersectionType = {
 Used in destructuring and parameters:
 
 ```typescript
-type IrPattern =
-  | IrIdentifierPattern
-  | IrArrayPattern
-  | IrObjectPattern;
+type IrPattern = IrIdentifierPattern | IrArrayPattern | IrObjectPattern;
 
 type IrIdentifierPattern = {
   readonly kind: "identifier";
@@ -329,8 +343,13 @@ The IR is built by traversing the TypeScript AST:
 
 ```typescript
 // Simplified flow
-const buildIrModule = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): IrModule => {
-  const body = sourceFile.statements.map(stmt => convertStatement(stmt, checker));
+const buildIrModule = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
+): IrModule => {
+  const body = sourceFile.statements.map((stmt) =>
+    convertStatement(stmt, checker)
+  );
   const imports = extractImports(sourceFile);
   const exports = extractExports(sourceFile, body);
 

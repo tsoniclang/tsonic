@@ -45,9 +45,7 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
   },
   "dotnet": {
     "typeRoots": ["node_modules/@tsonic/dotnet-globals"],
-    "packages": [
-      { "name": "Newtonsoft.Json", "version": "13.0.3" }
-    ],
+    "packages": [{ "name": "Newtonsoft.Json", "version": "13.0.3" }],
     "libraries": ["./libs/MyLib"]
   }
 }
@@ -68,6 +66,7 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
 ```
 
 Generated file `src/utils/Math.ts` becomes:
+
 ```csharp
 namespace MyApp.src.utils { ... }
 ```
@@ -132,10 +131,10 @@ Runtime mode: `"js"` or `"dotnet"`.
 }
 ```
 
-| Mode | Description |
-|------|-------------|
-| `js` | JavaScript semantics via Tsonic.JSRuntime |
-| `dotnet` | Direct .NET BCL access with C# semantics |
+| Mode     | Description                               |
+| -------- | ----------------------------------------- |
+| `js`     | JavaScript semantics via Tsonic.JSRuntime |
+| `dotnet` | Direct .NET BCL access with C# semantics  |
 
 **Default:** `"js"`
 
@@ -153,14 +152,14 @@ Runtime identifier for cross-compilation.
 
 **Common RIDs:**
 
-| RID | Platform |
-|-----|----------|
-| `linux-x64` | Linux x64 |
-| `linux-arm64` | Linux ARM64 |
-| `osx-x64` | macOS Intel |
-| `osx-arm64` | macOS Apple Silicon |
-| `win-x64` | Windows x64 |
-| `win-arm64` | Windows ARM64 |
+| RID           | Platform            |
+| ------------- | ------------------- |
+| `linux-x64`   | Linux x64           |
+| `linux-arm64` | Linux ARM64         |
+| `osx-x64`     | macOS Intel         |
+| `osx-arm64`   | macOS Apple Silicon |
+| `win-x64`     | Windows x64         |
+| `win-arm64`   | Windows ARM64       |
 
 #### dotnetVersion
 
@@ -186,10 +185,10 @@ Optimization preference.
 }
 ```
 
-| Value | Description |
-|-------|-------------|
+| Value   | Description                  |
+| ------- | ---------------------------- |
 | `speed` | Optimize for execution speed |
-| `size` | Optimize for smaller binary |
+| `size`  | Optimize for smaller binary  |
 
 **Default:** `"speed"`
 
@@ -239,15 +238,15 @@ Output type: `"executable"`, `"library"`, or `"console-app"`.
 }
 ```
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `nativeAot` | boolean | `true` | Enable NativeAOT compilation |
-| `singleFile` | boolean | `true` | Single-file output |
-| `trimmed` | boolean | `true` | Trim unused code |
-| `stripSymbols` | boolean | `true` | Remove debug symbols |
-| `optimization` | string | `"speed"` | `"speed"` or `"size"` |
-| `invariantGlobalization` | boolean | `true` | Use invariant culture |
-| `selfContained` | boolean | `true` | Include runtime |
+| Property                 | Type    | Default   | Description                  |
+| ------------------------ | ------- | --------- | ---------------------------- |
+| `nativeAot`              | boolean | `true`    | Enable NativeAOT compilation |
+| `singleFile`             | boolean | `true`    | Single-file output           |
+| `trimmed`                | boolean | `true`    | Trim unused code             |
+| `stripSymbols`           | boolean | `true`    | Remove debug symbols         |
+| `optimization`           | string  | `"speed"` | `"speed"` or `"size"`        |
+| `invariantGlobalization` | boolean | `true`    | Use invariant culture        |
+| `selfContained`          | boolean | `true`    | Include runtime              |
 
 #### Library Options
 
@@ -269,13 +268,13 @@ Output type: `"executable"`, `"library"`, or `"console-app"`.
 }
 ```
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `targetFrameworks` | string[] | `["net10.0"]` | Target frameworks |
-| `generateDocumentation` | boolean | `true` | Generate XML docs |
-| `includeSymbols` | boolean | `true` | Include debug symbols |
-| `packable` | boolean | `false` | Enable NuGet packing |
-| `package` | object | - | NuGet package metadata |
+| Property                | Type     | Default       | Description            |
+| ----------------------- | -------- | ------------- | ---------------------- |
+| `targetFrameworks`      | string[] | `["net10.0"]` | Target frameworks      |
+| `generateDocumentation` | boolean  | `true`        | Generate XML docs      |
+| `includeSymbols`        | boolean  | `true`        | Include debug symbols  |
+| `packable`              | boolean  | `false`       | Enable NuGet packing   |
+| `package`               | object   | -             | NuGet package metadata |
 
 ### .NET Configuration
 
@@ -286,14 +285,13 @@ Paths to type declaration directories.
 ```json
 {
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@tsonic/dotnet-globals"
-    ]
+    "typeRoots": ["node_modules/@tsonic/dotnet-globals"]
   }
 }
 ```
 
 **Default:** Based on `runtime`:
+
 - JS mode: `["node_modules/@tsonic/js-globals"]`
 - Dotnet mode: `["node_modules/@tsonic/dotnet-globals"]`
 
@@ -319,10 +317,7 @@ Paths to external .NET library bindings.
 ```json
 {
   "dotnet": {
-    "libraries": [
-      "./libs/custom-lib",
-      "../shared/common"
-    ]
+    "libraries": ["./libs/custom-lib", "../shared/common"]
   }
 }
 ```

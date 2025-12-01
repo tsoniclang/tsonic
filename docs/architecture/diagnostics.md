@@ -10,11 +10,11 @@ The diagnostics system provides structured error reporting across all compiler p
 
 ```typescript
 type Diagnostic = {
-  readonly code: DiagnosticCode;       // "TSN1001"
-  readonly severity: DiagnosticSeverity;  // "error" | "warning" | "info"
-  readonly message: string;            // Description
-  readonly location?: SourceLocation;  // File, line, column
-  readonly hint?: string;              // Suggested fix
+  readonly code: DiagnosticCode; // "TSN1001"
+  readonly severity: DiagnosticSeverity; // "error" | "warning" | "info"
+  readonly message: string; // Description
+  readonly location?: SourceLocation; // File, line, column
+  readonly hint?: string; // Suggested fix
   readonly relatedLocations?: readonly SourceLocation[];
 };
 
@@ -28,16 +28,16 @@ type SourceLocation = {
 
 ## Error Code Ranges
 
-| Range | Category |
-|-------|----------|
-| TSN1xxx | Module resolution and imports |
-| TSN2xxx | Type system |
-| TSN3xxx | C# keywords and identifiers |
-| TSN4xxx | .NET interop |
-| TSN5xxx | NativeAOT and runtime |
-| TSN6xxx | Internal compiler errors |
+| Range   | Category                          |
+| ------- | --------------------------------- |
+| TSN1xxx | Module resolution and imports     |
+| TSN2xxx | Type system                       |
+| TSN3xxx | C# keywords and identifiers       |
+| TSN4xxx | .NET interop                      |
+| TSN5xxx | NativeAOT and runtime             |
+| TSN6xxx | Internal compiler errors          |
 | TSN7xxx | Language semantics and validation |
-| TSN9xxx | Metadata and bindings loading |
+| TSN9xxx | Metadata and bindings loading     |
 
 ## Creating Diagnostics
 
@@ -63,7 +63,7 @@ Use the `DiagnosticsCollector` to aggregate diagnostics:
 import {
   createDiagnosticsCollector,
   addDiagnostic,
-  mergeDiagnostics
+  mergeDiagnostics,
 } from "./types/diagnostic.js";
 
 // Create collector
@@ -90,19 +90,19 @@ const compile = (entryPoint: string): Result<BuildOutput, Diagnostic[]> => {
   // Phase 1: Create program
   const programResult = createProgram(entryPoint);
   if (!programResult.ok) {
-    return programResult;  // Propagate errors
+    return programResult; // Propagate errors
   }
 
   // Phase 2: Resolve modules
   const resolverResult = resolveModules(programResult.value);
   if (!resolverResult.ok) {
-    return resolverResult;  // Propagate errors
+    return resolverResult; // Propagate errors
   }
 
   // Phase 3: Validate
   const validationResult = validateModules(resolverResult.value);
   if (!validationResult.ok) {
-    return validationResult;  // Propagate errors
+    return validationResult; // Propagate errors
   }
 
   // ... continue pipeline
@@ -125,7 +125,7 @@ const validateImport = (specifier: string): Result<void, Diagnostic> => {
         "Local import must have .ts extension",
         location,
         `Change "${specifier}" to "${specifier}.ts"`
-      )
+      ),
     };
   }
   return { ok: true, value: undefined };
@@ -145,7 +145,7 @@ const emitExpression = (expr: IrExpression): Result<string, Diagnostic> => {
         "error",
         `Cannot emit expression: ${expr.reason}`,
         expr.location
-      )
+      ),
     };
   }
   // ...
@@ -167,7 +167,7 @@ const runDotnetPublish = (cwd: string): Result<string, Diagnostic> => {
         `dotnet publish failed: ${result.stderr}`,
         undefined,
         "Check that .NET SDK is installed"
-      )
+      ),
     };
   }
   return { ok: true, value: result.stdout };
@@ -211,42 +211,38 @@ src/main.ts:5:20 error TSN1001: Local import must have .ts extension
 Some errors span multiple files. Use `relatedLocations`:
 
 ```typescript
-const createCircularDepError = (
-  cycle: string[]
-): Diagnostic => ({
+const createCircularDepError = (cycle: string[]): Diagnostic => ({
   code: "TSN1002",
   severity: "error",
   message: `Circular dependency: ${cycle.join(" -> ")}`,
   location: { file: cycle[0], line: 1, column: 0, length: 0 },
-  relatedLocations: cycle.slice(1).map(file => ({
+  relatedLocations: cycle.slice(1).map((file) => ({
     file,
     line: 1,
     column: 0,
-    length: 0
-  }))
+    length: 0,
+  })),
 });
 ```
 
 ## Error vs Warning
 
 **Errors** stop compilation:
+
 - Missing imports
 - Type mismatches
 - Unsupported features
 - Build failures
 
 **Warnings** allow compilation to continue:
+
 - Unused imports
 - Deprecated features
 - Non-critical issues
 
 ```typescript
 // Error - stops compilation
-const error = createDiagnostic(
-  "TSN1001",
-  "error",
-  "Missing .ts extension"
-);
+const error = createDiagnostic("TSN1001", "error", "Missing .ts extension");
 
 // Warning - compilation continues
 const warning = createDiagnostic(

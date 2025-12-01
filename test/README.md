@@ -64,5 +64,6 @@ Each fixture is a complete Tsonic project with:
 ## Negative Tests
 
 Negative tests verify that certain invalid constructs are rejected. They have:
+
 - `e2e.meta.json` with `{"expectFailure": true}`
 - The test passes if the build fails with expected errors

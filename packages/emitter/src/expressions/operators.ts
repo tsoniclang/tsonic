@@ -2,9 +2,10 @@
  * Operator expression emitters (binary, logical, unary, update, assignment, conditional)
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
+import { getExpectedClrTypeForNumeric } from "./literals.js";
 
 /**
  * Get operator precedence for proper parenthesization
@@ -42,14 +43,77 @@ const getPrecedence = (operator: string): number => {
 };
 
 /**
+ * Get the C# type name for an integer CLR type (for explicit casts).
+ * Returns the type keyword or undefined if not an integer type.
+ */
+const getIntegerCastType = (irType: IrType | undefined): string | undefined => {
+  const clrType = getExpectedClrTypeForNumeric(irType);
+  if (!clrType) return undefined;
+
+  // Map to C# type keywords for casts
+  const typeMap: Record<string, string> = {
+    int: "int",
+    Int32: "int",
+    "System.Int32": "int",
+    long: "long",
+    Int64: "long",
+    "System.Int64": "long",
+    short: "short",
+    Int16: "short",
+    "System.Int16": "short",
+    byte: "byte",
+    Byte: "byte",
+    "System.Byte": "byte",
+    sbyte: "sbyte",
+    SByte: "sbyte",
+    "System.SByte": "sbyte",
+    uint: "uint",
+    UInt32: "uint",
+    "System.UInt32": "uint",
+    ulong: "ulong",
+    UInt64: "ulong",
+    "System.UInt64": "ulong",
+    ushort: "ushort",
+    UInt16: "ushort",
+    "System.UInt16": "ushort",
+  };
+
+  return typeMap[clrType];
+};
+
+/**
  * Emit a binary operator expression
+ *
+ * When the expression has an integer inferredType (from `as int` etc.),
+ * or when expectedType requires an integer, we wrap the result with an
+ * explicit cast to ensure correct C# semantics.
+ * This handles cases like `(i + 1) as int` which must emit as `(int)(i + 1)`.
+ *
+ * @param expr - The binary expression
+ * @param context - Emitter context
+ * @param expectedType - Optional expected type from outer context (assignment, return, etc.)
  */
 export const emitBinary = (
   expr: Extract<IrExpression, { kind: "binary" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
-  const [leftFrag, leftContext] = emitExpression(expr.left, context);
-  const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
+  // Check if this binary expression should produce an integer result
+  // Priority: expression's own inferredType > expectedType from context
+  const integerCastType =
+    getIntegerCastType(expr.inferredType) || getIntegerCastType(expectedType);
+
+  // Pass expected type to children so literals emit correctly
+  const [leftFrag, leftContext] = emitExpression(
+    expr.left,
+    context,
+    integerCastType ? expr.inferredType : undefined
+  );
+  const [rightFrag, rightContext] = emitExpression(
+    expr.right,
+    leftContext,
+    integerCastType ? expr.inferredType : undefined
+  );
 
   // Map JavaScript operators to C# operators
   const operatorMap: Record<string, string> = {
@@ -69,7 +133,14 @@ export const emitBinary = (
     return [{ text, precedence: 7 }, rightContext];
   }
 
-  const text = `${leftFrag.text} ${op} ${rightFrag.text}`;
+  let text = `${leftFrag.text} ${op} ${rightFrag.text}`;
+
+  // Wrap with explicit cast if integer type is required
+  // This ensures correctness even if child expressions have mixed types
+  if (integerCastType) {
+    text = `(${integerCastType})(${text})`;
+  }
+
   return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];
 };
 
@@ -113,12 +184,31 @@ export const emitLogical = (
 
 /**
  * Emit a unary operator expression (-, +, !, ~, typeof, void, delete)
+ *
+ * When the expression has an integer inferredType (from `as int` etc.),
+ * or when expectedType requires an integer, we wrap the result with an
+ * explicit cast. This handles `-1 as int`.
+ *
+ * @param expr - The unary expression
+ * @param context - Emitter context
+ * @param expectedType - Optional expected type from outer context
  */
 export const emitUnary = (
   expr: Extract<IrExpression, { kind: "unary" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
-  const [operandFrag, newContext] = emitExpression(expr.expression, context);
+  // Check if this unary expression should produce an integer result
+  // Priority: expression's own inferredType > expectedType from context
+  const integerCastType =
+    getIntegerCastType(expr.inferredType) || getIntegerCastType(expectedType);
+
+  // Pass expected type to operand so literals emit correctly
+  const [operandFrag, newContext] = emitExpression(
+    expr.expression,
+    context,
+    integerCastType ? expr.inferredType : undefined
+  );
 
   if (expr.operator === "typeof") {
     // typeof becomes global::Tsonic.Runtime.Operators.typeof()
@@ -138,7 +228,14 @@ export const emitUnary = (
     return [{ text }, newContext];
   }
 
-  const text = `${expr.operator}${operandFrag.text}`;
+  let text = `${expr.operator}${operandFrag.text}`;
+
+  // Wrap with explicit cast if integer type is required
+  // This handles cases like `-1 as int` emitting as `(int)(-1)`
+  if (integerCastType && (expr.operator === "-" || expr.operator === "+")) {
+    text = `(${integerCastType})(${text})`;
+  }
+
   return [{ text, precedence: 15 }, newContext];
 };
 
@@ -160,6 +257,9 @@ export const emitUpdate = (
 
 /**
  * Emit an assignment expression (=, +=, -=, etc.)
+ *
+ * Passes the LHS type as expected type to RHS, enabling proper integer
+ * literal emission for cases like `this.value = this.value + 1`.
  */
 export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
@@ -168,6 +268,7 @@ export const emitAssignment = (
   // Left side can be an expression or a pattern (for destructuring)
   let leftText: string;
   let leftContext: EmitterContext;
+  let leftType: IrType | undefined;
 
   if (
     "kind" in expr.left &&
@@ -179,17 +280,25 @@ export const emitAssignment = (
     if (expr.left.kind === "identifierPattern") {
       leftText = expr.left.name;
       leftContext = context;
+      leftType = expr.left.type; // Patterns use `type`, not `inferredType`
     } else {
       leftText = "/* destructuring */";
       leftContext = context;
     }
   } else {
-    const [leftFrag, ctx] = emitExpression(expr.left as IrExpression, context);
+    const leftExpr = expr.left as IrExpression;
+    const [leftFrag, ctx] = emitExpression(leftExpr, context);
     leftText = leftFrag.text;
     leftContext = ctx;
+    leftType = leftExpr.inferredType;
   }
 
-  const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
+  // Pass LHS type as expected type to RHS for proper integer handling
+  const [rightFrag, rightContext] = emitExpression(
+    expr.right,
+    leftContext,
+    leftType
+  );
 
   const text = `${leftText} ${expr.operator} ${rightFrag.text}`;
   return [{ text, precedence: 3 }, rightContext];

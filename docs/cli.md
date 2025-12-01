@@ -20,11 +20,11 @@ tsonic project init [options]
 
 **Options:**
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--runtime <mode>` | Runtime mode: `js` or `dotnet` | `js` |
-| `--skip-types` | Skip installing type declarations | `false` |
-| `--types-version <ver>` | Version of type declarations | Latest |
+| Option                  | Description                       | Default |
+| ----------------------- | --------------------------------- | ------- |
+| `--runtime <mode>`      | Runtime mode: `js` or `dotnet`    | `js`    |
+| `--skip-types`          | Skip installing type declarations | `false` |
+| `--types-version <ver>` | Version of type declarations      | Latest  |
 
 **Examples:**
 
@@ -57,21 +57,21 @@ tsonic emit <entry> [options]
 
 **Arguments:**
 
-| Argument | Description | Required |
-|----------|-------------|----------|
-| `<entry>` | Entry point file (e.g., `src/App.ts`) | Yes |
+| Argument  | Description                           | Required |
+| --------- | ------------------------------------- | -------- |
+| `<entry>` | Entry point file (e.g., `src/App.ts`) | Yes      |
 
 **Options:**
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--config <file>` | `-c` | Config file path | `tsonic.json` |
-| `--src <dir>` | `-s` | Source root directory | From config |
-| `--out <path>` | `-o` | Output directory | `generated` |
-| `--namespace <ns>` | `-n` | Root namespace | From config |
-| `--verbose` | `-V` | Verbose output | `false` |
-| `--quiet` | `-q` | Suppress output | `false` |
-| `--lib <path>` | `-L` | External library path | None |
+| Option             | Short | Description           | Default       |
+| ------------------ | ----- | --------------------- | ------------- |
+| `--config <file>`  | `-c`  | Config file path      | `tsonic.json` |
+| `--src <dir>`      | `-s`  | Source root directory | From config   |
+| `--out <path>`     | `-o`  | Output directory      | `generated`   |
+| `--namespace <ns>` | `-n`  | Root namespace        | From config   |
+| `--verbose`        | `-V`  | Verbose output        | `false`       |
+| `--quiet`          | `-q`  | Suppress output       | `false`       |
+| `--lib <path>`     | `-L`  | External library path | None          |
 
 **Examples:**
 
@@ -106,36 +106,36 @@ tsonic build <entry> [options]
 
 **Arguments:**
 
-| Argument | Description | Required |
-|----------|-------------|----------|
-| `<entry>` | Entry point file | Yes |
+| Argument  | Description      | Required |
+| --------- | ---------------- | -------- |
+| `<entry>` | Entry point file | Yes      |
 
 **Options:**
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--config <file>` | `-c` | Config file path | `tsonic.json` |
-| `--src <dir>` | `-s` | Source root directory | From config |
-| `--out <path>` | `-o` | Output file name | From config |
-| `--namespace <ns>` | `-n` | Root namespace | From config |
-| `--rid <rid>` | `-r` | Runtime identifier | Auto-detected |
-| `--optimize <level>` | `-O` | Optimization: `size` or `speed` | `speed` |
-| `--keep-temp` | `-k` | Keep build artifacts | `false` |
-| `--no-strip` | | Keep debug symbols | `false` |
-| `--verbose` | `-V` | Verbose output | `false` |
-| `--quiet` | `-q` | Suppress output | `false` |
-| `--lib <path>` | `-L` | External library path | None |
+| Option               | Short | Description                     | Default       |
+| -------------------- | ----- | ------------------------------- | ------------- |
+| `--config <file>`    | `-c`  | Config file path                | `tsonic.json` |
+| `--src <dir>`        | `-s`  | Source root directory           | From config   |
+| `--out <path>`       | `-o`  | Output file name                | From config   |
+| `--namespace <ns>`   | `-n`  | Root namespace                  | From config   |
+| `--rid <rid>`        | `-r`  | Runtime identifier              | Auto-detected |
+| `--optimize <level>` | `-O`  | Optimization: `size` or `speed` | `speed`       |
+| `--keep-temp`        | `-k`  | Keep build artifacts            | `false`       |
+| `--no-strip`         |       | Keep debug symbols              | `false`       |
+| `--verbose`          | `-V`  | Verbose output                  | `false`       |
+| `--quiet`            | `-q`  | Suppress output                 | `false`       |
+| `--lib <path>`       | `-L`  | External library path           | None          |
 
 **Runtime Identifiers (RID):**
 
-| Platform | RID |
-|----------|-----|
-| Linux x64 | `linux-x64` |
-| Linux ARM64 | `linux-arm64` |
-| macOS x64 | `osx-x64` |
-| macOS ARM64 | `osx-arm64` |
-| Windows x64 | `win-x64` |
-| Windows ARM64 | `win-arm64` |
+| Platform      | RID           |
+| ------------- | ------------- |
+| Linux x64     | `linux-x64`   |
+| Linux ARM64   | `linux-arm64` |
+| macOS x64     | `osx-x64`     |
+| macOS ARM64   | `osx-arm64`   |
+| Windows x64   | `win-x64`     |
+| Windows ARM64 | `win-arm64`   |
 
 **Examples:**
 
@@ -169,10 +169,10 @@ tsonic run <entry> [-- args...]
 
 **Arguments:**
 
-| Argument | Description | Required |
-|----------|-------------|----------|
-| `<entry>` | Entry point file | Yes |
-| `-- args...` | Arguments passed to executable | No |
+| Argument     | Description                    | Required |
+| ------------ | ------------------------------ | -------- |
+| `<entry>`    | Entry point file               | Yes      |
+| `-- args...` | Arguments passed to executable | No       |
 
 **Options:**
 
@@ -195,30 +195,30 @@ tsonic run src/App.ts --verbose -- --debug
 
 These options work with all commands:
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--help` | `-h` | Show help |
-| `--version` | `-v` | Show version |
-| `--verbose` | `-V` | Verbose output |
-| `--quiet` | `-q` | Suppress output |
-| `--config <file>` | `-c` | Config file path |
-| `--runtime <mode>` | | Runtime mode |
+| Option             | Short | Description      |
+| ------------------ | ----- | ---------------- |
+| `--help`           | `-h`  | Show help        |
+| `--version`        | `-v`  | Show version     |
+| `--verbose`        | `-V`  | Verbose output   |
+| `--quiet`          | `-q`  | Suppress output  |
+| `--config <file>`  | `-c`  | Config file path |
+| `--runtime <mode>` |       | Runtime mode     |
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Build/compilation error |
-| 2 | Configuration error |
-| 3 | Runtime error |
+| Code | Meaning                 |
+| ---- | ----------------------- |
+| 0    | Success                 |
+| 1    | Build/compilation error |
+| 2    | Configuration error     |
+| 3    | Runtime error           |
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
+| Variable         | Description           |
+| ---------------- | --------------------- |
 | `TSONIC_VERBOSE` | Enable verbose output |
-| `DOTNET_ROOT` | .NET SDK location |
+| `DOTNET_ROOT`    | .NET SDK location     |
 
 ## Configuration File Resolution
 

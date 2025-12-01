@@ -80,13 +80,13 @@ export type Callback = (value: number) => void;
 export enum Status {
   Pending,
   Active,
-  Completed
+  Completed,
 }
 
 export enum Color {
   Red = "red",
   Green = "green",
-  Blue = "blue"
+  Blue = "blue",
 }
 ```
 
@@ -169,8 +169,8 @@ const numbers: number[] = [1, 2, 3];
 const mixed: Array<number | string> = [1, "two", 3];
 
 // Array methods (JS mode)
-const doubled = numbers.map(n => n * 2);
-const filtered = numbers.filter(n => n > 1);
+const doubled = numbers.map((n) => n * 2);
+const filtered = numbers.filter((n) => n > 1);
 const sum = numbers.reduce((a, b) => a + b, 0);
 ```
 
@@ -184,7 +184,7 @@ interface Config {
 
 const config: Config = {
   host: "localhost",
-  port: 8080
+  port: 8080,
 };
 
 // Spread operator
@@ -232,7 +232,7 @@ import { User } from "./models/User.ts";
 import { formatDate } from "../utils/date.ts";
 
 // ❌ Wrong - missing extension
-import { User } from "./models/User";  // ERROR
+import { User } from "./models/User"; // ERROR
 ```
 
 ### Named Exports/Imports
@@ -313,6 +313,7 @@ export function main(args: string[]): void {
 ```
 
 Run with:
+
 ```bash
 ./myapp arg1 arg2 arg3
 ```
@@ -326,9 +327,9 @@ import { int } from "@tsonic/types";
 
 export function main(): int {
   if (errorCondition) {
-    return 1;  // Error
+    return 1; // Error
   }
-  return 0;  // Success
+  return 0; // Success
 }
 ```
 
@@ -376,9 +377,9 @@ function* accumulator(start: number): Generator<number, void, number> {
 
 export function main(): void {
   const gen = accumulator(10);
-  console.log(gen.next().value);     // 10
-  console.log(gen.next(5).value);    // 15
-  console.log(gen.next(3).value);    // 18
+  console.log(gen.next().value); // 10
+  console.log(gen.next(5).value); // 15
+  console.log(gen.next(3).value); // 18
 }
 ```
 
@@ -403,21 +404,21 @@ export async function main(): Promise<void> {
 
 The following TypeScript/JavaScript features are not supported:
 
-| Feature | Reason | Alternative |
-|---------|--------|-------------|
-| `with` statement | Deprecated, unpredictable | Use explicit property access |
-| Dynamic `import()` | Requires runtime loading | Use static imports |
-| `import.meta` | Runtime feature | Not available |
-| `eval()` | Cannot compile dynamically | Not available |
-| `Promise.then/catch` | Callback chains | Use `async/await` |
-| Decorators | Experimental | Not supported yet |
-| `any` type | Breaks type safety | Use `unknown` or specific types |
+| Feature              | Reason                     | Alternative                     |
+| -------------------- | -------------------------- | ------------------------------- |
+| `with` statement     | Deprecated, unpredictable  | Use explicit property access    |
+| Dynamic `import()`   | Requires runtime loading   | Use static imports              |
+| `import.meta`        | Runtime feature            | Not available                   |
+| `eval()`             | Cannot compile dynamically | Not available                   |
+| `Promise.then/catch` | Callback chains            | Use `async/await`               |
+| Decorators           | Experimental               | Not supported yet               |
+| `any` type           | Breaks type safety         | Use `unknown` or specific types |
 
 ### Promise Chaining
 
 ```typescript
 // ❌ Not supported
-promise.then(result => doSomething(result));
+promise.then((result) => doSomething(result));
 
 // ✅ Use async/await
 const result = await promise;
@@ -430,11 +431,13 @@ Explicit type annotations are recommended and sometimes required:
 
 ```typescript
 // Function parameters must be typed
-function greet(name: string): void {  // ✅
+function greet(name: string): void {
+  // ✅
   console.log(name);
 }
 
-function greet(name) {  // ❌ Error: parameter needs type
+function greet(name) {
+  // ❌ Error: parameter needs type
   console.log(name);
 }
 
@@ -477,11 +480,11 @@ Or in `tsonic.json`:
 
 The file name (without `.ts`) becomes the C# class name:
 
-| File | Generated Class |
-|------|-----------------|
-| `App.ts` | `class App` |
-| `UserService.ts` | `class UserService` |
-| `my-utils.ts` | `class my_utils` (hyphens to underscores) |
+| File             | Generated Class                           |
+| ---------------- | ----------------------------------------- |
+| `App.ts`         | `class App`                               |
+| `UserService.ts` | `class UserService`                       |
+| `my-utils.ts`    | `class my_utils` (hyphens to underscores) |
 
 ### Directory to Namespace Mapping
 
