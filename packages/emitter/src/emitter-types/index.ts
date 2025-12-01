@@ -23,9 +23,9 @@ export {
   createContext,
   indent,
   dedent,
-  addUsing,
   withStatic,
   withAsync,
   withClassName,
 } from "./context.js";
-export { getIndent, formatUsings } from "./formatting.js";
+export { getIndent } from "./formatting.js";
+export { renderTypeFQN, renderMemberFQN, renderFQN, FQN } from "./fqn.js";

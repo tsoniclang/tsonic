@@ -3,11 +3,11 @@
  */
 
 import { IrDictionaryType } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 
 /**
- * Emit dictionary type as C# Dictionary<TKey, TValue>
+ * Emit dictionary type as global::System.Collections.Generic.Dictionary<TKey, TValue>
  *
  * IrDictionaryType represents:
  * - `{ [k: string]: T }` → Dictionary<string, T>
@@ -26,10 +26,10 @@ export const emitDictionaryType = (
   // Emit value type
   const [valueTypeStr, ctx2] = emitType(type.valueType, ctx1);
 
-  // Add using for System.Collections.Generic
-  const ctx3 = addUsing(ctx2, "System.Collections.Generic");
-
-  return [`Dictionary<${keyTypeStr}, ${valueTypeStr}>`, ctx3];
+  return [
+    `global::System.Collections.Generic.Dictionary<${keyTypeStr}, ${valueTypeStr}>`,
+    ctx2,
+  ];
 };
 
 /**

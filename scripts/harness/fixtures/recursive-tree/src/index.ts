@@ -1,30 +1,32 @@
 // Test recursive tree-like structures
 // Verifies self-referential types compile and execute correctly
-import { Console } from "System";
-import { List } from "System.Collections.Generic";
+import { Console } from "@tsonic/dotnet/System";
+import { List, IList } from "@tsonic/dotnet/System.Collections.Generic";
 
 // Recursive tree node with self-reference
+// Use IList interface to avoid tsbindgen's instance vs full type distinction
 class TreeNode {
   value: number;
-  children: List<TreeNode>;
+  children: IList<TreeNode>;
 
   constructor(value: number) {
     this.value = value;
-    this.children = new List<TreeNode>();
+    // Cast to IList to satisfy the field type
+    this.children = new List<TreeNode>() as unknown as IList<TreeNode>;
   }
 
   addChild(value: number): TreeNode {
     const child = new TreeNode(value);
-    this.children.Add(child);
+    this.children.add(child);
     return child;
   }
 }
 
 // Recursive function to traverse tree and print
 function printTree(node: TreeNode, prefix: string): void {
-  Console.WriteLine(prefix + node.value);
+  Console.writeLine(prefix + node.value);
 
-  for (let i = 0; i < node.children.Count; i++) {
+  for (let i = 0; i < node.children.count; i++) {
     printTree(node.children[i], prefix + "  ");
   }
 }
@@ -32,7 +34,7 @@ function printTree(node: TreeNode, prefix: string): void {
 // Recursive function to sum all values
 function sumTree(node: TreeNode): number {
   let sum = node.value;
-  for (let i = 0; i < node.children.Count; i++) {
+  for (let i = 0; i < node.children.count; i++) {
     sum = sum + sumTree(node.children[i]);
   }
   return sum;
@@ -55,8 +57,8 @@ export function main(): void {
   child2.addChild(6);
   child4.addChild(7);
 
-  Console.WriteLine("Tree structure:");
+  Console.writeLine("Tree structure:");
   printTree(root, "");
 
-  Console.WriteLine("Sum of all values: " + sumTree(root));
+  Console.writeLine("Sum of all values: " + sumTree(root));
 }

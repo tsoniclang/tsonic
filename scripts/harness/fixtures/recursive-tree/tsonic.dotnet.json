@@ -4,8 +4,5 @@
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
-  "outputName": "recursive-tree-test",
-  "dotnet": {
-    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
-  }
+  "outputName": "recursive-tree-test"
 }

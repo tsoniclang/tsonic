@@ -135,6 +135,9 @@ out/
 !packages/runtime/**/*.cs
 !packages/emitter/testcases/**/*.cs
 
+# Runtime DLLs (copied from external runtime project for packaging)
+packages/cli/runtime/*.dll
+
 # Claude Code working directories
 .tests/
 .analysis/
@@ -158,3 +161,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 .codespin/
+
+# Tsonic build output
+**/out/
+**/generated/

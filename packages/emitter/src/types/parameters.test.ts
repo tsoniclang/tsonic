@@ -13,7 +13,6 @@ describe("Parameter modifiers (ref/out/in)", () => {
     indentLevel: 0,
     isStatic: false,
     isAsync: false,
-    usings: new Set(),
     options: { runtime: "dotnet", rootNamespace: "Test" },
   };
 
@@ -38,7 +37,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted, _context] = emitParameters(params, baseContext);
+    const [emitted] = emitParameters(params, baseContext);
     expect(emitted).to.equal("out int result");
   });
 
@@ -63,7 +62,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted, _context] = emitParameters(params, baseContext);
+    const [emitted] = emitParameters(params, baseContext);
     expect(emitted).to.equal("ref int value");
   });
 
@@ -88,7 +87,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted, _context] = emitParameters(params, baseContext);
+    const [emitted] = emitParameters(params, baseContext);
     expect(emitted).to.equal("in int value");
   });
 
@@ -141,7 +140,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted, _context] = emitParameters(params, baseContext);
+    const [emitted] = emitParameters(params, baseContext);
     expect(emitted).to.equal("int input, out int output, ref int counter");
   });
 });

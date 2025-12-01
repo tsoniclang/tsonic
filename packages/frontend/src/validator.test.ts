@@ -15,7 +15,7 @@ import { TsonicProgram } from "./program.js";
 import { validateProgram } from "./validator.js";
 import { DotnetMetadataRegistry } from "./dotnet-metadata.js";
 import { BindingRegistry } from "./program/bindings.js";
-import { createDotNetImportResolver } from "./resolver/dotnet-import-resolver.js";
+import { createClrBindingsResolver } from "./resolver/clr-bindings-resolver.js";
 
 /**
  * Helper to create a test program from source code
@@ -65,13 +65,14 @@ const createTestProgram = (
     program,
     checker: program.getTypeChecker(),
     options: {
+      projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
     },
     sourceFiles: [sourceFile],
     metadata: new DotnetMetadataRegistry(),
     bindings: new BindingRegistry(),
-    dotnetResolver: createDotNetImportResolver("/test"),
+    clrResolver: createClrBindingsResolver("/test"),
   };
 };
 

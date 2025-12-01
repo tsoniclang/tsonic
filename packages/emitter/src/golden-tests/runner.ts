@@ -49,6 +49,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   // Step 1: Compile TypeScript → Program
   // Use standard lib for golden tests (they don't have BCL bindings)
   const compileResult = compile([scenario.inputPath], {
+    projectRoot: sourceRoot, // Golden tests don't have node_modules
     sourceRoot,
     rootNamespace,
     useStandardLib: true,

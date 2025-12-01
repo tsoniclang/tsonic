@@ -95,6 +95,7 @@ export type CliOptions = {
 export type ResolvedConfig = {
   readonly rootNamespace: string;
   readonly entryPoint: string | undefined;
+  readonly projectRoot: string; // Directory containing tsonic.json/package.json
   readonly sourceRoot: string;
   readonly outputDirectory: string;
   readonly outputName: string;

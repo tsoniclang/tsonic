@@ -6,17 +6,17 @@ import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
 import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
-import { DotNetImportResolver } from "../../resolver/dotnet-import-resolver.js";
+import { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
 
 /**
  * Extract import declarations from source file.
  * Uses TypeChecker to determine if each import is a type or value.
- * Uses DotNetImportResolver to detect CLR namespace imports.
+ * Uses ClrBindingsResolver to detect CLR namespace imports.
  */
 export const extractImports = (
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker,
-  dotnetResolver: DotNetImportResolver
+  clrResolver: ClrBindingsResolver
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
 
@@ -28,12 +28,14 @@ export const extractImports = (
       const source = node.moduleSpecifier.text;
       const isLocal = source.startsWith(".") || source.startsWith("/");
 
-      // Use import-driven resolution to detect .NET imports
+      // Use import-driven resolution to detect CLR imports
       // This works for any package that provides bindings.json
-      const dotnetResolution = dotnetResolver.resolve(source);
-      const isDotNet = dotnetResolution.isDotNet;
-      const resolvedNamespace = dotnetResolution.isDotNet
-        ? dotnetResolution.resolvedNamespace
+      // Note: Bindings are loaded upfront by discoverAndLoadClrBindings()
+      // in dependency-graph.ts before IR building starts.
+      const clrResolution = clrResolver.resolve(source);
+      const isClr = clrResolution.isClr;
+      const resolvedNamespace = clrResolution.isClr
+        ? clrResolution.resolvedNamespace
         : undefined;
 
       const specifiers = extractImportSpecifiers(node, checker);
@@ -51,7 +53,7 @@ export const extractImports = (
         kind: "import",
         source,
         isLocal,
-        isDotNet,
+        isClr,
         specifiers,
         resolvedNamespace,
         resolvedClrType: hasModuleBinding ? binding.type : undefined,

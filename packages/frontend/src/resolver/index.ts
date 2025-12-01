@@ -6,13 +6,13 @@ export type { ResolvedModule } from "./types.js";
 export {
   resolveImport,
   resolveLocalImport,
-  resolveDotNetImport,
+  resolveClrImport,
 } from "./import-resolution.js";
 export { resolveModulePath } from "./path-resolution.js";
 export { getNamespaceFromPath } from "./namespace.js";
 export { getClassNameFromPath } from "./naming.js";
 export {
-  DotNetImportResolver,
-  createDotNetImportResolver,
-  type ResolvedDotNetImport,
-} from "./dotnet-import-resolver.js";
+  ClrBindingsResolver,
+  createClrBindingsResolver,
+  type ResolvedClrImport,
+} from "./clr-bindings-resolver.js";

@@ -163,7 +163,7 @@ export type ParameterMetadata = {
   readonly isOut: boolean;
   readonly isIn?: boolean;
   readonly isParams: boolean;
-  readonly defaultValue?: any | null;
+  readonly defaultValue?: unknown;
 };
 
 /**

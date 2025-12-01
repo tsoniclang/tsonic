@@ -20,9 +20,9 @@ export type IrImport = {
   readonly kind: "import";
   readonly source: string; // Import path
   readonly isLocal: boolean;
-  readonly isDotNet: boolean;
+  readonly isClr: boolean; // True if import is from a CLR bindings package
   readonly specifiers: readonly IrImportSpecifier[];
-  readonly resolvedNamespace?: string; // For .NET imports or local imports (e.g., "MultiFileCheck.utils")
+  readonly resolvedNamespace?: string; // For CLR imports or local imports (e.g., "System" or "MultiFileCheck.utils")
   // For module bindings (Node.js APIs mapped to CLR types)
   readonly resolvedClrType?: string; // e.g., "Tsonic.NodeApi.fs"
   readonly resolvedAssembly?: string; // e.g., "Tsonic.NodeApi"

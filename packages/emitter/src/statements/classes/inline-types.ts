@@ -74,11 +74,6 @@ export const emitExtractedType = (
 
   parts.push(`${ind}}`);
 
-  // Return context at original indent level, preserving only usings
-  const finalContext = {
-    ...context,
-    usings: bodyCurrentContext.usings,
-  };
-
-  return [parts.join("\n"), finalContext];
+  // Return context at original indent level
+  return [parts.join("\n"), context];
 };

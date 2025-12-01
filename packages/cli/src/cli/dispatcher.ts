@@ -2,7 +2,7 @@
  * CLI command dispatcher
  */
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { checkDotnetInstalled } from "@tsonic/backend";
 import { loadConfig, findConfig, resolveConfig } from "../config.js";
 import { initProject } from "../commands/init.js";
@@ -77,9 +77,13 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 1;
   }
 
+  // Project root is the directory containing tsonic.json
+  const projectRoot = dirname(configPath);
+
   const config = resolveConfig(
     configResult.value,
     parsed.options,
+    projectRoot,
     parsed.entryFile
   );
 

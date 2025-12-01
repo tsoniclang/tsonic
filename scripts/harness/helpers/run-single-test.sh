@@ -6,8 +6,7 @@ set -euo pipefail
 # Arguments
 FIXTURE_NAME=$1
 OUTPUT_DIR=$2
-BCL_TYPES_DIR=$3
-RUNTIME_MODE=${4:-dotnet}
+RUNTIME_MODE=${3:-dotnet}
 
 # Paths
 PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -48,32 +47,15 @@ fi
 # Step 3: Build the project
 echo "Building project (mode: $RUNTIME_MODE)..."
 
-# Check if fixture needs BCL types
-if grep -q '"libraries"' tsonic.json 2>/dev/null; then
-    # Convert relative BCL path to absolute
-    ABS_BCL_DIR="$(cd "$PROJECT_ROOT" && cd "$BCL_TYPES_DIR" && pwd)"
-    echo "Using BCL types from: $ABS_BCL_DIR"
-    "$TSONIC_CLI" build "$ENTRY_POINT" \
-        --lib "$ABS_BCL_DIR" \
-        --keep-temp \
-        --quiet || {
-        echo "ERROR: Build failed"
-        echo "Mode: $RUNTIME_MODE"
-        echo "Config: $OUTPUT_DIR/tsonic.json"
-        echo "Generated project: $OUTPUT_DIR/generated/"
-        exit 1
-    }
-else
-    # Build without BCL library
-    "$TSONIC_CLI" build "$ENTRY_POINT" \
-        --keep-temp \
-        --quiet || {
-        echo "ERROR: Build failed"
-        echo "Mode: $RUNTIME_MODE"
-        echo "Config: $OUTPUT_DIR/tsonic.json"
-        exit 1
-    }
-fi
+"$TSONIC_CLI" build "$ENTRY_POINT" \
+    --keep-temp \
+    --quiet || {
+    echo "ERROR: Build failed"
+    echo "Mode: $RUNTIME_MODE"
+    echo "Config: $OUTPUT_DIR/tsonic.json"
+    echo "Generated project: $OUTPUT_DIR/generated/"
+    exit 1
+}
 
 # Step 4: Check if executable was created
 EXECUTABLE_NAME=$(grep '"outputName"' tsonic.json | sed 's/.*"outputName".*:.*"\(.*\)".*/\1/')
@@ -82,9 +64,9 @@ if [ -z "$EXECUTABLE_NAME" ]; then
 fi
 
 if [ "$(uname)" = "Darwin" ] || [ "$(uname)" = "Linux" ]; then
-    EXECUTABLE="./$EXECUTABLE_NAME"
+    EXECUTABLE="out/$EXECUTABLE_NAME"
 else
-    EXECUTABLE="./$EXECUTABLE_NAME.exe"
+    EXECUTABLE="out/$EXECUTABLE_NAME.exe"
 fi
 
 if [ ! -f "$EXECUTABLE" ]; then

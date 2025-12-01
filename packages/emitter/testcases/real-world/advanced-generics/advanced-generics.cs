@@ -1,8 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System;
-using System.Collections.Generic;
-
 namespace TestCases.realworld.advancedgenerics
 {
     public class Pair<T, U>
@@ -22,7 +17,7 @@ namespace TestCases.realworld.advancedgenerics
             return new Pair(this.second, this.first);
             }
 
-        public Pair<V, W> map<V, W>(Func<T, V> firstMapper, Func<U, W> secondMapper)
+        public Pair<V, W> map<V, W>(global::System.Func<T, V> firstMapper, global::System.Func<U, W> secondMapper)
             {
             return new Pair(firstMapper(this.first), secondMapper(this.second));
             }
@@ -31,7 +26,7 @@ namespace TestCases.realworld.advancedgenerics
     {
         public T value;
 
-        public List<TreeNode<T>> children = new List<TreeNode<T>>();
+        public global::System.Collections.Generic.List<TreeNode<T>> children = new global::System.Collections.Generic.List<TreeNode<T>>();
 
         public TreeNode(T value)
             {
@@ -41,11 +36,11 @@ namespace TestCases.realworld.advancedgenerics
         public TreeNode<T> addChild(T value)
             {
             var child = new TreeNode(value);
-            Tsonic.JSRuntime.Array.push(this.children, child);
+            global::Tsonic.JSRuntime.Array.push(this.children, child);
             return child;
             }
 
-        public void forEach(Action<T> callback)
+        public void forEach(global::System.Action<T> callback)
             {
             callback(this.value);
             foreach (var child in this.children)
@@ -54,19 +49,19 @@ namespace TestCases.realworld.advancedgenerics
                 }
             }
 
-        public TreeNode<U> map<U>(Func<T, U> mapper)
+        public TreeNode<U> map<U>(global::System.Func<T, U> mapper)
             {
             var mapped = new TreeNode(mapper(this.value));
             foreach (var child in this.children)
                 {
-                Tsonic.JSRuntime.Array.push(mapped.children, child.map(mapper));
+                global::Tsonic.JSRuntime.Array.push(mapped.children, child.map(mapper));
                 }
             return mapped;
             }
     }
     public class Comparable <T>
     {
-        public double compareTo(T other) => throw new NotImplementedException();
+        public double compareTo(T other) => throw new global::System.NotImplementedException();
     }
     public class Builder<T>
     {
@@ -109,37 +104,37 @@ namespace TestCases.realworld.advancedgenerics
                     return result.ok == false;
                     }
 
-                public static T? min<T>(List<T> items)
+                public static T? min<T>(global::System.Collections.Generic.List<T> items)
                     where T : Comparable<T>
                     {
-                    if (Tsonic.Runtime.Array.length(items) == 0)
+                    if (global::Tsonic.Runtime.Array.length(items) == 0)
                         {
                         return default;
                         }
-                    var result = Tsonic.Runtime.Array.get(items, 0);
-                    for (var i = 1; i < Tsonic.Runtime.Array.length(items); i++)
+                    var result = global::Tsonic.Runtime.Array.get(items, 0);
+                    for (int i = 1; i < global::Tsonic.Runtime.Array.length(items); i++)
                         {
-                        if (Tsonic.Runtime.Array.get(items, i).compareTo(result) < 0)
+                        if (global::Tsonic.Runtime.Array.get(items, i).compareTo(result) < 0)
                             {
-                            result = Tsonic.Runtime.Array.get(items, i);
+                            result = global::Tsonic.Runtime.Array.get(items, i);
                             }
                         }
                     return result;
                     }
 
-                public static T? max<T>(List<T> items)
+                public static T? max<T>(global::System.Collections.Generic.List<T> items)
                     where T : Comparable<T>
                     {
-                    if (Tsonic.Runtime.Array.length(items) == 0)
+                    if (global::Tsonic.Runtime.Array.length(items) == 0)
                         {
                         return default;
                         }
-                    var result = Tsonic.Runtime.Array.get(items, 0);
-                    for (var i = 1; i < Tsonic.Runtime.Array.length(items); i++)
+                    var result = global::Tsonic.Runtime.Array.get(items, 0);
+                    for (int i = 1; i < global::Tsonic.Runtime.Array.length(items); i++)
                         {
-                        if (Tsonic.Runtime.Array.get(items, i).compareTo(result) > 0)
+                        if (global::Tsonic.Runtime.Array.get(items, i).compareTo(result) > 0)
                             {
-                            result = Tsonic.Runtime.Array.get(items, i);
+                            result = global::Tsonic.Runtime.Array.get(items, i);
                             }
                         }
                     return result;

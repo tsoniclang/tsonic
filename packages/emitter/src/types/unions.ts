@@ -3,7 +3,7 @@
  */
 
 import { IrType } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 
 /**
@@ -51,8 +51,10 @@ export const emitUnionType = (
       currentContext = newContext;
     }
 
-    const finalContext = addUsing(currentContext, "Tsonic.Runtime");
-    return [`Union<${typeStrings.join(", ")}>`, finalContext];
+    return [
+      `global::Tsonic.Runtime.Union<${typeStrings.join(", ")}>`,
+      currentContext,
+    ];
   }
 
   // Fallback for unions with more than 8 types: use object

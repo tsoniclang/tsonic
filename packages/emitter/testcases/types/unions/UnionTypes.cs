@@ -1,20 +1,16 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.types.unions
 {
         public static class UnionTypes
         {
-            public static string process(Union<string, double> value)
+            public static string process(global::Tsonic.Runtime.Union<string, double> value)
                 {
-                if (Tsonic.Runtime.Operators.@typeof(value) == "string")
+                if (global::Tsonic.Runtime.Operators.@typeof(value) == "string")
                     {
-                    return Tsonic.JSRuntime.String.toUpperCase(value);
+                    return global::Tsonic.JSRuntime.String.toUpperCase(value);
                     }
                 else
                     {
-                    return Tsonic.JSRuntime.Number.toString(value);
+                    return global::Tsonic.JSRuntime.Number.toString(value);
                     }
                 }
 

@@ -1,15 +1,10 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-using System.Linq;
-
 namespace TestCases.arrays.spread
 {
         public static class ArraySpread
         {
-            public static List<double> spreadArray(List<double> arr1, List<double> arr2)
+            public static global::System.Collections.Generic.List<double> spreadArray(global::System.Collections.Generic.List<double> arr1, global::System.Collections.Generic.List<double> arr2)
                 {
-                return arr1.Concat(arr2).ToList();
+                return global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Concat(arr1, arr2));
                 }
         }
 }

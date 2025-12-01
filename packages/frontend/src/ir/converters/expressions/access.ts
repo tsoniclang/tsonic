@@ -9,8 +9,33 @@ import { convertExpression } from "../../expression-converter.js";
 import { getBindingRegistry } from "../statements/declarations/registry.js";
 
 /**
+ * Extract the type name from an inferred type for binding lookup.
+ * Handles tsbindgen's naming convention where instance types are suffixed with $instance
+ * (e.g., List_1$instance → List_1 for binding lookup)
+ */
+const extractTypeName = (
+  inferredType: ReturnType<typeof getInferredType>
+): string | undefined => {
+  if (!inferredType) return undefined;
+
+  if (inferredType.kind === "referenceType") {
+    const name = inferredType.name;
+
+    // Strip $instance suffix from tsbindgen-generated type names
+    // e.g., "List_1$instance" → "List_1" for binding lookup
+    if (name.endsWith("$instance")) {
+      return name.slice(0, -"$instance".length);
+    }
+
+    return name;
+  }
+
+  return undefined;
+};
+
+/**
  * Resolve hierarchical binding for a member access
- * Handles namespace.type and type.member patterns
+ * Handles namespace.type, type.member, directType.member, and instance.member patterns
  */
 const resolveHierarchicalBinding = (
   object: ReturnType<typeof convertExpression>,
@@ -29,6 +54,21 @@ const resolveHierarchicalBinding = (
         // This member access is namespace.type - we don't emit a member binding here
         // because we're just accessing a type, not calling a member
         return undefined;
+      }
+    }
+
+    // Case 1b: object is a direct type import (like `Console` imported directly)
+    // Check if the identifier is a type alias, and if so, look up the member
+    const directType = registry.getType(object.name);
+    if (directType) {
+      const member = directType.members.find((m) => m.alias === propertyName);
+      if (member) {
+        // Found a member binding for direct type import!
+        return {
+          assembly: member.binding.assembly,
+          type: member.binding.type,
+          member: member.binding.member,
+        };
       }
     }
   }
@@ -54,6 +94,22 @@ const resolveHierarchicalBinding = (
           }
         }
       }
+    }
+  }
+
+  // Case 3: Instance member access (e.g., numbers.add where numbers is List<T>)
+  // Use the object's inferred type to look up the member binding
+  const objectTypeName = extractTypeName(object.inferredType);
+
+  if (objectTypeName) {
+    // Look up member by type alias and property name
+    const member = registry.getMember(objectTypeName, propertyName);
+    if (member) {
+      return {
+        assembly: member.binding.assembly,
+        type: member.binding.type,
+        member: member.binding.member,
+      };
     }
   }
 

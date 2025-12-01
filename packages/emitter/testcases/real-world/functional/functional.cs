@@ -1,8 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System;
-using System.Collections.Generic;
-
 namespace TestCases.realworld.functional
 {
     public class Some<T>
@@ -20,13 +15,13 @@ namespace TestCases.realworld.functional
     }
     public class Lazy<T>
     {
-        private Func<T> computer;
+        private global::System.Func<T> computer;
 
         private T? value;
 
         private bool computed = false;
 
-        public Lazy(Func<T> computer)
+        public Lazy(global::System.Func<T> computer)
             {
             this.computer = computer;
             }
@@ -41,7 +36,7 @@ namespace TestCases.realworld.functional
             return this.value!;
             }
 
-        public Lazy<U> map<U>(Func<T, U> mapper)
+        public Lazy<U> map<U>(global::System.Func<T, U> mapper)
             {
             return new Lazy(() => mapper(this.get()));
             }
@@ -80,33 +75,33 @@ namespace TestCases.realworld.functional
                     return defaultValue;
                     }
 
-                public static B pipe<A, B>(A value, Func<A, B> fn)
+                public static B pipe<A, B>(A value, global::System.Func<A, B> fn)
                     {
                     return fn(value);
                     }
 
-                public static Func<A, C> compose<A, B, C>(Func<B, C> f, Func<A, B> g)
+                public static global::System.Func<A, C> compose<A, B, C>(global::System.Func<B, C> f, global::System.Func<A, B> g)
                     {
                     return (a) => f(g(a));
                     }
 
-                public static Func<A, Func<B, C>> curry<A, B, C>(Func<A, B, C> fn)
+                public static global::System.Func<A, global::System.Func<B, C>> curry<A, B, C>(global::System.Func<A, B, C> fn)
                     {
                     return (a) => (b) => fn(a, b);
                     }
 
-                public static Func<B, C> partial<A, B, C>(Func<A, B, C> fn, A a)
+                public static global::System.Func<B, C> partial<A, B, C>(global::System.Func<A, B, C> fn, A a)
                     {
                     return (b) => fn(a, b);
                     }
 
-                public static Func<T, R> memoize<T, R>(Func<T, R> fn)
-                    where T : List<dynamic>
+                public static global::System.Func<T, R> memoize<T, R>(global::System.Func<T, R> fn)
+                    where T : global::System.Collections.Generic.List<dynamic>
                     {
                     var cache = new Map<string, R>();
                     return (args) =>
                     {
-                    var key = Tsonic.JSRuntime.JSON.stringify(args);
+                    var key = global::Tsonic.JSRuntime.JSON.stringify(args);
                     if (cache.has(key))
                         {
                         return cache.get(key)!;
@@ -117,8 +112,8 @@ namespace TestCases.realworld.functional
                     };
                     }
 
-                public static Action<T> debounce<T>(Action<T> fn, double delayMs)
-                    where T : List<dynamic>
+                public static global::System.Action<T> debounce<T>(global::System.Action<T> fn, double delayMs)
+                    where T : global::System.Collections.Generic.List<dynamic>
                     {
                     dynamic timeoutId;
                     return (args) =>

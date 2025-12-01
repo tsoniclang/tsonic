@@ -1,34 +1,35 @@
 // Test BCL collections and LINQ
-import { Console, String } from "System";
-import { List, Dictionary } from "System.Collections.Generic";
-import { Enumerable } from "System.Linq";
+import { Console, String } from "@tsonic/dotnet/System";
+import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
+import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { int } from "@tsonic/types";
 
 export function main(): void {
-  // Create a list of numbers
-  const numbers = new List<number>();
-  numbers.Add(1);
-  numbers.Add(2);
-  numbers.Add(3);
-  numbers.Add(4);
-  numbers.Add(5);
+  // Create a list of numbers (using int for CLR compatibility)
+  const numbers = new List<int>();
+  numbers.add(1 as int);
+  numbers.add(2 as int);
+  numbers.add(3 as int);
+  numbers.add(4 as int);
+  numbers.add(5 as int);
 
-  Console.WriteLine(`Count: ${numbers.Count}`);
+  Console.writeLine(`Count: ${numbers.count}`);
 
   // Use LINQ to filter and map
-  const evenNumbers = Enumerable.Where(numbers, (x: number) => x % 2 === 0);
-  const doubled = Enumerable.Select(evenNumbers, (x: number) => x * 2);
-  const result = Enumerable.ToArray(doubled);
+  const evenNumbers = Enumerable.where(numbers, (x: int) => x % 2 === 0);
+  const doubled = Enumerable.select(evenNumbers, (x: int) => (x * 2) as int);
+  const result = Enumerable.toArray(doubled);
 
   // For simplicity, just show first two elements
-  Console.WriteLine(`Even numbers doubled: [4, 8]`);
+  Console.writeLine(`Even numbers doubled: [4, 8]`);
 
   // Sum using LINQ
-  const sum = Enumerable.Sum(numbers);
-  Console.WriteLine(`Sum: ${sum}`);
+  const sum = Enumerable.sum(numbers);
+  Console.writeLine(`Sum: ${sum}`);
 
   // Dictionary test
-  const dict = new Dictionary<string, number>();
-  dict.Add("one", 1);
-  dict.Add("two", 2);
-  Console.WriteLine(`Dictionary size: ${dict.Count}`);
+  const dict = new Dictionary<string, int>();
+  dict.add("one", 1 as int);
+  dict.add("two", 2 as int);
+  Console.writeLine(`Dictionary size: ${dict.count}`);
 }

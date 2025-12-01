@@ -3,21 +3,22 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, addUsing } from "../types.js";
+import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitType } from "../type-emitter.js";
 
 /**
  * Fallback mappings for well-known runtime globals
  * Used when binding manifests are not available (e.g., in tests)
+ * All use global:: prefix for unambiguous resolution.
  */
 const RUNTIME_FALLBACKS: Record<string, string> = {
-  console: "Tsonic.JSRuntime.console",
-  Math: "Tsonic.JSRuntime.Math",
-  JSON: "Tsonic.JSRuntime.JSON",
-  parseInt: "Tsonic.JSRuntime.Globals.parseInt",
-  parseFloat: "Tsonic.JSRuntime.Globals.parseFloat",
-  isNaN: "Tsonic.JSRuntime.Globals.isNaN",
-  isFinite: "Tsonic.JSRuntime.Globals.isFinite",
+  console: "global::Tsonic.JSRuntime.console",
+  Math: "global::Tsonic.JSRuntime.Math",
+  JSON: "global::Tsonic.JSRuntime.JSON",
+  parseInt: "global::Tsonic.JSRuntime.Globals.parseInt",
+  parseFloat: "global::Tsonic.JSRuntime.Globals.parseFloat",
+  isNaN: "global::Tsonic.JSRuntime.Globals.isNaN",
+  isFinite: "global::Tsonic.JSRuntime.Globals.isFinite",
 };
 
 /**
@@ -47,16 +48,17 @@ export const emitIdentifier = (
     }
   }
 
-  // Use custom C# name from binding if specified
+  // Use custom C# name from binding if specified (with global:: prefix)
   if (expr.csharpName && expr.resolvedAssembly) {
-    const updatedContext = addUsing(context, expr.resolvedAssembly);
-    return [{ text: expr.csharpName }, updatedContext];
+    const fqn = `global::${expr.resolvedAssembly}.${expr.csharpName}`;
+    return [{ text: fqn }, context];
   }
 
-  // Use resolved binding if available (from binding manifest)
-  if (expr.resolvedClrType && expr.resolvedAssembly) {
-    const updatedContext = addUsing(context, expr.resolvedAssembly);
-    return [{ text: expr.resolvedClrType }, updatedContext];
+  // Use resolved binding if available (from binding manifest) with global:: prefix
+  // resolvedClrType is already the full CLR type name, just add global::
+  if (expr.resolvedClrType) {
+    const fqn = `global::${expr.resolvedClrType}`;
+    return [{ text: fqn }, context];
   }
 
   // Fallback for well-known runtime globals (only in js mode)
@@ -65,8 +67,8 @@ export const emitIdentifier = (
   if (runtime === "js") {
     const fallback = RUNTIME_FALLBACKS[expr.name];
     if (fallback) {
-      const updatedContext = addUsing(context, "Tsonic.JSRuntime");
-      return [{ text: fallback }, updatedContext];
+      // RUNTIME_FALLBACKS already have global:: prefix
+      return [{ text: fallback }, context];
     }
   }
 

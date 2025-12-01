@@ -9,7 +9,7 @@ import { buildIrModule } from "./builder.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { IrIdentifierExpression } from "./types.js";
-import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
+import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 
 describe("Binding Resolution in IR", () => {
   const createTestProgram = (
@@ -48,11 +48,16 @@ describe("Binding Resolution in IR", () => {
     return {
       program,
       checker: program.getTypeChecker(),
-      options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
+      options: {
+        projectRoot: "/test",
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+        strict: true,
+      },
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings: bindings || new BindingRegistry(),
-      dotnetResolver: createDotNetImportResolver("/test"),
+      clrResolver: createClrBindingsResolver("/test"),
     };
   };
 

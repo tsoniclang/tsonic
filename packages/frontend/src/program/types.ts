@@ -5,11 +5,12 @@
 import * as ts from "typescript";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "./bindings.js";
-import { DotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
+import { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 
 export type RuntimeMode = "js" | "dotnet";
 
 export type CompilerOptions = {
+  readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
   readonly sourceRoot: string;
   readonly rootNamespace: string;
   readonly strict?: boolean;
@@ -33,6 +34,6 @@ export type TsonicProgram = {
   readonly sourceFiles: readonly ts.SourceFile[];
   readonly metadata: DotnetMetadataRegistry;
   readonly bindings: BindingRegistry;
-  /** Resolver for .NET namespace imports (import-driven discovery) */
-  readonly dotnetResolver: DotNetImportResolver;
+  /** Resolver for CLR namespace imports (import-driven discovery) */
+  readonly clrResolver: ClrBindingsResolver;
 };

@@ -150,11 +150,13 @@ export class ParameterModifierRegistry {
 
     if (type.aliasTypeArguments && type.aliasTypeArguments.length > 0) {
       wrappedType = type.aliasTypeArguments[0];
-    } else if (
-      (type as any).typeArguments &&
-      (type as any).typeArguments.length > 0
-    ) {
-      wrappedType = (type as any).typeArguments[0];
+    } else {
+      // Access typeArguments through the TypeReference interface
+      const typeRef = type as ts.TypeReference;
+      const typeArgs = typeRef.typeArguments;
+      if (typeArgs && typeArgs.length > 0) {
+        wrappedType = typeArgs[0];
+      }
     }
 
     if (!wrappedType) {

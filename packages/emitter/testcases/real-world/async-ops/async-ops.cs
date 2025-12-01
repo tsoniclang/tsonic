@@ -1,18 +1,12 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-
 namespace TestCases.realworld.asyncops
 {
     public class AsyncCache<K, V>
     {
         private Map<K, V> cache = new Map();
 
-        private Map<K, Task<V>> loading = new Map();
+        private Map<K, global::System.Threading.Tasks.Task<V>> loading = new Map();
 
-        public async Task<V> get(K key, Func<Task<V>> loader)
+        public async global::System.Threading.Tasks.Task<V> get(K key, global::System.Func<global::System.Threading.Tasks.Task<V>> loader)
             {
             if (this.cache.has(key))
                 {
@@ -45,7 +39,7 @@ namespace TestCases.realworld.asyncops
 
             public static class asyncops
             {
-                public static async Task delay(double ms)
+                public static async global::System.Threading.Tasks.Task delay(double ms)
                     {
                     return new Promise((resolve) =>
                     {
@@ -53,34 +47,34 @@ namespace TestCases.realworld.asyncops
                     });
                     }
 
-                public static async Task<string> fetchData(double id)
+                public static async global::System.Threading.Tasks.Task<string> fetchData(double id)
                     {
                     await delay(100);
                     return $"Data for ID {id}";
                     }
 
-                public static async Task<List<string>> fetchMultiple(List<double> ids)
+                public static async global::System.Threading.Tasks.Task<global::System.Collections.Generic.List<string>> fetchMultiple(global::System.Collections.Generic.List<double> ids)
                     {
-                    var promises = Tsonic.JSRuntime.Array.map(ids, (id) => fetchData(id));
+                    var promises = global::Tsonic.JSRuntime.Array.map(ids, (id) => fetchData(id));
                     return Promise.all(promises);
                     }
 
-                public static async Task<T> processWithRetry<T>(Func<Task<T>> fn, double maxRetries = 3)
+                public static async global::System.Threading.Tasks.Task<T> processWithRetry<T>(global::System.Func<global::System.Threading.Tasks.Task<T>> fn, double maxRetries = 3)
                     {
-                    System.Exception? lastError;
-                    for (var i = 0; i < maxRetries; i++)
+                    global::System.Exception? lastError;
+                    for (int i = 0; i < maxRetries; i++)
                         {
                         try
                         {
                         return await fn();
                         }
-                        catch (Exception error)
+                        catch (global::System.Exception error)
                         {
                         lastError = error;
                         await delay(100 * i + 1);
                         }
                         }
-                    throw lastError ?? new Error("Max retries exceeded");
+                    throw lastError ?? new global::System.Exception("Max retries exceeded");
                     }
             }
 }

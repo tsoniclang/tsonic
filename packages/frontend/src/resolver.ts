@@ -3,12 +3,12 @@
  * Main dispatcher - re-exports from resolver/ subdirectory
  */
 
-export type { ResolvedModule, ResolvedDotNetImport } from "./resolver/index.js";
+export type { ResolvedModule, ResolvedClrImport } from "./resolver/index.js";
 export {
   resolveImport,
   resolveModulePath,
   getNamespaceFromPath,
   getClassNameFromPath,
-  DotNetImportResolver,
-  createDotNetImportResolver,
+  ClrBindingsResolver,
+  createClrBindingsResolver,
 } from "./resolver/index.js";

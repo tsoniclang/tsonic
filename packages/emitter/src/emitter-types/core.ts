@@ -93,8 +93,6 @@ export type EmitterContext = {
   readonly indentLevel: number;
   /** Options for emission */
   readonly options: EmitterOptions;
-  /** Set of using statements needed (BCL/runtime only, not local modules) */
-  readonly usings: ReadonlySet<string>;
   /** Whether currently in static context */
   readonly isStatic: boolean;
   /** Whether currently in async context */

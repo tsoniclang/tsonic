@@ -34,14 +34,14 @@ describe("Support Types", () => {
       );
 
       assert.ok(error);
-      assert.match(error!, /unsafe pointer/i);
+      if (error) assert.match(error, /unsafe pointer/i);
     });
 
     it("should detect TSFixed as unsupported", () => {
       const error = checkUnsupportedSupportType(types.fixed, harness.checker);
 
       assert.ok(error);
-      assert.match(error!, /fixed-size buffer/i);
+      if (error) assert.match(error, /fixed-size buffer/i);
     });
 
     it("should detect TSStackAlloc as unsupported", () => {
@@ -51,7 +51,7 @@ describe("Support Types", () => {
       );
 
       assert.ok(error);
-      assert.match(error!, /stackalloc/i);
+      if (error) assert.match(error, /stackalloc/i);
     });
 
     it("should allow TSByRef (supported)", () => {

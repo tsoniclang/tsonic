@@ -12,7 +12,7 @@ import { defaultTsConfig } from "./config.js";
 import { loadDotnetMetadata } from "./metadata.js";
 import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
-import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
+import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -157,9 +157,9 @@ export const createProgram = (
   ): ts.SourceFile | undefined => {
     // Check if this is a .NET namespace being imported
     const baseName = path.basename(fileName, path.extname(fileName));
-    if (namespaceFiles.has(baseName) && fileName.endsWith(".ts")) {
+    const declarationPath = namespaceFiles.get(baseName);
+    if (declarationPath !== undefined && fileName.endsWith(".ts")) {
       // Create a virtual source file that exports from the actual declaration
-      const declarationPath = namespaceFiles.get(baseName)!;
       const virtualContent = `export * from '${declarationPath.replace(/\.d\.ts$/, "")}';`;
       return ts.createSourceFile(
         fileName,
@@ -179,7 +179,13 @@ export const createProgram = (
   };
 
   // Override resolveModuleNames to handle .NET imports
-  (host as any).resolveModuleNames = (
+  const hostWithResolve = host as ts.CompilerHost & {
+    resolveModuleNames: (
+      moduleNames: string[],
+      containingFile: string
+    ) => (ts.ResolvedModule | undefined)[];
+  };
+  hostWithResolve.resolveModuleNames = (
     moduleNames: string[],
     containingFile: string
   ): (ts.ResolvedModule | undefined)[] => {
@@ -190,8 +196,8 @@ export const createProgram = (
       }
 
       // Check if this is a .NET namespace
-      if (namespaceFiles.has(moduleName)) {
-        const resolvedFile = namespaceFiles.get(moduleName)!;
+      const resolvedFile = namespaceFiles.get(moduleName);
+      if (resolvedFile !== undefined) {
         if (options.verbose) {
           console.log(
             `  Resolved .NET namespace ${moduleName} to ${resolvedFile}`
@@ -234,8 +240,9 @@ export const createProgram = (
   // Load binding manifests (from typeRoots - for ambient globals)
   const bindings = loadBindings(typeRoots);
 
-  // Create resolver for import-driven .NET namespace discovery
-  const dotnetResolver = createDotNetImportResolver(options.sourceRoot);
+  // Create resolver for import-driven CLR namespace discovery
+  // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
+  const clrResolver = createClrBindingsResolver(options.projectRoot);
 
   return ok({
     program,
@@ -244,6 +251,6 @@ export const createProgram = (
     sourceFiles,
     metadata,
     bindings,
-    dotnetResolver,
+    clrResolver,
   });
 };

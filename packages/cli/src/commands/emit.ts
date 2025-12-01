@@ -39,20 +39,21 @@ const findProjectCsproj = (): string | null => {
 };
 
 /**
- * Find runtime DLLs from @tsonic/tsonic npm package
+ * Find runtime DLLs bundled with @tsonic/cli npm package
  * Returns assembly references for the csproj file
  */
 const findRuntimeDlls = (
   runtime: "js" | "dotnet",
   outputDir: string
 ): readonly AssemblyReference[] => {
-  // Try to find @tsonic/tsonic package runtime directory
+  // Try to find runtime directory bundled with CLI package
+  // import.meta.dirname is the dist/commands directory
   const possiblePaths = [
-    // From project's node_modules
-    join(process.cwd(), "node_modules/@tsonic/tsonic/runtime"),
-    // From CLI's node_modules (when installed globally or via npx)
-    join(import.meta.dirname, "../../runtime"),
-    join(import.meta.dirname, "../../../runtime"),
+    // Bundled with CLI package (npm installed)
+    // From dist/commands -> ../runtime (inside @tsonic/cli package)
+    join(import.meta.dirname, "../runtime"),
+    // From project's node_modules (when CLI is a dev dependency)
+    join(process.cwd(), "node_modules/@tsonic/cli/runtime"),
   ];
 
   let runtimeDir: string | null = null;
@@ -148,6 +149,7 @@ export const emitCommand = (
     entryPoint,
     outputDirectory,
     rootNamespace,
+    projectRoot,
     sourceRoot,
     packages,
     typeRoots,
@@ -182,6 +184,7 @@ export const emitCommand = (
 
     // Build dependency graph - this traverses all imports and builds IR for all modules
     const compilerOptions: CompilerOptions = {
+      projectRoot,
       sourceRoot,
       rootNamespace,
       typeRoots: allTypeRoots,

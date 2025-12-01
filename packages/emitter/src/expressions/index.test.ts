@@ -85,9 +85,10 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("new List<");
+    expect(result).to.include("new global::System.Collections.Generic.List<");
     expect(result).to.include("1, 2, 3"); // C# handles implicit conversion
-    expect(result).to.include("using System.Collections.Generic");
+    // No using statements - uses global:: FQN
+    expect(result).not.to.include("using System.Collections.Generic");
   });
 
   it("should emit template literals", () => {
@@ -160,10 +161,10 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should use "Console" (from csharpName) not "System.Console" (from resolvedClrType)
-    expect(result).to.include("Console.log");
-    expect(result).not.to.include("System.Console.log");
-    expect(result).to.include("using System");
+    // Should use global:: prefixed assembly + csharpName
+    expect(result).to.include("global::System.Console.log");
+    // No using statements
+    expect(result).not.to.include("using System");
   });
 
   it("should use resolvedClrType when csharpName is not provided", () => {
@@ -202,9 +203,11 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should use full type name when no csharpName
-    expect(result).to.include("Tsonic.JSRuntime.Math.sqrt");
-    expect(result).to.include("using Tsonic.JSRuntime");
+    // Should use global:: prefixed full type name when no csharpName
+    // resolvedClrType already contains full type name, just add global::
+    expect(result).to.include("global::Tsonic.JSRuntime.Math.sqrt");
+    // No using statements
+    expect(result).not.to.include("using Tsonic.JSRuntime");
   });
 
   it("should emit hierarchical member bindings correctly", () => {
@@ -251,9 +254,12 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should emit full CLR type and member from binding
-    expect(result).to.include("System.Linq.Enumerable.SelectMany");
-    expect(result).to.include("using System.Linq");
+    // Should emit full CLR type and member from binding with global:: prefix
+    expect(result).to.include(
+      "global::System.Linq.System.Linq.Enumerable.SelectMany"
+    );
+    // No using statements
+    expect(result).not.to.include("using System.Linq");
   });
 
   it("should emit hierarchical member bindings without emitting intermediate objects", () => {
@@ -308,11 +314,12 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should emit MyLib.Math.Add directly
-    expect(result).to.include("MyLib.Math.Add");
+    // Should emit global::MyLib.MyLib.Math.Add directly
+    expect(result).to.include("global::MyLib.MyLib.Math.Add");
     // Should NOT include myLib.math (intermediate objects shouldn't appear)
     expect(result).not.to.include("myLib.math");
-    expect(result).to.include("using MyLib");
+    // No using statements
+    expect(result).not.to.include("using MyLib");
   });
 
   it("should handle member access without binding (regular property access)", () => {
@@ -410,8 +417,10 @@ describe("Expression Emission", () => {
     expect(result).to.include('["key\\\\with\\\\backslashes"]');
     // Should escape newlines
     expect(result).to.include('["key\\nwith\\nnewlines"]');
-    // Should be a Dictionary
-    expect(result).to.include("new Dictionary<string, double>");
+    // Should be a Dictionary with global:: prefix
+    expect(result).to.include(
+      "new global::System.Collections.Generic.Dictionary<string, double>"
+    );
   });
 
   it("should infer arrow function return type from inferredType", () => {
@@ -499,8 +508,8 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should infer Func<double, double, double> from inferredType
-    expect(result).to.include("Func<double, double, double>");
+    // Should infer Func<double, double, double> from inferredType with global:: prefix
+    expect(result).to.include("global::System.Func<double, double, double>");
     expect(result).to.include("public static");
   });
 });

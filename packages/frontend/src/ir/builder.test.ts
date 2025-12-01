@@ -13,7 +13,7 @@ import {
 } from "./types.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
+import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -48,11 +48,16 @@ describe("IR Builder", () => {
     return {
       program,
       checker: program.getTypeChecker(),
-      options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
+      options: {
+        projectRoot: "/test",
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+        strict: true,
+      },
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings: new BindingRegistry(),
-      dotnetResolver: createDotNetImportResolver("/test"),
+      clrResolver: createClrBindingsResolver("/test"),
     };
   };
 
@@ -132,7 +137,7 @@ describe("IR Builder", () => {
 
         expect(firstImport.source).to.equal("./models/User.ts");
         expect(firstImport.isLocal).to.equal(true);
-        expect(firstImport.isDotNet).to.equal(false);
+        expect(firstImport.isClr).to.equal(false);
 
         expect(secondImport.source).to.equal("./utils.ts");
         const firstSpec = secondImport.specifiers[0];
@@ -164,7 +169,7 @@ describe("IR Builder", () => {
         const firstImport = imports[0];
         if (!firstImport) throw new Error("Missing import");
         // Without an actual package with bindings.json, this is NOT detected as .NET
-        expect(firstImport.isDotNet).to.equal(false);
+        expect(firstImport.isClr).to.equal(false);
         expect(firstImport.resolvedNamespace).to.equal(undefined);
       }
     });

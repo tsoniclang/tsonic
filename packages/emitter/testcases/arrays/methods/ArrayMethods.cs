@@ -1,16 +1,12 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.arrays.methods
 {
         public static class ArrayMethods
         {
-            public static double processArray(List<double> arr)
+            public static double processArray(global::System.Collections.Generic.List<double> arr)
                 {
-                var doubled = Tsonic.JSRuntime.Array.map(arr, (x) => x * 2);
-                var filtered = Tsonic.JSRuntime.Array.filter(doubled, (x) => x > 5);
-                var sum = Tsonic.JSRuntime.Array.reduce(filtered, (acc, x) => acc + x, 0);
+                var doubled = global::Tsonic.JSRuntime.Array.map(arr, (x) => x * 2);
+                var filtered = global::Tsonic.JSRuntime.Array.filter(doubled, (x) => x > 5);
+                var sum = global::Tsonic.JSRuntime.Array.reduce(filtered, (acc, x) => acc + x, 0);
                 return sum;
                 }
         }

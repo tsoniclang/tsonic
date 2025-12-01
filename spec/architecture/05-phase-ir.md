@@ -1145,7 +1145,7 @@ the file or the exported member.
 
 ```typescript
 // Option 1: Rename file
-// app.ts
+// App.ts
 export function main(): void {
   console.log("Hello");
 }

@@ -9,7 +9,7 @@ import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
-import { createDotNetImportResolver } from "../resolver/dotnet-import-resolver.js";
+import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 
 describe("Hierarchical Bindings End-to-End", () => {
   it("should resolve hierarchical bindings in IR for member access chain", () => {
@@ -87,11 +87,16 @@ describe("Hierarchical Bindings End-to-End", () => {
     const testProgram = {
       program,
       checker: program.getTypeChecker(),
-      options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
+      options: {
+        projectRoot: "/test",
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+        strict: true,
+      },
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings,
-      dotnetResolver: createDotNetImportResolver("/test"),
+      clrResolver: createClrBindingsResolver("/test"),
     };
 
     // Build IR

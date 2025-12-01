@@ -1,13 +1,13 @@
 /**
- * Function type emission (Func<>, Action<>)
+ * Function type emission (global::System.Func<>, global::System.Action<>)
  */
 
 import { IrType } from "@tsonic/frontend";
-import { EmitterContext, addUsing } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 
 /**
- * Emit function types as Func<> or Action<> delegates
+ * Emit function types as global::System.Func<> or global::System.Action<> delegates
  */
 export const emitFunctionType = (
   type: Extract<IrType, { kind: "functionType" }>,
@@ -29,17 +29,17 @@ export const emitFunctionType = (
 
   if (returnType === "void") {
     if (paramTypes.length === 0) {
-      return ["Action", addUsing(newContext, "System")];
+      return ["global::System.Action", newContext];
     }
-    return [`Action<${paramTypes.join(", ")}>`, addUsing(newContext, "System")];
+    return [`global::System.Action<${paramTypes.join(", ")}>`, newContext];
   }
 
   if (paramTypes.length === 0) {
-    return [`Func<${returnType}>`, addUsing(newContext, "System")];
+    return [`global::System.Func<${returnType}>`, newContext];
   }
 
   return [
-    `Func<${paramTypes.join(", ")}, ${returnType}>`,
-    addUsing(newContext, "System"),
+    `global::System.Func<${paramTypes.join(", ")}, ${returnType}>`,
+    newContext,
   ];
 };

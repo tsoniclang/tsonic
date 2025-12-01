@@ -49,8 +49,7 @@ export const emitArrowFunction = (
       const blockContext = currentContext.isStatic
         ? indent(currentContext)
         : currentContext;
-      const [blockCode, newContext] = emitStatement(expr.body, blockContext);
-      currentContext = { ...currentContext, usings: newContext.usings };
+      const [blockCode] = emitStatement(expr.body, blockContext);
 
       const params = paramNames.join(", ");
       // The block code has proper indentation, just prepend the lambda signature

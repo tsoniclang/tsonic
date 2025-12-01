@@ -56,6 +56,7 @@
   "author": "Tsonic Project",
   "license": "MIT",
   "dependencies": {
+    "@tsonic/cli": "^0.0.1",
     "@tsonic/dotnet": "^0.2.0",
     "@tsonic/types": "^0.2.0"
   }

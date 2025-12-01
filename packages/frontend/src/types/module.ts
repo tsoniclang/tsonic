@@ -2,13 +2,13 @@
  * Module representation types for Tsonic compiler
  */
 
-export type ImportKind = "local" | "dotnet" | "node_module";
+export type ImportKind = "local" | "clr" | "node_module";
 
 export type Import = {
   readonly kind: ImportKind;
   readonly specifier: string; // Original import specifier
   readonly resolvedPath?: string; // Resolved file path for local imports
-  readonly namespace?: string; // .NET namespace for dotnet imports
+  readonly namespace?: string; // CLR namespace for CLR bindings imports
   readonly importedNames: readonly ImportedName[];
 };
 

@@ -21,9 +21,10 @@ describe("Config", () => {
         optimize: "speed",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.rootNamespace).to.equal("MyApp");
       expect(result.entryPoint).to.equal("src/main.ts");
+      expect(result.projectRoot).to.equal("/project");
       expect(result.sourceRoot).to.equal("src");
       expect(result.outputDirectory).to.equal("dist");
       expect(result.outputName).to.equal("myapp");
@@ -45,7 +46,7 @@ describe("Config", () => {
         optimize: "size",
       };
 
-      const result = resolveConfig(config, cliOptions);
+      const result = resolveConfig(config, cliOptions, "/project");
       expect(result.rootNamespace).to.equal("OverriddenApp");
       expect(result.outputName).to.equal("custom");
       expect(result.sourceRoot).to.equal("source");
@@ -58,7 +59,7 @@ describe("Config", () => {
         entryPoint: "src/main.ts",
       };
 
-      const result = resolveConfig(config, {}, "custom/entry.ts");
+      const result = resolveConfig(config, {}, "/project", "custom/entry.ts");
       expect(result.entryPoint).to.equal("custom/entry.ts");
     });
 
@@ -67,8 +68,8 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
-      expect(result.entryPoint).to.be.undefined;
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.entryPoint).to.equal(undefined);
     });
 
     it("should default sourceRoot to dirname of entryPoint", () => {
@@ -77,7 +78,7 @@ describe("Config", () => {
         entryPoint: "app/index.ts",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.sourceRoot).to.equal("app");
     });
 
@@ -86,7 +87,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.outputDirectory).to.equal("generated");
     });
 
@@ -95,7 +96,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.outputName).to.equal("app");
     });
 
@@ -104,7 +105,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.dotnetVersion).to.equal("net10.0");
     });
 
@@ -113,24 +114,21 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.optimize).to.equal("speed");
     });
 
-    it("should include runtime packages by default", () => {
+    it("should default packages to empty (runtime DLLs bundled separately)", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
-      // Default runtime is "js", so includes both Tsonic.Runtime and Tsonic.JSRuntime
-      expect(result.packages).to.deep.equal([
-        { name: "Tsonic.Runtime", version: "0.0.1" },
-        { name: "Tsonic.JSRuntime", version: "0.0.1" },
-      ]);
+      const result = resolveConfig(config, {}, "/project");
+      // Runtime DLLs are bundled with @tsonic/tsonic, not NuGet packages
+      expect(result.packages).to.deep.equal([]);
     });
 
-    it("should include packages from config after runtime packages", () => {
+    it("should include user-specified packages from config", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
         packages: [
@@ -139,11 +137,9 @@ describe("Config", () => {
         ],
       };
 
-      const result = resolveConfig(config, {});
-      // Runtime packages come first, then user packages
+      const result = resolveConfig(config, {}, "/project");
+      // Only user-specified packages, no automatic runtime packages
       expect(result.packages).to.deep.equal([
-        { name: "Tsonic.Runtime", version: "0.0.1" },
-        { name: "Tsonic.JSRuntime", version: "0.0.1" },
         { name: "System.Text.Json", version: "8.0.0" },
         { name: "Newtonsoft.Json", version: "13.0.3" },
       ]);
@@ -154,7 +150,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.stripSymbols).to.equal(true);
     });
 
@@ -166,7 +162,7 @@ describe("Config", () => {
         },
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.stripSymbols).to.equal(false);
     });
 
@@ -178,7 +174,7 @@ describe("Config", () => {
         },
       };
 
-      const result = resolveConfig(config, { noStrip: true });
+      const result = resolveConfig(config, { noStrip: true }, "/project");
       expect(result.stripSymbols).to.equal(false);
     });
 
@@ -187,7 +183,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.invariantGlobalization).to.equal(true);
     });
 
@@ -199,7 +195,7 @@ describe("Config", () => {
         },
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.invariantGlobalization).to.equal(false);
     });
 
@@ -208,7 +204,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.keepTemp).to.equal(false);
     });
 
@@ -217,7 +213,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, { keepTemp: true });
+      const result = resolveConfig(config, { keepTemp: true }, "/project");
       expect(result.keepTemp).to.equal(true);
     });
 
@@ -226,7 +222,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.verbose).to.equal(false);
     });
 
@@ -235,7 +231,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, { verbose: true });
+      const result = resolveConfig(config, { verbose: true }, "/project");
       expect(result.verbose).to.equal(true);
     });
 
@@ -244,7 +240,7 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.quiet).to.equal(false);
     });
 
@@ -253,18 +249,19 @@ describe("Config", () => {
         rootNamespace: "MyApp",
       };
 
-      const result = resolveConfig(config, { quiet: true });
+      const result = resolveConfig(config, { quiet: true }, "/project");
       expect(result.quiet).to.equal(true);
     });
 
-    it("should default typeRoots to node_modules/@tsonic/dotnet-types/types", () => {
+    it("should default typeRoots to js-globals for js runtime", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
+        // runtime defaults to "js"
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.typeRoots).to.deep.equal([
-        "node_modules/@tsonic/dotnet-types/types",
+        "node_modules/@tsonic/js-globals",
       ]);
     });
 
@@ -276,7 +273,7 @@ describe("Config", () => {
         },
       };
 
-      const result = resolveConfig(config, {});
+      const result = resolveConfig(config, {}, "/project");
       expect(result.typeRoots).to.deep.equal([
         "custom/path/types",
         "another/path/types",
@@ -312,10 +309,11 @@ describe("Config", () => {
         quiet: false,
       };
 
-      const result = resolveConfig(config, cliOptions, "custom.ts");
+      const result = resolveConfig(config, cliOptions, "/project", "custom.ts");
 
       expect(result.rootNamespace).to.equal("CLI.Override");
       expect(result.entryPoint).to.equal("custom.ts");
+      expect(result.projectRoot).to.equal("/project");
       expect(result.sourceRoot).to.equal("source");
       expect(result.outputDirectory).to.equal("out");
       expect(result.outputName).to.equal("binary");
@@ -323,8 +321,6 @@ describe("Config", () => {
       expect(result.dotnetVersion).to.equal("net9.0");
       expect(result.optimize).to.equal("speed");
       expect(result.packages).to.deep.equal([
-        { name: "Tsonic.Runtime", version: "0.0.1" },
-        { name: "Tsonic.JSRuntime", version: "0.0.1" },
         { name: "Package.Name", version: "1.0.0" },
       ]);
       expect(result.stripSymbols).to.equal(false);

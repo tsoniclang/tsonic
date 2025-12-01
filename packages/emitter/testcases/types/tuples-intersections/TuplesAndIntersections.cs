@@ -1,7 +1,3 @@
-using Tsonic.Runtime;
-using Tsonic.JSRuntime;
-using System.Collections.Generic;
-
 namespace TestCases.types.tuplesintersections
 {
     public class Named
@@ -14,7 +10,7 @@ namespace TestCases.types.tuplesintersections
     }
     public class Serializable
     {
-        public string toJSON() => throw new NotImplementedException();
+        public string toJSON() => throw new global::System.NotImplementedException();
     }
 
             public static class TuplesAndIntersections
@@ -35,14 +31,14 @@ namespace TestCases.types.tuplesintersections
 
                 public static double distance(Point2D point)
                     {
-                    var x = Tsonic.Runtime.Array.get(point, 0.0);
-                    var y = Tsonic.Runtime.Array.get(point, 1.0);
-                    return Tsonic.JSRuntime.Math.sqrt(x * x + y * y);
+                    var x = global::Tsonic.Runtime.Array.get(point, 0.0);
+                    var y = global::Tsonic.Runtime.Array.get(point, 1.0);
+                    return global::Tsonic.JSRuntime.Math.sqrt(x * x + y * y);
                     }
 
                 public static Point2D createPoint(double x, double y)
                     {
-                    return new List<object> { x, y };
+                    return new global::System.Collections.Generic.List<object> { x, y };
                     }
 
                 public static string greetPerson(Person person)
@@ -52,7 +48,7 @@ namespace TestCases.types.tuplesintersections
 
                 public static double sum(dynamic nums)
                     {
-                    return Tsonic.JSRuntime.Array.reduce(nums, (a, b) => a + b, 0);
+                    return global::Tsonic.JSRuntime.Array.reduce(nums, (a, b) => a + b, 0);
                     }
             }
 }

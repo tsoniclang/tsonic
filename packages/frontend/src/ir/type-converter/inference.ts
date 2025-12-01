@@ -56,8 +56,9 @@ export const convertTsTypeToIr = (
     // Check for array type
     if (checker.isArrayType(type)) {
       const typeArgs = checker.getTypeArguments(type as ts.TypeReference);
-      if (typeArgs.length > 0) {
-        const elementType = convertTsTypeToIr(typeArgs[0]!, checker);
+      const firstArg = typeArgs[0];
+      if (firstArg !== undefined) {
+        const elementType = convertTsTypeToIr(firstArg, checker);
         if (elementType) {
           return { kind: "arrayType", elementType };
         }

@@ -26,9 +26,12 @@ export const convertTypeReference = (
   }
 
   // Check for Record<K, V> utility type → convert to IrDictionaryType
-  if (typeName === "Record" && node.typeArguments?.length === 2) {
-    const keyType = convertType(node.typeArguments[0]!, checker);
-    const valueType = convertType(node.typeArguments[1]!, checker);
+  const typeArgsForRecord = node.typeArguments;
+  const keyTypeNode = typeArgsForRecord?.[0];
+  const valueTypeNode = typeArgsForRecord?.[1];
+  if (typeName === "Record" && keyTypeNode && valueTypeNode) {
+    const keyType = convertType(keyTypeNode, checker);
+    const valueType = convertType(valueTypeNode, checker);
 
     return {
       kind: "dictionaryType",
@@ -41,10 +44,12 @@ export const convertTypeReference = (
   const registry = getParameterModifierRegistry();
   const modifierKind = registry.getParameterModifierKind(typeName);
 
-  if (modifierKind && node.typeArguments && node.typeArguments.length > 0) {
+  const typeArgsForModifier = node.typeArguments;
+  const firstModifierArg = typeArgsForModifier?.[0];
+  if (modifierKind && firstModifierArg !== undefined) {
     // This is ref<T>, out<T>, or In<T> from @tsonic/types
     // Convert it to a special IR type that preserves the modifier
-    const wrappedType = convertType(node.typeArguments[0]!, checker);
+    const wrappedType = convertType(firstModifierArg, checker);
 
     return {
       kind: "referenceType",

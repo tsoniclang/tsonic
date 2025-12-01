@@ -31,20 +31,9 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
     }
   }
 
-  // Tsonic.Runtime ALWAYS needed (for unions, typeof, structural)
-  // Tsonic.JSRuntime only for runtime: "js"
-  const initialUsings = new Set<string>([
-    "System.Collections.Generic",
-    "Tsonic.Runtime",
-  ]);
-  if (options.runtime !== "dotnet") {
-    initialUsings.add("Tsonic.JSRuntime");
-  }
-
   return {
     indentLevel: 0,
     options,
-    usings: initialUsings,
     isStatic: false,
     isAsync: false,
     metadata,
@@ -66,17 +55,6 @@ export const indent = (context: EmitterContext): EmitterContext => ({
 export const dedent = (context: EmitterContext): EmitterContext => ({
   ...context,
   indentLevel: Math.max(0, context.indentLevel - 1),
-});
-
-/**
- * Add a using statement to the context
- */
-export const addUsing = (
-  context: EmitterContext,
-  namespace: string
-): EmitterContext => ({
-  ...context,
-  usings: new Set([...context.usings, namespace]),
 });
 
 /**

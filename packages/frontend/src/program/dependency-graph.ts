@@ -10,11 +10,73 @@ import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { IrModule } from "../ir/types.js";
 import { buildIrModule } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
-import { CompilerOptions } from "./types.js";
+import { CompilerOptions, TsonicProgram } from "./types.js";
+import { loadAllDiscoveredBindings } from "./bindings.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
   readonly entryModule: IrModule;
+};
+
+/**
+ * Scan all source files for import statements and discover CLR bindings.
+ * This must be called BEFORE IR building to ensure bindings are loaded.
+ *
+ * Returns set of binding paths that were discovered.
+ */
+const discoverAndLoadClrBindings = (
+  program: TsonicProgram,
+  verbose?: boolean
+): void => {
+  const bindingPaths = new Set<string>();
+
+  if (verbose) {
+    console.log(
+      `[CLR Bindings] Scanning ${program.sourceFiles.length} source files`
+    );
+  }
+
+  for (const sourceFile of program.sourceFiles) {
+    if (verbose) {
+      console.log(`[CLR Bindings] Scanning: ${sourceFile.fileName}`);
+    }
+    ts.forEachChild(sourceFile, (node) => {
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        const moduleSpecifier = node.moduleSpecifier.text;
+        if (verbose) {
+          console.log(`[CLR Bindings] Found import: ${moduleSpecifier}`);
+        }
+        // Use the resolver to check if this is a CLR import
+        const resolution = program.clrResolver.resolve(moduleSpecifier);
+        if (resolution.isClr) {
+          if (verbose) {
+            console.log(
+              `[CLR Bindings] CLR import detected: ${resolution.bindingsPath}`
+            );
+          }
+          bindingPaths.add(resolution.bindingsPath);
+        }
+      }
+    });
+  }
+
+  // Load all discovered bindings into the registry
+  if (bindingPaths.size > 0) {
+    if (verbose) {
+      console.log(
+        `[CLR Bindings] Loading ${bindingPaths.size} binding files...`
+      );
+    }
+    loadAllDiscoveredBindings(program.bindings, bindingPaths);
+    if (verbose) {
+      console.log(`[CLR Bindings] Bindings loaded successfully`);
+    }
+  } else if (verbose) {
+    console.log(`[CLR Bindings] No CLR bindings discovered`);
+  }
 };
 
 /**
@@ -69,7 +131,8 @@ export const buildModuleDependencyGraph = (
 
   // First pass: discover all files
   while (queue.length > 0) {
-    const currentFile = queue.shift()!;
+    const currentFile = queue.shift();
+    if (currentFile === undefined) continue;
 
     // Dedup by realpath (handles symlinks, relative paths)
     const realPath = ts.sys.realpath?.(currentFile) ?? currentFile;
@@ -201,6 +264,10 @@ export const buildModuleDependencyGraph = (
 
   const tsonicProgram = programResult.value;
 
+  // Load CLR bindings before IR building
+  // This scans all imports and loads their bindings upfront
+  discoverAndLoadClrBindings(tsonicProgram, options.verbose);
+
   // Third pass: Build IR for all discovered modules
   const modules: IrModule[] = [];
 
@@ -235,8 +302,18 @@ export const buildModuleDependencyGraph = (
   // Entry module is the first one (after sorting, it should be the entry file)
   // But let's find it by matching the entry file path
   const entryRelative = relative(sourceRootAbs, entryAbs).replace(/\\/g, "/");
-  const entryModule =
-    modules.find((m) => m.filePath === entryRelative) ?? modules[0]!;
+  const foundEntryModule = modules.find((m) => m.filePath === entryRelative);
+  const entryModule = foundEntryModule ?? modules[0];
+  if (entryModule === undefined) {
+    return error([
+      createDiagnostic("TSN1001", "error", "No modules found in the project", {
+        file: entryAbs,
+        line: 1,
+        column: 1,
+        length: 1,
+      }),
+    ]);
+  }
 
   return ok({
     modules,

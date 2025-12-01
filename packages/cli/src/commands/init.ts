@@ -78,6 +78,9 @@ type TypePackageInfo = {
   readonly typeRoots: readonly string[];
 };
 
+// CLI package version - installed as devDependency for npm run build/dev
+const CLI_PACKAGE = { name: "@tsonic/cli", version: "0.0.4" };
+
 /**
  * Get type package info based on runtime mode
  *
@@ -87,10 +90,12 @@ type TypePackageInfo = {
 const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
   if (runtime === "js") {
     // JS mode:
+    // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
     // - @tsonic/js-globals: ambient globals (Array, console, etc.) - needs typeRoots
     // - @tsonic/types: explicit imports (int, float, etc.) - just npm dep
     return {
       packages: [
+        CLI_PACKAGE,
         { name: "@tsonic/js-globals", version: "0.1.1" },
         { name: "@tsonic/types", version: "0.2.0" },
       ],
@@ -98,13 +103,15 @@ const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
     };
   }
   // Dotnet mode:
+  // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
   // - @tsonic/dotnet-globals: ambient globals - needs typeRoots
   // - @tsonic/dotnet: explicit imports (System.*, etc.) - just npm dep
   // - @tsonic/types: transitive dep of @tsonic/dotnet
   return {
     packages: [
+      CLI_PACKAGE,
       { name: "@tsonic/dotnet-globals", version: "0.1.2" },
-      { name: "@tsonic/dotnet", version: "0.4.0" },
+      { name: "@tsonic/dotnet", version: "0.5.1" },
     ],
     typeRoots: ["node_modules/@tsonic/dotnet-globals"],
   };
@@ -120,7 +127,7 @@ const generateConfig = (
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
     rootNamespace: "MyApp",
-    entryPoint: "src/app.ts",
+    entryPoint: "src/App.ts",
     sourceRoot: "src",
     outputDirectory: "generated",
     outputName: "app",
@@ -170,8 +177,8 @@ const createOrUpdatePackageJson = (packageJsonPath: string): void => {
       (packageJson.scripts as Record<string, string>) || {};
     packageJson.scripts = {
       ...existingScripts,
-      build: "tsonic build src/app.ts",
-      dev: "tsonic run src/app.ts",
+      build: "tsonic build src/App.ts",
+      dev: "tsonic run src/App.ts",
     };
 
     // Ensure devDependencies exists
@@ -185,8 +192,8 @@ const createOrUpdatePackageJson = (packageJsonPath: string): void => {
       version: "1.0.0",
       type: "module",
       scripts: {
-        build: "tsonic build src/app.ts",
-        dev: "tsonic run src/app.ts",
+        build: "tsonic build src/App.ts",
+        dev: "tsonic run src/App.ts",
       },
       devDependencies: {},
     };
@@ -236,7 +243,7 @@ export const initProject = (
   const tsonicJsonPath = join(cwd, "tsonic.json");
   const gitignorePath = join(cwd, ".gitignore");
   const srcDir = join(cwd, "src");
-  const appTsPath = join(srcDir, "app.ts");
+  const appTsPath = join(srcDir, "App.ts");
   const readmePath = join(cwd, "README.md");
   const packageJsonPath = join(cwd, "package.json");
 
@@ -293,7 +300,7 @@ export const initProject = (
       console.log("✓ Created .gitignore");
     }
 
-    // Create src directory and app.ts with runtime-appropriate code
+    // Create src directory and App.ts with runtime-appropriate code
     if (!existsSync(srcDir)) {
       mkdirSync(srcDir, { recursive: true });
     }
@@ -301,7 +308,7 @@ export const initProject = (
       const sampleCode =
         runtime === "js" ? SAMPLE_MAIN_TS_JS : SAMPLE_MAIN_TS_DOTNET;
       writeFileSync(appTsPath, sampleCode, "utf-8");
-      console.log("✓ Created src/app.ts");
+      console.log("✓ Created src/App.ts");
     }
 
     // Create README.md

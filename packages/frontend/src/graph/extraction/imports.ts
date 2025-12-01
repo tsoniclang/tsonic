@@ -24,7 +24,7 @@ export const extractImport = (
     specifier,
     sourceFile.fileName,
     program.options.sourceRoot,
-    program.dotnetResolver
+    program.clrResolver
   );
 
   const importedNames: { readonly name: string; readonly alias?: string }[] =
@@ -63,8 +63,8 @@ export const extractImport = (
     return {
       kind: result.value.isLocal
         ? "local"
-        : result.value.isDotNet
-          ? "dotnet"
+        : result.value.isClr
+          ? "clr"
           : "node_module",
       specifier,
       resolvedPath: result.value.resolvedPath || undefined,
