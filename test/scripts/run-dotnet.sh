@@ -2,8 +2,9 @@
 # Run all dotnet mode E2E tests
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIXTURES_DIR="$SCRIPT_DIR/fixtures"
-CLI_PATH="$SCRIPT_DIR/../../packages/cli/dist/index.js"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
+CLI_PATH="$PROJECT_ROOT/packages/cli/dist/index.js"
 
 passed=0
 failed=0
@@ -18,6 +19,12 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
 
   # Skip if no dotnet config
   if [ ! -f "$config_file" ]; then
+    continue
+  fi
+
+  # Skip negative tests (expectFailure: true)
+  meta_file="$fixture_dir/e2e.meta.json"
+  if [ -f "$meta_file" ] && grep -q '"expectFailure": true' "$meta_file"; then
     continue
   fi
 
@@ -58,7 +65,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     ((failed++))
   fi
 
-  cd "$SCRIPT_DIR/../.."
+  cd "$PROJECT_ROOT"
 done
 
 echo ""

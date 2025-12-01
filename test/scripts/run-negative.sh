@@ -5,8 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
-FIXTURES_DIR="$SCRIPT_DIR/negative-fixtures"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
 TSONIC_CLI="$PROJECT_ROOT/packages/cli/dist/index.js"
 BCL_DIR="/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"
 
