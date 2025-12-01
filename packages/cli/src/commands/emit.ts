@@ -149,6 +149,7 @@ export const emitCommand = (
     entryPoint,
     outputDirectory,
     rootNamespace,
+    projectRoot,
     sourceRoot,
     packages,
     typeRoots,
@@ -183,6 +184,7 @@ export const emitCommand = (
 
     // Build dependency graph - this traverses all imports and builds IR for all modules
     const compilerOptions: CompilerOptions = {
+      projectRoot,
       sourceRoot,
       rootNamespace,
       typeRoots: allTypeRoots,

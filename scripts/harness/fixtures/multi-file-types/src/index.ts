@@ -1,6 +1,6 @@
 // Main entry point - tests imported type in type annotations
 import { User, createUser, formatUser } from "./models/user.ts";
-import { Console } from "System";
+import { Console } from "@tsonic/dotnet/System";
 
 // Use imported type in type annotation
 function greetUser(user: User): void {

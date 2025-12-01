@@ -10,6 +10,7 @@ import { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 export type RuntimeMode = "js" | "dotnet";
 
 export type CompilerOptions = {
+  readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
   readonly sourceRoot: string;
   readonly rootNamespace: string;
   readonly strict?: boolean;

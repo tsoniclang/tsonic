@@ -126,8 +126,8 @@ export const validateStaticSafety = (
       const typeName = node.typeName;
       if (ts.isIdentifier(typeName) && typeName.text === "Record") {
         const typeArgs = node.typeArguments;
-        if (typeArgs && typeArgs.length >= 1) {
-          const keyTypeNode = typeArgs[0]!;
+        const keyTypeNode = typeArgs?.[0];
+        if (keyTypeNode !== undefined) {
           if (!isStringKeyType(keyTypeNode)) {
             currentCollector = addDiagnostic(
               currentCollector,
@@ -192,8 +192,8 @@ const isNominalOrDictionaryType = (
   const symbol = type.getSymbol() ?? type.aliasSymbol;
   if (symbol) {
     const declarations = symbol.getDeclarations();
-    if (declarations && declarations.length > 0) {
-      const decl = declarations[0]!;
+    const decl = declarations?.[0];
+    if (decl !== undefined) {
       // Accept: interface, type alias, class
       if (
         ts.isInterfaceDeclaration(decl) ||

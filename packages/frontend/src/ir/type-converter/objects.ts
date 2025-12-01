@@ -34,9 +34,10 @@ export const convertObjectType = (
   );
 
   // If ONLY index signature(s) exist, convert to dictionary type
-  if (indexSignatures.length > 0 && otherMembers.length === 0) {
+  const firstIndexSig = indexSignatures[0];
+  if (firstIndexSig !== undefined && otherMembers.length === 0) {
     // Use the first index signature (TypeScript allows multiple, but we take first)
-    const indexSig = indexSignatures[0]!;
+    const indexSig = firstIndexSig;
     const keyParam = indexSig.parameters[0];
 
     // Determine key type from parameter type

@@ -149,10 +149,12 @@ const resolveOutputConfig = (
 
 /**
  * Resolve final configuration from file + CLI args
+ * @param projectRoot - Directory containing tsonic.json/package.json (for package resolution)
  */
 export const resolveConfig = (
   config: TsonicConfig,
   cliOptions: CliOptions,
+  projectRoot: string,
   entryFile?: string
 ): ResolvedConfig => {
   const entryPoint = entryFile ?? config.entryPoint;
@@ -181,6 +183,7 @@ export const resolveConfig = (
   return {
     rootNamespace: cliOptions.namespace ?? config.rootNamespace,
     entryPoint,
+    projectRoot,
     sourceRoot,
     outputDirectory: config.outputDirectory ?? "generated",
     outputName: cliOptions.out ?? config.outputName ?? "app",

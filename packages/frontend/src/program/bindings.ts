@@ -136,6 +136,53 @@ const isTsbindgenBindingFile = (
 };
 
 /**
+ * Validate that a parsed JSON object is a valid binding file format.
+ * Returns an error message if invalid, undefined if valid.
+ */
+const validateBindingFile = (
+  obj: unknown,
+  filePath: string
+): string | undefined => {
+  if (obj === null || typeof obj !== "object") {
+    return `${filePath}: Expected object, got ${typeof obj}`;
+  }
+
+  const manifest = obj as Record<string, unknown>;
+
+  // Check for tsbindgen format
+  if ("namespace" in manifest && "types" in manifest) {
+    if (typeof manifest.namespace !== "string") {
+      return `${filePath}: 'namespace' must be a string`;
+    }
+    if (!Array.isArray(manifest.types)) {
+      return `${filePath}: 'types' must be an array`;
+    }
+    return undefined; // Valid tsbindgen format
+  }
+
+  // Check for full manifest format
+  if ("assembly" in manifest && "namespaces" in manifest) {
+    if (typeof manifest.assembly !== "string") {
+      return `${filePath}: 'assembly' must be a string`;
+    }
+    if (!Array.isArray(manifest.namespaces)) {
+      return `${filePath}: 'namespaces' must be an array`;
+    }
+    return undefined; // Valid full format
+  }
+
+  // Check for legacy format
+  if ("bindings" in manifest) {
+    if (typeof manifest.bindings !== "object" || manifest.bindings === null) {
+      return `${filePath}: 'bindings' must be an object`;
+    }
+    return undefined; // Valid legacy format
+  }
+
+  return `${filePath}: Unrecognized binding file format. Expected tsbindgen (namespace+types), full (assembly+namespaces), or legacy (bindings) format.`;
+};
+
+/**
  * Registry of all loaded bindings
  * Supports both legacy (simple global/module) and new (hierarchical namespace/type/member) formats
  */
@@ -172,8 +219,8 @@ export class BindingRegistry {
       }
     } else if (isTsbindgenBindingFile(manifest)) {
       // tsbindgen format: convert to internal format
-      // Note: In .d.ts files, methods use CLR names (PascalCase), not tsEmitName (camelCase)
-      // So we key members by CLR name to match what users write in TypeScript
+      // Key by tsEmitName (what TS code writes), emit clrName (what C# needs)
+      // Also key by clrName for packages that expose PascalCase in .d.ts
       for (const tsbType of manifest.types) {
         // Create members from methods, properties, and fields
         const members: MemberBinding[] = [];
@@ -181,12 +228,13 @@ export class BindingRegistry {
         for (const method of tsbType.methods) {
           members.push({
             kind: "method",
-            // Use CLR name because .d.ts methods use PascalCase matching CLR
             name: method.clrName,
-            alias: method.clrName,
+            // alias = tsEmitName (what TS code uses, e.g., "add")
+            alias: method.tsEmitName,
             binding: {
               assembly: method.declaringAssemblyName,
               type: method.declaringClrType,
+              // member = clrName (what C# emits, e.g., "Add")
               member: method.clrName,
             },
           });
@@ -196,7 +244,7 @@ export class BindingRegistry {
           members.push({
             kind: "property",
             name: prop.clrName,
-            alias: prop.clrName,
+            alias: prop.tsEmitName,
             binding: {
               assembly: prop.declaringAssemblyName,
               type: prop.declaringClrType,
@@ -210,7 +258,7 @@ export class BindingRegistry {
           members.push({
             kind: "property",
             name: field.clrName,
-            alias: field.clrName,
+            alias: field.tsEmitName,
             binding: {
               assembly: field.declaringAssemblyName,
               type: field.declaringClrType,
@@ -230,10 +278,36 @@ export class BindingRegistry {
         // Index the type by its TS name (tsEmitName)
         this.types.set(typeBinding.alias, typeBinding);
 
-        // Also index members for direct lookup
+        // Also index by simple name if tsEmitName has arity suffix (e.g., "List_1" -> also index as "List")
+        // This is needed because TS exports both List_1 and List as aliases, and TS code uses List<T>
+        const arityMatch = typeBinding.alias.match(/^(.+)_(\d+)$/);
+        const simpleAlias = arityMatch ? arityMatch[1] : null;
+        if (simpleAlias && simpleAlias !== typeBinding.alias) {
+          this.types.set(simpleAlias, typeBinding);
+        }
+
+        // Index members for direct lookup by BOTH tsEmitName and clrName
+        // This allows TS code to use either naming convention
         for (const member of members) {
-          const key = `${typeBinding.alias}.${member.alias}`;
-          this.members.set(key, member);
+          // Key by tsEmitName (e.g., "List_1.add")
+          const tsKey = `${typeBinding.alias}.${member.alias}`;
+          this.members.set(tsKey, member);
+
+          // Also key by simple alias if applicable (e.g., "List.add")
+          if (simpleAlias) {
+            const simpleKey = `${simpleAlias}.${member.alias}`;
+            this.members.set(simpleKey, member);
+          }
+
+          // Also key by clrName if different (e.g., "List_1.Add" and "List.Add")
+          if (member.alias !== member.name) {
+            const clrKey = `${typeBinding.alias}.${member.name}`;
+            this.members.set(clrKey, member);
+            if (simpleAlias) {
+              const simpleClrKey = `${simpleAlias}.${member.name}`;
+              this.members.set(simpleClrKey, member);
+            }
+          }
         }
       }
     } else {
@@ -344,28 +418,21 @@ export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
       .map((f) => path.join(absoluteRoot, f));
 
     for (const manifestPath of rootManifests) {
-      try {
-        const content = fs.readFileSync(manifestPath, "utf-8");
-        const manifest = JSON.parse(content) as BindingFile;
-        registry.addBindings(manifestPath, manifest);
-      } catch (err) {
-        console.warn(`Failed to load bindings from ${manifestPath}:`, err);
-      }
+      loadBindingsFromPath(registry, manifestPath);
     }
 
     // Strategy 2: Look for *.bindings.json next to each .d.ts file
     const declFiles = scanForDeclarationFiles(absoluteRoot);
     for (const declPath of declFiles) {
       const manifestPath = declPath.replace(/\.d\.ts$/, ".bindings.json");
+      loadBindingsFromPath(registry, manifestPath);
 
-      try {
-        if (fs.existsSync(manifestPath)) {
-          const content = fs.readFileSync(manifestPath, "utf-8");
-          const manifest = JSON.parse(content) as BindingFile;
-          registry.addBindings(manifestPath, manifest);
-        }
-      } catch (err) {
-        console.warn(`Failed to load bindings from ${manifestPath}:`, err);
+      // Strategy 3: Look for bindings.json in same directory as index.d.ts
+      // This supports @tsonic/dotnet package structure where bindings.json
+      // lives alongside index.d.ts in each namespace directory
+      if (path.basename(declPath) === "index.d.ts") {
+        const dirBindings = path.join(path.dirname(declPath), "bindings.json");
+        loadBindingsFromPath(registry, dirBindings);
       }
     }
   }
@@ -374,8 +441,8 @@ export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
 };
 
 /**
- * Load bindings from a specific file path into an existing registry
- * Used by import extraction to lazily load bindings from CLR packages
+ * Load bindings from a specific file path into an existing registry.
+ * Validates the file format and logs a warning if invalid.
  */
 export const loadBindingsFromPath = (
   registry: BindingRegistry,
@@ -384,10 +451,41 @@ export const loadBindingsFromPath = (
   try {
     if (fs.existsSync(bindingsPath)) {
       const content = fs.readFileSync(bindingsPath, "utf-8");
-      const manifest = JSON.parse(content) as BindingFile;
-      registry.addBindings(bindingsPath, manifest);
+      const parsed = JSON.parse(content) as unknown;
+
+      // Validate the parsed structure
+      const validationError = validateBindingFile(parsed, bindingsPath);
+      if (validationError) {
+        console.warn(`Invalid bindings file: ${validationError}`);
+        return;
+      }
+
+      registry.addBindings(bindingsPath, parsed as BindingFile);
     }
   } catch (err) {
-    console.warn(`Failed to load bindings from ${bindingsPath}:`, err);
+    if (err instanceof SyntaxError) {
+      console.warn(
+        `Failed to parse bindings from ${bindingsPath}: Invalid JSON - ${err.message}`
+      );
+    } else {
+      console.warn(`Failed to load bindings from ${bindingsPath}:`, err);
+    }
+  }
+};
+
+/**
+ * Load all CLR bindings discovered by the resolver.
+ * This should be called AFTER createProgram but BEFORE IR building
+ * to ensure all bindings are available during IR construction.
+ *
+ * Note: The ClrBindingsResolver tracks discovered binding paths via caching,
+ * so this loads bindings for any imports that were already resolved.
+ */
+export const loadAllDiscoveredBindings = (
+  registry: BindingRegistry,
+  discoveredPaths: ReadonlySet<string>
+): void => {
+  for (const bindingsPath of discoveredPaths) {
+    loadBindingsFromPath(registry, bindingsPath);
   }
 };

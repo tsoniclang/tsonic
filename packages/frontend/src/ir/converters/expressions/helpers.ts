@@ -23,12 +23,21 @@ export const getInferredType = (
     const contextualType = expr ? checker.getContextualType(expr) : undefined;
     const tsType = contextualType ?? checker.getTypeAtLocation(node);
 
+    // First try typeToTypeNode for simple types
     const typeNode = checker.typeToTypeNode(
       tsType,
       node,
       ts.NodeBuilderFlags.None
     );
-    return typeNode ? convertType(typeNode, checker) : undefined;
+
+    // If typeNode conversion works, use convertType
+    if (typeNode) {
+      return convertType(typeNode, checker);
+    }
+
+    // Fallback: use convertTsTypeToIr directly for complex types
+    // This handles intersection types like List_1$instance<T> that can't be converted to TypeNodes
+    return convertTsTypeToIr(tsType, checker);
   } catch {
     // If type extraction fails, return undefined
     return undefined;

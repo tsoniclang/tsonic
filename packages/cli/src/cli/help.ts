@@ -45,9 +45,9 @@ PROJECT INIT OPTIONS:
 EXAMPLES:
   tsonic project init
   tsonic project init --runtime dotnet
-  tsonic emit src/app.ts
-  tsonic build src/app.ts --rid linux-x64
-  tsonic run src/app.ts -- --arg1 value1
+  tsonic emit src/App.ts
+  tsonic build src/App.ts --rid linux-x64
+  tsonic run src/App.ts -- --arg1 value1
 
 LEARN MORE:
   Documentation: https://tsonic.dev/docs

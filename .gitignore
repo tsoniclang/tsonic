@@ -161,3 +161,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 .codespin/
+
+# Tsonic build output
+**/out/
+**/generated/

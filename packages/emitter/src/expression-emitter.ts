@@ -7,7 +7,10 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
 
 // Import expression emitters from specialized modules
-import { emitLiteral } from "./expressions/literals.js";
+import {
+  emitLiteral,
+  getExpectedClrTypeForNumeric,
+} from "./expressions/literals.js";
 import { emitIdentifier } from "./expressions/identifiers.js";
 import { emitArray, emitObject } from "./expressions/collections.js";
 import { emitMemberAccess } from "./expressions/access.js";
@@ -43,7 +46,13 @@ export const emitExpression = (
 ): [CSharpFragment, EmitterContext] => {
   switch (expr.kind) {
     case "literal":
-      return emitLiteral(expr, context);
+      // Check if the literal has an inferredType that requires integer emission
+      // This handles cases like `1 as int` where the type assertion sets inferredType
+      return emitLiteral(
+        expr,
+        context,
+        getExpectedClrTypeForNumeric(expr.inferredType)
+      );
 
     case "identifier":
       return emitIdentifier(expr, context);

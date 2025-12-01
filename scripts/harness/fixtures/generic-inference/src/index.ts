@@ -1,6 +1,6 @@
 // Test generic call inference with numeric literals
 // This tests that integer literals infer as double (TS number semantics)
-import { Console } from "System";
+import { Console } from "@tsonic/dotnet/System";
 
 interface Pair<T, U> {
   first: T;

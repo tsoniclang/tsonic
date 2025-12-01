@@ -62,6 +62,7 @@ const compileToCSharp = (
     program: tsProgram,
     checker: tsProgram.getTypeChecker(),
     options: {
+      projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
     },

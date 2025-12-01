@@ -8,6 +8,10 @@ import { emitExpression } from "../expression-emitter.js";
 
 /**
  * Emit a template literal as C# interpolated string
+ *
+ * All interpolation holes are wrapped in parentheses: {(expr)}
+ * This prevents C# parsing ambiguity where ':' in expressions like
+ * 'global::Namespace.Type' would be interpreted as a format specifier.
  */
 export const emitTemplateLiteral = (
   expr: Extract<IrExpression, { kind: "templateLiteral" }>,
@@ -28,7 +32,8 @@ export const emitTemplateLiteral = (
         exprAtIndex,
         currentContext
       );
-      parts.push(`{${exprFrag.text}}`);
+      // Wrap in parentheses to avoid ':' being parsed as format specifier
+      parts.push(`{(${exprFrag.text})}`);
       currentContext = newContext;
     }
   }

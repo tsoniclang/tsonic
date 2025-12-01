@@ -1,6 +1,6 @@
 // Test BCL imports - File I/O operations
-import { Console } from "System";
-import { File, Path } from "System.IO";
+import { Console } from "@tsonic/dotnet/System";
+import { File, Path } from "@tsonic/dotnet/System.IO";
 
 export function main(): void {
   const testFile = Path.Combine(".", "test.txt");

@@ -13,12 +13,12 @@ import { EmitterContext, ImportBinding } from "../types.js";
 import { resolveImportPath } from "./module-map.js";
 
 /**
- * Process imports and build ImportBindings for local modules.
+ * Process imports and build ImportBindings for local and CLR modules.
  *
  * NOTE: No using statements are collected. All type/member references
  * are emitted as fully-qualified global:: names.
  *
- * - BCL/runtime imports: No action needed (types use global:: FQN)
+ * - CLR imports: Build ImportBindings with fully-qualified global:: CLR names
  * - Local module imports: Build ImportBindings with fully-qualified CLR names
  */
 export const processImports = (
@@ -29,8 +29,16 @@ export const processImports = (
   const importBindings = new Map<string, ImportBinding>();
 
   const updatedContext = imports.reduce((ctx, imp) => {
-    // BCL/runtime imports: No using needed, types are emitted with global:: FQN
-    // .NET imports: No using needed, types are emitted with global:: FQN
+    // CLR imports (from @tsonic/dotnet/* or similar packages)
+    if (imp.isClr && imp.resolvedNamespace) {
+      for (const spec of imp.specifiers) {
+        const binding = createClrImportBinding(spec, imp.resolvedNamespace);
+        if (binding) {
+          importBindings.set(binding.localName, binding.importBinding);
+        }
+      }
+      return ctx;
+    }
 
     if (imp.isLocal) {
       // Local import - build ImportBindings with fully-qualified CLR names
@@ -84,6 +92,61 @@ export const processImports = (
     ...updatedContext,
     importBindings,
   };
+};
+
+/**
+ * Create import binding for CLR types/values.
+ * CLR types are emitted with global:: FQN.
+ *
+ * - Type imports: clrName is global::namespace.TypeName
+ * - Value imports: clrName is global::namespace, member is the export name
+ */
+const createClrImportBinding = (
+  spec: IrImportSpecifier,
+  namespace: string
+): { localName: string; importBinding: ImportBinding } | null => {
+  const localName = spec.localName;
+  const namespaceFqn = `global::${namespace}`;
+
+  if (spec.kind === "named") {
+    // Use isType from frontend (determined by TS checker)
+    const isType = spec.isType === true;
+
+    if (isType) {
+      // Type import: clrName is the type's FQN
+      return {
+        localName,
+        importBinding: {
+          kind: "type",
+          clrName: `${namespaceFqn}.${spec.name}`,
+        },
+      };
+    } else {
+      // Value import: clrName is namespace, member is the export name
+      return {
+        localName,
+        importBinding: {
+          kind: "value",
+          clrName: namespaceFqn,
+          member: spec.name,
+        },
+      };
+    }
+  }
+
+  if (spec.kind === "namespace") {
+    // Namespace imports (import * as NS) - bind to the namespace
+    return {
+      localName,
+      importBinding: {
+        kind: "namespace",
+        clrName: namespaceFqn,
+      },
+    };
+  }
+
+  // Default imports not supported for CLR namespaces
+  return null;
 };
 
 /**

@@ -86,6 +86,12 @@ const copyOutputBinary = (
     throw new Error(`Output binary not found at ${binaryPath}`);
   }
 
+  // Ensure output directory exists
+  const outputDir = dirname(outputPath);
+  if (outputDir && outputDir !== "." && !existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
   copyFileSync(binaryPath, outputPath);
 
   // Make executable on Unix
@@ -186,10 +192,10 @@ export const buildNativeAot = (
       };
     }
 
-    // Copy output binary
+    // Copy output binary to out/ directory
     const outputPath = options.outputName
-      ? `./${getOutputBinaryName(options.outputName)}`
-      : "./tsonic-app";
+      ? `out/${getOutputBinaryName(options.outputName)}`
+      : "out/tsonic-app";
     copyOutputBinary(buildDir, rid, outputPath, options.outputName || "tsonic");
 
     // Cleanup if requested

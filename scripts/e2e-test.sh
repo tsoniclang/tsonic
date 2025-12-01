@@ -18,7 +18,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FIXTURES_DIR="$SCRIPT_DIR/harness/fixtures"
 HELPERS_DIR="$SCRIPT_DIR/harness/helpers"
 TESTS_OUTPUT_DIR="$PROJECT_ROOT/.tests/e2e"
-BCL_TYPES_DIR="../tsbindgen/.tests/validate"
 
 # Variables
 TOTAL_TESTS=0
@@ -68,18 +67,6 @@ check_prerequisites() {
         exit 1
     fi
     log_success "dotnet CLI found ($(dotnet --version))"
-
-    # Check if BCL types exist
-    if [ ! -d "$BCL_TYPES_DIR" ]; then
-        log_warning "BCL types not found at $BCL_TYPES_DIR"
-        log_info "Generating BCL types with tsbindgen..."
-        (cd ../tsbindgen && node scripts/validate.js)
-        if [ ! -d "$BCL_TYPES_DIR" ]; then
-            log_error "Failed to generate BCL types"
-            exit 1
-        fi
-    fi
-    log_success "BCL types found at $BCL_TYPES_DIR"
 
     log_info "Running in mode: $MODE"
 }
@@ -153,7 +140,7 @@ run_test_mode() {
     fi
 
     # Run the test using helper script
-    if "$HELPERS_DIR/run-single-test.sh" "$fixture_name" "$output_dir" "$BCL_TYPES_DIR" "$runtime_mode"; then
+    if "$HELPERS_DIR/run-single-test.sh" "$fixture_name" "$output_dir" "$runtime_mode"; then
         log_success "[$runtime_mode] Test passed: $fixture_name"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0

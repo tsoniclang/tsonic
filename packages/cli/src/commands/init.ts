@@ -127,7 +127,7 @@ const generateConfig = (
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
     rootNamespace: "MyApp",
-    entryPoint: "src/app.ts",
+    entryPoint: "src/App.ts",
     sourceRoot: "src",
     outputDirectory: "generated",
     outputName: "app",
@@ -177,8 +177,8 @@ const createOrUpdatePackageJson = (packageJsonPath: string): void => {
       (packageJson.scripts as Record<string, string>) || {};
     packageJson.scripts = {
       ...existingScripts,
-      build: "tsonic build src/app.ts",
-      dev: "tsonic run src/app.ts",
+      build: "tsonic build src/App.ts",
+      dev: "tsonic run src/App.ts",
     };
 
     // Ensure devDependencies exists
@@ -192,8 +192,8 @@ const createOrUpdatePackageJson = (packageJsonPath: string): void => {
       version: "1.0.0",
       type: "module",
       scripts: {
-        build: "tsonic build src/app.ts",
-        dev: "tsonic run src/app.ts",
+        build: "tsonic build src/App.ts",
+        dev: "tsonic run src/App.ts",
       },
       devDependencies: {},
     };
@@ -243,7 +243,7 @@ export const initProject = (
   const tsonicJsonPath = join(cwd, "tsonic.json");
   const gitignorePath = join(cwd, ".gitignore");
   const srcDir = join(cwd, "src");
-  const appTsPath = join(srcDir, "app.ts");
+  const appTsPath = join(srcDir, "App.ts");
   const readmePath = join(cwd, "README.md");
   const packageJsonPath = join(cwd, "package.json");
 
@@ -300,7 +300,7 @@ export const initProject = (
       console.log("✓ Created .gitignore");
     }
 
-    // Create src directory and app.ts with runtime-appropriate code
+    // Create src directory and App.ts with runtime-appropriate code
     if (!existsSync(srcDir)) {
       mkdirSync(srcDir, { recursive: true });
     }
@@ -308,7 +308,7 @@ export const initProject = (
       const sampleCode =
         runtime === "js" ? SAMPLE_MAIN_TS_JS : SAMPLE_MAIN_TS_DOTNET;
       writeFileSync(appTsPath, sampleCode, "utf-8");
-      console.log("✓ Created src/app.ts");
+      console.log("✓ Created src/App.ts");
     }
 
     // Create README.md

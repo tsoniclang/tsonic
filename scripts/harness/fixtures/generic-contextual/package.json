@@ -1,16 +1,10 @@
 {
-  "name": "generic-contextual",
+  "name": "tsonic-e2e-test",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "devDependencies": {
-    "typescript": "^5.9.3"
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/dotnet": "^0.5.1",
+    "@tsonic/dotnet-globals": "^0.1.2"
   }
 }

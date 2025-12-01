@@ -9,7 +9,7 @@
  * bindings.json in its namespace directories will be recognized.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -52,8 +52,11 @@ export class ClrBindingsResolver {
   // Cache: absolute bindingsPath -> exists
   private readonly bindingsExistsCache = new Map<string, boolean>();
 
+  // Cache: absolute bindingsPath -> namespace (extracted from bindings.json)
+  private readonly namespaceCache = new Map<string, string | null>();
+
   // require function for Node resolution from the base directory
-  private readonly require: NodeRequire;
+  private readonly require: ReturnType<typeof createRequire>;
 
   constructor(baseDir: string) {
     // Create a require function that resolves relative to baseDir
@@ -94,6 +97,10 @@ export class ClrBindingsResolver {
       return { isClr: false };
     }
 
+    // Extract namespace from bindings.json (tsbindgen format)
+    // This is the authoritative namespace, not the subpath
+    const resolvedNamespace = this.extractNamespace(bindingsPath, subpath);
+
     // Check for optional metadata.json
     const metadataPath = join(pkgRoot, subpath, "internal", "metadata.json");
     const hasMetadata = this.fileExists(metadataPath);
@@ -101,7 +108,7 @@ export class ClrBindingsResolver {
     return {
       isClr: true,
       packageName,
-      resolvedNamespace: subpath,
+      resolvedNamespace,
       bindingsPath,
       metadataPath: hasMetadata ? metadataPath : undefined,
     };
@@ -194,6 +201,46 @@ export class ClrBindingsResolver {
     const exists = existsSync(bindingsPath);
     this.bindingsExistsCache.set(bindingsPath, exists);
     return exists;
+  }
+
+  /**
+   * Extract the namespace from a bindings.json file (cached).
+   * Falls back to the subpath if namespace cannot be extracted.
+   *
+   * This reads the 'namespace' field from tsbindgen format files,
+   * which is the authoritative CLR namespace for the binding.
+   */
+  private extractNamespace(bindingsPath: string, fallback: string): string {
+    const cached = this.namespaceCache.get(bindingsPath);
+    if (cached !== undefined) {
+      return cached ?? fallback;
+    }
+
+    try {
+      const content = readFileSync(bindingsPath, "utf-8");
+      const parsed = JSON.parse(content) as unknown;
+
+      // Check for tsbindgen format: { namespace: string, types: [...] }
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "namespace" in parsed &&
+        typeof (parsed as Record<string, unknown>).namespace === "string"
+      ) {
+        const namespace = (parsed as Record<string, unknown>)
+          .namespace as string;
+        this.namespaceCache.set(bindingsPath, namespace);
+        return namespace;
+      }
+
+      // No namespace found, cache null and fall back
+      this.namespaceCache.set(bindingsPath, null);
+      return fallback;
+    } catch {
+      // Failed to read/parse, cache null and fall back
+      this.namespaceCache.set(bindingsPath, null);
+      return fallback;
+    }
   }
 
   /**

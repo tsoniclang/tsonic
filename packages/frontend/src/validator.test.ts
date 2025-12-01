@@ -65,6 +65,7 @@ const createTestProgram = (
     program,
     checker: program.getTypeChecker(),
     options: {
+      projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
     },

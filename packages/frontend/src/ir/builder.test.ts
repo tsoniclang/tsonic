@@ -48,7 +48,12 @@ describe("IR Builder", () => {
     return {
       program,
       checker: program.getTypeChecker(),
-      options: { sourceRoot: "/test", rootNamespace: "TestApp", strict: true },
+      options: {
+        projectRoot: "/test",
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+        strict: true,
+      },
       sourceFiles: [sourceFile],
       metadata: new DotnetMetadataRegistry(),
       bindings: new BindingRegistry(),

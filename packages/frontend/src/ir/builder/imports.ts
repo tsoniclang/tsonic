@@ -7,7 +7,6 @@ import { IrImport, IrImportSpecifier } from "../types.js";
 import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
 import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
 import { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
-import { loadBindingsFromPath } from "../../program/bindings.js";
 
 /**
  * Extract import declarations from source file.
@@ -31,17 +30,13 @@ export const extractImports = (
 
       // Use import-driven resolution to detect CLR imports
       // This works for any package that provides bindings.json
+      // Note: Bindings are loaded upfront by discoverAndLoadClrBindings()
+      // in dependency-graph.ts before IR building starts.
       const clrResolution = clrResolver.resolve(source);
       const isClr = clrResolution.isClr;
       const resolvedNamespace = clrResolution.isClr
         ? clrResolution.resolvedNamespace
         : undefined;
-
-      // Load bindings from the CLR package if discovered
-      // This ensures member bindings are available for FQN emission
-      if (clrResolution.isClr) {
-        loadBindingsFromPath(getBindingRegistry(), clrResolution.bindingsPath);
-      }
 
       const specifiers = extractImportSpecifiers(node, checker);
 

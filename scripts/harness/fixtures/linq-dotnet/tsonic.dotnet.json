@@ -2,11 +2,5 @@
   "entryPoint": "src/index.ts",
   "rootNamespace": "LinqTest",
   "outputName": "linq-test",
-  "runtime": "dotnet",
-  "dotnet": {
-    "targetFramework": "net10.0",
-    "outputType": "exe",
-    "packages": [],
-    "libraries": []
-  }
+  "runtime": "dotnet"
 }

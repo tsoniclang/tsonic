@@ -71,7 +71,8 @@ const buildExecutable = (
     "publish"
   );
   const sourceBinary = join(publishDir, binaryName);
-  const targetBinary = join(process.cwd(), binaryName);
+  const outDir = join(process.cwd(), "out");
+  const targetBinary = join(outDir, binaryName);
 
   if (!existsSync(sourceBinary)) {
     return {
@@ -81,6 +82,10 @@ const buildExecutable = (
   }
 
   try {
+    // Create out/ directory if it doesn't exist
+    if (!existsSync(outDir)) {
+      mkdirSync(outDir, { recursive: true });
+    }
     copyFileSync(sourceBinary, targetBinary);
 
     // Make executable on Unix
