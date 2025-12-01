@@ -49,6 +49,7 @@ const program = createProgram(filePaths, {
 ```
 
 Responsibilities:
+
 - Initialize TypeScript compiler
 - Configure compiler options
 - Load source files
@@ -70,6 +71,7 @@ Resolves import specifiers to actual files:
 ```
 
 Rules:
+
 - Local imports MUST have `.ts` extension
 - .NET imports map to CLR namespaces
 - Relative paths resolved from importing file
@@ -83,21 +85,25 @@ Rules:
 Validates TypeScript code against Tsonic constraints:
 
 ### Import Validation
+
 - `.ts` extension required for local imports
 - No dynamic imports
 - No `import type` syntax
 
 ### Feature Validation
+
 - No `with` statements
 - No `import.meta`
 - No `eval()`
 - No `Promise.then/catch/finally`
 
 ### Export Validation
+
 - Entry point must export `main()`
 - All exports must be valid declarations
 
 ### Generic Validation
+
 - Type parameters must be constrained or inferred
 - No unsupported generic patterns
 
@@ -114,34 +120,34 @@ const irModule = buildIrModule(sourceFile, checker, options);
 
 ### Statement Conversion
 
-| TypeScript | IR Node |
-|------------|---------|
-| `function foo()` | `IrFunctionDeclaration` |
-| `class Foo` | `IrClassDeclaration` |
-| `interface Foo` | `IrInterfaceDeclaration` |
-| `const x = 1` | `IrVariableDeclaration` |
-| `if (cond)` | `IrIfStatement` |
-| `for (...)` | `IrForStatement` |
+| TypeScript       | IR Node                  |
+| ---------------- | ------------------------ |
+| `function foo()` | `IrFunctionDeclaration`  |
+| `class Foo`      | `IrClassDeclaration`     |
+| `interface Foo`  | `IrInterfaceDeclaration` |
+| `const x = 1`    | `IrVariableDeclaration`  |
+| `if (cond)`      | `IrIfStatement`          |
+| `for (...)`      | `IrForStatement`         |
 
 ### Expression Conversion
 
-| TypeScript | IR Node |
-|------------|---------|
-| `42` | `IrLiteralExpression` |
-| `foo` | `IrIdentifierExpression` |
-| `a + b` | `IrBinaryExpression` |
-| `foo()` | `IrCallExpression` |
-| `new Foo()` | `IrNewExpression` |
-| `obj.prop` | `IrMemberExpression` |
+| TypeScript  | IR Node                  |
+| ----------- | ------------------------ |
+| `42`        | `IrLiteralExpression`    |
+| `foo`       | `IrIdentifierExpression` |
+| `a + b`     | `IrBinaryExpression`     |
+| `foo()`     | `IrCallExpression`       |
+| `new Foo()` | `IrNewExpression`        |
+| `obj.prop`  | `IrMemberExpression`     |
 
 ### Type Conversion
 
-| TypeScript | IR Type |
-|------------|---------|
-| `number` | `IrPrimitiveType("number")` |
-| `string[]` | `IrArrayType` |
-| `Foo<T>` | `IrReferenceType` |
-| `A \| B` | `IrUnionType` |
+| TypeScript | IR Type                     |
+| ---------- | --------------------------- |
+| `number`   | `IrPrimitiveType("number")` |
+| `string[]` | `IrArrayType`               |
+| `Foo<T>`   | `IrReferenceType`           |
+| `A \| B`   | `IrUnionType`               |
 
 ## Stage 5: Dependency Analysis
 
@@ -158,6 +164,7 @@ const { modules, entryModule } = buildModuleDependencyGraph(
 ```
 
 Responsibilities:
+
 - Traverse import graph
 - Detect circular dependencies
 - Build compilation order
@@ -194,12 +201,12 @@ C# File:
 
 ### Type Emission
 
-| IR Type | C# Type |
-|---------|---------|
-| `primitiveType("number")` | `double` |
-| `primitiveType("string")` | `string` |
-| `arrayType(T)` | `Tsonic.Runtime.Array<T>` (js) or `T[]` (dotnet) |
-| `referenceType("List", [T])` | `System.Collections.Generic.List<T>` |
+| IR Type                      | C# Type                                          |
+| ---------------------------- | ------------------------------------------------ |
+| `primitiveType("number")`    | `double`                                         |
+| `primitiveType("string")`    | `string`                                         |
+| `arrayType(T)`               | `Tsonic.Runtime.Array<T>` (js) or `T[]` (dotnet) |
+| `referenceType("List", [T])` | `System.Collections.Generic.List<T>`             |
 
 ### Expression Emission
 
@@ -237,6 +244,7 @@ dotnet publish tsonic.csproj \
 ```
 
 NativeAOT settings in .csproj:
+
 - `PublishAot=true`
 - `PublishSingleFile=true`
 - `PublishTrimmed=true`

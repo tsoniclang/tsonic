@@ -27,10 +27,10 @@ import { Enumerable } from "@tsonic/dotnet/System.Linq";
 
 Maps directly to .NET namespaces:
 
-| Import | .NET Namespace |
-|--------|----------------|
-| `@tsonic/dotnet/System` | `System` |
-| `@tsonic/dotnet/System.IO` | `System.IO` |
+| Import                                      | .NET Namespace               |
+| ------------------------------------------- | ---------------------------- |
+| `@tsonic/dotnet/System`                     | `System`                     |
+| `@tsonic/dotnet/System.IO`                  | `System.IO`                  |
 | `@tsonic/dotnet/System.Collections.Generic` | `System.Collections.Generic` |
 
 ## Common APIs
@@ -79,7 +79,11 @@ const files = Directory.GetFiles("./data");
 ### Collections
 
 ```typescript
-import { List, Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic";
+import {
+  List,
+  Dictionary,
+  HashSet,
+} from "@tsonic/dotnet/System.Collections.Generic";
 
 // List<T>
 const list = new List<number>();
@@ -112,11 +116,11 @@ import { Enumerable } from "@tsonic/dotnet/System.Linq";
 const numbers = [1, 2, 3, 4, 5];
 
 // Query operations
-const doubled = Enumerable.Select(numbers, n => n * 2);
-const filtered = Enumerable.Where(numbers, n => n > 2);
+const doubled = Enumerable.Select(numbers, (n) => n * 2);
+const filtered = Enumerable.Where(numbers, (n) => n > 2);
 const sum = Enumerable.Sum(numbers);
 const first = Enumerable.First(numbers);
-const any = Enumerable.Any(numbers, n => n > 10);
+const any = Enumerable.Any(numbers, (n) => n > 10);
 ```
 
 ### DateTime
@@ -210,31 +214,31 @@ export declare class MyService {
 
 ### Primitive Types
 
-| TypeScript | C# |
-|------------|-----|
-| `number` | `double` |
-| `string` | `string` |
-| `boolean` | `bool` |
-| `int` | `int` |
-| `float` | `float` |
-| `long` | `long` |
+| TypeScript | C#       |
+| ---------- | -------- |
+| `number`   | `double` |
+| `string`   | `string` |
+| `boolean`  | `bool`   |
+| `int`      | `int`    |
+| `float`    | `float`  |
+| `long`     | `long`   |
 
 ### Collection Types
 
-| TypeScript | C# |
-|------------|-----|
-| `List<T>` | `System.Collections.Generic.List<T>` |
+| TypeScript        | C#                                           |
+| ----------------- | -------------------------------------------- |
+| `List<T>`         | `System.Collections.Generic.List<T>`         |
 | `Dictionary<K,V>` | `System.Collections.Generic.Dictionary<K,V>` |
-| `HashSet<T>` | `System.Collections.Generic.HashSet<T>` |
-| `T[]` | Native array or List depending on context |
+| `HashSet<T>`      | `System.Collections.Generic.HashSet<T>`      |
+| `T[]`             | Native array or List depending on context    |
 
 ### Special Types
 
-| TypeScript | C# |
-|------------|-----|
-| `void` | `void` |
-| `null` | `null` |
-| `undefined` | `null` |
+| TypeScript   | C#        |
+| ------------ | --------- |
+| `void`       | `void`    |
+| `null`       | `null`    |
+| `undefined`  | `null`    |
 | `Promise<T>` | `Task<T>` |
 
 ## Async/Await

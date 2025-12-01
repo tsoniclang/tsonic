@@ -65,6 +65,7 @@ const withIndent = (ctx: EmitterContext): EmitterContext => ({
 `core/module-emitter/`:
 
 Each module generates:
+
 1. Using directives (implicit)
 2. Namespace declaration
 3. Static class wrapper
@@ -89,7 +90,7 @@ namespace MyApp.src.utils
 
 const generateNamespace = (filePath: string, rootNamespace: string): string => {
   const dir = path.dirname(filePath);
-  const parts = dir.split("/").filter(p => p && p !== ".");
+  const parts = dir.split("/").filter((p) => p && p !== ".");
   return [rootNamespace, ...parts].join(".");
 };
 ```
@@ -131,10 +132,13 @@ const emitPrimitiveType = (type: IrPrimitiveType): string => {
 `types/references.ts`:
 
 ```typescript
-const emitReferenceType = (type: IrReferenceType, ctx: EmitterContext): string => {
+const emitReferenceType = (
+  type: IrReferenceType,
+  ctx: EmitterContext
+): string => {
   const name = type.clrType ?? type.name;
   if (type.typeArguments?.length) {
-    const args = type.typeArguments.map(t => emitType(t, ctx)).join(", ");
+    const args = type.typeArguments.map((t) => emitType(t, ctx)).join(", ");
     return `${name}<${args}>`;
   }
   return name;
@@ -202,10 +206,14 @@ const emitBinary = (expr: IrBinaryExpression, ctx: EmitterContext): string => {
 
 const mapOperator = (op: string): string => {
   switch (op) {
-    case "===": return "==";  // C# equality
-    case "!==": return "!=";
-    case "??": return "??";   // Null coalescing
-    default: return op;
+    case "===":
+      return "=="; // C# equality
+    case "!==":
+      return "!=";
+    case "??":
+      return "??"; // Null coalescing
+    default:
+      return op;
   }
 };
 ```
@@ -217,7 +225,7 @@ const mapOperator = (op: string): string => {
 ```typescript
 const emitCall = (expr: IrCallExpression, ctx: EmitterContext): string => {
   const callee = emitExpression(expr.callee, ctx);
-  const args = expr.arguments.map(a => emitExpression(a, ctx)).join(", ");
+  const args = expr.arguments.map((a) => emitExpression(a, ctx)).join(", ");
   return `${callee}(${args})`;
 };
 ```
@@ -245,13 +253,18 @@ const emitMember = (expr: IrMemberExpression, ctx: EmitterContext): string => {
 `statements/declarations.ts`:
 
 ```typescript
-const emitVariableDeclaration = (stmt: IrVariableDeclaration, ctx: EmitterContext): string => {
-  return stmt.declarations.map(decl => {
-    const name = emitPattern(decl.pattern, ctx);
-    const type = decl.type ? emitType(decl.type, ctx) : "var";
-    const init = decl.init ? emitExpression(decl.init, ctx) : undefined;
-    return init ? `${type} ${name} = ${init};` : `${type} ${name};`;
-  }).join("\n");
+const emitVariableDeclaration = (
+  stmt: IrVariableDeclaration,
+  ctx: EmitterContext
+): string => {
+  return stmt.declarations
+    .map((decl) => {
+      const name = emitPattern(decl.pattern, ctx);
+      const type = decl.type ? emitType(decl.type, ctx) : "var";
+      const init = decl.init ? emitExpression(decl.init, ctx) : undefined;
+      return init ? `${type} ${name} = ${init};` : `${type} ${name};`;
+    })
+    .join("\n");
 };
 ```
 
@@ -260,16 +273,17 @@ const emitVariableDeclaration = (stmt: IrVariableDeclaration, ctx: EmitterContex
 `statements/declarations/functions.ts`:
 
 ```typescript
-const emitFunction = (stmt: IrFunctionDeclaration, ctx: EmitterContext): string => {
+const emitFunction = (
+  stmt: IrFunctionDeclaration,
+  ctx: EmitterContext
+): string => {
   const modifiers = ["public", "static"];
   if (stmt.isAsync) modifiers.push("async");
 
-  const returnType = stmt.returnType
-    ? emitType(stmt.returnType, ctx)
-    : "void";
+  const returnType = stmt.returnType ? emitType(stmt.returnType, ctx) : "void";
 
   const params = stmt.parameters
-    .map(p => `${emitType(p.type, ctx)} ${p.name}`)
+    .map((p) => `${emitType(p.type, ctx)} ${p.name}`)
     .join(", ");
 
   const body = emitBlock(stmt.body, ctx);
@@ -292,7 +306,7 @@ const emitClass = (stmt: IrClassDeclaration, ctx: EmitterContext): string => {
     header += ` : ${emitType(stmt.extends, ctx)}`;
   }
 
-  const members = stmt.members.map(m => emitClassMember(m, ctx)).join("\n\n");
+  const members = stmt.members.map((m) => emitClassMember(m, ctx)).join("\n\n");
 
   return `${header}\n{\n${indent(members)}\n}`;
 };
@@ -336,11 +350,14 @@ Complex cases require monomorphization.
 For cross-file import resolution:
 
 ```typescript
-type ModuleMap = Map<string, {
-  namespace: string;
-  className: string;
-  exports: Map<string, ExportInfo>;
-}>;
+type ModuleMap = Map<
+  string,
+  {
+    namespace: string;
+    className: string;
+    exports: Map<string, ExportInfo>;
+  }
+>;
 ```
 
 Used to resolve imports:

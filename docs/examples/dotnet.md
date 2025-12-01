@@ -42,7 +42,7 @@ export function main(): void {
 import {
   List,
   Dictionary,
-  HashSet
+  HashSet,
 } from "@tsonic/dotnet/System.Collections.Generic";
 
 export function main(): void {
@@ -70,9 +70,9 @@ export function main(): void {
   const unique = new HashSet<string>();
   unique.Add("a");
   unique.Add("b");
-  unique.Add("a");  // Duplicate, ignored
+  unique.Add("a"); // Duplicate, ignored
 
-  console.log(unique.Count);  // 2
+  console.log(unique.Count); // 2
 }
 ```
 
@@ -91,20 +91,14 @@ export function main(): void {
   const users: User[] = [
     { id: 1, name: "Alice", age: 30 },
     { id: 2, name: "Bob", age: 25 },
-    { id: 3, name: "Charlie", age: 35 }
+    { id: 3, name: "Charlie", age: 35 },
   ];
 
   // Filter (Where)
-  const adults = Enumerable.Where(
-    users,
-    (u: User): boolean => u.age >= 30
-  );
+  const adults = Enumerable.Where(users, (u: User): boolean => u.age >= 30);
 
   // Transform (Select)
-  const names = Enumerable.Select(
-    users,
-    (u: User): string => u.name
-  );
+  const names = Enumerable.Select(users, (u: User): string => u.name);
 
   // First matching
   const alice = Enumerable.FirstOrDefault(
@@ -113,32 +107,17 @@ export function main(): void {
   );
 
   // Sorting
-  const byAge = Enumerable.OrderBy(
-    users,
-    (u: User): number => u.age
-  );
+  const byAge = Enumerable.OrderBy(users, (u: User): number => u.age);
 
   // Aggregation
-  const totalAge = Enumerable.Sum(
-    users,
-    (u: User): number => u.age
-  );
+  const totalAge = Enumerable.Sum(users, (u: User): number => u.age);
 
-  const averageAge = Enumerable.Average(
-    users,
-    (u: User): number => u.age
-  );
+  const averageAge = Enumerable.Average(users, (u: User): number => u.age);
 
   // Any/All
-  const anyAdult = Enumerable.Any(
-    users,
-    (u: User): boolean => u.age >= 18
-  );
+  const anyAdult = Enumerable.Any(users, (u: User): boolean => u.age >= 18);
 
-  const allAdults = Enumerable.All(
-    users,
-    (u: User): boolean => u.age >= 18
-  );
+  const allAdults = Enumerable.All(users, (u: User): boolean => u.age >= 18);
 }
 ```
 
@@ -182,7 +161,7 @@ export function main(): void {
   const nextMonth = now.AddMonths(1);
 
   // TimeSpan
-  const duration = new TimeSpan(1, 30, 0);  // 1 hour 30 minutes
+  const duration = new TimeSpan(1, 30, 0); // 1 hour 30 minutes
   const later = now.Add(duration);
 
   // Formatting
@@ -226,18 +205,18 @@ import { Math } from "@tsonic/dotnet/System";
 
 export function main(): void {
   // Basic operations
-  const abs = Math.Abs(-5);         // 5
-  const max = Math.Max(10, 20);     // 20
-  const min = Math.Min(10, 20);     // 10
+  const abs = Math.Abs(-5); // 5
+  const max = Math.Max(10, 20); // 20
+  const min = Math.Min(10, 20); // 10
 
   // Rounding
-  const floor = Math.Floor(4.7);    // 4
-  const ceil = Math.Ceiling(4.2);   // 5
-  const round = Math.Round(4.5);    // 4 (banker's rounding)
+  const floor = Math.Floor(4.7); // 4
+  const ceil = Math.Ceiling(4.2); // 5
+  const round = Math.Round(4.5); // 4 (banker's rounding)
 
   // Power and roots
-  const pow = Math.Pow(2, 10);      // 1024
-  const sqrt = Math.Sqrt(16);       // 4
+  const pow = Math.Pow(2, 10); // 1024
+  const sqrt = Math.Sqrt(16); // 4
 
   // Trigonometry
   const sin = Math.Sin(Math.PI / 2);
@@ -245,8 +224,8 @@ export function main(): void {
 
   // Random
   const random = new Random();
-  const value = random.Next(1, 100);  // 1-99
-  const doubleValue = random.NextDouble();  // 0.0-1.0
+  const value = random.Next(1, 100); // 1-99
+  const doubleValue = random.NextDouble(); // 0.0-1.0
 }
 ```
 
@@ -292,8 +271,15 @@ export async function main(): Promise<void> {
   console.log(response);
 
   // POST request
-  const content = new StringContent('{"name": "test"}', Encoding.UTF8, "application/json");
-  const postResponse = await client.PostAsync("https://api.example.com/create", content);
+  const content = new StringContent(
+    '{"name": "test"}',
+    Encoding.UTF8,
+    "application/json"
+  );
+  const postResponse = await client.PostAsync(
+    "https://api.example.com/create",
+    content
+  );
 }
 ```
 
@@ -311,10 +297,10 @@ export function main(): void {
   // Serialize
   const user: User = { id: 1, name: "Alice" };
   const json = JsonSerializer.Serialize(user);
-  console.log(json);  // {"id":1,"name":"Alice"}
+  console.log(json); // {"id":1,"name":"Alice"}
 
   // Deserialize
   const parsed = JsonSerializer.Deserialize<User>('{"id":2,"name":"Bob"}');
-  console.log(parsed.name);  // Bob
+  console.log(parsed.name); // Bob
 }
 ```

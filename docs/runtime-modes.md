@@ -4,10 +4,10 @@ Tsonic supports two runtime modes that determine how your TypeScript code behave
 
 ## Overview
 
-| Mode | Semantics | Use Case |
-|------|-----------|----------|
-| `js` | JavaScript behavior | General TypeScript apps |
-| `dotnet` | C# / .NET behavior | .NET integration, BCL access |
+| Mode     | Semantics           | Use Case                     |
+| -------- | ------------------- | ---------------------------- |
+| `js`     | JavaScript behavior | General TypeScript apps      |
+| `dotnet` | C# / .NET behavior  | .NET integration, BCL access |
 
 ## JS Mode (Default)
 
@@ -45,12 +45,12 @@ Arrays behave like JavaScript arrays:
 ```typescript
 const arr: number[] = [];
 arr[10] = 42;
-console.log(arr.length);  // 11 (sparse array)
-console.log(arr[5]);      // undefined
+console.log(arr.length); // 11 (sparse array)
+console.log(arr[5]); // undefined
 
 // Array methods
-const doubled = arr.map(n => (n ?? 0) * 2);
-const filtered = arr.filter(n => n !== undefined);
+const doubled = arr.map((n) => (n ?? 0) * 2);
+const filtered = arr.filter((n) => n !== undefined);
 ```
 
 #### Number Handling
@@ -58,9 +58,9 @@ const filtered = arr.filter(n => n !== undefined);
 All numbers are `double` by default:
 
 ```typescript
-const x = 42;      // double
-const y = 3.14;    // double
-console.log(x / 4);  // 10.5 (floating point)
+const x = 42; // double
+const y = 3.14; // double
+console.log(x / 4); // 10.5 (floating point)
 ```
 
 Use explicit integer types when needed:
@@ -84,6 +84,7 @@ console.warn("Warning");
 ### Generated Code
 
 TypeScript:
+
 ```typescript
 const numbers = [1, 2, 3];
 const sum = numbers.reduce((a, b) => a + b, 0);
@@ -91,6 +92,7 @@ console.log(sum);
 ```
 
 Generated C#:
+
 ```csharp
 var numbers = new Tsonic.Runtime.Array<double>(1, 2, 3);
 var sum = numbers.Reduce((a, b) => a + b, 0);
@@ -135,11 +137,11 @@ const list = new List<number>();
 list.Add(1);
 list.Add(2);
 list.Add(3);
-console.log(list.Count);  // 3
+console.log(list.Count); // 3
 
 // LINQ-style operations
-const doubled = list.Select(n => n * 2);
-const filtered = list.Where(n => n > 1);
+const doubled = list.Select((n) => n * 2);
+const filtered = list.Where((n) => n > 1);
 ```
 
 #### Console
@@ -169,6 +171,7 @@ const fullPath = Path.Combine(".", "data", "file.txt");
 ### Generated Code
 
 TypeScript:
+
 ```typescript
 import { Console } from "@tsonic/dotnet/System";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
@@ -179,6 +182,7 @@ Console.WriteLine(list.Count);
 ```
 
 Generated C#:
+
 ```csharp
 var list = new global::System.Collections.Generic.List<int>();
 list.Add(42);
@@ -189,32 +193,32 @@ global::System.Console.WriteLine(list.Count);
 
 ### Arrays vs Lists
 
-| Feature | JS Mode (Array) | Dotnet Mode (List) |
-|---------|-----------------|-------------------|
-| Sparse support | Yes | No |
-| Negative index | Yes | No |
-| `.length` | Yes | Use `.Count` |
-| `.push()` | Yes | Use `.Add()` |
-| `.map()` | Yes | Use `.Select()` |
-| `.filter()` | Yes | Use `.Where()` |
+| Feature        | JS Mode (Array) | Dotnet Mode (List) |
+| -------------- | --------------- | ------------------ |
+| Sparse support | Yes             | No                 |
+| Negative index | Yes             | No                 |
+| `.length`      | Yes             | Use `.Count`       |
+| `.push()`      | Yes             | Use `.Add()`       |
+| `.map()`       | Yes             | Use `.Select()`    |
+| `.filter()`    | Yes             | Use `.Where()`     |
 
 ### Console Output
 
-| Feature | JS Mode | Dotnet Mode |
-|---------|---------|-------------|
-| Basic output | `console.log()` | `Console.WriteLine()` |
-| No newline | Not available | `Console.Write()` |
-| Formatting | Template literals | Template literals |
+| Feature      | JS Mode           | Dotnet Mode           |
+| ------------ | ----------------- | --------------------- |
+| Basic output | `console.log()`   | `Console.WriteLine()` |
+| No newline   | Not available     | `Console.Write()`     |
+| Formatting   | Template literals | Template literals     |
 
 ### Type Behavior
 
-| Type | JS Mode | Dotnet Mode |
-|------|---------|-------------|
-| `number` | `double` | `double` |
-| `string` | `string` | `string` |
-| `boolean` | `bool` | `bool` |
-| Arrays | `Tsonic.Runtime.Array<T>` | Native arrays |
-| Objects | `Tsonic.Runtime.Object` | Anonymous types or classes |
+| Type      | JS Mode                   | Dotnet Mode                |
+| --------- | ------------------------- | -------------------------- |
+| `number`  | `double`                  | `double`                   |
+| `string`  | `string`                  | `string`                   |
+| `boolean` | `bool`                    | `bool`                     |
+| Arrays    | `Tsonic.Runtime.Array<T>` | Native arrays              |
+| Objects   | `Tsonic.Runtime.Object`   | Anonymous types or classes |
 
 ## Choosing a Mode
 
@@ -246,17 +250,20 @@ If you need both behaviors, consider:
 ### JS to Dotnet
 
 1. Update `tsonic.json`:
+
    ```json
    { "runtime": "dotnet" }
    ```
 
 2. Replace type packages:
+
    ```bash
    npm uninstall @tsonic/js-globals
    npm install --save-dev @tsonic/dotnet-globals @tsonic/dotnet
    ```
 
 3. Update imports:
+
    ```typescript
    // Before
    console.log("Hello");
@@ -271,11 +278,13 @@ If you need both behaviors, consider:
 ### Dotnet to JS
 
 1. Update `tsonic.json`:
+
    ```json
    { "runtime": "js" }
    ```
 
 2. Replace type packages:
+
    ```bash
    npm uninstall @tsonic/dotnet-globals @tsonic/dotnet
    npm install --save-dev @tsonic/js-globals @tsonic/types

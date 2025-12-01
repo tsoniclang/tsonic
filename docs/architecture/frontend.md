@@ -78,7 +78,9 @@ const resolveClrImport = (
   specifier: string
 ): Result<ClrResolution, Diagnostic> => {
   // Extract namespace from specifier
-  const namespace = specifier.replace("@tsonic/dotnet/", "").replace(/\//g, ".");
+  const namespace = specifier
+    .replace("@tsonic/dotnet/", "")
+    .replace(/\//g, ".");
   return ok({ clrNamespace: namespace, isLocal: false });
 };
 ```
@@ -123,7 +125,10 @@ const unsupportedFeatures = [
 
 ```typescript
 // TypeScript AST -> IR
-const convertStatement = (node: ts.Statement, checker: ts.TypeChecker): IrStatement => {
+const convertStatement = (
+  node: ts.Statement,
+  checker: ts.TypeChecker
+): IrStatement => {
   if (ts.isFunctionDeclaration(node)) {
     return convertFunctionDeclaration(node, checker);
   }
@@ -139,7 +144,10 @@ const convertStatement = (node: ts.Statement, checker: ts.TypeChecker): IrStatem
 `ir/converters/expressions/`:
 
 ```typescript
-const convertExpression = (node: ts.Expression, checker: ts.TypeChecker): IrExpression => {
+const convertExpression = (
+  node: ts.Expression,
+  checker: ts.TypeChecker
+): IrExpression => {
   if (ts.isNumericLiteral(node)) {
     return { kind: "literal", value: Number(node.text), raw: node.text };
   }
@@ -160,7 +168,10 @@ const convertType = (node: ts.TypeNode, checker: ts.TypeChecker): IrType => {
     return convertReferenceType(node, checker);
   }
   if (ts.isArrayTypeNode(node)) {
-    return { kind: "arrayType", elementType: convertType(node.elementType, checker) };
+    return {
+      kind: "arrayType",
+      elementType: convertType(node.elementType, checker),
+    };
   }
   // ... other types
 };
@@ -232,7 +243,10 @@ type SymbolTable = {
 ### Symbol Resolution
 
 ```typescript
-const resolveSymbol = (name: string, table: SymbolTable): SymbolEntry | undefined => {
+const resolveSymbol = (
+  name: string,
+  table: SymbolTable
+): SymbolEntry | undefined => {
   const entry = table.entries.get(name);
   if (entry) return entry;
   if (table.parent) return resolveSymbol(name, table.parent);
@@ -260,9 +274,9 @@ collector = addDiagnostic(collector, diagnostic);
 
 ### Diagnostic Codes
 
-| Code | Category | Description |
-|------|----------|-------------|
-| TSN1001 | Module | Missing .ts extension |
-| TSN1002 | Module | Cannot resolve module |
-| TSN2001 | Feature | Unsupported feature |
-| TSN3001 | Type | Type error |
+| Code    | Category | Description           |
+| ------- | -------- | --------------------- |
+| TSN1001 | Module   | Missing .ts extension |
+| TSN1002 | Module   | Cannot resolve module |
+| TSN2001 | Feature  | Unsupported feature   |
+| TSN3001 | Type     | Type error            |

@@ -5,6 +5,7 @@ The backend handles .NET compilation.
 ## Overview
 
 The backend:
+
 1. Generates .csproj project files
 2. Generates Program.cs entry points
 3. Invokes dotnet CLI commands
@@ -31,11 +32,9 @@ const csproj = generateCsproj({
     invariantGlobalization: true,
     selfContained: true,
   },
-  packages: [
-    { name: "Newtonsoft.Json", version: "13.0.3" }
-  ],
+  packages: [{ name: "Newtonsoft.Json", version: "13.0.3" }],
   assemblyReferences: [
-    { name: "Tsonic.Runtime", hintPath: "../runtime/Tsonic.Runtime.dll" }
+    { name: "Tsonic.Runtime", hintPath: "../runtime/Tsonic.Runtime.dll" },
   ],
 });
 ```
@@ -96,6 +95,7 @@ const programCs = generateProgramCs({
 ### Generated Program.cs
 
 Sync main:
+
 ```csharp
 public class Program
 {
@@ -107,6 +107,7 @@ public class Program
 ```
 
 Async main:
+
 ```csharp
 public class Program
 {
@@ -118,6 +119,7 @@ public class Program
 ```
 
 With JS runtime initialization:
+
 ```csharp
 public class Program
 {
@@ -179,8 +181,10 @@ const buildExecutable = (config, generatedDir): Result<string, string> => {
   const publishArgs = [
     "publish",
     "tsonic.csproj",
-    "-c", "Release",
-    "-r", config.rid,
+    "-c",
+    "Release",
+    "-r",
+    config.rid,
     "--nologo",
   ];
 
@@ -209,12 +213,7 @@ const buildExecutable = (config, generatedDir): Result<string, string> => {
 ```typescript
 const buildLibrary = (config, generatedDir): Result<string, string> => {
   // 1. Run dotnet build
-  const buildArgs = [
-    "build",
-    "tsonic.csproj",
-    "-c", "Release",
-    "--nologo",
-  ];
+  const buildArgs = ["build", "tsonic.csproj", "-c", "Release", "--nologo"];
 
   const result = spawnSync("dotnet", buildArgs, {
     cwd: generatedDir,
@@ -306,6 +305,7 @@ type AssemblyReference = {
 ## Error Handling
 
 Build errors include:
+
 - dotnet not installed
 - Compilation errors
 - Missing dependencies

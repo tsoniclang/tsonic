@@ -90,7 +90,7 @@ export function main(): void {
   const user: User = {
     id: 1,
     name: "Bob",
-    email: "bob@example.com"
+    email: "bob@example.com",
   };
   displayUser(user);
 }
@@ -147,21 +147,21 @@ export function main(): void {
 enum Status {
   Pending,
   Active,
-  Completed
+  Completed,
 }
 
 enum Color {
   Red = "red",
   Green = "green",
-  Blue = "blue"
+  Blue = "blue",
 }
 
 export function main(): void {
   const status = Status.Active;
-  console.log(status);  // 1
+  console.log(status); // 1
 
   const color = Color.Green;
-  console.log(color);  // "green"
+  console.log(color); // "green"
 }
 ```
 

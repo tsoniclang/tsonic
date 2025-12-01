@@ -19,6 +19,7 @@ npm install -g @tsonic/cli
 ```
 
 **Prerequisites:**
+
 - Node.js 18+
 - .NET 10 SDK
 
@@ -32,6 +33,7 @@ tsonic project init
 ```
 
 This creates:
+
 - `src/App.ts` - Entry point
 - `tsonic.json` - Configuration
 - `package.json` - With build scripts
@@ -55,7 +57,7 @@ export function main(): void {
   console.log(message);
 
   const numbers = [1, 2, 3, 4, 5];
-  const doubled = numbers.map(n => n * 2);
+  const doubled = numbers.map((n) => n * 2);
   console.log("Doubled:", doubled.join(", "));
 }
 ```
@@ -70,7 +72,7 @@ Uses Tsonic.JSRuntime for JavaScript-compatible semantics:
 // Arrays behave like JavaScript
 const arr: number[] = [];
 arr[10] = 42;
-console.log(arr.length);  // 11 (sparse array)
+console.log(arr.length); // 11 (sparse array)
 ```
 
 ### Dotnet Mode
@@ -101,24 +103,24 @@ export function main(): void {
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `tsonic project init` | Initialize new project |
-| `tsonic emit <entry>` | Generate C# code only |
+| Command                | Description             |
+| ---------------------- | ----------------------- |
+| `tsonic project init`  | Initialize new project  |
+| `tsonic emit <entry>`  | Generate C# code only   |
 | `tsonic build <entry>` | Build native executable |
-| `tsonic run <entry>` | Build and run |
+| `tsonic run <entry>`   | Build and run           |
 
 ### Common Options
 
-| Option | Description |
-|--------|-------------|
-| `-c, --config <file>` | Config file (default: tsonic.json) |
-| `-o, --out <path>` | Output path |
-| `-r, --rid <rid>` | Runtime identifier (e.g., linux-x64) |
-| `-O, --optimize <level>` | Optimization: size or speed |
-| `-k, --keep-temp` | Keep build artifacts |
-| `-V, --verbose` | Verbose output |
-| `-q, --quiet` | Suppress output |
+| Option                   | Description                          |
+| ------------------------ | ------------------------------------ |
+| `-c, --config <file>`    | Config file (default: tsonic.json)   |
+| `-o, --out <path>`       | Output path                          |
+| `-r, --rid <rid>`        | Runtime identifier (e.g., linux-x64) |
+| `-O, --optimize <level>` | Optimization: size or speed          |
+| `-k, --keep-temp`        | Keep build artifacts                 |
+| `-V, --verbose`          | Verbose output                       |
+| `-q, --quiet`            | Suppress output                      |
 
 ## Configuration (tsonic.json)
 
@@ -158,12 +160,12 @@ my-app/
 
 ## Type Packages
 
-| Package | Description |
-|---------|-------------|
-| `@tsonic/types` | Core types (int, float, etc.) |
-| `@tsonic/js-globals` | JS mode ambient types |
-| `@tsonic/dotnet-globals` | Dotnet mode ambient types |
-| `@tsonic/dotnet` | .NET BCL type declarations |
+| Package                  | Description                   |
+| ------------------------ | ----------------------------- |
+| `@tsonic/types`          | Core types (int, float, etc.) |
+| `@tsonic/js-globals`     | JS mode ambient types         |
+| `@tsonic/dotnet-globals` | Dotnet mode ambient types     |
+| `@tsonic/dotnet`         | .NET BCL type declarations    |
 
 ## License
 

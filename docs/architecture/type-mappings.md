@@ -4,32 +4,32 @@ How TypeScript types are converted to C# types.
 
 ## Primitive Types
 
-| TypeScript | C# | Notes |
-|------------|-----|-------|
-| `number` | `double` | 64-bit floating point |
-| `string` | `string` | .NET System.String |
-| `boolean` | `bool` | .NET System.Boolean |
-| `null` | `null` | Nullable reference |
-| `undefined` | `null` | Maps to null |
-| `void` | `void` | No return value |
-| `never` | N/A | Compile error |
-| `any` | N/A | Not supported |
-| `unknown` | `object` | Base object type |
+| TypeScript  | C#       | Notes                 |
+| ----------- | -------- | --------------------- |
+| `number`    | `double` | 64-bit floating point |
+| `string`    | `string` | .NET System.String    |
+| `boolean`   | `bool`   | .NET System.Boolean   |
+| `null`      | `null`   | Nullable reference    |
+| `undefined` | `null`   | Maps to null          |
+| `void`      | `void`   | No return value       |
+| `never`     | N/A      | Compile error         |
+| `any`       | N/A      | Not supported         |
+| `unknown`   | `object` | Base object type      |
 
 ## Explicit Numeric Types
 
 From `@tsonic/types`:
 
-| TypeScript | C# | .NET Type |
-|------------|-----|-----------|
-| `int` | `int` | System.Int32 |
-| `float` | `float` | System.Single |
-| `long` | `long` | System.Int64 |
-| `byte` | `byte` | System.Byte |
-| `short` | `short` | System.Int16 |
-| `uint` | `uint` | System.UInt32 |
-| `ulong` | `ulong` | System.UInt64 |
-| `decimal` | `decimal` | System.Decimal |
+| TypeScript | C#        | .NET Type      |
+| ---------- | --------- | -------------- |
+| `int`      | `int`     | System.Int32   |
+| `float`    | `float`   | System.Single  |
+| `long`     | `long`    | System.Int64   |
+| `byte`     | `byte`    | System.Byte    |
+| `short`    | `short`   | System.Int16   |
+| `uint`     | `uint`    | System.UInt32  |
+| `ulong`    | `ulong`   | System.UInt64  |
+| `decimal`  | `decimal` | System.Decimal |
 
 ## Array Types
 
@@ -44,6 +44,7 @@ var arr = new Tsonic.Runtime.Array<double>(1, 2, 3);
 ```
 
 `Array<T>` in JS mode:
+
 - Supports sparse arrays
 - Has `.length` property
 - Supports `.map()`, `.filter()`, `.reduce()`, etc.
@@ -124,12 +125,12 @@ type Transform<T, U> = (input: T) => U;
 
 ### Mapping Table
 
-| TypeScript | C# |
-|------------|-----|
-| `() => void` | `Action` |
-| `(a: T) => void` | `Action<T>` |
-| `() => T` | `Func<T>` |
-| `(a: T) => U` | `Func<T, U>` |
+| TypeScript          | C#              |
+| ------------------- | --------------- |
+| `() => void`        | `Action`        |
+| `(a: T) => void`    | `Action<T>`     |
+| `() => T`           | `Func<T>`       |
+| `(a: T) => U`       | `Func<T, U>`    |
 | `(a: T, b: U) => V` | `Func<T, U, V>` |
 
 ## Object Types
@@ -160,7 +161,7 @@ public class User
 const point = { x: 10, y: 20 };
 
 // C#
-var point = new { x = 10, y = 20 };
+var point = new { x = 10, y = 20 }();
 ```
 
 ## Union Types
@@ -204,7 +205,7 @@ public class ResultError<T> : Result<T>
 type StringOrNumber = string | number;
 
 // C# (fallback to object)
-object
+object;
 ```
 
 ## Intersection Types
@@ -275,15 +276,15 @@ public static class Color
 
 When importing .NET types:
 
-| Import | C# Type |
-|--------|---------|
-| `List<T>` | `System.Collections.Generic.List<T>` |
+| Import            | C# Type                                      |
+| ----------------- | -------------------------------------------- |
+| `List<T>`         | `System.Collections.Generic.List<T>`         |
 | `Dictionary<K,V>` | `System.Collections.Generic.Dictionary<K,V>` |
-| `HashSet<T>` | `System.Collections.Generic.HashSet<T>` |
-| `Task<T>` | `System.Threading.Tasks.Task<T>` |
-| `DateTime` | `System.DateTime` |
-| `TimeSpan` | `System.TimeSpan` |
-| `Guid` | `System.Guid` |
+| `HashSet<T>`      | `System.Collections.Generic.HashSet<T>`      |
+| `Task<T>`         | `System.Threading.Tasks.Task<T>`             |
+| `DateTime`        | `System.DateTime`                            |
+| `TimeSpan`        | `System.TimeSpan`                            |
+| `Guid`            | `System.Guid`                                |
 
 ## Special Considerations
 
@@ -318,6 +319,7 @@ async function getData(): Promise<string> {
 ```
 
 Becomes:
+
 ```csharp
 public static async Task<string> getData()
 {

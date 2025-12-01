@@ -125,11 +125,13 @@ import { User } from "./User";
 **Solutions**:
 
 1. Check .NET SDK version:
+
    ```bash
    dotnet --version  # Should be 10.x
    ```
 
 2. Try manual build:
+
    ```bash
    cd generated
    dotnet build
@@ -164,6 +166,7 @@ import { User } from "./User";
 **Solutions**:
 
 1. Check for null:
+
    ```typescript
    if (value !== null) {
      // safe to use
@@ -200,7 +203,9 @@ Use async/await instead of promise chaining:
 
 ```typescript
 // ❌ Wrong
-fetch(url).then(r => r.json()).then(data => console.log(data));
+fetch(url)
+  .then((r) => r.json())
+  .then((data) => console.log(data));
 
 // ✅ Correct
 const response = await fetch(url);
@@ -215,11 +220,13 @@ console.log(data);
 **Solutions**:
 
 1. Enable trimming:
+
    ```json
    { "output": { "trimmed": true } }
    ```
 
 2. Optimize for size:
+
    ```json
    { "optimize": "size" }
    ```

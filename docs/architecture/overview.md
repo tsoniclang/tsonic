@@ -22,6 +22,7 @@ Backend Layer (C# -> Binary)
 ```
 
 Each layer:
+
 - Has a single responsibility
 - Knows nothing about layers above
 - Communicates via well-defined interfaces
@@ -29,6 +30,7 @@ Each layer:
 ### 2. Functional Core
 
 All business logic is pure functional:
+
 - No mutable state
 - Functions return values, not modify parameters
 - Side effects isolated to boundaries (CLI, I/O)
@@ -57,6 +59,7 @@ const { value } = result;
 ### CLI (`packages/cli`)
 
 Command-line interface and orchestration:
+
 - Argument parsing
 - Configuration loading
 - Command dispatch (init, emit, build, run)
@@ -67,6 +70,7 @@ Entry point for all user interactions.
 ### Frontend (`packages/frontend`)
 
 TypeScript to IR transformation:
+
 - TypeScript program creation (via TS Compiler API)
 - Module resolution
 - Import/export validation
@@ -76,6 +80,7 @@ TypeScript to IR transformation:
 ### Emitter (`packages/emitter`)
 
 IR to C# code generation:
+
 - Type emission
 - Expression emission
 - Statement emission
@@ -85,6 +90,7 @@ IR to C# code generation:
 ### Backend (`packages/backend`)
 
 .NET compilation:
+
 - .csproj generation
 - Program.cs generation
 - dotnet CLI wrapper
@@ -93,6 +99,7 @@ IR to C# code generation:
 ### Runtime (`runtime/`)
 
 C# runtime libraries:
+
 - `Tsonic.Runtime`: Core types and utilities
 - `Tsonic.JSRuntime`: JavaScript-compatible collections
 
@@ -129,6 +136,7 @@ C# runtime libraries:
 ### Key Data Structures
 
 **IrModule**: Represents a compiled TypeScript file
+
 ```typescript
 type IrModule = {
   filePath: string;
@@ -141,6 +149,7 @@ type IrModule = {
 ```
 
 **ResolvedConfig**: Merged configuration
+
 ```typescript
 type ResolvedConfig = {
   rootNamespace: string;
@@ -160,7 +169,7 @@ All errors are collected as diagnostics:
 
 ```typescript
 type Diagnostic = {
-  code: string;        // e.g., "TSN1001"
+  code: string; // e.g., "TSN1001"
   severity: "error" | "warning";
   message: string;
   location?: SourceLocation;
@@ -170,13 +179,13 @@ type Diagnostic = {
 
 ### Diagnostic Codes
 
-| Range | Category |
-|-------|----------|
-| TSN1xxx | Module resolution |
+| Range   | Category               |
+| ------- | ---------------------- |
+| TSN1xxx | Module resolution      |
 | TSN2xxx | Syntax/feature support |
-| TSN3xxx | Type system |
-| TSN4xxx | Code generation |
-| TSN5xxx | Build/runtime |
+| TSN3xxx | Type system            |
+| TSN4xxx | Code generation        |
+| TSN5xxx | Build/runtime          |
 
 ### Error Propagation
 
@@ -197,6 +206,7 @@ if (!validateResult.ok) return validateResult;
 ### Custom Libraries
 
 External .NET library bindings via `--lib`:
+
 - TypeScript declarations describe .NET API
 - Compiler resolves types
 - Generated code references library
@@ -204,6 +214,7 @@ External .NET library bindings via `--lib`:
 ### Output Types
 
 Multiple output configurations:
+
 - Executable (NativeAOT)
 - Library (DLL)
 - Console app (non-AOT)
@@ -211,6 +222,7 @@ Multiple output configurations:
 ### NuGet Integration
 
 Packages specified in config:
+
 - Added to .csproj
 - Restored by dotnet
 - Available in generated code

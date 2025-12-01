@@ -4,16 +4,16 @@ Tsonic uses diagnostic codes in the format `TSNxxxx` to identify specific errors
 
 ## Error Code Ranges
 
-| Range | Category |
-|-------|----------|
-| TSN1xxx | Module resolution and imports |
-| TSN2xxx | Type system errors |
-| TSN3xxx | C# identifier and keyword errors |
-| TSN4xxx | .NET interop errors |
-| TSN5xxx | NativeAOT and runtime errors |
-| TSN6xxx | Internal compiler errors |
+| Range   | Category                          |
+| ------- | --------------------------------- |
+| TSN1xxx | Module resolution and imports     |
+| TSN2xxx | Type system errors                |
+| TSN3xxx | C# identifier and keyword errors  |
+| TSN4xxx | .NET interop errors               |
+| TSN5xxx | NativeAOT and runtime errors      |
+| TSN6xxx | Internal compiler errors          |
 | TSN7xxx | Language semantics and validation |
-| TSN9xxx | Metadata and bindings loading |
+| TSN9xxx | Metadata and bindings loading     |
 
 ## TSN1xxx: Module Resolution
 
@@ -46,7 +46,7 @@ Import path case doesn't match file on disk.
 
 ```typescript
 // File: ./models/User.ts
-import { User } from "./models/user.ts";  // Wrong case
+import { User } from "./models/user.ts"; // Wrong case
 ```
 
 ### TSN1004: Module Not Found
@@ -69,8 +69,8 @@ Feature not supported in Tsonic.
 
 ```typescript
 // Examples of unsupported features:
-type Readonly<T> = { readonly [K in keyof T]: T[K] };  // Mapped types
-type Result<T> = T extends string ? string : number;   // Conditional types
+type Readonly<T> = { readonly [K in keyof T]: T[K] }; // Mapped types
+type Result<T> = T extends string ? string : number; // Conditional types
 ```
 
 ### TSN2002: Invalid Type Mapping
@@ -83,7 +83,7 @@ File name conflicts with an exported member name.
 
 ```typescript
 // File: User.ts
-export class User {}  // Conflicts with file name
+export class User {} // Conflicts with file name
 ```
 
 **Fix:** Rename either the file or the export.
@@ -96,7 +96,7 @@ Identifier uses a C# reserved keyword.
 
 ```typescript
 // "class", "namespace", "event", etc. are reserved in C#
-const event = "click";  // Error
+const event = "click"; // Error
 ```
 
 ### TSN3002: Invalid C# Identifier
@@ -109,7 +109,7 @@ Identifier cannot be used in C#.
 
 ```typescript
 // Wrong
-promise.then(result => doSomething(result));
+promise.then((result) => doSomething(result));
 
 // Correct - use async/await
 const result = await promise;
@@ -189,7 +189,8 @@ interface Printable {
   print(): void;
 }
 
-class Document implements Printable {  // Error
+class Document implements Printable {
+  // Error
   print(): void {}
 }
 ```
@@ -197,7 +198,8 @@ class Document implements Printable {  // Error
 In Tsonic, TypeScript interfaces become C# classes. Use `extends` instead:
 
 ```typescript
-class Document extends Printable {  // Correct
+class Document extends Printable {
+  // Correct
   print(): void {}
 }
 ```
@@ -226,7 +228,10 @@ Object literals need a contextual nominal type.
 const obj = { x: 1, y: 2 };
 
 // Correct
-interface Point { x: number; y: number; }
+interface Point {
+  x: number;
+  y: number;
+}
 const obj: Point = { x: 1, y: 2 };
 ```
 
@@ -252,47 +257,47 @@ Dictionary keys must be string type.
 
 Errors loading `.metadata.json` files:
 
-| Code | Error |
-|------|-------|
-| TSN9001 | Metadata file not found |
-| TSN9002 | Failed to read metadata file |
-| TSN9003 | Invalid JSON in metadata file |
-| TSN9004 | Metadata file must be an object |
-| TSN9005 | Missing or invalid 'namespace' field |
-| TSN9006 | Missing or invalid 'contributingAssemblies' field |
-| TSN9007 | All 'contributingAssemblies' must be strings |
-| TSN9008 | Missing or invalid 'types' field |
-| TSN9009 | Invalid type: must be an object |
-| TSN9010 | Invalid type: missing or invalid field |
-| TSN9011 | Invalid type: 'kind' must be one of ... |
-| TSN9012 | Invalid type: 'accessibility' must be one of ... |
-| TSN9013 | Invalid type: field must be a boolean |
+| Code    | Error                                               |
+| ------- | --------------------------------------------------- |
+| TSN9001 | Metadata file not found                             |
+| TSN9002 | Failed to read metadata file                        |
+| TSN9003 | Invalid JSON in metadata file                       |
+| TSN9004 | Metadata file must be an object                     |
+| TSN9005 | Missing or invalid 'namespace' field                |
+| TSN9006 | Missing or invalid 'contributingAssemblies' field   |
+| TSN9007 | All 'contributingAssemblies' must be strings        |
+| TSN9008 | Missing or invalid 'types' field                    |
+| TSN9009 | Invalid type: must be an object                     |
+| TSN9010 | Invalid type: missing or invalid field              |
+| TSN9011 | Invalid type: 'kind' must be one of ...             |
+| TSN9012 | Invalid type: 'accessibility' must be one of ...    |
+| TSN9013 | Invalid type: field must be a boolean               |
 | TSN9014 | Invalid type: 'arity' must be a non-negative number |
-| TSN9015 | Invalid type: field must be an array |
-| TSN9016 | Metadata directory not found |
-| TSN9017 | Not a directory |
-| TSN9018 | No .metadata.json files found |
+| TSN9015 | Invalid type: field must be an array                |
+| TSN9016 | Metadata directory not found                        |
+| TSN9017 | Not a directory                                     |
+| TSN9018 | No .metadata.json files found                       |
 
 ### TSN9101-TSN9114: Bindings Errors
 
 Errors loading `.bindings.json` files:
 
-| Code | Error |
-|------|-------|
-| TSN9101 | Bindings file not found |
-| TSN9102 | Failed to read bindings file |
-| TSN9103 | Invalid JSON in bindings file |
-| TSN9104 | Bindings file must be an object |
-| TSN9105 | Missing or invalid 'namespace' field |
-| TSN9106 | Missing or invalid 'types' field |
-| TSN9107 | Invalid type binding: must be an object |
-| TSN9108 | Invalid type binding: missing or invalid field |
-| TSN9109 | Invalid type binding: 'metadataToken' must be a number |
+| Code    | Error                                                      |
+| ------- | ---------------------------------------------------------- |
+| TSN9101 | Bindings file not found                                    |
+| TSN9102 | Failed to read bindings file                               |
+| TSN9103 | Invalid JSON in bindings file                              |
+| TSN9104 | Bindings file must be an object                            |
+| TSN9105 | Missing or invalid 'namespace' field                       |
+| TSN9106 | Missing or invalid 'types' field                           |
+| TSN9107 | Invalid type binding: must be an object                    |
+| TSN9108 | Invalid type binding: missing or invalid field             |
+| TSN9109 | Invalid type binding: 'metadataToken' must be a number     |
 | TSN9110 | Invalid type binding: V1 field must be an array if present |
 | TSN9111 | Invalid type binding: V2 field must be an array if present |
-| TSN9112 | Bindings directory not found |
-| TSN9113 | Not a directory |
-| TSN9114 | No .bindings.json files found |
+| TSN9112 | Bindings directory not found                               |
+| TSN9113 | Not a directory                                            |
+| TSN9114 | No .bindings.json files found                              |
 
 ## Getting Help
 
