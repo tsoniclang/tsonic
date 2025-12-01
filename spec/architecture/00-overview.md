@@ -525,12 +525,16 @@ const buildIr = (program: TsonicProgram): Result<IrModule[], Diagnostic[]> => {
 │   ├── backend/     # Phase 7: C# → Binary
 │   └── cli/         # Phase 8: CLI orchestration
 ├── scripts/
-│   ├── build.sh     # Build all packages
-│   ├── clean.sh     # Clean build artifacts
-│   ├── test.sh      # Run all tests
-│   ├── format-all.sh
-│   └── lint-all.sh
-└── package.json     # Root package.json
+│   └── build/
+│       ├── all.sh       # Build all packages
+│       ├── clean.sh     # Clean build artifacts
+│       ├── format.sh    # Format code
+│       ├── lint.sh      # Lint code
+│       └── npm.sh       # Build npm package
+├── test/
+│   ├── fixtures/        # E2E test fixtures
+│   └── scripts/         # E2E test runners
+└── package.json         # Root package.json
 ```
 
 ### 5.2 Package Responsibilities
