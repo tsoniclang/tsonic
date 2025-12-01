@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # Change to the project root directory
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 echo "=== Running ESLint across all packages ==="
 

@@ -522,7 +522,7 @@ const emit = (ir: IrModule): string => {
 npm install
 
 # Build all packages
-./scripts/build.sh
+./scripts/build/all.sh
 
 # Run tests
 npm test
@@ -530,17 +530,20 @@ npm test
 # Run specific test
 npm test -- --grep "pattern"
 
+# Run E2E tests
+./test/scripts/run-all.sh
+
 # Clean build artifacts
-./scripts/clean.sh
+./scripts/build/clean.sh
 
 # Clean everything including node_modules
-./scripts/clean.sh --all
+./scripts/build/clean.sh --all
 
 # Format code
-./scripts/format-all.sh
+./scripts/build/format.sh
 
 # Lint code
-./scripts/lint-all.sh
+./scripts/build/lint.sh
 ```
 
 ## Git Workflow

@@ -9,7 +9,7 @@ OUTPUT_DIR=$2
 RUNTIME_MODE=${3:-dotnet}
 
 # Paths
-PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TSONIC_CLI="$PROJECT_ROOT/packages/cli/dist/index.js"
 LOG_FILE="$OUTPUT_DIR/test.log"
 

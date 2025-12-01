@@ -5,7 +5,7 @@ set -e
 # This script bundles all packages and includes runtime DLLs
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NPM_DIR="$ROOT_DIR/npm/tsonic"
 
 # Colors

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Change to the project root directory
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 echo "=== Building Tsonic ==="
 
@@ -25,18 +25,12 @@ PACKAGES=(
 
 # 1 ▸ clean if --clean flag present
 if [[ "$*" == *--clean* ]]; then
-  ./scripts/clean.sh
+  ./scripts/build/clean.sh
 fi
 
 # 2 ▸ install dependencies if --clean or --install flag present
 if [[ "$*" == *--clean* || "$*" == *--install* ]]; then
-  if [[ "$*" == *--clean* ]]; then
-    # Clean already removed node_modules, so normal install
-    ./scripts/install-deps.sh
-  elif [[ "$*" == *--install* ]]; then
-    # Install without clean, so use --force
-    ./scripts/install-deps.sh --force
-  fi
+  npm install
 fi
 
 # 3 ▸ build each package that defines a build script, in order
@@ -57,7 +51,7 @@ done
 # 4 ▸ format all code unless --no-format is passed
 if [[ "$*" != *--no-format* ]]; then
   echo "Running prettier…"
-  ./scripts/format-all.sh
+  ./scripts/build/format.sh
 fi
 
 echo "=== Build completed ===="
