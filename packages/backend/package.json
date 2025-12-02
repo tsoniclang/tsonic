@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/backend",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": ".NET build orchestration for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",

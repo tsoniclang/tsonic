@@ -13,6 +13,7 @@ import {
 import { emitType, emitTypeParameters } from "../../../type-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { emitParameters } from "../parameters.js";
+import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 
 /**
  * Emit a method declaration
@@ -68,8 +69,8 @@ export const emitMethodMember = (
     parts.push(member.isAsync ? "global::System.Threading.Tasks.Task" : "void");
   }
 
-  // Method name
-  parts.push(member.name);
+  // Method name (escape C# keywords)
+  parts.push(escapeCSharpIdentifier(member.name));
 
   // Type parameters
   const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
@@ -99,7 +100,7 @@ export const emitMethodMember = (
 
   const [bodyCode, finalContext] = emitBlockStatement(member.body, bodyContext);
 
-  // Collect out parameters that need initialization
+  // Collect out parameters that need initialization (escape C# keywords)
   const outParams: Array<{ name: string; type: string }> = [];
   for (const param of member.parameters) {
     // Use param.passing to detect out parameters (type is already unwrapped by frontend)
@@ -110,7 +111,10 @@ export const emitMethodMember = (
         const [typeStr] = emitType(param.type, currentContext);
         typeName = typeStr;
       }
-      outParams.push({ name: param.pattern.name, type: typeName });
+      outParams.push({
+        name: escapeCSharpIdentifier(param.pattern.name),
+        type: typeName,
+      });
     }
   }
 

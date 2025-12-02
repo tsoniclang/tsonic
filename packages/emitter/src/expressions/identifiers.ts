@@ -5,6 +5,7 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitType } from "../type-emitter.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
  * Fallback mappings for well-known runtime globals
@@ -72,8 +73,8 @@ export const emitIdentifier = (
     }
   }
 
-  // Fallback: use identifier as-is
-  return [{ text: expr.name }, context];
+  // Fallback: use identifier as-is (escape C# keywords)
+  return [{ text: escapeCSharpIdentifier(expr.name) }, context];
 };
 
 /**

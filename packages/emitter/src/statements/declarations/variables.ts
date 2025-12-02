@@ -6,6 +6,7 @@ import { IrStatement, IrArrayPattern } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit a variable declaration
@@ -93,8 +94,8 @@ export const emitVariableDeclaration = (
 
     // Handle different pattern types
     if (decl.name.kind === "identifierPattern") {
-      // Simple identifier pattern
-      varDecl += decl.name.name;
+      // Simple identifier pattern (escape C# keywords)
+      varDecl += escapeCSharpIdentifier(decl.name.name);
 
       // Add initializer if present
       if (decl.initializer) {
@@ -126,12 +127,13 @@ export const emitVariableDeclaration = (
       currentContext = newContext;
 
       const arrayPattern = decl.name as IrArrayPattern;
-      // Use global:: prefix for Tsonic.Runtime.Array static helpers
+      // Use global:: prefix for Tsonic.JSRuntime.Array static helpers
       for (let i = 0; i < arrayPattern.elements.length; i++) {
         const element = arrayPattern.elements[i];
         if (element && element.kind === "identifierPattern") {
-          // Use double literal for index (JavaScript uses doubles for all numbers)
-          const elementVarDecl = `${varDecl}${element.name} = global::Tsonic.Runtime.Array.get(${initFrag.text}, ${i}.0);`;
+          // Escape C# keywords and use integer index
+          const escapedName = escapeCSharpIdentifier(element.name);
+          const elementVarDecl = `${varDecl}${escapedName} = global::Tsonic.JSRuntime.Array.get(${initFrag.text}, ${i});`;
           declarations.push(`${ind}${elementVarDecl}`);
         }
         // Skip undefined elements (holes in array pattern)

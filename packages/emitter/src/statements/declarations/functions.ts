@@ -13,6 +13,7 @@ import {
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
 import { emitParameters } from "../classes.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit a function declaration
@@ -73,7 +74,7 @@ export const emitFunctionDeclaration = (
   }
 
   // Function name
-  parts.push(stmt.name);
+  parts.push(escapeCSharpIdentifier(stmt.name));
 
   // Type parameters
   const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
@@ -104,7 +105,10 @@ export const emitFunctionDeclaration = (
         const [typeStr] = emitType(param.type, currentContext);
         typeName = typeStr;
       }
-      outParams.push({ name: param.pattern.name, type: typeName });
+      outParams.push({
+        name: escapeCSharpIdentifier(param.pattern.name),
+        type: typeName,
+      });
     }
   }
 

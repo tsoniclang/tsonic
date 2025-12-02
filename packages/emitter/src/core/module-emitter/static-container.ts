@@ -6,6 +6,7 @@ import { IrModule, IrStatement } from "@tsonic/frontend";
 import { EmitterContext, indent, getIndent, withStatic } from "../../types.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { emitExport } from "../exports.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 export type StaticContainerResult = {
   readonly code: string;
@@ -41,7 +42,8 @@ export const emitStaticContainer = (
   const ind = getIndent(classContext);
 
   const containerParts: string[] = [];
-  containerParts.push(`${ind}public static class ${module.className}`);
+  const escapedClassName = escapeCSharpIdentifier(module.className);
+  containerParts.push(`${ind}public static class ${escapedClassName}`);
   containerParts.push(`${ind}{`);
 
   const bodyParts: string[] = [];

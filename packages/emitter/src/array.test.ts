@@ -296,6 +296,6 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should use static helper for array access with global:: prefix
-    expect(code).to.include("global::Tsonic.Runtime.Array.get(arr, 0)");
+    expect(code).to.include("global::Tsonic.JSRuntime.Array.get(arr, 0)");
   });
 });

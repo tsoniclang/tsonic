@@ -7,6 +7,7 @@ import { EmitterContext, getIndent } from "../../types.js";
 import { emitType } from "../../type-emitter.js";
 import { capitalize } from "./helpers.js";
 import { emitParameters } from "./parameters.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit interface member as C# auto-property (for classes)
@@ -48,8 +49,8 @@ export const emitInterfaceMemberAsProperty = (
         parts.push(typeStr);
       }
 
-      // Property name
-      parts.push(member.name);
+      // Property name (escape C# keywords)
+      parts.push(escapeCSharpIdentifier(member.name));
 
       // Getter/setter (readonly is get-only)
       const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
@@ -75,8 +76,8 @@ export const emitInterfaceMemberAsProperty = (
         parts.push("void");
       }
 
-      // Method name
-      parts.push(member.name);
+      // Method name (escape C# keywords)
+      parts.push(escapeCSharpIdentifier(member.name));
 
       // Parameters
       const params = emitParameters(member.parameters, currentContext);
