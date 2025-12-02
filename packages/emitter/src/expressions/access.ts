@@ -9,6 +9,7 @@ import {
   isExplicitViewProperty,
   extractInterfaceNameFromView,
 } from "@tsonic/frontend/types/explicit-views.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
  * Check if an expression represents a static type reference (not an instance)
@@ -81,10 +82,8 @@ export const emitMemberAccess = (
     const objectType = expr.object.inferredType;
     const isArrayType = objectType?.kind === "arrayType";
 
-    // For TS arrays, use Tsonic.Runtime.Array.get() in BOTH modes
+    // For TS arrays, use Tsonic.JSRuntime.Array.get() in BOTH modes
     // This provides TS array semantics (auto-grow, sparse arrays, etc.)
-    // Note: Tsonic.Runtime is compiler support for lowered TS constructs (both modes)
-    //       Tsonic.JSRuntime is JS built-ins like .map/.filter (js mode only)
     if (isArrayType) {
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
@@ -92,7 +91,7 @@ export const emitMemberAccess = (
         indexContext
       );
       const finalContext = { ...contextWithIndex, isArrayIndex: false };
-      const text = `global::Tsonic.Runtime.Array.get(${objectFrag.text}, ${propFrag.text})`;
+      const text = `global::Tsonic.JSRuntime.Array.get(${objectFrag.text}, ${propFrag.text})`;
       return [{ text }, finalContext];
     }
 
@@ -124,10 +123,21 @@ export const emitMemberAccess = (
   const objectType = expr.object.inferredType;
   const isArrayType = objectType?.kind === "arrayType";
 
-  // In JS runtime mode, rewrite array.length → global::Tsonic.Runtime.Array.length(array)
+  // In JS runtime mode, rewrite array.length → global::Tsonic.JSRuntime.Array.length(array)
   // In dotnet mode, there is no JS emulation - users access .Count directly on List<T>
   if (isArrayType && prop === "length" && runtime === "js") {
-    const text = `global::Tsonic.Runtime.Array.length(${objectFrag.text})`;
+    const text = `global::Tsonic.JSRuntime.Array.length(${objectFrag.text})`;
+    return [{ text }, newContext];
+  }
+
+  // Check if this is a string type
+  const isStringType =
+    objectType?.kind === "primitiveType" && objectType.name === "string";
+
+  // In JS runtime mode, rewrite string.length → global::Tsonic.JSRuntime.String.length(string)
+  // In dotnet mode, use C#'s native .Length property
+  if (isStringType && prop === "length" && runtime === "js") {
+    const text = `global::Tsonic.JSRuntime.String.length(${objectFrag.text})`;
     return [{ text }, newContext];
   }
 
@@ -145,6 +155,6 @@ export const emitMemberAccess = (
 
   // Regular property access
   const accessor = expr.isOptional ? "?." : ".";
-  const text = `${objectFrag.text}${accessor}${prop}`;
+  const text = `${objectFrag.text}${accessor}${escapeCSharpIdentifier(prop)}`;
   return [{ text }, newContext];
 };

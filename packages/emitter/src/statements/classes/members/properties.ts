@@ -6,6 +6,7 @@ import { IrClassMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitType } from "../../../type-emitter.js";
+import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 
 /**
  * Emit a property declaration
@@ -45,8 +46,8 @@ export const emitPropertyMember = (
     parts.push("object");
   }
 
-  // Property name
-  parts.push(member.name);
+  // Property name (escape C# keywords)
+  parts.push(escapeCSharpIdentifier(member.name));
 
   // Emit as field (TypeScript class fields map to C# fields, not properties)
   let code = `${ind}${parts.join(" ")}`;

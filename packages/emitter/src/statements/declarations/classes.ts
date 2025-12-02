@@ -12,6 +12,7 @@ import {
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit a class declaration
@@ -28,9 +29,10 @@ export const emitClassDeclaration = (
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
 
-  // Emit struct or class based on isStruct flag
+  // Emit struct or class based on isStruct flag (escape C# keywords)
   parts.push(stmt.isStruct ? "struct" : "class");
-  parts.push(stmt.name);
+  const escapedClassName = escapeCSharpIdentifier(stmt.name);
+  parts.push(escapedClassName);
 
   // Type parameters
   const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
@@ -67,8 +69,8 @@ export const emitClassDeclaration = (
       ? `\n${ind}    ${whereClauses.join(`\n${ind}    `)}`
       : "";
 
-  // Class body
-  const baseContext = withClassName(indent(currentContext), stmt.name);
+  // Class body (use escaped class name)
+  const baseContext = withClassName(indent(currentContext), escapedClassName);
   // Only set hasSuperClass flag if there's actually a superclass (for inheritance)
   const bodyContext = stmt.superClass
     ? { ...baseContext, hasSuperClass: true }

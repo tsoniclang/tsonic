@@ -10,6 +10,7 @@ import {
   emitExtractedType,
   emitInterfaceMemberAsProperty,
 } from "../classes.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit an interface declaration (as C# class)
@@ -45,7 +46,7 @@ export const emitInterfaceDeclaration = (
   parts.push(accessibility);
   // Emit struct or class based on isStruct flag
   parts.push(stmt.isStruct ? "struct" : "class");
-  parts.push(stmt.name);
+  parts.push(escapeCSharpIdentifier(stmt.name));
 
   // Type parameters (if any)
   if (stmt.typeParameters && stmt.typeParameters.length > 0) {

@@ -6,6 +6,7 @@ import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitStatement } from "../../statement-emitter.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -166,7 +167,7 @@ export const emitForStatement = (
   if (stmt.initializer) {
     if (canonicalLoop) {
       // Canonical integer loop: emit `int varName = value` directly
-      init = `int ${canonicalLoop.varName} = ${canonicalLoop.initialValue}`;
+      init = `int ${escapeCSharpIdentifier(canonicalLoop.varName)} = ${canonicalLoop.initialValue}`;
     } else if (stmt.initializer.kind === "variableDeclaration") {
       const [initCode, newContext] = emitStatement(
         stmt.initializer,
@@ -244,7 +245,9 @@ export const emitForOfStatement = (
 
   // Use foreach in C#
   const varName =
-    stmt.variable.kind === "identifierPattern" ? stmt.variable.name : "item";
+    stmt.variable.kind === "identifierPattern"
+      ? escapeCSharpIdentifier(stmt.variable.name)
+      : "item";
   const code = `${ind}foreach (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
   return [code, dedent(bodyContext)];
 };

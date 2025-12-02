@@ -6,6 +6,7 @@ import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { capitalize } from "./helpers.js";
 import { emitInterfaceMemberAsProperty } from "./properties.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Extracted inline object type
@@ -51,7 +52,8 @@ export const emitExtractedType = (
   let currentContext = context;
 
   const parts: string[] = [];
-  parts.push(`${ind}public class ${extracted.className}`);
+  const escapedClassName = escapeCSharpIdentifier(extracted.className);
+  parts.push(`${ind}public class ${escapedClassName}`);
   parts.push(`${ind}{`);
 
   // Emit properties

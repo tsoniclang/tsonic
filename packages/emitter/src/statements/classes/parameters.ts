@@ -6,6 +6,7 @@ import { IrParameter, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitParameterType } from "../../type-emitter.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit parameters for functions and methods
@@ -35,15 +36,15 @@ export const emitParameters = (
       );
       currentContext = newContext;
       paramType = typeName;
-      // TODO: Rest parameters currently map to Tsonic.Runtime.Array<T> to preserve
+      // TODO: Rest parameters currently map to Tsonic.JSRuntime.Array<T> to preserve
       // JavaScript semantics (reduce, join, etc.). In future, could optimize to
       // params T[] and wrap with Array.from() at call sites.
     }
 
-    // Parameter name
+    // Parameter name (escape C# keywords)
     let paramName = "param";
     if (param.pattern.kind === "identifierPattern") {
-      paramName = param.pattern.name;
+      paramName = escapeCSharpIdentifier(param.pattern.name);
     }
 
     // Construct parameter string with modifier if present

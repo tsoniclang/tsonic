@@ -5,6 +5,7 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit an enum declaration
@@ -17,16 +18,19 @@ export const emitEnumDeclaration = (
   const memberInd = getIndent(indent(context));
 
   const accessibility = stmt.isExported ? "public" : "internal";
+  // Enum values require integers, use isArrayIndex to force integer emission
+  const enumContext = { ...context, isArrayIndex: true };
   const members = stmt.members
     .map((member) => {
+      const escapedName = escapeCSharpIdentifier(member.name);
       if (member.initializer) {
-        const [initFrag] = emitExpression(member.initializer, context);
-        return `${memberInd}${member.name} = ${initFrag.text}`;
+        const [initFrag] = emitExpression(member.initializer, enumContext);
+        return `${memberInd}${escapedName} = ${initFrag.text}`;
       }
-      return `${memberInd}${member.name}`;
+      return `${memberInd}${escapedName}`;
     })
     .join(",\n");
 
-  const code = `${ind}${accessibility} enum ${stmt.name}\n${ind}{\n${members}\n${ind}}`;
+  const code = `${ind}${accessibility} enum ${escapeCSharpIdentifier(stmt.name)}\n${ind}{\n${members}\n${ind}}`;
   return [code, context];
 };

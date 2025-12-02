@@ -5,6 +5,7 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit a type alias declaration
@@ -34,7 +35,7 @@ export const emitTypeAliasDeclaration = (
       parts.push("sealed");
       parts.push("class");
     }
-    parts.push(`${stmt.name}__Alias`); // Add __Alias suffix per spec §3.4
+    parts.push(`${escapeCSharpIdentifier(stmt.name)}__Alias`); // Add __Alias suffix per spec §3.4
 
     // Type parameters (if any)
     if (stmt.typeParameters && stmt.typeParameters.length > 0) {
@@ -74,7 +75,7 @@ export const emitTypeAliasDeclaration = (
             propParts.push(member.isOptional ? "object?" : "object");
           }
 
-          propParts.push(member.name);
+          propParts.push(escapeCSharpIdentifier(member.name));
 
           // Readonly uses private set
           const accessors = member.isReadonly
