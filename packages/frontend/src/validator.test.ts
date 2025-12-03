@@ -501,6 +501,42 @@ describe("Static Safety Validation", () => {
       );
       expect(paramDiag).to.equal(undefined);
     });
+
+    it("should allow Promise executor callback without explicit types", () => {
+      const source = `
+        export async function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(resolve, ms);
+          });
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow Promise executor with both resolve and reject", () => {
+      const source = `
+        export function fetchData(): Promise<string> {
+          return new Promise((resolve, reject) => {
+            resolve("data");
+          });
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
   });
 
   describe("TSN7413 - Dictionary key must be string", () => {

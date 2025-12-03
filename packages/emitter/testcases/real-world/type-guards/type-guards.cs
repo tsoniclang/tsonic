@@ -31,19 +31,19 @@ namespace TestCases.realworld.typeguards
 
             public static class typeguards
             {
-                // type Account = Union<User, Admin, Guest>
+                // type Account = global::Tsonic.Runtime.Union<User, Admin, Guest>
 
-                public static dynamic isUser(Account account)
+                public static bool isUser(Account account)
                     {
                     return account.type == "user";
                     }
 
-                public static dynamic isAdmin(Account account)
+                public static bool isAdmin(Account account)
                     {
                     return account.type == "admin";
                     }
 
-                public static dynamic isGuest(Account account)
+                public static bool isGuest(Account account)
                     {
                     return account.type == "guest";
                     }
@@ -57,7 +57,7 @@ namespace TestCases.realworld.typeguards
                     else
                         if (isAdmin(account))
                             {
-                            return $"Admin: {account.username} with {global::Tsonic.Runtime.Array.length(account.permissions)} permissions";
+                            return $"Admin: {account.username} with {(global::Tsonic.JSRuntime.Array.length(account.permissions))} permissions";
                             }
                         else
                             if (isGuest(account))
@@ -90,7 +90,7 @@ namespace TestCases.realworld.typeguards
                     else
                         if (global::Tsonic.Runtime.Operators.@typeof(value) == "number")
                             {
-                            return global::Tsonic.JSRuntime.Number.toFixed(value, 2);
+                            return global::Tsonic.JSRuntime.Number.toFixed(value, 2.0);
                             }
                         else
                             {
@@ -98,9 +98,9 @@ namespace TestCases.realworld.typeguards
                             }
                     }
 
-                public static dynamic isStringArray(object? arr)
+                public static bool isStringArray(object? arr)
                     {
-                    return global::Tsonic.JSRuntime.Array.isArray(arr) && global::Tsonic.JSRuntime.Array.every(arr, (item) => global::Tsonic.Runtime.Operators.@typeof(item) == "string");
+                    return Array.isArray(arr) && global::Tsonic.JSRuntime.Array.every(arr, (object? item) => global::Tsonic.Runtime.Operators.@typeof(item) == "string");
                     }
             }
 }
