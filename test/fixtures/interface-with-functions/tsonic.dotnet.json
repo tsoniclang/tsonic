@@ -1,0 +1,6 @@
+{
+  "entry": "src/index.ts",
+  "rootNamespace": "InterfaceWithFunctions",
+  "outputName": "interface-with-functions",
+  "runtime": "dotnet"
+}

@@ -69,16 +69,22 @@ export const emitModule = (
     hasInheritance
   );
 
-  // Emit static container class unless there's a namespace-level class with same name
+  // Emit static container class if there are any static members
+  // Use __Module suffix when there's a name collision with namespace-level declarations
   let staticContainerCode = "";
   let finalContext = namespaceResult.context;
 
-  if (!hasMatchingClassName(namespaceLevelDecls, module.className)) {
+  if (staticContainerMembers.length > 0) {
+    const hasCollision = hasMatchingClassName(
+      namespaceLevelDecls,
+      module.className
+    );
     const containerResult = emitStaticContainer(
       module,
       staticContainerMembers,
       namespaceResult.context, // Use context from namespace declarations to preserve usings
-      hasInheritance
+      hasInheritance,
+      hasCollision // Add __Module suffix only when there's a name collision
     );
     staticContainerCode = containerResult.code;
     finalContext = containerResult.context;

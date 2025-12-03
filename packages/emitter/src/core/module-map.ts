@@ -102,10 +102,21 @@ export const buildModuleMap = (
   // Build the map
   for (const module of modules) {
     const canonicalPath = canonicalizeFilePath(module.filePath);
+
+    // Check if module has a type declaration (class/interface) with same name as className
+    // This determines whether value imports need to use __Module suffix
+    const hasTypeCollision = module.body.some(
+      (stmt) =>
+        (stmt.kind === "classDeclaration" ||
+          stmt.kind === "interfaceDeclaration") &&
+        stmt.name === module.className
+    );
+
     map.set(canonicalPath, {
       namespace: module.namespace,
       className: module.className,
       filePath: canonicalPath,
+      hasTypeCollision,
     });
   }
 

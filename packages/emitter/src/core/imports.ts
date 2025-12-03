@@ -71,7 +71,8 @@ export const processImports = (
               spec,
               targetModule.namespace,
               targetModule.className,
-              actualExportName
+              actualExportName,
+              targetModule.hasTypeCollision
             );
             if (binding) {
               importBindings.set(binding.localName, binding.importBinding);
@@ -161,10 +162,15 @@ const createImportBinding = (
   spec: IrImportSpecifier,
   namespace: string,
   containerClassName: string,
-  resolvedExportName: string
+  resolvedExportName: string,
+  hasTypeCollision: boolean = false
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
-  const containerFqn = `global::${namespace}.${containerClassName}`;
+  // Value exports live in ClassName__Module when there's a type collision, otherwise in ClassName
+  const valueContainerName = hasTypeCollision
+    ? `${containerClassName}__Module`
+    : containerClassName;
+  const valueContainerFqn = `global::${namespace}.${valueContainerName}`;
 
   if (spec.kind === "named") {
     // Use isType from frontend (determined by TS checker)
@@ -181,12 +187,12 @@ const createImportBinding = (
         },
       };
     } else {
-      // Value import: clrName is container, member is the export name
+      // Value import: clrName is the value container, member is the export name
       return {
         localName,
         importBinding: {
           kind: "value",
-          clrName: containerFqn,
+          clrName: valueContainerFqn,
           member: resolvedExportName,
         },
       };
@@ -194,24 +200,24 @@ const createImportBinding = (
   }
 
   if (spec.kind === "default") {
-    // Default export binds to the container class itself
+    // Default export binds to the value container class
     // TODO: Consider adding diagnostic for unsupported default exports
     return {
       localName,
       importBinding: {
         kind: "value",
-        clrName: containerFqn,
+        clrName: valueContainerFqn,
       },
     };
   }
 
   if (spec.kind === "namespace") {
-    // Namespace imports (import * as M) - bind to the container class
+    // Namespace imports (import * as M) - bind to the value container class
     return {
       localName,
       importBinding: {
         kind: "namespace",
-        clrName: containerFqn,
+        clrName: valueContainerFqn,
       },
     };
   }
