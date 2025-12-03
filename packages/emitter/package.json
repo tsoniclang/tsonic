@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "rm -rf dist *.tsbuildinfo",
+    "pretest": "npm run clean && npm run build",
     "test": "mocha 'dist/**/*.test.js'",
     "test:watch": "mocha 'dist/**/*.test.js' --watch"
   },
