@@ -73,6 +73,12 @@ export const convertType = (
     return convertType(typeNode.type, checker);
   }
 
+  // Type predicate return types: (x is T) has no direct C# type-level equivalent.
+  // MVP: lower to boolean so we can emit valid C# and avoid anyType/ICE.
+  if (ts.isTypePredicateNode(typeNode)) {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
   // Default to any type for unsupported types
   return { kind: "anyType" };
 };

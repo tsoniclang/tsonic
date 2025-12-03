@@ -10,6 +10,7 @@
 
 import * as ts from "typescript";
 import type { IrType } from "../types.js";
+import { convertType } from "./converter.js";
 
 /**
  * Result of inferring lambda parameter types from contextual signature.
@@ -85,9 +86,11 @@ export const inferLambdaParamTypes = (
     return undefined; // No call signature - can't infer
   }
 
-  // Use the first signature (most common case)
-  // For overloaded functions, TS usually provides the resolved signature
-  const signature = signatures[0];
+  // Pick signature that can cover lambda arity (avoid overload mismatches)
+  const signature =
+    signatures.find(
+      (s) => s.getParameters().length >= node.parameters.length
+    ) ?? signatures[0];
   if (!signature) {
     return undefined;
   }
@@ -125,24 +128,40 @@ export const inferLambdaParamTypes = (
       sigParam.valueDeclaration ?? node
     );
 
-    // Reject any/unknown - these don't count as successful inference
-    if (
-      tsType.flags & ts.TypeFlags.Any ||
-      tsType.flags & ts.TypeFlags.Unknown
-    ) {
-      paramTypes.push(undefined);
-      allInferred = false;
-      continue;
+    // A1: Contextual any/unknown from lib.d.ts is acceptable - map to unknownType
+    // This enables Promise executor inference where reject has `any`
+    if (tsType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      paramTypes.push({ kind: "unknownType" });
+      continue; // Don't set allInferred=false - we did infer something safe
     }
 
-    // Convert to IR type
-    const irType = convertTsTypeToIr(tsType, checker);
-    if (irType) {
-      paramTypes.push(irType);
+    // A2: Prefer typeToTypeNode → convertType (handles function types)
+    // convertTsTypeToIr returns undefined for callable signatures
+    const typeNode = checker.typeToTypeNode(
+      tsType,
+      param ?? node,
+      ts.NodeBuilderFlags.None
+    );
+
+    let irType: IrType | undefined;
+    if (typeNode) {
+      // Guard: if typeToTypeNode produced AnyKeyword, use unknownType
+      if (typeNode.kind === ts.SyntaxKind.AnyKeyword) {
+        irType = { kind: "unknownType" };
+      } else {
+        irType = convertType(typeNode, checker);
+        // Extra safety: if convertType somehow produced anyType, coerce to unknownType
+        if (irType && irType.kind === "anyType") {
+          irType = { kind: "unknownType" };
+        }
+      }
     } else {
-      paramTypes.push(undefined);
-      allInferred = false;
+      // Fallback to convertTsTypeToIr for cases TS can't produce a node
+      irType = convertTsTypeToIr(tsType, checker);
     }
+
+    // Final fallback: use unknownType rather than failing inference
+    paramTypes.push(irType ?? { kind: "unknownType" });
   }
 
   return { paramTypes, allInferred };

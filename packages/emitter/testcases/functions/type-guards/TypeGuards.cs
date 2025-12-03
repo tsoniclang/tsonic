@@ -4,13 +4,13 @@ namespace TestCases.functions.typeguards
     {
         public string type { get; set; }
 
-        public void bark() => throw new global::System.NotImplementedException();
+        public void bark() => throw new NotImplementedException();
     }
     public class Cat
     {
         public string type { get; set; }
 
-        public void meow() => throw new global::System.NotImplementedException();
+        public void meow() => throw new NotImplementedException();
     }
     public class Circle
     {
@@ -24,14 +24,14 @@ namespace TestCases.functions.typeguards
 
             public static class TypeGuards
             {
-                // type Animal = Union<Dog, Cat>
+                // type Animal = global::Tsonic.Runtime.Union<Dog, Cat>
 
-                public static dynamic isDog(Animal animal)
+                public static bool isDog(Animal animal)
                     {
                     return animal.type == "dog";
                     }
 
-                public static dynamic isCat(Animal animal)
+                public static bool isCat(Animal animal)
                     {
                     return animal.type == "cat";
                     }

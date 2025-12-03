@@ -249,6 +249,62 @@ describe("End-to-End Integration", () => {
     });
   });
 
+  describe("Lambda Parameter Type Inference", () => {
+    it("should infer types for Promise executor callback parameters", () => {
+      const source = `
+        export function delay(ms: number): Promise<void> {
+          return new Promise((resolve) => {
+            setTimeout(resolve, ms);
+          });
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit lambda with typed resolve parameter (function type becomes Action)
+      // The key is that resolve has a type annotation, not just the bare identifier
+      expect(csharp).to.match(/\(global::System\.Action.*\s+resolve\)\s*=>/);
+    });
+
+    it("should infer types for array method callbacks", () => {
+      const source = `
+        export function doubleAll(nums: number[]): number[] {
+          return nums.map((n) => n * 2);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Should emit lambda with typed parameter
+      // n should be inferred as number (double in C#)
+      expect(csharp).to.include("(double n) => n * 2");
+    });
+  });
+
+  describe("Type Predicate Functions", () => {
+    it("should emit type predicate return type as bool", () => {
+      const source = `
+        export interface Dog {
+          type: "dog";
+          bark(): void;
+        }
+
+        export type Animal = Dog;
+
+        export function isDog(animal: Animal): animal is Dog {
+          return animal.type === "dog";
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      // Type predicate (animal is Dog) should emit as bool return type
+      expect(csharp).to.match(/public\s+static\s+bool\s+isDog\s*\(\s*Animal\s+animal\s*\)/);
+      // Should not emit 'dynamic' (old broken behavior)
+      expect(csharp).not.to.include("dynamic isDog");
+    });
+  });
+
   describe("Full Module Compilation", () => {
     it("should compile a complete module with all features", () => {
       const source = `
