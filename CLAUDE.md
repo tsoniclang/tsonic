@@ -52,6 +52,18 @@ If you write mutable code, you MUST immediately rewrite it functionally.
 
 Automated scripts break syntax in unpredictable ways and destroy codebases.
 
+### USE DEDICATED TOOLS FOR FILE OPERATIONS
+
+**IMPORTANT**: Always use the dedicated tools instead of bash commands for file operations:
+
+- **Read files**: Use the `Read` tool, NOT `cat`, `head`, or `tail`
+- **Edit files**: Use the `Edit` tool, NOT `sed` or `awk`
+- **Create files**: Use the `Write` tool, NOT `cat` with heredoc or `echo` redirection
+- **Search files**: Use the `Grep` tool, NOT `grep` or `rg` commands
+- **Find files**: Use the `Glob` tool, NOT `find` or `ls`
+
+Reserve bash exclusively for actual system commands (git, npm, dotnet, etc.) that require shell execution.
+
 ### GIT SAFETY RULES
 
 #### NEVER DISCARD UNCOMMITTED WORK
@@ -293,7 +305,29 @@ mkdir -p .analysis
 - No loss of progress or decisions
 - Gitignored for persistence
 
-**Note:** All three directories (`.tests/`, `.analysis/`, `.todos/`) should be added to `.gitignore`
+#### .temp/ Directory (Temporary Scripts & Debugging)
+
+**Purpose:** Store temporary scripts and one-off debugging files
+
+**Usage:**
+
+```bash
+# Create directory (gitignored)
+mkdir -p .temp
+
+# Use for:
+# - Quick test scripts
+# - Debug output files
+# - One-off data transformations
+# - Temporary TypeScript/JavaScript for testing
+
+# NEVER use /tmp or system temp directories
+# .temp keeps files visible and within the project
+```
+
+**Key Rule:** ALWAYS use `.temp/` instead of `/tmp/` or system temp directories. This keeps temporary work visible and accessible within the project.
+
+**Note:** All four directories (`.tests/`, `.analysis/`, `.todos/`, `.temp/`) should be added to `.gitignore`
 
 ## Session Startup
 

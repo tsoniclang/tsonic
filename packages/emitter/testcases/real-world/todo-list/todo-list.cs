@@ -14,18 +14,18 @@ namespace TestCases.realworld.todolist
     {
         private global::System.Collections.Generic.List<Todo> todos = new global::System.Collections.Generic.List<Todo>();
 
-        private double nextId = 1;
+        private double nextId = 1.0;
 
         public Todo addTodo(string title)
             {
-            Todo todo = new { id = this.nextId++, title = title, completed = false, createdAt = new Date() };
+            Todo todo = new Todo { id = this.nextId++, title = title, completed = false, createdAt = new Date() };
             global::Tsonic.JSRuntime.Array.push(this.todos, todo);
             return todo;
             }
 
         public bool completeTodo(double id)
             {
-            var todo = global::Tsonic.JSRuntime.Array.find(this.todos, (t) => t.id == id);
+            var todo = global::Tsonic.JSRuntime.Array.find(this.todos, (Todo t) => t.id == id);
             if (todo != null)
                 {
                 todo.completed = true;
@@ -36,12 +36,12 @@ namespace TestCases.realworld.todolist
 
         public global::System.Collections.Generic.List<Todo> getActiveTodos()
             {
-            return global::Tsonic.JSRuntime.Array.filter(this.todos, (t) => !t.completed);
+            return global::Tsonic.JSRuntime.Array.filter(this.todos, (Todo t) => !t.completed);
             }
 
         public global::System.Collections.Generic.List<Todo> getCompletedTodos()
             {
-            return global::Tsonic.JSRuntime.Array.filter(this.todos, (t) => t.completed);
+            return global::Tsonic.JSRuntime.Array.filter(this.todos, (Todo t) => t.completed);
             }
 
         public global::System.Collections.Generic.List<Todo> getAllTodos()
@@ -58,7 +58,7 @@ namespace TestCases.realworld.todolist
                     list.addTodo("Buy groceries");
                     list.addTodo("Write code");
                     list.addTodo("Exercise");
-                    list.completeTodo(1);
+                    list.completeTodo(1.0);
                     return list;
                     }
             }

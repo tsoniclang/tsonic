@@ -16,17 +16,17 @@ namespace TestCases.realworld.datastructures
 
         public T? peek()
             {
-            return global::Tsonic.Runtime.Array.get(this.items, global::Tsonic.Runtime.Array.length(this.items) - 1);
+            return global::Tsonic.JSRuntime.Array.get(this.items, global::Tsonic.JSRuntime.Array.length(this.items) - 1);
             }
 
         public bool isEmpty()
             {
-            return global::Tsonic.Runtime.Array.length(this.items) == 0;
+            return global::Tsonic.JSRuntime.Array.length(this.items) == 0.0;
             }
 
         public double size()
             {
-            return global::Tsonic.Runtime.Array.length(this.items);
+            return global::Tsonic.JSRuntime.Array.length(this.items);
             }
 
         public void clear()
@@ -50,17 +50,17 @@ namespace TestCases.realworld.datastructures
 
         public T? front()
             {
-            return global::Tsonic.Runtime.Array.get(this.items, 0);
+            return global::Tsonic.JSRuntime.Array.get(this.items, 0);
             }
 
         public bool isEmpty()
             {
-            return global::Tsonic.Runtime.Array.length(this.items) == 0;
+            return global::Tsonic.JSRuntime.Array.length(this.items) == 0.0;
             }
 
         public double size()
             {
-            return global::Tsonic.Runtime.Array.length(this.items);
+            return global::Tsonic.JSRuntime.Array.length(this.items);
             }
 
         public void clear()
@@ -86,7 +86,7 @@ namespace TestCases.realworld.datastructures
 
         private LinkedListNode<T>? tail = null;
 
-        private double length = 0;
+        private double length = 0.0;
 
         public void append(T value)
             {
@@ -141,9 +141,9 @@ namespace TestCases.realworld.datastructures
                 public static void testDataStructures()
                     {
                     var stack = new Stack<double>();
-                    stack.push(1);
-                    stack.push(2);
-                    stack.push(3);
+                    stack.push(1.0);
+                    stack.push(2.0);
+                    stack.push(3.0);
                     global::Tsonic.JSRuntime.console.log("Stack size:", stack.size());
                     global::Tsonic.JSRuntime.console.log("Stack pop:", stack.pop());
                     var queue = new Queue<string>();
@@ -153,9 +153,9 @@ namespace TestCases.realworld.datastructures
                     global::Tsonic.JSRuntime.console.log("Queue size:", queue.size());
                     global::Tsonic.JSRuntime.console.log("Queue dequeue:", queue.dequeue());
                     var list = new LinkedList<double>();
-                    list.append(10);
-                    list.append(20);
-                    list.prepend(5);
+                    list.append(10.0);
+                    list.append(20.0);
+                    list.prepend(5.0);
                     global::Tsonic.JSRuntime.console.log("List as array:", list.toArray());
                     }
             }

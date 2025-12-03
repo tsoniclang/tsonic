@@ -1,4 +1,4 @@
-namespace TestCases.classes.@abstract
+namespace TestCases.classes.abstract
 {
     public class Shape
     {
@@ -30,7 +30,7 @@ namespace TestCases.classes.@abstract
 
         public override double getPerimeter()
             {
-            return 2 * this.width + this.height;
+            return 2.0 * this.width + this.height;
             }
     }
     public class Circle : Shape
@@ -49,7 +49,7 @@ namespace TestCases.classes.@abstract
 
         public override double getPerimeter()
             {
-            return 2 * global::Tsonic.JSRuntime.Math.PI * this.radius;
+            return 2.0 * global::Tsonic.JSRuntime.Math.PI * this.radius;
             }
     }
 
@@ -57,7 +57,7 @@ namespace TestCases.classes.@abstract
             {
                 public static double calculateTotalArea(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (total, shape) => total + shape.getArea(), 0);
+                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (double total, Shape shape) => total + shape.getArea(), 0.0);
                     }
             }
 }

@@ -42,5 +42,5 @@ export function greetPerson(person: Person): string {
 
 // Rest elements with tuples
 export function sum(...nums: [...number[]]): number {
-  return nums.reduce((a, b) => a + b, 0);
+  return nums.reduce((a: number, b: number): number => a + b, 0);
 }

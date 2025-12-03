@@ -5,6 +5,8 @@
  * - containsTypeParameter: Check if type contains any type parameter
  * - substituteTypeArgs: Substitute type arguments into a type
  * - getPropertyType: Look up property type from contextual type
+ * - stripNullish: Remove null/undefined from union types
+ * - isDefinitelyValueType: Check if type is a C# value type
  */
 
 import type {
@@ -390,4 +392,80 @@ const findPropertyInClassMembers = (
     }
   }
   return undefined;
+};
+
+/**
+ * Strip null and undefined from a union type.
+ *
+ * Used when we need the non-nullable base type, e.g., for object instantiation
+ * where `new T? { ... }` is invalid C# but `new T { ... }` is valid.
+ *
+ * @param type - The type to strip nullish from
+ * @returns The non-nullish base type, or the original type if not a nullable union
+ */
+export const stripNullish = (type: IrType): IrType => {
+  if (type.kind !== "unionType") return type;
+
+  const nonNullish = type.types.filter(
+    (t) =>
+      !(
+        t.kind === "primitiveType" &&
+        (t.name === "null" || t.name === "undefined")
+      )
+  );
+
+  // Single non-nullish type: return it (e.g., T | null → T)
+  if (nonNullish.length === 1 && nonNullish[0]) {
+    return nonNullish[0];
+  }
+
+  // Multi-type union or no non-nullish types: return original
+  return type;
+};
+
+/**
+ * Known CLR struct types that are value types.
+ */
+const CLR_VALUE_TYPES = new Set([
+  "global::System.DateTime",
+  "global::System.DateOnly",
+  "global::System.TimeOnly",
+  "global::System.TimeSpan",
+  "global::System.Guid",
+  "global::System.Decimal",
+  "System.DateTime",
+  "System.DateOnly",
+  "System.TimeOnly",
+  "System.TimeSpan",
+  "System.Guid",
+  "System.Decimal",
+]);
+
+/**
+ * Check if a type is definitely a C# value type.
+ *
+ * Value types require `default` instead of `null` in object initializers
+ * because `null` cannot be assigned to non-nullable value types.
+ *
+ * @param type - The type to check (should be non-nullish, use stripNullish first)
+ * @returns true if the type is a known value type
+ */
+export const isDefinitelyValueType = (type: IrType): boolean => {
+  // Strip nullish first if caller forgot
+  const base = stripNullish(type);
+
+  // Primitive value types (number → double, boolean → bool)
+  if (base.kind === "primitiveType") {
+    return base.name === "number" || base.name === "boolean";
+  }
+
+  // Known CLR struct types
+  if (base.kind === "referenceType") {
+    const clr = base.resolvedClrType;
+    if (clr && CLR_VALUE_TYPES.has(clr)) {
+      return true;
+    }
+  }
+
+  return false;
 };

@@ -22,6 +22,7 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
+import { inferLambdaParamTypes } from "../ir/type-converter/index.js";
 
 /**
  * Validate a source file for static safety violations.
@@ -74,27 +75,62 @@ export const validateStaticSafety = (
     // Covers: function declarations, methods, constructors, arrow functions, function expressions
     if (ts.isParameter(node) && !node.type) {
       const parent = node.parent;
-      const isFunctionLike =
-        ts.isFunctionDeclaration(parent) ||
-        ts.isMethodDeclaration(parent) ||
-        ts.isConstructorDeclaration(parent) ||
-        ts.isArrowFunction(parent) ||
-        ts.isFunctionExpression(parent) ||
-        ts.isGetAccessorDeclaration(parent) ||
-        ts.isSetAccessorDeclaration(parent);
 
-      if (isFunctionLike) {
-        const paramName = ts.isIdentifier(node.name) ? node.name.text : "param";
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createDiagnostic(
-            "TSN7405",
-            "error",
-            `Parameter '${paramName}' must have an explicit type annotation.`,
-            getNodeLocation(sourceFile, node),
-            "Add a type annotation to this parameter."
-          )
+      // For lambdas (arrow functions and function expressions), allow inference from context
+      const isLambda =
+        ts.isArrowFunction(parent) || ts.isFunctionExpression(parent);
+
+      if (isLambda) {
+        // Try contextual signature inference
+        const inference = inferLambdaParamTypes(parent, checker);
+        const paramIndex = parent.parameters.indexOf(
+          node as ts.ParameterDeclaration
         );
+
+        // If inference succeeded for this parameter, don't emit TSN7405
+        if (inference && inference.paramTypes[paramIndex] !== undefined) {
+          // Inference succeeded - no error needed
+        } else {
+          // Inference failed - emit TSN7405
+          const paramName = ts.isIdentifier(node.name)
+            ? node.name.text
+            : "param";
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7405",
+              "error",
+              `Parameter '${paramName}' must have an explicit type annotation.`,
+              getNodeLocation(sourceFile, node),
+              "Add a type annotation to this parameter, or use the lambda in a context that provides type inference (e.g., array.sort, array.map)."
+            )
+          );
+        }
+      } else {
+        // For non-lambdas (function declarations, methods, constructors, accessors),
+        // always require explicit type annotations
+        const isFunctionLike =
+          ts.isFunctionDeclaration(parent) ||
+          ts.isMethodDeclaration(parent) ||
+          ts.isConstructorDeclaration(parent) ||
+          ts.isGetAccessorDeclaration(parent) ||
+          ts.isSetAccessorDeclaration(parent);
+
+        if (isFunctionLike) {
+          const paramName = ts.isIdentifier(node.name)
+            ? node.name.text
+            : "param";
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7405",
+              "error",
+              `Parameter '${paramName}' must have an explicit type annotation.`,
+              getNodeLocation(sourceFile, node),
+              "Add a type annotation to this parameter."
+            )
+          );
+        }
       }
     }
 

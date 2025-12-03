@@ -36,11 +36,11 @@ namespace TestCases.realworld.businesslogic
 
         public bool addItem(Product product, double quantity)
             {
-            if (quantity <= 0 || quantity > product.stock)
+            if (quantity <= 0.0 || quantity > product.stock)
                 {
                 return false;
                 }
-            var existingItem = global::Tsonic.JSRuntime.Array.find(this.items, (item) => item.product.id == product.id);
+            var existingItem = global::Tsonic.JSRuntime.Array.find(this.items, (CartItem item) => item.product.id == product.id);
             if (existingItem != null)
                 {
                 var newQuantity = existingItem.quantity + quantity;
@@ -52,17 +52,17 @@ namespace TestCases.realworld.businesslogic
                 }
             else
                 {
-                global::Tsonic.JSRuntime.Array.push(this.items, new { product = product, quantity = quantity });
+                global::Tsonic.JSRuntime.Array.push(this.items, new CartItem { product = product, quantity = quantity });
                 }
             return true;
             }
 
         public bool removeItem(string productId)
             {
-            var index = global::Tsonic.JSRuntime.Array.findIndex(this.items, (item) => item.product.id == productId);
-            if (index != -1)
+            var index = global::Tsonic.JSRuntime.Array.findIndex(this.items, (CartItem item) => item.product.id == productId);
+            if (index != -1.0)
                 {
-                global::Tsonic.JSRuntime.Array.splice(this.items, index, 1);
+                global::Tsonic.JSRuntime.Array.splice(this.items, index, 1.0);
                 return true;
                 }
             return false;
@@ -70,12 +70,12 @@ namespace TestCases.realworld.businesslogic
 
         public bool updateQuantity(string productId, double quantity)
             {
-            var item = global::Tsonic.JSRuntime.Array.find(this.items, (item) => item.product.id == productId);
+            var item = global::Tsonic.JSRuntime.Array.find(this.items, (CartItem item) => item.product.id == productId);
             if (!item)
                 {
                 return false;
                 }
-            if (quantity <= 0)
+            if (quantity <= 0.0)
                 {
                 return this.removeItem(productId);
                 }
@@ -89,12 +89,12 @@ namespace TestCases.realworld.businesslogic
 
         public double getTotal()
             {
-            return global::Tsonic.JSRuntime.Array.reduce(this.items, (sum, item) => sum + item.product.price * item.quantity, 0);
+            return global::Tsonic.JSRuntime.Array.reduce(this.items, (double sum, CartItem item) => sum + item.product.price * item.quantity, 0.0);
             }
 
         public double getItemCount()
             {
-            return global::Tsonic.JSRuntime.Array.reduce(this.items, (sum, item) => sum + item.quantity, 0);
+            return global::Tsonic.JSRuntime.Array.reduce(this.items, (double sum, CartItem item) => sum + item.quantity, 0.0);
             }
 
         public global::System.Collections.Generic.List<CartItem> getItems()
@@ -111,60 +111,60 @@ namespace TestCases.realworld.businesslogic
     {
         public static double applyPercentageDiscount(double price, double percentage)
             {
-            if (percentage < 0 || percentage > 100)
+            if (percentage < 0.0 || percentage > 100.0)
                 {
-                throw new global::System.Exception("Invalid discount percentage");
+                throw new Error("Invalid discount percentage");
                 }
-            return price * 1 - percentage / 100;
+            return price * 1.0 - percentage / 100.0;
             }
 
         public static double applyFixedDiscount(double price, double discount)
             {
             var result = price - discount;
-            return result < 0 ? 0 : result;
+            return result < 0.0 ? 0.0 : result;
             }
 
         public static double calculateBulkDiscount(double quantity, double price)
             {
-            if (quantity >= 100)
+            if (quantity >= 100.0)
                 {
-                return this.applyPercentageDiscount(price, 20);
+                return this.applyPercentageDiscount(price, 20.0);
                 }
             else
-                if (quantity >= 50)
+                if (quantity >= 50.0)
                     {
-                    return this.applyPercentageDiscount(price, 15);
+                    return this.applyPercentageDiscount(price, 15.0);
                     }
                 else
-                    if (quantity >= 10)
+                    if (quantity >= 10.0)
                         {
-                        return this.applyPercentageDiscount(price, 10);
+                        return this.applyPercentageDiscount(price, 10.0);
                         }
             return price;
             }
     }
     public class OrderProcessor
     {
-        private double nextOrderId = 1;
+        private double nextOrderId = 1.0;
 
         public Order createOrder(ShoppingCart cart)
             {
             var items = cart.getItems();
-            if (global::Tsonic.Runtime.Array.length(items) == 0)
+            if (global::Tsonic.JSRuntime.Array.length(items) == 0.0)
                 {
-                throw new global::System.Exception("Cannot create order from empty cart");
+                throw new Error("Cannot create order from empty cart");
                 }
-            Order order = new { id = $"ORD-{this.nextOrderId++}", items = items, total = cart.getTotal(), status = "pending", createdAt = new Date() };
+            Order order = new Order { id = $"ORD-{this.nextOrderId++}", items = items, total = cart.getTotal(), status = "pending", createdAt = new Date() };
             return order;
             }
 
         public void updateOrderStatus(Order order, OrderStatus newStatus)
             {
-            Record<OrderStatus, global::System.Collections.Generic.List<OrderStatus>> validTransitions = new { pending = new global::System.Collections.Generic.List<string> { "processing", "cancelled" }, processing = new global::System.Collections.Generic.List<string> { "shipped", "cancelled" }, shipped = new global::System.Collections.Generic.List<string> { "delivered" }, delivered = new global::System.Collections.Generic.List<OrderStatus>(), cancelled = new global::System.Collections.Generic.List<OrderStatus>() };
-            var allowed = validTransitions[order.status];
+            global::System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<OrderStatus>> validTransitions = new global::System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<OrderStatus>> { ["pending"] = new global::System.Collections.Generic.List<OrderStatus> { "processing", "cancelled" }, ["processing"] = new global::System.Collections.Generic.List<OrderStatus> { "shipped", "cancelled" }, ["shipped"] = new global::System.Collections.Generic.List<OrderStatus> { "delivered" }, ["delivered"] = new global::System.Collections.Generic.List<OrderStatus>(), ["cancelled"] = new global::System.Collections.Generic.List<OrderStatus>() };
+            var allowed = validTransitions[(int)(order.status)];
             if (!global::Tsonic.JSRuntime.Array.includes(allowed, newStatus))
                 {
-                throw new global::System.Exception($"Cannot transition from {order.status} to {newStatus}");
+                throw new Error($"Cannot transition from {order.status} to {newStatus}");
                 }
             order.status = newStatus;
             }
@@ -186,28 +186,28 @@ namespace TestCases.realworld.businesslogic
 
             public static class businesslogic
             {
-                // type OrderStatus = Union<string, string, string, string, string>
+                // type OrderStatus = global::Tsonic.Runtime.Union<string, string, string, string, string>
 
                 public static global::System.Collections.Generic.List<Product> searchProducts(global::System.Collections.Generic.List<Product> products, string query)
                     {
                     var lowerQuery = global::Tsonic.JSRuntime.String.toLowerCase(query);
-                    return global::Tsonic.JSRuntime.Array.filter(products, (p) => global::Tsonic.JSRuntime.String.includes(global::Tsonic.JSRuntime.String.toLowerCase(p.name), lowerQuery) ?? global::Tsonic.JSRuntime.String.includes(global::Tsonic.JSRuntime.String.toLowerCase(p.category), lowerQuery));
+                    return global::Tsonic.JSRuntime.Array.filter(products, (Product p) => global::Tsonic.JSRuntime.String.includes(global::Tsonic.JSRuntime.String.toLowerCase(p.name), lowerQuery) ?? global::Tsonic.JSRuntime.String.includes(global::Tsonic.JSRuntime.String.toLowerCase(p.category), lowerQuery));
                     }
 
                 public static global::System.Collections.Generic.List<Product> filterByCategory(global::System.Collections.Generic.List<Product> products, string category)
                     {
-                    return global::Tsonic.JSRuntime.Array.filter(products, (p) => p.category == category);
+                    return global::Tsonic.JSRuntime.Array.filter(products, (Product p) => p.category == category);
                     }
 
                 public static global::System.Collections.Generic.List<Product> filterByPriceRange(global::System.Collections.Generic.List<Product> products, double minPrice, double maxPrice)
                     {
-                    return global::Tsonic.JSRuntime.Array.filter(products, (p) => p.price >= minPrice && p.price <= maxPrice);
+                    return global::Tsonic.JSRuntime.Array.filter(products, (Product p) => p.price >= minPrice && p.price <= maxPrice);
                     }
 
                 public static global::System.Collections.Generic.List<Product> sortByPrice(global::System.Collections.Generic.List<Product> products, bool ascending = true)
                     {
                     var sorted = global::System.Linq.Enumerable.ToList(products);
-                    global::Tsonic.JSRuntime.Array.sort(sorted, (a, b) =>
+                    global::Tsonic.JSRuntime.Array.sort(sorted, (Product a, Product b) =>
                     {
                     return ascending ? a.price - b.price : b.price - a.price;
                     });

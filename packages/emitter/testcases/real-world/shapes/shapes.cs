@@ -35,7 +35,7 @@ namespace TestCases.realworld.shapes
 
         public override double perimeter()
             {
-            return 2 * global::Tsonic.JSRuntime.Math.PI * this.radius;
+            return 2.0 * global::Tsonic.JSRuntime.Math.PI * this.radius;
             }
     }
     public class Rectangle : Shape
@@ -57,7 +57,7 @@ namespace TestCases.realworld.shapes
 
         public override double perimeter()
             {
-            return 2 * this.width + this.height;
+            return 2.0 * this.width + this.height;
             }
 
         public bool isSquare()
@@ -83,7 +83,7 @@ namespace TestCases.realworld.shapes
 
         public override double area()
             {
-            return this.@base * this.height / 2;
+            return this.@base * this.height / 2.0;
             }
 
         public override double perimeter()
@@ -96,16 +96,16 @@ namespace TestCases.realworld.shapes
             {
                 public static double totalArea(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (sum, shape) => sum + shape.area(), 0);
+                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (double sum, Shape shape) => sum + shape.area(), 0.0);
                     }
 
                 public static Shape? findLargestShape(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    if (global::Tsonic.Runtime.Array.length(shapes) == 0)
+                    if (global::Tsonic.JSRuntime.Array.length(shapes) == 0.0)
                         {
                         return default;
                         }
-                    var largest = global::Tsonic.Runtime.Array.get(shapes, 0);
+                    var largest = global::Tsonic.JSRuntime.Array.get(shapes, 0);
                     foreach (var shape in shapes)
                         {
                         if (shape.area() > largest.area())

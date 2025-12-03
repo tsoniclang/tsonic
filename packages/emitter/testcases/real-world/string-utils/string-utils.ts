@@ -35,7 +35,9 @@ export function last<T>(arr: T[]): T | undefined {
 }
 
 export function unique<T>(arr: T[]): T[] {
-  return arr.filter((item, index) => arr.indexOf(item) === index);
+  return arr.filter(
+    (item: T, index: number): boolean => arr.indexOf(item) === index
+  );
 }
 
 export function chunk<T>(arr: T[], size: number): T[][] {

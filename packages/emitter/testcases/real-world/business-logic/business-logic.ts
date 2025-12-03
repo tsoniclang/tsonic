@@ -149,7 +149,7 @@ export class OrderProcessor {
   }
 
   updateOrderStatus(order: Order, newStatus: OrderStatus): void {
-    const validTransitions: Record<OrderStatus, OrderStatus[]> = {
+    const validTransitions: Record<string, OrderStatus[]> = {
       pending: ["processing", "cancelled"],
       processing: ["shipped", "cancelled"],
       shipped: ["delivered"],

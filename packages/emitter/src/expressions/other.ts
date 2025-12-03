@@ -32,8 +32,16 @@ export const emitTemplateLiteral = (
         exprAtIndex,
         currentContext
       );
-      // Wrap in parentheses to avoid ':' being parsed as format specifier
-      parts.push(`{(${exprFrag.text})}`);
+      // Only wrap in parentheses when needed to avoid ':' being parsed as format specifier
+      // Cases that need parens:
+      // - Conditional (ternary) expressions: {(cond ? a : b)}
+      // - Any expression containing ':' (e.g., global::Namespace.Type)
+      const needsParens =
+        exprAtIndex.kind === "conditional" || exprFrag.text.includes(":");
+      const interpolation = needsParens
+        ? `{(${exprFrag.text})}`
+        : `{${exprFrag.text}}`;
+      parts.push(interpolation);
       currentContext = newContext;
     }
   }

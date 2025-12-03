@@ -16,7 +16,7 @@ namespace TestCases.types.unions
 
             public static double maybeString(string? value)
                 {
-                return value?.length ?? 0;
+                return value?.length ?? 0.0;
                 }
         }
 }

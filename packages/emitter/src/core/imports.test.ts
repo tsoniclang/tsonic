@@ -9,7 +9,9 @@ import { emitModule } from "../emitter.js";
 import { IrModule } from "@tsonic/frontend";
 
 describe("Import Handling", () => {
-  it("should handle .NET imports", () => {
+  it("should NOT emit using directives for .NET imports", () => {
+    // .NET imports are resolved to fully-qualified names with global:: prefix,
+    // so we don't emit using directives
     const module: IrModule = {
       kind: "module",
       filePath: "/src/test.ts",
@@ -40,8 +42,9 @@ describe("Import Handling", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("using System.IO");
-    expect(result).to.include("using System.Text.Json");
+    // Should NOT include using directives - all types use global:: FQN
+    expect(result).to.not.include("using System.IO");
+    expect(result).to.not.include("using System.Text.Json");
   });
 
   it("should NOT emit using directives for local imports", () => {

@@ -8,4 +8,9 @@ export {
   convertObjectType,
 } from "./converter.js";
 export { convertBindingName } from "./patterns.js";
-export { inferType, convertTsTypeToIr } from "./inference.js";
+export {
+  inferType,
+  convertTsTypeToIr,
+  inferLambdaParamTypes,
+  type LambdaParamInferenceResult,
+} from "./inference.js";

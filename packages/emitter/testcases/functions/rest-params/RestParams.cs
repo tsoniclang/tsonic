@@ -4,7 +4,7 @@ namespace TestCases.functions.restparams
         {
             public static double sum(global::System.Collections.Generic.List<double> numbers)
                 {
-                return global::Tsonic.JSRuntime.Array.reduce(numbers, (acc, n) => acc + n, 0);
+                return global::Tsonic.JSRuntime.Array.reduce(numbers, (double acc, double n) => acc + n, 0.0);
                 }
 
             public static string concat(string separator, global::System.Collections.Generic.List<string> strings)
