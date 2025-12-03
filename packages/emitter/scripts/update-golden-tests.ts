@@ -98,8 +98,17 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
           (line, i) => i > 0 && line.startsWith("namespace")
         );
 
-        // Fallback: if no namespace found, skip first 4 lines (header)
+        // Safety check: if no namespace found and file is too small, throw
         if (bodyStartIndex === -1) {
+          if (lines.length <= 6) {
+            const preview = lines.slice(0, 5).join("\n");
+            throw new Error(
+              `Cannot find 'namespace' in output for ${generatedKey} ` +
+                `and file is too small (${lines.length} lines) to safely skip header.\n` +
+                `Preview:\n${preview}`
+            );
+          }
+          // Fallback: skip first 4 lines (header) for larger files
           bodyStartIndex = 4;
         }
 
