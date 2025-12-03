@@ -34,7 +34,9 @@ export function main(): void {
 
   // Test concrete - both are null
   const concrete = getConcreteNull();
-  Console.WriteLine(`Both null: ${concrete.value === null && concrete.error === null}`);
+  Console.WriteLine(
+    `Both null: ${concrete.value === null && concrete.error === null}`
+  );
 
   Console.WriteLine("All tests passed!");
 }
