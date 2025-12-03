@@ -123,10 +123,10 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       "C# should use full CLR type.member from binding"
     );
 
-    // Verify using statement was added
-    expect(csharpCode).to.include(
+    // Verify NO using statements - all types use global:: FQN
+    expect(csharpCode).to.not.include(
       "using System.Linq",
-      "C# should include using for assembly"
+      "C# should NOT include using directives - uses global:: FQN"
     );
 
     // Verify intermediate TypeScript names are NOT in output

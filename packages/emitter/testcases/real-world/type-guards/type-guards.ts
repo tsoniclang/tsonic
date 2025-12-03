@@ -67,5 +67,8 @@ export function processValue(value: string | number | boolean): string {
 
 // Array type guard
 export function isStringArray(arr: unknown): arr is string[] {
-  return Array.isArray(arr) && arr.every((item) => typeof item === "string");
+  return (
+    Array.isArray(arr) &&
+    arr.every((item: unknown): boolean => typeof item === "string")
+  );
 }

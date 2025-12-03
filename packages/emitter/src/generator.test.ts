@@ -90,13 +90,11 @@ describe("Generator Emission", () => {
     expect(code).to.include("public object? Input { get; set; }");
     expect(code).to.include("public double Output { get; set; }");
 
-    // Should have IEnumerable return type
-    expect(code).to.include(
-      "public static IEnumerable<counter_exchange> counter()"
-    );
+    // Should have IEnumerable return type with fully-qualified name
+    expect(code).to.include("counter_exchange> counter()");
 
-    // Should use System.Collections.Generic
-    expect(code).to.include("using System.Collections.Generic");
+    // Should NOT use using directives - all types use global:: FQN
+    expect(code).to.not.include("using System.Collections.Generic");
 
     // Should initialize exchange variable
     expect(code).to.include("var exchange = new counter_exchange()");
@@ -185,9 +183,9 @@ describe("Generator Emission", () => {
     // Should contain exchange class
     expect(code).to.include("public sealed class asyncCounter_exchange");
 
-    // Should have IAsyncEnumerable return type with async
+    // Should have IAsyncEnumerable return type with async and global:: FQN
     expect(code).to.include(
-      "public static async IAsyncEnumerable<asyncCounter_exchange> asyncCounter()"
+      "public static async global::System.Collections.Generic.IAsyncEnumerable<asyncCounter_exchange> asyncCounter()"
     );
   });
 });

@@ -4,7 +4,7 @@ namespace TestCases.arrays.basic
         {
             public static global::System.Collections.Generic.List<double> createArray()
                 {
-                var arr = new global::System.Collections.Generic.List<int> { 1, 2, 3 };
+                var arr = new global::System.Collections.Generic.List<double> { 1.0, 2.0, 3.0 };
                 return arr;
                 }
         }

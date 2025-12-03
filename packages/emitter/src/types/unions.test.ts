@@ -81,9 +81,12 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Union<T1, T2>
-    expect(code).to.include("Union<string, double> value");
-    expect(code).to.include("using Tsonic.Runtime");
+    // Should use fully-qualified Union<T1, T2>
+    expect(code).to.include(
+      "global::Tsonic.Runtime.Union<string, double> value"
+    );
+    // Should NOT include using directives - uses global:: FQN
+    expect(code).to.not.include("using Tsonic.Runtime");
   });
 
   it("should emit function returning union type", () => {
@@ -125,8 +128,10 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should return Union<string, double>
-    expect(code).to.include("public static Union<string, double> getValue()");
+    // Should return Union<string, double> with global:: FQN
+    expect(code).to.include(
+      "public static global::Tsonic.Runtime.Union<string, double> getValue()"
+    );
   });
 
   it("should emit function parameter with union type", () => {
@@ -172,8 +177,10 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should accept Union<string, bool> parameter
-    expect(code).to.include("process(Union<string, bool> input)");
+    // Should accept Union<string, bool> parameter with global:: FQN
+    expect(code).to.include(
+      "process(global::Tsonic.Runtime.Union<string, bool> input)"
+    );
   });
 
   it("should handle union with custom types", () => {
@@ -254,9 +261,12 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Union<T1, T2, T3>
-    expect(code).to.include("Union<string, double, bool> value");
-    expect(code).to.include("using Tsonic.Runtime");
+    // Should use fully-qualified Union<T1, T2, T3>
+    expect(code).to.include(
+      "global::Tsonic.Runtime.Union<string, double, bool> value"
+    );
+    // Should NOT include using directives - uses global:: FQN
+    expect(code).to.not.include("using Tsonic.Runtime");
   });
 
   it("should emit four-type union as Union<T1, T2, T3, T4>", () => {
@@ -300,8 +310,10 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Union<T1, T2, T3, T4>
-    expect(code).to.include("Union<string, double, bool, Date> process()");
+    // Should use Union<T1, T2, T3, T4> with global:: FQN
+    expect(code).to.include(
+      "global::Tsonic.Runtime.Union<string, double, bool, Date> process()"
+    );
   });
 
   it("should emit eight-type union as Union<T1, T2, T3, T4, T5, T6, T7, T8>", () => {
@@ -344,9 +356,9 @@ describe("Union Type Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use Union<T1, T2, T3, T4, T5, T6, T7, T8>
+    // Should use Union<T1, T2, T3, T4, T5, T6, T7, T8> with global:: FQN
     expect(code).to.include(
-      "Union<string, double, bool, User, Product, Order, Payment, Invoice> value"
+      "global::Tsonic.Runtime.Union<string, double, bool, User, Product, Order, Payment, Invoice> value"
     );
   });
 

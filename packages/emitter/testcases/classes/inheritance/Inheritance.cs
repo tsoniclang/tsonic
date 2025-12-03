@@ -28,8 +28,4 @@ namespace TestCases.classes.inheritance
             return "Woof!";
             }
     }
-
-            public static class Inheritance
-            {
-            }
 }

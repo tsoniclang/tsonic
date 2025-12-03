@@ -49,5 +49,8 @@ export class Circle extends Shape {
 
 // Function using abstract class
 export function calculateTotalArea(shapes: Shape[]): number {
-  return shapes.reduce((total, shape) => total + shape.getArea(), 0);
+  return shapes.reduce(
+    (total: number, shape: Shape): number => total + shape.getArea(),
+    0
+  );
 }

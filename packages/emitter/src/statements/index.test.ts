@@ -252,7 +252,9 @@ describe("Statement Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("foreach (var item in items)");
-    expect(result).to.include("Tsonic.JSRuntime.console.log(item)");
-    expect(result).to.include("using Tsonic.JSRuntime");
+    // Uses fully-qualified name with global:: prefix
+    expect(result).to.include("global::Tsonic.JSRuntime.console.log(item)");
+    // Should NOT include using directives - uses global:: FQN
+    expect(result).to.not.include("using Tsonic.JSRuntime");
   });
 });

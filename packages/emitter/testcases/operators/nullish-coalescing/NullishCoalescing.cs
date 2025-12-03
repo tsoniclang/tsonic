@@ -9,7 +9,7 @@ namespace TestCases.operators.nullishcoalescing
 
             public static double getNumber(double? value)
                 {
-                return value ?? 0;
+                return value ?? 0.0;
                 }
         }
 }

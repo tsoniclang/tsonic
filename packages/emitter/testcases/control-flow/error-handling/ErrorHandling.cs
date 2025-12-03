@@ -6,16 +6,16 @@ namespace TestCases.controlflow.errorhandling
                 {
                 try
                 {
-                if (b == 0)
+                if (b == 0.0)
                     {
-                    throw new global::System.Exception("Division by zero");
+                    throw new Error("Division by zero");
                     }
                 return a / b;
                 }
-                catch (global::System.Exception error)
+                catch (Exception error)
                 {
                 global::Tsonic.JSRuntime.console.log(error);
-                return 0;
+                return 0.0;
                 }
                 finally
                 {

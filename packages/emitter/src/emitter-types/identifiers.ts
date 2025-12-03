@@ -103,46 +103,6 @@ const CSHARP_KEYWORDS: ReadonlySet<string> = new Set([
   "namespace",
   "using",
 
-  // Access keywords
-  "get",
-  "set",
-  "init",
-  "value",
-
-  // Contextual keywords (can be keywords in certain contexts)
-  "add",
-  "alias",
-  "and",
-  "ascending",
-  "args",
-  "by",
-  "descending",
-  "dynamic",
-  "equals",
-  "file",
-  "from",
-  "global",
-  "group",
-  "into",
-  "join",
-  "let",
-  "managed",
-  "nint",
-  "not",
-  "notnull",
-  "nuint",
-  "on",
-  "or",
-  "orderby",
-  "remove",
-  "required",
-  "scoped",
-  "select",
-  "unmanaged",
-  "var",
-  "when",
-  "where",
-
   // Operator keywords
   "operator",
   "implicit",
@@ -151,12 +111,10 @@ const CSHARP_KEYWORDS: ReadonlySet<string> = new Set([
   // Parameter keywords
   "params",
 
-  // Exception keywords
-  "throw",
-
-  // Other reserved
-  "implicit",
-  "explicit",
+  // NOTE: Contextual keywords are NOT included here.
+  // Contextual keywords (get, set, init, add, remove, value, var, dynamic, etc.)
+  // are only special in specific syntactic contexts and can be used as regular
+  // identifiers without escaping in most code.
 ]);
 
 /**

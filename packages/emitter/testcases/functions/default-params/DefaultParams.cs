@@ -7,7 +7,7 @@ namespace TestCases.functions.defaultparams
                 return $"{greeting} {name}";
                 }
 
-            public static double multiply(double a, double b = 2)
+            public static double multiply(double a, double b = 2.0)
                 {
                 return a * b;
                 }

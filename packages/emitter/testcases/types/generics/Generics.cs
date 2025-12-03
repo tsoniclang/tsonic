@@ -24,7 +24,7 @@ namespace TestCases.types.generics
 
                 public static T? firstElement<T>(global::System.Collections.Generic.List<T> arr)
                     {
-                    return global::Tsonic.Runtime.Array.get(arr, 0);
+                    return global::Tsonic.JSRuntime.Array.get(arr, 0);
                     }
             }
 }

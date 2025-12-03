@@ -2,7 +2,7 @@ namespace TestCases.classes.fieldinference
 {
     public class Counter
     {
-        public double count = 0;
+        public double count = 0.0;
 
         public string name = "default";
 

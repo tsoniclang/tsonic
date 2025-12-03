@@ -4,7 +4,7 @@ export function complexExpression(a: number, b: number, c: number): number {
 
 export function chainedCalls(arr: number[]): number {
   return arr
-    .map((x) => x * 2)
-    .filter((x) => x > 10)
-    .reduce((acc, x) => acc + x, 0);
+    .map((x: number): number => x * 2)
+    .filter((x: number): boolean => x > 10)
+    .reduce((acc: number, x: number): number => acc + x, 0);
 }

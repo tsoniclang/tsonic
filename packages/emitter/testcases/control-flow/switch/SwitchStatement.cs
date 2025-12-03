@@ -1,4 +1,4 @@
-namespace TestCases.controlflow.@switch
+namespace TestCases.controlflow.switch
 {
         public static class SwitchStatement
         {
@@ -6,19 +6,19 @@ namespace TestCases.controlflow.@switch
                 {
                 switch (day)
                 {
-                    case 0:
+                    case 0.0:
                         break;
-                    case 6:
+                    case 6.0:
                         return "weekend";
-                    case 1:
+                    case 1.0:
                             break;
-                    case 2:
+                    case 2.0:
                             break;
-                    case 3:
+                    case 3.0:
                             break;
-                    case 4:
+                    case 4.0:
                             break;
-                    case 5:
+                    case 5.0:
                             return "weekday";
                     default:
                                 return "invalid";

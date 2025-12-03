@@ -69,7 +69,10 @@ export class Triangle extends Shape {
 }
 
 export function totalArea(shapes: Shape[]): number {
-  return shapes.reduce((sum, shape) => sum + shape.area(), 0);
+  return shapes.reduce(
+    (sum: number, shape: Shape): number => sum + shape.area(),
+    0
+  );
 }
 
 export function findLargestShape(shapes: Shape[]): Shape | undefined {

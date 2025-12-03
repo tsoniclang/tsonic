@@ -86,7 +86,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("new global::System.Collections.Generic.List<");
-    expect(result).to.include("1, 2, 3"); // C# handles implicit conversion
+    expect(result).to.include("1.0, 2.0, 3.0"); // TypeScript number maps to C# double
     // No using statements - uses global:: FQN
     expect(result).not.to.include("using System.Collections.Generic");
   });
@@ -255,9 +255,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     // Should emit full CLR type and member from binding with global:: prefix
-    expect(result).to.include(
-      "global::System.Linq.System.Linq.Enumerable.SelectMany"
-    );
+    expect(result).to.include("global::System.Linq.Enumerable.SelectMany");
     // No using statements
     expect(result).not.to.include("using System.Linq");
   });
@@ -314,8 +312,8 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Should emit global::MyLib.MyLib.Math.Add directly
-    expect(result).to.include("global::MyLib.MyLib.Math.Add");
+    // Should emit global::MyLib.Math.Add directly
+    expect(result).to.include("global::MyLib.Math.Add");
     // Should NOT include myLib.math (intermediate objects shouldn't appear)
     expect(result).not.to.include("myLib.math");
     // No using statements

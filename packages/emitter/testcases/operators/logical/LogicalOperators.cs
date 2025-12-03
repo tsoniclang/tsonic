@@ -4,7 +4,7 @@ namespace TestCases.operators.logical
         {
             public static bool isValid(string name, double age)
                 {
-                return name.length > 0 && age >= 18;
+                return global::Tsonic.JSRuntime.String.length(name) > 0.0 && age >= 18.0;
                 }
 
             public static string getDisplayName(string? name)
@@ -14,7 +14,7 @@ namespace TestCases.operators.logical
 
             public static string classify(double age)
                 {
-                return age >= 18 ? "adult" : "minor";
+                return age >= 18.0 ? "adult" : "minor";
                 }
         }
 }

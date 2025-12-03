@@ -43,6 +43,7 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
 
         // Compile
         const compileResult = compile([inputPath], {
+          projectRoot: sourceRoot, // Golden tests don't have node_modules
           sourceRoot,
           rootNamespace,
           useStandardLib: true,
@@ -90,11 +91,18 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
 
         const fullOutput = csharpFiles.get(generatedKey)!;
 
-        // Strip the header (first 4 lines: Generated from, Generated at, WARNING, blank)
+        // Strip the header (Generated from, Generated at, WARNING, blank line)
+        // Header is typically 4 lines, but we look for 'namespace' to find body start
         const lines = fullOutput.split("\n");
-        const bodyStartIndex = lines.findIndex(
-          (line, i) => i > 0 && line.startsWith("using")
+        let bodyStartIndex = lines.findIndex(
+          (line, i) => i > 0 && line.startsWith("namespace")
         );
+
+        // Fallback: if no namespace found, skip first 4 lines (header)
+        if (bodyStartIndex === -1) {
+          bodyStartIndex = 4;
+        }
+
         const body = lines.slice(bodyStartIndex).join("\n");
 
         // Write to expected file

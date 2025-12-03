@@ -4,7 +4,7 @@ namespace TestCases.functions.closures
         {
             public static global::System.Func<double> makeCounter()
                 {
-                var count = 0;
+                var count = 0.0;
                 return () =>
                 {
                 count++;

@@ -21,7 +21,7 @@ export class TodoList {
   }
 
   completeTodo(id: number): boolean {
-    const todo = this.todos.find((t) => t.id === id);
+    const todo = this.todos.find((t: Todo): boolean => t.id === id);
     if (todo) {
       todo.completed = true;
       return true;
@@ -30,11 +30,11 @@ export class TodoList {
   }
 
   getActiveTodos(): Todo[] {
-    return this.todos.filter((t) => !t.completed);
+    return this.todos.filter((t: Todo): boolean => !t.completed);
   }
 
   getCompletedTodos(): Todo[] {
-    return this.todos.filter((t) => t.completed);
+    return this.todos.filter((t: Todo): boolean => t.completed);
   }
 
   getAllTodos(): Todo[] {
