@@ -57,7 +57,7 @@ namespace TestCases.classes.abstract
             {
                 public static double calculateTotalArea(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (total, shape) => total + shape.getArea(), 0.0);
+                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (double total, Shape shape) => total + shape.getArea(), 0.0);
                     }
             }
 }

@@ -96,7 +96,7 @@ namespace TestCases.realworld.shapes
             {
                 public static double totalArea(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (sum, shape) => sum + shape.area(), 0.0);
+                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (double sum, Shape shape) => sum + shape.area(), 0.0);
                     }
 
                 public static Shape? findLargestShape(global::System.Collections.Generic.List<Shape> shapes)

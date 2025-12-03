@@ -9,7 +9,7 @@ namespace TestCases.edgecases.complexexpressions
 
             public static double chainedCalls(global::System.Collections.Generic.List<double> arr)
                 {
-                return global::Tsonic.JSRuntime.Array.reduce(global::Tsonic.JSRuntime.Array.filter(global::Tsonic.JSRuntime.Array.map(arr, (x) => x * 2.0), (x) => x > 10.0), (acc, x) => acc + x, 0.0);
+                return global::Tsonic.JSRuntime.Array.reduce(global::Tsonic.JSRuntime.Array.filter(global::Tsonic.JSRuntime.Array.map(arr, (double x) => x * 2.0), (double x) => x > 10.0), (double acc, double x) => acc + x, 0.0);
                 }
         }
 }

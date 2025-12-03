@@ -14,7 +14,7 @@ namespace TestCases.functions.closures
 
             public static global::System.Func<double, double> makeAdder(double x)
                 {
-                return (y) => x + y;
+                return (double y) => x + y;
                 }
         }
 }

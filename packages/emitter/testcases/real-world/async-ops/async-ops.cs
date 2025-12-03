@@ -41,7 +41,7 @@ namespace TestCases.realworld.asyncops
             {
                 public static async global::System.Threading.Tasks.Task delay(double ms)
                     {
-                    return new Promise((resolve) =>
+                    return new Promise((global::System.Action resolve) =>
                     {
                     setTimeout(resolve, ms);
                     });
@@ -49,17 +49,17 @@ namespace TestCases.realworld.asyncops
 
                 public static async global::System.Threading.Tasks.Task<string> fetchData(double id)
                     {
-                    await delay(100);
+                    await delay(100.0);
                     return $"Data for ID {id}";
                     }
 
                 public static async global::System.Threading.Tasks.Task<global::System.Collections.Generic.List<string>> fetchMultiple(global::System.Collections.Generic.List<double> ids)
                     {
-                    var promises = global::Tsonic.JSRuntime.Array.map(ids, (id) => fetchData(id));
+                    var promises = global::Tsonic.JSRuntime.Array.map(ids, (double id) => fetchData(id));
                     return Promise.all(promises);
                     }
 
-                public static async global::System.Threading.Tasks.Task<T> processWithRetry<T>(global::System.Func<global::System.Threading.Tasks.Task<T>> fn, double maxRetries = 3)
+                public static async global::System.Threading.Tasks.Task<T> processWithRetry<T>(global::System.Func<global::System.Threading.Tasks.Task<T>> fn, double maxRetries = 3.0)
                     {
                     global::System.Exception? lastError;
                     for (int i = 0; i < maxRetries; i++)
@@ -68,13 +68,13 @@ namespace TestCases.realworld.asyncops
                         {
                         return await fn();
                         }
-                        catch (global::System.Exception error)
+                        catch (Exception error)
                         {
                         lastError = error;
-                        await delay(100 * i + 1);
+                        await delay(100.0 * i + 1.0);
                         }
                         }
-                    throw lastError ?? new global::System.Exception("Max retries exceeded");
+                    throw lastError ?? new Error("Max retries exceeded");
                     }
             }
 }

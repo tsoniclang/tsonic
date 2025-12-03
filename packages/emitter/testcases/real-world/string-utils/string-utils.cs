@@ -48,7 +48,7 @@ namespace TestCases.realworld.stringutils
 
             public static global::System.Collections.Generic.List<T> unique<T>(global::System.Collections.Generic.List<T> arr)
                 {
-                return global::Tsonic.JSRuntime.Array.filter(arr, (item, index) => global::Tsonic.JSRuntime.Array.indexOf(arr, item) == index);
+                return global::Tsonic.JSRuntime.Array.filter(arr, (T item, double index) => global::Tsonic.JSRuntime.Array.indexOf(arr, item) == index);
                 }
 
             public static global::System.Collections.Generic.List<global::System.Collections.Generic.List<T>> chunk<T>(global::System.Collections.Generic.List<T> arr, double size)

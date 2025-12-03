@@ -25,7 +25,7 @@ namespace TestCases.realworld.todolist
 
         public bool completeTodo(double id)
             {
-            var todo = global::Tsonic.JSRuntime.Array.find(this.todos, (t) => t.id == id);
+            var todo = global::Tsonic.JSRuntime.Array.find(this.todos, (Todo t) => t.id == id);
             if (todo != null)
                 {
                 todo.completed = true;
@@ -36,12 +36,12 @@ namespace TestCases.realworld.todolist
 
         public global::System.Collections.Generic.List<Todo> getActiveTodos()
             {
-            return global::Tsonic.JSRuntime.Array.filter(this.todos, (t) => !t.completed);
+            return global::Tsonic.JSRuntime.Array.filter(this.todos, (Todo t) => !t.completed);
             }
 
         public global::System.Collections.Generic.List<Todo> getCompletedTodos()
             {
-            return global::Tsonic.JSRuntime.Array.filter(this.todos, (t) => t.completed);
+            return global::Tsonic.JSRuntime.Array.filter(this.todos, (Todo t) => t.completed);
             }
 
         public global::System.Collections.Generic.List<Todo> getAllTodos()
