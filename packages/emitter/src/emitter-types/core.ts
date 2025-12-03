@@ -4,6 +4,11 @@
 
 import type { MetadataFile } from "@tsonic/frontend/types/metadata.js";
 import type { TypeBinding } from "@tsonic/frontend/types/bindings.js";
+import type {
+  IrType,
+  IrInterfaceMember,
+  IrClassMember,
+} from "@tsonic/frontend";
 
 /**
  * Module identity for import resolution
@@ -93,6 +98,29 @@ export type ImportBinding = {
 };
 
 /**
+ * Information about a locally-defined type (class/interface/typeAlias).
+ * Used for property type lookup during expression emission.
+ */
+export type LocalTypeInfo =
+  | {
+      readonly kind: "interface";
+      readonly typeParameters: readonly string[];
+      readonly members: readonly IrInterfaceMember[];
+      readonly extends: readonly IrType[];
+    }
+  | {
+      readonly kind: "class";
+      readonly typeParameters: readonly string[];
+      readonly members: readonly IrClassMember[];
+      readonly implements: readonly IrType[];
+    }
+  | {
+      readonly kind: "typeAlias";
+      readonly typeParameters: readonly string[];
+      readonly type: IrType;
+    };
+
+/**
  * Context passed through emission process
  */
 export type EmitterContext = {
@@ -120,6 +148,12 @@ export type EmitterContext = {
   readonly importBindings?: ReadonlyMap<string, ImportBinding>;
   /** Set of variable names known to be int (from canonical for-loop counters) */
   readonly intLoopVars?: ReadonlySet<string>;
+  /** Type parameter names in current scope (for detecting generic type contexts) */
+  readonly typeParameters?: ReadonlySet<string>;
+  /** Return type of current function/method (for contextual typing in return statements) */
+  readonly returnType?: IrType;
+  /** Map of local type names to their definitions (for property type lookup) */
+  readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
 };
 
 /**

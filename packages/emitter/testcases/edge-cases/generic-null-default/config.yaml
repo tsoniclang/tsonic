@@ -1,0 +1,1 @@
+- GenericNullDefault.ts: should emit default instead of null in generic type contexts

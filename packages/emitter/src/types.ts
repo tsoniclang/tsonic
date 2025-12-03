@@ -18,6 +18,7 @@ export type {
   ExportSource,
   ExportMap,
   JsonAotRegistry,
+  LocalTypeInfo,
 } from "./emitter-types/index.js";
 export {
   createContext,
@@ -26,6 +27,7 @@ export {
   withStatic,
   withAsync,
   withClassName,
+  withScoped,
   getIndent,
   renderTypeFQN,
   renderMemberFQN,

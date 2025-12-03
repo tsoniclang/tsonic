@@ -30,6 +30,7 @@ export const emitBlockStatement = (
 
 /**
  * Emit a return statement
+ * Uses context.returnType to pass expectedType for null → default conversion in generic contexts.
  */
 export const emitReturnStatement = (
   stmt: Extract<IrStatement, { kind: "returnStatement" }>,
@@ -38,7 +39,12 @@ export const emitReturnStatement = (
   const ind = getIndent(context);
 
   if (stmt.expression) {
-    const [exprFrag, newContext] = emitExpression(stmt.expression, context);
+    // Pass returnType as expectedType for null → default conversion in generic contexts
+    const [exprFrag, newContext] = emitExpression(
+      stmt.expression,
+      context,
+      context.returnType
+    );
     return [`${ind}return ${exprFrag.text};`, newContext];
   }
 

@@ -60,6 +60,13 @@ export const convertTypeReference = (
     } as IrType & { parameterModifier?: "ref" | "out" | "in" };
   }
 
+  // Check if this is a type parameter reference (e.g., T in Container<T>)
+  // Use the type checker to determine if the reference resolves to a type parameter
+  const type = checker.getTypeAtLocation(node);
+  if (type.flags & ts.TypeFlags.TypeParameter) {
+    return { kind: "typeParameterType", name: typeName };
+  }
+
   // Reference type (user-defined or library)
   return {
     kind: "referenceType",

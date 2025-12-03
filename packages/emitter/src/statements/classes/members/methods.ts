@@ -9,6 +9,7 @@ import {
   indent,
   dedent,
   withAsync,
+  withScoped,
 } from "../../../types.js";
 import { emitType, emitTypeParameters } from "../../../type-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
@@ -89,7 +90,8 @@ export const emitMethodMember = (
       : "";
 
   // Method body
-  const bodyContext = withAsync(indent(currentContext), member.isAsync);
+  // Use withScoped to set typeParameters and returnType for nested expressions
+  const baseBodyContext = withAsync(indent(currentContext), member.isAsync);
 
   if (!member.body) {
     // Abstract method without body
@@ -98,7 +100,21 @@ export const emitMethodMember = (
     return [code, currentContext];
   }
 
-  const [bodyCode, finalContext] = emitBlockStatement(member.body, bodyContext);
+  // Build type parameter names set for this method (includes class type params from context)
+  const methodTypeParams = new Set<string>([
+    ...(currentContext.typeParameters ?? []),
+    ...(member.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Emit body with scoped typeParameters and returnType
+  const [bodyCode, finalContext] = withScoped(
+    baseBodyContext,
+    {
+      typeParameters: methodTypeParams,
+      returnType: member.returnType,
+    },
+    (scopedCtx) => emitBlockStatement(member.body!, scopedCtx)
+  );
 
   // Collect out parameters that need initialization (escape C# keywords)
   const outParams: Array<{ name: string; type: string }> = [];
@@ -121,7 +137,7 @@ export const emitMethodMember = (
   // Inject out parameter initializations
   let finalBodyCode = bodyCode;
   if (outParams.length > 0) {
-    const bodyInd = getIndent(bodyContext);
+    const bodyInd = getIndent(baseBodyContext);
     const injectLines: string[] = [];
     for (const outParam of outParams) {
       injectLines.push(`${bodyInd}${outParam.name} = default;`);

@@ -4,6 +4,7 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
+import { containsTypeParameter } from "../core/type-resolution.js";
 
 /**
  * C# types that require integer values (not double).
@@ -49,16 +50,25 @@ export const requiresInteger = (clrType: string | undefined): boolean => {
  *
  * @param expr - The literal expression
  * @param context - Emitter context
+ * @param expectedType - Optional expected IR type (for null → default conversion in generic contexts)
  * @param expectedClrType - Optional expected C# type (for int-required contexts)
  */
 export const emitLiteral = (
   expr: Extract<IrExpression, { kind: "literal" }>,
   context: EmitterContext,
+  expectedType?: IrType,
   expectedClrType?: string
 ): [CSharpFragment, EmitterContext] => {
   const { value } = expr;
 
   if (value === null) {
+    // In generic contexts where expected type contains type parameters,
+    // emit "default" instead of "null" to avoid CS0403 error.
+    // Example: Result<T> { value: null } → { value = default }
+    const typeParams = context.typeParameters ?? new Set<string>();
+    if (expectedType && containsTypeParameter(expectedType, typeParams)) {
+      return [{ text: "default" }, context];
+    }
     return [{ text: "null" }, context];
   }
 

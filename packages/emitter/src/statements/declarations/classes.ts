@@ -71,10 +71,19 @@ export const emitClassDeclaration = (
 
   // Class body (use escaped class name)
   const baseContext = withClassName(indent(currentContext), escapedClassName);
+
+  // Build type parameter names set for this class
+  const classTypeParams = new Set<string>(
+    stmt.typeParameters?.map((tp) => tp.name) ?? []
+  );
+
   // Only set hasSuperClass flag if there's actually a superclass (for inheritance)
-  const bodyContext = stmt.superClass
-    ? { ...baseContext, hasSuperClass: true }
-    : baseContext;
+  // Also set typeParameters for nested expressions (method bodies, property initializers)
+  const bodyContext: EmitterContext = {
+    ...baseContext,
+    hasSuperClass: stmt.superClass ? true : undefined,
+    typeParameters: classTypeParams,
+  };
   const members: string[] = [];
 
   for (const member of stmt.members) {

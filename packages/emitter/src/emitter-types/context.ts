@@ -89,3 +89,57 @@ export const withClassName = (
   ...context,
   className,
 });
+
+/**
+ * Scoped fields that should be restored after emission.
+ * These fields define lexical scopes and should not leak to parent scopes.
+ */
+type ScopedFields = Pick<EmitterContext, "typeParameters" | "returnType">;
+
+/**
+ * Execute an emission function with scoped context fields.
+ *
+ * This helper ensures that scoped fields (typeParameters, returnType) are
+ * restored after emission, preventing scope leaks when context is threaded
+ * upward via [result, newContext] tuples.
+ *
+ * Other context mutations (intLoopVars, importBindings, etc.) are preserved
+ * and bubbled up correctly.
+ *
+ * @example
+ * ```typescript
+ * const [result, finalCtx] = withScoped(
+ *   context,
+ *   {
+ *     typeParameters: new Set([...context.typeParameters ?? [], "T"]),
+ *     returnType: stmt.returnType
+ *   },
+ *   (scopedCtx) => emitFunctionBody(stmt.body, scopedCtx)
+ * );
+ * ```
+ */
+export const withScoped = <T>(
+  context: EmitterContext,
+  scopedPatch: Partial<ScopedFields>,
+  emit: (ctx: EmitterContext) => [T, EmitterContext]
+): [T, EmitterContext] => {
+  // Save current scoped field values
+  const saved: ScopedFields = {
+    typeParameters: context.typeParameters,
+    returnType: context.returnType,
+  };
+
+  // Create child context with scoped patch applied
+  const childContext: EmitterContext = { ...context, ...scopedPatch };
+
+  // Execute the emission
+  const [result, innerContext] = emit(childContext);
+
+  // Restore scoped fields while keeping other mutations from child
+  const restoredContext: EmitterContext = {
+    ...innerContext,
+    ...saved,
+  };
+
+  return [result, restoredContext];
+};

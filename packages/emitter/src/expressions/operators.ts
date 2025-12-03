@@ -306,14 +306,28 @@ export const emitAssignment = (
 
 /**
  * Emit a conditional (ternary) expression
+ *
+ * @param expr - The conditional expression
+ * @param context - Emitter context
+ * @param expectedType - Optional expected type (for null → default in generic contexts)
  */
 export const emitConditional = (
   expr: Extract<IrExpression, { kind: "conditional" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
   const [condFrag, condContext] = emitExpression(expr.condition, context);
-  const [trueFrag, trueContext] = emitExpression(expr.whenTrue, condContext);
-  const [falseFrag, falseContext] = emitExpression(expr.whenFalse, trueContext);
+  // Pass expectedType to both branches for null → default conversion
+  const [trueFrag, trueContext] = emitExpression(
+    expr.whenTrue,
+    condContext,
+    expectedType
+  );
+  const [falseFrag, falseContext] = emitExpression(
+    expr.whenFalse,
+    trueContext,
+    expectedType
+  );
 
   const text = `${condFrag.text} ? ${trueFrag.text} : ${falseFrag.text}`;
   return [{ text, precedence: 4 }, falseContext];

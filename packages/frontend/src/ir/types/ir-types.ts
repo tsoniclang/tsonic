@@ -7,6 +7,7 @@ import { IrParameter, IrInterfaceMember } from "./helpers.js";
 export type IrType =
   | IrPrimitiveType
   | IrReferenceType
+  | IrTypeParameterType
   | IrArrayType
   | IrFunctionType
   | IrObjectType
@@ -30,6 +31,17 @@ export type IrReferenceType = {
   readonly typeArguments?: readonly IrType[];
   /** Fully-qualified CLR type for imported types (e.g., "MyApp.models.User") */
   readonly resolvedClrType?: string;
+};
+
+/**
+ * Type parameter reference (e.g., T in Container<T>)
+ *
+ * This is distinct from IrReferenceType to enable unambiguous detection
+ * of generic type parameters during emission (for null → default conversion).
+ */
+export type IrTypeParameterType = {
+  readonly kind: "typeParameterType";
+  readonly name: string;
 };
 
 export type IrArrayType = {

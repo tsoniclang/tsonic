@@ -28,6 +28,10 @@ export const emitType = (
     case "referenceType":
       return emitReferenceType(type, context);
 
+    case "typeParameterType":
+      // Type parameters emit as their name (e.g., T)
+      return [type.name, context];
+
     case "arrayType":
       return emitArrayType(type, context);
 
