@@ -409,6 +409,98 @@ describe("Static Safety Validation", () => {
       );
       expect(paramDiag).to.equal(undefined);
     });
+
+    // Contextual type inference tests
+    it("should allow lambda with contextually inferred params in array.sort", () => {
+      const source = `
+        const nums: number[] = [3, 1, 2];
+        const sorted = nums.sort((a, b) => a - b);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow lambda with contextually inferred params in array.map", () => {
+      const source = `
+        const nums: number[] = [1, 2, 3];
+        const doubled = nums.map((x) => x * 2);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow lambda with contextually inferred params in array.filter", () => {
+      const source = `
+        const nums: number[] = [1, 2, 3, 4];
+        const evens = nums.filter((x) => x % 2 === 0);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow lambda with contextually inferred params in array.find", () => {
+      const source = `
+        const nums: number[] = [1, 2, 3];
+        const found = nums.find((x) => x > 2);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow lambda assigned to typed function variable", () => {
+      const source = `
+        const fn: (x: number) => number = (x) => x + 1;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
+
+    it("should allow lambda passed to higher-order function", () => {
+      const source = `
+        function apply(fn: (x: number) => number, value: number): number {
+          return fn(value);
+        }
+        const result = apply((x) => x * 2, 5);
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const paramDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7405"
+      );
+      expect(paramDiag).to.equal(undefined);
+    });
   });
 
   describe("TSN7413 - Dictionary key must be string", () => {
