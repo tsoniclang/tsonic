@@ -30,12 +30,14 @@ export const hasMatchingClassName = (
 
 /**
  * Emit static container class for module-level members
+ * @param useModuleSuffix - If true, adds __Module suffix to avoid collision with namespace-level types
  */
 export const emitStaticContainer = (
   module: IrModule,
   members: readonly IrStatement[],
   baseContext: EmitterContext,
-  hasInheritance: boolean
+  hasInheritance: boolean,
+  useModuleSuffix: boolean = false
 ): StaticContainerResult => {
   const classContext = withStatic(indent(baseContext), true);
   const bodyContext = indent(classContext);
@@ -43,7 +45,11 @@ export const emitStaticContainer = (
 
   const containerParts: string[] = [];
   const escapedClassName = escapeCSharpIdentifier(module.className);
-  containerParts.push(`${ind}public static class ${escapedClassName}`);
+  // Use __Module suffix when there's a collision with namespace-level type declarations
+  const containerName = useModuleSuffix
+    ? `${escapedClassName}__Module`
+    : escapedClassName;
+  containerParts.push(`${ind}public static class ${containerName}`);
   containerParts.push(`${ind}{`);
 
   const bodyParts: string[] = [];
