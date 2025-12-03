@@ -4,7 +4,10 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
-import { containsTypeParameter } from "../core/type-resolution.js";
+import {
+  containsTypeParameter,
+  isDefinitelyValueType,
+} from "../core/type-resolution.js";
 
 /**
  * C# types that require integer values (not double).
@@ -62,12 +65,19 @@ export const emitLiteral = (
   const { value } = expr;
 
   if (value === null) {
-    // In generic contexts where expected type contains type parameters,
-    // emit "default" instead of "null" to avoid CS0403 error.
-    // Example: Result<T> { value: null } → { value = default }
-    const typeParams = context.typeParameters ?? new Set<string>();
-    if (expectedType && containsTypeParameter(expectedType, typeParams)) {
-      return [{ text: "default" }, context];
+    // Emit "default" instead of "null" in two cases:
+    // 1. Generic contexts where expected type contains type parameters (CS0403)
+    //    Example: Result<T> { value: null } → { value = default }
+    // 2. Value type contexts where null is invalid (CS0037)
+    //    Example: Result<number, string> { value: null } → { value = default }
+    if (expectedType) {
+      const typeParams = context.typeParameters ?? new Set<string>();
+      if (
+        containsTypeParameter(expectedType, typeParams) ||
+        isDefinitelyValueType(expectedType)
+      ) {
+        return [{ text: "default" }, context];
+      }
     }
     return [{ text: "null" }, context];
   }

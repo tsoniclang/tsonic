@@ -6,7 +6,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitType } from "../type-emitter.js";
 import { emitExpression } from "../expression-emitter.js";
-import { getPropertyType } from "../core/type-resolution.js";
+import { getPropertyType, stripNullish } from "../core/type-resolution.js";
 
 /**
  * Escape a string for use in a C# string literal.
@@ -230,8 +230,12 @@ export const emitObject = (
 
   // Check for contextual type (from return type, variable annotation, etc.)
   // If present, emit `new TypeName { ... }` instead of anonymous `new { ... }`
+  // Strip null/undefined from type - `new T? { ... }` is invalid C#, use `new T { ... }`
+  const instantiationType = effectiveType
+    ? stripNullish(effectiveType)
+    : undefined;
   const [typeName, finalContext] = resolveContextualType(
-    effectiveType,
+    instantiationType,
     currentContext
   );
 
@@ -242,7 +246,12 @@ export const emitObject = (
     );
   }
 
-  const text = `new ${typeName} { ${properties.join(", ")} }`;
+  // Safety net: strip trailing `?` from type name (e.g., `Option<T>?` → `Option<T>`)
+  // `new T? { ... }` is never valid C# syntax
+  const safeTypeName = typeName.endsWith("?")
+    ? typeName.slice(0, -1)
+    : typeName;
+  const text = `new ${safeTypeName} { ${properties.join(", ")} }`;
   return [{ text }, finalContext];
 };
 

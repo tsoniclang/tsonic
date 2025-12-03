@@ -110,6 +110,56 @@ describe("emitLiteral", () => {
 
       expect(fragment.text).to.equal("default");
     });
+
+    // Bug 2 regression: null to value type (CS0037)
+    it("emits 'default' when expectedType is number (value type)", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: null,
+      };
+      // number is a value type (double in C#), null is invalid
+      const expectedType: IrType = { kind: "primitiveType", name: "number" };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context, expectedType);
+
+      expect(fragment.text).to.equal("default");
+    });
+
+    it("emits 'default' when expectedType is number | null union (value type after stripNullish)", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: null,
+      };
+      // Result<number, string>.value is substituted to number | null
+      // After stripNullish, it's number (a value type)
+      const expectedType: IrType = {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "null" },
+        ],
+      };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context, expectedType);
+
+      expect(fragment.text).to.equal("default");
+    });
+
+    it("emits 'default' when expectedType is boolean (value type)", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: null,
+      };
+      // boolean is a value type (bool in C#), null is invalid
+      const expectedType: IrType = { kind: "primitiveType", name: "boolean" };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context, expectedType);
+
+      expect(fragment.text).to.equal("default");
+    });
   });
 
   describe("undefined literal", () => {

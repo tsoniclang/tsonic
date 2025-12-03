@@ -293,7 +293,29 @@ mkdir -p .analysis
 - No loss of progress or decisions
 - Gitignored for persistence
 
-**Note:** All three directories (`.tests/`, `.analysis/`, `.todos/`) should be added to `.gitignore`
+#### .temp/ Directory (Temporary Scripts & Debugging)
+
+**Purpose:** Store temporary scripts and one-off debugging files
+
+**Usage:**
+
+```bash
+# Create directory (gitignored)
+mkdir -p .temp
+
+# Use for:
+# - Quick test scripts
+# - Debug output files
+# - One-off data transformations
+# - Temporary TypeScript/JavaScript for testing
+
+# NEVER use /tmp or system temp directories
+# .temp keeps files visible and within the project
+```
+
+**Key Rule:** ALWAYS use `.temp/` instead of `/tmp/` or system temp directories. This keeps temporary work visible and accessible within the project.
+
+**Note:** All four directories (`.tests/`, `.analysis/`, `.todos/`, `.temp/`) should be added to `.gitignore`
 
 ## Session Startup
 
