@@ -6,6 +6,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitType } from "../type-emitter.js";
 import { emitExpression } from "../expression-emitter.js";
+import { getPropertyType } from "../core/type-resolution.js";
 
 /**
  * Escape a string for use in a C# string literal.
@@ -183,16 +184,24 @@ export const emitArray = (
  * 2. Nominal type (interface, class) → new TypeName { prop = value, ... }
  *
  * Anonymous object types should be caught by validation (TSN7403) before reaching here.
+ *
+ * @param expr - The object expression
+ * @param context - Emitter context
+ * @param expectedType - Optional expected type (for property type resolution in generic contexts)
  */
 export const emitObject = (
   expr: Extract<IrExpression, { kind: "object" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
 
+  // Use expectedType if provided, fall back to contextualType
+  const effectiveType = expectedType ?? expr.contextualType;
+
   // Check if contextual type is a dictionary type
-  if (expr.contextualType?.kind === "dictionaryType") {
-    return emitDictionaryLiteral(expr, currentContext);
+  if (effectiveType?.kind === "dictionaryType") {
+    return emitDictionaryLiteral(expr, currentContext, effectiveType);
   }
 
   // Regular object literal with nominal type
@@ -204,9 +213,15 @@ export const emitObject = (
       properties.push("/* ...spread */");
     } else {
       const key = typeof prop.key === "string" ? prop.key : "/* computed */";
+      // Resolve property type from contextual type for generic null→default handling
+      const propertyExpectedType =
+        typeof prop.key === "string"
+          ? getPropertyType(effectiveType, prop.key, currentContext)
+          : undefined;
       const [valueFrag, newContext] = emitExpression(
         prop.value,
-        currentContext
+        currentContext,
+        propertyExpectedType
       );
       properties.push(`${key} = ${valueFrag.text}`);
       currentContext = newContext;
@@ -216,7 +231,7 @@ export const emitObject = (
   // Check for contextual type (from return type, variable annotation, etc.)
   // If present, emit `new TypeName { ... }` instead of anonymous `new { ... }`
   const [typeName, finalContext] = resolveContextualType(
-    expr.contextualType,
+    effectiveType,
     currentContext
   );
 
@@ -239,14 +254,10 @@ export const emitObject = (
  */
 const emitDictionaryLiteral = (
   expr: Extract<IrExpression, { kind: "object" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  dictType: Extract<IrType, { kind: "dictionaryType" }>
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
-
-  const dictType = expr.contextualType as Extract<
-    IrType,
-    { kind: "dictionaryType" }
-  >;
 
   // Get key and value type strings
   const [keyTypeStr, ctx1] = emitDictKeyType(dictType.keyType, currentContext);
@@ -268,9 +279,11 @@ const emitDictionaryLiteral = (
         );
       }
 
+      // Pass dictionary value type as expectedType for generic null→default handling
       const [valueFrag, newContext] = emitExpression(
         prop.value,
-        currentContext
+        currentContext,
+        dictType.valueType
       );
       entries.push(`["${escapeCSharpString(prop.key)}"] = ${valueFrag.text}`);
       currentContext = newContext;

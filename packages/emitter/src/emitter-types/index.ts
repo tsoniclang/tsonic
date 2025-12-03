@@ -13,6 +13,7 @@ export type {
   ExportSource,
   ExportMap,
   JsonAotRegistry,
+  LocalTypeInfo,
 } from "./core.js";
 export type {
   CSharpAccessModifier,
@@ -27,6 +28,7 @@ export {
   withStatic,
   withAsync,
   withClassName,
+  withScoped,
 } from "./context.js";
 export { getIndent } from "./formatting.js";
 export { renderTypeFQN, renderMemberFQN, renderFQN, FQN } from "./fqn.js";

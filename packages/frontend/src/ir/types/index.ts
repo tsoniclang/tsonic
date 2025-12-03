@@ -74,6 +74,7 @@ export type {
   IrType,
   IrPrimitiveType,
   IrReferenceType,
+  IrTypeParameterType,
   IrArrayType,
   IrFunctionType,
   IrObjectType,

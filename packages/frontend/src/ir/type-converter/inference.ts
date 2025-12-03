@@ -106,7 +106,7 @@ export const convertTsTypeToIr = (
   if (flags & ts.TypeFlags.TypeParameter) {
     const typeParam = type as ts.TypeParameter;
     const name = typeParam.symbol?.name ?? "T";
-    return { kind: "referenceType", name };
+    return { kind: "typeParameterType", name };
   }
 
   // Any and unknown

@@ -9,6 +9,7 @@ import {
   indent,
   withAsync,
   withStatic,
+  withScoped,
 } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
@@ -88,11 +89,27 @@ export const emitFunctionDeclaration = (
   currentContext = params[1];
 
   // Function body (not a static context - local variables)
-  const bodyContext = withAsync(
+  // Use withScoped to set typeParameters and returnType for nested expressions
+  const baseBodyContext = withAsync(
     withStatic(indent(currentContext), false),
     stmt.isAsync
   );
-  const [bodyCode] = emitBlockStatement(stmt.body, bodyContext);
+
+  // Build type parameter names set for this function
+  const funcTypeParams = new Set<string>([
+    ...(currentContext.typeParameters ?? []),
+    ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Emit body with scoped typeParameters and returnType
+  const [bodyCode] = withScoped(
+    baseBodyContext,
+    {
+      typeParameters: funcTypeParams,
+      returnType: stmt.returnType,
+    },
+    (scopedCtx) => emitBlockStatement(stmt.body, scopedCtx)
+  );
 
   // Collect out parameters that need initialization
   const outParams: Array<{ name: string; type: string }> = [];
@@ -114,7 +131,7 @@ export const emitFunctionDeclaration = (
 
   // Inject initialization code for generators and out parameters
   let finalBodyCode = bodyCode;
-  const bodyInd = getIndent(bodyContext);
+  const bodyInd = getIndent(baseBodyContext);
   const injectLines: string[] = [];
 
   // Add generator exchange initialization

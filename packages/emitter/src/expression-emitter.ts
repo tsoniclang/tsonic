@@ -46,11 +46,12 @@ export const emitExpression = (
 ): [CSharpFragment, EmitterContext] => {
   switch (expr.kind) {
     case "literal":
-      // Check if the literal has an inferredType that requires integer emission
-      // This handles cases like `1 as int` where the type assertion sets inferredType
+      // Pass expectedType for null → default conversion in generic contexts
+      // Also check if the literal has an inferredType that requires integer emission
       return emitLiteral(
         expr,
         context,
+        expectedType,
         getExpectedClrTypeForNumeric(expr.inferredType)
       );
 
@@ -61,7 +62,7 @@ export const emitExpression = (
       return emitArray(expr, context, expectedType);
 
     case "object":
-      return emitObject(expr, context);
+      return emitObject(expr, context, expectedType);
 
     case "memberAccess":
       return emitMemberAccess(expr, context);
@@ -88,7 +89,7 @@ export const emitExpression = (
       return emitAssignment(expr, context);
 
     case "conditional":
-      return emitConditional(expr, context);
+      return emitConditional(expr, context, expectedType);
 
     case "functionExpression":
       return emitFunctionExpression(expr, context);

@@ -13,6 +13,7 @@ import { generateGeneratorExchanges } from "../../generator-exchange.js";
 import { defaultOptions } from "../options.js";
 import { collectTypeParameters } from "../type-params.js";
 import { processImports } from "../imports.js";
+import { buildLocalTypes } from "../local-types.js";
 import { generateHeader } from "./header.js";
 import { separateStatements } from "./separation.js";
 import { emitNamespaceDeclarations } from "./namespace.js";
@@ -30,7 +31,11 @@ export const emitModule = (
   options: Partial<EmitterOptions> = {}
 ): string => {
   const finalOptions: EmitterOptions = { ...defaultOptions, ...options };
-  const context = createContext(finalOptions);
+  const baseContext = createContext(finalOptions);
+
+  // Build local type index for property type lookup
+  const localTypes = buildLocalTypes(module);
+  const context = { ...baseContext, localTypes };
 
   // Generate file header
   const header = generateHeader(module, finalOptions);
