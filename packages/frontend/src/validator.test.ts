@@ -539,38 +539,22 @@ describe("Static Safety Validation", () => {
     });
   });
 
-  describe("TSN7413 - Dictionary key must be string", () => {
-    it("should reject Record with number key", () => {
-      const source = `
-        const d: Record<number, string> = {};
-      `;
-
-      const program = createTestProgram(source);
-      const diagnostics = validateProgram(program);
-
-      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
-      expect(keyDiag).not.to.equal(undefined);
-      expect(keyDiag?.message).to.include("string");
-    });
-
-    it("should reject index signature with number key", () => {
-      const source = `
-        interface NumIndexed {
-          [key: number]: string;
-        }
-      `;
-
-      const program = createTestProgram(source);
-      const diagnostics = validateProgram(program);
-
-      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
-      expect(keyDiag).not.to.equal(undefined);
-      expect(keyDiag?.message).to.include("string");
-    });
-
+  describe("TSN7413 - Dictionary key type validation", () => {
     it("should allow Record with string key", () => {
       const source = `
         const d: Record<string, number> = {};
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow Record with number key", () => {
+      const source = `
+        const d: Record<number, string> = {};
       `;
 
       const program = createTestProgram(source);
@@ -592,6 +576,46 @@ describe("Static Safety Validation", () => {
 
       const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
       expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow index signature with number key", () => {
+      const source = `
+        interface NumIndexed {
+          [key: number]: string;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should reject Record with symbol key", () => {
+      const source = `
+        const d: Record<symbol, string> = {};
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).not.to.equal(undefined);
+      expect(keyDiag?.message).to.include("string");
+    });
+
+    it("should reject Record with object key type", () => {
+      const source = `
+        interface Key { id: string; }
+        const d: Record<Key, string> = {};
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(keyDiag).not.to.equal(undefined);
     });
   });
 

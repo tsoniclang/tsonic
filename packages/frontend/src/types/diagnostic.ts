@@ -41,7 +41,7 @@ export type DiagnosticCode =
   | "TSN7408" // Tuple types not supported
   | "TSN7409" // 'infer' keyword not supported
   | "TSN7410" // Intersection types not supported
-  | "TSN7413" // Dictionary key must be string type
+  | "TSN7413" // Dictionary key must be string or number
   // Metadata loading errors (TSN9001-TSN9018)
   | "TSN9001" // Metadata file not found
   | "TSN9002" // Failed to read metadata file
