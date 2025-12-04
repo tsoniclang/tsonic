@@ -5,10 +5,10 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { compile, buildIr, DiagnosticCode } from "@tsonic/frontend";
+import { compile, buildIr } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { generateFileHeader } from "../constants.js";
-import { Scenario } from "./types.js";
+import { DiagnosticsMode, Scenario } from "./types.js";
 
 /**
  * Normalize C# output for comparison
@@ -60,21 +60,47 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
       );
     }
 
-    const actualCodes = new Set(
-      compileResult.error.diagnostics.map((d) => d.code)
-    );
-    const missing = scenario.expectDiagnostics.filter(
-      (c) => !actualCodes.has(c as DiagnosticCode)
-    );
+    const actualDiagnostics = compileResult.error.diagnostics;
+    const actualCodes = new Set(actualDiagnostics.map((d) => d.code as string));
+    const expected = scenario.expectDiagnostics; // readonly string[], already validated as TSN####
+    const expectedSet = new Set(expected);
+    const mode: DiagnosticsMode = scenario.expectDiagnosticsMode ?? "contains";
+
+    // Check for missing expected diagnostics (both modes)
+    const missing = expected.filter((c) => !actualCodes.has(c));
 
     if (missing.length) {
+      // Show full diagnostic details for debugging
+      const actualDetails = actualDiagnostics
+        .map((d) => `  ${d.code}: ${d.message}`)
+        .join("\n");
       throw new Error(
-        `Missing expected diagnostics: ${missing.join(", ")}\n` +
-          `Actual: ${Array.from(actualCodes).join(", ")}`
+        `Missing expected diagnostics (${mode}): ${missing.join(", ")}\n` +
+          `Expected: ${expected.join(", ")}\n` +
+          `Actual diagnostics:\n${actualDetails}`
       );
     }
 
-    // PASS: expected diagnostics were found
+    // In "exact" mode, also check for unexpected diagnostics
+    if (mode === "exact") {
+      const unexpected = Array.from(actualCodes).filter(
+        (c) => !expectedSet.has(c)
+      );
+
+      if (unexpected.length) {
+        const unexpectedDetails = actualDiagnostics
+          .filter((d) => !expectedSet.has(d.code))
+          .map((d) => `  ${d.code}: ${d.message}`)
+          .join("\n");
+        throw new Error(
+          `Unexpected diagnostics in exact mode: ${unexpected.join(", ")}\n` +
+            `Expected exactly: ${scenario.expectDiagnostics.join(", ")}\n` +
+            `Unexpected diagnostics:\n${unexpectedDetails}`
+        );
+      }
+    }
+
+    // PASS: expected diagnostics were found (and no extras in exact mode)
     return;
   }
 
