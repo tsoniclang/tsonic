@@ -9,6 +9,7 @@ export type IrType =
   | IrReferenceType
   | IrTypeParameterType
   | IrArrayType
+  | IrTupleType
   | IrFunctionType
   | IrObjectType
   | IrDictionaryType
@@ -47,6 +48,20 @@ export type IrTypeParameterType = {
 export type IrArrayType = {
   readonly kind: "arrayType";
   readonly elementType: IrType;
+};
+
+/**
+ * Tuple type for fixed-length arrays with heterogeneous element types
+ *
+ * Examples:
+ * - `[string, number]` → IrTupleType { elementTypes: [string, number] }
+ * - `[boolean, string, number]` → IrTupleType { elementTypes: [boolean, string, number] }
+ *
+ * Emits to C# ValueTuple<T1, T2, ...>.
+ */
+export type IrTupleType = {
+  readonly kind: "tupleType";
+  readonly elementTypes: readonly IrType[];
 };
 
 export type IrFunctionType = {

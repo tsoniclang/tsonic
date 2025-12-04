@@ -6,7 +6,11 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitType } from "../type-emitter.js";
 import { emitExpression } from "../expression-emitter.js";
-import { getPropertyType, stripNullish } from "../core/type-resolution.js";
+import {
+  getPropertyType,
+  stripNullish,
+  resolveTypeAlias,
+} from "../core/type-resolution.js";
 
 /**
  * Escape a string for use in a C# string literal.
@@ -28,6 +32,22 @@ export const emitArray = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
+  // Resolve type alias to check for tuple types
+  // (e.g., type Point = [number, number] → resolve Point to the tuple type)
+  const resolvedExpectedType = expectedType
+    ? resolveTypeAlias(expectedType, context)
+    : undefined;
+
+  // Check if expected type is a tuple - emit as ValueTuple
+  if (resolvedExpectedType?.kind === "tupleType") {
+    return emitTupleLiteral(expr, context, resolvedExpectedType);
+  }
+
+  // Check if inferred type is a tuple (already resolved in frontend)
+  if (expr.inferredType?.kind === "tupleType") {
+    return emitTupleLiteral(expr, context, expr.inferredType);
+  }
+
   let currentContext = context;
   const elements: string[] = [];
 
@@ -373,4 +393,45 @@ const resolveContextualType = (
   // For other types, use standard emitType
   const [typeStr, newContext] = emitType(contextualType, context);
   return [typeStr, newContext];
+};
+
+/**
+ * Emit a tuple literal as ValueTuple.
+ *
+ * Input:  const t: [string, number] = ["hello", 42];
+ * Output: ("hello", 42.0)
+ *
+ * C# ValueTuple has implicit tuple literal syntax with parentheses.
+ */
+const emitTupleLiteral = (
+  expr: Extract<IrExpression, { kind: "array" }>,
+  context: EmitterContext,
+  tupleType: Extract<IrType, { kind: "tupleType" }>
+): [CSharpFragment, EmitterContext] => {
+  let currentContext = context;
+  const elements: string[] = [];
+
+  const definedElements = expr.elements.filter(
+    (el): el is IrExpression => el !== undefined
+  );
+
+  // Emit each element with its expected type from the tuple type
+  for (let i = 0; i < definedElements.length; i++) {
+    const element = definedElements[i];
+    const expectedElementType = tupleType.elementTypes[i];
+
+    if (element) {
+      const [elemFrag, newContext] = emitExpression(
+        element,
+        currentContext,
+        expectedElementType
+      );
+      elements.push(elemFrag.text);
+      currentContext = newContext;
+    }
+  }
+
+  // Emit as tuple literal: (elem1, elem2, ...)
+  const text = `(${elements.join(", ")})`;
+  return [{ text }, currentContext];
 };

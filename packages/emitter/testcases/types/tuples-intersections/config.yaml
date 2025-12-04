@@ -1,3 +1,3 @@
 - input: TuplesAndIntersections.ts
-  title: tuple types are rejected with TSN7408
+  title: mixed variadic tuples are rejected with TSN7408
   expectDiagnostics: [TSN7408]

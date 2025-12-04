@@ -299,7 +299,9 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       // Type predicate (animal is Dog) should emit as bool return type
-      expect(csharp).to.match(/public\s+static\s+bool\s+isDog\s*\(\s*Animal\s+animal\s*\)/);
+      expect(csharp).to.match(
+        /public\s+static\s+bool\s+isDog\s*\(\s*Animal\s+animal\s*\)/
+      );
       // Should not emit 'dynamic' (old broken behavior)
       expect(csharp).not.to.include("dynamic isDog");
     });

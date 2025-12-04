@@ -67,6 +67,7 @@ export type {
   IrPrimitiveType,
   IrReferenceType,
   IrArrayType,
+  IrTupleType,
   IrFunctionType,
   IrObjectType,
   IrDictionaryType,
