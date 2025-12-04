@@ -80,12 +80,12 @@ namespace TestCases.realworld.advancedgenerics
 
                 public static Result<T, E> ok<T, E>(T value)
                     {
-                    return new Result<T, E> { ok = true, value = value };
+                    return new Result__0<T, E> { ok = true, value = value };
                     }
 
                 public static Result<T, E> err<T, E>(E error)
                     {
-                    return new Result<T, E> { ok = false, error = error };
+                    return new Result__1<T, E> { ok = false, error = error };
                     }
 
                 public static bool isOk<T, E>(Result<T, E> result)
