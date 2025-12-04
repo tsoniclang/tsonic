@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>GoldenCompile</RootNamespace>
+    <AssemblyName>golden-compile</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>false</ImplicitUsings>
+    <!-- Treat warnings as errors for stricter checking -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- No need for NativeAOT - just checking if it compiles -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tsonic.Runtime" Version="0.0.1" />
+    <PackageReference Include="Tsonic.JSRuntime" Version="0.0.1" />
+  </ItemGroup>
+</Project>
