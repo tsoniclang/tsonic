@@ -101,16 +101,15 @@ export function max<T extends Comparable<T>>(items: T[]): T | undefined {
   return result;
 }
 
-// Generic builder pattern
-export class Builder<T> {
-  private props: Partial<T> = {};
+// Usage example
+export function createPair(): Pair<number, string> {
+  return new Pair(42, "hello");
+}
 
-  set<K extends keyof T>(key: K, value: T[K]): Builder<T> {
-    this.props[key] = value;
-    return this;
+export function processResult(): string {
+  const result = ok<number, string>(100);
+  if (isOk(result)) {
+    return `Value: ${result.value}`;
   }
-
-  build(): T {
-    return this.props as T;
-  }
+  return "Error";
 }

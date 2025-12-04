@@ -4,7 +4,10 @@
 
 import * as ts from "typescript";
 import { IrExport } from "../types.js";
-import { convertStatement } from "../statement-converter.js";
+import {
+  convertStatement,
+  flattenStatementResult,
+} from "../statement-converter.js";
 import { convertExpression } from "../expression-converter.js";
 import { hasExportModifier, hasDefaultModifier } from "./helpers.js";
 
@@ -52,17 +55,19 @@ export const extractExports = (
       const hasDefault = hasDefaultModifier(node);
       if (hasDefault) {
         // export default function/class/etc
-        const stmt = convertStatement(node, checker);
-        if (stmt) {
+        const result = convertStatement(node, checker);
+        const statements = flattenStatementResult(result);
+        if (statements.length > 0) {
           exports.push({
             kind: "default",
             expression: { kind: "identifier", name: "_default" }, // placeholder for now
           });
         }
       } else {
-        // regular export
-        const stmt = convertStatement(node, checker);
-        if (stmt) {
+        // regular export - may produce multiple statements (e.g., type aliases with synthetics)
+        const result = convertStatement(node, checker);
+        const statements = flattenStatementResult(result);
+        for (const stmt of statements) {
           exports.push({
             kind: "declaration",
             declaration: stmt,

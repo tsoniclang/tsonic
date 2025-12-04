@@ -29,12 +29,21 @@ import {
 } from "./converters/statements/control.js";
 
 /**
+ * Result type for statement conversion.
+ * Some converters (like type aliases with synthetic types) return multiple statements.
+ */
+export type ConvertStatementResult =
+  | IrStatement
+  | readonly IrStatement[]
+  | null;
+
+/**
  * Main statement converter dispatcher
  */
 export const convertStatement = (
   node: ts.Node,
   checker: ts.TypeChecker
-): IrStatement | null => {
+): ConvertStatementResult => {
   if (ts.isVariableStatement(node)) {
     return convertVariableStatement(node, checker);
   }
@@ -50,6 +59,7 @@ export const convertStatement = (
   if (ts.isEnumDeclaration(node)) {
     return convertEnumDeclaration(node, checker);
   }
+  // Type alias declarations may return multiple statements (synthetic interfaces + alias)
   if (ts.isTypeAliasDeclaration(node)) {
     return convertTypeAliasDeclaration(node, checker);
   }
@@ -117,6 +127,44 @@ export const convertStatement = (
   }
 
   return null;
+};
+
+/**
+ * Flatten a convert statement result into an array of statements.
+ * Handles both single statements and arrays.
+ */
+export const flattenStatementResult = (
+  result: ConvertStatementResult
+): readonly IrStatement[] => {
+  if (result === null) {
+    return [];
+  }
+  if (Array.isArray(result)) {
+    return result;
+  }
+  // At this point, result is IrStatement (not array, not null)
+  return [result as IrStatement];
+};
+
+/**
+ * Convert a statement and return a single statement (for contexts where arrays not expected).
+ * Type aliases inside control flow will return the first statement (usually the only one).
+ */
+export const convertStatementSingle = (
+  node: ts.Node,
+  checker: ts.TypeChecker
+): IrStatement | null => {
+  const result = convertStatement(node, checker);
+  if (result === null) {
+    return null;
+  }
+  if (Array.isArray(result)) {
+    // In control flow contexts, we expect single statements
+    // Return first statement (type aliases in control flow are rare)
+    return result[0] ?? null;
+  }
+  // At this point, result is IrStatement (not array, not null)
+  return result as IrStatement;
 };
 
 // Re-export commonly used functions for backward compatibility

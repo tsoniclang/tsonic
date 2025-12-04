@@ -336,6 +336,9 @@ export const validateStaticSafety = (
  * or a dictionary type that we can emit.
  *
  * Returns false for anonymous object types like `{ x: number }` without a name.
+ *
+ * Special case: Union types defined via type aliases (e.g., Result<T, E> = { ok: true; value: T } | {...})
+ * are considered nominal because we generate synthetic interfaces for them during IR building.
  */
 const isNominalOrDictionaryType = (
   type: ts.Type,
@@ -346,8 +349,18 @@ const isNominalOrDictionaryType = (
     return true;
   }
 
+  // Check if the type has an aliasSymbol (used via a type alias)
+  // This catches: type Result = { ok: true } | { ok: false }
+  // where the union was defined via a type alias
+  if (type.aliasSymbol) {
+    const aliasDecl = type.aliasSymbol.getDeclarations()?.[0];
+    if (aliasDecl && ts.isTypeAliasDeclaration(aliasDecl)) {
+      return true;
+    }
+  }
+
   // Check if the type has a symbol with a declaration (named type)
-  const symbol = type.getSymbol() ?? type.aliasSymbol;
+  const symbol = type.getSymbol();
   if (symbol) {
     const declarations = symbol.getDeclarations();
     const decl = declarations?.[0];
@@ -360,6 +373,15 @@ const isNominalOrDictionaryType = (
       ) {
         return true;
       }
+    }
+  }
+
+  // Check for union types with aliasSymbol (discriminated unions via type alias)
+  // This handles: return { ok: true, value } where return type is Result<T,E>
+  if (type.isUnion()) {
+    // Check if this union was created from a type alias
+    if (type.aliasSymbol) {
+      return true;
     }
   }
 
