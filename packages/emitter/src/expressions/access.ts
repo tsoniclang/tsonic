@@ -100,9 +100,7 @@ export const emitMemberAccess = (
       return [{ text }, finalContext];
     }
 
-    // CLR indexer access (non-TS-array types like List<T>, string, etc.)
-    // CLR indexers require integral indices.
-    // This applies in BOTH js and dotnet modes - CLR type requirements are mode-independent.
+    // CLR indexer access (non-TS-array types like List<T>, string, Dictionary, etc.)
     const indexContext = { ...newContext, isArrayIndex: true };
     const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
@@ -117,8 +115,17 @@ export const emitMemberAccess = (
       indexExpr.kind === "identifier" &&
       context.intLoopVars?.has(indexExpr.name);
 
-    // Skip cast if index is known int, otherwise cast for safety
-    const indexText = isKnownInt ? propFrag.text : `(int)(${propFrag.text})`;
+    // Check if this is dictionary access (no cast needed - use key type directly)
+    const isDictionaryType = objectType?.kind === "dictionaryType";
+
+    // Determine index text:
+    // - Dictionary: use key as-is (double for number keys, string for string keys)
+    // - Known int: no cast needed
+    // - Other CLR indexers (List, string): require (int) cast
+    const indexText =
+      isDictionaryType || isKnownInt
+        ? propFrag.text
+        : `(int)(${propFrag.text})`;
     const text = `${objectFrag.text}${accessor}${indexText}]`;
     return [{ text }, finalContext];
   }
