@@ -33,7 +33,7 @@ export const parseConfigYaml = (yamlContent: string): readonly TestEntry[] => {
 
         entries.push({ input, title });
       } else if (item.input && item.title) {
-        // Explicit format: { input: "File.ts", title: "..." }
+        // Explicit format: { input: "File.ts", title: "...", expectDiagnostics?: [...] }
         const input = item.input;
         const title = item.title;
 
@@ -43,7 +43,11 @@ export const parseConfigYaml = (yamlContent: string): readonly TestEntry[] => {
           );
         }
 
-        entries.push({ input, title });
+        const expectDiagnostics = Array.isArray(item.expectDiagnostics)
+          ? item.expectDiagnostics.map(String)
+          : undefined;
+
+        entries.push({ input, title, expectDiagnostics });
       } else {
         throw new Error(`Invalid test entry: ${JSON.stringify(item)}`);
       }

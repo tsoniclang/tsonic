@@ -31,19 +31,25 @@ export const discoverScenarios = (baseDir: string): readonly Scenario[] => {
         const baseName = path.basename(entry.input, ".ts");
         const expectedPath = path.join(dir, `${baseName}.cs`);
 
-        // Verify files exist
+        // Verify input file exists
         if (!fs.existsSync(inputPath)) {
           throw new Error(`Input file not found: ${inputPath}`);
         }
-        if (!fs.existsSync(expectedPath)) {
-          throw new Error(`Expected file not found: ${expectedPath}`);
+
+        // Only require .cs file if not expecting diagnostics
+        const expectDiagnostics = entry.expectDiagnostics;
+        if (!expectDiagnostics?.length) {
+          if (!fs.existsSync(expectedPath)) {
+            throw new Error(`Expected file not found: ${expectedPath}`);
+          }
         }
 
         scenarios.push({
           pathParts,
           title: entry.title,
           inputPath,
-          expectedPath,
+          expectedPath: expectDiagnostics?.length ? undefined : expectedPath,
+          expectDiagnostics,
         });
       }
     }

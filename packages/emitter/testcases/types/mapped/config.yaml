@@ -1,1 +1,3 @@
-- MappedTypes.ts: should emit mapped types (Partial, Required, Readonly)
+- input: MappedTypes.ts
+  title: mapped types are rejected with TSN7406
+  expectDiagnostics: [TSN7406]

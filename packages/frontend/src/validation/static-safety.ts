@@ -198,6 +198,62 @@ export const validateStaticSafety = (
       }
     }
 
+    // TSN7406: Check for mapped types (e.g., { [P in keyof T]: ... })
+    if (ts.isMappedTypeNode(node)) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7406",
+          "error",
+          "Mapped types are not supported. Write an explicit interface or class instead.",
+          getNodeLocation(sourceFile, node),
+          "Replace mapped types like Partial<T>, Required<T>, or { [P in keyof T]: ... } with explicit interface definitions."
+        )
+      );
+    }
+
+    // TSN7407: Check for conditional types (e.g., T extends U ? X : Y)
+    if (ts.isConditionalTypeNode(node)) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7407",
+          "error",
+          "Conditional types are not supported. Use explicit union types or overloads instead.",
+          getNodeLocation(sourceFile, node),
+          "Replace conditional types like Extract<T, U> or T extends X ? Y : Z with explicit type definitions."
+        )
+      );
+    }
+
+    // TSN7408: Check for tuple types (e.g., [number, string])
+    if (ts.isTupleTypeNode(node)) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7408",
+          "error",
+          "Tuple types are not supported. Use arrays or define a class/interface instead.",
+          getNodeLocation(sourceFile, node),
+          "Replace [T1, T2, ...] with T[] or define a nominal type like interface Point { x: number; y: number; }."
+        )
+      );
+    }
+
+    // TSN7409: Check for 'infer' keyword in conditional types
+    if (ts.isInferTypeNode(node)) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7409",
+          "error",
+          "The 'infer' keyword is not supported. Use explicit type parameters instead.",
+          getNodeLocation(sourceFile, node),
+          "Replace infer patterns with explicit generic type parameters."
+        )
+      );
+    }
+
     // Continue visiting children
     ts.forEachChild(node, (child) => {
       currentCollector = visitor(child, currentCollector);

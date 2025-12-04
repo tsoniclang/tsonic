@@ -55,6 +55,32 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     useStandardLib: true,
   });
 
+  // Handle expected diagnostics tests
+  if (scenario.expectDiagnostics?.length) {
+    if (compileResult.ok) {
+      throw new Error(
+        `Expected diagnostics ${scenario.expectDiagnostics.join(", ")} but compilation succeeded for ${scenario.inputPath}`
+      );
+    }
+
+    const actualCodes = new Set(
+      compileResult.error.diagnostics.map((d) => d.code)
+    );
+    const missing = scenario.expectDiagnostics.filter(
+      (c) => !actualCodes.has(c)
+    );
+
+    if (missing.length) {
+      throw new Error(
+        `Missing expected diagnostics: ${missing.join(", ")}\n` +
+          `Actual: ${Array.from(actualCodes).join(", ")}`
+      );
+    }
+
+    // PASS: expected diagnostics were found
+    return;
+  }
+
   if (!compileResult.ok) {
     // Show diagnostics if compilation failed
     const errors = compileResult.error.diagnostics
