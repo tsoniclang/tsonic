@@ -1,0 +1,1 @@
+- TypeGuardsV2.ts: should emit negated and && type guard narrowing

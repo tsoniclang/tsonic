@@ -25,11 +25,13 @@ namespace TestCases.realworld.advancedgenerics
     public class Result__0 <T, E>
     {
         public bool ok { get; set; }
+
         public T value { get; set; }
     }
     public class Result__1 <T, E>
     {
         public bool ok { get; set; }
+
         public E error { get; set; }
     }
     public class TreeNode<T>
