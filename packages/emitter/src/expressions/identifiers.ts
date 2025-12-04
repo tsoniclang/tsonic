@@ -34,11 +34,18 @@ export const emitIdentifier = (
     return [{ text: "default" }, context];
   }
 
-  // Narrowing remap (e.g., account -> account__1_3 inside type guard then-branch)
+  // Narrowing remap for union type guards
+  // - "rename": account -> account__1_3 (if-statements with temp var)
+  // - "expr": account -> (account.As1()) (ternary expressions, inline)
   if (context.narrowedBindings) {
     const narrowed = context.narrowedBindings.get(expr.name);
     if (narrowed) {
-      return [{ text: escapeCSharpIdentifier(narrowed.name) }, context];
+      if (narrowed.kind === "rename") {
+        return [{ text: escapeCSharpIdentifier(narrowed.name) }, context];
+      } else {
+        // kind === "expr" - emit expression text verbatim (no escaping)
+        return [{ text: narrowed.exprText }, context];
+      }
     }
   }
 

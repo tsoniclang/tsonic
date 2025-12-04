@@ -19,6 +19,7 @@ export type {
   ExportMap,
   JsonAotRegistry,
   LocalTypeInfo,
+  NarrowedBinding,
 } from "./emitter-types/index.js";
 export {
   createContext,

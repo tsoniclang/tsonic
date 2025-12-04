@@ -14,6 +14,7 @@ export type {
   ExportMap,
   JsonAotRegistry,
   LocalTypeInfo,
+  NarrowedBinding,
 } from "./core.js";
 export type {
   CSharpAccessModifier,
