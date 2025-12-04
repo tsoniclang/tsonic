@@ -28,12 +28,12 @@ namespace TestCases.functions.typeguards
 
                 public static bool isDog(Animal animal)
                     {
-                    return animal.type == "dog";
+                    return animal.Match(__m1 => __m1.type, __m2 => __m2.type) == "dog";
                     }
 
                 public static bool isCat(Animal animal)
                     {
-                    return animal.type == "cat";
+                    return animal.Match(__m1 => __m1.type, __m2 => __m2.type) == "cat";
                     }
 
                 public static void makeSound(Animal animal)

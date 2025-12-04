@@ -21,7 +21,7 @@ namespace TestCases.functions.typeguardsternary
 
                 public static bool isUser(Account account)
                     {
-                    return account.kind == "user";
+                    return account.Match(__m1 => __m1.kind, __m2 => __m2.kind) == "user";
                     }
 
                 public static string nameOrAnon(Account a)

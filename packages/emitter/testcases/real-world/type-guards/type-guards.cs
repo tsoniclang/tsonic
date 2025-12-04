@@ -35,17 +35,17 @@ namespace TestCases.realworld.typeguards
 
                 public static bool isUser(Account account)
                     {
-                    return account.type == "user";
+                    return account.Match(__m1 => __m1.type, __m2 => __m2.type, __m3 => __m3.type) == "user";
                     }
 
                 public static bool isAdmin(Account account)
                     {
-                    return account.type == "admin";
+                    return account.Match(__m1 => __m1.type, __m2 => __m2.type, __m3 => __m3.type) == "admin";
                     }
 
                 public static bool isGuest(Account account)
                     {
-                    return account.type == "guest";
+                    return account.Match(__m1 => __m1.type, __m2 => __m2.type, __m3 => __m3.type) == "guest";
                     }
 
                 public static string getAccountDescription(Account account)

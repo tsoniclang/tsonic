@@ -23,20 +23,21 @@ namespace TestCases.functions.typeguardsv2
 
                 public static bool isUser(Account account)
                     {
-                    return account.kind == "user";
+                    return account.Match(__m1 => __m1.kind, __m2 => __m2.kind) == "user";
                     }
 
                 public static bool isAdmin(Account account)
                     {
-                    return account.kind == "admin";
+                    return account.Match(__m1 => __m1.kind, __m2 => __m2.kind) == "admin";
                     }
 
                 public static string handleNotUser(Account account)
                     {
                     if (!account.Is1())
-                        {
-                        return $"Admin {account.adminId}";
-                        }
+                    {
+                        var account__2_2 = account.As2();
+                        return $"Admin {account__2_2.adminId}";
+                    }
                     else
                     {
                         var account__1_1 = account.As1();

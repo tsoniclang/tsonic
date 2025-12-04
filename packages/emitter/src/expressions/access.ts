@@ -10,6 +10,11 @@ import {
   extractInterfaceNameFromView,
 } from "@tsonic/frontend/types/explicit-views.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+  getAllPropertySignatures,
+} from "../core/type-resolution.js";
 
 /**
  * Check if an expression represents a static type reference (not an instance)
@@ -122,6 +127,37 @@ export const emitMemberAccess = (
   const prop = expr.property as string;
   const objectType = expr.object.inferredType;
   const isArrayType = objectType?.kind === "arrayType";
+
+  // Union member projection: u.prop → u.Match(__m1 => __m1.prop, __m2 => __m2.prop, ...)
+  // This handles accessing properties on union types where the property exists on all members.
+  // Example: account.kind where account is Union<User, Admin> and both have .kind
+  if (objectType && !expr.isOptional) {
+    const resolved = resolveTypeAlias(stripNullish(objectType), context);
+    if (resolved.kind === "unionType") {
+      const members = resolved.types;
+      const arity = members.length;
+
+      // Only handle unions with 2-8 members (runtime supports Union<T1..T8>)
+      if (arity >= 2 && arity <= 8) {
+        // Check if all members are reference types with the property
+        const allHaveProp = members.every((m) => {
+          if (m.kind !== "referenceType") return false;
+          const props = getAllPropertySignatures(m, context);
+          return props?.some((p) => p.name === prop) ?? false;
+        });
+
+        if (allHaveProp) {
+          // Emit: object.Match(__m1 => __m1.prop, __m2 => __m2.prop, ...)
+          const escapedProp = escapeCSharpIdentifier(prop);
+          const lambdas = members.map(
+            (_, i) => `__m${i + 1} => __m${i + 1}.${escapedProp}`
+          );
+          const text = `${objectFrag.text}.Match(${lambdas.join(", ")})`;
+          return [{ text }, newContext];
+        }
+      }
+    }
+  }
 
   // In JS runtime mode, rewrite array.length → global::Tsonic.JSRuntime.Array.length(array)
   // In dotnet mode, there is no JS emulation - users access .Count directly on List<T>

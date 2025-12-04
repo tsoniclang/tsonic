@@ -92,12 +92,12 @@ namespace TestCases.realworld.advancedgenerics
 
                 public static bool isOk<T, E>(Result<T, E> result)
                     {
-                    return result.ok == true;
+                    return result.Match(__m1 => __m1.ok, __m2 => __m2.ok) == true;
                     }
 
                 public static bool isErr<T, E>(Result<T, E> result)
                     {
-                    return result.ok == false;
+                    return result.Match(__m1 => __m1.ok, __m2 => __m2.ok) == false;
                     }
 
                 public static T? min<T>(global::System.Collections.Generic.List<T> items)

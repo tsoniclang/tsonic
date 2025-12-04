@@ -27,6 +27,7 @@ type GuardInfo = {
   readonly originalName: string;
   readonly targetType: IrType;
   readonly memberN: number;
+  readonly unionArity: number; // Number of members in the union (for negation handling)
   readonly ctxWithId: EmitterContext;
   readonly narrowedName: string;
   readonly escapedOrig: string;
@@ -69,6 +70,7 @@ const tryResolvePredicateGuard = (
   if (idx === undefined) return undefined;
 
   const memberN = idx + 1;
+  const unionArity = resolved.types.length;
 
   const nextId = (context.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
@@ -88,6 +90,7 @@ const tryResolvePredicateGuard = (
     originalName,
     targetType: narrowing.targetType,
     memberN,
+    unionArity,
     ctxWithId,
     narrowedName,
     escapedOrig,
@@ -235,7 +238,7 @@ export const emitIfStatement = (
   }
 
   // Case B: if (!isUser(account)) { ... } else { ... }
-  // Negated guard → narrow the ELSE branch instead
+  // Negated guard → for 2-member unions, narrow THEN to OTHER member, ELSE to guard's target
   if (
     stmt.condition.kind === "unary" &&
     stmt.condition.operator === "!" &&
@@ -245,18 +248,63 @@ export const emitIfStatement = (
     const innerCall = stmt.condition.expression;
     const guard = tryResolvePredicateGuard(innerCall, context);
     if (guard) {
-      const { memberN, ctxWithId, escapedOrig, escapedNarrow, narrowedMap } =
-        guard;
+      const {
+        originalName,
+        memberN,
+        unionArity,
+        ctxWithId,
+        escapedOrig,
+        escapedNarrow,
+        narrowedMap,
+      } = guard;
 
       const condText = `!${escapedOrig}.Is${memberN}()`;
 
-      // then branch: NO narrowing
-      const [thenCode, thenCtx] = emitStatement(
-        stmt.thenStatement,
-        indent(context)
-      );
+      // For 2-member unions: narrow THEN branch to the OTHER member
+      // For N>2 unions: can't narrow THEN to a single type (it could be any of N-1 members)
+      let thenCode: string;
+      let thenCtx: EmitterContext;
 
-      // else branch: narrowing applies
+      if (unionArity === 2) {
+        // Calculate the other member index (if memberN is 1, other is 2; if memberN is 2, other is 1)
+        const otherMemberN = memberN === 1 ? 2 : 1;
+        const nextId = (ctxWithId.tempVarId ?? 0) + 1;
+        const thenCtxWithId: EmitterContext = {
+          ...ctxWithId,
+          tempVarId: nextId,
+        };
+
+        const thenNarrowedName = `${originalName}__${otherMemberN}_${nextId}`;
+        const escapedThenNarrow = escapeCSharpIdentifier(thenNarrowedName);
+
+        const thenNarrowedMap = new Map(thenCtxWithId.narrowedBindings ?? []);
+        thenNarrowedMap.set(originalName, {
+          kind: "rename",
+          name: thenNarrowedName,
+        });
+
+        const thenCtxNarrowed: EmitterContext = {
+          ...indent(thenCtxWithId),
+          narrowedBindings: thenNarrowedMap,
+        };
+        const thenInd = getIndent(thenCtxNarrowed);
+        const thenCastLine = `${thenInd}var ${escapedThenNarrow} = ${escapedOrig}.As${otherMemberN}();`;
+
+        [thenCode, thenCtx] = emitForcedBlockWithPreamble(
+          thenCastLine,
+          stmt.thenStatement,
+          thenCtxNarrowed,
+          ind
+        );
+      } else {
+        // N>2 unions: can't narrow THEN branch to a single type
+        [thenCode, thenCtx] = emitStatement(
+          stmt.thenStatement,
+          indent(context)
+        );
+      }
+
+      // else branch: narrowing applies (to guard's target type)
       const elseCtxNarrowed: EmitterContext = {
         ...indent(ctxWithId),
         narrowedBindings: narrowedMap,
