@@ -594,4 +594,224 @@ describe("Static Safety Validation", () => {
       expect(keyDiag).to.equal(undefined);
     });
   });
+
+  describe("TSN7410 - Intersection types not supported", () => {
+    it("should reject intersection type", () => {
+      const source = `
+        interface Named { name: string; }
+        interface Aged { age: number; }
+        type Person = Named & Aged;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const intDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7410");
+      expect(intDiag).not.to.equal(undefined);
+      expect(intDiag?.message).to.include("Intersection types");
+    });
+
+    it("should reject nested intersection type", () => {
+      const source = `
+        interface A { a: string; }
+        interface B { b: number; }
+        interface C { c: boolean; }
+        type ABC = A & B & C;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const intDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7410");
+      expect(intDiag).not.to.equal(undefined);
+    });
+  });
+
+  describe("TSN7406 - Mapped utility types not supported", () => {
+    it("should reject Partial<T>", () => {
+      const source = `
+        interface Person { name: string; age: number; }
+        type PartialPerson = Partial<Person>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Partial");
+    });
+
+    it("should reject Required<T>", () => {
+      const source = `
+        interface Person { name?: string; }
+        type RequiredPerson = Required<Person>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Required");
+    });
+
+    it("should reject Pick<T, K>", () => {
+      const source = `
+        interface Person { name: string; age: number; email: string; }
+        type NameOnly = Pick<Person, "name">;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Pick");
+    });
+
+    it("should reject Omit<T, K>", () => {
+      const source = `
+        interface Person { name: string; age: number; }
+        type NoAge = Omit<Person, "age">;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Omit");
+    });
+  });
+
+  describe("TSN7407 - Conditional utility types not supported", () => {
+    it("should reject Extract<T, U>", () => {
+      const source = `
+        type StringOrNumber = string | number;
+        type OnlyStrings = Extract<StringOrNumber, string>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Extract");
+    });
+
+    it("should reject Exclude<T, U>", () => {
+      const source = `
+        type StringOrNumber = string | number;
+        type NoStrings = Exclude<StringOrNumber, string>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Exclude");
+    });
+
+    it("should reject NonNullable<T>", () => {
+      const source = `
+        type MaybeString = string | null | undefined;
+        type DefinitelyString = NonNullable<MaybeString>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("NonNullable");
+    });
+
+    it("should reject ReturnType<T>", () => {
+      const source = `
+        function greet(name: string): string { return name; }
+        type GreetReturn = ReturnType<typeof greet>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("ReturnType");
+    });
+
+    it("should reject Parameters<T>", () => {
+      const source = `
+        function add(a: number, b: number): number { return a + b; }
+        type AddParams = Parameters<typeof add>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Parameters");
+    });
+  });
+
+  describe("No false positives for utility-like names", () => {
+    it("should allow user-defined type named Partial without type args", () => {
+      const source = `
+        interface Partial { x: number; y: number; }
+        const p: Partial = { x: 1, y: 2 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).to.equal(undefined);
+    });
+
+    it("should allow Record<string, T> (string keys are supported)", () => {
+      const source = `
+        type StringDict = Record<string, number>;
+        const d: StringDict = { a: 1, b: 2 };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      // Should not have TSN7406 (mapped type) or TSN7413 (non-string key)
+      const mappedDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN7406"
+      );
+      const keyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7413");
+      expect(mappedDiag).to.equal(undefined);
+      expect(keyDiag).to.equal(undefined);
+    });
+
+    it("should allow ReadonlyArray<T> (not a mapped type)", () => {
+      const source = `
+        const arr: ReadonlyArray<number> = [1, 2, 3];
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).to.equal(undefined);
+    });
+
+    it("should allow user-defined Extract without type args", () => {
+      const source = `
+        interface Extract { value: string; }
+        const e: Extract = { value: "test" };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).to.equal(undefined);
+    });
+  });
 });

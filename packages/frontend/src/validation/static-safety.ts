@@ -5,6 +5,11 @@
  * - TSN7401: 'any' type usage
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
+ * - TSN7406: Mapped types not supported
+ * - TSN7407: Conditional types not supported
+ * - TSN7408: Mixed variadic tuples not supported
+ * - TSN7409: 'infer' keyword not supported
+ * - TSN7410: Intersection types not supported
  * - TSN7413: Dictionary key must be string type
  *
  * This ensures NativeAOT-compatible, predictable-performance output.
@@ -23,6 +28,10 @@ import {
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
 import { inferLambdaParamTypes } from "../ir/type-converter/index.js";
+import {
+  UNSUPPORTED_MAPPED_UTILITY_TYPES,
+  UNSUPPORTED_CONDITIONAL_UTILITY_TYPES,
+} from "./unsupported-utility-types.js";
 
 /**
  * Validate a source file for static safety violations.
@@ -156,25 +165,61 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7413: Check for non-string dictionary keys
-    // Record<K, V> where K is not string
+    // Check TypeReferenceNode for utility types and dictionary keys
     if (ts.isTypeReferenceNode(node)) {
       const typeName = node.typeName;
-      if (ts.isIdentifier(typeName) && typeName.text === "Record") {
-        const typeArgs = node.typeArguments;
-        const keyTypeNode = typeArgs?.[0];
-        if (keyTypeNode !== undefined) {
-          if (!isStringKeyType(keyTypeNode)) {
-            currentCollector = addDiagnostic(
-              currentCollector,
-              createDiagnostic(
-                "TSN7413",
-                "error",
-                "Dictionary key type must be 'string'. Non-string key types are not supported for NativeAOT compatibility.",
-                getNodeLocation(sourceFile, keyTypeNode),
-                "Use Record<string, V> instead of Record<number, V> or other key types."
-              )
-            );
+      if (ts.isIdentifier(typeName)) {
+        const name = typeName.text;
+        const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
+
+        // TSN7406: Mapped-type utility types (these expand to mapped types internally)
+        // Only check when type arguments are present to avoid false positives for
+        // user-defined types named "Partial", etc.
+        if (hasTypeArgs && UNSUPPORTED_MAPPED_UTILITY_TYPES.has(name)) {
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7406",
+              "error",
+              `Utility type '${name}' is not supported (it uses mapped types internally).`,
+              getNodeLocation(sourceFile, node),
+              `Replace '${name}' with an explicit interface that has the desired properties.`
+            )
+          );
+        }
+
+        // TSN7407: Conditional-type utility types (these expand to conditional types internally)
+        // Only check when type arguments are present
+        if (hasTypeArgs && UNSUPPORTED_CONDITIONAL_UTILITY_TYPES.has(name)) {
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7407",
+              "error",
+              `Utility type '${name}' is not supported (it uses conditional types internally).`,
+              getNodeLocation(sourceFile, node),
+              `Replace '${name}' with an explicit type definition.`
+            )
+          );
+        }
+
+        // TSN7413: Record<K, V> where K is not string
+        if (name === "Record") {
+          const typeArgs = node.typeArguments;
+          const keyTypeNode = typeArgs?.[0];
+          if (keyTypeNode !== undefined) {
+            if (!isStringKeyType(keyTypeNode)) {
+              currentCollector = addDiagnostic(
+                currentCollector,
+                createDiagnostic(
+                  "TSN7413",
+                  "error",
+                  "Dictionary key type must be 'string'. Non-string key types are not supported for NativeAOT compatibility.",
+                  getNodeLocation(sourceFile, keyTypeNode),
+                  "Use Record<string, V> instead of Record<number, V> or other key types."
+                )
+              );
+            }
           }
         }
       }
@@ -257,6 +302,20 @@ export const validateStaticSafety = (
           "The 'infer' keyword is not supported. Use explicit type parameters instead.",
           getNodeLocation(sourceFile, node),
           "Replace infer patterns with explicit generic type parameters."
+        )
+      );
+    }
+
+    // TSN7410: Check for intersection types (e.g., A & B)
+    if (ts.isIntersectionTypeNode(node)) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7410",
+          "error",
+          "Intersection types (A & B) are not supported. Use a nominal type that explicitly includes all required members.",
+          getNodeLocation(sourceFile, node),
+          "Replace the intersection with an interface or class that combines the members, or a type alias to an object type with explicit members."
         )
       );
     }
