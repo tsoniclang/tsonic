@@ -3,7 +3,13 @@
  */
 
 import { IrExpression, IrStatement, IrType } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
+import {
+  EmitterContext,
+  getIndent,
+  indent,
+  dedent,
+  NarrowedBinding,
+} from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitStatement } from "../../statement-emitter.js";
 import {
@@ -25,10 +31,7 @@ type GuardInfo = {
   readonly narrowedName: string;
   readonly escapedOrig: string;
   readonly escapedNarrow: string;
-  readonly narrowedMap: Map<
-    string,
-    { readonly name: string; readonly type?: IrType }
-  >;
+  readonly narrowedMap: Map<string, NarrowedBinding>;
 };
 
 /**
@@ -76,6 +79,7 @@ const tryResolvePredicateGuard = (
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
   narrowedMap.set(originalName, {
+    kind: "rename",
     name: narrowedName,
     type: narrowing.targetType,
   });

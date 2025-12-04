@@ -3,9 +3,15 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../types.js";
+import { EmitterContext, CSharpFragment, NarrowedBinding } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { getExpectedClrTypeForNumeric } from "./literals.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+  findUnionMemberIndex,
+} from "../core/type-resolution.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
  * Get operator precedence for proper parenthesization
@@ -305,7 +311,81 @@ export const emitAssignment = (
 };
 
 /**
+ * Try to extract ternary guard info from a condition expression.
+ * Handles both `isUser(x)` (positive) and `!isUser(x)` (negated).
+ * Returns guard info with polarity indicating which branch to narrow.
+ */
+type TernaryGuardInfo = {
+  readonly originalName: string;
+  readonly memberN: number;
+  readonly escapedOrig: string;
+  readonly polarity: "positive" | "negative"; // positive = narrow whenTrue, negative = narrow whenFalse
+};
+
+const tryResolveTernaryGuard = (
+  condition: IrExpression,
+  context: EmitterContext
+): TernaryGuardInfo | undefined => {
+  // Check for direct call: isUser(x)
+  const resolveFromCall = (
+    call: Extract<IrExpression, { kind: "call" }>
+  ): TernaryGuardInfo | undefined => {
+    const narrowing = call.narrowing;
+    if (!narrowing || narrowing.kind !== "typePredicate") return undefined;
+
+    const arg = call.arguments[narrowing.argIndex];
+    if (
+      !arg ||
+      ("kind" in arg && arg.kind === "spread") ||
+      arg.kind !== "identifier"
+    ) {
+      return undefined;
+    }
+
+    const originalName = arg.name;
+    const unionSourceType = arg.inferredType;
+    if (!unionSourceType) return undefined;
+
+    const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
+    if (resolved.kind !== "unionType") return undefined;
+
+    const idx = findUnionMemberIndex(resolved, narrowing.targetType, context);
+    if (idx === undefined) return undefined;
+
+    return {
+      originalName,
+      memberN: idx + 1,
+      escapedOrig: escapeCSharpIdentifier(originalName),
+      polarity: "positive",
+    };
+  };
+
+  // Direct call: isUser(x) -> narrow whenTrue
+  if (condition.kind === "call") {
+    return resolveFromCall(condition);
+  }
+
+  // Negated call: !isUser(x) -> narrow whenFalse
+  if (
+    condition.kind === "unary" &&
+    condition.operator === "!" &&
+    condition.expression.kind === "call"
+  ) {
+    const guard = resolveFromCall(condition.expression);
+    if (guard) {
+      return { ...guard, polarity: "negative" };
+    }
+  }
+
+  return undefined;
+};
+
+/**
  * Emit a conditional (ternary) expression
+ *
+ * Supports type predicate narrowing:
+ * - `isUser(x) ? x.name : "anon"` → `x.Is1() ? (x.As1()).name : "anon"`
+ * - `!isUser(x) ? "anon" : x.name` → `!x.Is1() ? "anon" : (x.As1()).name`
  *
  * @param expr - The conditional expression
  * @param context - Emitter context
@@ -316,6 +396,52 @@ export const emitConditional = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
+  // Try to detect type predicate guard in condition
+  const guard = tryResolveTernaryGuard(expr.condition, context);
+
+  if (guard) {
+    const { originalName, memberN, escapedOrig, polarity } = guard;
+
+    // Build condition text
+    const condText =
+      polarity === "positive"
+        ? `${escapedOrig}.Is${memberN}()`
+        : `!${escapedOrig}.Is${memberN}()`;
+
+    // Create inline narrowing binding: x -> (x.AsN())
+    const inlineExpr = `(${escapedOrig}.As${memberN}())`;
+    const narrowedMap = new Map<string, NarrowedBinding>(
+      context.narrowedBindings ?? []
+    );
+    narrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+
+    const narrowedContext: EmitterContext = {
+      ...context,
+      narrowedBindings: narrowedMap,
+    };
+
+    // Apply narrowing to the appropriate branch
+    const [trueFrag, trueContext] =
+      polarity === "positive"
+        ? emitExpression(expr.whenTrue, narrowedContext, expectedType)
+        : emitExpression(expr.whenTrue, context, expectedType);
+
+    const [falseFrag, falseContext] =
+      polarity === "negative"
+        ? emitExpression(expr.whenFalse, narrowedContext, expectedType)
+        : emitExpression(expr.whenFalse, trueContext, expectedType);
+
+    const text = `${condText} ? ${trueFrag.text} : ${falseFrag.text}`;
+
+    // Return context WITHOUT narrowing (don't leak)
+    const finalContext: EmitterContext = {
+      ...falseContext,
+      narrowedBindings: context.narrowedBindings,
+    };
+    return [{ text, precedence: 4 }, finalContext];
+  }
+
+  // Standard ternary emission (no narrowing)
   const [condFrag, condContext] = emitExpression(expr.condition, context);
   // Pass expectedType to both branches for null → default conversion
   const [trueFrag, trueContext] = emitExpression(

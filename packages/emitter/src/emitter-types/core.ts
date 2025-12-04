@@ -121,6 +121,19 @@ export type LocalTypeInfo =
     };
 
 /**
+ * Narrowed binding for union type narrowing.
+ * - "rename": Used in if-statements where we can declare a temp var (e.g., account -> account__1_1)
+ * - "expr": Used in ternary expressions where we inline the AsN() call (e.g., account -> (account.As1()))
+ */
+export type NarrowedBinding =
+  | { readonly kind: "rename"; readonly name: string; readonly type?: IrType }
+  | {
+      readonly kind: "expr";
+      readonly exprText: string;
+      readonly type?: IrType;
+    };
+
+/**
  * Context passed through emission process
  */
 export type EmitterContext = {
@@ -154,11 +167,8 @@ export type EmitterContext = {
   readonly returnType?: IrType;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
-  /** Scoped identifier remaps for union narrowing (e.g., account -> account__1_3) */
-  readonly narrowedBindings?: ReadonlyMap<
-    string,
-    { readonly name: string; readonly type?: IrType }
-  >;
+  /** Scoped identifier remaps for union narrowing */
+  readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Counter for generating unique temp variable names */
   readonly tempVarId?: number;
 };
