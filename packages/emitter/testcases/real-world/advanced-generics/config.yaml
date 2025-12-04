@@ -1,1 +1,3 @@
-- advanced-generics.ts: should emit real-world advanced-generics program
+- input: advanced-generics.ts
+  title: advanced-generics rejected for anonymous objects
+  expectDiagnostics: [TSN7403]

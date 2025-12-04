@@ -1,1 +1,3 @@
-- functional.ts: should emit real-world functional program
+- input: functional.ts
+  title: functional rejected for any type and anonymous objects
+  expectDiagnostics: [TSN7401, TSN7403]

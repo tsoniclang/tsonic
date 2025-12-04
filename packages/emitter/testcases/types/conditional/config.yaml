@@ -1,1 +1,3 @@
-- ConditionalTypes.ts: should emit conditional types (Extract, Exclude, NonNullable)
+- input: ConditionalTypes.ts
+  title: conditional types are rejected with TSN7407
+  expectDiagnostics: [TSN7407]

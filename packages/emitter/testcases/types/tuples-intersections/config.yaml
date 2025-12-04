@@ -1,1 +1,3 @@
-- TuplesAndIntersections.ts: should emit tuple types and intersection types
+- input: TuplesAndIntersections.ts
+  title: tuple types are rejected with TSN7408
+  expectDiagnostics: [TSN7408]
