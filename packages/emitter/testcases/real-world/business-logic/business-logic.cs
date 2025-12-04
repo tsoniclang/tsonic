@@ -161,7 +161,7 @@ namespace TestCases.realworld.businesslogic
         public void updateOrderStatus(Order order, OrderStatus newStatus)
             {
             global::System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<OrderStatus>> validTransitions = new global::System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.List<OrderStatus>> { ["pending"] = new global::System.Collections.Generic.List<OrderStatus> { "processing", "cancelled" }, ["processing"] = new global::System.Collections.Generic.List<OrderStatus> { "shipped", "cancelled" }, ["shipped"] = new global::System.Collections.Generic.List<OrderStatus> { "delivered" }, ["delivered"] = new global::System.Collections.Generic.List<OrderStatus>(), ["cancelled"] = new global::System.Collections.Generic.List<OrderStatus>() };
-            var allowed = validTransitions[(int)(order.status)];
+            var allowed = validTransitions[order.status];
             if (!global::Tsonic.JSRuntime.Array.includes(allowed, newStatus))
                 {
                 throw new Error($"Cannot transition from {order.status} to {newStatus}");

@@ -3,7 +3,12 @@
  */
 
 import * as ts from "typescript";
-import { IrInterfaceDeclaration, IrInterfaceMember } from "../../../types.js";
+import {
+  IrInterfaceDeclaration,
+  IrInterfaceMember,
+  IrTypeAliasDeclaration,
+  IrType,
+} from "../../../types.js";
 import { convertType } from "../../../type-converter.js";
 import {
   hasExportModifier,
@@ -56,6 +61,57 @@ const isStructMarker = (
 };
 
 /**
+ * Check if an interface has only index signatures (no property/method members).
+ * Returns the dictionary type info if so, undefined otherwise.
+ *
+ * This handles interfaces like:
+ *   interface NumberIndexed { [key: number]: string; }
+ *
+ * These should be lowered to type aliases for Dictionary<K, V>.
+ */
+const extractIndexSignatureOnlyInterface = (
+  node: ts.InterfaceDeclaration,
+  checker: ts.TypeChecker
+): { keyType: IrType; valueType: IrType } | undefined => {
+  const members = node.members;
+
+  // Must have exactly one member
+  if (members.length !== 1) {
+    return undefined;
+  }
+
+  const member = members[0];
+  if (!member || !ts.isIndexSignatureDeclaration(member)) {
+    return undefined;
+  }
+
+  // Extract key type from the index signature parameter
+  const param = member.parameters[0];
+  if (!param || !param.type) {
+    return undefined;
+  }
+
+  const keyType = convertType(param.type, checker);
+
+  // Only allow string or number keys (enforced by TSN7413)
+  if (
+    keyType.kind !== "primitiveType" ||
+    (keyType.name !== "string" && keyType.name !== "number")
+  ) {
+    return undefined;
+  }
+
+  // Extract value type
+  if (!member.type) {
+    return undefined;
+  }
+
+  const valueType = convertType(member.type, checker);
+
+  return { keyType, valueType };
+};
+
+/**
  * Check if an interface declaration IS the struct marker itself (should be filtered out)
  */
 const isMarkerInterface = (node: ts.InterfaceDeclaration): boolean => {
@@ -82,15 +138,33 @@ const isMarkerInterface = (node: ts.InterfaceDeclaration): boolean => {
 
 /**
  * Convert interface declaration
- * Returns null for marker interfaces that should be filtered out
+ * Returns null for marker interfaces that should be filtered out.
+ * Returns a type alias for index-signature-only interfaces (lowered to Dictionary).
  */
 export const convertInterfaceDeclaration = (
   node: ts.InterfaceDeclaration,
   checker: ts.TypeChecker
-): IrInterfaceDeclaration | null => {
+): IrInterfaceDeclaration | IrTypeAliasDeclaration | null => {
   // Filter out marker interfaces completely
   if (isMarkerInterface(node)) {
     return null;
+  }
+
+  // Check for index-signature-only interface → lower to type alias for dictionary
+  const dictInfo = extractIndexSignatureOnlyInterface(node, checker);
+  if (dictInfo) {
+    return {
+      kind: "typeAliasDeclaration",
+      name: node.name.text,
+      typeParameters: convertTypeParameters(node.typeParameters, checker),
+      type: {
+        kind: "dictionaryType",
+        keyType: dictInfo.keyType,
+        valueType: dictInfo.valueType,
+      },
+      isExported: hasExportModifier(node),
+      isStruct: false,
+    };
   }
   // Detect struct marker in extends clause
   let isStruct = false;

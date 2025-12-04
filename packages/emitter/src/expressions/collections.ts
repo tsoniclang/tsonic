@@ -359,19 +359,25 @@ const emitDictionaryLiteral = (
 
 /**
  * Emit dictionary key type.
- * TS dictionaries only support string keys (enforced by TSN7413).
+ * Allowed: string, number (→ double).
+ * Enforced by TSN7413.
  */
 const emitDictKeyType = (
   keyType: IrType,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  if (keyType.kind === "primitiveType" && keyType.name === "string") {
-    return ["string", context];
+  if (keyType.kind === "primitiveType") {
+    switch (keyType.name) {
+      case "string":
+        return ["string", context];
+      case "number":
+        return ["double", context];
+    }
   }
 
-  // ICE: Only string keys allowed (enforced by TSN7413)
+  // ICE: Unsupported key type (should have been caught by TSN7413)
   throw new Error(
-    `ICE: Non-string dictionary key type reached emitter - validation missed TSN7413. Got: ${keyType.kind}`
+    `ICE: Unsupported dictionary key type reached emitter - validation missed TSN7413. Got: ${JSON.stringify(keyType)}`
   );
 };
 

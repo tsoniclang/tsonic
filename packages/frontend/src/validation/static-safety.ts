@@ -10,7 +10,7 @@
  * - TSN7408: Mixed variadic tuples not supported
  * - TSN7409: 'infer' keyword not supported
  * - TSN7410: Intersection types not supported
- * - TSN7413: Dictionary key must be string type
+ * - TSN7413: Dictionary key must be string or number
  *
  * This ensures NativeAOT-compatible, predictable-performance output.
  *
@@ -203,20 +203,20 @@ export const validateStaticSafety = (
           );
         }
 
-        // TSN7413: Record<K, V> where K is not string
+        // TSN7413: Record<K, V> where K is not an allowed key type
         if (name === "Record") {
           const typeArgs = node.typeArguments;
           const keyTypeNode = typeArgs?.[0];
           if (keyTypeNode !== undefined) {
-            if (!isStringKeyType(keyTypeNode)) {
+            if (!isAllowedKeyType(keyTypeNode)) {
               currentCollector = addDiagnostic(
                 currentCollector,
                 createDiagnostic(
                   "TSN7413",
                   "error",
-                  "Dictionary key type must be 'string'. Non-string key types are not supported for NativeAOT compatibility.",
+                  "Dictionary key type must be 'string' or 'number'. Other key types are not supported.",
                   getNodeLocation(sourceFile, keyTypeNode),
-                  "Use Record<string, V> instead of Record<number, V> or other key types."
+                  "Use Record<string, V> or Record<number, V>."
                 )
               );
             }
@@ -225,19 +225,19 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7413: Check for non-string index signatures
-    // { [k: number]: V } is not allowed
+    // TSN7413: Check for unsupported index signature key types
+    // Only string and number are allowed (matches TypeScript's index signature constraints)
     if (ts.isIndexSignatureDeclaration(node)) {
       const keyParam = node.parameters[0];
-      if (keyParam?.type && !isStringKeyType(keyParam.type)) {
+      if (keyParam?.type && !isAllowedKeyType(keyParam.type)) {
         currentCollector = addDiagnostic(
           currentCollector,
           createDiagnostic(
             "TSN7413",
             "error",
-            "Index signature key type must be 'string'. Non-string key types are not supported for NativeAOT compatibility.",
+            "Index signature key type must be 'string' or 'number'. Other key types are not supported.",
             getNodeLocation(sourceFile, keyParam.type),
-            "Use { [key: string]: V } instead of { [key: number]: V }."
+            "Use { [key: string]: V } or { [key: number]: V }."
           )
         );
       }
@@ -426,20 +426,29 @@ const isTsDictionaryType = (type: ts.Type): boolean => {
 };
 
 /**
- * Check if a type node represents a string key type.
- * Only `string` keyword is allowed for dictionary keys.
+ * Check if a type node represents an allowed dictionary key type.
+ * Allowed: string, number (matches TypeScript's PropertyKey constraint)
+ *
+ * Note: TypeScript's Record<K, V> only allows K extends keyof any (string | number | symbol).
+ * We support string and number. Symbol is rejected via TSN7203.
  */
-const isStringKeyType = (typeNode: ts.TypeNode): boolean => {
-  // Direct string keyword
-  if (typeNode.kind === ts.SyntaxKind.StringKeyword) {
+const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
+  // Direct keywords
+  if (
+    typeNode.kind === ts.SyntaxKind.StringKeyword ||
+    typeNode.kind === ts.SyntaxKind.NumberKeyword
+  ) {
     return true;
   }
 
-  // Type reference to "string"
+  // Type reference to allowed types
   if (ts.isTypeReferenceNode(typeNode)) {
     const typeName = typeNode.typeName;
-    if (ts.isIdentifier(typeName) && typeName.text === "string") {
-      return true;
+    if (ts.isIdentifier(typeName)) {
+      const name = typeName.text;
+      if (name === "string" || name === "number") {
+        return true;
+      }
     }
   }
 
