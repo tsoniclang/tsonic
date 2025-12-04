@@ -13,6 +13,7 @@ import type {
   IrType,
   IrInterfaceMember,
   IrClassMember,
+  IrPropertySignature, // NEW: needed for union-member matching
 } from "@tsonic/frontend";
 import type { LocalTypeInfo, EmitterContext } from "../types.js";
 
@@ -388,6 +389,174 @@ const findPropertyInMembers = (
     }
   }
   return undefined;
+};
+
+/**
+ * Get all property signatures for a type, including inherited interface members.
+ *
+ * Notes:
+ * - Only supports referenceType → local interface lookup (synthetic union members are always interfaces).
+ * - Derived members override base members by name.
+ * - Cycle-safe via visitedTypes.
+ */
+export const getAllPropertySignatures = (
+  type: IrType,
+  context: EmitterContext
+): readonly IrPropertySignature[] | undefined => {
+  if (!context.localTypes) return undefined;
+
+  // We only expect nominal reference types here (Result__0<T,E>, etc.)
+  if (type.kind !== "referenceType") return undefined;
+
+  const typeInfo = context.localTypes.get(type.name);
+  if (!typeInfo || typeInfo.kind !== "interface") return undefined;
+
+  // Collect into a map so derived overrides base by name deterministically
+  const propMap = new Map<string, IrPropertySignature>();
+
+  collectInterfaceProps(type, typeInfo, context.localTypes, propMap, []);
+  return [...propMap.values()];
+};
+
+/**
+ * Internal: collect interface props + props from extends (cycle-safe).
+ *
+ * Ordering is important:
+ * - Add own members first (so they override bases).
+ * - Then walk extends for missing names.
+ */
+const collectInterfaceProps = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  typeInfo: Extract<LocalTypeInfo, { kind: "interface" }>,
+  localTypes: ReadonlyMap<string, LocalTypeInfo>,
+  out: Map<string, IrPropertySignature>,
+  visitedTypes: readonly string[]
+): void => {
+  // Prevent cycles
+  if (visitedTypes.includes(ref.name)) return;
+  const nextVisited = [...visitedTypes, ref.name];
+
+  // Add own properties first (derived overrides base)
+  for (const m of typeInfo.members) {
+    if (m.kind === "propertySignature") {
+      out.set(m.name, m);
+    }
+  }
+
+  // Walk base interfaces
+  for (const base of typeInfo.extends) {
+    if (base.kind !== "referenceType") continue;
+    const baseInfo = localTypes.get(base.name);
+    if (!baseInfo || baseInfo.kind !== "interface") continue;
+
+    // Recurse. If derived already set the name, we keep the derived one.
+    const basePropMap = new Map<string, IrPropertySignature>();
+    collectInterfaceProps(base, baseInfo, localTypes, basePropMap, nextVisited);
+
+    for (const [name, sig] of basePropMap.entries()) {
+      if (!out.has(name)) {
+        out.set(name, sig);
+      }
+    }
+  }
+};
+
+/**
+ * Select the best union member type to instantiate for an object literal.
+ *
+ * Example:
+ *   type Result<T,E> = Result__0<T,E> | Result__1<T,E>
+ *   return { ok: true, value }  // keys: ["ok","value"]
+ * → choose Result__0<T,E>
+ *
+ * Matching rules (conservative):
+ * - Only considers union members that are referenceTypes to local interfaces.
+ * - Object literal keys must be a subset of the candidate's property names.
+ * - All *required* (non-optional) candidate properties must be present in the literal.
+ *
+ * Scoring (pick "most specific" deterministically):
+ * 1) Fewer extra properties (candidateProps - literalKeys)
+ * 2) More required properties (prefer tighter required shape)
+ * 3) Fewer total properties
+ * 4) Lexicographic by type name (stable tie-break)
+ */
+export const selectUnionMemberForObjectLiteral = (
+  unionType: Extract<IrType, { kind: "unionType" }>,
+  literalKeys: readonly string[],
+  context: EmitterContext
+): Extract<IrType, { kind: "referenceType" }> | undefined => {
+  if (!context.localTypes) return undefined;
+
+  // Normalize keys (defensive: dedupe)
+  const keySet = new Set(literalKeys.filter((k) => k.length > 0));
+  const keys = [...keySet];
+
+  type Candidate = {
+    ref: Extract<IrType, { kind: "referenceType" }>;
+    allProps: Set<string>;
+    requiredProps: Set<string>;
+  };
+
+  const candidates: Candidate[] = [];
+
+  for (const member of unionType.types) {
+    if (member.kind !== "referenceType") continue;
+
+    // If a union member is itself an alias, chase once (rare, but safe)
+    const resolved = resolveTypeAlias(member, context);
+    const ref =
+      resolved.kind === "referenceType" ? resolved : (member as typeof member);
+
+    const info = context.localTypes.get(ref.name);
+    if (!info || info.kind !== "interface") continue;
+
+    const props = getAllPropertySignatures(ref, context);
+    if (!props) continue;
+
+    const allProps = new Set(props.map((p) => p.name));
+    const requiredProps = new Set(
+      props.filter((p) => !p.isOptional).map((p) => p.name)
+    );
+
+    candidates.push({ ref, allProps, requiredProps });
+  }
+
+  // Filter by match rules
+  const matches = candidates.filter((c) => {
+    // literal keys must exist on candidate
+    for (const k of keys) {
+      if (!c.allProps.has(k)) return false;
+    }
+    // candidate required props must be provided by literal
+    for (const r of c.requiredProps) {
+      if (!keySet.has(r)) return false;
+    }
+    return true;
+  });
+
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return matches[0]!.ref;
+
+  // Pick best by score
+  matches.sort((a, b) => {
+    const aTotal = a.allProps.size;
+    const bTotal = b.allProps.size;
+
+    const aExtra = aTotal - keySet.size;
+    const bExtra = bTotal - keySet.size;
+
+    if (aExtra !== bExtra) return aExtra - bExtra; // fewer extras is better
+
+    const aReq = a.requiredProps.size;
+    const bReq = b.requiredProps.size;
+    if (aReq !== bReq) return bReq - aReq; // more required is better
+
+    if (aTotal !== bTotal) return aTotal - bTotal; // fewer total props is better
+
+    return a.ref.name.localeCompare(b.ref.name); // stable tie-break
+  });
+
+  return matches[0]!.ref;
 };
 
 /**

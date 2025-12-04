@@ -4,13 +4,16 @@
 
 import * as ts from "typescript";
 import {
-  IrStatement,
   IrIfStatement,
   IrSwitchStatement,
   IrSwitchCase,
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
-import { convertStatement } from "../../../statement-converter.js";
+import {
+  convertStatementSingle,
+  flattenStatementResult,
+  convertStatement,
+} from "../../../statement-converter.js";
 
 /**
  * Convert if statement
@@ -19,9 +22,9 @@ export const convertIfStatement = (
   node: ts.IfStatement,
   checker: ts.TypeChecker
 ): IrIfStatement => {
-  const thenStmt = convertStatement(node.thenStatement, checker);
+  const thenStmt = convertStatementSingle(node.thenStatement, checker);
   const elseStmt = node.elseStatement
-    ? convertStatement(node.elseStatement, checker)
+    ? convertStatementSingle(node.elseStatement, checker)
     : undefined;
 
   return {
@@ -60,8 +63,8 @@ export const convertSwitchCase = (
     test: ts.isCaseClause(node)
       ? convertExpression(node.expression, checker)
       : undefined,
-    statements: node.statements
-      .map((s) => convertStatement(s, checker))
-      .filter((s): s is IrStatement => s !== null),
+    statements: node.statements.flatMap((s) =>
+      flattenStatementResult(convertStatement(s, checker))
+    ),
   };
 };

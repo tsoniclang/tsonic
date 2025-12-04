@@ -10,7 +10,7 @@ import {
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../type-converter.js";
-import { convertStatement } from "../../../statement-converter.js";
+import { convertStatementSingle } from "../../../statement-converter.js";
 import { convertVariableDeclarationList } from "../helpers.js";
 
 /**
@@ -20,7 +20,7 @@ export const convertWhileStatement = (
   node: ts.WhileStatement,
   checker: ts.TypeChecker
 ): IrWhileStatement => {
-  const body = convertStatement(node.statement, checker);
+  const body = convertStatementSingle(node.statement, checker);
   return {
     kind: "whileStatement",
     condition: convertExpression(node.expression, checker),
@@ -35,7 +35,7 @@ export const convertForStatement = (
   node: ts.ForStatement,
   checker: ts.TypeChecker
 ): IrForStatement => {
-  const body = convertStatement(node.statement, checker);
+  const body = convertStatementSingle(node.statement, checker);
   return {
     kind: "forStatement",
     initializer: node.initializer
@@ -68,7 +68,7 @@ export const convertForOfStatement = (
     ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
     : convertBindingName(node.initializer as ts.BindingName);
 
-  const body = convertStatement(node.statement, checker);
+  const body = convertStatementSingle(node.statement, checker);
   return {
     kind: "forOfStatement",
     variable,
@@ -87,7 +87,7 @@ export const convertForInStatement = (
   // Note: for...in needs special handling in C# - variable extraction will be handled in emitter
   // We'll need to extract the variable info in the emitter phase
 
-  const body = convertStatement(node.statement, checker);
+  const body = convertStatementSingle(node.statement, checker);
   // Note: for...in needs special handling in C#
   return {
     kind: "forStatement",

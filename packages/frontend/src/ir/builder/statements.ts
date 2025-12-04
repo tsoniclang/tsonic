@@ -4,10 +4,16 @@
 
 import * as ts from "typescript";
 import { IrStatement } from "../types.js";
-import { convertStatement } from "../statement-converter.js";
+import {
+  convertStatement,
+  flattenStatementResult,
+} from "../statement-converter.js";
 
 /**
- * Extract statements from source file
+ * Extract statements from source file.
+ *
+ * Handles converters that return multiple statements (e.g., type aliases
+ * with synthetic interface generation).
  */
 export const extractStatements = (
   sourceFile: ts.SourceFile,
@@ -23,9 +29,8 @@ export const extractStatements = (
       !ts.isExportAssignment(stmt)
     ) {
       const converted = convertStatement(stmt, checker);
-      if (converted) {
-        statements.push(converted);
-      }
+      // Flatten result (handles both single statements and arrays)
+      statements.push(...flattenStatementResult(converted));
     }
   });
 

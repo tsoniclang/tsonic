@@ -22,6 +22,16 @@ namespace TestCases.realworld.advancedgenerics
             return new Pair(firstMapper(this.first), secondMapper(this.second));
             }
     }
+    public class Result__0 <T, E>
+    {
+        public bool ok { get; set; }
+        public T value { get; set; }
+    }
+    public class Result__1 <T, E>
+    {
+        public bool ok { get; set; }
+        public E error { get; set; }
+    }
     public class TreeNode<T>
     {
         public T value;
@@ -61,45 +71,29 @@ namespace TestCases.realworld.advancedgenerics
     }
     public class Comparable <T>
     {
-        public double compareTo(T other) => throw new global::System.NotImplementedException();
-    }
-    public class Builder<T>
-    {
-        private Partial<T> props = new {  };
-
-        public Builder<T> set<K>(K key, dynamic value)
-            where K : dynamic
-            {
-            this.props[key] = value;
-            return this;
-            }
-
-        public T build()
-            {
-            return this.props;
-            }
+        public double compareTo(T other) => throw new NotImplementedException();
     }
 
             public static class advancedgenerics
             {
-                // type Result = Union<dynamic, dynamic>
+                // type Result = global::Tsonic.Runtime.Union<Result__0<T, E>, Result__1<T, E>>
 
                 public static Result<T, E> ok<T, E>(T value)
                     {
-                    return new { ok = true, value = value };
+                    return new Result__0<T, E> { ok = true, value = value };
                     }
 
                 public static Result<T, E> err<T, E>(E error)
                     {
-                    return new { ok = false, error = error };
+                    return new Result__1<T, E> { ok = false, error = error };
                     }
 
-                public static dynamic isOk<T, E>(Result<T, E> result)
+                public static bool isOk<T, E>(Result<T, E> result)
                     {
                     return result.ok == true;
                     }
 
-                public static dynamic isErr<T, E>(Result<T, E> result)
+                public static bool isErr<T, E>(Result<T, E> result)
                     {
                     return result.ok == false;
                     }
@@ -107,16 +101,16 @@ namespace TestCases.realworld.advancedgenerics
                 public static T? min<T>(global::System.Collections.Generic.List<T> items)
                     where T : Comparable<T>
                     {
-                    if (global::Tsonic.Runtime.Array.length(items) == 0)
+                    if (global::Tsonic.JSRuntime.Array.length(items) == 0.0)
                         {
                         return default;
                         }
-                    var result = global::Tsonic.Runtime.Array.get(items, 0);
-                    for (int i = 1; i < global::Tsonic.Runtime.Array.length(items); i++)
+                    var result = global::Tsonic.JSRuntime.Array.get(items, 0);
+                    for (int i = 1; i < global::Tsonic.JSRuntime.Array.length(items); i++)
                         {
-                        if (global::Tsonic.Runtime.Array.get(items, i).compareTo(result) < 0)
+                        if (global::Tsonic.JSRuntime.Array.get(items, i).compareTo(result) < 0.0)
                             {
-                            result = global::Tsonic.Runtime.Array.get(items, i);
+                            result = global::Tsonic.JSRuntime.Array.get(items, i);
                             }
                         }
                     return result;
@@ -125,19 +119,34 @@ namespace TestCases.realworld.advancedgenerics
                 public static T? max<T>(global::System.Collections.Generic.List<T> items)
                     where T : Comparable<T>
                     {
-                    if (global::Tsonic.Runtime.Array.length(items) == 0)
+                    if (global::Tsonic.JSRuntime.Array.length(items) == 0.0)
                         {
                         return default;
                         }
-                    var result = global::Tsonic.Runtime.Array.get(items, 0);
-                    for (int i = 1; i < global::Tsonic.Runtime.Array.length(items); i++)
+                    var result = global::Tsonic.JSRuntime.Array.get(items, 0);
+                    for (int i = 1; i < global::Tsonic.JSRuntime.Array.length(items); i++)
                         {
-                        if (global::Tsonic.Runtime.Array.get(items, i).compareTo(result) > 0)
+                        if (global::Tsonic.JSRuntime.Array.get(items, i).compareTo(result) > 0.0)
                             {
-                            result = global::Tsonic.Runtime.Array.get(items, i);
+                            result = global::Tsonic.JSRuntime.Array.get(items, i);
                             }
                         }
                     return result;
+                    }
+
+                public static Pair<double, string> createPair()
+                    {
+                    return new Pair(42.0, "hello");
+                    }
+
+                public static string processResult()
+                    {
+                    var result = ok<double, string>(100.0);
+                    if (isOk(result))
+                        {
+                        return $"Value: {result.value}";
+                        }
+                    return "Error";
                     }
             }
 }

@@ -10,6 +10,7 @@ import {
   getPropertyType,
   stripNullish,
   resolveTypeAlias,
+  selectUnionMemberForObjectLiteral,
 } from "../core/type-resolution.js";
 
 /**
@@ -251,9 +252,38 @@ export const emitObject = (
   // Check for contextual type (from return type, variable annotation, etc.)
   // If present, emit `new TypeName { ... }` instead of anonymous `new { ... }`
   // Strip null/undefined from type - `new T? { ... }` is invalid C#, use `new T { ... }`
-  const instantiationType = effectiveType
+  const strippedType: IrType | undefined = effectiveType
     ? stripNullish(effectiveType)
     : undefined;
+
+  // Handle union type aliases: select the best-matching union member
+  // e.g., for `type Result<T,E> = { ok: true; value: T } | { ok: false; error: E }`
+  // we want to emit `new Result__0<T,E> { ... }` not `new Result<T,E> { ... }`
+  const instantiationType: IrType | undefined = (() => {
+    if (!strippedType) return undefined;
+
+    const resolved = resolveTypeAlias(strippedType, currentContext);
+    if (resolved.kind !== "unionType") return strippedType;
+
+    // Extract only plain string keys from the literal
+    const literalKeys = expr.properties
+      .filter(
+        (p): p is Extract<typeof p, { kind: "property" }> =>
+          p.kind === "property" && typeof p.key === "string"
+      )
+      .map((p) => p.key as string);
+
+    // If any property is not a plain string key, cannot match
+    if (literalKeys.length !== expr.properties.length) return strippedType;
+
+    const selected = selectUnionMemberForObjectLiteral(
+      resolved,
+      literalKeys,
+      currentContext
+    );
+    return selected ?? strippedType;
+  })();
+
   const [typeName, finalContext] = resolveContextualType(
     instantiationType,
     currentContext
