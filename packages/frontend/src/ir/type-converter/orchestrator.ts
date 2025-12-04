@@ -8,6 +8,7 @@ import {
   IrFunctionType,
   IrObjectType,
   IrDictionaryType,
+  IrTupleType,
 } from "../types.js";
 import { convertPrimitiveKeyword } from "./primitives.js";
 import { convertTypeReference } from "./references.js";
@@ -41,6 +42,43 @@ export const convertType = (
   // Array types
   if (ts.isArrayTypeNode(typeNode)) {
     return convertArrayType(typeNode, checker, convertType);
+  }
+
+  // Tuple types
+  if (ts.isTupleTypeNode(typeNode)) {
+    // Check for rest elements - not fully supported in C# ValueTuple
+    const hasRest = typeNode.elements.some((el) => ts.isRestTypeNode(el));
+
+    if (hasRest) {
+      // If tuple is just [...T[]] (pure variadic), treat as array type
+      // If tuple has both fixed and rest elements, fall through to anyType
+      // (TODO: add proper diagnostic for mixed variadic tuples)
+      const firstElement = typeNode.elements[0];
+      if (
+        typeNode.elements.length === 1 &&
+        firstElement &&
+        ts.isRestTypeNode(firstElement)
+      ) {
+        if (ts.isArrayTypeNode(firstElement.type)) {
+          // [...T[]] → T[]
+          return {
+            kind: "arrayType",
+            elementType: convertType(firstElement.type.elementType, checker),
+          };
+        }
+      }
+      // Mixed variadic tuples not supported - fall through to anyType
+      return { kind: "anyType" };
+    }
+
+    const elementTypes = typeNode.elements.map((element) => {
+      // Handle named tuple elements (e.g., [name: string, age: number])
+      if (ts.isNamedTupleMember(element)) {
+        return convertType(element.type, checker);
+      }
+      return convertType(element, checker);
+    });
+    return { kind: "tupleType", elementTypes } as IrTupleType;
   }
 
   // Function types
@@ -88,4 +126,4 @@ export { convertFunctionType } from "./functions.js";
 export { convertObjectType } from "./objects.js";
 
 // Export types
-export type { IrFunctionType, IrObjectType, IrDictionaryType };
+export type { IrFunctionType, IrObjectType, IrDictionaryType, IrTupleType };

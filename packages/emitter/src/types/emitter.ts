@@ -7,6 +7,7 @@ import { EmitterContext } from "../types.js";
 import { emitPrimitiveType } from "./primitives.js";
 import { emitReferenceType } from "./references.js";
 import { emitArrayType } from "./arrays.js";
+import { emitTupleType } from "./tuples.js";
 import { emitFunctionType } from "./functions.js";
 import { emitObjectType } from "./objects.js";
 import { emitDictionaryType } from "./dictionaries.js";
@@ -34,6 +35,9 @@ export const emitType = (
 
     case "arrayType":
       return emitArrayType(type, context);
+
+    case "tupleType":
+      return emitTupleType(type, context);
 
     case "functionType":
       return emitFunctionType(type, context);

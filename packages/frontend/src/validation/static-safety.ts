@@ -226,18 +226,25 @@ export const validateStaticSafety = (
       );
     }
 
-    // TSN7408: Check for tuple types (e.g., [number, string])
+    // TSN7408: Check for variadic tuple types with mixed elements (e.g., [string, ...number[]])
+    // Pure variadic tuples like [...T[]] are OK (converted to arrays), fixed tuples are OK
+    // Mixed tuples with both fixed and rest elements are not supported
     if (ts.isTupleTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7408",
-          "error",
-          "Tuple types are not supported. Use arrays or define a class/interface instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace [T1, T2, ...] with T[] or define a nominal type like interface Point { x: number; y: number; }."
-        )
-      );
+      const hasRest = node.elements.some((el) => ts.isRestTypeNode(el));
+      const hasFixed = node.elements.some((el) => !ts.isRestTypeNode(el));
+
+      if (hasRest && hasFixed) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7408",
+            "error",
+            "Variadic tuple types with mixed fixed and rest elements are not supported.",
+            getNodeLocation(sourceFile, node),
+            "Use a fixed-length tuple like [T1, T2] or an array like T[] instead."
+          )
+        );
+      }
     }
 
     // TSN7409: Check for 'infer' keyword in conditional types

@@ -62,6 +62,11 @@ export const containsTypeParameter = (
     case "intersectionType":
       return type.types.some((t) => containsTypeParameter(t, typeParams));
 
+    case "tupleType":
+      return type.elementTypes.some((t) =>
+        containsTypeParameter(t, typeParams)
+      );
+
     case "functionType":
       if (containsTypeParameter(type.returnType, typeParams)) {
         return true;
@@ -177,6 +182,12 @@ const substituteType = (
       return {
         ...type,
         types: type.types.map((t) => substituteType(t, mapping)),
+      };
+
+    case "tupleType":
+      return {
+        ...type,
+        elementTypes: type.elementTypes.map((t) => substituteType(t, mapping)),
       };
 
     case "intersectionType":
@@ -468,4 +479,39 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
   }
 
   return false;
+};
+
+/**
+ * Resolve a type alias to its underlying type.
+ *
+ * If the type is a reference type that points to a type alias,
+ * returns the underlying type with type arguments substituted.
+ *
+ * @param type - The type to resolve
+ * @param context - Emitter context with localTypes map
+ * @returns The resolved underlying type, or the original type if not an alias
+ */
+export const resolveTypeAlias = (
+  type: IrType,
+  context: EmitterContext
+): IrType => {
+  if (type.kind !== "referenceType" || !context.localTypes) {
+    return type;
+  }
+
+  const typeInfo = context.localTypes.get(type.name);
+  if (!typeInfo || typeInfo.kind !== "typeAlias") {
+    return type;
+  }
+
+  // Substitute type arguments if present
+  if (type.typeArguments && type.typeArguments.length > 0) {
+    return substituteTypeArgs(
+      typeInfo.type,
+      typeInfo.typeParameters,
+      type.typeArguments
+    );
+  }
+
+  return typeInfo.type;
 };

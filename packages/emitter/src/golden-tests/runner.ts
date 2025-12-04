@@ -5,7 +5,7 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { compile, buildIr } from "@tsonic/frontend";
+import { compile, buildIr, DiagnosticCode } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { generateFileHeader } from "../constants.js";
 import { Scenario } from "./types.js";
@@ -32,9 +32,6 @@ export const normalizeCs = (code: string): string => {
  * Run a single test scenario
  */
 export const runScenario = async (scenario: Scenario): Promise<void> => {
-  // Read expected output (without header)
-  const expectedCsBody = fs.readFileSync(scenario.expectedPath, "utf-8");
-
   // Determine source root (parent of input file)
   const sourceRoot = path.dirname(scenario.inputPath);
 
@@ -67,7 +64,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
       compileResult.error.diagnostics.map((d) => d.code)
     );
     const missing = scenario.expectDiagnostics.filter(
-      (c) => !actualCodes.has(c)
+      (c) => !actualCodes.has(c as DiagnosticCode)
     );
 
     if (missing.length) {
@@ -136,6 +133,14 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
       `Generated file key exists but content is missing: ${generatedKey}`
     );
   }
+
+  // Read expected output (without header) - only needed for non-diagnostic tests
+  if (!scenario.expectedPath) {
+    throw new Error(
+      `Expected path missing for successful test: ${scenario.inputPath}`
+    );
+  }
+  const expectedCsBody = fs.readFileSync(scenario.expectedPath, "utf-8");
 
   // Generate expected header using shared constant (with TIMESTAMP placeholder)
   // Use just the filename for comparison (actual files may have full paths)

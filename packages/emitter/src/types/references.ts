@@ -11,6 +11,7 @@ import {
   isNestedType,
   tsCSharpNestedTypeName,
 } from "@tsonic/frontend/types/nested-types.js";
+import { substituteTypeArgs } from "../core/type-resolution.js";
 
 /**
  * Check if a type name indicates an unsupported support type.
@@ -46,6 +47,31 @@ export const emitReferenceType = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const { name, typeArguments, resolvedClrType } = type;
+
+  // Check if this is a local type alias for a tuple type - must resolve since C# has no type alias for ValueTuple
+  // Tuple type aliases: RESOLVE to ValueTuple<...> (C# has no equivalent type alias syntax)
+  // Union/intersection type aliases: PRESERVE names for readability (emitted as comments elsewhere)
+  // Object type aliases: PRESERVE names (emitted as classes)
+  const typeInfo = context.localTypes?.get(name);
+  if (typeInfo && typeInfo.kind === "typeAlias") {
+    const underlyingKind = typeInfo.type.kind;
+    // Only resolve tuple type aliases - all others preserve their names
+    const shouldResolve = underlyingKind === "tupleType";
+
+    if (shouldResolve) {
+      // Substitute type arguments if present
+      const underlyingType =
+        typeArguments && typeArguments.length > 0
+          ? substituteTypeArgs(
+              typeInfo.type,
+              typeInfo.typeParameters,
+              typeArguments
+            )
+          : typeInfo.type;
+      return emitType(underlyingType, context);
+    }
+    // For union types, object types, etc. - fall through and emit the alias name
+  }
 
   // If the type has a pre-resolved CLR type (from IR), use it
   if (resolvedClrType) {
