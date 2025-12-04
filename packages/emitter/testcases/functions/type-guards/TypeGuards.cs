@@ -38,15 +38,17 @@ namespace TestCases.functions.typeguards
 
                 public static void makeSound(Animal animal)
                     {
-                    if (isDog(animal))
-                        {
-                        animal.bark();
-                        }
+                    if (animal.Is1())
+                    {
+                        var animal__1_1 = animal.As1();
+                        animal__1_1.bark();
+                    }
                     else
-                        if (isCat(animal))
-                            {
-                            animal.meow();
-                            }
+                        if (animal.Is2())
+                        {
+                            var animal__2_2 = animal.As2();
+                            animal__2_2.meow();
+                        }
                     }
 
                 public static string processValue(global::Tsonic.Runtime.Union<string, double> value)

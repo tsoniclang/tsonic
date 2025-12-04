@@ -34,6 +34,14 @@ export const emitIdentifier = (
     return [{ text: "default" }, context];
   }
 
+  // Narrowing remap (e.g., account -> account__1_3 inside type guard then-branch)
+  if (context.narrowedBindings) {
+    const narrowed = context.narrowedBindings.get(expr.name);
+    if (narrowed) {
+      return [{ text: escapeCSharpIdentifier(narrowed.name) }, context];
+    }
+  }
+
   // Check if this identifier is from an import
   if (context.importBindings) {
     const binding = context.importBindings.get(expr.name);

@@ -50,20 +50,23 @@ namespace TestCases.realworld.typeguards
 
                 public static string getAccountDescription(Account account)
                     {
-                    if (isUser(account))
-                        {
-                        return $"User: {account.username} ({account.email})";
-                        }
+                    if (account.Is1())
+                    {
+                        var account__1_1 = account.As1();
+                        return $"User: {account__1_1.username} ({account__1_1.email})";
+                    }
                     else
-                        if (isAdmin(account))
-                            {
-                            return $"Admin: {account.username} with {(global::Tsonic.JSRuntime.Array.length(account.permissions))} permissions";
-                            }
+                        if (account.Is2())
+                        {
+                            var account__2_2 = account.As2();
+                            return $"Admin: {account__2_2.username} with {(global::Tsonic.JSRuntime.Array.length(account__2_2.permissions))} permissions";
+                        }
                         else
-                            if (isGuest(account))
-                                {
-                                return $"Guest session: {account.sessionId}";
-                                }
+                            if (account.Is3())
+                            {
+                                var account__3_3 = account.As3();
+                                return $"Guest session: {account__3_3.sessionId}";
+                            }
                     return "Unknown account type";
                     }
 
@@ -74,10 +77,11 @@ namespace TestCases.realworld.typeguards
 
                 public static global::System.Collections.Generic.List<string> getPermissions(Account account)
                     {
-                    if (isAdmin(account))
-                        {
-                        return account.permissions;
-                        }
+                    if (account.Is2())
+                    {
+                        var account__2_1 = account.As2();
+                        return account__2_1.permissions;
+                    }
                     return new global::System.Collections.Generic.List<string>();
                     }
 

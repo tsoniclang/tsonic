@@ -684,3 +684,34 @@ export const resolveTypeAlias = (
 
   return typeInfo.type;
 };
+
+/**
+ * Find the index of a union member that matches a predicate target type.
+ *
+ * Used for union narrowing: given `isUser(account)` where account is `Union<User, Admin>`,
+ * find which member index (0 or 1) corresponds to User.
+ *
+ * @param unionType - The union type to search
+ * @param target - The predicate target type to find
+ * @param context - Emitter context
+ * @returns The 0-based index of the matching member, or undefined if not found
+ */
+export const findUnionMemberIndex = (
+  unionType: Extract<IrType, { kind: "unionType" }>,
+  target: IrType,
+  context: EmitterContext
+): number | undefined => {
+  const resolvedTarget = resolveTypeAlias(stripNullish(target), context);
+
+  // MVP: only handle reference-type targets
+  if (resolvedTarget.kind !== "referenceType") return undefined;
+
+  for (let i = 0; i < unionType.types.length; i++) {
+    const m = unionType.types[i];
+    if (m?.kind === "referenceType" && m.name === resolvedTarget.name) {
+      // MVP: match by name; can tighten later to include typeArguments equality
+      return i;
+    }
+  }
+  return undefined;
+};

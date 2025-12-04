@@ -154,6 +154,13 @@ export type EmitterContext = {
   readonly returnType?: IrType;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
+  /** Scoped identifier remaps for union narrowing (e.g., account -> account__1_3) */
+  readonly narrowedBindings?: ReadonlyMap<
+    string,
+    { readonly name: string; readonly type?: IrType }
+  >;
+  /** Counter for generating unique temp variable names */
+  readonly tempVarId?: number;
 };
 
 /**
