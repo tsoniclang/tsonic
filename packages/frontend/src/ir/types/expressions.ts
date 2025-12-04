@@ -125,6 +125,12 @@ export type IrCallExpression = {
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
+  /** Type predicate narrowing metadata (for `x is T` predicates) */
+  readonly narrowing?: {
+    readonly kind: "typePredicate";
+    readonly argIndex: number; // which argument is being narrowed
+    readonly targetType: IrType; // the asserted type
+  };
 };
 
 export type IrNewExpression = {
