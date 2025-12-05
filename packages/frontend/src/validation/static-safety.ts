@@ -32,6 +32,7 @@ import {
   UNSUPPORTED_MAPPED_UTILITY_TYPES,
   UNSUPPORTED_CONDITIONAL_UTILITY_TYPES,
 } from "./unsupported-utility-types.js";
+import { checkSynthesisEligibility } from "../ir/converters/anonymous-synthesis.js";
 
 /**
  * Validate a source file for static safety violations.
@@ -144,24 +145,33 @@ export const validateStaticSafety = (
     }
 
     // TSN7403: Check for object literals without contextual nominal type
+    // Now supports auto-synthesis for eligible object literals (spreads, arrow props)
     if (ts.isObjectLiteralExpression(node)) {
       const contextualType = checker.getContextualType(node);
 
-      // Must have a contextual type that resolves to a nominal type or dictionary
+      // If there's a contextual nominal type, we're good
       if (
-        !contextualType ||
-        !isNominalOrDictionaryType(contextualType, checker)
+        contextualType &&
+        isNominalOrDictionaryType(contextualType, checker)
       ) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createDiagnostic(
-            "TSN7403",
-            "error",
-            "Object literal requires a contextual nominal type (interface, type alias, or class). Anonymous object types are not supported.",
-            getNodeLocation(sourceFile, node),
-            "Add a type annotation like 'const x: MyInterface = { ... }' or define an interface/type alias."
-          )
-        );
+        // Has contextual type - no synthesis needed
+      } else {
+        // No contextual type - check if eligible for synthesis
+        const eligibility = checkSynthesisEligibility(node, checker);
+        if (!eligibility.eligible) {
+          // Not eligible for synthesis - emit diagnostic with specific reason
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7403",
+              "error",
+              `Object literal cannot be synthesized: ${eligibility.reason}`,
+              getNodeLocation(sourceFile, node),
+              "Use an explicit type annotation, or restructure to use only identifier keys and arrow functions."
+            )
+          );
+        }
+        // If eligible, synthesis will happen during IR conversion
       }
     }
 

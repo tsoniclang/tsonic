@@ -1,5 +1,17 @@
 namespace TestCases.realworld.businesslogic
 {
+    public class __Anon_business_logic_152_61
+    {
+        public global::System.Collections.Generic.List<void> cancelled { get; set; }
+
+        public global::System.Collections.Generic.List<void> delivered { get; set; }
+
+        public global::System.Collections.Generic.List<global::Tsonic.Runtime.Union<string, string>> pending { get; set; }
+
+        public global::System.Collections.Generic.List<global::Tsonic.Runtime.Union<string, string>> processing { get; set; }
+
+        public global::System.Collections.Generic.List<string> shipped { get; set; }
+    }
     public class Product
     {
         public string id { get; set; }

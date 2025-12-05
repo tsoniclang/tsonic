@@ -68,6 +68,8 @@ export type IrObjectExpression = {
   readonly inferredType?: IrType;
   /** Contextual type for object literals in typed positions (return, assignment, etc.) */
   readonly contextualType?: IrType;
+  /** True if this object literal contains spread expressions (for IIFE lowering) */
+  readonly hasSpreads?: boolean;
 };
 
 export type IrObjectProperty =

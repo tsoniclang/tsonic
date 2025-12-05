@@ -8,17 +8,27 @@ import {
   convertStatement,
   flattenStatementResult,
 } from "../statement-converter.js";
+import {
+  resetSyntheticRegistry,
+  getSyntheticDeclarations,
+} from "../converters/anonymous-synthesis.js";
 
 /**
  * Extract statements from source file.
  *
  * Handles converters that return multiple statements (e.g., type aliases
  * with synthetic interface generation).
+ *
+ * Also collects synthetic type declarations generated during conversion
+ * (from anonymous object literal synthesis) and prepends them.
  */
 export const extractStatements = (
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker
 ): readonly IrStatement[] => {
+  // Reset synthetic registry for this file
+  resetSyntheticRegistry();
+
   const statements: IrStatement[] = [];
 
   sourceFile.statements.forEach((stmt) => {
@@ -33,6 +43,12 @@ export const extractStatements = (
       statements.push(...flattenStatementResult(converted));
     }
   });
+
+  // Collect synthetic declarations and prepend them
+  const syntheticDecls = getSyntheticDeclarations();
+  if (syntheticDecls.length > 0) {
+    return [...syntheticDecls, ...statements];
+  }
 
   return statements;
 };
