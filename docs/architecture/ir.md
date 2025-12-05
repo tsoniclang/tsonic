@@ -297,6 +297,17 @@ type IrFunctionType = {
 };
 ```
 
+### Tuple Types
+
+```typescript
+type IrTupleType = {
+  readonly kind: "tupleType";
+  readonly elementTypes: readonly IrType[];
+};
+```
+
+Generates `ValueTuple<T1, T2, ...>` in C#.
+
 ### Union and Intersection
 
 ```typescript

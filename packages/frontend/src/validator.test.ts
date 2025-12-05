@@ -293,7 +293,8 @@ describe("Static Safety Validation", () => {
   });
 
   describe("TSN7403 - Object literal requires nominal type", () => {
-    it("should reject object literal without contextual type", () => {
+    it("should allow simple object literal (auto-synthesis)", () => {
+      // Simple object literals with identifier keys are now synthesized automatically
       const source = `
         const a = { x: 1 };
       `;
@@ -302,8 +303,21 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
+    it("should reject object literal with method shorthand", () => {
+      // Method shorthand is not eligible for synthesis
+      const source = `
+        const a = { foo() { return 1; } };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
       expect(objDiag).not.to.equal(undefined);
-      expect(objDiag?.message).to.include("contextual nominal type");
+      expect(objDiag?.message).to.include("Method shorthand");
     });
 
     it("should allow object literal with interface type", () => {

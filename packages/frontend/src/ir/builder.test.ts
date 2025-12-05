@@ -10,6 +10,7 @@ import {
   IrFunctionDeclaration,
   IrVariableDeclaration,
   IrClassDeclaration,
+  IrInterfaceDeclaration,
 } from "./types.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
@@ -209,10 +210,12 @@ describe("IR Builder", () => {
     });
 
     it("should convert variable declarations", () => {
+      // Use explicit type annotation for object literal to avoid synthetic type generation
       const source = `
+        interface Named { name: string }
         const x = 10;
         let y: string = "hello";
-        export const z = { name: "test" };
+        export const z: Named = { name: "test" };
       `;
 
       const testProgram = createTestProgram(source);
@@ -227,16 +230,20 @@ describe("IR Builder", () => {
       expect(result.ok).to.equal(true);
       if (result.ok) {
         const body = result.value.body;
-        expect(body).to.have.length(3);
+        // 4 statements: interface + 3 variable declarations
+        expect(body).to.have.length(4);
 
-        const firstVar = body[0] as IrVariableDeclaration;
+        const firstDecl = body[0] as IrInterfaceDeclaration;
+        expect(firstDecl.kind).to.equal("interfaceDeclaration");
+
+        const firstVar = body[1] as IrVariableDeclaration;
         expect(firstVar.kind).to.equal("variableDeclaration");
         expect(firstVar.declarationKind).to.equal("const");
 
-        const secondVar = body[1] as IrVariableDeclaration;
+        const secondVar = body[2] as IrVariableDeclaration;
         expect(secondVar.declarationKind).to.equal("let");
 
-        const thirdVar = body[2] as IrVariableDeclaration;
+        const thirdVar = body[3] as IrVariableDeclaration;
         expect(thirdVar.isExported).to.equal(true);
       }
     });

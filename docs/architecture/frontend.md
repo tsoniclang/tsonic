@@ -109,6 +109,14 @@ const unsupportedFeatures = [
 ];
 ```
 
+`validation/unsupported-utility-types.ts`:
+
+Validates that unsupported utility types are not used:
+
+- TSN7406: Mapped types (Partial, Required, Readonly, Pick, Omit)
+- TSN7407: Conditional types (Extract, Exclude, NonNullable, ReturnType)
+- TSN7410: Intersection types (A & B)
+
 ### Export Validation
 
 `validation/exports.ts`:
@@ -158,6 +166,20 @@ const convertExpression = (
 };
 ```
 
+### Anonymous Object Synthesis
+
+`ir/converters/anonymous-synthesis.ts`:
+
+Object literals without explicit type annotations auto-synthesize nominal types:
+
+```typescript
+// Input: const point = { x: 10, y: 20 };
+// Synthesizes: class __Anon_File_Line_Col with x, y properties
+```
+
+Eligible patterns: property assignments, shorthand properties, arrow functions.
+Ineligible patterns: method shorthand, getters/setters.
+
 ### Type Conversion
 
 `ir/type-converter/`:
@@ -176,6 +198,17 @@ const convertType = (node: ts.TypeNode, checker: ts.TypeChecker): IrType => {
   // ... other types
 };
 ```
+
+`ir/type-converter/inference.ts`:
+
+Lambda parameter types are contextually inferred from surrounding context:
+
+```typescript
+// numbers.map(n => n * 2)
+// 'n' type is inferred from array element type
+```
+
+Uses `checker.getContextualType()` to extract types from call expressions.
 
 ## Dependency Graph
 

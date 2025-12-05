@@ -193,6 +193,84 @@ export function main(): void {
 }
 ```
 
+## Tuples
+
+```typescript
+// Fixed-length typed arrays
+const point: [number, number] = [10, 20];
+const record: [string, number, boolean] = ["Alice", 30, true];
+
+export function main(): void {
+  const [x, y] = point;
+  console.log(`Point: ${x}, ${y}`);
+
+  const [name, age, active] = record;
+  console.log(`${name} is ${age} years old`);
+}
+```
+
+## Map and Set
+
+```typescript
+export function main(): void {
+  // Map - key-value pairs
+  const scores = new Map<string, number>();
+  scores.set("Alice", 100);
+  scores.set("Bob", 85);
+  console.log(scores.get("Alice")); // 100
+
+  // Set - unique values
+  const tags = new Set<string>();
+  tags.add("typescript");
+  tags.add("native");
+  tags.add("typescript"); // Ignored (duplicate)
+  console.log(tags.size); // 2
+}
+```
+
+## Anonymous Objects
+
+```typescript
+// Simple objects auto-synthesize types
+const point = { x: 10, y: 20 };
+const config = { name: "app", debug: true };
+
+// Arrow function properties work
+const handler = {
+  id: 1,
+  process: (x: number): number => x * 2,
+};
+
+export function main(): void {
+  console.log(point.x);
+  console.log(handler.process(5)); // 10
+}
+```
+
+## Type Guards
+
+```typescript
+interface Dog {
+  bark(): void;
+}
+
+interface Cat {
+  meow(): void;
+}
+
+function isDog(pet: Dog | Cat): pet is Dog {
+  return "bark" in pet;
+}
+
+export function main(): void {
+  const pet: Dog | Cat = { bark: (): void => console.log("Woof!") };
+
+  if (isDog(pet)) {
+    pet.bark(); // TypeScript knows pet is Dog here
+  }
+}
+```
+
 ## Async/Await
 
 ```typescript

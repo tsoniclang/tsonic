@@ -1,5 +1,17 @@
 namespace TestCases.realworld.advancedgenerics
 {
+    public class __Anon_advanced_generics_24_10
+    {
+        public bool ok { get; set; }
+
+        public T value { get; set; }
+    }
+    public class __Anon_advanced_generics_28_10
+    {
+        public E error { get; set; }
+
+        public bool ok { get; set; }
+    }
     public class Pair<T, U>
     {
         public T first;

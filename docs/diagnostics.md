@@ -221,35 +221,137 @@ function process(data: string) {}
 
 ### TSN7403: Object Literal Requires Type
 
-Object literals need a contextual nominal type.
+Object literals need a contextual nominal type, OR must be eligible for auto-synthesis.
+
+**Auto-synthesized (no error):**
 
 ```typescript
-// Wrong
-const obj = { x: 1, y: 2 };
+const point = { x: 1, y: 2 }; // OK - synthesizes __Anon_file_1_1
+const handler = { process: (x: number) => x * 2 }; // OK - arrow functions allowed
+const config = { name: "test", count: 42 }; // OK - property assignments
+```
 
-// Correct
+**Requires explicit type (error):**
+
+```typescript
+const obj = {
+  foo() {
+    return 1;
+  },
+}; // Error - method shorthand not allowed
+const obj = {
+  get x() {
+    return 1;
+  },
+}; // Error - getters not allowed
+```
+
+Use arrow function syntax for function properties, or provide explicit type annotation:
+
+```typescript
 interface Point {
   x: number;
   y: number;
 }
-const obj: Point = { x: 1, y: 2 };
+const obj: Point = { x: 1, y: 2 }; // Explicit type annotation
 ```
 
 ### TSN7405: Untyped Lambda Parameter
 
-Lambda parameters require explicit type annotations.
+Lambda parameters require explicit type annotations when contextual type cannot be inferred.
+
+**Contextual inference works (no error):**
 
 ```typescript
-// Wrong
-const fn = (x) => x * 2;
+const numbers = [1, 2, 3];
+const doubled = numbers.map((x) => x * 2); // OK - x inferred as number
+const filtered = items.filter((item) => item.active); // OK - item inferred
 
-// Correct
+const callback: (n: number) => number = (x) => x * 2; // OK - typed variable
+```
+
+**Requires explicit types (error):**
+
+```typescript
+const fn = (x) => x * 2; // Error - no contextual type available
+
+// Fix: Add explicit type annotation
 const fn = (x: number): number => x * 2;
 ```
 
 ### TSN7413: Dictionary Key Type
 
-Dictionary keys must be string type.
+Dictionary keys must be `string` or `number` type.
+
+```typescript
+// OK
+const byName: Record<string, User> = {};
+const byId: Record<number, User> = {};
+
+interface StringDict {
+  [key: string]: number;
+}
+
+interface NumberDict {
+  [key: number]: string;
+}
+
+// Error
+const bySymbol: Record<symbol, User> = {}; // Symbols not supported
+```
+
+### TSN7406: Mapped Types Not Supported
+
+Mapped types (utility types that transform properties) are not supported.
+
+```typescript
+// Error
+type ReadonlyUser = Readonly<User>;
+type PartialConfig = Partial<Config>;
+type RequiredFields = Required<OptionalFields>;
+
+// Fix: Create explicit interface with desired properties
+interface ReadonlyUser {
+  readonly name: string;
+  readonly email: string;
+}
+```
+
+### TSN7407: Conditional Types Not Supported
+
+Conditional types are not supported.
+
+```typescript
+// Error
+type Result<T> = T extends string ? StringResult : OtherResult;
+type NonNullable<T> = T extends null | undefined ? never : T;
+
+// Fix: Use explicit type unions or separate types
+type StringResult = { kind: "string"; value: string };
+type OtherResult = { kind: "other"; value: unknown };
+```
+
+### TSN7410: Intersection Types Not Supported
+
+Intersection types (`A & B`) are not supported.
+
+```typescript
+// Error
+type Combined = TypeA & TypeB;
+type WithTimestamp = User & { timestamp: number };
+
+// Fix: Create explicit interface combining both types
+interface Combined {
+  // Include all members from TypeA
+  // Include all members from TypeB
+}
+
+interface UserWithTimestamp {
+  name: string;
+  email: string;
+  timestamp: number;
+}
+```
 
 ## TSN9xxx: Metadata Loading
 

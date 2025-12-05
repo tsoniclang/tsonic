@@ -200,9 +200,10 @@ export const emitArray = (
 /**
  * Emit an object literal
  *
- * Handles two cases based on contextual type:
+ * Handles three cases based on contextual type and structure:
  * 1. Dictionary type (Record<K,V> or index signature) → Dictionary<string, T> initializer
- * 2. Nominal type (interface, class) → new TypeName { prop = value, ... }
+ * 2. Object with spreads → IIFE pattern: (() => { var __tmp = new T(); ... return __tmp; })()
+ * 3. Nominal type (interface, class) → new TypeName { prop = value, ... }
  *
  * Anonymous object types should be caught by validation (TSN7403) before reaching here.
  *
@@ -225,32 +226,7 @@ export const emitObject = (
     return emitDictionaryLiteral(expr, currentContext, effectiveType);
   }
 
-  // Regular object literal with nominal type
-  const properties: string[] = [];
-
-  for (const prop of expr.properties) {
-    if (prop.kind === "spread") {
-      // Spread in object literal - needs special handling
-      properties.push("/* ...spread */");
-    } else {
-      const key = typeof prop.key === "string" ? prop.key : "/* computed */";
-      // Resolve property type from contextual type for generic null→default handling
-      const propertyExpectedType =
-        typeof prop.key === "string"
-          ? getPropertyType(effectiveType, prop.key, currentContext)
-          : undefined;
-      const [valueFrag, newContext] = emitExpression(
-        prop.value,
-        currentContext,
-        propertyExpectedType
-      );
-      properties.push(`${key} = ${valueFrag.text}`);
-      currentContext = newContext;
-    }
-  }
-
   // Check for contextual type (from return type, variable annotation, etc.)
-  // If present, emit `new TypeName { ... }` instead of anonymous `new { ... }`
   // Strip null/undefined from type - `new T? { ... }` is invalid C#, use `new T { ... }`
   const strippedType: IrType | undefined = effectiveType
     ? stripNullish(effectiveType)
@@ -284,10 +260,11 @@ export const emitObject = (
     return selected ?? strippedType;
   })();
 
-  const [typeName, finalContext] = resolveContextualType(
+  const [typeName, typeContext] = resolveContextualType(
     instantiationType,
     currentContext
   );
+  currentContext = typeContext;
 
   if (!typeName) {
     // ICE: Validation (TSN7403) should have caught anonymous object literals
@@ -301,8 +278,184 @@ export const emitObject = (
   const safeTypeName = typeName.endsWith("?")
     ? typeName.slice(0, -1)
     : typeName;
+
+  // Check if object has spreads - use IIFE pattern for spread lowering
+  if (expr.hasSpreads) {
+    return emitObjectWithSpreads(
+      expr,
+      currentContext,
+      effectiveType,
+      safeTypeName
+    );
+  }
+
+  // Regular object literal with nominal type - no spreads
+  const properties: string[] = [];
+
+  for (const prop of expr.properties) {
+    if (prop.kind === "spread") {
+      // Should not reach here if hasSpreads is correctly set
+      throw new Error("ICE: Spread in object literal but hasSpreads is false");
+    } else {
+      const key = typeof prop.key === "string" ? prop.key : "/* computed */";
+      // Resolve property type from contextual type for generic null→default handling
+      const propertyExpectedType =
+        typeof prop.key === "string"
+          ? getPropertyType(effectiveType, prop.key, currentContext)
+          : undefined;
+      const [valueFrag, newContext] = emitExpression(
+        prop.value,
+        currentContext,
+        propertyExpectedType
+      );
+      properties.push(`${key} = ${valueFrag.text}`);
+      currentContext = newContext;
+    }
+  }
+
   const text = `new ${safeTypeName} { ${properties.join(", ")} }`;
-  return [{ text }, finalContext];
+  return [{ text }, currentContext];
+};
+
+/**
+ * Emit an object literal with spreads using IIFE pattern.
+ *
+ * Input:  { ...base, y: 2 }
+ * Output: ((global::System.Func<T>)(() => { var __tmp = new T(); __tmp.x = base.x; __tmp.y = 2.0; return __tmp; }))()
+ *
+ * Properties are set in order: spread properties first, then explicit properties.
+ * Later properties override earlier ones (JavaScript semantics).
+ */
+const emitObjectWithSpreads = (
+  expr: Extract<IrExpression, { kind: "object" }>,
+  context: EmitterContext,
+  effectiveType: IrType | undefined,
+  typeName: string
+): [CSharpFragment, EmitterContext] => {
+  let currentContext = context;
+  const assignments: string[] = [];
+
+  for (const prop of expr.properties) {
+    if (prop.kind === "spread") {
+      // Spread: copy all properties from spread source
+      const [spreadAssignments, newContext] = emitSpreadPropertyCopies(
+        prop.expression,
+        currentContext
+      );
+      assignments.push(...spreadAssignments);
+      currentContext = newContext;
+    } else {
+      // Explicit property assignment
+      const key = typeof prop.key === "string" ? prop.key : "/* computed */";
+      const propertyExpectedType =
+        typeof prop.key === "string"
+          ? getPropertyType(effectiveType, prop.key, currentContext)
+          : undefined;
+      const [valueFrag, newContext] = emitExpression(
+        prop.value,
+        currentContext,
+        propertyExpectedType
+      );
+      assignments.push(`__tmp.${key} = ${valueFrag.text}`);
+      currentContext = newContext;
+    }
+  }
+
+  // Build IIFE: ((Func<T>)(() => { var __tmp = new T(); ...; return __tmp; }))()
+  const body = [
+    `var __tmp = new ${typeName}()`,
+    ...assignments,
+    "return __tmp",
+  ].join("; ");
+
+  const text = `((global::System.Func<${typeName}>)(() => { ${body}; }))()`;
+  return [{ text }, currentContext];
+};
+
+/**
+ * Emit property copy assignments from a spread source.
+ *
+ * For `...base` where base has type { x: number, y: string }:
+ * Returns ["__tmp.x = base.x", "__tmp.y = base.y"]
+ */
+const emitSpreadPropertyCopies = (
+  spreadExpr: IrExpression,
+  context: EmitterContext
+): [string[], EmitterContext] => {
+  let currentContext = context;
+  const assignments: string[] = [];
+
+  // Get the spread expression's type to know which properties to copy
+  const spreadType = spreadExpr.inferredType;
+
+  if (!spreadType) {
+    // No type info - emit a warning comment
+    const [exprFrag, newContext] = emitExpression(spreadExpr, currentContext);
+    assignments.push(`/* spread: ${exprFrag.text} (no type info) */`);
+    return [assignments, newContext];
+  }
+
+  // Emit the spread source expression
+  const [sourceFrag, sourceContext] = emitExpression(
+    spreadExpr,
+    currentContext
+  );
+  currentContext = sourceContext;
+  const sourceExpr = sourceFrag.text;
+
+  // Extract properties from the spread type
+  const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
+
+  for (const propName of propertyNames) {
+    assignments.push(`__tmp.${propName} = ${sourceExpr}.${propName}`);
+  }
+
+  return [assignments, currentContext];
+};
+
+/**
+ * Get property names from an object-like type.
+ * Handles objectType, referenceType (to interfaces/classes), and resolved type aliases.
+ */
+const getObjectTypePropertyNames = (
+  type: IrType,
+  context: EmitterContext
+): readonly string[] => {
+  // Direct object type
+  if (type.kind === "objectType") {
+    return type.members
+      .filter(
+        (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
+          m.kind === "propertySignature"
+      )
+      .map((m) => m.name);
+  }
+
+  // Reference type - check type aliases registry
+  if (type.kind === "referenceType") {
+    const resolved = resolveTypeAlias(type, context);
+    if (resolved.kind === "objectType") {
+      return resolved.members
+        .filter(
+          (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
+            m.kind === "propertySignature"
+        )
+        .map((m) => m.name);
+    }
+    // Check localTypes for interface members
+    const localType = context.localTypes?.get(type.name);
+    if (localType?.kind === "interface") {
+      return localType.members
+        .filter(
+          (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
+            m.kind === "propertySignature"
+        )
+        .map((m) => m.name);
+    }
+  }
+
+  // Unknown type structure - return empty
+  return [];
 };
 
 /**
