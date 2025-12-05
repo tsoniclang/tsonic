@@ -155,10 +155,26 @@ export const emitReferenceType = (
     return ["global::System.Threading.Tasks.Task", context];
   }
 
+  // Map<K, V> → Tsonic.JSRuntime.Map<K, V>
+  if (name === "Map" && typeArguments && typeArguments.length === 2) {
+    const [keyArg, valueArg] = typeArguments;
+    if (keyArg && valueArg) {
+      const [keyType, ctx1] = emitType(keyArg, context);
+      const [valueType, ctx2] = emitType(valueArg, ctx1);
+      return [`global::Tsonic.JSRuntime.Map<${keyType}, ${valueType}>`, ctx2];
+    }
+  }
+
+  // Set<T> → Tsonic.JSRuntime.Set<T>
+  if (name === "Set" && typeArguments && typeArguments.length === 1) {
+    const firstArg = typeArguments[0];
+    if (firstArg) {
+      const [elementType, newContext] = emitType(firstArg, context);
+      return [`global::Tsonic.JSRuntime.Set<${elementType}>`, newContext];
+    }
+  }
+
   // Map common JS types to .NET equivalents
-  // Note: Date, RegExp, Map, Set are NOT SUPPORTED in MVP
-  // Users should use System.DateTime, System.Text.RegularExpressions.Regex,
-  // Dictionary<K,V>, and HashSet<T> directly
   const runtimeTypes: Record<string, string> = {
     Error: "System.Exception",
   };
