@@ -137,6 +137,7 @@ out/
 
 # Runtime DLLs (copied from external runtime project for packaging)
 packages/cli/runtime/*.dll
+npm/tsonic/runtime/*.dll
 
 # Claude Code working directories
 .tests/

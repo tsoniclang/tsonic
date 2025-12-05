@@ -17,12 +17,38 @@ NC='\033[0m'
 echo "=== Building @tsonic/tsonic npm package ==="
 echo ""
 
-# Step 1: Build all TypeScript packages
+# Step 1: Build runtime packages from sibling directories
+RUNTIME_DIR="$ROOT_DIR/../runtime"
+JSRUNTIME_DIR="$ROOT_DIR/../js-runtime"
+
+echo -e "${YELLOW}Building Tsonic.Runtime...${NC}"
+if [[ -d "$RUNTIME_DIR" ]]; then
+  cd "$RUNTIME_DIR"
+  git pull
+  dotnet build -c Release
+  echo -e "${GREEN}  Tsonic.Runtime built${NC}"
+else
+  echo -e "${RED}  Error: runtime repo not found at $RUNTIME_DIR${NC}"
+  exit 1
+fi
+
+echo -e "${YELLOW}Building Tsonic.JSRuntime...${NC}"
+if [[ -d "$JSRUNTIME_DIR" ]]; then
+  cd "$JSRUNTIME_DIR"
+  git pull
+  dotnet build -c Release
+  echo -e "${GREEN}  Tsonic.JSRuntime built${NC}"
+else
+  echo -e "${RED}  Error: js-runtime repo not found at $JSRUNTIME_DIR${NC}"
+  exit 1
+fi
+
+# Step 2: Build all TypeScript packages
 echo -e "${YELLOW}Building TypeScript packages...${NC}"
 cd "$ROOT_DIR"
 npm run build
 
-# Step 2: Bundle with esbuild
+# Step 3: Bundle with esbuild
 echo -e "${YELLOW}Bundling with esbuild...${NC}"
 npx esbuild packages/cli/dist/index.js \
   --bundle \
@@ -40,8 +66,9 @@ sed '1{/^#!\/usr\/bin\/env node$/d}' "$NPM_DIR/dist/cli.js" >> "$TEMP_FILE"
 mv "$TEMP_FILE" "$NPM_DIR/dist/cli.js"
 chmod +x "$NPM_DIR/dist/cli.js"
 
-# Step 3: Copy runtime DLLs
+# Step 4: Copy runtime DLLs
 echo -e "${YELLOW}Copying runtime DLLs...${NC}"
+mkdir -p "$NPM_DIR/runtime"
 
 # Tsonic.Runtime (for dotnet mode)
 RUNTIME_SRC="$ROOT_DIR/../runtime/artifacts/bin/Tsonic.Runtime/Release/net10.0"
@@ -67,7 +94,7 @@ else
   echo -e "${YELLOW}  Build it with: cd ../js-runtime && dotnet build -c Release${NC}"
 fi
 
-# Step 4: List package contents
+# Step 5: List package contents
 echo ""
 echo -e "${GREEN}=== Package contents ===${NC}"
 find "$NPM_DIR" -type f | while read f; do
