@@ -22,23 +22,25 @@ When using `runtime: "js"`, JavaScript array methods are available:
 ```typescript
 const numbers = [1, 2, 3, 4, 5];
 
-// map - transform each element
-const doubled = numbers.map((n: number): number => n * 2);
+// map - transform each element (types inferred from context)
+const doubled = numbers.map((n) => n * 2);
 // [2, 4, 6, 8, 10]
 
-// filter - keep matching elements
-const evens = numbers.filter((n: number): boolean => n % 2 === 0);
+// filter - keep matching elements (types inferred)
+const evens = numbers.filter((n) => n % 2 === 0);
 // [2, 4]
 
-// reduce - accumulate to single value
-const sum = numbers.reduce((acc: number, n: number): number => acc + n, 0);
+// reduce - accumulate to single value (types inferred)
+const sum = numbers.reduce((acc, n) => acc + n, 0);
 // 15
 
-// forEach - iterate without return
-numbers.forEach((n: number): void => {
+// forEach - iterate without return (types inferred)
+numbers.forEach((n) => {
   console.log(n);
 });
 ```
+
+Lambda parameter types are contextually inferred from the array element type.
 
 ## Mutating Methods (JS Mode)
 
@@ -212,3 +214,25 @@ const copy = [...arr1];
 const withNew = [...arr1.slice(0, 1), 99, ...arr1.slice(1)];
 // [1, 99, 2, 3]
 ```
+
+## Tuples
+
+Tuples are fixed-length arrays with specific element types (different from regular arrays):
+
+```typescript
+// Tuple - fixed length, specific types per position
+const point: [number, number] = [10, 20];
+const record: [string, number] = ["Alice", 30];
+
+// Access by index
+const x = point[0]; // number
+const y = point[1]; // number
+
+// Destructuring
+const [name, age] = record;
+
+// Unlike arrays, tuples have fixed length
+// point[2] = 30; // Error - tuple only has 2 elements
+```
+
+Tuples generate `ValueTuple<T1, T2, ...>` in C#, while arrays generate `Array<T>` or `List<T>`.

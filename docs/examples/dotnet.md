@@ -73,6 +73,39 @@ export function main(): void {
   unique.Add("a"); // Duplicate, ignored
 
   console.log(unique.Count); // 2
+
+  // Dictionary with number keys
+  const byId = new Dictionary<number, string>();
+  byId.Add(1, "Alice");
+  byId.Add(2, "Bob");
+  const name = byId.Get(1); // "Alice"
+}
+```
+
+## Tuples
+
+```typescript
+export function main(): void {
+  // Create tuple
+  const point: [number, number] = [10, 20];
+
+  // Destructure
+  const [x, y] = point;
+  console.log(`Point: ${x}, ${y}`);
+
+  // Return multiple values
+  const result = getMinMax([5, 2, 8, 1, 9]);
+  console.log(`Min: ${result[0]}, Max: ${result[1]}`);
+}
+
+function getMinMax(numbers: number[]): [number, number] {
+  let min = numbers[0];
+  let max = numbers[0];
+  for (const n of numbers) {
+    if (n < min) min = n;
+    if (n > max) max = n;
+  }
+  return [min, max];
 }
 ```
 
@@ -94,32 +127,30 @@ export function main(): void {
     { id: 3, name: "Charlie", age: 35 },
   ];
 
+  // Types are contextually inferred from the array element type
   // Filter (Where)
-  const adults = Enumerable.Where(users, (u: User): boolean => u.age >= 30);
+  const adults = Enumerable.Where(users, (u) => u.age >= 30);
 
   // Transform (Select)
-  const names = Enumerable.Select(users, (u: User): string => u.name);
+  const names = Enumerable.Select(users, (u) => u.name);
 
   // First matching
-  const alice = Enumerable.FirstOrDefault(
-    users,
-    (u: User): boolean => u.name === "Alice"
-  );
+  const alice = Enumerable.FirstOrDefault(users, (u) => u.name === "Alice");
 
   // Sorting
-  const byAge = Enumerable.OrderBy(users, (u: User): number => u.age);
+  const byAge = Enumerable.OrderBy(users, (u) => u.age);
 
   // Aggregation
-  const totalAge = Enumerable.Sum(users, (u: User): number => u.age);
-
-  const averageAge = Enumerable.Average(users, (u: User): number => u.age);
+  const totalAge = Enumerable.Sum(users, (u) => u.age);
+  const averageAge = Enumerable.Average(users, (u) => u.age);
 
   // Any/All
-  const anyAdult = Enumerable.Any(users, (u: User): boolean => u.age >= 18);
-
-  const allAdults = Enumerable.All(users, (u: User): boolean => u.age >= 18);
+  const anyAdult = Enumerable.Any(users, (u) => u.age >= 18);
+  const allAdults = Enumerable.All(users, (u) => u.age >= 18);
 }
 ```
+
+Lambda parameter types are contextually inferred from the collection element type.
 
 ## String Operations
 

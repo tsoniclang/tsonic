@@ -174,6 +174,38 @@ const filtered = numbers.filter((n) => n > 1);
 const sum = numbers.reduce((a, b) => a + b, 0);
 ```
 
+### Tuples
+
+Fixed-length arrays with specific element types:
+
+```typescript
+const point: [number, number] = [10, 20];
+const record: [string, number, boolean] = ["name", 42, true];
+
+// Access elements
+const x = point[0]; // 10
+const y = point[1]; // 20
+```
+
+Generates `ValueTuple<T1, T2, ...>` in C#.
+
+### Map and Set
+
+```typescript
+// Map<K, V> - key-value pairs
+const userMap = new Map<string, User>();
+userMap.set("alice", alice);
+const user = userMap.get("alice");
+
+// Set<T> - unique values
+const ids = new Set<number>();
+ids.add(1);
+ids.add(2);
+const hasOne = ids.has(1); // true
+```
+
+Map generates `Dictionary<TKey, TValue>`, Set generates `HashSet<T>`.
+
 ### Objects
 
 ```typescript
@@ -189,6 +221,22 @@ const config: Config = {
 
 // Spread operator
 const updated: Config = { ...config, port: 9000 };
+```
+
+#### Anonymous Object Literals
+
+Simple object literals auto-synthesize types without explicit annotation:
+
+```typescript
+// Auto-synthesized - no error
+const point = { x: 1, y: 2 };
+const handler = { id: 1, process: (x: number) => x * 2 };
+
+// Method shorthand requires explicit type
+interface Handler {
+  process(): void;
+}
+const h: Handler = { process() {} }; // OK with type annotation
 ```
 
 ### Template Literals
@@ -396,6 +444,85 @@ async function* fetchItems(): AsyncGenerator<string> {
 export async function main(): Promise<void> {
   for await (const item of fetchItems()) {
     console.log(item);
+  }
+}
+```
+
+## Type Narrowing
+
+Tsonic supports type narrowing through type guards and predicates.
+
+### Type Predicates
+
+```typescript
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function process(value: string | number): void {
+  if (isString(value)) {
+    console.log(value.toUpperCase()); // value is string here
+  } else {
+    console.log(value * 2); // value is number here
+  }
+}
+```
+
+### typeof Guards
+
+```typescript
+function handle(value: string | number | boolean): void {
+  if (typeof value === "string") {
+    console.log(value.length);
+  } else if (typeof value === "number") {
+    console.log(value.toFixed(2));
+  } else {
+    console.log(value ? "yes" : "no");
+  }
+}
+```
+
+### Negated Guards
+
+```typescript
+function process(value: string | null): void {
+  if (value === null) {
+    return;
+  }
+  // value is string here (null eliminated)
+  console.log(value.toUpperCase());
+}
+
+function handleOptional(value?: string): void {
+  if (!value) {
+    return;
+  }
+  // value is string here
+  console.log(value.length);
+}
+```
+
+### Compound Guards
+
+```typescript
+interface Cat {
+  meow(): void;
+}
+interface Dog {
+  bark(): void;
+}
+
+function isCat(pet: Cat | Dog): pet is Cat {
+  return "meow" in pet;
+}
+
+function isDog(pet: Cat | Dog): pet is Dog {
+  return "bark" in pet;
+}
+
+function handle(pet: Cat | Dog): void {
+  if (isCat(pet) && pet.meow) {
+    pet.meow();
   }
 }
 ```

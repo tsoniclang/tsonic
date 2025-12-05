@@ -467,6 +467,44 @@ namespace Tsonic.JSRuntime
 }
 ```
 
+### Map Class
+
+TypeScript `Map<K, V>` maps to `Tsonic.JSRuntime.Map<K, V>`:
+
+```csharp
+namespace Tsonic.JSRuntime
+{
+    public class Map<TKey, TValue> where TKey : notnull
+    {
+        private readonly Dictionary<TKey, TValue> _dict = new();
+
+        public void set(TKey key, TValue value) => _dict[key] = value;
+        public TValue? get(TKey key) => _dict.TryGetValue(key, out var v) ? v : default;
+        public bool has(TKey key) => _dict.ContainsKey(key);
+        public bool delete(TKey key) => _dict.Remove(key);
+        public void clear() => _dict.Clear();
+        public int size => _dict.Count;
+    }
+}
+```
+
+### Set Class
+
+TypeScript `Set<T>` maps to `HashSet<T>` with extension methods:
+
+```csharp
+namespace Tsonic.JSRuntime
+{
+    public static class SetExtensions
+    {
+        public static void add<T>(this HashSet<T> set, T item) => set.Add(item);
+        public static bool has<T>(this HashSet<T> set, T item) => set.Contains(item);
+        public static bool delete<T>(this HashSet<T> set, T item) => set.Remove(item);
+        public static int size<T>(this HashSet<T> set) => set.Count;
+    }
+}
+```
+
 ### Global Functions
 
 ```csharp

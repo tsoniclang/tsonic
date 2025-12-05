@@ -39,6 +39,19 @@ type SourceLocation = {
 | TSN7xxx | Language semantics and validation |
 | TSN9xxx | Metadata and bindings loading     |
 
+### TSN7xxx Detailed Codes
+
+| Code    | Description                                          |
+| ------- | ---------------------------------------------------- |
+| TSN7403 | Anonymous object literal requires type annotation    |
+| TSN7405 | Object literal contains ineligible pattern           |
+| TSN7406 | Mapped type not supported (Partial, Required, etc.)  |
+| TSN7407 | Conditional type not supported (Extract, Exclude)    |
+| TSN7408 | Template literal types not supported                 |
+| TSN7409 | `infer` keyword not supported                        |
+| TSN7410 | Intersection types not supported (A & B)             |
+| TSN7413 | Dictionary key type restriction (string/number only) |
+
 ## Creating Diagnostics
 
 Use the factory function:

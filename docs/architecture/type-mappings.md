@@ -61,6 +61,32 @@ var arr = new double[] { 1, 2, 3 };
 var arr = new System.Collections.Generic.List<double> { 1, 2, 3 };
 ```
 
+## Tuple Types
+
+```typescript
+// TypeScript
+const point: [number, number] = [10, 20];
+const record: [string, number, boolean] = ["name", 42, true];
+
+// C#
+ValueTuple<double, double> point = (10, 20);
+ValueTuple<string, double, bool> record = ("name", 42, true);
+```
+
+Tuples with 8+ elements use nested ValueTuple with TRest.
+
+## Map and Set Types
+
+```typescript
+// TypeScript (JS mode)
+const map = new Map<string, number>();
+const set = new Set<number>();
+
+// C#
+var map = new Tsonic.JSRuntime.Map<string, double>();
+var set = new Tsonic.JSRuntime.Set<double>();
+```
+
 ## Generic Types
 
 ### Type Parameters
@@ -104,6 +130,23 @@ function getId<T extends HasId>(item: T): number {
 public static double getId<T>(T item) where T : HasId
 {
     return item.id;
+}
+```
+
+### Null in Generic Contexts
+
+In generic contexts, `null` emits as `default` to handle both reference and value types:
+
+```typescript
+// TypeScript
+function orNull<T>(value: T): T | null {
+  return condition ? value : null;
+}
+
+// C#
+public static T orNull<T>(T value)
+{
+    return condition ? value : default;
 }
 ```
 
@@ -156,13 +199,21 @@ public class User
 
 ### Anonymous Objects
 
+Simple object literals auto-synthesize nominal types:
+
 ```typescript
 // TypeScript
 const point = { x: 10, y: 20 };
 
-// C#
-var point = new { x = 10, y = 20 }();
+// C# (synthesized class generated)
+// class __Anon_File_Line_Col {
+//     public double x { get; set; }
+//     public double y { get; set; }
+// }
+var point = new __Anon_File_Line_Col { x = 10, y = 20 };
 ```
+
+Method shorthand and getters/setters require explicit type annotation.
 
 ## Union Types
 
@@ -210,17 +261,21 @@ object;
 
 ## Intersection Types
 
+**NOT SUPPORTED** - Intersection types (`A & B`) cannot be compiled to C#.
+
 ```typescript
-// TypeScript
+// Error TSN7410
 type Named = { name: string };
 type Aged = { age: number };
-type Person = Named & Aged;
+type Person = Named & Aged; // Not supported
+```
 
-// C#
-public class Person
-{
-    public string name { get; set; }
-    public double age { get; set; }
+**Workaround:** Create an explicit interface combining both types:
+
+```typescript
+interface Person {
+  name: string;
+  age: number;
 }
 ```
 

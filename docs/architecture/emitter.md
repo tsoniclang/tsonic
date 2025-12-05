@@ -157,6 +157,29 @@ const emitArrayType = (type: IrArrayType, ctx: EmitterContext): string => {
 };
 ```
 
+### Tuple Types
+
+`types/tuples.ts`:
+
+```typescript
+const emitTupleType = (type: IrTupleType, ctx: EmitterContext): string => {
+  const elementTypes = type.elementTypes.map((t) => emitType(t, ctx));
+  return `ValueTuple<${elementTypes.join(", ")}>`;
+};
+```
+
+Example:
+
+```typescript
+// TypeScript
+const point: [number, number] = [10, 20];
+```
+
+```csharp
+// Generated C#
+ValueTuple<double, double> point = (10.0, 20.0);
+```
+
 ### Union Types
 
 `types/unions.ts`:
@@ -170,6 +193,36 @@ type MaybeString = string | null;
 type StringOrNumber = string | number;
 // -> object (with runtime checks)
 ```
+
+### Union Narrowing
+
+The emitter generates narrowed types after type guards:
+
+```typescript
+// TypeScript with type guard
+function isDog(pet: Dog | Cat): pet is Dog {
+  return "bark" in pet;
+}
+
+if (isDog(pet)) {
+  pet.bark(); // pet is narrowed to Dog
+}
+```
+
+```csharp
+// Generated C# - type is narrowed in the if block
+if (isDog(pet))
+{
+    ((Dog)pet).bark(); // Cast to narrowed type
+}
+```
+
+Narrowing contexts include:
+
+- Type predicate functions (`x is T`)
+- `typeof` checks
+- Truthiness checks for nullable types
+- Negated conditions (else branch)
 
 ## Expression Emission
 
@@ -312,6 +365,41 @@ const emitClass = (stmt: IrClassDeclaration, ctx: EmitterContext): string => {
 };
 ```
 
+### Anonymous Object Synthesis
+
+Object literals without explicit type annotations auto-synthesize nominal classes:
+
+```typescript
+// TypeScript
+const point = { x: 10, y: 20 };
+```
+
+```csharp
+// Generated C# - synthesized class
+public class __Anon_main_5_15
+{
+    public double x { get; set; }
+    public double y { get; set; }
+}
+
+// Usage
+var point = new __Anon_main_5_15 { x = 10.0, y = 20.0 };
+```
+
+Synthesized class names follow the pattern: `__Anon_{file}_{line}_{col}`
+
+Eligible patterns:
+
+- Property assignments
+- Shorthand properties
+- Arrow function properties
+
+Ineligible patterns (error TSN7405):
+
+- Method shorthand
+- Getters/setters
+- Spread elements
+
 ## FQN Emission
 
 Fully qualified names ensure no ambiguity:
@@ -344,6 +432,27 @@ var n = identity<double>(42);
 ```
 
 Complex cases require monomorphization.
+
+### Generic null Handling
+
+In generic contexts, TypeScript `null` emits as C# `default`:
+
+```typescript
+// TypeScript
+function getOrNull<T>(value: T | null): T | null {
+  return value ?? null;
+}
+```
+
+```csharp
+// Generated C#
+public static T? getOrNull<T>(T? value)
+{
+    return value ?? default; // 'default' instead of 'null'
+}
+```
+
+This ensures correct behavior for both reference and value types.
 
 ## JSON AOT Support
 

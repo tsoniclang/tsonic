@@ -68,6 +68,24 @@ const list = new List<number>();
 // Generated: System.Collections.Generic.List<double>
 ```
 
+## Tuples
+
+Fixed-length arrays with specific element types:
+
+```typescript
+const point: [number, number] = [10, 20];
+const record: [string, number, boolean] = ["name", 42, true];
+```
+
+Generates `ValueTuple<T1, T2, ...>` in C#:
+
+```csharp
+ValueTuple<double, double> point = (10.0, 20.0);
+ValueTuple<string, double, bool> record = ("name", 42.0, true);
+```
+
+Supports up to 8 elements. Access via `.Item1`, `.Item2`, etc.
+
 ## Objects and Interfaces
 
 ### Interface to Class
@@ -106,6 +124,61 @@ Optional properties become nullable in C#:
 public string required { get; set; }
 public double? optional { get; set; }
 ```
+
+## Map and Set
+
+### Map<K, V>
+
+```typescript
+const userMap = new Map<string, User>();
+userMap.set("alice", alice);
+const user = userMap.get("alice");
+userMap.has("bob"); // boolean
+userMap.delete("alice");
+userMap.clear();
+console.log(userMap.size);
+```
+
+Generates `Dictionary<TKey, TValue>` in C#.
+
+### Set<T>
+
+```typescript
+const ids = new Set<number>();
+ids.add(1);
+ids.add(2);
+const hasOne = ids.has(1); // true
+ids.delete(1);
+ids.clear();
+console.log(ids.size);
+```
+
+Generates `HashSet<T>` in C#.
+
+## Dictionary Types
+
+### Record<K, V>
+
+```typescript
+const scores: Record<string, number> = { alice: 100, bob: 95 };
+const ages: Record<number, string> = { 1: "one", 2: "two" };
+```
+
+Key type must be `string` or `number`. Generates `Dictionary<TKey, TValue>`.
+
+### Index Signatures
+
+```typescript
+interface StringDict {
+  [key: string]: number;
+}
+
+interface NumberDict {
+  [key: number]: string;
+}
+```
+
+Both generate `Dictionary<TKey, TValue>` with appropriate key types.
 
 ## Union Types
 
@@ -182,6 +255,22 @@ export function getId<T extends HasId>(item: T): number {
 ```
 
 Generates `where T : HasId` constraint in C#.
+
+### Null Handling in Generics
+
+In generic contexts, `null` is emitted as `default` to correctly handle both reference and value types:
+
+```typescript
+function getOrDefault<T>(value: T | null, fallback: T): T {
+  return value ?? fallback;
+}
+
+function createEmpty<T>(): T | null {
+  return null; // Emits: return default;
+}
+```
+
+This ensures generics work correctly whether `T` is a class, struct, or primitive.
 
 ## Function Types
 
@@ -300,10 +389,11 @@ Explicit types recommended for:
 
 ## Unsupported Types
 
-| Type              | Reason            | Alternative                    |
-| ----------------- | ----------------- | ------------------------------ |
-| `any`             | No type safety    | Use `unknown` or specific type |
-| `symbol`          | No C# equivalent  | Use string keys                |
-| `bigint`          | Limited support   | Use `long`                     |
-| Mapped types      | Complex transform | Define explicitly              |
-| Conditional types | Complex transform | Define explicitly              |
+| Type               | Reason            | Alternative                    |
+| ------------------ | ----------------- | ------------------------------ |
+| `any`              | No type safety    | Use `unknown` or specific type |
+| `symbol`           | No C# equivalent  | Use string keys                |
+| `bigint`           | Limited support   | Use `long`                     |
+| Mapped types       | Complex transform | Define explicitly              |
+| Conditional types  | Complex transform | Define explicitly              |
+| Intersection types | No C# equivalent  | Create combined interface      |
