@@ -2,9 +2,9 @@ namespace TestCases.realworld.asyncops
 {
     public class AsyncCache<K, V>
     {
-        private Map<K, V> cache = new Map();
+        private global::Tsonic.JSRuntime.Map<K, V> cache = new global::Tsonic.JSRuntime.Map();
 
-        private Map<K, global::System.Threading.Tasks.Task<V>> loading = new Map();
+        private global::Tsonic.JSRuntime.Map<K, global::System.Threading.Tasks.Task<V>> loading = new global::Tsonic.JSRuntime.Map();
 
         public async global::System.Threading.Tasks.Task<V> get(K key, global::System.Func<global::System.Threading.Tasks.Task<V>> loader)
             {
