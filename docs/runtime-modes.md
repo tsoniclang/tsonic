@@ -131,13 +131,14 @@ npm install --save-dev @tsonic/dotnet-globals @tsonic/dotnet
 Use .NET collections directly:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
 const list = new List<number>();
 list.Add(1);
 list.Add(2);
 list.Add(3);
-console.log(list.Count); // 3
+Console.WriteLine(list.Count); // 3
 
 // LINQ-style operations
 const doubled = list.Select((n) => n * 2);
