@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/tsonic",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "TypeScript to C# to NativeAOT compiler",
   "type": "module",
   "bin": {

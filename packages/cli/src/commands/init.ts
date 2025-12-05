@@ -41,9 +41,9 @@ const SAMPLE_MAIN_TS_DOTNET = `import { Console } from "@tsonic/dotnet/System";
 import { File } from "@tsonic/dotnet/System.IO";
 
 export function main(): void {
-  Console.WriteLine("Reading README.md...");
-  const content = File.ReadAllText("./README.md");
-  Console.WriteLine(content);
+  Console.writeLine("Reading README.md...");
+  const content = File.readAllText("./README.md");
+  Console.writeLine(content);
 }
 `;
 
