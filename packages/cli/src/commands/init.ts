@@ -78,8 +78,8 @@ type TypePackageInfo = {
   readonly typeRoots: readonly string[];
 };
 
-// CLI package version - installed as devDependency for npm run build/dev
-const CLI_PACKAGE = { name: "@tsonic/cli", version: "0.0.4" };
+// Unified CLI package version - installed as devDependency for npm run build/dev
+const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "0.1.15" };
 
 /**
  * Get type package info based on runtime mode

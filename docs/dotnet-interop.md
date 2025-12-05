@@ -79,6 +79,7 @@ const files = Directory.GetFiles("./data");
 ### Collections
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
 import {
   List,
   Dictionary,
@@ -90,7 +91,7 @@ const list = new List<number>();
 list.Add(1);
 list.Add(2);
 list.AddRange([3, 4, 5]);
-console.log(list.Count);
+Console.WriteLine(list.Count);
 const first = list[0];
 
 // Dictionary<K,V>
@@ -98,14 +99,14 @@ const dict = new Dictionary<string, number>();
 dict.Add("one", 1);
 dict["two"] = 2;
 if (dict.ContainsKey("one")) {
-  console.log(dict["one"]);
+  Console.WriteLine(dict["one"]);
 }
 
 // HashSet<T>
 const set = new HashSet<string>();
 set.Add("a");
 set.Add("b");
-console.log(set.Contains("a"));
+Console.WriteLine(set.Contains("a"));
 ```
 
 ### LINQ
@@ -126,14 +127,14 @@ const any = Enumerable.Any(numbers, (n) => n > 10);
 ### DateTime
 
 ```typescript
-import { DateTime, TimeSpan } from "@tsonic/dotnet/System";
+import { Console, DateTime, TimeSpan } from "@tsonic/dotnet/System";
 
 const now = DateTime.Now;
 const utc = DateTime.UtcNow;
 const date = new DateTime(2024, 1, 15);
 
-console.log(now.Year);
-console.log(now.ToString("yyyy-MM-dd"));
+Console.WriteLine(now.Year);
+Console.WriteLine(now.ToString("yyyy-MM-dd"));
 
 const duration = TimeSpan.FromHours(2);
 const later = now.Add(duration);
@@ -287,12 +288,13 @@ export async function main(): Promise<void> {
 .NET exceptions work with TypeScript try/catch:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
 import { File } from "@tsonic/dotnet/System.IO";
 
 try {
   const content = File.ReadAllText("./missing.txt");
 } catch (error) {
-  console.log("File not found");
+  Console.WriteLine("File not found");
 }
 ```
 
