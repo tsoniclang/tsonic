@@ -79,7 +79,7 @@ type TypePackageInfo = {
 };
 
 // Unified CLI package version - installed as devDependency for npm run build/dev
-const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "0.1.15" };
+const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "latest" };
 
 /**
  * Get type package info based on runtime mode
