@@ -96,8 +96,8 @@ const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
     return {
       packages: [
         CLI_PACKAGE,
-        { name: "@tsonic/js-globals", version: "0.1.1" },
-        { name: "@tsonic/types", version: "0.2.0" },
+        { name: "@tsonic/js-globals", version: "latest" },
+        { name: "@tsonic/types", version: "latest" },
       ],
       typeRoots: ["node_modules/@tsonic/js-globals"],
     };
@@ -110,8 +110,8 @@ const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
   return {
     packages: [
       CLI_PACKAGE,
-      { name: "@tsonic/dotnet-globals", version: "0.1.2" },
-      { name: "@tsonic/dotnet", version: "0.5.1" },
+      { name: "@tsonic/dotnet-globals", version: "latest" },
+      { name: "@tsonic/dotnet", version: "latest" },
     ],
     typeRoots: ["node_modules/@tsonic/dotnet-globals"],
   };
