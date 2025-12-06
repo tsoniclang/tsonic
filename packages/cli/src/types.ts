@@ -77,6 +77,7 @@ export type CliOptions = {
   // Project init options
   skipTypes?: boolean;
   typesVersion?: string;
+  nodejs?: boolean; // Enable Node.js interop (installs @tsonic/nodejs)
   // Output type options
   type?: OutputType;
   targetFramework?: string;

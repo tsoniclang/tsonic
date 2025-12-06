@@ -20,6 +20,7 @@ echo ""
 # Step 1: Build runtime packages from sibling directories
 RUNTIME_DIR="$ROOT_DIR/../runtime"
 JSRUNTIME_DIR="$ROOT_DIR/../js-runtime"
+NODEJS_DIR="$ROOT_DIR/../nodejs-clr"
 
 echo -e "${YELLOW}Building Tsonic.Runtime...${NC}"
 if [[ -d "$RUNTIME_DIR" ]]; then
@@ -41,6 +42,16 @@ if [[ -d "$JSRUNTIME_DIR" ]]; then
 else
   echo -e "${RED}  Error: js-runtime repo not found at $JSRUNTIME_DIR${NC}"
   exit 1
+fi
+
+echo -e "${YELLOW}Building nodejs-clr...${NC}"
+if [[ -d "$NODEJS_DIR" ]]; then
+  cd "$NODEJS_DIR"
+  git pull
+  dotnet build -c Release
+  echo -e "${GREEN}  nodejs-clr built${NC}"
+else
+  echo -e "${YELLOW}  Warning: nodejs-clr repo not found at $NODEJS_DIR (optional)${NC}"
 fi
 
 # Step 2: Build all TypeScript packages
@@ -92,6 +103,15 @@ if [[ -f "$JSRUNTIME_SRC/Tsonic.JSRuntime.dll" ]]; then
 else
   echo -e "${RED}  Warning: Tsonic.JSRuntime.dll not found at $JSRUNTIME_SRC${NC}"
   echo -e "${YELLOW}  Build it with: cd ../js-runtime && dotnet build -c Release${NC}"
+fi
+
+# nodejs-clr (for --nodejs flag)
+NODEJS_SRC="$ROOT_DIR/../nodejs-clr/artifacts/bin/nodejs/Release/net10.0"
+if [[ -f "$NODEJS_SRC/nodejs.dll" ]]; then
+  cp "$NODEJS_SRC/nodejs.dll" "$NPM_DIR/runtime/"
+  echo -e "${GREEN}  Copied nodejs.dll${NC}"
+else
+  echo -e "${YELLOW}  Warning: nodejs.dll not found at $NODEJS_SRC (optional)${NC}"
 fi
 
 # Step 5: List package contents

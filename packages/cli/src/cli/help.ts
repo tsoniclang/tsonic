@@ -39,12 +39,14 @@ EMIT/BUILD/RUN OPTIONS:
 
 PROJECT INIT OPTIONS:
   --runtime <mode>          Runtime mode: js (default) or dotnet
+  --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
 
 EXAMPLES:
   tsonic project init
   tsonic project init --runtime dotnet
+  tsonic project init --runtime dotnet --nodejs
   tsonic emit src/App.ts
   tsonic build src/App.ts --rid linux-x64
   tsonic run src/App.ts -- --arg1 value1

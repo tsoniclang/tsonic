@@ -169,6 +169,24 @@ describe("CLI Parser", () => {
         const result = parseArgs(["build", "--no-strip"]);
         expect(result.options.noStrip).to.equal(true);
       });
+
+      it("should parse --nodejs option", () => {
+        const result = parseArgs(["project", "init", "--nodejs"]);
+        expect(result.options.nodejs).to.equal(true);
+      });
+
+      it("should parse --nodejs with --runtime dotnet", () => {
+        const result = parseArgs([
+          "project",
+          "init",
+          "--runtime",
+          "dotnet",
+          "--nodejs",
+        ]);
+        expect(result.command).to.equal("project:init");
+        expect(result.options.runtime).to.equal("dotnet");
+        expect(result.options.nodejs).to.equal(true);
+      });
     });
 
     describe("Program Arguments", () => {

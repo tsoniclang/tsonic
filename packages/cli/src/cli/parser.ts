@@ -100,6 +100,9 @@ export const parseArgs = (
       case "--types-version":
         options.typesVersion = args[++i] ?? "";
         break;
+      case "--nodejs":
+        options.nodejs = true;
+        break;
       case "-O":
       case "--optimize":
         options.optimize = (args[++i] ?? "speed") as "size" | "speed";
