@@ -17,11 +17,7 @@ const buildExecutable = (
 ): Result<{ outputPath: string }, string> => {
   const { outputName, rid, quiet, verbose } = config;
 
-  // Step 2: Run dotnet publish
-  if (!quiet) {
-    console.log("Step 2/3: Compiling with dotnet publish...");
-  }
-
+  // Run dotnet publish
   const publishArgs = [
     "publish",
     "tsonic.csproj",
@@ -55,11 +51,7 @@ const buildExecutable = (
     };
   }
 
-  // Step 3: Copy output binary
-  if (!quiet) {
-    console.log("Step 3/3: Copying output binary...");
-  }
-
+  // Copy output binary
   const binaryName =
     process.platform === "win32" ? `${outputName}.exe` : outputName;
   const publishDir = join(
@@ -93,11 +85,6 @@ const buildExecutable = (
       chmodSync(targetBinary, 0o755);
     }
 
-    if (!quiet) {
-      const relativePath = relative(process.cwd(), targetBinary);
-      console.log(`\n✓ Build complete: ${relativePath}`);
-    }
-
     return {
       ok: true,
       value: { outputPath: targetBinary },
@@ -122,11 +109,7 @@ const buildLibrary = (
     config.dotnetVersion,
   ];
 
-  // Step 2: Run dotnet build
-  if (!quiet) {
-    console.log("Step 2/3: Compiling library with dotnet build...");
-  }
-
+  // Run dotnet build
   const buildArgs = ["build", "tsonic.csproj", "-c", "Release", "--nologo"];
 
   if (quiet) {
@@ -152,11 +135,7 @@ const buildLibrary = (
     };
   }
 
-  // Step 3: Copy output library artifacts
-  if (!quiet) {
-    console.log("Step 3/3: Copying library artifacts...");
-  }
-
+  // Copy output library artifacts
   const outputDir = join(process.cwd(), "dist");
 
   try {
@@ -212,13 +191,6 @@ const buildLibrary = (
       };
     }
 
-    if (!quiet) {
-      console.log(`\n✓ Build complete. Artifacts copied to dist/:`);
-      for (const file of copiedFiles) {
-        console.log(`  - ${file}`);
-      }
-    }
-
     return {
       ok: true,
       value: { outputPath: outputDir },
@@ -237,14 +209,10 @@ const buildLibrary = (
 export const buildCommand = (
   config: ResolvedConfig
 ): Result<{ outputPath: string }, string> => {
-  const { outputDirectory, quiet } = config;
+  const { outputDirectory } = config;
   const outputType = config.outputConfig.type ?? "executable";
 
-  // Step 1: Emit C# code
-  if (!quiet) {
-    console.log("Step 1/3: Generating C# code...");
-  }
-
+  // Emit C# code
   const emitResult = emitCommand(config);
   if (!emitResult.ok) {
     return emitResult;

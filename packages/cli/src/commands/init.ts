@@ -11,6 +11,7 @@ type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
   readonly runtime?: "js" | "dotnet";
+  readonly nodejs?: boolean; // Enable Node.js interop
 };
 
 const DEFAULT_GITIGNORE = `# .NET build artifacts
@@ -87,18 +88,25 @@ const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "latest" };
  * typeRoots: Only ambient globals packages (provide global types without imports)
  * packages: All type packages to install (includes explicit import packages)
  */
-const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
+export const getTypePackageInfo = (
+  runtime: "js" | "dotnet",
+  nodejs: boolean = false
+): TypePackageInfo => {
   if (runtime === "js") {
     // JS mode:
     // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
     // - @tsonic/js-globals: ambient globals (Array, console, etc.) - needs typeRoots
     // - @tsonic/types: explicit imports (int, float, etc.) - just npm dep
+    const packages = [
+      CLI_PACKAGE,
+      { name: "@tsonic/js-globals", version: "latest" },
+      { name: "@tsonic/types", version: "latest" },
+    ];
+    if (nodejs) {
+      packages.push({ name: "@tsonic/nodejs", version: "latest" });
+    }
     return {
-      packages: [
-        CLI_PACKAGE,
-        { name: "@tsonic/js-globals", version: "latest" },
-        { name: "@tsonic/types", version: "latest" },
-      ],
+      packages,
       typeRoots: ["node_modules/@tsonic/js-globals"],
     };
   }
@@ -107,12 +115,16 @@ const getTypePackageInfo = (runtime: "js" | "dotnet"): TypePackageInfo => {
   // - @tsonic/dotnet-globals: ambient globals - needs typeRoots
   // - @tsonic/dotnet: explicit imports (System.*, etc.) - just npm dep
   // - @tsonic/types: transitive dep of @tsonic/dotnet
+  const packages = [
+    CLI_PACKAGE,
+    { name: "@tsonic/dotnet-globals", version: "latest" },
+    { name: "@tsonic/dotnet", version: "latest" },
+  ];
+  if (nodejs) {
+    packages.push({ name: "@tsonic/nodejs", version: "latest" });
+  }
   return {
-    packages: [
-      CLI_PACKAGE,
-      { name: "@tsonic/dotnet-globals", version: "latest" },
-      { name: "@tsonic/dotnet", version: "latest" },
-    ],
+    packages,
     typeRoots: ["node_modules/@tsonic/dotnet-globals"],
   };
 };
@@ -265,7 +277,8 @@ export const initProject = (
 
     // Install type declarations based on runtime mode
     const shouldInstallTypes = !options.skipTypes;
-    const typeInfo = getTypePackageInfo(runtime);
+    const nodejs = options.nodejs ?? false;
+    const typeInfo = getTypePackageInfo(runtime, nodejs);
 
     if (shouldInstallTypes) {
       for (const pkg of typeInfo.packages) {

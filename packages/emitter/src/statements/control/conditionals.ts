@@ -312,20 +312,15 @@ export const emitIfStatement = (
       const elseInd = getIndent(elseCtxNarrowed);
       const castLine = `${elseInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
 
-      const [elseBlock, elseBodyCtx] = emitForcedBlockWithPreamble(
+      const [elseBlock, _elseBodyCtx] = emitForcedBlockWithPreamble(
         castLine,
         stmt.elseStatement,
         elseCtxNarrowed,
         ind
       );
 
-      // rebuild final context (do NOT leak narrow bindings)
-      let finalContext = dedent(elseBodyCtx);
-      finalContext = {
-        ...finalContext,
-        narrowedBindings: ctxWithId.narrowedBindings,
-      };
-
+      // Note: narrow bindings should not leak from if-else branches
+      // We return thenCtx to preserve original semantics
       const code = `${ind}if (${condText})\n${thenCode}\n${ind}else\n${elseBlock}`;
       return [code, dedent(thenCtx)];
     }

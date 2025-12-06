@@ -535,7 +535,8 @@ export const selectUnionMemberForObjectLiteral = (
   });
 
   if (matches.length === 0) return undefined;
-  if (matches.length === 1) return matches[0]!.ref;
+  const firstMatch = matches[0];
+  if (matches.length === 1 && firstMatch) return firstMatch.ref;
 
   // Pick best by score
   matches.sort((a, b) => {
@@ -556,7 +557,8 @@ export const selectUnionMemberForObjectLiteral = (
     return a.ref.name.localeCompare(b.ref.name); // stable tie-break
   });
 
-  return matches[0]!.ref;
+  const best = matches[0];
+  return best ? best.ref : undefined;
 };
 
 /**

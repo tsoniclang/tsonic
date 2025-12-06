@@ -62,15 +62,15 @@ const extractPropertyInfo = (
       decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ===
         true;
 
-    result.push({
-      name: prop.name,
-      type: convertType(
-        checker.typeToTypeNode(propType, undefined, undefined)!,
-        checker
-      ),
-      optional,
-      readonly,
-    });
+    const typeNode = checker.typeToTypeNode(propType, undefined, undefined);
+    if (typeNode) {
+      result.push({
+        name: prop.name,
+        type: convertType(typeNode, checker),
+        optional,
+        readonly,
+      });
+    }
   }
 
   // Sort by name for stable signature

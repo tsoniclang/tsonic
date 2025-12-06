@@ -107,13 +107,15 @@ export const emitMethodMember = (
   ]);
 
   // Emit body with scoped typeParameters and returnType
+  // Note: member.body is guaranteed to exist here (early return above handles undefined case)
+  const body = member.body;
   const [bodyCode, finalContext] = withScoped(
     baseBodyContext,
     {
       typeParameters: methodTypeParams,
       returnType: member.returnType,
     },
-    (scopedCtx) => emitBlockStatement(member.body!, scopedCtx)
+    (scopedCtx) => emitBlockStatement(body, scopedCtx)
   );
 
   // Collect out parameters that need initialization (escape C# keywords)
