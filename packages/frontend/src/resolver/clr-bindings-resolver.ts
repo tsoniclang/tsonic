@@ -91,18 +91,29 @@ export class ClrBindingsResolver {
       return { isClr: false };
     }
 
+    // Strip .js extension from subpath (e.g., "nodejs.js" -> "nodejs")
+    // This allows imports like "@tsonic/nodejs/nodejs.js" to find "nodejs/bindings.json"
+    const namespaceDir = subpath.endsWith(".js")
+      ? subpath.slice(0, -3)
+      : subpath;
+
     // Check if bindings.json exists in the namespace directory
-    const bindingsPath = join(pkgRoot, subpath, "bindings.json");
+    const bindingsPath = join(pkgRoot, namespaceDir, "bindings.json");
     if (!this.hasBindings(bindingsPath)) {
       return { isClr: false };
     }
 
     // Extract namespace from bindings.json (tsbindgen format)
     // This is the authoritative namespace, not the subpath
-    const resolvedNamespace = this.extractNamespace(bindingsPath, subpath);
+    const resolvedNamespace = this.extractNamespace(bindingsPath, namespaceDir);
 
     // Check for optional metadata.json
-    const metadataPath = join(pkgRoot, subpath, "internal", "metadata.json");
+    const metadataPath = join(
+      pkgRoot,
+      namespaceDir,
+      "internal",
+      "metadata.json"
+    );
     const hasMetadata = this.fileExists(metadataPath);
 
     return {
