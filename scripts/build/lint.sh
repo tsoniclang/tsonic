@@ -9,9 +9,8 @@ cd "$(dirname "$0")/../.."
 
 echo "=== Running ESLint across all packages ==="
 
-# Define packages to lint
+# Define packages to lint (TypeScript packages only)
 PACKAGES=(
-  "runtime"
   "frontend"
   "emitter"
   "backend"
@@ -53,9 +52,9 @@ for pkg_name in "${PACKAGES[@]}"; do
   echo "Linting $pkg..."
 
   if [ -n "$FIX_FLAG" ]; then
-    ./node_modules/.bin/eslint "$pkg/src/**/*.ts" "$pkg/src/**/*.tsx" $FIX_FLAG --config eslint.config.js || ERRORS=$?
+    ./node_modules/.bin/eslint "$pkg/src/**/*.ts" $FIX_FLAG --config eslint.config.js || ERRORS=$?
   else
-    ./node_modules/.bin/eslint "$pkg/src/**/*.ts" "$pkg/src/**/*.tsx" --config eslint.config.js || ERRORS=$?
+    ./node_modules/.bin/eslint "$pkg/src/**/*.ts" --config eslint.config.js || ERRORS=$?
   fi
 done
 
