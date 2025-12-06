@@ -163,11 +163,6 @@ export const emitCommand = (
     };
   }
 
-  if (!config.quiet) {
-    const target = entryPoint ?? sourceRoot;
-    console.log(`Emitting C# code for ${target}...`);
-  }
-
   try {
     // For libraries without entry point, we need a different approach
     // For now, require entry point (library multi-file support can be added later)
@@ -209,13 +204,6 @@ export const emitCommand = (
 
     const { modules, entryModule } = graphResult.value;
 
-    if (config.verbose) {
-      console.log(`  Discovered ${modules.length} TypeScript modules`);
-      for (const module of modules) {
-        console.log(`    - ${module.filePath}`);
-      }
-    }
-
     // irResult.value was an array of modules, now it's graphResult.value.modules
     const irResult = { ok: true as const, value: modules };
 
@@ -251,11 +239,6 @@ export const emitCommand = (
 
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, csCode, "utf-8");
-
-      if (config.verbose) {
-        const relPath = relative(process.cwd(), fullPath);
-        console.log(`  Generated: ${relPath}`);
-      }
     }
 
     // Generate Program.cs entry point wrapper (only for executables)
@@ -276,10 +259,6 @@ export const emitCommand = (
           const programCs = generateProgramCs(entryInfo);
           const programPath = join(outputDir, "Program.cs");
           writeFileSync(programPath, programCs, "utf-8");
-
-          if (config.verbose) {
-            console.log(`  Generated: ${relative(process.cwd(), programPath)}`);
-          }
         }
       }
     }
@@ -291,12 +270,6 @@ export const emitCommand = (
     if (projectCsproj) {
       // Copy existing .csproj from project root (preserves user edits)
       copyFileSync(projectCsproj, csprojPath);
-
-      if (config.verbose) {
-        console.log(
-          `  Copied: ${relative(process.cwd(), projectCsproj)} → ${relative(process.cwd(), csprojPath)} (user edits preserved)`
-        );
-      }
     } else if (!existsSync(csprojPath)) {
       // Find Tsonic runtime - try multiple approaches:
       // 1. ProjectReference to .csproj (development/monorepo)
@@ -327,13 +300,6 @@ export const emitCommand = (
             outputDir
           );
         }
-      }
-
-      // Warn if no runtime found
-      if (!runtimePath && assemblyReferences.length === 0 && !config.quiet) {
-        console.warn(
-          "Warning: Tsonic runtime not found. You may need to add references manually."
-        );
       }
 
       // Build output configuration
@@ -377,20 +343,6 @@ export const emitCommand = (
 
       const csproj = generateCsproj(buildConfig);
       writeFileSync(csprojPath, csproj, "utf-8");
-
-      if (config.verbose) {
-        console.log(`  Generated: ${relative(process.cwd(), csprojPath)}`);
-      }
-    } else if (config.verbose) {
-      console.log(
-        `  Preserved: ${relative(process.cwd(), csprojPath)} (user edits kept)`
-      );
-    }
-
-    if (!config.quiet) {
-      console.log(
-        `\n✓ Generated ${csFiles.size} C# files in ${outputDirectory}/`
-      );
     }
 
     return {

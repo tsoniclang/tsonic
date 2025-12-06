@@ -53,6 +53,10 @@ export default [
         ...globals.mocha,
       },
     },
+    rules: {
+      // Chai uses property assertions like .to.be.true which look like unused expressions
+      "@typescript-eslint/no-unused-expressions": "off",
+    },
   },
   {
     ignores: [

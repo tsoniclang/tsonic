@@ -85,11 +85,6 @@ const buildExecutable = (
       chmodSync(targetBinary, 0o755);
     }
 
-    if (!quiet) {
-      const relativePath = relative(process.cwd(), targetBinary);
-      console.log(`\n✓ Build complete: ${relativePath}`);
-    }
-
     return {
       ok: true,
       value: { outputPath: targetBinary },
@@ -194,13 +189,6 @@ const buildLibrary = (
         ok: false,
         error: "No library artifacts found to copy",
       };
-    }
-
-    if (!quiet) {
-      console.log(`\n✓ Build complete. Artifacts copied to dist/:`);
-      for (const file of copiedFiles) {
-        console.log(`  - ${file}`);
-      }
     }
 
     return {
