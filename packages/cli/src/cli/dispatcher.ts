@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { checkDotnetInstalled } from "@tsonic/backend";
 import { loadConfig, findConfig, resolveConfig } from "../config.js";
 import { initProject } from "../commands/init.js";
-import { emitCommand } from "../commands/emit.js";
+import { generateCommand } from "../commands/generate.js";
 import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
@@ -90,8 +90,8 @@ export const runCli = async (args: string[]): Promise<number> => {
 
   // Dispatch to command handlers
   switch (parsed.command) {
-    case "emit": {
-      const result = emitCommand(config);
+    case "generate": {
+      const result = generateCommand(config);
       if (!result.ok) {
         console.error(`Error: ${result.error}`);
         return 5;

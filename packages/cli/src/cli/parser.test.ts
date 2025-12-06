@@ -19,9 +19,9 @@ describe("CLI Parser", () => {
         expect(result.command).to.equal("run");
       });
 
-      it("should parse emit command", () => {
-        const result = parseArgs(["emit"]);
-        expect(result.command).to.equal("emit");
+      it("should parse generate command", () => {
+        const result = parseArgs(["generate"]);
+        expect(result.command).to.equal("generate");
       });
 
       it("should parse project:init as two-word command", () => {

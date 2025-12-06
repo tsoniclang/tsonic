@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { copyFileSync, chmodSync, existsSync, mkdirSync } from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
-import { emitCommand } from "./emit.js";
+import { generateCommand } from "./generate.js";
 
 /**
  * Build native executable
@@ -213,18 +213,18 @@ export const buildCommand = (
   const outputType = config.outputConfig.type ?? "executable";
 
   // Emit C# code
-  const emitResult = emitCommand(config);
-  if (!emitResult.ok) {
-    return emitResult;
+  const generateResult = generateCommand(config);
+  if (!generateResult.ok) {
+    return generateResult;
   }
 
-  const generatedDir = emitResult.value.outputDir;
+  const generatedDir = generateResult.value.outputDir;
   const csprojPath = join(generatedDir, "tsonic.csproj");
 
   if (!existsSync(csprojPath)) {
     return {
       ok: false,
-      error: `No tsonic.csproj found in ${outputDirectory}/. This should have been created by emit.`,
+      error: `No tsonic.csproj found in ${outputDirectory}/. This should have been created by generate.`,
     };
   }
 

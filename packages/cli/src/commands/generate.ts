@@ -1,5 +1,5 @@
 /**
- * tsonic emit command - Generate C# code only
+ * tsonic generate command - Generate C# code only
  */
 
 import {
@@ -39,12 +39,29 @@ const findProjectCsproj = (): string | null => {
 };
 
 /**
+ * Collect all CLR assemblies used by modules
+ * Returns unique assembly names from module imports
+ */
+const collectClrAssemblies = (modules: readonly IrModule[]): Set<string> => {
+  const assemblies = new Set<string>();
+  for (const mod of modules) {
+    for (const imp of mod.imports) {
+      if (imp.isClr && imp.resolvedAssembly) {
+        assemblies.add(imp.resolvedAssembly);
+      }
+    }
+  }
+  return assemblies;
+};
+
+/**
  * Find runtime DLLs bundled with @tsonic/cli npm package
  * Returns assembly references for the csproj file
  */
 const findRuntimeDlls = (
   runtime: "js" | "dotnet",
-  outputDir: string
+  outputDir: string,
+  usedAssemblies: Set<string> = new Set()
 ): readonly AssemblyReference[] => {
   // Try to find runtime directory bundled with CLI package
   // import.meta.dirname is the dist/commands directory
@@ -89,6 +106,17 @@ const findRuntimeDlls = (
       refs.push({
         name: "Tsonic.JSRuntime",
         hintPath: join(relativeRuntimeDir, "Tsonic.JSRuntime.dll"),
+      });
+    }
+  }
+
+  // Include nodejs.dll if nodejs assembly is used
+  if (usedAssemblies.has("nodejs")) {
+    const nodejsDll = join(runtimeDir, "nodejs.dll");
+    if (existsSync(nodejsDll)) {
+      refs.push({
+        name: "nodejs",
+        hintPath: join(relativeRuntimeDir, "nodejs.dll"),
       });
     }
   }
@@ -142,7 +170,7 @@ const extractEntryInfo = (
 /**
  * Emit C# code from TypeScript
  */
-export const emitCommand = (
+export const generateCommand = (
   config: ResolvedConfig
 ): Result<{ filesGenerated: number; outputDir: string }, string> => {
   const {
@@ -267,6 +295,9 @@ export const emitCommand = (
     const csprojPath = join(outputDir, "tsonic.csproj");
     const projectCsproj = findProjectCsproj();
 
+    // Collect CLR assemblies used by the modules (e.g., "nodejs")
+    const usedAssemblies = collectClrAssemblies(irResult.value);
+
     if (projectCsproj) {
       // Copy existing .csproj from project root (preserves user edits)
       copyFileSync(projectCsproj, csprojPath);
@@ -297,7 +328,8 @@ export const emitCommand = (
           // 3. Try to find runtime DLLs from npm package
           assemblyReferences = findRuntimeDlls(
             config.runtime ?? "js",
-            outputDir
+            outputDir,
+            usedAssemblies
           );
         }
       }

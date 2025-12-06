@@ -16,7 +16,7 @@ USAGE:
 
 COMMANDS:
   project init              Initialize a new Tsonic project
-  emit [entry]              Generate C# code only
+  generate [entry]          Generate C# code only
   build [entry]             Build native executable
   run [entry] [-- args...]  Build and run executable
 
@@ -28,9 +28,9 @@ GLOBAL OPTIONS:
   -c, --config <file>       Config file path (default: tsonic.json)
   --runtime <mode>          Runtime mode: js (default) or dotnet
 
-EMIT/BUILD/RUN OPTIONS:
+GENERATE/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory
-  -o, --out <path>          Output directory (emit) or file (build)
+  -o, --out <path>          Output directory (generate) or file (build)
   -n, --namespace <ns>      Root namespace override
   -r, --rid <rid>           Runtime identifier (e.g., linux-x64)
   -O, --optimize <level>    Optimization: size or speed
@@ -47,7 +47,7 @@ EXAMPLES:
   tsonic project init
   tsonic project init --runtime dotnet
   tsonic project init --runtime dotnet --nodejs
-  tsonic emit src/App.ts
+  tsonic generate src/App.ts
   tsonic build src/App.ts --rid linux-x64
   tsonic run src/App.ts -- --arg1 value1
 
