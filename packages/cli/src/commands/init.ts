@@ -2,8 +2,14 @@
  * tsonic project init command
  */
 
-import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import {
+  writeFileSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  copyFileSync,
+} from "node:fs";
+import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { Result } from "../types.js";
 
@@ -130,11 +136,61 @@ export const getTypePackageInfo = (
 };
 
 /**
+ * Find nodejs.dll from the CLI package runtime directory
+ */
+const findNodejsDll = (): string | null => {
+  // Try to find runtime directory bundled with CLI package
+  // import.meta.dirname is the dist/commands directory when running from built CLI
+  // Or src/commands when running from source
+  const possiblePaths = [
+    // Development: From dist/commands -> ../../runtime
+    join(dirname(import.meta.url.replace("file://", "")), "../../runtime"),
+    // npm installed: From dist/commands -> ../runtime (inside @tsonic/cli package)
+    join(dirname(import.meta.url.replace("file://", "")), "../runtime"),
+    // From project's node_modules (when CLI is a dev dependency)
+    join(process.cwd(), "node_modules/@tsonic/cli/runtime"),
+    // Monorepo structure
+    join(process.cwd(), "packages/cli/runtime"),
+  ];
+
+  for (const p of possiblePaths) {
+    const dllPath = join(p, "nodejs.dll");
+    if (existsSync(dllPath)) {
+      return dllPath;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Copy nodejs.dll to project's lib/ directory
+ */
+const copyNodejsDll = (cwd: string): Result<string, string> => {
+  const sourceDll = findNodejsDll();
+  if (!sourceDll) {
+    return {
+      ok: false,
+      error: "nodejs.dll not found. Make sure @tsonic/tsonic is installed.",
+    };
+  }
+
+  const libDir = join(cwd, "lib");
+  const destDll = join(libDir, "nodejs.dll");
+
+  mkdirSync(libDir, { recursive: true });
+  copyFileSync(sourceDll, destDll);
+
+  return { ok: true, value: "lib/nodejs.dll" };
+};
+
+/**
  * Generate tsonic.json config
  */
 const generateConfig = (
   includeTypeRoots: boolean,
-  runtime: "js" | "dotnet"
+  runtime: "js" | "dotnet",
+  nodejsLibPath?: string
 ): string => {
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
@@ -152,11 +208,19 @@ const generateConfig = (
     },
   };
 
-  if (includeTypeRoots) {
+  if (includeTypeRoots || nodejsLibPath) {
     const typeInfo = getTypePackageInfo(runtime);
-    config.dotnet = {
-      typeRoots: typeInfo.typeRoots,
-    };
+    const dotnet: Record<string, unknown> = {};
+
+    if (includeTypeRoots) {
+      dotnet.typeRoots = typeInfo.typeRoots;
+    }
+
+    if (nodejsLibPath) {
+      dotnet.libraries = [nodejsLibPath];
+    }
+
+    config.dotnet = dotnet;
   }
 
   return JSON.stringify(config, null, 2) + "\n";
@@ -292,8 +356,21 @@ export const initProject = (
       }
     }
 
+    // Copy nodejs.dll if nodejs option is enabled
+    let nodejsLibPath: string | undefined;
+    if (nodejs) {
+      const copyResult = copyNodejsDll(cwd);
+      if (!copyResult.ok) {
+        // Log warning but continue - user can add manually later
+        console.log(`⚠ Warning: ${copyResult.error}`);
+      } else {
+        nodejsLibPath = copyResult.value;
+        console.log("✓ Copied nodejs.dll to lib/");
+      }
+    }
+
     // Create tsonic.json
-    const config = generateConfig(shouldInstallTypes, runtime);
+    const config = generateConfig(shouldInstallTypes, runtime, nodejsLibPath);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 
