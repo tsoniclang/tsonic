@@ -221,31 +221,35 @@ export const convertTsTypeToIr = (
           return { kind: "arrayType", elementType };
         }
       }
+      // Cannot convert element type - use anyType as marker
+      // The IR soundness gate will catch this and emit TSN7414
       return { kind: "arrayType", elementType: { kind: "anyType" } };
     }
 
-    // Check for callable signatures (function types)
-    const callSignatures = type.getCallSignatures();
-    if (callSignatures.length > 0) {
-      // Function types need complex handling - return undefined for now
-      return undefined;
-    }
-
-    // Check for symbol with name (class, interface, etc.)
+    // Check for symbol with name FIRST (class, interface, delegate types like Action)
+    // This must come before callable check because delegates like Action have call signatures
+    // but should be returned as named reference types
     const objectType = type as ts.ObjectType;
-    if (objectType.symbol) {
-      const name = objectType.symbol.name;
+
+    // First check aliasSymbol (for type aliases like Action = () => void)
+    // Then check symbol (for interfaces/classes)
+    const typeSymbol = type.aliasSymbol ?? objectType.symbol;
+    if (typeSymbol) {
+      const name = typeSymbol.name;
       // Skip internal TypeScript symbol names
-      if (name.startsWith("__")) {
-        return undefined;
-      }
-      // For named types, return as reference type with type arguments if generic
-      if (name && name !== "Object" && name !== "Array") {
-        // Extract type arguments for generic types
-        const typeRef = type as ts.TypeReference;
-        const typeArgs = checker.getTypeArguments(typeRef);
+      if (
+        !name.startsWith("__") &&
+        name &&
+        name !== "Object" &&
+        name !== "Array"
+      ) {
+        // For named types, return as reference type with type arguments if generic
+        // Use aliasTypeArguments for type aliases, getTypeArguments for others
+        const typeArgs =
+          type.aliasTypeArguments ??
+          checker.getTypeArguments(type as ts.TypeReference);
         if (typeArgs && typeArgs.length > 0) {
-          const irTypeArgs = typeArgs
+          const irTypeArgs = Array.from(typeArgs)
             .map((arg) => convertTsTypeToIr(arg, checker))
             .filter((t): t is IrType => t !== undefined);
           if (irTypeArgs.length === typeArgs.length) {
@@ -254,6 +258,13 @@ export const convertTsTypeToIr = (
         }
         return { kind: "referenceType", name };
       }
+    }
+
+    // Check for callable signatures (anonymous function types)
+    const callSignatures = type.getCallSignatures();
+    if (callSignatures.length > 0) {
+      // Anonymous function types need complex handling - return undefined for now
+      return undefined;
     }
 
     // Anonymous object type
@@ -267,9 +278,14 @@ export const convertTsTypeToIr = (
     return { kind: "typeParameterType", name };
   }
 
-  // Any and unknown
-  if (flags & ts.TypeFlags.Any || flags & ts.TypeFlags.Unknown) {
+  // Any type - keep as anyType so validation can catch it (TSN7401)
+  if (flags & ts.TypeFlags.Any) {
     return { kind: "anyType" };
+  }
+
+  // Unknown type - this is legitimate, user explicitly wrote 'unknown'
+  if (flags & ts.TypeFlags.Unknown) {
+    return { kind: "unknownType" };
   }
 
   // Union types - convert each member, require all to succeed

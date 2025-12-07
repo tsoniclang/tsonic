@@ -45,7 +45,8 @@ export const convertObjectType = (
       ? convertKeyType(keyParam.type)
       : { kind: "primitiveType", name: "string" };
 
-    // Determine value type
+    // Determine value type - use anyType as marker if not specified
+    // The IR soundness gate will catch this and emit TSN7414
     const valueType: IrType = indexSig.type
       ? convertType(indexSig.type, checker)
       : { kind: "anyType" };

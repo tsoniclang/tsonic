@@ -117,7 +117,28 @@ export const convertType = (
     return { kind: "primitiveType", name: "boolean" };
   }
 
-  // Default to any type for unsupported types
+  // TypeQuery: typeof X - resolve to the type of the referenced value
+  if (ts.isTypeQueryNode(typeNode)) {
+    // Get the type of the referenced expression
+    const symbol = checker.getSymbolAtLocation(typeNode.exprName);
+    if (symbol) {
+      const type = checker.getTypeOfSymbolAtLocation(symbol, typeNode.exprName);
+      // Convert the resolved type
+      const typeNodeResolved = checker.typeToTypeNode(
+        type,
+        typeNode,
+        ts.NodeBuilderFlags.None
+      );
+      if (typeNodeResolved && !ts.isTypeQueryNode(typeNodeResolved)) {
+        return convertType(typeNodeResolved, checker);
+      }
+    }
+    // Fallback: use anyType as marker - IR soundness gate will emit TSN7414
+    return { kind: "anyType" };
+  }
+
+  // Default: use anyType as marker for unsupported types
+  // The IR soundness gate will catch this and emit TSN7414
   return { kind: "anyType" };
 };
 

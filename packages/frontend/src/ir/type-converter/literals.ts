@@ -35,6 +35,7 @@ export const convertLiteralType = (node: ts.LiteralTypeNode): IrType => {
     return { kind: "primitiveType", name: "undefined" };
   }
 
-  // Fallback
+  // Fallback for unrecognized literals - use anyType as marker
+  // The IR soundness gate will catch this and emit TSN7414
   return { kind: "anyType" };
 };
