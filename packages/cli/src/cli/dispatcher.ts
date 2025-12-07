@@ -6,10 +6,11 @@ import { dirname, join } from "node:path";
 import { checkDotnetInstalled } from "@tsonic/backend";
 import { loadConfig, findConfig, resolveConfig } from "../config.js";
 import { initProject } from "../commands/init.js";
-import { emitCommand } from "../commands/emit.js";
+import { generateCommand } from "../commands/generate.js";
 import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
+import { addPackageCommand } from "../commands/add-package.js";
 import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
@@ -53,6 +54,39 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 0;
   }
 
+  // Handle add package (needs tsonic.json but not full config)
+  if (parsed.command === "add:package") {
+    if (!parsed.entryFile) {
+      console.error("Error: DLL path required");
+      console.error(
+        "Usage: tsonic add package /path/to/library.dll @scope/types"
+      );
+      return 1;
+    }
+    if (!parsed.secondArg) {
+      console.error("Error: Types package name required");
+      console.error(
+        "Usage: tsonic add package /path/to/library.dll @scope/types"
+      );
+      return 1;
+    }
+
+    const result = addPackageCommand(
+      parsed.entryFile,
+      parsed.secondArg,
+      process.cwd(),
+      {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+      }
+    );
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
   // Check for dotnet
   const dotnetResult = checkDotnetInstalled();
   if (!dotnetResult.ok) {
@@ -90,8 +124,8 @@ export const runCli = async (args: string[]): Promise<number> => {
 
   // Dispatch to command handlers
   switch (parsed.command) {
-    case "emit": {
-      const result = emitCommand(config);
+    case "generate": {
+      const result = generateCommand(config);
       if (!result.ok) {
         console.error(`Error: ${result.error}`);
         return 5;

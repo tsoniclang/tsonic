@@ -1,5 +1,5 @@
 /**
- * tsonic emit command - Generate C# code only
+ * tsonic generate command - Generate C# code only
  */
 
 import {
@@ -39,18 +39,36 @@ const findProjectCsproj = (): string | null => {
 };
 
 /**
+ * Collect all CLR assemblies used by modules
+ * Returns unique assembly names from module imports
+ */
+const collectClrAssemblies = (modules: readonly IrModule[]): Set<string> => {
+  const assemblies = new Set<string>();
+  for (const mod of modules) {
+    for (const imp of mod.imports) {
+      if (imp.isClr && imp.resolvedAssembly) {
+        assemblies.add(imp.resolvedAssembly);
+      }
+    }
+  }
+  return assemblies;
+};
+
+/**
  * Find runtime DLLs bundled with @tsonic/cli npm package
  * Returns assembly references for the csproj file
  */
 const findRuntimeDlls = (
   runtime: "js" | "dotnet",
-  outputDir: string
+  outputDir: string,
+  usedAssemblies: Set<string> = new Set()
 ): readonly AssemblyReference[] => {
   // Try to find runtime directory bundled with CLI package
   // import.meta.dirname is the dist/commands directory
   const possiblePaths = [
-    // Bundled with CLI package (npm installed)
-    // From dist/commands -> ../runtime (inside @tsonic/cli package)
+    // Development: From dist/commands -> ../../runtime
+    join(import.meta.dirname, "../../runtime"),
+    // npm installed: From dist/commands -> ../runtime (inside @tsonic/cli package)
     join(import.meta.dirname, "../runtime"),
     // From project's node_modules (when CLI is a dev dependency)
     join(process.cwd(), "node_modules/@tsonic/cli/runtime"),
@@ -91,6 +109,55 @@ const findRuntimeDlls = (
         hintPath: join(relativeRuntimeDir, "Tsonic.JSRuntime.dll"),
       });
     }
+  }
+
+  // Include nodejs.dll if nodejs assembly is used
+  if (usedAssemblies.has("nodejs")) {
+    const nodejsDll = join(runtimeDir, "nodejs.dll");
+    if (existsSync(nodejsDll)) {
+      refs.push({
+        name: "nodejs",
+        hintPath: join(relativeRuntimeDir, "nodejs.dll"),
+      });
+    }
+  }
+
+  return refs;
+};
+
+/**
+ * Collect assembly references from project libraries (lib/*.dll)
+ * These are DLLs registered in tsonic.json's dotnet.libraries
+ */
+const collectProjectLibraries = (
+  projectRoot: string,
+  outputDir: string,
+  libraries: readonly string[]
+): readonly AssemblyReference[] => {
+  const refs: AssemblyReference[] = [];
+
+  for (const libPath of libraries) {
+    // Library path is relative to project root
+    const absolutePath = join(projectRoot, libPath);
+    if (!existsSync(absolutePath)) {
+      continue;
+    }
+
+    if (!libPath.endsWith(".dll")) {
+      continue;
+    }
+
+    // Extract assembly name from filename
+    const dllName = libPath.split("/").pop() ?? "";
+    const assemblyName = dllName.replace(/\.dll$/, "");
+
+    // Calculate relative path from output directory to the DLL
+    const hintPath = relative(outputDir, absolutePath);
+
+    refs.push({
+      name: assemblyName,
+      hintPath,
+    });
   }
 
   return refs;
@@ -142,7 +209,7 @@ const extractEntryInfo = (
 /**
  * Emit C# code from TypeScript
  */
-export const emitCommand = (
+export const generateCommand = (
   config: ResolvedConfig
 ): Result<{ filesGenerated: number; outputDir: string }, string> => {
   const {
@@ -174,8 +241,12 @@ export const emitCommand = (
       };
     }
 
-    // Combine typeRoots and libraries for TypeScript compilation
-    const allTypeRoots = [...typeRoots, ...config.libraries];
+    // Combine typeRoots and non-DLL libraries for TypeScript compilation
+    // DLL paths (*.dll) are for assembly references, not type roots
+    const typeLibraries = config.libraries.filter(
+      (lib) => !lib.endsWith(".dll")
+    );
+    const allTypeRoots = [...typeRoots, ...typeLibraries];
 
     // Build dependency graph - this traverses all imports and builds IR for all modules
     const compilerOptions: CompilerOptions = {
@@ -212,7 +283,7 @@ export const emitCommand = (
     const emitResult = emitCSharpFiles(irResult.value, {
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
-      libraries: config.libraries,
+      libraries: typeLibraries, // Only non-DLL libraries (type roots)
       runtime: config.runtime,
     });
 
@@ -267,6 +338,14 @@ export const emitCommand = (
     const csprojPath = join(outputDir, "tsonic.csproj");
     const projectCsproj = findProjectCsproj();
 
+    // Collect CLR assemblies used by the modules (e.g., "nodejs")
+    const usedAssemblies = collectClrAssemblies(irResult.value);
+
+    // Debug: log collected assemblies
+    if (config.verbose && usedAssemblies.size > 0) {
+      console.log(`  CLR assemblies used: ${[...usedAssemblies].join(", ")}`);
+    }
+
     if (projectCsproj) {
       // Copy existing .csproj from project root (preserves user edits)
       copyFileSync(projectCsproj, csprojPath);
@@ -295,10 +374,20 @@ export const emitCommand = (
           runtimePath = installedPath;
         } else {
           // 3. Try to find runtime DLLs from npm package
-          assemblyReferences = findRuntimeDlls(
+          const runtimeRefs = findRuntimeDlls(
             config.runtime ?? "js",
-            outputDir
+            outputDir,
+            usedAssemblies
           );
+
+          // 4. Add project libraries (from dotnet.libraries in tsonic.json)
+          const projectRefs = collectProjectLibraries(
+            projectRoot,
+            outputDir,
+            config.libraries
+          );
+
+          assemblyReferences = [...runtimeRefs, ...projectRefs];
         }
       }
 

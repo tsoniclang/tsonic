@@ -12,12 +12,14 @@ export const parseArgs = (
 ): {
   command: string;
   entryFile?: string;
+  secondArg?: string; // For commands that take two positional args
   options: CliOptions;
   programArgs?: string[];
 } => {
   const options: CliOptions = {};
   let command = "";
   let entryFile: string | undefined;
+  let secondArg: string | undefined;
   const programArgs: string[] = [];
   let captureProgramArgs = false;
 
@@ -45,12 +47,23 @@ export const parseArgs = (
         command = "project:init";
         i++;
       }
+      // Handle "add package" as two-word command
+      if (command === "add" && nextArg === "package") {
+        command = "add:package";
+        i++;
+      }
       continue;
     }
 
-    // Entry file (first non-option after command)
+    // First positional arg after command (entry file or dll path)
     if (command && !entryFile && !arg.startsWith("-")) {
       entryFile = arg;
+      continue;
+    }
+
+    // Second positional arg (for commands that take two args like add:package)
+    if (command && entryFile && !secondArg && !arg.startsWith("-")) {
+      secondArg = arg;
       continue;
     }
 
@@ -127,5 +140,5 @@ export const parseArgs = (
     }
   }
 
-  return { command, entryFile, options, programArgs };
+  return { command, entryFile, secondArg, options, programArgs };
 };

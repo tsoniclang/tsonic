@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
-import { emitCommand } from "./emit.js";
+import { generateCommand } from "./generate.js";
 
 /**
  * Pack library into NuGet package
@@ -39,18 +39,18 @@ export const packCommand = (
     console.log("Step 1/2: Generating C# code...");
   }
 
-  const emitResult = emitCommand(config);
-  if (!emitResult.ok) {
-    return emitResult;
+  const generateResult = generateCommand(config);
+  if (!generateResult.ok) {
+    return generateResult;
   }
 
-  const generatedDir = emitResult.value.outputDir;
+  const generatedDir = generateResult.value.outputDir;
   const csprojPath = join(generatedDir, "tsonic.csproj");
 
   if (!existsSync(csprojPath)) {
     return {
       ok: false,
-      error: `No tsonic.csproj found in ${outputDirectory}/. This should have been created by emit.`,
+      error: `No tsonic.csproj found in ${outputDirectory}/. This should have been created by generate.`,
     };
   }
 

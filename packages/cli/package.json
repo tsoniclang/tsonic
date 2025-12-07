@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Command-line interface for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",

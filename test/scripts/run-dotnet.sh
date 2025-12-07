@@ -38,7 +38,7 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   fi
 
   # Build
-  if node "$CLI_PATH" build src/index.ts --config tsonic.dotnet.json 2>&1 | grep -q "Build complete"; then
+  if node "$CLI_PATH" build src/index.ts --config tsonic.dotnet.json 2>&1; then
     # Find and run the executable
     exe_name=$(grep -o '"outputName"[[:space:]]*:[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || echo "")
     if [ -z "$exe_name" ]; then
