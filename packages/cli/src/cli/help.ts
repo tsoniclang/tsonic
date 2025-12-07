@@ -16,6 +16,7 @@ USAGE:
 
 COMMANDS:
   project init              Initialize a new Tsonic project
+  add package <dll> <types> Add a CLR package to the project
   generate [entry]          Generate C# code only
   build [entry]             Build native executable
   run [entry] [-- args...]  Build and run executable
@@ -47,6 +48,7 @@ EXAMPLES:
   tsonic project init
   tsonic project init --runtime dotnet
   tsonic project init --runtime dotnet --nodejs
+  tsonic add package ./lib/MyLib.dll @company/mylib-types
   tsonic generate src/App.ts
   tsonic build src/App.ts --rid linux-x64
   tsonic run src/App.ts -- --arg1 value1

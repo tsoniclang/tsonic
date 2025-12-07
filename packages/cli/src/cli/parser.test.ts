@@ -29,6 +29,18 @@ describe("CLI Parser", () => {
         expect(result.command).to.equal("project:init");
       });
 
+      it("should parse add:package as two-word command", () => {
+        const result = parseArgs([
+          "add",
+          "package",
+          "/path/to/lib.dll",
+          "@scope/types",
+        ]);
+        expect(result.command).to.equal("add:package");
+        expect(result.entryFile).to.equal("/path/to/lib.dll");
+        expect(result.secondArg).to.equal("@scope/types");
+      });
+
       it("should parse help command from --help", () => {
         const result = parseArgs(["--help"]);
         expect(result.command).to.equal("help");

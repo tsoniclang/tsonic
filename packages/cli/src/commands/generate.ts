@@ -126,6 +126,44 @@ const findRuntimeDlls = (
 };
 
 /**
+ * Collect assembly references from project libraries (lib/*.dll)
+ * These are DLLs registered in tsonic.json's dotnet.libraries
+ */
+const collectProjectLibraries = (
+  projectRoot: string,
+  outputDir: string,
+  libraries: readonly string[]
+): readonly AssemblyReference[] => {
+  const refs: AssemblyReference[] = [];
+
+  for (const libPath of libraries) {
+    // Library path is relative to project root
+    const absolutePath = join(projectRoot, libPath);
+    if (!existsSync(absolutePath)) {
+      continue;
+    }
+
+    if (!libPath.endsWith(".dll")) {
+      continue;
+    }
+
+    // Extract assembly name from filename
+    const dllName = libPath.split("/").pop() ?? "";
+    const assemblyName = dllName.replace(/\.dll$/, "");
+
+    // Calculate relative path from output directory to the DLL
+    const hintPath = relative(outputDir, absolutePath);
+
+    refs.push({
+      name: assemblyName,
+      hintPath,
+    });
+  }
+
+  return refs;
+};
+
+/**
  * Extract entry point information from IR module
  */
 const extractEntryInfo = (
@@ -332,11 +370,20 @@ export const generateCommand = (
           runtimePath = installedPath;
         } else {
           // 3. Try to find runtime DLLs from npm package
-          assemblyReferences = findRuntimeDlls(
+          const runtimeRefs = findRuntimeDlls(
             config.runtime ?? "js",
             outputDir,
             usedAssemblies
           );
+
+          // 4. Add project libraries (from dotnet.libraries in tsonic.json)
+          const projectRefs = collectProjectLibraries(
+            projectRoot,
+            outputDir,
+            config.libraries
+          );
+
+          assemblyReferences = [...runtimeRefs, ...projectRefs];
         }
       }
 
