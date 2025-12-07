@@ -51,6 +51,14 @@ for fixture_dir in "$FIXTURES_DIR"/*; do
         cp -r "$fixture_dir/src" "$temp_dir/"
         cp "$config_file" "$temp_dir/tsonic.json"
 
+        # Copy package.json and install dependencies if present
+        if [ -f "$fixture_dir/package.json" ]; then
+            cp "$fixture_dir/package.json" "$temp_dir/"
+            cd "$temp_dir"
+            npm install --silent 2>/dev/null || true
+            cd "$PROJECT_ROOT"
+        fi
+
         entry_point=$(grep '"entryPoint"' "$temp_dir/tsonic.json" | sed 's/.*"entryPoint".*:.*"\(.*\)".*/\1/')
 
         # Try to build - should FAIL

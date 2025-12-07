@@ -8,20 +8,17 @@ import { emitType } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
- * Fallback mappings for well-known runtime globals
- * Used when binding manifests are not available (e.g., in tests)
- * All use global:: prefix for unambiguous resolution.
+ * Fallback mappings for well-known runtime globals.
+ * ONLY includes globals actually declared in @tsonic/js-globals.
+ * Per Alice's decision: no ambient knowledge of undeclared types.
+ *
+ * Note: Map, Set, parseInt, parseFloat, isNaN, isFinite are NOT in js-globals
+ * and must be imported explicitly if needed.
  */
 const RUNTIME_FALLBACKS: Record<string, string> = {
   console: "global::Tsonic.JSRuntime.console",
   Math: "global::Tsonic.JSRuntime.Math",
   JSON: "global::Tsonic.JSRuntime.JSON",
-  Map: "global::Tsonic.JSRuntime.Map",
-  Set: "global::Tsonic.JSRuntime.Set",
-  parseInt: "global::Tsonic.JSRuntime.Globals.parseInt",
-  parseFloat: "global::Tsonic.JSRuntime.Globals.parseFloat",
-  isNaN: "global::Tsonic.JSRuntime.Globals.isNaN",
-  isFinite: "global::Tsonic.JSRuntime.Globals.isFinite",
 };
 
 /**

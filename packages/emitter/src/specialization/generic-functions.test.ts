@@ -152,6 +152,16 @@ describe("Generic Functions (spec/15 §3-5)", () => {
       isStaticContainer: true,
       imports: [],
       body: [
+        // Declare the constraint type locally
+        {
+          kind: "interfaceDeclaration",
+          name: "Comparable",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          extends: [],
+          members: [],
+        },
         {
           kind: "functionDeclaration",
           name: "process",

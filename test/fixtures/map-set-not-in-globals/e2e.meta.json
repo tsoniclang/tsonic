@@ -1,0 +1,5 @@
+{
+  "expectFailure": true,
+  "description": "Map and Set are not declared in globals packages. In noLib mode, TS name resolution must fail. This enforces 'globals are the universe' principle.",
+  "expectedErrors": ["Cannot find name 'Map'", "Cannot find name 'Set'"]
+}

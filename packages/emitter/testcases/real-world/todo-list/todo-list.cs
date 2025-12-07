@@ -8,7 +8,7 @@ namespace TestCases.realworld.todolist
 
         public bool completed { get; set; }
 
-        public Date createdAt { get; set; }
+        public string createdAt { get; set; }
     }
     public class TodoList
     {
@@ -18,7 +18,7 @@ namespace TestCases.realworld.todolist
 
         public Todo addTodo(string title)
             {
-            Todo todo = new Todo { id = this.nextId++, title = title, completed = false, createdAt = new Date() };
+            Todo todo = new Todo { id = this.nextId++, title = title, completed = false, createdAt = "2024-01-01T00:00:00.000Z" };
             global::Tsonic.JSRuntime.Array.push(this.todos, todo);
             return todo;
             }

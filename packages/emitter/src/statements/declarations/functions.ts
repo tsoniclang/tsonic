@@ -24,8 +24,20 @@ export const emitFunctionDeclaration = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  let currentContext = context;
   const parts: string[] = [];
+
+  // Build type parameter names set FIRST - needed when emitting return type and parameters
+  // Type parameters must be in scope before we emit types that reference them
+  const funcTypeParams = new Set<string>([
+    ...(context.typeParameters ?? []),
+    ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Create context with type parameters in scope for return type and parameter emission
+  let currentContext: EmitterContext = {
+    ...context,
+    typeParameters: funcTypeParams,
+  };
 
   // Access modifiers
   const accessibility = stmt.isExported ? "public" : "private";
@@ -95,13 +107,8 @@ export const emitFunctionDeclaration = (
     stmt.isAsync
   );
 
-  // Build type parameter names set for this function
-  const funcTypeParams = new Set<string>([
-    ...(currentContext.typeParameters ?? []),
-    ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
-  ]);
-
   // Emit body with scoped typeParameters and returnType
+  // funcTypeParams was already built at the start of this function
   const [bodyCode] = withScoped(
     baseBodyContext,
     {

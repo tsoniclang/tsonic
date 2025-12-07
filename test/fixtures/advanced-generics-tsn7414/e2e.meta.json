@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "Type aliases with inline object types containing type parameters trigger TSN7414. The type parameters 'T' and 'E' in '{ value: T }' and '{ error: E }' are not resolvable in the anonymous object type context.",
+  "expectedErrors": ["TSN7414"],
+  "diagnosticCodes": ["TSN7414"],
+  "notes": "This documents a known limitation: type parameters in inline anonymous object members of type aliases cannot be resolved. Use explicit named interfaces instead."
+}

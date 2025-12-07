@@ -2,7 +2,7 @@ export interface Todo {
   id: number;
   title: string;
   completed: boolean;
-  createdAt: Date;
+  createdAt: string; // ISO timestamp - Date is not in globals
 }
 
 export class TodoList {
@@ -14,7 +14,7 @@ export class TodoList {
       id: this.nextId++,
       title: title,
       completed: false,
-      createdAt: new Date(),
+      createdAt: "2024-01-01T00:00:00.000Z", // ISO timestamp placeholder
     };
     this.todos.push(todo);
     return todo;

@@ -1,0 +1,6 @@
+{
+  "entryPoint": "src/index.ts",
+  "rootNamespace": "LinqTest",
+  "outputName": "linq-test",
+  "runtime": "dotnet"
+}

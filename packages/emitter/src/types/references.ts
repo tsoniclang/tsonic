@@ -218,53 +218,24 @@ export const emitReferenceType = (
     return ["global::System.Threading.Tasks.Task", context];
   }
 
-  // Map<K, V> → Tsonic.JSRuntime.Map<K, V>
-  if (name === "Map" && typeArguments && typeArguments.length === 2) {
-    const [keyArg, valueArg] = typeArguments;
-    if (keyArg && valueArg) {
-      const [keyType, ctx1] = emitType(keyArg, context);
-      const [valueType, ctx2] = emitType(valueArg, ctx1);
-      return [`global::Tsonic.JSRuntime.Map<${keyType}, ${valueType}>`, ctx2];
-    }
-  }
+  // NOTE: Map and Set are NOT in js-globals or dotnet-globals.
+  // They must be explicitly imported or will fail as unresolved types.
+  // Per Alice's decision: no ambient Map/Set handling.
 
-  // Set<T> → Tsonic.JSRuntime.Set<T>
-  if (name === "Set" && typeArguments && typeArguments.length === 1) {
-    const firstArg = typeArguments[0];
-    if (firstArg) {
-      const [elementType, newContext] = emitType(firstArg, context);
-      return [`global::Tsonic.JSRuntime.Set<${elementType}>`, newContext];
-    }
-  }
+  // Get runtime mode for conditional mappings
+  const runtime = context.options.runtime ?? "js";
 
   // Map common JS types to .NET equivalents
-  const runtimeTypes: Record<string, string> = {
-    Error: "System.Exception",
-  };
+  // Only types actually defined in the globals packages
+  // Error: only in js-globals (not in dotnet-globals)
+  // PromiseLike: in both js-globals and dotnet-globals
+  if (name === "Error" && runtime === "js") {
+    return ["global::System.Exception", context];
+  }
 
-  if (name in runtimeTypes) {
-    const csharpType = runtimeTypes[name];
-    if (!csharpType) {
-      return [name, context];
-    }
-
-    // Always emit with global:: prefix for unambiguous resolution
-    const fqnType = `global::${csharpType}`;
-
-    if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
-        currentContext = newContext;
-      }
-
-      return [`${fqnType}<${typeParams.join(", ")}>`, currentContext];
-    }
-
-    return [fqnType, context];
+  if (name === "PromiseLike") {
+    // PromiseLike is in both globals packages - safe to map unconditionally
+    return ["global::System.Threading.Tasks.Task", context];
   }
 
   // Resolve external types via binding registry (must be fully qualified)
@@ -293,6 +264,11 @@ export const emitReferenceType = (
 
   // C# primitive types can be emitted directly
   if (CSHARP_PRIMITIVES.has(name)) {
+    return [name, context];
+  }
+
+  // Type parameters in scope can be emitted directly
+  if (context.typeParameters?.has(name)) {
     return [name, context];
   }
 

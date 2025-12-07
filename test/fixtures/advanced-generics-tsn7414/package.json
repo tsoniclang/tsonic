@@ -1,0 +1,10 @@
+{
+  "name": "advanced-generics-tsn7403-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/dotnet": "^0.5.1",
+    "@tsonic/dotnet-globals": "^0.1.2"
+  }
+}

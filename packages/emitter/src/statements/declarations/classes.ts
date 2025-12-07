@@ -22,8 +22,20 @@ export const emitClassDeclaration = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  let currentContext = context;
   const parts: string[] = [];
+
+  // Build type parameter names set FIRST - needed when emitting superclass, implements, and members
+  // Type parameters must be in scope before we emit types that reference them
+  const classTypeParams = new Set<string>([
+    ...(context.typeParameters ?? []),
+    ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Create context with type parameters in scope
+  let currentContext: EmitterContext = {
+    ...context,
+    typeParameters: classTypeParams,
+  };
 
   // Access modifiers
   const accessibility = stmt.isExported ? "public" : "internal";
@@ -72,17 +84,12 @@ export const emitClassDeclaration = (
   // Class body (use escaped class name)
   const baseContext = withClassName(indent(currentContext), escapedClassName);
 
-  // Build type parameter names set for this class
-  const classTypeParams = new Set<string>(
-    stmt.typeParameters?.map((tp) => tp.name) ?? []
-  );
-
   // Only set hasSuperClass flag if there's actually a superclass (for inheritance)
-  // Also set typeParameters for nested expressions (method bodies, property initializers)
+  // classTypeParams was already built at the start of this function and is already in currentContext
   const bodyContext: EmitterContext = {
     ...baseContext,
     hasSuperClass: stmt.superClass ? true : undefined,
-    typeParameters: classTypeParams,
+    // typeParameters is inherited from currentContext via baseContext
   };
   const members: string[] = [];
 

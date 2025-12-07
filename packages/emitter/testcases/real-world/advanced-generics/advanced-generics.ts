@@ -17,26 +17,37 @@ export class Pair<T, U> {
   }
 }
 
-// Generic result type
-export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+// Generic result type - use named interfaces for union members
+// This avoids anonymous synthesis issues with generic type parameters
+export interface ResultOk<T, E> {
+  ok: true;
+  value: T;
+}
+
+export interface ResultErr<T, E> {
+  ok: false;
+  error: E;
+}
+
+export type Result<T, E> = ResultOk<T, E> | ResultErr<T, E>;
 
 export function ok<T, E>(value: T): Result<T, E> {
-  return { ok: true, value };
+  // Use explicit type annotation to provide contextual type
+  const result: ResultOk<T, E> = { ok: true, value };
+  return result;
 }
 
 export function err<T, E>(error: E): Result<T, E> {
-  return { ok: false, error };
+  // Use explicit type annotation to provide contextual type
+  const result: ResultErr<T, E> = { ok: false, error };
+  return result;
 }
 
-export function isOk<T, E>(
-  result: Result<T, E>
-): result is { ok: true; value: T } {
+export function isOk<T, E>(result: Result<T, E>): result is ResultOk<T, E> {
   return result.ok === true;
 }
 
-export function isErr<T, E>(
-  result: Result<T, E>
-): result is { ok: false; error: E } {
+export function isErr<T, E>(result: Result<T, E>): result is ResultErr<T, E> {
   return result.ok === false;
 }
 
