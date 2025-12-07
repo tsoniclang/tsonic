@@ -33,11 +33,61 @@ export type SoundnessValidationResult = {
 };
 
 /**
+ * Known builtin types that are handled by emitter's built-in mappings
+ * or are C# primitive type names that may appear in IR.
+ * C# primitives correspond to types defined in @tsonic/types package.
+ */
+const KNOWN_BUILTINS = new Set([
+  // JS/TS builtins handled by emitter
+  "Array",
+  "Promise",
+  "Map",
+  "Set",
+  "Error",
+  "Object",
+  // C# signed integers (from @tsonic/types)
+  "sbyte",
+  "short",
+  "int",
+  "long",
+  "nint",
+  "int128",
+  // C# unsigned integers (from @tsonic/types)
+  "byte",
+  "ushort",
+  "uint",
+  "ulong",
+  "nuint",
+  "uint128",
+  // C# floating-point (from @tsonic/types)
+  "half",
+  "float",
+  "double",
+  "decimal",
+  // C# other primitives (from @tsonic/types)
+  "bool",
+  "char",
+  // Additional C# keywords that are valid type names
+  "string",
+  "object",
+  "void",
+  // .NET types commonly used
+  "IntPtr",
+  "UIntPtr",
+]);
+
+/**
  * Context for tracking location during IR walk
  */
 type ValidationContext = {
   readonly filePath: string;
   readonly diagnostics: Diagnostic[];
+  /** Local type names defined in this module (class, interface, type alias, enum) */
+  readonly localTypeNames: ReadonlySet<string>;
+  /** Type names imported in this module */
+  readonly importedTypeNames: ReadonlySet<string>;
+  /** Type parameter names in current scope */
+  readonly typeParameterNames: ReadonlySet<string>;
 };
 
 /**
@@ -111,11 +161,41 @@ const validateType = (
       );
       break;
 
-    case "referenceType":
+    case "referenceType": {
+      const { name, resolvedClrType } = type;
+
+      // Check if this reference type is resolvable
+      const isResolvable =
+        // Has pre-resolved CLR type from IR
+        resolvedClrType !== undefined ||
+        // Is a known builtin handled by emitter
+        KNOWN_BUILTINS.has(name) ||
+        // Is a local type defined in this module
+        ctx.localTypeNames.has(name) ||
+        // Is an imported type
+        ctx.importedTypeNames.has(name) ||
+        // Is a type parameter in current scope
+        ctx.typeParameterNames.has(name);
+
+      if (!isResolvable) {
+        // TSN7414: Unresolved reference type
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN7414",
+            "error",
+            `Unresolved reference type '${name}' in ${typeContext}. The type is not local, not imported, and has no CLR binding.`,
+            moduleLocation(ctx),
+            "Ensure the type is imported or defined locally, or that CLR bindings are available."
+          )
+        );
+      }
+
+      // Validate type arguments recursively
       type.typeArguments?.forEach((ta, i) =>
         validateType(ta, ctx, `${typeContext}<arg ${i}>`)
       );
       break;
+    }
 
     // These types are valid and don't contain nested types
     case "primitiveType":
@@ -504,12 +584,64 @@ const validateStatement = (stmt: IrStatement, ctx: ValidationContext): void => {
 };
 
 /**
+ * Extract local type names from module statements
+ */
+const extractLocalTypeNames = (
+  statements: readonly IrStatement[]
+): ReadonlySet<string> => {
+  const names = new Set<string>();
+
+  for (const stmt of statements) {
+    switch (stmt.kind) {
+      case "classDeclaration":
+      case "interfaceDeclaration":
+      case "typeAliasDeclaration":
+      case "enumDeclaration":
+        names.add(stmt.name);
+        break;
+    }
+  }
+
+  return names;
+};
+
+/**
+ * Extract imported type names from module imports
+ */
+const extractImportedTypeNames = (module: IrModule): ReadonlySet<string> => {
+  const names = new Set<string>();
+
+  for (const imp of module.imports) {
+    for (const spec of imp.specifiers) {
+      // Include all imports - the emitter will resolve whether they're types or values
+      // Named imports use localName (the name in this module's scope)
+      if (spec.kind === "named" || spec.kind === "default") {
+        names.add(spec.localName);
+      }
+      // Namespace imports (import * as NS) - the namespace itself is available
+      if (spec.kind === "namespace") {
+        names.add(spec.localName);
+      }
+    }
+  }
+
+  return names;
+};
+
+/**
  * Validate a single module
  */
 const validateModule = (module: IrModule): readonly Diagnostic[] => {
+  // Extract local and imported type names for reference type validation
+  const localTypeNames = extractLocalTypeNames(module.body);
+  const importedTypeNames = extractImportedTypeNames(module);
+
   const ctx: ValidationContext = {
     filePath: module.filePath,
     diagnostics: [],
+    localTypeNames,
+    importedTypeNames,
+    typeParameterNames: new Set(), // Will be populated per-scope during validation
   };
 
   // Validate all statements in the module body
