@@ -16,6 +16,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 **ONLY make changes AFTER the user explicitly approves.** When you identify issues or potential improvements, explain them clearly and wait for the user's decision. Do NOT assume what the user wants or make "helpful" changes without permission.
 
+### NEVER SWITCH BRANCHES WITHOUT PERMISSION
+
+**🚨 CRITICAL RULE: NEVER switch git branches unless the user explicitly tells you to. 🚨**
+
+- **NEVER** run `git checkout <branch>` to switch branches on your own
+- **NEVER** run `git switch <branch>` without explicit user instruction
+- **ALWAYS** stay on the current branch until told otherwise
+- **ALWAYS** complete all work on the current branch before switching
+
+If you need to switch branches for any reason, **ASK THE USER FIRST**.
+
 ### ANSWER QUESTIONS AND STOP
 
 **CRITICAL RULE**: If the user asks you a question - whether as part of a larger text or just the question itself - you MUST:
