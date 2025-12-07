@@ -241,8 +241,12 @@ export const generateCommand = (
       };
     }
 
-    // Combine typeRoots and libraries for TypeScript compilation
-    const allTypeRoots = [...typeRoots, ...config.libraries];
+    // Combine typeRoots and non-DLL libraries for TypeScript compilation
+    // DLL paths (*.dll) are for assembly references, not type roots
+    const typeLibraries = config.libraries.filter(
+      (lib) => !lib.endsWith(".dll")
+    );
+    const allTypeRoots = [...typeRoots, ...typeLibraries];
 
     // Build dependency graph - this traverses all imports and builds IR for all modules
     const compilerOptions: CompilerOptions = {
@@ -279,7 +283,7 @@ export const generateCommand = (
     const emitResult = emitCSharpFiles(irResult.value, {
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
-      libraries: config.libraries,
+      libraries: typeLibraries, // Only non-DLL libraries (type roots)
       runtime: config.runtime,
     });
 
