@@ -11,6 +11,7 @@ import {
   stripNullish,
   findUnionMemberIndex,
 } from "../core/type-resolution.js";
+import { isIntegerType } from "../core/type-compatibility.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
@@ -104,21 +105,39 @@ export const emitBinary = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
+  // Check operand types for integer handling
+  const leftIsInt = isIntegerType(expr.left.inferredType);
+  const rightIsInt = isIntegerType(expr.right.inferredType);
+  const leftIsNumericLiteral =
+    expr.left.kind === "literal" && typeof expr.left.value === "number";
+  const rightIsNumericLiteral =
+    expr.right.kind === "literal" && typeof expr.right.value === "number";
+  const eitherOperandInt = leftIsInt || rightIsInt;
+
   // Check if this binary expression should produce an integer result
-  // Priority: expression's own inferredType > expectedType from context
+  // Priority: expression's own inferredType > expectedType from context > operand types
+  // If either operand is int, treat the expression as int (for C# semantics)
   const integerCastType =
-    getIntegerCastType(expr.inferredType) || getIntegerCastType(expectedType);
+    getIntegerCastType(expr.inferredType) ||
+    getIntegerCastType(expectedType) ||
+    (eitherOperandInt ? "int" : undefined);
+
+  // Determine expected type for children: use int type if any operand is int
+  // This ensures literals emit correctly (e.g., x + 1 where x is int → 1 not 1.0)
+  const childExpectedType: IrType | undefined = integerCastType
+    ? { kind: "referenceType", name: "int" }
+    : undefined;
 
   // Pass expected type to children so literals emit correctly
   const [leftFrag, leftContext] = emitExpression(
     expr.left,
     context,
-    integerCastType ? expr.inferredType : undefined
+    childExpectedType
   );
   const [rightFrag, rightContext] = emitExpression(
     expr.right,
     leftContext,
-    integerCastType ? expr.inferredType : undefined
+    childExpectedType
   );
 
   // Map JavaScript operators to C# operators
@@ -141,9 +160,17 @@ export const emitBinary = (
 
   let text = `${leftFrag.text} ${op} ${rightFrag.text}`;
 
-  // Wrap with explicit cast if integer type is required
-  // This ensures correctness even if child expressions have mixed types
-  if (integerCastType) {
+  // Determine if each operand will emit as int
+  // An operand "will be int" if: (1) already has int type, OR (2) is a numeric literal
+  // (literals emit as int when we pass int expectedType)
+  const leftWillBeInt = leftIsInt || leftIsNumericLiteral;
+  const rightWillBeInt = rightIsInt || rightIsNumericLiteral;
+  const bothWillBeInt = leftWillBeInt && rightWillBeInt;
+
+  // Wrap with explicit cast if integer type is required AND operands won't both produce int
+  // Alice's invariant: "No cosmetic casts" - don't wrap if result is already int
+  // For arithmetic ops, int + int = int in C#, so no cast needed when both are int
+  if (integerCastType && !bothWillBeInt) {
     text = `(${integerCastType})(${text})`;
   }
 
@@ -236,9 +263,17 @@ export const emitUnary = (
 
   let text = `${expr.operator}${operandFrag.text}`;
 
-  // Wrap with explicit cast if integer type is required
-  // This handles cases like `-1 as int` emitting as `(int)(-1)`
-  if (integerCastType && (expr.operator === "-" || expr.operator === "+")) {
+  // Check if operand already produces integer (no cast needed)
+  // Alice's invariant: "No cosmetic casts" - skip cast if result is already int
+  const operandAlreadyInt = isIntegerType(expr.expression.inferredType);
+
+  // Wrap with explicit cast if integer type is required AND operand doesn't already produce int
+  // For unary +/- on int, the result is int in C#, so no cast needed
+  if (
+    integerCastType &&
+    !operandAlreadyInt &&
+    (expr.operator === "-" || expr.operator === "+")
+  ) {
     text = `(${integerCastType})(${text})`;
   }
 

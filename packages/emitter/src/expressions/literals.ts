@@ -8,6 +8,7 @@ import {
   containsTypeParameter,
   isDefinitelyValueType,
 } from "../core/type-resolution.js";
+import { isIntegerType } from "../core/type-compatibility.js";
 
 /**
  * C# types that require integer values (not double).
@@ -99,9 +100,11 @@ export const emitLiteral = (
 
   if (typeof value === "number") {
     // Check if context requires integer (array index, int parameter, etc.)
-    // Priority: explicit expectedClrType > context.isArrayIndex > default (double)
+    // Priority: expectedType (IR) > expectedClrType (string) > context.isArrayIndex > default (double)
     const needsInteger =
-      requiresInteger(expectedClrType) || context.isArrayIndex === true;
+      isIntegerType(expectedType) ||
+      requiresInteger(expectedClrType) ||
+      context.isArrayIndex === true;
 
     if (needsInteger) {
       // Integer-required context: emit without decimal
