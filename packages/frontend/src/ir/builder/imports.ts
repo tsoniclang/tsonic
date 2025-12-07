@@ -37,6 +37,9 @@ export const extractImports = (
       const resolvedNamespace = clrResolution.isClr
         ? clrResolution.resolvedNamespace
         : undefined;
+      const clrAssembly = clrResolution.isClr
+        ? clrResolution.assembly
+        : undefined;
 
       const specifiers = extractImportSpecifiers(node, checker);
 
@@ -49,6 +52,10 @@ export const extractImports = (
         getParameterModifierRegistry().processImport(node);
       }
 
+      // Assembly comes from CLR resolution (bindings.json) or module binding
+      const resolvedAssembly =
+        clrAssembly ?? (hasModuleBinding ? binding.assembly : undefined);
+
       imports.push({
         kind: "import",
         source,
@@ -57,7 +64,7 @@ export const extractImports = (
         specifiers,
         resolvedNamespace,
         resolvedClrType: hasModuleBinding ? binding.type : undefined,
-        resolvedAssembly: hasModuleBinding ? binding.assembly : undefined,
+        resolvedAssembly,
       });
     }
     ts.forEachChild(node, visitor);

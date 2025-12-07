@@ -23,6 +23,7 @@ export type ResolvedClrImport =
       readonly resolvedNamespace: string;
       readonly bindingsPath: string;
       readonly metadataPath: string | undefined;
+      readonly assembly: string | undefined;
     }
   | {
       readonly isClr: false;
@@ -54,6 +55,9 @@ export class ClrBindingsResolver {
 
   // Cache: absolute bindingsPath -> namespace (extracted from bindings.json)
   private readonly namespaceCache = new Map<string, string | null>();
+
+  // Cache: absolute bindingsPath -> assembly (extracted from bindings.json types)
+  private readonly assemblyCache = new Map<string, string | null>();
 
   // require function for Node resolution from the base directory
   private readonly require: ReturnType<typeof createRequire>;
@@ -116,12 +120,16 @@ export class ClrBindingsResolver {
     );
     const hasMetadata = this.fileExists(metadataPath);
 
+    // Extract assembly name from bindings.json types
+    const assembly = this.extractAssembly(bindingsPath);
+
     return {
       isClr: true,
       packageName,
       resolvedNamespace,
       bindingsPath,
       metadataPath: hasMetadata ? metadataPath : undefined,
+      assembly,
     };
   }
 
@@ -251,6 +259,50 @@ export class ClrBindingsResolver {
       // Failed to read/parse, cache null and fall back
       this.namespaceCache.set(bindingsPath, null);
       return fallback;
+    }
+  }
+
+  /**
+   * Extract the assembly name from a bindings.json file (cached).
+   * Looks at the first type's assemblyName field.
+   *
+   * This provides the assembly name for reference in .csproj files.
+   */
+  private extractAssembly(bindingsPath: string): string | undefined {
+    const cached = this.assemblyCache.get(bindingsPath);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
+
+    try {
+      const content = readFileSync(bindingsPath, "utf-8");
+      const parsed = JSON.parse(content) as unknown;
+
+      // Check for tsbindgen format: { namespace: string, types: [...] }
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "types" in parsed &&
+        Array.isArray((parsed as Record<string, unknown>).types)
+      ) {
+        const types = (parsed as Record<string, unknown>).types as unknown[];
+        if (types.length > 0) {
+          const firstType = types[0] as Record<string, unknown>;
+          if (typeof firstType.assemblyName === "string") {
+            const assembly = firstType.assemblyName;
+            this.assemblyCache.set(bindingsPath, assembly);
+            return assembly;
+          }
+        }
+      }
+
+      // No assembly found, cache null
+      this.assemblyCache.set(bindingsPath, null);
+      return undefined;
+    } catch {
+      // Failed to read/parse, cache null
+      this.assemblyCache.set(bindingsPath, null);
+      return undefined;
     }
   }
 

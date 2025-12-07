@@ -66,8 +66,9 @@ const findRuntimeDlls = (
   // Try to find runtime directory bundled with CLI package
   // import.meta.dirname is the dist/commands directory
   const possiblePaths = [
-    // Bundled with CLI package (npm installed)
-    // From dist/commands -> ../runtime (inside @tsonic/cli package)
+    // Development: From dist/commands -> ../../runtime
+    join(import.meta.dirname, "../../runtime"),
+    // npm installed: From dist/commands -> ../runtime (inside @tsonic/cli package)
     join(import.meta.dirname, "../runtime"),
     // From project's node_modules (when CLI is a dev dependency)
     join(process.cwd(), "node_modules/@tsonic/cli/runtime"),
@@ -297,6 +298,11 @@ export const generateCommand = (
 
     // Collect CLR assemblies used by the modules (e.g., "nodejs")
     const usedAssemblies = collectClrAssemblies(irResult.value);
+
+    // Debug: log collected assemblies
+    if (config.verbose && usedAssemblies.size > 0) {
+      console.log(`  CLR assemblies used: ${[...usedAssemblies].join(", ")}`);
+    }
 
     if (projectCsproj) {
       // Copy existing .csproj from project root (preserves user edits)
