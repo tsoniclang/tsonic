@@ -16,5 +16,6 @@ export const convertArrayType = (
   return {
     kind: "arrayType",
     elementType: convertType(node.elementType, checker),
+    origin: "explicit",
   };
 };

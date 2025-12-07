@@ -134,6 +134,58 @@ const extractNarrowing = (
 };
 
 /**
+ * Extract parameter types from resolved signature.
+ * Used for threading expectedType to array literal arguments etc.
+ */
+const extractParameterTypes = (
+  node: ts.CallExpression | ts.NewExpression,
+  checker: ts.TypeChecker
+): readonly (IrType | undefined)[] | undefined => {
+  try {
+    const signature = checker.getResolvedSignature(node);
+    if (!signature || !signature.declaration) {
+      return undefined;
+    }
+
+    const decl = signature.declaration;
+    let parameters: readonly ts.ParameterDeclaration[] = [];
+
+    // Extract parameters from declaration
+    if (
+      ts.isFunctionDeclaration(decl) ||
+      ts.isMethodDeclaration(decl) ||
+      ts.isMethodSignature(decl) ||
+      ts.isConstructorDeclaration(decl) ||
+      ts.isArrowFunction(decl) ||
+      ts.isFunctionExpression(decl) ||
+      ts.isCallSignatureDeclaration(decl)
+    ) {
+      parameters = decl.parameters;
+    }
+
+    if (parameters.length === 0) {
+      return undefined;
+    }
+
+    // Build parameter type array
+    const paramTypes: (IrType | undefined)[] = [];
+
+    for (const param of parameters) {
+      // Get the type node and convert it (this preserves origin: "explicit" for arrays)
+      if (param.type) {
+        paramTypes.push(convertType(param.type, checker));
+      } else {
+        paramTypes.push(undefined);
+      }
+    }
+
+    return paramTypes;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
  * Convert call expression
  */
 export const convertCallExpression = (
@@ -145,6 +197,7 @@ export const convertCallExpression = (
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
   const argumentPassing = extractArgumentPassing(node, checker);
   const narrowing = extractNarrowing(node, checker);
+  const parameterTypes = extractParameterTypes(node, checker);
 
   return {
     kind: "call",
@@ -163,6 +216,7 @@ export const convertCallExpression = (
     typeArguments,
     requiresSpecialization,
     argumentPassing,
+    parameterTypes,
     narrowing,
   };
 };

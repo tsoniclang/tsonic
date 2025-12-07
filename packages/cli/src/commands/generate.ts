@@ -273,7 +273,7 @@ export const generateCommand = (
       };
     }
 
-    const { modules, entryModule } = graphResult.value;
+    const { modules, entryModule, bindings } = graphResult.value;
 
     // irResult.value was an array of modules, now it's graphResult.value.modules
     const irResult = { ok: true as const, value: modules };
@@ -285,6 +285,7 @@ export const generateCommand = (
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)
       runtime: config.runtime,
+      clrBindings: bindings, // Pass bindings from frontend for Action/Func resolution
     });
 
     if (!emitResult.ok) {

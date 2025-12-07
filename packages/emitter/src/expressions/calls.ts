@@ -314,17 +314,24 @@ export const emitCall = (
     }
   }
 
+  // Get parameter types from IR (extracted from resolved signature in frontend)
+  const parameterTypes = expr.parameterTypes ?? [];
+
   const args: string[] = [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];
     if (!arg) continue; // Skip undefined (shouldn't happen in valid IR)
+
+    // Get expected type for this argument from parameter types
+    const expectedType = parameterTypes[i];
+
     if (arg.kind === "spread") {
       // Spread in function call
       const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
       args.push(`params ${spreadFrag.text}`);
       currentContext = ctx;
     } else {
-      const [argFrag, ctx] = emitExpression(arg, currentContext);
+      const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
       // Check if this argument needs ref/out/in prefix
       // Only add prefix if argument is an lvalue (identifier or member access)
       const passingMode = expr.argumentPassing?.[i];

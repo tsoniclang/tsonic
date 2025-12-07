@@ -280,9 +280,15 @@ export class BindingRegistry {
 
         // Also index by simple name if tsEmitName has arity suffix (e.g., "List_1" -> also index as "List")
         // This is needed because TS exports both List_1 and List as aliases, and TS code uses List<T>
+        // IMPORTANT: Only set if not already present - non-generic versions should take precedence
+        // (e.g., Action should resolve to System.Action, not System.Action`9)
         const arityMatch = typeBinding.alias.match(/^(.+)_(\d+)$/);
         const simpleAlias = arityMatch ? arityMatch[1] : null;
-        if (simpleAlias && simpleAlias !== typeBinding.alias) {
+        if (
+          simpleAlias &&
+          simpleAlias !== typeBinding.alias &&
+          !this.types.has(simpleAlias)
+        ) {
           this.types.set(simpleAlias, typeBinding);
         }
 
@@ -359,6 +365,14 @@ export class BindingRegistry {
    */
   getAllNamespaces(): readonly NamespaceBinding[] {
     return Array.from(this.namespaces.values());
+  }
+
+  /**
+   * Get a copy of the types map for passing to the emitter.
+   * Returns a new Map to ensure immutability - callers cannot modify the registry.
+   */
+  getTypesMap(): ReadonlyMap<string, TypeBinding> {
+    return new Map(this.types);
   }
 
   /**

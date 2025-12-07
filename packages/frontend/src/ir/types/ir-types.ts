@@ -48,6 +48,15 @@ export type IrTypeParameterType = {
 export type IrArrayType = {
   readonly kind: "arrayType";
   readonly elementType: IrType;
+  /**
+   * Set to "explicit" when the array type came from an explicit T[] annotation.
+   * Undefined when the type was inferred.
+   *
+   * In dotnet mode:
+   * - origin: "explicit" → emit native CLR array (T[])
+   * - origin: undefined → emit List<T>
+   */
+  readonly origin?: "explicit";
 };
 
 /**

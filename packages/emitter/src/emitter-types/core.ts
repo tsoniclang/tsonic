@@ -4,6 +4,7 @@
 
 import type { MetadataFile } from "@tsonic/frontend/types/metadata.js";
 import type { TypeBinding } from "@tsonic/frontend/types/bindings.js";
+import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 import type {
   IrType,
   IrInterfaceMember,
@@ -74,6 +75,13 @@ export type EmitterOptions = {
   readonly exportMap?: ExportMap;
   /** JSON AOT registry for collecting types used with JsonSerializer (shared across modules) */
   readonly jsonAotRegistry?: JsonAotRegistry;
+  /**
+   * Pre-loaded CLR bindings from frontend (for Action/Func resolution).
+   * When provided, these take precedence over loading from library directories.
+   * The map keys are TypeScript emit names (e.g., "Action", "List").
+   * Values must have either `clrName` or `name` property containing the CLR type name.
+   */
+  readonly clrBindings?: ReadonlyMap<string, FrontendTypeBinding>;
 };
 
 /**
