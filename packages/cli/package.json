@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Command-line interface for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,7 +27,7 @@
   "dependencies": {
     "@tsonic/backend": "0.0.4",
     "@tsonic/emitter": "0.0.6",
-    "@tsonic/frontend": "0.0.4"
+    "@tsonic/frontend": "0.0.5"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
