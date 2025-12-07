@@ -40,7 +40,7 @@ namespace TestCases.realworld.businesslogic
 
         public OrderStatus status { get; set; }
 
-        public Date createdAt { get; set; }
+        public string createdAt { get; set; }
     }
     public class ShoppingCart
     {
@@ -166,7 +166,7 @@ namespace TestCases.realworld.businesslogic
                 {
                 throw new Error("Cannot create order from empty cart");
                 }
-            Order order = new Order { id = $"ORD-{this.nextOrderId++}", items = items, total = cart.getTotal(), status = "pending", createdAt = new Date() };
+            Order order = new Order { id = $"ORD-{this.nextOrderId++}", items = items, total = cart.getTotal(), status = "pending", createdAt = "2024-01-01T00:00:00.000Z" };
             return order;
             }
 

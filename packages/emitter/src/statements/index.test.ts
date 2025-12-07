@@ -105,6 +105,7 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "List",
+                resolvedClrType: "global::System.Collections.Generic.List",
                 typeArguments: [{ kind: "primitiveType", name: "number" }],
               },
               isOptional: false,

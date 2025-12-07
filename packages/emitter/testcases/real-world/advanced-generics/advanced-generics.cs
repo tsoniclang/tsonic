@@ -1,17 +1,5 @@
 namespace TestCases.realworld.advancedgenerics
 {
-    public class __Anon_advanced_generics_24_10
-    {
-        public bool ok { get; set; }
-
-        public T value { get; set; }
-    }
-    public class __Anon_advanced_generics_28_10
-    {
-        public E error { get; set; }
-
-        public bool ok { get; set; }
-    }
     public class Pair<T, U>
     {
         public T first;
@@ -34,13 +22,13 @@ namespace TestCases.realworld.advancedgenerics
             return new Pair(firstMapper(this.first), secondMapper(this.second));
             }
     }
-    public class Result__0 <T, E>
+    public class ResultOk <T, E>
     {
         public bool ok { get; set; }
 
         public T value { get; set; }
     }
-    public class Result__1 <T, E>
+    public class ResultErr <T, E>
     {
         public bool ok { get; set; }
 
@@ -90,16 +78,18 @@ namespace TestCases.realworld.advancedgenerics
 
             public static class advancedgenerics
             {
-                // type Result = global::Tsonic.Runtime.Union<Result__0<T, E>, Result__1<T, E>>
+                // type Result = global::Tsonic.Runtime.Union<ResultOk<T, E>, ResultErr<T, E>>
 
                 public static Result<T, E> ok<T, E>(T value)
                     {
-                    return new Result__0<T, E> { ok = true, value = value };
+                    ResultOk<T, E> result = new ResultOk<T, E> { ok = true, value = value };
+                    return result;
                     }
 
                 public static Result<T, E> err<T, E>(E error)
                     {
-                    return new Result__1<T, E> { ok = false, error = error };
+                    ResultErr<T, E> result = new ResultErr<T, E> { ok = false, error = error };
+                    return result;
                     }
 
                 public static bool isOk<T, E>(Result<T, E> result)
@@ -156,10 +146,11 @@ namespace TestCases.realworld.advancedgenerics
                 public static string processResult()
                     {
                     var result = ok<double, string>(100.0);
-                    if (isOk(result))
-                        {
-                        return $"Value: {result.value}";
-                        }
+                    if (result.Is1())
+                    {
+                        var result__1_1 = result.As1();
+                        return $"Value: {result__1_1.value}";
+                    }
                     return "Error";
                     }
             }

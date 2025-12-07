@@ -24,7 +24,19 @@ export const emitInterfaceDeclaration = (
   // because TS interfaces are structural and we need nominal types in C#
 
   const ind = getIndent(context);
-  let currentContext = context;
+
+  // Build type parameter names set FIRST - needed when emitting member types
+  // Type parameters must be in scope before we emit types that reference them
+  const ifaceTypeParams = new Set<string>([
+    ...(context.typeParameters ?? []),
+    ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Create context with type parameters in scope for member emission
+  let currentContext: EmitterContext = {
+    ...context,
+    typeParameters: ifaceTypeParams,
+  };
 
   // Extract inline object types and emit them as separate classes
   const extractedTypes = extractInlineObjectTypes(stmt.members);

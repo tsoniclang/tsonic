@@ -1,0 +1,5 @@
+{
+  "expectFailure": true,
+  "description": "Real-world async cache pattern using Map. Map is not in globals packages, so TS name resolution must fail in noLib mode.",
+  "expectedErrors": ["Cannot find name 'Map'"]
+}

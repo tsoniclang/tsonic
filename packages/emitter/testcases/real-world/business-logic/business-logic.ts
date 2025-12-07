@@ -17,7 +17,7 @@ export interface Order {
   items: CartItem[];
   total: number;
   status: OrderStatus;
-  createdAt: Date;
+  createdAt: string; // ISO timestamp - Date is not in globals
 }
 
 export type OrderStatus =
@@ -142,7 +142,7 @@ export class OrderProcessor {
       items: items,
       total: cart.getTotal(),
       status: "pending",
-      createdAt: new Date(),
+      createdAt: "2024-01-01T00:00:00.000Z", // ISO timestamp placeholder
     };
 
     return order;

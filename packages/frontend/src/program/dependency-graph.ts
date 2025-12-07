@@ -12,6 +12,7 @@ import { buildIrModule } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings } from "./bindings.js";
+import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -294,6 +295,13 @@ export const buildModuleDependencyGraph = (
   // If any diagnostics from IR building, fail the build
   if (diagnostics.length > 0) {
     return error(diagnostics);
+  }
+
+  // Run IR soundness gate - validates no anyType leaked through
+  // This is the final validation before emitter can run
+  const soundnessResult = validateIrSoundness(modules);
+  if (!soundnessResult.ok) {
+    return error(soundnessResult.diagnostics);
   }
 
   // Sort modules by relative path for deterministic output

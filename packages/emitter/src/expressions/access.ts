@@ -83,13 +83,13 @@ export const emitMemberAccess = (
   const runtime = context.options.runtime ?? "js";
 
   if (expr.isComputed) {
-    // Check if this is array index access - rewrite to static helper
+    // Check if this is array index access
     const objectType = expr.object.inferredType;
     const isArrayType = objectType?.kind === "arrayType";
 
-    // For TS arrays, use Tsonic.JSRuntime.Array.get() in BOTH modes
-    // This provides TS array semantics (auto-grow, sparse arrays, etc.)
-    if (isArrayType) {
+    // In JS mode, use Tsonic.JSRuntime.Array.get() for JS semantics (auto-grow, sparse arrays)
+    // In dotnet mode, use native CLR indexer (no JSRuntime exists)
+    if (isArrayType && runtime === "js") {
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
         expr.property as IrExpression,
@@ -97,6 +97,25 @@ export const emitMemberAccess = (
       );
       const finalContext = { ...contextWithIndex, isArrayIndex: false };
       const text = `global::Tsonic.JSRuntime.Array.get(${objectFrag.text}, ${propFrag.text})`;
+      return [{ text }, finalContext];
+    }
+
+    // In dotnet mode, arrays use native List<T> indexer with int cast
+    if (isArrayType && runtime === "dotnet") {
+      const indexContext = { ...newContext, isArrayIndex: true };
+      const [propFrag, contextWithIndex] = emitExpression(
+        expr.property as IrExpression,
+        indexContext
+      );
+      const finalContext = { ...contextWithIndex, isArrayIndex: false };
+      const accessor = expr.isOptional ? "?[" : "[";
+      // Check if index is known int (canonical loop counter)
+      const indexExpr = expr.property as IrExpression;
+      const isKnownInt =
+        indexExpr.kind === "identifier" &&
+        context.intLoopVars?.has(indexExpr.name);
+      const indexText = isKnownInt ? propFrag.text : `(int)(${propFrag.text})`;
+      const text = `${objectFrag.text}${accessor}${indexText}]`;
       return [{ text }, finalContext];
     }
 

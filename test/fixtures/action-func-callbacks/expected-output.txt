@@ -1,0 +1,16 @@
+=== Action/Func Callback Tests ===
+forEach:
+  1
+  2
+  3
+  4
+  5
+map (doubled): count = 5
+filter (evens): count = 2
+forEachWithIndex:
+  [0] = 1
+  [1] = 2
+  [2] = 3
+  [3] = 4
+  [4] = 5
+reduce (sum): 15

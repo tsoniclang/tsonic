@@ -14,6 +14,69 @@ import {
 import { substituteTypeArgs } from "../core/type-resolution.js";
 
 /**
+ * C# primitive type names that can be emitted directly without qualification.
+ * These correspond to the types defined in @tsonic/types package.
+ */
+const CSHARP_PRIMITIVES = new Set([
+  // Signed integers (from @tsonic/types)
+  "sbyte",
+  "short",
+  "int",
+  "long",
+  "nint",
+  "int128",
+  // Unsigned integers (from @tsonic/types)
+  "byte",
+  "ushort",
+  "uint",
+  "ulong",
+  "nuint",
+  "uint128",
+  // Floating-point (from @tsonic/types)
+  "half",
+  "float",
+  "double",
+  "decimal",
+  // Other primitives (from @tsonic/types)
+  "bool",
+  "char",
+  // Additional C# keywords that are valid type names
+  "string",
+  "object",
+  "void",
+]);
+
+/**
+ * Normalize a CLR type name to global:: format
+ */
+const toGlobalClr = (clr: string): string => {
+  const trimmed = clr.trim();
+  return trimmed.startsWith("global::") ? trimmed : `global::${trimmed}`;
+};
+
+/**
+ * Extract CLR name from a binding object.
+ * Handles both tsbindgen format (clrName) and internal format (name).
+ */
+const getBindingClrName = (b: unknown): string | undefined => {
+  if (!b || typeof b !== "object") return undefined;
+
+  // tsbindgen TypeBinding: { clrName: "System.Action", tsEmitName: "Action", ... }
+  const maybeClrName = (b as { clrName?: unknown }).clrName;
+  if (typeof maybeClrName === "string" && maybeClrName.length > 0) {
+    return maybeClrName;
+  }
+
+  // internal TypeBinding: { name: "System.Console", alias: "Console", ... }
+  const maybeName = (b as { name?: unknown }).name;
+  if (typeof maybeName === "string" && maybeName.length > 0) {
+    return maybeName;
+  }
+
+  return undefined;
+};
+
+/**
  * Check if a type name indicates an unsupported support type.
  *
  * TODO: This is a basic check. Full implementation requires:
@@ -155,38 +218,65 @@ export const emitReferenceType = (
     return ["global::System.Threading.Tasks.Task", context];
   }
 
-  // Map<K, V> → Tsonic.JSRuntime.Map<K, V>
-  if (name === "Map" && typeArguments && typeArguments.length === 2) {
-    const [keyArg, valueArg] = typeArguments;
-    if (keyArg && valueArg) {
-      const [keyType, ctx1] = emitType(keyArg, context);
-      const [valueType, ctx2] = emitType(valueArg, ctx1);
-      return [`global::Tsonic.JSRuntime.Map<${keyType}, ${valueType}>`, ctx2];
-    }
-  }
+  // NOTE: Map and Set are NOT in js-globals or dotnet-globals.
+  // They must be explicitly imported or will fail as unresolved types.
+  // Per Alice's decision: no ambient Map/Set handling.
 
-  // Set<T> → Tsonic.JSRuntime.Set<T>
-  if (name === "Set" && typeArguments && typeArguments.length === 1) {
-    const firstArg = typeArguments[0];
-    if (firstArg) {
-      const [elementType, newContext] = emitType(firstArg, context);
-      return [`global::Tsonic.JSRuntime.Set<${elementType}>`, newContext];
-    }
-  }
+  // Get runtime mode for conditional mappings
+  const runtime = context.options.runtime ?? "js";
 
   // Map common JS types to .NET equivalents
-  const runtimeTypes: Record<string, string> = {
-    Error: "System.Exception",
-  };
+  // Only types actually defined in the globals packages
+  // Error: only in js-globals (not in dotnet-globals)
+  // PromiseLike: in both js-globals and dotnet-globals
+  if (name === "Error" && runtime === "js") {
+    return ["global::System.Exception", context];
+  }
 
-  if (name in runtimeTypes) {
-    const csharpType = runtimeTypes[name];
-    if (!csharpType) {
-      return [name, context];
+  if (name === "PromiseLike") {
+    // PromiseLike is in both globals packages - safe to map unconditionally
+    return ["global::System.Threading.Tasks.Task", context];
+  }
+
+  // Resolve external types via binding registry (must be fully qualified)
+  // This handles types from contextual inference (e.g., Action from Parallel.invoke)
+  const regBinding = context.bindingsRegistry?.get(name);
+  if (regBinding) {
+    const clr = getBindingClrName(regBinding);
+    if (!clr) {
+      throw new Error(`ICE: Binding for '${name}' has no CLR name`);
+    }
+    const qualified = toGlobalClr(clr);
+
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
     }
 
-    // Always emit with global:: prefix for unambiguous resolution
-    const fqnType = `global::${csharpType}`;
+    return [qualified, context];
+  }
+
+  // C# primitive types can be emitted directly
+  if (CSHARP_PRIMITIVES.has(name)) {
+    return [name, context];
+  }
+
+  // Type parameters in scope can be emitted directly
+  if (context.typeParameters?.has(name)) {
+    return [name, context];
+  }
+
+  // FALLTHROUGH is only permitted for local types.
+  // Emitting a bare external name is unsound and forbidden.
+  if (context.localTypes?.has(name)) {
+    // Convert nested type names (Outer$Inner → Outer.Inner)
+    const csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
 
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];
@@ -198,32 +288,15 @@ export const emitReferenceType = (
         currentContext = newContext;
       }
 
-      return [`${fqnType}<${typeParams.join(", ")}>`, currentContext];
+      return [`${csharpName}<${typeParams.join(", ")}>`, currentContext];
     }
 
-    return [fqnType, context];
+    return [csharpName, context];
   }
 
-  // Handle type arguments for other reference types
-  if (typeArguments && typeArguments.length > 0) {
-    const typeParams: string[] = [];
-    let currentContext = context;
-
-    for (const typeArg of typeArguments) {
-      const [paramType, newContext] = emitType(typeArg, currentContext);
-      typeParams.push(paramType);
-      currentContext = newContext;
-    }
-
-    // Convert nested type names (Outer$Inner → Outer.Inner)
-    const csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
-
-    return [`${csharpName}<${typeParams.join(", ")}>`, currentContext];
-  }
-
-  // Convert nested type names (Outer$Inner → Outer.Inner)
-  // before returning the name
-  const csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
-
-  return [csharpName, context];
+  // Hard failure: unresolved external reference type
+  // This should never happen if the IR soundness gate is working correctly
+  throw new Error(
+    `ICE: Unresolved reference type '${name}' (no resolvedClrType, no import binding, no registry binding, not local)`
+  );
 };

@@ -193,6 +193,25 @@ describe("Union Type Emission", () => {
       imports: [],
       exports: [],
       body: [
+        // Declare local types for the union
+        {
+          kind: "interfaceDeclaration",
+          name: "User",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          extends: [],
+          members: [],
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Product",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          extends: [],
+          members: [],
+        },
         {
           kind: "functionDeclaration",
           name: "getResult",
@@ -279,6 +298,16 @@ describe("Union Type Emission", () => {
       imports: [],
       exports: [],
       body: [
+        // Declare local type for the union (Date is not in globals)
+        {
+          kind: "interfaceDeclaration",
+          name: "DateLike",
+          isExported: false,
+          isStruct: false,
+          typeParameters: [],
+          extends: [],
+          members: [],
+        },
         {
           kind: "functionDeclaration",
           name: "process",
@@ -289,7 +318,7 @@ describe("Union Type Emission", () => {
               { kind: "primitiveType", name: "string" },
               { kind: "primitiveType", name: "number" },
               { kind: "primitiveType", name: "boolean" },
-              { kind: "referenceType", name: "Date", typeArguments: [] },
+              { kind: "referenceType", name: "DateLike", typeArguments: [] },
             ],
           },
           body: {
@@ -312,11 +341,22 @@ describe("Union Type Emission", () => {
 
     // Should use Union<T1, T2, T3, T4> with global:: FQN
     expect(code).to.include(
-      "global::Tsonic.Runtime.Union<string, double, bool, Date> process()"
+      "global::Tsonic.Runtime.Union<string, double, bool, DateLike> process()"
     );
   });
 
   it("should emit eight-type union as Union<T1, T2, T3, T4, T5, T6, T7, T8>", () => {
+    // Helper to create an interface declaration
+    const makeInterface = (name: string) => ({
+      kind: "interfaceDeclaration" as const,
+      name,
+      isExported: false,
+      isStruct: false,
+      typeParameters: [],
+      extends: [],
+      members: [],
+    });
+
     const module: IrModule = {
       kind: "module",
       filePath: "/test/union8.ts",
@@ -326,6 +366,12 @@ describe("Union Type Emission", () => {
       imports: [],
       exports: [],
       body: [
+        // Declare local types for the union
+        makeInterface("User"),
+        makeInterface("Product"),
+        makeInterface("Order"),
+        makeInterface("Payment"),
+        makeInterface("Invoice"),
         {
           kind: "variableDeclaration",
           declarationKind: "const",

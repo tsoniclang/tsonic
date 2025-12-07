@@ -1,0 +1,5 @@
+{
+  "expectFailure": true,
+  "description": "Config drift detection: Date is not in globals. If this test passes, useStandardLib or similar has leaked Date into the type environment. Use System.DateTime via import instead.",
+  "expectedErrors": ["Cannot find name 'Date'"]
+}

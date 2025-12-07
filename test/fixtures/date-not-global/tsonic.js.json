@@ -1,0 +1,8 @@
+{
+  "runtime": "js",
+  "rootNamespace": "DateNotGlobalTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "date-not-global-test"
+}

@@ -1,0 +1,8 @@
+{
+  "runtime": "js",
+  "rootNamespace": "MapSetTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "map-set-test"
+}

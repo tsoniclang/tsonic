@@ -1,0 +1,8 @@
+{
+  "runtime": "js",
+  "rootNamespace": "AsyncOpsTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "async-ops-test"
+}
