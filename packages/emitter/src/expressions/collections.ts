@@ -166,9 +166,17 @@ export const emitArray = (
       }
     }
 
-    // Wrap in Enumerable.ToList() using explicit static call
+    // Determine whether to emit native CLR array or List
+    const runtime = currentContext.options.runtime ?? "js";
+    const shouldEmitNativeArray =
+      runtime === "dotnet" &&
+      expectedType?.kind === "arrayType" &&
+      expectedType.origin === "explicit";
+
+    // Wrap in ToArray() or ToList() depending on expected type
+    const wrapperMethod = shouldEmitNativeArray ? "ToArray" : "ToList";
     return [
-      { text: `global::System.Linq.Enumerable.ToList(${result})` },
+      { text: `global::System.Linq.Enumerable.${wrapperMethod}(${result})` },
       currentContext,
     ];
   }
@@ -188,9 +196,19 @@ export const emitArray = (
     }
   }
 
+  // Determine whether to emit native CLR array or List
+  const runtime = currentContext.options.runtime ?? "js";
+  const shouldEmitNativeArray =
+    runtime === "dotnet" &&
+    expectedType?.kind === "arrayType" &&
+    expectedType.origin === "explicit";
+
   // Use constructor syntax for empty arrays, initializer syntax for non-empty
-  const text =
-    elements.length === 0
+  const text = shouldEmitNativeArray
+    ? elements.length === 0
+      ? `new ${elementType}[0]`
+      : `new ${elementType}[] { ${elements.join(", ")} }`
+    : elements.length === 0
       ? `new global::System.Collections.Generic.List<${elementType}>()`
       : `new global::System.Collections.Generic.List<${elementType}> { ${elements.join(", ")} }`;
 

@@ -11,12 +11,14 @@ import { IrModule } from "../ir/types.js";
 import { buildIrModule } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
-import { loadAllDiscoveredBindings } from "./bindings.js";
+import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
   readonly entryModule: IrModule;
+  /** Type bindings loaded from CLR packages (for emitter bindingsRegistry) */
+  readonly bindings: ReadonlyMap<string, TypeBinding>;
 };
 
 /**
@@ -326,5 +328,6 @@ export const buildModuleDependencyGraph = (
   return ok({
     modules,
     entryModule,
+    bindings: tsonicProgram.bindings.getTypesMap(),
   });
 };

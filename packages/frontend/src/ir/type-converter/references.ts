@@ -25,6 +25,17 @@ export const convertTypeReference = (
     return getPrimitiveType(typeName);
   }
 
+  // Check for Array<T> utility type → convert to arrayType with explicit origin
+  // This ensures Array<T> and T[] are treated identically
+  const firstTypeArg = node.typeArguments?.[0];
+  if (typeName === "Array" && firstTypeArg) {
+    return {
+      kind: "arrayType",
+      elementType: convertType(firstTypeArg, checker),
+      origin: "explicit",
+    };
+  }
+
   // Check for Record<K, V> utility type → convert to IrDictionaryType
   const typeArgsForRecord = node.typeArguments;
   const keyTypeNode = typeArgsForRecord?.[0];

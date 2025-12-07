@@ -64,6 +64,7 @@ export const convertType = (
           return {
             kind: "arrayType",
             elementType: convertType(firstElement.type.elementType, checker),
+            origin: "explicit",
           };
         }
       }

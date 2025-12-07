@@ -127,6 +127,8 @@ export type IrCallExpression = {
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
+  /** Parameter types from resolved signature (for expectedType threading to array literals etc.) */
+  readonly parameterTypes?: readonly (IrType | undefined)[];
   /** Type predicate narrowing metadata (for `x is T` predicates) */
   readonly narrowing?: {
     readonly kind: "typePredicate";
