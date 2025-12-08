@@ -116,30 +116,31 @@ export const emitBinary = (
     expr.operator === "===" ||
     expr.operator === "!==";
 
-  // Check operand types for integer handling
+  // Check operand types for integer handling (for literal emission context only)
   const leftIsInt = isIntegerType(expr.left.inferredType);
   const rightIsInt = isIntegerType(expr.right.inferredType);
   const leftIsNumericLiteral =
     expr.left.kind === "literal" && typeof expr.left.value === "number";
   const rightIsNumericLiteral =
     expr.right.kind === "literal" && typeof expr.right.value === "number";
-  const eitherOperandInt = leftIsInt || rightIsInt;
 
-  // Check if this binary expression should produce an integer result
-  // Priority: expression's own inferredType > expectedType from context > operand types
-  // If either operand is int, treat the expression as int (for C# semantics)
+  // Check if this binary expression has explicit integer type annotation
+  // ONLY use numericIntent from the IR - NO heuristics like "eitherOperandInt"
+  // The proof system validates all narrowings; emitter must not guess
   // NEVER apply int casts to comparison operators (they return bool)
   const integerCastType = isComparisonOp
     ? undefined
-    : getIntegerCastType(expr.inferredType) ||
-      getIntegerCastType(expectedType) ||
-      (eitherOperandInt ? "int" : undefined);
+    : getIntegerCastType(expr.inferredType) || getIntegerCastType(expectedType);
 
-  // Determine expected type for children: use int type if any operand is int
+  // Determine expected type for children based on operand types
   // This ensures literals emit correctly (e.g., x + 1 where x is int → 1 not 1.0)
-  const childExpectedType: IrType | undefined = integerCastType
-    ? { kind: "referenceType", name: "int" }
-    : undefined;
+  // This is context propagation, not type inference - the proof system handles inference
+  const childExpectedType: IrType | undefined =
+    leftIsInt || rightIsInt
+      ? { kind: "referenceType", name: "int" }
+      : integerCastType
+        ? { kind: "referenceType", name: integerCastType }
+        : undefined;
 
   // Pass expected type to children so literals emit correctly
   const [leftFrag, leftContext] = emitExpression(

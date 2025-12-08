@@ -5,7 +5,6 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
-import { getParameterModifierRegistry } from "../../types/parameter-modifiers.js";
 
 /**
  * Convert TypeScript type reference to IR type
@@ -51,25 +50,10 @@ export const convertTypeReference = (
     } as IrDictionaryType;
   }
 
-  // Check if this is a parameter modifier type (ref/out/In) from @tsonic/types
-  const registry = getParameterModifierRegistry();
-  const modifierKind = registry.getParameterModifierKind(typeName);
-
-  const typeArgsForModifier = node.typeArguments;
-  const firstModifierArg = typeArgsForModifier?.[0];
-  if (modifierKind && firstModifierArg !== undefined) {
-    // This is ref<T>, out<T>, or In<T> from @tsonic/types
-    // Convert it to a special IR type that preserves the modifier
-    const wrappedType = convertType(firstModifierArg, checker);
-
-    return {
-      kind: "referenceType",
-      name: typeName,
-      typeArguments: [wrappedType],
-      // Add metadata to indicate this is a parameter modifier
-      parameterModifier: modifierKind,
-    } as IrType & { parameterModifier?: "ref" | "out" | "in" };
-  }
+  // NOTE: ref<T>, out<T>, In<T> are no longer supported as types.
+  // Parameter modifiers will be expressed via syntax in the future.
+  // If someone uses ref<T> etc., it will fall through to referenceType
+  // and the validation pass will reject it with a hard error.
 
   // Check if this is a type parameter reference (e.g., T in Container<T>)
   // Use the type checker to determine if the reference resolves to a type parameter

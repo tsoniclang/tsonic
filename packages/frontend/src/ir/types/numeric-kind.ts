@@ -28,34 +28,38 @@ export type NumericKind =
  * Maps Tsonic type alias names to CLR numeric kinds.
  * Used to recognize numeric intent from TypeScript annotations.
  */
-export const TSONIC_TO_NUMERIC_KIND: ReadonlyMap<string, NumericKind> = new Map([
-  ["sbyte", "SByte"],
-  ["byte", "Byte"],
-  ["short", "Int16"],
-  ["ushort", "UInt16"],
-  ["int", "Int32"],
-  ["uint", "UInt32"],
-  ["long", "Int64"],
-  ["ulong", "UInt64"],
-  ["float", "Single"],
-  ["double", "Double"],
-]);
+export const TSONIC_TO_NUMERIC_KIND: ReadonlyMap<string, NumericKind> = new Map(
+  [
+    ["sbyte", "SByte"],
+    ["byte", "Byte"],
+    ["short", "Int16"],
+    ["ushort", "UInt16"],
+    ["int", "Int32"],
+    ["uint", "UInt32"],
+    ["long", "Int64"],
+    ["ulong", "UInt64"],
+    ["float", "Single"],
+    ["double", "Double"],
+  ]
+);
 
 /**
  * Maps CLR numeric kinds back to C# type names for emission.
  */
-export const NUMERIC_KIND_TO_CSHARP: ReadonlyMap<NumericKind, string> = new Map([
-  ["SByte", "sbyte"],
-  ["Byte", "byte"],
-  ["Int16", "short"],
-  ["UInt16", "ushort"],
-  ["Int32", "int"],
-  ["UInt32", "uint"],
-  ["Int64", "long"],
-  ["UInt64", "ulong"],
-  ["Single", "float"],
-  ["Double", "double"],
-]);
+export const NUMERIC_KIND_TO_CSHARP: ReadonlyMap<NumericKind, string> = new Map(
+  [
+    ["SByte", "sbyte"],
+    ["Byte", "byte"],
+    ["Int16", "short"],
+    ["UInt16", "ushort"],
+    ["Int32", "int"],
+    ["UInt32", "uint"],
+    ["Int64", "long"],
+    ["UInt64", "ulong"],
+    ["Single", "float"],
+    ["Double", "double"],
+  ]
+);
 
 /**
  * Range bounds for compile-time literal validation.
@@ -183,7 +187,19 @@ export const isWideningConversion = (
   const wideningPaths: ReadonlyMap<NumericKind, readonly NumericKind[]> =
     new Map([
       ["SByte", ["Int16", "Int32", "Int64", "Single", "Double"]],
-      ["Byte", ["Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Single", "Double"]],
+      [
+        "Byte",
+        [
+          "Int16",
+          "UInt16",
+          "Int32",
+          "UInt32",
+          "Int64",
+          "UInt64",
+          "Single",
+          "Double",
+        ],
+      ],
       ["Int16", ["Int32", "Int64", "Single", "Double"]],
       ["UInt16", ["Int32", "UInt32", "Int64", "UInt64", "Single", "Double"]],
       ["Int32", ["Int64", "Single", "Double"]],

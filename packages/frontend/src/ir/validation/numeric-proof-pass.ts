@@ -1,12 +1,17 @@
 /**
- * Numeric Proof Pass - Validates numeric type narrowings
+ * Numeric Proof Pass - HARD GATE for numeric type narrowings
  *
  * This pass runs before emission and:
  * 1. Validates all numeric narrowings are provable
  * 2. Attaches NumericProof to validated expressions
- * 3. Emits diagnostics for unprovable narrowings
+ * 3. Emits error diagnostics for unprovable narrowings
  *
- * If this pass emits any errors, the emitter must not run.
+ * CRITICAL: If this pass emits ANY errors, the emitter MUST NOT run.
+ * Unlike the previous implementation, this pass does NOT allow fallback casts.
+ * If we cannot prove a narrowing, compilation FAILS.
+ *
+ * This follows Alice's "Provably-Sound Numeric Types" specification:
+ * "If Tsonic cannot prove a numeric narrowing is sound, it must fail compilation."
  */
 
 import {
@@ -24,8 +29,8 @@ import {
   NumericProof,
   NUMERIC_RANGES,
   getBinaryResultKind,
-  literalFitsInKind,
   isIntegerKind,
+  TSONIC_TO_NUMERIC_KIND,
 } from "../types.js";
 
 /**
@@ -60,18 +65,87 @@ const moduleLocation = (ctx: ProofContext): SourceLocation => ({
 });
 
 /**
- * Extract NumericKind from an IrType if it has numericIntent
+ * Extract NumericKind from an IrType if it has numericIntent or is a known numeric type name
  */
-const getNumericKindFromType = (type: IrType | undefined): NumericKind | undefined => {
-  if (type?.kind === "primitiveType" && type.name === "number") {
+const getNumericKindFromType = (
+  type: IrType | undefined
+): NumericKind | undefined => {
+  if (type === undefined) {
+    return undefined;
+  }
+
+  // Check for primitiveType with numericIntent (from as-expressions)
+  if (type.kind === "primitiveType" && type.name === "number") {
     return type.numericIntent;
   }
+
+  // Check for referenceType with known numeric type name (e.g., int, long, float)
+  // Use the TSONIC_TO_NUMERIC_KIND map from ir/types
+  if (type.kind === "referenceType") {
+    return TSONIC_TO_NUMERIC_KIND.get(type.name);
+  }
+
   return undefined;
+};
+
+/**
+ * Check if a raw lexeme represents a valid integer (no decimal point, no exponent).
+ * This is critical for correctness - we must validate the SOURCE text, not the JS number.
+ */
+const isValidIntegerLexeme = (raw: string): boolean => {
+  // Must not contain decimal point or exponent
+  if (raw.includes(".") || raw.includes("e") || raw.includes("E")) {
+    return false;
+  }
+  // Must be a valid integer pattern (optional sign, digits only)
+  // Handle hex (0x), octal (0o), binary (0b) prefixes
+  return /^-?(?:0x[\da-fA-F]+|0o[0-7]+|0b[01]+|\d+)$/.test(raw);
+};
+
+/**
+ * Parse a raw lexeme as a BigInt for precise range checking.
+ * Returns undefined if parsing fails.
+ */
+const parseBigIntFromRaw = (raw: string): bigint | undefined => {
+  try {
+    // Handle different bases
+    if (raw.startsWith("0x") || raw.startsWith("0X")) {
+      return BigInt(raw);
+    }
+    if (raw.startsWith("0o") || raw.startsWith("0O")) {
+      return BigInt(raw);
+    }
+    if (raw.startsWith("0b") || raw.startsWith("0B")) {
+      return BigInt(raw);
+    }
+    // Handle negative numbers
+    if (raw.startsWith("-")) {
+      return -BigInt(raw.slice(1));
+    }
+    return BigInt(raw);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Check if a BigInt value fits within the range of a numeric kind.
+ */
+const bigIntFitsInKind = (value: bigint, kind: NumericKind): boolean => {
+  const range = NUMERIC_RANGES.get(kind);
+  if (range === undefined) {
+    return false;
+  }
+  return value >= range.min && value <= range.max;
 };
 
 /**
  * Try to infer the numeric kind of an expression.
  * Returns undefined if the expression's numeric kind cannot be determined.
+ *
+ * For literals: follows C# semantics where integer-looking literals default to int.
+ * A literal is Int32 if: no decimal point, no exponent, fits in Int32 range.
+ * Otherwise it's Double.
  */
 const inferNumericKind = (
   expr: IrExpression,
@@ -79,16 +153,24 @@ const inferNumericKind = (
 ): NumericKind | undefined => {
   switch (expr.kind) {
     case "literal": {
-      // Numeric literals are unproven until narrowed
-      // A bare `10` is just `number` (Double in C#)
-      // Only `10 as int` makes it Int32
       if (typeof expr.value === "number") {
-        // Check if inferred type has numeric intent
+        // Check if inferred type has explicit numeric intent (from annotation)
         const typeKind = getNumericKindFromType(expr.inferredType);
         if (typeKind !== undefined) {
           return typeKind;
         }
-        // Otherwise, bare numeric literal is Double
+
+        // For bare literals, follow C# semantics:
+        // Integer-looking literals (no decimal, no exponent) are Int32 if in range
+        // Otherwise, they're Double
+        if (expr.raw !== undefined && isValidIntegerLexeme(expr.raw)) {
+          const bigValue = parseBigIntFromRaw(expr.raw);
+          if (bigValue !== undefined && bigIntFitsInKind(bigValue, "Int32")) {
+            return "Int32";
+          }
+        }
+
+        // Floating-point or out-of-range integer literals are Double
         return "Double";
       }
       return undefined;
@@ -105,7 +187,7 @@ const inferNumericKind = (
       if (paramKind !== undefined) {
         return paramKind;
       }
-      // Check inferredType
+      // Check inferredType for CLR-typed identifiers
       return getNumericKindFromType(expr.inferredType);
     }
 
@@ -114,7 +196,8 @@ const inferNumericKind = (
       if (expr.proof) {
         return expr.proof.kind;
       }
-      // Otherwise use the target kind as the expected kind
+      // Fall back to targetKind - the narrowing declares intent even without proof
+      // This handles cases where we're inferring before proof is attached
       return expr.targetKind;
     }
 
@@ -129,20 +212,22 @@ const inferNumericKind = (
     }
 
     case "unary": {
-      if (expr.operator === "-" || expr.operator === "+" || expr.operator === "~") {
+      if (
+        expr.operator === "-" ||
+        expr.operator === "+" ||
+        expr.operator === "~"
+      ) {
         return inferNumericKind(expr.expression, ctx);
       }
       return undefined;
     }
 
     case "conditional": {
-      // For conditional expressions, both branches should have same numeric kind
       const trueKind = inferNumericKind(expr.whenTrue, ctx);
       const falseKind = inferNumericKind(expr.whenFalse, ctx);
       if (trueKind === falseKind) {
         return trueKind;
       }
-      // If different, use promotion rules
       if (trueKind !== undefined && falseKind !== undefined) {
         return getBinaryResultKind(trueKind, falseKind);
       }
@@ -150,12 +235,11 @@ const inferNumericKind = (
     }
 
     case "call": {
-      // Check if the call has a numeric return type
+      // Check if the call has a numeric return type from CLR metadata
       return getNumericKindFromType(expr.inferredType);
     }
 
     case "memberAccess": {
-      // Check if accessing a member with numeric type
       return getNumericKindFromType(expr.inferredType);
     }
 
@@ -166,42 +250,85 @@ const inferNumericKind = (
 
 /**
  * Attempt to prove that a literal fits in a target numeric kind.
+ * Uses the raw lexeme for integer validation (NOT the JS number).
  */
 const proveLiteral = (
   value: number,
+  raw: string | undefined,
   targetKind: NumericKind,
   ctx: ProofContext
 ): NumericProof | undefined => {
-  // For floating-point targets, any number works
+  // For floating-point targets, any finite number works
   if (!isIntegerKind(targetKind)) {
+    if (!Number.isFinite(value)) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN5102",
+          "error",
+          `Literal ${value} cannot be proven as ${targetKind}: not a finite number`,
+          moduleLocation(ctx),
+          "Only finite numbers can be used as floating-point types"
+        )
+      );
+      return undefined;
+    }
     return {
       kind: targetKind,
       source: { type: "literal", value },
     };
   }
 
-  // For integer targets, check that value is integral and in range
-  if (!Number.isInteger(value)) {
+  // For integer targets, we MUST have the raw lexeme
+  if (raw === undefined) {
     ctx.diagnostics.push(
       createDiagnostic(
         "TSN5102",
         "error",
-        `Literal ${value} cannot be proven as ${targetKind}: not an integer`,
+        `Cannot prove literal as ${targetKind}: raw lexeme not available`,
         moduleLocation(ctx),
-        "Only integer values can be narrowed to integer types"
+        "Integer literal proofs require the source lexeme for precision"
+      )
+    );
+    return undefined;
+  }
+
+  // Check that the lexeme represents an integer (no decimal, no exponent)
+  if (!isValidIntegerLexeme(raw)) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5102",
+        "error",
+        `Literal '${raw}' cannot be proven as ${targetKind}: not an integer lexeme`,
+        moduleLocation(ctx),
+        "Integer types require integer literals (no decimal point or exponent)"
+      )
+    );
+    return undefined;
+  }
+
+  // Parse as BigInt for precise range checking
+  const bigValue = parseBigIntFromRaw(raw);
+  if (bigValue === undefined) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5102",
+        "error",
+        `Cannot parse literal '${raw}' as integer`,
+        moduleLocation(ctx),
+        "The literal could not be parsed as an integer value"
       )
     );
     return undefined;
   }
 
   // Check range
-  if (!literalFitsInKind(value, targetKind)) {
+  if (!bigIntFitsInKind(bigValue, targetKind)) {
     const range = NUMERIC_RANGES.get(targetKind);
     ctx.diagnostics.push(
       createDiagnostic(
         "TSN5102",
         "error",
-        `Literal ${value} is out of range for type ${targetKind} (valid range: ${range?.min} to ${range?.max})`,
+        `Literal ${raw} is out of range for type ${targetKind} (valid range: ${range?.min} to ${range?.max})`,
         moduleLocation(ctx),
         "Use a literal within the valid range for this type"
       )
@@ -211,12 +338,13 @@ const proveLiteral = (
 
   return {
     kind: targetKind,
-    source: { type: "literal", value },
+    source: { type: "literal", value: bigValue },
   };
 };
 
 /**
  * Attempt to prove a numeric narrowing expression.
+ * If proof fails, emits an error diagnostic - NO FALLBACK TO CAST.
  */
 const proveNarrowing = (
   expr: IrNumericNarrowingExpression,
@@ -227,7 +355,12 @@ const proveNarrowing = (
 
   // Case 1: Inner expression is a literal
   if (innerExpr.kind === "literal" && typeof innerExpr.value === "number") {
-    return proveLiteral(innerExpr.value, targetKind, ctx);
+    const proof = proveLiteral(innerExpr.value, innerExpr.raw, targetKind, ctx);
+    if (proof === undefined) {
+      // proveLiteral already pushed the diagnostic
+      return undefined;
+    }
+    return proof;
   }
 
   // Case 2: Inner expression is an identifier that is already proven
@@ -237,26 +370,55 @@ const proveNarrowing = (
     const sourceKind = varKind ?? paramKind;
 
     if (sourceKind !== undefined) {
-      // Same kind - no conversion needed, proof is valid
       if (sourceKind === targetKind) {
         return {
           kind: targetKind,
           source: { type: "variable", name: innerExpr.name },
         };
       }
-      // Different kind - allow but return undefined to trigger cast
-      // TODO: Could add widening proofs here
+      // Different kind - this is an error, not a cast
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN5104",
+          "error",
+          `Cannot narrow '${innerExpr.name}' from ${sourceKind} to ${targetKind}`,
+          moduleLocation(ctx),
+          `Variable '${innerExpr.name}' is proven as ${sourceKind}, which cannot be safely converted to ${targetKind}`
+        )
+      );
       return undefined;
     }
+
+    // Identifier not in proven scope - check if it has numeric intent from CLR
+    const identKind = getNumericKindFromType(innerExpr.inferredType);
+    if (identKind !== undefined && identKind === targetKind) {
+      return {
+        kind: targetKind,
+        source: { type: "variable", name: innerExpr.name },
+      };
+    }
+
+    // Cannot prove this identifier
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5101",
+        "error",
+        `Cannot prove narrowing of '${innerExpr.name}' to ${targetKind}`,
+        moduleLocation(ctx),
+        `Expression '${innerExpr.name}' has unknown numeric kind`
+      )
+    );
+    return undefined;
   }
 
   // Case 3: Inner expression is a binary operation
   if (innerExpr.kind === "binary") {
-    const resultKind = inferNumericKind(innerExpr, ctx);
-    if (resultKind === targetKind) {
-      const leftKind = inferNumericKind(innerExpr.left, ctx);
-      const rightKind = inferNumericKind(innerExpr.right, ctx);
-      if (leftKind !== undefined && rightKind !== undefined) {
+    const leftKind = inferNumericKind(innerExpr.left, ctx);
+    const rightKind = inferNumericKind(innerExpr.right, ctx);
+
+    if (leftKind !== undefined && rightKind !== undefined) {
+      const resultKind = getBinaryResultKind(leftKind, rightKind);
+      if (resultKind === targetKind) {
         return {
           kind: targetKind,
           source: {
@@ -267,32 +429,87 @@ const proveNarrowing = (
           },
         };
       }
+      // Result kind doesn't match target - error
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN5103",
+          "error",
+          `Binary operation produces ${resultKind}, cannot narrow to ${targetKind}`,
+          moduleLocation(ctx),
+          `The expression '${leftKind} ${innerExpr.operator} ${rightKind}' produces ${resultKind} per C# promotion rules`
+        )
+      );
+      return undefined;
     }
-    // Result doesn't match target - allow but return undefined to trigger cast
-    // The emitter will add an explicit cast
-    // TODO: Consider erroring here for truly incompatible conversions
+
+    // Cannot determine operand kinds
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5101",
+        "error",
+        `Cannot prove narrowing of binary expression to ${targetKind}`,
+        moduleLocation(ctx),
+        "One or both operands have unknown numeric kind"
+      )
+    );
+    return undefined;
   }
 
-  // Case 4: Inner expression is another numeric narrowing (nested)
-  if (innerExpr.kind === "numericNarrowing") {
-    // Process the inner narrowing first
-    const innerProof = proveNarrowing(innerExpr, ctx);
-    if (innerProof !== undefined) {
-      // Check if the inner result matches target
-      if (innerProof.kind === targetKind) {
+  // Case 4: Inner expression is a unary operation
+  if (innerExpr.kind === "unary") {
+    if (
+      innerExpr.operator === "-" ||
+      innerExpr.operator === "+" ||
+      innerExpr.operator === "~"
+    ) {
+      const operandKind = inferNumericKind(innerExpr.expression, ctx);
+      if (operandKind !== undefined && operandKind === targetKind) {
         return {
           kind: targetKind,
-          source: { type: "narrowing", from: innerProof.kind },
+          source: {
+            type: "unaryOp",
+            operator: innerExpr.operator,
+            operandKind,
+          },
         };
       }
     }
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5101",
+        "error",
+        `Cannot prove narrowing of unary expression to ${targetKind}`,
+        moduleLocation(ctx),
+        "Unary expression has unknown or mismatched numeric kind"
+      )
+    );
+    return undefined;
   }
 
-  // Case 5: Inner expression is a call with known return type
+  // Case 5: Inner expression is another numeric narrowing (nested)
+  if (innerExpr.kind === "numericNarrowing") {
+    if (innerExpr.proof !== undefined && innerExpr.proof.kind === targetKind) {
+      return {
+        kind: targetKind,
+        source: { type: "narrowing", from: innerExpr.proof.kind },
+      };
+    }
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5101",
+        "error",
+        `Cannot prove nested narrowing to ${targetKind}`,
+        moduleLocation(ctx),
+        "Inner narrowing is unproven or has different kind"
+      )
+    );
+    return undefined;
+  }
+
+  // Case 6: Inner expression is a call with known return type from CLR
   if (innerExpr.kind === "call") {
     const returnKind = getNumericKindFromType(innerExpr.inferredType);
     if (returnKind !== undefined && returnKind === targetKind) {
-      // Get method name for proof source
       const methodName =
         innerExpr.callee.kind === "memberAccess" &&
         typeof innerExpr.callee.property === "string"
@@ -305,10 +522,37 @@ const proveNarrowing = (
     }
   }
 
-  // Cannot prove statically - return undefined to indicate no proof
-  // The emitter will emit an explicit cast for safety
-  // This is less strict than Alice's spec but allows more code to compile
-  // TODO: Make this stricter once integer literal context inference is implemented
+  // Case 7: Inner expression is a member access with known type
+  if (innerExpr.kind === "memberAccess") {
+    const memberKind = getNumericKindFromType(innerExpr.inferredType);
+    if (memberKind !== undefined && memberKind === targetKind) {
+      const propName =
+        typeof innerExpr.property === "string"
+          ? innerExpr.property
+          : "computed";
+      return {
+        kind: targetKind,
+        source: {
+          type: "dotnetReturn",
+          method: propName,
+          returnKind: memberKind,
+        },
+      };
+    }
+  }
+
+  // HARD GATE: Cannot prove - emit error, DO NOT fallback to cast
+  ctx.diagnostics.push(
+    createDiagnostic(
+      "TSN5101",
+      "error",
+      `Cannot prove narrowing to ${targetKind}`,
+      moduleLocation(ctx),
+      `Expression of kind '${innerExpr.kind}' cannot be proven to produce ${targetKind}. ` +
+        `Ensure the expression is a literal in range, a variable with known numeric type, ` +
+        `or a binary/unary operation on proven numeric operands.`
+    )
+  );
   return undefined;
 };
 
@@ -327,6 +571,8 @@ const processExpression = (
         { ...expr, expression: processedInner },
         ctx
       );
+      // Note: proof may be undefined if proveNarrowing failed (diagnostic pushed)
+      // We still return the expression but without proof - emitter will fail if it sees this
       return {
         ...expr,
         expression: processedInner,
@@ -350,7 +596,9 @@ const processExpression = (
             return {
               ...p,
               key:
-                typeof p.key === "string" ? p.key : processExpression(p.key, ctx),
+                typeof p.key === "string"
+                  ? p.key
+                  : processExpression(p.key, ctx),
               value: processExpression(p.value, ctx),
             };
           }
@@ -476,15 +724,29 @@ const processStatement = <T extends IrStatement>(
           ? processExpression(d.initializer, ctx)
           : undefined;
 
-        // Track proven variables from const declarations with numeric narrowing
-        // The declarationKind is on the parent statement, not the declarator
+        // Track proven variables from declarations with known numeric kind
+        // This includes:
+        // 1. numericNarrowing with proof (explicit `as int`)
+        // 2. Binary/unary expressions that produce known numeric kinds
+        // 3. Identifiers with known numeric types
+        // We track both const and let (let can be reassigned, but at init we know the type)
         if (
-          stmt.declarationKind === "const" &&
           d.name.kind === "identifierPattern" &&
-          processedInit?.kind === "numericNarrowing" &&
-          processedInit.proof !== undefined
+          processedInit !== undefined
         ) {
-          ctx.provenVariables.set(d.name.name, processedInit.proof.kind);
+          // First check for explicit numericNarrowing
+          if (
+            processedInit.kind === "numericNarrowing" &&
+            processedInit.proof !== undefined
+          ) {
+            ctx.provenVariables.set(d.name.name, processedInit.proof.kind);
+          } else {
+            // Otherwise, try to infer the numeric kind from the expression
+            const inferredKind = inferNumericKind(processedInit, ctx);
+            if (inferredKind !== undefined) {
+              ctx.provenVariables.set(d.name.name, inferredKind);
+            }
+          }
         }
 
         return {
@@ -496,7 +758,6 @@ const processStatement = <T extends IrStatement>(
     }
 
     case "functionDeclaration": {
-      // Add parameters to proven context
       const paramCtx: ProofContext = {
         ...ctx,
         provenParameters: new Map(ctx.provenParameters),
@@ -519,7 +780,6 @@ const processStatement = <T extends IrStatement>(
     case "classDeclaration": {
       const processedMembers = stmt.members.map((m) => {
         if (m.kind === "methodDeclaration" && m.body) {
-          // Add parameters to context
           const methodCtx: ProofContext = {
             ...ctx,
             provenParameters: new Map(ctx.provenParameters),
@@ -653,10 +913,8 @@ const processModule = (module: IrModule): NumericProofResult => {
     provenParameters: new Map(),
   };
 
-  // Process all statements
   const processedBody = module.body.map((stmt) => processStatement(stmt, ctx));
 
-  // Process exports
   const processedExports = module.exports.map((exp) => {
     if (exp.kind === "default") {
       return { ...exp, expression: processExpression(exp.expression, ctx) };
@@ -681,8 +939,8 @@ const processModule = (module: IrModule): NumericProofResult => {
 /**
  * Run numeric proof validation on all modules.
  *
- * This is the numeric proof gate - if any diagnostics are returned,
- * the emitter must not run.
+ * HARD GATE: If any diagnostics are returned, the emitter MUST NOT run.
+ * This is not a warning system - unprovable narrowings are compilation errors.
  */
 export const runNumericProofPass = (
   modules: readonly IrModule[]

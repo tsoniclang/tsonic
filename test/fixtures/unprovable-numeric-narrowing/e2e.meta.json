@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "Numeric narrowings that cannot be proven sound must fail compilation. The numeric proof pass is a hard gate - unprovable narrowings are rejected, not emitted with fallback casts.",
+  "expectedErrors": ["TSN5102", "TSN5101"],
+  "diagnosticCodes": ["TSN5102", "TSN5101"],
+  "notes": "This tests Alice's 'Provably-Sound Numeric Types' specification: if Tsonic cannot prove a narrowing is sound, compilation must fail."
+}
