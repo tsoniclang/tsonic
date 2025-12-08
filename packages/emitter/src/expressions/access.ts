@@ -2,7 +2,7 @@
  * Member access expression emitters
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrLiteralExpression } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import {
@@ -15,6 +15,34 @@ import {
   stripNullish,
   getAllPropertySignatures,
 } from "../core/type-resolution.js";
+
+/**
+ * Check if an expression is an integer literal that fits in Int32 range.
+ * Mirrors C# semantics where integer-looking literals default to int.
+ */
+const isInt32Literal = (expr: IrExpression): boolean => {
+  if (expr.kind !== "literal") return false;
+  const lit = expr as IrLiteralExpression;
+  if (typeof lit.value !== "number") return false;
+  if (lit.raw === undefined) return false;
+
+  // Check lexeme is integer (no decimal, no exponent)
+  const raw = lit.raw;
+  if (raw.includes(".") || raw.includes("e") || raw.includes("E")) {
+    return false;
+  }
+
+  // Parse and check Int32 range
+  try {
+    const bigValue = BigInt(raw.replace(/^-/, ""));
+    const MIN_INT32 = BigInt("-2147483648");
+    const MAX_INT32 = BigInt("2147483647");
+    const actualValue = raw.startsWith("-") ? -bigValue : bigValue;
+    return actualValue >= MIN_INT32 && actualValue <= MAX_INT32;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Check if an expression represents a static type reference (not an instance)
@@ -100,7 +128,8 @@ export const emitMemberAccess = (
       return [{ text }, finalContext];
     }
 
-    // In dotnet mode, arrays use native List<T> indexer with int cast
+    // In dotnet mode, arrays use native List<T> indexer
+    // HARD GATE: Index must be proven Int32 (validated by proof pass)
     if (isArrayType && runtime === "dotnet") {
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
@@ -109,13 +138,32 @@ export const emitMemberAccess = (
       );
       const finalContext = { ...contextWithIndex, isArrayIndex: false };
       const accessor = expr.isOptional ? "?[" : "[";
-      // Check if index is known int (canonical loop counter)
+      // Check if index has Int32 proof (numericIntent from proof pass or loop var)
       const indexExpr = expr.property as IrExpression;
-      const isKnownInt =
-        indexExpr.kind === "identifier" &&
-        context.intLoopVars?.has(indexExpr.name);
-      const indexText = isKnownInt ? propFrag.text : `(int)(${propFrag.text})`;
-      const text = `${objectFrag.text}${accessor}${indexText}]`;
+      const hasInt32Proof =
+        // Check numericIntent from proof pass
+        (indexExpr.inferredType?.kind === "primitiveType" &&
+          indexExpr.inferredType.name === "number" &&
+          indexExpr.inferredType.numericIntent === "Int32") ||
+        // Check referenceType for CLR int
+        (indexExpr.inferredType?.kind === "referenceType" &&
+          indexExpr.inferredType.name === "int") ||
+        // Keep loop var recognition (they're proven by construction)
+        (indexExpr.kind === "identifier" &&
+          context.intLoopVars?.has(indexExpr.name)) ||
+        // Integer literals in Int32 range are valid (C# semantics)
+        isInt32Literal(indexExpr);
+
+      if (!hasInt32Proof) {
+        // ICE: Unproven index should have been caught by proof pass (TSN5107)
+        throw new Error(
+          `Internal Compiler Error: Array index must be proven Int32. ` +
+            `Expression '${propFrag.text}' has no Int32 proof. ` +
+            `This should have been caught by the numeric proof pass (TSN5107).`
+        );
+      }
+
+      const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 
@@ -128,24 +176,41 @@ export const emitMemberAccess = (
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
 
-    // Check if the index is already known to be int (e.g., canonical loop counter)
-    const indexExpr = expr.property as IrExpression;
-    const isKnownInt =
-      indexExpr.kind === "identifier" &&
-      context.intLoopVars?.has(indexExpr.name);
-
     // Check if this is dictionary access (no cast needed - use key type directly)
     const isDictionaryType = objectType?.kind === "dictionaryType";
 
-    // Determine index text:
-    // - Dictionary: use key as-is (double for number keys, string for string keys)
-    // - Known int: no cast needed
-    // - Other CLR indexers (List, string): require (int) cast
-    const indexText =
-      isDictionaryType || isKnownInt
-        ? propFrag.text
-        : `(int)(${propFrag.text})`;
-    const text = `${objectFrag.text}${accessor}${indexText}]`;
+    if (isDictionaryType) {
+      // Dictionary: use key as-is (double for number keys, string for string keys)
+      const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
+      return [{ text }, finalContext];
+    }
+
+    // HARD GATE: Non-dictionary CLR indexers (List<T>, string) require Int32 proof
+    const indexExpr = expr.property as IrExpression;
+    const hasInt32Proof =
+      // Check numericIntent from proof pass
+      (indexExpr.inferredType?.kind === "primitiveType" &&
+        indexExpr.inferredType.name === "number" &&
+        indexExpr.inferredType.numericIntent === "Int32") ||
+      // Check referenceType for CLR int
+      (indexExpr.inferredType?.kind === "referenceType" &&
+        indexExpr.inferredType.name === "int") ||
+      // Keep loop var recognition (they're proven by construction)
+      (indexExpr.kind === "identifier" &&
+        context.intLoopVars?.has(indexExpr.name)) ||
+      // Integer literals in Int32 range are valid (C# semantics)
+      isInt32Literal(indexExpr);
+
+    if (!hasInt32Proof) {
+      // ICE: Unproven index should have been caught by proof pass (TSN5107)
+      throw new Error(
+        `Internal Compiler Error: CLR indexer requires Int32 index. ` +
+          `Expression '${propFrag.text}' has no Int32 proof. ` +
+          `This should have been caught by the numeric proof pass (TSN5107).`
+      );
+    }
+
+    const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
   }
 

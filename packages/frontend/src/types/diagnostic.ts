@@ -84,7 +84,9 @@ export type DiagnosticCode =
   | "TSN5103" // Binary operation produces wrong numeric type
   | "TSN5104" // Cannot narrow from source to target type
   | "TSN5105" // Unproven numeric type at parameter boundary
-  | "TSN5106"; // Unproven numeric type at return boundary
+  | "TSN5106" // Unproven numeric type at return boundary
+  | "TSN5107" // Array index must be Int32
+  | "TSN5108"; // Value exceeds JS safe integer range
 
 export type SourceLocation = {
   readonly file: string;

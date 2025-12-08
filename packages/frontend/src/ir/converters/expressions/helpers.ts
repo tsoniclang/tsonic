@@ -5,6 +5,28 @@
 import * as ts from "typescript";
 import { IrType, TSONIC_TO_NUMERIC_KIND } from "../../types.js";
 import { convertType, convertTsTypeToIr } from "../../type-converter.js";
+import { SourceLocation } from "../../../types/diagnostic.js";
+import { getSourceLocation } from "../../../program/diagnostics.js";
+
+/**
+ * Get source span for a TypeScript node.
+ * Returns a SourceLocation that can be used for diagnostics.
+ */
+export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
+  try {
+    const sourceFile = node.getSourceFile();
+    if (!sourceFile) {
+      return undefined;
+    }
+    return getSourceLocation(
+      sourceFile,
+      node.getStart(sourceFile),
+      node.getWidth(sourceFile)
+    );
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * Check if a TypeScript type is a numeric alias from @tsonic/types.

@@ -4,7 +4,7 @@
 
 import * as ts from "typescript";
 import { IrMemberExpression } from "../../types.js";
-import { getInferredType } from "./helpers.js";
+import { getInferredType, getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { getBindingRegistry } from "../statements/declarations/registry.js";
 
@@ -125,6 +125,7 @@ export const convertMemberExpression = (
 ): IrMemberExpression => {
   const isOptional = node.questionDotToken !== undefined;
   const inferredType = getInferredType(node, checker);
+  const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
     const object = convertExpression(node.expression, checker);
@@ -140,6 +141,7 @@ export const convertMemberExpression = (
       isComputed: false,
       isOptional,
       inferredType,
+      sourceSpan,
       memberBinding,
     };
   } else {
@@ -150,6 +152,7 @@ export const convertMemberExpression = (
       isComputed: true,
       isOptional,
       inferredType,
+      sourceSpan,
     };
   }
 };

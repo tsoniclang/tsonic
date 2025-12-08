@@ -8,7 +8,7 @@ import {
   IrTemplateLiteralExpression,
   IrExpression,
 } from "../../types.js";
-import { getInferredType } from "./helpers.js";
+import { getInferredType, getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 
 /**
@@ -24,6 +24,7 @@ export const convertConditionalExpression = (
     whenTrue: convertExpression(node.whenTrue, checker),
     whenFalse: convertExpression(node.whenFalse, checker),
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
   };
 };
 
@@ -40,6 +41,7 @@ export const convertTemplateLiteral = (
       quasis: [node.text],
       expressions: [],
       inferredType: getInferredType(node, checker),
+      sourceSpan: getSourceSpan(node),
     };
   }
 
@@ -56,5 +58,6 @@ export const convertTemplateLiteral = (
     quasis,
     expressions,
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
   };
 };

@@ -11,6 +11,7 @@ import {
 } from "./helpers.js";
 import { IrBlockStatement } from "./statements.js";
 import { NumericKind } from "./numeric-kind.js";
+import { SourceLocation } from "../../types/diagnostic.js";
 
 export type IrExpression =
   | IrLiteralExpression
@@ -40,12 +41,14 @@ export type IrLiteralExpression = {
   readonly value: string | number | boolean | null | undefined;
   readonly raw?: string;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrIdentifierExpression = {
   readonly kind: "identifier";
   readonly name: string;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
   // Resolved binding for globals (console, Math, etc.)
   readonly resolvedClrType?: string; // e.g., "Tsonic.Runtime.console"
   readonly resolvedAssembly?: string; // e.g., "Tsonic.Runtime"
@@ -62,12 +65,14 @@ export type IrArrayExpression = {
   readonly kind: "array";
   readonly elements: readonly (IrExpression | IrSpreadExpression | undefined)[]; // undefined for holes
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrObjectExpression = {
   readonly kind: "object";
   readonly properties: readonly IrObjectProperty[];
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
   /** Contextual type for object literals in typed positions (return, assignment, etc.) */
   readonly contextualType?: IrType;
   /** True if this object literal contains spread expressions (for IIFE lowering) */
@@ -92,6 +97,7 @@ export type IrFunctionExpression = {
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrArrowFunctionExpression = {
@@ -101,6 +107,7 @@ export type IrArrowFunctionExpression = {
   readonly body: IrBlockStatement | IrExpression;
   readonly isAsync: boolean;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrMemberExpression = {
@@ -110,6 +117,7 @@ export type IrMemberExpression = {
   readonly isComputed: boolean; // true for obj[prop], false for obj.prop
   readonly isOptional: boolean; // true for obj?.prop
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
   // Hierarchical member binding (from bindings manifest)
   // When a member access like systemLinq.enumerable.selectMany is resolved,
   // this contains the full CLR binding info
@@ -126,6 +134,7 @@ export type IrCallExpression = {
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly isOptional: boolean; // true for func?.()
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
@@ -144,6 +153,7 @@ export type IrNewExpression = {
   readonly callee: IrExpression;
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
 };
@@ -151,6 +161,7 @@ export type IrNewExpression = {
 export type IrThisExpression = {
   readonly kind: "this";
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrUpdateExpression = {
@@ -159,6 +170,7 @@ export type IrUpdateExpression = {
   readonly prefix: boolean;
   readonly expression: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrUnaryExpression = {
@@ -166,6 +178,7 @@ export type IrUnaryExpression = {
   readonly operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete";
   readonly expression: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrBinaryExpression = {
@@ -174,6 +187,7 @@ export type IrBinaryExpression = {
   readonly left: IrExpression;
   readonly right: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrLogicalExpression = {
@@ -182,6 +196,7 @@ export type IrLogicalExpression = {
   readonly left: IrExpression;
   readonly right: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrConditionalExpression = {
@@ -190,6 +205,7 @@ export type IrConditionalExpression = {
   readonly whenTrue: IrExpression;
   readonly whenFalse: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrAssignmentExpression = {
@@ -198,6 +214,7 @@ export type IrAssignmentExpression = {
   readonly left: IrExpression | IrPattern;
   readonly right: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrTemplateLiteralExpression = {
@@ -205,18 +222,21 @@ export type IrTemplateLiteralExpression = {
   readonly quasis: readonly string[];
   readonly expressions: readonly IrExpression[];
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrSpreadExpression = {
   readonly kind: "spread";
   readonly expression: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrAwaitExpression = {
   readonly kind: "await";
   readonly expression: IrExpression;
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 export type IrYieldExpression = {
@@ -224,6 +244,7 @@ export type IrYieldExpression = {
   readonly expression?: IrExpression; // Optional for bare `yield`
   readonly delegate: boolean; // true for `yield*`, false for `yield`
   readonly inferredType?: IrType;
+  readonly sourceSpan?: SourceLocation;
 };
 
 /**
@@ -244,6 +265,7 @@ export type IrNumericNarrowingExpression = {
   readonly targetKind: NumericKind;
   /** Type after narrowing (always a number with numericIntent set) */
   readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
   /**
    * Attached by the Numeric Proof Pass.
    * If present and valid, the narrowing has been proven sound.

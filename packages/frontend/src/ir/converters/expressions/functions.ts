@@ -8,7 +8,7 @@ import {
   IrArrowFunctionExpression,
   IrParameter,
 } from "../../types.js";
-import { getInferredType } from "./helpers.js";
+import { getInferredType, getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
 import {
@@ -93,6 +93,7 @@ export const convertFunctionExpression = (
     ),
     isGenerator: !!node.asteriskToken,
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
   };
 };
 
@@ -116,5 +117,6 @@ export const convertArrowFunction = (
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
   };
 };

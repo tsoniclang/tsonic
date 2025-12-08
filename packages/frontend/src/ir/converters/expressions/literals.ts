@@ -4,7 +4,7 @@
 
 import * as ts from "typescript";
 import { IrLiteralExpression } from "../../types.js";
-import { getInferredType } from "./helpers.js";
+import { getInferredType, getSourceSpan } from "./helpers.js";
 
 /**
  * Convert string or numeric literal
@@ -18,5 +18,6 @@ export const convertLiteral = (
     value: ts.isStringLiteral(node) ? node.text : Number(node.text),
     raw: node.getText(),
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
   };
 };

@@ -256,8 +256,10 @@ const proveLiteral = (
   value: number,
   raw: string | undefined,
   targetKind: NumericKind,
-  ctx: ProofContext
+  ctx: ProofContext,
+  sourceSpan?: SourceLocation
 ): NumericProof | undefined => {
+  const location = sourceSpan ?? moduleLocation(ctx);
   // For floating-point targets, any finite number works
   if (!isIntegerKind(targetKind)) {
     if (!Number.isFinite(value)) {
@@ -266,8 +268,8 @@ const proveLiteral = (
           "TSN5102",
           "error",
           `Literal ${value} cannot be proven as ${targetKind}: not a finite number`,
-          moduleLocation(ctx),
-          "Only finite numbers can be used as floating-point types"
+          location,
+          "Only finite numbers can be used as floating-point types."
         )
       );
       return undefined;
@@ -285,8 +287,8 @@ const proveLiteral = (
         "TSN5102",
         "error",
         `Cannot prove literal as ${targetKind}: raw lexeme not available`,
-        moduleLocation(ctx),
-        "Integer literal proofs require the source lexeme for precision"
+        location,
+        "Integer literal proofs require the source lexeme for precision."
       )
     );
     return undefined;
@@ -299,8 +301,8 @@ const proveLiteral = (
         "TSN5102",
         "error",
         `Literal '${raw}' cannot be proven as ${targetKind}: not an integer lexeme`,
-        moduleLocation(ctx),
-        "Integer types require integer literals (no decimal point or exponent)"
+        location,
+        "Use an integer literal (no decimal point or exponent), or use float/double."
       )
     );
     return undefined;
@@ -314,8 +316,27 @@ const proveLiteral = (
         "TSN5102",
         "error",
         `Cannot parse literal '${raw}' as integer`,
-        moduleLocation(ctx),
-        "The literal could not be parsed as an integer value"
+        location,
+        "The literal could not be parsed as an integer value."
+      )
+    );
+    return undefined;
+  }
+
+  // JS Safe Integer check: Literals > 2^53-1 lose precision in JavaScript
+  // This is a representation soundness check - the TypeScript parser may have
+  // already lost precision by the time we see the JS number value.
+  const JS_MAX_SAFE_INTEGER = BigInt("9007199254740991"); // 2^53 - 1
+  const JS_MIN_SAFE_INTEGER = BigInt("-9007199254740991"); // -(2^53 - 1)
+  if (bigValue > JS_MAX_SAFE_INTEGER || bigValue < JS_MIN_SAFE_INTEGER) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5108",
+        "error",
+        `Literal ${raw} exceeds JavaScript safe integer range (±${JS_MAX_SAFE_INTEGER})`,
+        location,
+        "Values outside ±2^53-1 cannot be exactly represented in JavaScript. " +
+          "Use BigInt literals (e.g., 9007199254740992n) or string parsing."
       )
     );
     return undefined;
@@ -329,8 +350,8 @@ const proveLiteral = (
         "TSN5102",
         "error",
         `Literal ${raw} is out of range for type ${targetKind} (valid range: ${range?.min} to ${range?.max})`,
-        moduleLocation(ctx),
-        "Use a literal within the valid range for this type"
+        location,
+        `Value must be in range ${range?.min} to ${range?.max} for ${targetKind}.`
       )
     );
     return undefined;
@@ -352,10 +373,19 @@ const proveNarrowing = (
 ): NumericProof | undefined => {
   const innerExpr = expr.expression;
   const targetKind = expr.targetKind;
+  // Use expression's sourceSpan if available, otherwise fall back to module location
+  const location =
+    expr.sourceSpan ?? innerExpr.sourceSpan ?? moduleLocation(ctx);
 
   // Case 1: Inner expression is a literal
   if (innerExpr.kind === "literal" && typeof innerExpr.value === "number") {
-    const proof = proveLiteral(innerExpr.value, innerExpr.raw, targetKind, ctx);
+    const proof = proveLiteral(
+      innerExpr.value,
+      innerExpr.raw,
+      targetKind,
+      ctx,
+      innerExpr.sourceSpan ?? location
+    );
     if (proof === undefined) {
       // proveLiteral already pushed the diagnostic
       return undefined;
@@ -382,8 +412,9 @@ const proveNarrowing = (
           "TSN5104",
           "error",
           `Cannot narrow '${innerExpr.name}' from ${sourceKind} to ${targetKind}`,
-          moduleLocation(ctx),
-          `Variable '${innerExpr.name}' is proven as ${sourceKind}, which cannot be safely converted to ${targetKind}`
+          innerExpr.sourceSpan ?? location,
+          `Variable '${innerExpr.name}' is proven as ${sourceKind}. ` +
+            `Cast operands to ${targetKind} first if needed.`
         )
       );
       return undefined;
@@ -404,8 +435,10 @@ const proveNarrowing = (
         "TSN5101",
         "error",
         `Cannot prove narrowing of '${innerExpr.name}' to ${targetKind}`,
-        moduleLocation(ctx),
-        `Expression '${innerExpr.name}' has unknown numeric kind`
+        innerExpr.sourceSpan ?? location,
+        `Expression '${innerExpr.name}' has unknown numeric kind. ` +
+          `Narrow using \`${innerExpr.name} as ${targetKind}\` at assignment, ` +
+          `or ensure it originates from a proven ${targetKind} source.`
       )
     );
     return undefined;
@@ -434,9 +467,10 @@ const proveNarrowing = (
         createDiagnostic(
           "TSN5103",
           "error",
-          `Binary operation produces ${resultKind}, cannot narrow to ${targetKind}`,
-          moduleLocation(ctx),
-          `The expression '${leftKind} ${innerExpr.operator} ${rightKind}' produces ${resultKind} per C# promotion rules`
+          `Binary '${leftKind} ${innerExpr.operator} ${rightKind}' produces ${resultKind}, not ${targetKind}`,
+          innerExpr.sourceSpan ?? location,
+          `C# promotion rules: ${leftKind} ${innerExpr.operator} ${rightKind} = ${resultKind}. ` +
+            `Cast operands to ${targetKind} first if needed.`
         )
       );
       return undefined;
@@ -448,8 +482,9 @@ const proveNarrowing = (
         "TSN5101",
         "error",
         `Cannot prove narrowing of binary expression to ${targetKind}`,
-        moduleLocation(ctx),
-        "One or both operands have unknown numeric kind"
+        innerExpr.sourceSpan ?? location,
+        "One or both operands have unknown numeric kind. " +
+          "Ensure all operands are proven numeric types."
       )
     );
     return undefined;
@@ -479,8 +514,9 @@ const proveNarrowing = (
         "TSN5101",
         "error",
         `Cannot prove narrowing of unary expression to ${targetKind}`,
-        moduleLocation(ctx),
-        "Unary expression has unknown or mismatched numeric kind"
+        innerExpr.sourceSpan ?? location,
+        "Unary expression has unknown or mismatched numeric kind. " +
+          "Ensure the operand is a proven numeric type."
       )
     );
     return undefined;
@@ -499,8 +535,8 @@ const proveNarrowing = (
         "TSN5101",
         "error",
         `Cannot prove nested narrowing to ${targetKind}`,
-        moduleLocation(ctx),
-        "Inner narrowing is unproven or has different kind"
+        innerExpr.sourceSpan ?? location,
+        "Inner narrowing is unproven or has different kind."
       )
     );
     return undefined;
@@ -547,7 +583,7 @@ const proveNarrowing = (
       "TSN5101",
       "error",
       `Cannot prove narrowing to ${targetKind}`,
-      moduleLocation(ctx),
+      location,
       `Expression of kind '${innerExpr.kind}' cannot be proven to produce ${targetKind}. ` +
         `Ensure the expression is a literal in range, a variable with known numeric type, ` +
         `or a binary/unary operation on proven numeric operands.`
@@ -704,15 +740,46 @@ const processExpression = (
         right: processExpression(expr.right, ctx),
       };
 
-    case "memberAccess":
+    case "memberAccess": {
+      const processedObject = processExpression(expr.object, ctx);
+      const processedProperty =
+        typeof expr.property === "string"
+          ? expr.property
+          : processExpression(expr.property, ctx);
+
+      // ARRAY INDEX VALIDATION: If computed access on array type, index must be Int32
+      if (typeof processedProperty !== "string" && expr.isComputed) {
+        // Check if object is an array or indexable type
+        const objectType = processedObject.inferredType;
+        const isArrayAccess =
+          objectType?.kind === "arrayType" ||
+          (objectType?.kind === "referenceType" &&
+            ["List", "Array", "string", "String"].some((t) =>
+              objectType.name.includes(t)
+            ));
+
+        if (isArrayAccess) {
+          const indexKind = inferNumericKind(processedProperty, ctx);
+          if (indexKind !== "Int32") {
+            ctx.diagnostics.push(
+              createDiagnostic(
+                "TSN5107",
+                "error",
+                `Array index must be Int32, got ${indexKind ?? "unknown"}`,
+                processedProperty.sourceSpan ?? moduleLocation(ctx),
+                "Use 'index as int' to narrow, or ensure index is derived from Int32 source."
+              )
+            );
+          }
+        }
+      }
+
       return {
         ...expr,
-        object: processExpression(expr.object, ctx),
-        property:
-          typeof expr.property === "string"
-            ? expr.property
-            : processExpression(expr.property, ctx),
+        object: processedObject,
+        property: processedProperty,
       };
+    }
 
     case "call":
       return {

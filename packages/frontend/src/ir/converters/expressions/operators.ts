@@ -12,6 +12,7 @@ import {
 } from "../../types.js";
 import {
   getInferredType,
+  getSourceSpan,
   convertBinaryOperator,
   isAssignmentOperator,
 } from "./helpers.js";
@@ -26,6 +27,7 @@ export const convertBinaryExpression = (
 ): IrExpression => {
   const operator = convertBinaryOperator(node.operatorToken);
   const inferredType = getInferredType(node, checker);
+  const sourceSpan = getSourceSpan(node);
 
   // Handle assignment separately
   if (isAssignmentOperator(node.operatorToken)) {
@@ -33,10 +35,15 @@ export const convertBinaryExpression = (
       kind: "assignment",
       operator: operator as IrAssignmentOperator,
       left: ts.isIdentifier(node.left)
-        ? { kind: "identifier", name: node.left.text }
+        ? {
+            kind: "identifier",
+            name: node.left.text,
+            sourceSpan: getSourceSpan(node.left),
+          }
         : convertExpression(node.left, checker),
       right: convertExpression(node.right, checker),
       inferredType,
+      sourceSpan,
     };
   }
 
@@ -48,6 +55,7 @@ export const convertBinaryExpression = (
       left: convertExpression(node.left, checker),
       right: convertExpression(node.right, checker),
       inferredType,
+      sourceSpan,
     };
   }
 
@@ -58,6 +66,7 @@ export const convertBinaryExpression = (
     left: convertExpression(node.left, checker),
     right: convertExpression(node.right, checker),
     inferredType,
+    sourceSpan,
   };
 };
 
@@ -69,6 +78,7 @@ export const convertUnaryExpression = (
   checker: ts.TypeChecker
 ): IrUnaryExpression | IrUpdateExpression => {
   const inferredType = getInferredType(node, checker);
+  const sourceSpan = getSourceSpan(node);
 
   // Check if it's an increment/decrement (++ or --)
   if (
@@ -81,6 +91,7 @@ export const convertUnaryExpression = (
       prefix: true,
       expression: convertExpression(node.operand, checker),
       inferredType,
+      sourceSpan,
     };
   }
 
@@ -107,6 +118,7 @@ export const convertUnaryExpression = (
     operator,
     expression: convertExpression(node.operand, checker),
     inferredType,
+    sourceSpan,
   };
 };
 
@@ -118,6 +130,7 @@ export const convertUpdateExpression = (
   checker: ts.TypeChecker
 ): IrUpdateExpression => {
   const inferredType = getInferredType(node, checker);
+  const sourceSpan = getSourceSpan(node);
 
   if (ts.isPrefixUnaryExpression(node)) {
     // Check if it's an increment or decrement
@@ -131,6 +144,7 @@ export const convertUpdateExpression = (
         prefix: true,
         expression: convertExpression(node.operand, checker),
         inferredType,
+        sourceSpan,
       };
     }
   }
@@ -143,5 +157,6 @@ export const convertUpdateExpression = (
     prefix: false,
     expression: convertExpression(postfix.operand, checker),
     inferredType,
+    sourceSpan,
   };
 };
