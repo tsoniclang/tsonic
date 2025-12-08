@@ -16,6 +16,46 @@ import {
   getAllPropertySignatures,
 } from "../core/type-resolution.js";
 
+// ============================================================================
+// CONTRACT: Emitter ONLY consumes proof markers.
+//
+// The emitter MUST NOT re-derive numeric proofs. It only checks IR markers:
+// - primitiveType(number).numericIntent === "Int32"
+// - referenceType(name === "int")
+//
+// NO BigInt parsing, NO parseInt, NO lexeme (.raw) inspection, NO literal
+// special-casing, NO loop-var tables. If the proof pass didn't annotate it,
+// the emitter ICEs. Period.
+//
+// The numeric proof pass is the ONLY source of numeric proofs.
+// ============================================================================
+
+/**
+ * Check if an expression has proven Int32 type from the numeric proof pass.
+ * The emitter MUST NOT re-derive proofs - it only checks markers set by the proof pass.
+ * This is the SINGLE source of truth for numeric proofs in the emitter.
+ */
+const hasInt32Proof = (expr: IrExpression): boolean => {
+  // Check numericIntent from proof pass (set on primitiveType)
+  if (
+    expr.inferredType?.kind === "primitiveType" &&
+    expr.inferredType.name === "number" &&
+    expr.inferredType.numericIntent === "Int32"
+  ) {
+    return true;
+  }
+
+  // Check referenceType for CLR int (from .NET interop)
+  if (
+    expr.inferredType?.kind === "referenceType" &&
+    expr.inferredType.name === "int"
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 /**
  * Check if an expression represents a static type reference (not an instance)
  * Static type references are: namespace.Type or direct Type identifiers that resolve to types
@@ -100,7 +140,8 @@ export const emitMemberAccess = (
       return [{ text }, finalContext];
     }
 
-    // In dotnet mode, arrays use native List<T> indexer with int cast
+    // In dotnet mode, arrays use native List<T> indexer
+    // HARD GATE: Index must be proven Int32 (validated by proof pass)
     if (isArrayType && runtime === "dotnet") {
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
@@ -109,13 +150,18 @@ export const emitMemberAccess = (
       );
       const finalContext = { ...contextWithIndex, isArrayIndex: false };
       const accessor = expr.isOptional ? "?[" : "[";
-      // Check if index is known int (canonical loop counter)
       const indexExpr = expr.property as IrExpression;
-      const isKnownInt =
-        indexExpr.kind === "identifier" &&
-        context.intLoopVars?.has(indexExpr.name);
-      const indexText = isKnownInt ? propFrag.text : `(int)(${propFrag.text})`;
-      const text = `${objectFrag.text}${accessor}${indexText}]`;
+
+      if (!hasInt32Proof(indexExpr)) {
+        // ICE: Unproven index should have been caught by proof pass (TSN5107)
+        throw new Error(
+          `Internal Compiler Error: Array index must be proven Int32. ` +
+            `Expression '${propFrag.text}' has no Int32 proof. ` +
+            `This should have been caught by the numeric proof pass (TSN5107).`
+        );
+      }
+
+      const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 
@@ -128,24 +174,28 @@ export const emitMemberAccess = (
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
 
-    // Check if the index is already known to be int (e.g., canonical loop counter)
-    const indexExpr = expr.property as IrExpression;
-    const isKnownInt =
-      indexExpr.kind === "identifier" &&
-      context.intLoopVars?.has(indexExpr.name);
-
     // Check if this is dictionary access (no cast needed - use key type directly)
     const isDictionaryType = objectType?.kind === "dictionaryType";
 
-    // Determine index text:
-    // - Dictionary: use key as-is (double for number keys, string for string keys)
-    // - Known int: no cast needed
-    // - Other CLR indexers (List, string): require (int) cast
-    const indexText =
-      isDictionaryType || isKnownInt
-        ? propFrag.text
-        : `(int)(${propFrag.text})`;
-    const text = `${objectFrag.text}${accessor}${indexText}]`;
+    if (isDictionaryType) {
+      // Dictionary: use key as-is (double for number keys, string for string keys)
+      const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
+      return [{ text }, finalContext];
+    }
+
+    // HARD GATE: Non-dictionary CLR indexers (List<T>, string) require Int32 proof
+    const indexExpr = expr.property as IrExpression;
+
+    if (!hasInt32Proof(indexExpr)) {
+      // ICE: Unproven index should have been caught by proof pass (TSN5107)
+      throw new Error(
+        `Internal Compiler Error: CLR indexer requires Int32 index. ` +
+          `Expression '${propFrag.text}' has no Int32 proof. ` +
+          `This should have been caught by the numeric proof pass (TSN5107).`
+      );
+    }
+
+    const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
   }
 

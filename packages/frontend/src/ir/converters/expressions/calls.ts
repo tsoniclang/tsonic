@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import { IrCallExpression, IrNewExpression } from "../../types.js";
 import {
   getInferredType,
+  getSourceSpan,
   extractTypeArguments,
   checkIfRequiresSpecialization,
 } from "./helpers.js";
@@ -207,12 +208,14 @@ export const convertCallExpression = (
         return {
           kind: "spread" as const,
           expression: convertExpression(arg.expression, checker),
+          sourceSpan: getSourceSpan(arg),
         };
       }
       return convertExpression(arg, checker);
     }),
     isOptional: node.questionDotToken !== undefined,
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
     typeArguments,
     requiresSpecialization,
     argumentPassing,
@@ -241,11 +244,13 @@ export const convertNewExpression = (
           return {
             kind: "spread" as const,
             expression: convertExpression(arg.expression, checker),
+            sourceSpan: getSourceSpan(arg),
           };
         }
         return convertExpression(arg, checker);
       }) ?? [],
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
     typeArguments,
     requiresSpecialization,
   };

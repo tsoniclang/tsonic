@@ -10,7 +10,11 @@ import {
   IrObjectProperty,
   IrReferenceType,
 } from "../../types.js";
-import { getInferredType, getContextualType } from "./helpers.js";
+import {
+  getInferredType,
+  getSourceSpan,
+  getContextualType,
+} from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import {
   computeShapeSignature,
@@ -36,11 +40,13 @@ export const convertArrayLiteral = (
         return {
           kind: "spread" as const,
           expression: convertExpression(elem.expression, checker),
+          sourceSpan: getSourceSpan(elem),
         };
       }
       return convertExpression(elem, checker);
     }),
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
   };
 };
 
@@ -145,6 +151,7 @@ export const convertObjectLiteral = (
     kind: "object",
     properties,
     inferredType: getInferredType(node, checker),
+    sourceSpan: getSourceSpan(node),
     contextualType,
     hasSpreads, // Add flag for emitter to know about spreads
   };

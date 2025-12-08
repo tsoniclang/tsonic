@@ -8,6 +8,7 @@ import {
   containsTypeParameter,
   isDefinitelyValueType,
 } from "../core/type-resolution.js";
+import { isIntegerType } from "../core/type-compatibility.js";
 
 /**
  * C# types that require integer values (not double).
@@ -99,9 +100,11 @@ export const emitLiteral = (
 
   if (typeof value === "number") {
     // Check if context requires integer (array index, int parameter, etc.)
-    // Priority: explicit expectedClrType > context.isArrayIndex > default (double)
+    // Priority: expectedType (IR) > expectedClrType (string) > context.isArrayIndex > default (double)
     const needsInteger =
-      requiresInteger(expectedClrType) || context.isArrayIndex === true;
+      isIntegerType(expectedType) ||
+      requiresInteger(expectedClrType) ||
+      context.isArrayIndex === true;
 
     if (needsInteger) {
       // Integer-required context: emit without decimal
@@ -127,14 +130,28 @@ export const emitLiteral = (
 };
 
 /**
+ * Map from NumericKind to C# type names
+ */
+const NUMERIC_KIND_TO_CLR: Record<string, string> = {
+  SByte: "sbyte",
+  Byte: "byte",
+  Int16: "short",
+  UInt16: "ushort",
+  Int32: "int",
+  UInt32: "uint",
+  Int64: "long",
+  UInt64: "ulong",
+  Single: "float",
+  Double: "double",
+};
+
+/**
  * Helper to determine expected CLR type from IrType for numeric contexts.
- * Returns the CLR type name if it requires integer, undefined otherwise.
+ * Returns the CLR type name if it requires specific numeric handling, undefined otherwise.
  *
- * TODO: Expand this to handle more cases:
- * - Method parameter types (requires signature lookup)
- * - LINQ methods: Take(int), Skip(int), ElementAt(int)
- * - String methods: Substring(int, int)
- * - Generic type argument inference contexts
+ * Checks:
+ * - numericIntent on primitive types (from proof system)
+ * - Reference types that are known integer types
  */
 export const getExpectedClrTypeForNumeric = (
   irType: IrType | undefined
@@ -142,8 +159,11 @@ export const getExpectedClrTypeForNumeric = (
   if (!irType) return undefined;
 
   if (irType.kind === "primitiveType") {
-    // TS number -> C# double (default)
-    // TS doesn't have int type, so this won't trigger
+    // Check for numeric intent from the proof system
+    if (irType.name === "number" && irType.numericIntent !== undefined) {
+      return NUMERIC_KIND_TO_CLR[irType.numericIntent] ?? undefined;
+    }
+    // TS number without intent -> C# double (default)
     return undefined;
   }
 

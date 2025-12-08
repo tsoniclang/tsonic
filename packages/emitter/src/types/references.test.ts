@@ -336,7 +336,16 @@ describe("Reference Type Emission", () => {
                         elementType: { kind: "primitiveType", name: "number" },
                       },
                     },
-                    property: { kind: "literal", value: 0 },
+                    property: {
+                      kind: "literal",
+                      value: 0,
+                      // Proof marker: Int32 literal
+                      inferredType: {
+                        kind: "primitiveType",
+                        name: "number",
+                        numericIntent: "Int32",
+                      },
+                    },
                     isComputed: true,
                     isOptional: false,
                   },
@@ -352,8 +361,8 @@ describe("Reference Type Emission", () => {
 
       // In dotnet mode, output should NOT contain JSRuntime
       expect(result).to.not.include("Tsonic.JSRuntime");
-      // Should use native indexer
-      expect(result).to.include("arr[(int)(0)]");
+      // Should use native indexer (no cast needed with proof marker)
+      expect(result).to.include("arr[0]");
     });
 
     it("should emit JSRuntime in js mode for array indexing", () => {
@@ -401,7 +410,16 @@ describe("Reference Type Emission", () => {
                         elementType: { kind: "primitiveType", name: "number" },
                       },
                     },
-                    property: { kind: "literal", value: 0 },
+                    property: {
+                      kind: "literal",
+                      value: 0,
+                      // Proof marker: Int32 literal
+                      inferredType: {
+                        kind: "primitiveType",
+                        name: "number",
+                        numericIntent: "Int32",
+                      },
+                    },
                     isComputed: true,
                     isOptional: false,
                   },

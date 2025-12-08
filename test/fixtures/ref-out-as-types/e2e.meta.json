@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "ref/out/In are parameter modifiers, not types. Using them as type annotations must fail compilation.",
+  "expectedErrors": ["TSN7420"],
+  "diagnosticCodes": ["TSN7420"],
+  "notes": "Parameter modifiers (ref/out/in) will be supported via syntax in a future release. Type wrappers like ref<T> are no longer supported."
+}

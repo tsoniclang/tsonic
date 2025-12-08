@@ -13,6 +13,7 @@ import { createProgram, createCompilerOptions } from "./creation.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
+import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -306,14 +307,26 @@ export const buildModuleDependencyGraph = (
     return error(soundnessResult.diagnostics);
   }
 
+  // Run numeric proof pass - validates all numeric narrowings are provable
+  // and attaches proofs to expressions for the emitter
+  const numericResult = runNumericProofPass(modules);
+  if (!numericResult.ok) {
+    return error(numericResult.diagnostics);
+  }
+
+  // Use the processed modules with proofs attached
+  const processedModules = [...numericResult.modules];
+
   // Sort modules by relative path for deterministic output
-  modules.sort((a, b) => a.filePath.localeCompare(b.filePath));
+  processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));
 
   // Entry module is the first one (after sorting, it should be the entry file)
   // But let's find it by matching the entry file path
   const entryRelative = relative(sourceRootAbs, entryAbs).replace(/\\/g, "/");
-  const foundEntryModule = modules.find((m) => m.filePath === entryRelative);
-  const entryModule = foundEntryModule ?? modules[0];
+  const foundEntryModule = processedModules.find(
+    (m) => m.filePath === entryRelative
+  );
+  const entryModule = foundEntryModule ?? processedModules[0];
   if (entryModule === undefined) {
     return error([
       createDiagnostic("TSN1001", "error", "No modules found in the project", {
@@ -326,7 +339,7 @@ export const buildModuleDependencyGraph = (
   }
 
   return ok({
-    modules,
+    modules: processedModules,
     entryModule,
     bindings: tsonicProgram.bindings.getTypesMap(),
   });

@@ -167,7 +167,16 @@ describe("Statement Emission", () => {
                           {
                             kind: "memberAccess",
                             object: { kind: "identifier", name: "items" },
-                            property: { kind: "identifier", name: "i" },
+                            property: {
+                              kind: "identifier",
+                              name: "i",
+                              // Proof marker: loop counter is Int32
+                              inferredType: {
+                                kind: "primitiveType",
+                                name: "number",
+                                numericIntent: "Int32",
+                              },
+                            },
                             isComputed: true,
                             isOptional: false,
                           },

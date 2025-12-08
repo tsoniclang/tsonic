@@ -3,25 +3,84 @@
  */
 
 import * as ts from "typescript";
-import { IrType } from "../../types.js";
+import { IrType, TSONIC_TO_NUMERIC_KIND } from "../../types.js";
 import { convertType, convertTsTypeToIr } from "../../type-converter.js";
+import { SourceLocation } from "../../../types/diagnostic.js";
+import { getSourceLocation } from "../../../program/diagnostics.js";
+
+/**
+ * Get source span for a TypeScript node.
+ * Returns a SourceLocation that can be used for diagnostics.
+ */
+export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
+  try {
+    const sourceFile = node.getSourceFile();
+    if (!sourceFile) {
+      return undefined;
+    }
+    return getSourceLocation(
+      sourceFile,
+      node.getStart(sourceFile),
+      node.getWidth(sourceFile)
+    );
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Check if a TypeScript type is a numeric alias from @tsonic/types.
+ * Returns true for types like `int`, `byte`, `float`, etc.
+ *
+ * This is used to prevent numeric intent from leaking through contextual typing.
+ * When an expression like `a + b` is inside `(a + b) as int`, TypeScript's
+ * contextual type for the binary is `int`. We must NOT use this contextual type
+ * for inferredType because it would make the binary appear to have numeric intent
+ * when we haven't proven it does.
+ */
+const isNumericAliasType = (tsType: ts.Type): boolean => {
+  // Check if it's a type alias that resolves to a numeric kind
+  const symbol = tsType.aliasSymbol ?? tsType.getSymbol();
+  if (symbol) {
+    const name = symbol.getName();
+    if (TSONIC_TO_NUMERIC_KIND.has(name)) {
+      return true;
+    }
+  }
+  return false;
+};
 
 /**
  * Helper to get inferred type from TypeScript node
  * Prefers contextual type (from assignment target, return position, etc.)
  * over literal type to handle cases like empty arrays `[]` correctly.
+ *
+ * IMPORTANT: For numeric types, we do NOT use contextual type. This prevents
+ * numeric intent from leaking through TypeScript's contextual typing.
+ * The `numericNarrowing` IR node is the ONLY source of numeric intent.
  */
 export const getInferredType = (
   node: ts.Node,
   checker: ts.TypeChecker
 ): IrType | undefined => {
   try {
-    // Try contextual type first (from assignment target, parameter, return, etc.)
+    // Get the actual type first
+    const actualType = checker.getTypeAtLocation(node);
+
+    // Try contextual type (from assignment target, parameter, return, etc.)
     // This is essential for empty arrays: [] has literal type never[] but contextual
     // type Player[] when assigned to a Player[] variable
     const expr = ts.isExpression(node) ? node : undefined;
     const contextualType = expr ? checker.getContextualType(expr) : undefined;
-    const tsType = contextualType ?? checker.getTypeAtLocation(node);
+
+    // CRITICAL: Do NOT use contextual type if it's a numeric alias.
+    // This prevents numeric intent from leaking into inner expressions.
+    // Example: (a + b) as int - the binary should NOT have int intent from contextual typing.
+    // Only the numericNarrowing node should carry the intent.
+    const tsType =
+      contextualType && !isNumericAliasType(contextualType)
+        ? contextualType
+        : actualType;
 
     // First try typeToTypeNode for simple types
     const typeNode = checker.typeToTypeNode(

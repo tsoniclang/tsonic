@@ -67,6 +67,10 @@ export type {
   IrSpreadExpression,
   IrAwaitExpression,
   IrYieldExpression,
+  IrNumericNarrowingExpression,
+  NumericProof,
+  ProofSource,
+  ComputedAccessKind,
 } from "./expressions.js";
 
 // Type system types
@@ -108,3 +112,16 @@ export type {
 
 // Type guards
 export { isStatement, isExpression } from "./guards.js";
+
+// Numeric types
+export type { NumericKind } from "./numeric-kind.js";
+export {
+  TSONIC_TO_NUMERIC_KIND,
+  NUMERIC_KIND_TO_CSHARP,
+  NUMERIC_RANGES,
+  isIntegerKind,
+  isSignedKind,
+  getBinaryResultKind,
+  literalFitsInKind,
+  isWideningConversion,
+} from "./numeric-kind.js";

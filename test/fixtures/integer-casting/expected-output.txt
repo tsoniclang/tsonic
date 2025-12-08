@@ -1,0 +1,84 @@
+=== Integer Casting E2E Tests ===
+
+--- Section 1: Basic int declarations ---
+x = 10
+y = 20
+z = 30
+
+--- Section 2: int + literal arithmetic ---
+x + 1 = 11
+y + 2 = 22
+z + 100 = 130
+
+--- Section 3: int + int arithmetic ---
+x + y = 30
+y + z = 50
+x + y + z = 60
+
+--- Section 4: Declared type int ---
+g (int) = 30
+h (int) = 33
+i (int) = 11
+
+--- Section 5: Redundant as int ---
+(x as int) + (y as int) = 30
+(x as int) + (y as int) (inferred) = 30
+((x + y) as int) + z = 60
+
+--- Section 6: Subtraction ---
+x - 5 = 5
+y - x = 10
+z - 10 = 20
+
+--- Section 7: Multiplication ---
+x * 2 = 20
+x * y = 200
+y * 3 = 60
+
+--- Section 8: Division ---
+y / x = 2
+z / 10 = 3
+100 / 3 = 33
+
+--- Section 9: Modulo ---
+z % x = 0
+25 % 7 = 4
+
+--- Section 10: Unary minus ---
+-x = -10
+-(5 as int) = -5
+
+--- Section 11: Complex expressions ---
+(x + y) * z = 900
+x + y * z = 610
+(x + 1) * (y + 2) = 242
+((x+y) as int) * ((y+z) as int) = 1500
+
+--- Section 12: Chained operations ---
+x + 1 + 2 + 3 = 16
+x * 2 + y * 3 = 80
+x + y + z + 100 = 160
+
+--- Section 13: Comparisons ---
+x < y = True
+x > 5 = True
+y <= z = True
+x >= 10 = True
+x === 10 = True
+y !== z = True
+
+--- Section 14: Assignment operators ---
+counter after +1 = 1
+counter after +10 = 11
+counter after *2 = 22
+
+--- Section 15: Function boundaries ---
+addInts(x, y) = 30
+multiplyByTwo(z) = 60
+increment(x) = 11
+
+--- Section 16: Array indexing ---
+arr[idx] = two
+arr[idx + 1] = three
+
+=== All tests completed ===

@@ -11,6 +11,7 @@ import {
   stripNullish,
   findUnionMemberIndex,
 } from "../core/type-resolution.js";
+import { isIntegerType } from "../core/type-compatibility.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
@@ -104,21 +105,53 @@ export const emitBinary = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
-  // Check if this binary expression should produce an integer result
-  // Priority: expression's own inferredType > expectedType from context
-  const integerCastType =
-    getIntegerCastType(expr.inferredType) || getIntegerCastType(expectedType);
+  // Comparison operators return boolean, not numeric - never apply int casts
+  const isComparisonOp =
+    expr.operator === "<" ||
+    expr.operator === ">" ||
+    expr.operator === "<=" ||
+    expr.operator === ">=" ||
+    expr.operator === "==" ||
+    expr.operator === "!=" ||
+    expr.operator === "===" ||
+    expr.operator === "!==";
+
+  // Check operand types for integer handling (for literal emission context only)
+  const leftIsInt = isIntegerType(expr.left.inferredType);
+  const rightIsInt = isIntegerType(expr.right.inferredType);
+  const leftIsNumericLiteral =
+    expr.left.kind === "literal" && typeof expr.left.value === "number";
+  const rightIsNumericLiteral =
+    expr.right.kind === "literal" && typeof expr.right.value === "number";
+
+  // Check if this binary expression has explicit integer type annotation
+  // ONLY use numericIntent from the IR - NO heuristics like "eitherOperandInt"
+  // The proof system validates all narrowings; emitter must not guess
+  // NEVER apply int casts to comparison operators (they return bool)
+  const integerCastType = isComparisonOp
+    ? undefined
+    : getIntegerCastType(expr.inferredType) || getIntegerCastType(expectedType);
+
+  // Determine expected type for children based on operand types
+  // This ensures literals emit correctly (e.g., x + 1 where x is int → 1 not 1.0)
+  // This is context propagation, not type inference - the proof system handles inference
+  const childExpectedType: IrType | undefined =
+    leftIsInt || rightIsInt
+      ? { kind: "referenceType", name: "int" }
+      : integerCastType
+        ? { kind: "referenceType", name: integerCastType }
+        : undefined;
 
   // Pass expected type to children so literals emit correctly
   const [leftFrag, leftContext] = emitExpression(
     expr.left,
     context,
-    integerCastType ? expr.inferredType : undefined
+    childExpectedType
   );
   const [rightFrag, rightContext] = emitExpression(
     expr.right,
     leftContext,
-    integerCastType ? expr.inferredType : undefined
+    childExpectedType
   );
 
   // Map JavaScript operators to C# operators
@@ -132,6 +165,7 @@ export const emitBinary = (
   };
 
   const op = operatorMap[expr.operator] ?? expr.operator;
+  const parentPrecedence = getPrecedence(expr.operator);
 
   // Handle typeof operator specially
   if (expr.operator === "instanceof") {
@@ -139,11 +173,34 @@ export const emitBinary = (
     return [{ text, precedence: 7 }, rightContext];
   }
 
-  let text = `${leftFrag.text} ${op} ${rightFrag.text}`;
+  // Wrap child expressions in parentheses if their precedence is lower than parent
+  // This preserves grouping: (x + y) * z should not become x + y * z
+  const leftText =
+    leftFrag.precedence !== undefined && leftFrag.precedence < parentPrecedence
+      ? `(${leftFrag.text})`
+      : leftFrag.text;
 
-  // Wrap with explicit cast if integer type is required
-  // This ensures correctness even if child expressions have mixed types
-  if (integerCastType) {
+  // For right operand, also wrap if precedence is equal (right-to-left associativity issue)
+  // Example: a - (b - c) should not become a - b - c
+  const rightText =
+    rightFrag.precedence !== undefined &&
+    rightFrag.precedence <= parentPrecedence
+      ? `(${rightFrag.text})`
+      : rightFrag.text;
+
+  let text = `${leftText} ${op} ${rightText}`;
+
+  // Determine if each operand will emit as int
+  // An operand "will be int" if: (1) already has int type, OR (2) is a numeric literal
+  // (literals emit as int when we pass int expectedType)
+  const leftWillBeInt = leftIsInt || leftIsNumericLiteral;
+  const rightWillBeInt = rightIsInt || rightIsNumericLiteral;
+  const bothWillBeInt = leftWillBeInt && rightWillBeInt;
+
+  // Wrap with explicit cast if integer type is required AND operands won't both produce int
+  // Alice's invariant: "No cosmetic casts" - don't wrap if result is already int
+  // For arithmetic ops, int + int = int in C#, so no cast needed when both are int
+  if (integerCastType && !bothWillBeInt) {
     text = `(${integerCastType})(${text})`;
   }
 
@@ -236,9 +293,17 @@ export const emitUnary = (
 
   let text = `${expr.operator}${operandFrag.text}`;
 
-  // Wrap with explicit cast if integer type is required
-  // This handles cases like `-1 as int` emitting as `(int)(-1)`
-  if (integerCastType && (expr.operator === "-" || expr.operator === "+")) {
+  // Check if operand already produces integer (no cast needed)
+  // Alice's invariant: "No cosmetic casts" - skip cast if result is already int
+  const operandAlreadyInt = isIntegerType(expr.expression.inferredType);
+
+  // Wrap with explicit cast if integer type is required AND operand doesn't already produce int
+  // For unary +/- on int, the result is int in C#, so no cast needed
+  if (
+    integerCastType &&
+    !operandAlreadyInt &&
+    (expr.operator === "-" || expr.operator === "+")
+  ) {
     text = `(${integerCastType})(${text})`;
   }
 

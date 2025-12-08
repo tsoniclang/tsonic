@@ -4,7 +4,12 @@
  */
 
 import * as ts from "typescript";
-import { IrExpression } from "./types.js";
+import {
+  IrExpression,
+  IrNumericNarrowingExpression,
+  NumericKind,
+  TSONIC_TO_NUMERIC_KIND,
+} from "./types.js";
 import { getBindingRegistry } from "./converters/statements/declarations/registry.js";
 import { convertType } from "./type-converter.js";
 
@@ -32,7 +37,38 @@ import {
   convertConditionalExpression,
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
-import { getInferredType } from "./converters/expressions/helpers.js";
+import {
+  getInferredType,
+  getSourceSpan,
+} from "./converters/expressions/helpers.js";
+
+/**
+ * Extract the NumericKind from a type node if it references a known numeric alias.
+ *
+ * Examples:
+ * - `int` → "Int32"
+ * - `byte` → "Byte"
+ * - `long` → "Int64"
+ * - `string` → undefined (not numeric)
+ */
+const getNumericKindFromTypeNode = (
+  typeNode: ts.TypeNode
+): NumericKind | undefined => {
+  // Handle type reference nodes (e.g., `int`, `byte`, `Int32`)
+  if (ts.isTypeReferenceNode(typeNode)) {
+    const typeName = typeNode.typeName;
+    if (ts.isIdentifier(typeName)) {
+      const name = typeName.text;
+      // Look up the type alias name in our mapping
+      const kind = TSONIC_TO_NUMERIC_KIND.get(name);
+      if (kind !== undefined) {
+        return kind;
+      }
+    }
+  }
+
+  return undefined;
+};
 
 /**
  * Main expression conversion dispatcher
@@ -56,10 +92,17 @@ export const convertExpression = (
       value: node.kind === ts.SyntaxKind.TrueKeyword,
       raw: node.getText(),
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (node.kind === ts.SyntaxKind.NullKeyword) {
-    return { kind: "literal", value: null, raw: "null", inferredType };
+    return {
+      kind: "literal",
+      value: null,
+      raw: "null",
+      inferredType,
+      sourceSpan: getSourceSpan(node),
+    };
   }
   if (
     node.kind === ts.SyntaxKind.UndefinedKeyword ||
@@ -70,6 +113,7 @@ export const convertExpression = (
       value: undefined,
       raw: "undefined",
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isIdentifier(node)) {
@@ -80,12 +124,18 @@ export const convertExpression = (
         kind: "identifier",
         name: node.text,
         inferredType,
+        sourceSpan: getSourceSpan(node),
         resolvedClrType: binding.type,
         resolvedAssembly: binding.assembly,
         csharpName: binding.csharpName, // Optional C# name from binding
       };
     }
-    return { kind: "identifier", name: node.text, inferredType };
+    return {
+      kind: "identifier",
+      name: node.text,
+      inferredType,
+      sourceSpan: getSourceSpan(node),
+    };
   }
   if (ts.isArrayLiteralExpression(node)) {
     return convertArrayLiteral(node, checker);
@@ -120,6 +170,7 @@ export const convertExpression = (
       operator: "typeof",
       expression: convertExpression(node.expression, checker),
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isVoidExpression(node)) {
@@ -128,6 +179,7 @@ export const convertExpression = (
       operator: "void",
       expression: convertExpression(node.expression, checker),
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isDeleteExpression(node)) {
@@ -136,6 +188,7 @@ export const convertExpression = (
       operator: "delete",
       expression: convertExpression(node.expression, checker),
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isConditionalExpression(node)) {
@@ -158,16 +211,18 @@ export const convertExpression = (
       kind: "spread",
       expression: convertExpression(node.expression, checker),
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
-    return { kind: "this", inferredType };
+    return { kind: "this", inferredType, sourceSpan: getSourceSpan(node) };
   }
   if (ts.isAwaitExpression(node)) {
     return {
       kind: "await",
       expression: convertExpression(node.expression, checker),
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isYieldExpression(node)) {
@@ -178,6 +233,7 @@ export const convertExpression = (
         : undefined,
       delegate: !!node.asteriskToken,
       inferredType,
+      sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isParenthesizedExpression(node)) {
@@ -185,18 +241,45 @@ export const convertExpression = (
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Convert the inner expression
-    const innerExpr = convertExpression(
-      ts.isAsExpression(node) ? node.expression : node.expression,
-      checker
-    );
-    // Preserve the asserted type - this is needed for casts like `x as int`
-    const assertedTypeNode = ts.isAsExpression(node) ? node.type : node.type;
+    const innerExpr = convertExpression(node.expression, checker);
+
+    // Get the asserted type
+    const assertedTypeNode = node.type;
     const assertedType = convertType(assertedTypeNode, checker);
-    return { ...innerExpr, inferredType: assertedType };
+
+    // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)
+    const numericKind = getNumericKindFromTypeNode(assertedTypeNode);
+    if (numericKind !== undefined) {
+      // Create a numeric narrowing expression that preserves the inner expression
+      const narrowingExpr: IrNumericNarrowingExpression = {
+        kind: "numericNarrowing",
+        expression: innerExpr,
+        targetKind: numericKind,
+        inferredType: {
+          kind: "primitiveType",
+          name: "number",
+          numericIntent: numericKind,
+        },
+        sourceSpan: getSourceSpan(node),
+      };
+      return narrowingExpr;
+    }
+
+    // Non-numeric assertion - keep existing behavior (overwrite inferredType)
+    return {
+      ...innerExpr,
+      inferredType: assertedType,
+      sourceSpan: getSourceSpan(node),
+    };
   }
 
   // Fallback - treat as identifier
-  return { kind: "identifier", name: node.getText(), inferredType };
+  return {
+    kind: "identifier",
+    name: node.getText(),
+    inferredType,
+    sourceSpan: getSourceSpan(node),
+  };
 };
 
 // Re-export commonly used functions for backward compatibility

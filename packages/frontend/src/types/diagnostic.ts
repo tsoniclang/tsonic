@@ -43,6 +43,7 @@ export type DiagnosticCode =
   | "TSN7410" // Intersection types not supported
   | "TSN7413" // Dictionary key must be string or number
   | "TSN7414" // Type cannot be represented in compiler subset
+  | "TSN7420" // ref/out/In are parameter modifiers, not types
   // Metadata loading errors (TSN9001-TSN9018)
   | "TSN9001" // Metadata file not found
   | "TSN9002" // Failed to read metadata file
@@ -76,7 +77,17 @@ export type DiagnosticCode =
   | "TSN9111" // Invalid type binding: V2 field must be an array if present
   | "TSN9112" // Bindings directory not found
   | "TSN9113" // Not a directory
-  | "TSN9114"; // No .bindings.json files found
+  | "TSN9114" // No .bindings.json files found
+  // Numeric proof errors (TSN5101-TSN5199)
+  | "TSN5101" // Cannot prove numeric narrowing
+  | "TSN5102" // Literal out of range for numeric type
+  | "TSN5103" // Binary operation produces wrong numeric type
+  | "TSN5104" // Cannot narrow from source to target type
+  | "TSN5105" // Unproven numeric type at parameter boundary
+  | "TSN5106" // Unproven numeric type at return boundary
+  | "TSN5107" // Array index must be Int32
+  | "TSN5108" // Value exceeds JS safe integer range
+  | "TSN5109"; // Computed access kind not classified (compiler bug)
 
 export type SourceLocation = {
   readonly file: string;

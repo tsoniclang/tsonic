@@ -1,0 +1,11 @@
+{
+  "name": "ref-out-as-types-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/dotnet": "^0.7.2",
+    "@tsonic/dotnet-globals": "^0.1.2",
+    "@tsonic/types": "^0.3.0"
+  }
+}

@@ -5,6 +5,7 @@
 // Helpers
 export {
   getInferredType,
+  getSourceSpan,
   extractTypeArguments,
   checkIfRequiresSpecialization,
   convertBinaryOperator,

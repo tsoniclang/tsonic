@@ -1,0 +1,22 @@
+{
+  "$schema": "https://tsonic.dev/schema/v1.json",
+  "rootNamespace": "IntegerCastingTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "integer-casting-test",
+  "runtime": "dotnet",
+  "optimize": "speed",
+  "packages": [],
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  },
+  "dotnet": {
+    "typeRoots": [
+      "node_modules/@tsonic/dotnet-globals",
+      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/types"
+    ]
+  }
+}
