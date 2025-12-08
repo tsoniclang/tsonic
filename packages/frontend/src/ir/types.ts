@@ -62,6 +62,9 @@ export type {
   IrSpreadExpression,
   IrAwaitExpression,
   IrYieldExpression,
+  IrNumericNarrowingExpression,
+  NumericProof,
+  ProofSource,
   // Type system types
   IrType,
   IrPrimitiveType,
@@ -92,7 +95,21 @@ export type {
   IrAccessibility,
   IrBinaryOperator,
   IrAssignmentOperator,
+  // Numeric types
+  NumericKind,
 } from "./types/index.js";
 
 // Re-export type guards
 export { isStatement, isExpression } from "./types/guards.js";
+
+// Re-export numeric utilities
+export {
+  TSONIC_TO_NUMERIC_KIND,
+  NUMERIC_KIND_TO_CSHARP,
+  NUMERIC_RANGES,
+  isIntegerKind,
+  isSignedKind,
+  getBinaryResultKind,
+  literalFitsInKind,
+  isWideningConversion,
+} from "./types/index.js";

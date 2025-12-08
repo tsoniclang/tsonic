@@ -49,10 +49,10 @@ z % x = 0
 -(5 as int) = -5
 
 --- Section 11: Complex expressions ---
-(x + y) * z = 610
+(x + y) * z = 900
 x + y * z = 610
-(x + 1) * (y + 2) = 32
-((x+y) as int) * ((y+z) as int) = 440
+(x + 1) * (y + 2) = 242
+((x+y) as int) * ((y+z) as int) = 1500
 
 --- Section 12: Chained operations ---
 x + 1 + 2 + 3 = 16

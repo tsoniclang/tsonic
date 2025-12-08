@@ -4,7 +4,12 @@
  */
 
 import * as ts from "typescript";
-import { IrExpression } from "./types.js";
+import {
+  IrExpression,
+  IrNumericNarrowingExpression,
+  NumericKind,
+  TSONIC_TO_NUMERIC_KIND,
+} from "./types.js";
 import { getBindingRegistry } from "./converters/statements/declarations/registry.js";
 import { convertType } from "./type-converter.js";
 
@@ -33,6 +38,34 @@ import {
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
 import { getInferredType } from "./converters/expressions/helpers.js";
+
+/**
+ * Extract the NumericKind from a type node if it references a known numeric alias.
+ *
+ * Examples:
+ * - `int` → "Int32"
+ * - `byte` → "Byte"
+ * - `long` → "Int64"
+ * - `string` → undefined (not numeric)
+ */
+const getNumericKindFromTypeNode = (
+  typeNode: ts.TypeNode
+): NumericKind | undefined => {
+  // Handle type reference nodes (e.g., `int`, `byte`, `Int32`)
+  if (ts.isTypeReferenceNode(typeNode)) {
+    const typeName = typeNode.typeName;
+    if (ts.isIdentifier(typeName)) {
+      const name = typeName.text;
+      // Look up the type alias name in our mapping
+      const kind = TSONIC_TO_NUMERIC_KIND.get(name);
+      if (kind !== undefined) {
+        return kind;
+      }
+    }
+  }
+
+  return undefined;
+};
 
 /**
  * Main expression conversion dispatcher
@@ -185,13 +218,30 @@ export const convertExpression = (
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Convert the inner expression
-    const innerExpr = convertExpression(
-      ts.isAsExpression(node) ? node.expression : node.expression,
-      checker
-    );
-    // Preserve the asserted type - this is needed for casts like `x as int`
-    const assertedTypeNode = ts.isAsExpression(node) ? node.type : node.type;
+    const innerExpr = convertExpression(node.expression, checker);
+
+    // Get the asserted type
+    const assertedTypeNode = node.type;
     const assertedType = convertType(assertedTypeNode, checker);
+
+    // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)
+    const numericKind = getNumericKindFromTypeNode(assertedTypeNode);
+    if (numericKind !== undefined) {
+      // Create a numeric narrowing expression that preserves the inner expression
+      const narrowingExpr: IrNumericNarrowingExpression = {
+        kind: "numericNarrowing",
+        expression: innerExpr,
+        targetKind: numericKind,
+        inferredType: {
+          kind: "primitiveType",
+          name: "number",
+          numericIntent: numericKind,
+        },
+      };
+      return narrowingExpr;
+    }
+
+    // Non-numeric assertion - keep existing behavior (overwrite inferredType)
     return { ...innerExpr, inferredType: assertedType };
   }
 

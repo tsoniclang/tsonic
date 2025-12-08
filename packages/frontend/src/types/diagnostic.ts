@@ -76,7 +76,14 @@ export type DiagnosticCode =
   | "TSN9111" // Invalid type binding: V2 field must be an array if present
   | "TSN9112" // Bindings directory not found
   | "TSN9113" // Not a directory
-  | "TSN9114"; // No .bindings.json files found
+  | "TSN9114" // No .bindings.json files found
+  // Numeric proof errors (TSN5101-TSN5199)
+  | "TSN5101" // Cannot prove numeric narrowing
+  | "TSN5102" // Literal out of range for numeric type
+  | "TSN5103" // Binary operation produces wrong numeric type
+  | "TSN5104" // Cannot narrow from source to target type
+  | "TSN5105" // Unproven numeric type at parameter boundary
+  | "TSN5106"; // Unproven numeric type at return boundary
 
 export type SourceLocation = {
   readonly file: string;

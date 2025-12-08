@@ -3,7 +3,12 @@
  * Main dispatcher - delegates to specialized modules
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import {
+  IrExpression,
+  IrType,
+  IrNumericNarrowingExpression,
+  NUMERIC_KIND_TO_CSHARP,
+} from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
 
 // Import expression emitters from specialized modules
@@ -32,6 +37,68 @@ import {
   emitSpread,
   emitAwait,
 } from "./expressions/other.js";
+
+/**
+ * Emit a numeric narrowing expression.
+ *
+ * If the inner expression is already proven to produce the target type,
+ * emit it directly without a cast. Otherwise, emit with an explicit cast.
+ *
+ * Key cases:
+ * - Literal 10 as int → "10" (no cast, no .0)
+ * - Variable x as int (where x is already int) → "x" (no cast)
+ * - Expression (x + y) as int (where result is int) → "x + y" (no cast)
+ */
+const emitNumericNarrowing = (
+  expr: IrNumericNarrowingExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const targetKind = expr.targetKind;
+  const targetCSharpType = NUMERIC_KIND_TO_CSHARP.get(targetKind) ?? "int";
+
+  // If we have a proof that the inner expression already produces the target type,
+  // we don't need a cast - just emit the inner expression
+  if (expr.proof !== undefined) {
+    // The proof validates the narrowing is sound, so emit the inner expression
+    // with the appropriate numeric context
+    const [innerCode, newContext] = emitExpression(
+      expr.expression,
+      context,
+      expr.inferredType // Pass the target type as expected type
+    );
+
+    // If the inner is a literal, it will already emit correctly based on inferredType
+    // If the inner is a binary op between ints, it produces int, no cast needed
+    if (expr.proof.source.type === "literal") {
+      // Literal was already proven to fit - emitExpression will handle it
+      return [innerCode, newContext];
+    }
+
+    if (
+      expr.proof.source.type === "binaryOp" ||
+      expr.proof.source.type === "unaryOp"
+    ) {
+      // Binary/unary op that produces the target type - no cast needed
+      return [innerCode, newContext];
+    }
+
+    if (
+      expr.proof.source.type === "variable" ||
+      expr.proof.source.type === "parameter"
+    ) {
+      // Variable/parameter already has the target type - no cast needed
+      return [innerCode, newContext];
+    }
+
+    // For other proof types (dotnetReturn, narrowing from same type), emit as-is
+    return [innerCode, newContext];
+  }
+
+  // No proof - this shouldn't happen after proof pass, but handle defensively
+  // Emit with explicit cast
+  const [innerCode, newContext] = emitExpression(expr.expression, context);
+  return [{ text: `(${targetCSharpType})(${innerCode.text})` }, newContext];
+};
 
 /**
  * Emit a C# expression from an IR expression
@@ -108,6 +175,9 @@ export const emitExpression = (
 
     case "this":
       return [{ text: "this" }, context];
+
+    case "numericNarrowing":
+      return emitNumericNarrowing(expr, context);
 
     default:
       // Fallback for unhandled expressions

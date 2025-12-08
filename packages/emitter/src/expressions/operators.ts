@@ -105,6 +105,17 @@ export const emitBinary = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
+  // Comparison operators return boolean, not numeric - never apply int casts
+  const isComparisonOp =
+    expr.operator === "<" ||
+    expr.operator === ">" ||
+    expr.operator === "<=" ||
+    expr.operator === ">=" ||
+    expr.operator === "==" ||
+    expr.operator === "!=" ||
+    expr.operator === "===" ||
+    expr.operator === "!==";
+
   // Check operand types for integer handling
   const leftIsInt = isIntegerType(expr.left.inferredType);
   const rightIsInt = isIntegerType(expr.right.inferredType);
@@ -117,10 +128,12 @@ export const emitBinary = (
   // Check if this binary expression should produce an integer result
   // Priority: expression's own inferredType > expectedType from context > operand types
   // If either operand is int, treat the expression as int (for C# semantics)
-  const integerCastType =
-    getIntegerCastType(expr.inferredType) ||
-    getIntegerCastType(expectedType) ||
-    (eitherOperandInt ? "int" : undefined);
+  // NEVER apply int casts to comparison operators (they return bool)
+  const integerCastType = isComparisonOp
+    ? undefined
+    : getIntegerCastType(expr.inferredType) ||
+      getIntegerCastType(expectedType) ||
+      (eitherOperandInt ? "int" : undefined);
 
   // Determine expected type for children: use int type if any operand is int
   // This ensures literals emit correctly (e.g., x + 1 where x is int → 1 not 1.0)
@@ -151,6 +164,7 @@ export const emitBinary = (
   };
 
   const op = operatorMap[expr.operator] ?? expr.operator;
+  const parentPrecedence = getPrecedence(expr.operator);
 
   // Handle typeof operator specially
   if (expr.operator === "instanceof") {
@@ -158,7 +172,22 @@ export const emitBinary = (
     return [{ text, precedence: 7 }, rightContext];
   }
 
-  let text = `${leftFrag.text} ${op} ${rightFrag.text}`;
+  // Wrap child expressions in parentheses if their precedence is lower than parent
+  // This preserves grouping: (x + y) * z should not become x + y * z
+  const leftText =
+    leftFrag.precedence !== undefined && leftFrag.precedence < parentPrecedence
+      ? `(${leftFrag.text})`
+      : leftFrag.text;
+
+  // For right operand, also wrap if precedence is equal (right-to-left associativity issue)
+  // Example: a - (b - c) should not become a - b - c
+  const rightText =
+    rightFrag.precedence !== undefined &&
+    rightFrag.precedence <= parentPrecedence
+      ? `(${rightFrag.text})`
+      : rightFrag.text;
+
+  let text = `${leftText} ${op} ${rightText}`;
 
   // Determine if each operand will emit as int
   // An operand "will be int" if: (1) already has int type, OR (2) is a numeric literal

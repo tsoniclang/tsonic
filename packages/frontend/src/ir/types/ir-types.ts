@@ -3,6 +3,7 @@
  */
 
 import { IrParameter, IrInterfaceMember } from "./helpers.js";
+import { NumericKind } from "./numeric-kind.js";
 
 export type IrType =
   | IrPrimitiveType
@@ -24,6 +25,15 @@ export type IrType =
 export type IrPrimitiveType = {
   readonly kind: "primitiveType";
   readonly name: "string" | "number" | "boolean" | "null" | "undefined";
+  /**
+   * For "number" primitives, captures the programmer's declared numeric intent.
+   * This is populated when the TypeScript source uses a type annotation like
+   * `int`, `long`, `byte`, etc. from @tsonic/types.
+   *
+   * undefined means generic number (emits as double).
+   * Only meaningful when name is "number".
+   */
+  readonly numericIntent?: NumericKind;
 };
 
 export type IrReferenceType = {

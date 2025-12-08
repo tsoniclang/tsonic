@@ -10,6 +10,7 @@ import {
   IrAssignmentOperator,
 } from "./helpers.js";
 import { IrBlockStatement } from "./statements.js";
+import { NumericKind } from "./numeric-kind.js";
 
 export type IrExpression =
   | IrLiteralExpression
@@ -31,7 +32,8 @@ export type IrExpression =
   | IrTemplateLiteralExpression
   | IrSpreadExpression
   | IrAwaitExpression
-  | IrYieldExpression;
+  | IrYieldExpression
+  | IrNumericNarrowingExpression;
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
@@ -223,3 +225,65 @@ export type IrYieldExpression = {
   readonly delegate: boolean; // true for `yield*`, false for `yield`
   readonly inferredType?: IrType;
 };
+
+/**
+ * Represents a numeric type narrowing (e.g., `x as int`, `<int>x`).
+ *
+ * This captures explicit numeric intent from the source code while preserving
+ * the inner expression. The proof system validates that the narrowing is sound.
+ *
+ * Examples:
+ * - `10 as int` → IrNumericNarrowingExpression(literal 10, targetKind: "Int32")
+ * - `x as byte` → IrNumericNarrowingExpression(identifier x, targetKind: "Byte")
+ */
+export type IrNumericNarrowingExpression = {
+  readonly kind: "numericNarrowing";
+  /** The expression being narrowed */
+  readonly expression: IrExpression;
+  /** The target CLR numeric kind */
+  readonly targetKind: NumericKind;
+  /** Type after narrowing (always a number with numericIntent set) */
+  readonly inferredType: IrType;
+  /**
+   * Attached by the Numeric Proof Pass.
+   * If present and valid, the narrowing has been proven sound.
+   * If undefined, the proof pass hasn't run yet or couldn't prove it.
+   */
+  readonly proof?: NumericProof;
+};
+
+/**
+ * Proof that an expression produces a specific numeric kind.
+ * Attached to expressions by the Numeric Proof Pass.
+ */
+export type NumericProof = {
+  /** The proven numeric kind */
+  readonly kind: NumericKind;
+  /** How the proof was established */
+  readonly source: ProofSource;
+};
+
+/**
+ * Describes how a numeric proof was established.
+ */
+export type ProofSource =
+  | { readonly type: "literal"; readonly value: number | bigint }
+  | { readonly type: "parameter"; readonly name: string }
+  | {
+      readonly type: "dotnetReturn";
+      readonly method: string;
+      readonly returnKind: NumericKind;
+    }
+  | {
+      readonly type: "binaryOp";
+      readonly operator: string;
+      readonly leftKind: NumericKind;
+      readonly rightKind: NumericKind;
+    }
+  | {
+      readonly type: "unaryOp";
+      readonly operator: string;
+      readonly operandKind: NumericKind;
+    }
+  | { readonly type: "narrowing"; readonly from: NumericKind }
+  | { readonly type: "variable"; readonly name: string };
