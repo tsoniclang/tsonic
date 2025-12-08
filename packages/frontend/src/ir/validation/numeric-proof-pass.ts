@@ -786,10 +786,46 @@ const processExpression = (
           ? expr.property
           : processExpression(expr.property, ctx);
 
+      // ============================================================================
+      // CONTRACT: Proof pass is the ONLY source of numeric proofs.
+      // The emitter ONLY consumes markers (numericIntent); it never re-derives proofs.
+      // If this pass doesn't annotate an index, the emitter will ICE.
+      // ============================================================================
+
       // ARRAY INDEX VALIDATION: Use accessKind tag (set during IR build) to determine
       // whether Int32 proof is required. This is COMPILER-GRADE: no heuristic name matching.
       if (typeof processedProperty !== "string" && expr.isComputed) {
-        const accessKind = expr.accessKind ?? "unknown";
+        const accessKind = expr.accessKind;
+
+        // HARD GATE: accessKind MUST be set for computed access.
+        // If missing or "unknown", this is a compiler bug - fail early with clear diagnostic.
+        if (accessKind === undefined || accessKind === "unknown") {
+          // Build debug info for diagnosis
+          const objectType = processedObject.inferredType;
+          const typeInfo = objectType
+            ? `objectType.kind=${objectType.kind}` +
+              (objectType.kind === "referenceType"
+                ? `, name=${objectType.name}, resolvedClrType=${objectType.resolvedClrType ?? "undefined"}`
+                : "")
+            : "objectType=undefined";
+
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN5109",
+              "error",
+              `Computed access kind was not classified during IR build (accessKind=${accessKind ?? "undefined"}, ${typeInfo})`,
+              expr.sourceSpan ?? processedProperty.sourceSpan ?? moduleLocation(ctx),
+              "This is a compiler bug: cannot validate index proof without access classification. " +
+                "Report this issue with the source code that triggered it."
+            )
+          );
+          // Return without annotation - emitter will ICE if it reaches this
+          return {
+            ...expr,
+            object: processedObject,
+            property: processedProperty,
+          };
+        }
 
         // Require Int32 proof for:
         // - clrIndexer: CLR collection indexers (List<T>, Array, etc.)
@@ -813,27 +849,33 @@ const processExpression = (
                 "Use 'index as int' to narrow, or ensure index is derived from Int32 source."
               )
             );
-          } else {
-            // Annotate the index expression with numericIntent so emitter can check it
-            // without re-deriving the proof. This is the ONLY place proof markers should be set.
-            const annotatedProperty = {
-              ...processedProperty,
-              inferredType: {
-                kind: "primitiveType" as const,
-                name: "number" as const,
-                numericIntent: "Int32" as NumericKind,
-              },
-            };
+            // Return without annotation - emitter will ICE if it reaches this
             return {
               ...expr,
               object: processedObject,
-              property: annotatedProperty,
+              property: processedProperty,
             };
           }
+
+          // Annotate the index expression with numericIntent so emitter can check it
+          // without re-deriving the proof. This is the ONLY place proof markers should be set.
+          const annotatedProperty = {
+            ...processedProperty,
+            inferredType: {
+              kind: "primitiveType" as const,
+              name: "number" as const,
+              numericIntent: "Int32" as NumericKind,
+            },
+          };
+          return {
+            ...expr,
+            object: processedObject,
+            property: annotatedProperty,
+          };
         }
+
         // For dictionary access (accessKind === "dictionary"): no Int32 requirement
-        // For unknown access kind: pass through without validation
-        // (emitter may ICE later if it's actually an indexer)
+        // Pass through without annotation - key type is handled by the dictionary itself
       }
 
       return {

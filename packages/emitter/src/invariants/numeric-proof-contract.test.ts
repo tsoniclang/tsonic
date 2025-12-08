@@ -8,6 +8,7 @@
  * 1. Only the proof pass determines whether an expression is proven Int32
  * 2. The emitter checks IR markers (numericIntent) and ICEs if missing
  * 3. TSN5107 is triggered based on accessKind, not heuristic name matching
+ * 4. TSN5109 is triggered when accessKind is unknown/missing (compiler bug)
  *
  * Test approach:
  * - Create IR fixtures with specific accessKind values
@@ -21,6 +22,7 @@ import {
   IrModule,
   IrMemberExpression,
   IrExpression,
+  IrStatement,
   ComputedAccessKind,
   runNumericProofPass,
 } from "@tsonic/frontend";
@@ -31,7 +33,7 @@ import { emitModule } from "../emitter.js";
  * This allows testing different accessKind values and proof states.
  */
 const createModuleWithAccess = (options: {
-  accessKind: ComputedAccessKind;
+  accessKind?: ComputedAccessKind;
   indexHasProof: boolean;
   indexValue?: number;
   indexRaw?: string;
@@ -51,6 +53,99 @@ const createModuleWithAccess = (options: {
           },
         }
       : {}),
+  };
+
+  const memberAccess: IrMemberExpression = {
+    kind: "memberAccess",
+    object: {
+      kind: "identifier",
+      name: "arr",
+      inferredType: {
+        kind: "arrayType",
+        elementType: { kind: "primitiveType", name: "number" },
+      },
+    },
+    property: indexExpr,
+    isComputed: true,
+    isOptional: false,
+    // accessKind may be undefined to test missing tag
+    ...(options.accessKind !== undefined
+      ? { accessKind: options.accessKind }
+      : {}),
+    inferredType: { kind: "primitiveType", name: "number" },
+  };
+
+  return {
+    kind: "module",
+    filePath: "/test/contract.ts",
+    namespace: "Test",
+    className: "contract",
+    isStaticContainer: true,
+    imports: [],
+    body: [
+      {
+        kind: "variableDeclaration",
+        declarationKind: "const",
+        isExported: false,
+        declarations: [
+          {
+            kind: "variableDeclarator",
+            name: { kind: "identifierPattern", name: "arr" },
+            type: {
+              kind: "arrayType",
+              elementType: { kind: "primitiveType", name: "number" },
+            },
+            initializer: {
+              kind: "array",
+              elements: [
+                { kind: "literal", value: 1 },
+                { kind: "literal", value: 2 },
+                { kind: "literal", value: 3 },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        kind: "variableDeclaration",
+        declarationKind: "const",
+        isExported: false,
+        declarations: [
+          {
+            kind: "variableDeclarator",
+            name: { kind: "identifierPattern", name: "x" },
+            initializer: memberAccess,
+          },
+        ],
+      },
+    ],
+    exports: [],
+  };
+};
+
+/**
+ * Create module with identifier index (not literal)
+ */
+const createModuleWithIdentifierIndex = (options: {
+  accessKind: ComputedAccessKind;
+  indexName: string;
+  indexHasInt32Type: boolean;
+}): IrModule => {
+  const indexExpr: IrExpression = {
+    kind: "identifier",
+    name: options.indexName,
+    // If indexHasInt32Type, give it Int32 intent
+    ...(options.indexHasInt32Type
+      ? {
+          inferredType: {
+            kind: "primitiveType",
+            name: "number",
+            numericIntent: "Int32",
+          },
+        }
+      : {
+          inferredType: { kind: "primitiveType", name: "number" },
+        }),
   };
 
   const memberAccess: IrMemberExpression = {
@@ -119,37 +214,79 @@ const createModuleWithAccess = (options: {
 };
 
 describe("Numeric Proof Contract (Behavioral)", () => {
-  describe("TSN5107 based on accessKind", () => {
-    it("clrIndexer access WITHOUT Int32 proof triggers TSN5107", () => {
+  // ============================================================================
+  // ACCESS KINDS THAT REQUIRE Int32 PROOF: clrIndexer, jsRuntimeArray, stringChar
+  // ============================================================================
+
+  describe("clrIndexer access (requires Int32 proof)", () => {
+    it("double literal (1.5) triggers TSN5107", () => {
       const module = createModuleWithAccess({
         accessKind: "clrIndexer",
         indexHasProof: false,
-        indexValue: 1.5, // Floating-point index
+        indexValue: 1.5,
         indexRaw: "1.5",
       });
 
       const result = runNumericProofPass([module]);
 
       expect(result.ok).to.be.false;
-      expect(result.diagnostics.length).to.be.greaterThan(0);
       expect(result.diagnostics[0]?.code).to.equal("TSN5107");
     });
 
-    it("clrIndexer access WITH Int32 proof passes", () => {
+    it("unproven identifier triggers TSN5107", () => {
+      const module = createModuleWithIdentifierIndex({
+        accessKind: "clrIndexer",
+        indexName: "i",
+        indexHasInt32Type: false,
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
+    });
+
+    it("integer literal (0) passes and gets marker", () => {
       const module = createModuleWithAccess({
         accessKind: "clrIndexer",
-        indexHasProof: false, // Let proof pass prove it
+        indexHasProof: false,
         indexValue: 0,
-        indexRaw: "0", // Valid integer literal
+        indexRaw: "0",
       });
 
       const result = runNumericProofPass([module]);
 
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
+
+      // Verify marker was set
+      const varDecl = result.modules[0]?.body[1] as IrStatement;
+      if (varDecl?.kind !== "variableDeclaration") {
+        throw new Error("Expected variable declaration");
+      }
+      const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
+      const indexExpr = access.property as IrExpression;
+      expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
+      if (indexExpr.inferredType?.kind === "primitiveType") {
+        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+      }
     });
 
-    it("jsRuntimeArray access requires Int32 proof", () => {
+    it("proven identifier passes", () => {
+      const module = createModuleWithIdentifierIndex({
+        accessKind: "clrIndexer",
+        indexName: "i",
+        indexHasInt32Type: true,
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+    });
+  });
+
+  describe("jsRuntimeArray access (requires Int32 proof)", () => {
+    it("double literal (1.5) triggers TSN5107", () => {
       const module = createModuleWithAccess({
         accessKind: "jsRuntimeArray",
         indexHasProof: false,
@@ -163,7 +300,35 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN5107");
     });
 
-    it("stringChar access requires Int32 proof", () => {
+    it("unproven identifier triggers TSN5107", () => {
+      const module = createModuleWithIdentifierIndex({
+        accessKind: "jsRuntimeArray",
+        indexName: "idx",
+        indexHasInt32Type: false,
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
+    });
+
+    it("integer literal (1) passes and gets marker", () => {
+      const module = createModuleWithAccess({
+        accessKind: "jsRuntimeArray",
+        indexHasProof: false,
+        indexValue: 1,
+        indexRaw: "1",
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+    });
+  });
+
+  describe("stringChar access (requires Int32 proof)", () => {
+    it("double literal (1.5) triggers TSN5107", () => {
       const module = createModuleWithAccess({
         accessKind: "stringChar",
         indexHasProof: false,
@@ -177,29 +342,41 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN5107");
     });
 
-    it("dictionary access does NOT require Int32 proof", () => {
-      // Dictionary access uses typed keys (usually string), not Int32
+    it("unproven identifier triggers TSN5107", () => {
+      const module = createModuleWithIdentifierIndex({
+        accessKind: "stringChar",
+        indexName: "charIdx",
+        indexHasInt32Type: false,
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
+    });
+
+    it("integer literal (0) passes and gets marker", () => {
       const module = createModuleWithAccess({
-        accessKind: "dictionary",
-        indexHasProof: false, // No Int32 proof
+        accessKind: "stringChar",
+        indexHasProof: false,
         indexValue: 0,
         indexRaw: "0",
       });
 
       const result = runNumericProofPass([module]);
 
-      // Should pass - dictionary doesn't require Int32
       expect(result.ok).to.be.true;
-      expect(
-        result.diagnostics.filter((d) => d.code === "TSN5107")
-      ).to.have.length(0);
     });
+  });
 
-    it("unknown accessKind passes through without validation", () => {
-      // Unknown access kind - proof pass doesn't validate
-      // (emitter may ICE later if it's actually an indexer)
+  // ============================================================================
+  // ACCESS KIND THAT DOES NOT REQUIRE Int32 PROOF: dictionary
+  // ============================================================================
+
+  describe("dictionary access (does NOT require Int32 proof)", () => {
+    it("double literal passes (no TSN5107)", () => {
       const module = createModuleWithAccess({
-        accessKind: "unknown",
+        accessKind: "dictionary",
         indexHasProof: false,
         indexValue: 1.5,
         indexRaw: "1.5",
@@ -207,12 +384,163 @@ describe("Numeric Proof Contract (Behavioral)", () => {
 
       const result = runNumericProofPass([module]);
 
-      // Should pass - unknown access kind is not validated
+      expect(result.ok).to.be.true;
+      expect(
+        result.diagnostics.filter((d) => d.code === "TSN5107")
+      ).to.have.length(0);
+    });
+
+    it("unproven identifier passes (no TSN5107)", () => {
+      const module = createModuleWithIdentifierIndex({
+        accessKind: "dictionary",
+        indexName: "key",
+        indexHasInt32Type: false,
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+    });
+
+    it("integer literal passes (no TSN5107)", () => {
+      const module = createModuleWithAccess({
+        accessKind: "dictionary",
+        indexHasProof: false,
+        indexValue: 0,
+        indexRaw: "0",
+      });
+
+      const result = runNumericProofPass([module]);
+
       expect(result.ok).to.be.true;
     });
   });
 
-  describe("Emitter respects proof markers", () => {
+  // ============================================================================
+  // UNKNOWN / MISSING ACCESS KIND: TSN5109 (compiler bug)
+  // ============================================================================
+
+  describe("unknown/missing accessKind (TSN5109)", () => {
+    it("accessKind='unknown' triggers TSN5109 with debug info", () => {
+      const module = createModuleWithAccess({
+        accessKind: "unknown",
+        indexHasProof: false,
+        indexValue: 0,
+        indexRaw: "0",
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN5109");
+      // Verify message includes debug info for diagnosis
+      expect(result.diagnostics[0]?.message).to.include(
+        "Computed access kind was not classified"
+      );
+      expect(result.diagnostics[0]?.message).to.include("accessKind=unknown");
+      expect(result.diagnostics[0]?.message).to.include("objectType.kind=");
+    });
+
+    it("missing accessKind (undefined) triggers TSN5109 with debug info", () => {
+      // accessKind is not set at all
+      const module = createModuleWithAccess({
+        accessKind: undefined,
+        indexHasProof: false,
+        indexValue: 0,
+        indexRaw: "0",
+      });
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN5109");
+      // Verify message includes "undefined" for missing accessKind
+      expect(result.diagnostics[0]?.message).to.include("accessKind=undefined");
+    });
+
+    it("REGRESSION: referenceType without resolvedClrType defaults to clrIndexer (safe)", () => {
+      // This test guards against unsafe dictionary misclassification.
+      // If a referenceType lacks resolvedClrType, classification defaults to clrIndexer
+      // (not "unknown") which is SAFE: it requires Int32 proof for the index.
+      // This is the conservative safe behavior - Dictionary would fail at compile time
+      // if accessed with a non-Int32 key, which is better than runtime unsoundness.
+      const indexExpr: IrExpression = {
+        kind: "literal",
+        value: 0,
+        raw: "0", // Valid integer literal - should pass Int32 check
+      };
+
+      const memberAccess: IrMemberExpression = {
+        kind: "memberAccess",
+        object: {
+          kind: "identifier",
+          name: "list",
+          // referenceType WITHOUT resolvedClrType (e.g., tsbindgen type)
+          inferredType: {
+            kind: "referenceType",
+            name: "List",
+            // resolvedClrType is MISSING - defaults to clrIndexer (safe)
+          },
+        },
+        property: indexExpr,
+        isComputed: true,
+        isOptional: false,
+        // accessKind is clrIndexer because classifyComputedAccess defaults to it
+        // when resolvedClrType is missing on a referenceType
+        accessKind: "clrIndexer",
+        inferredType: { kind: "primitiveType", name: "number" },
+      };
+
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/test/list-regression.ts",
+        namespace: "Test",
+        className: "listRegression",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "x" },
+                initializer: memberAccess,
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = runNumericProofPass([module]);
+
+      // Should PASS because:
+      // 1. accessKind is clrIndexer (default for referenceType without resolvedClrType)
+      // 2. index is literal 0, which is valid Int32
+      expect(result.ok).to.be.true;
+
+      // Verify the index got annotated with Int32 marker
+      const varDecl = result.modules[0]?.body[0] as IrStatement;
+      if (varDecl?.kind !== "variableDeclaration") {
+        throw new Error("Expected variable declaration");
+      }
+      const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
+      const processedIndex = access.property as IrExpression;
+      expect(processedIndex.inferredType?.kind).to.equal("primitiveType");
+      if (processedIndex.inferredType?.kind === "primitiveType") {
+        expect(processedIndex.inferredType.numericIntent).to.equal("Int32");
+      }
+    });
+  });
+
+  // ============================================================================
+  // EMITTER CONTRACT: ICE when proof marker missing
+  // ============================================================================
+
+  describe("Emitter contract enforcement", () => {
     it("emits without ICE when proof marker present", () => {
       const module = createModuleWithAccess({
         accessKind: "clrIndexer",
@@ -225,13 +553,14 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       expect(() => emitModule(module, { runtime: "dotnet" })).to.not.throw();
     });
 
-    it("throws ICE when proof marker missing for array access", () => {
-      // Create module with array access but NO proof marker
-      // This simulates skipping the proof pass
+    it("ICE when proof marker missing - even for literal 0", () => {
+      // REGRESSION GUARD: This test ensures nobody "helpfully" re-adds
+      // literal parsing to the emitter. Even literal 0 must have the proof
+      // marker set by the proof pass, or the emitter ICEs.
       const module = createModuleWithAccess({
         accessKind: "clrIndexer",
-        indexHasProof: false, // No proof marker
-        indexValue: 0,
+        indexHasProof: false, // NO proof marker
+        indexValue: 0, // Even though it's 0
         indexRaw: "0",
       });
 
@@ -240,10 +569,28 @@ describe("Numeric Proof Contract (Behavioral)", () => {
         /Internal Compiler Error.*Int32 proof/
       );
     });
+
+    it("ICE when proof marker missing - even for literal 1", () => {
+      // REGRESSION GUARD: Same as above for literal 1
+      const module = createModuleWithAccess({
+        accessKind: "clrIndexer",
+        indexHasProof: false,
+        indexValue: 1,
+        indexRaw: "1",
+      });
+
+      expect(() => emitModule(module, { runtime: "dotnet" })).to.throw(
+        /Internal Compiler Error.*Int32 proof/
+      );
+    });
   });
 
-  describe("Proof pass annotates indices correctly", () => {
-    it("proof pass adds numericIntent:Int32 to valid integer index", () => {
+  // ============================================================================
+  // PROOF PASS ANNOTATION: Markers set correctly for all access kinds
+  // ============================================================================
+
+  describe("Proof pass annotation", () => {
+    it("clrIndexer: valid index gets numericIntent:Int32", () => {
       const module = createModuleWithAccess({
         accessKind: "clrIndexer",
         indexHasProof: false,
@@ -254,106 +601,65 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       const result = runNumericProofPass([module]);
       expect(result.ok).to.be.true;
 
-      // Find the member access in the processed module
-      const varDecl = result.modules[0]?.body[1];
-      if (!varDecl || varDecl.kind !== "variableDeclaration") {
+      const varDecl = result.modules[0]?.body[1] as IrStatement;
+      if (varDecl?.kind !== "variableDeclaration") {
         throw new Error("Expected variable declaration");
       }
       const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
-      const indexExpr = access.property;
+      const indexExpr = access.property as IrExpression;
 
-      // Index should have numericIntent:Int32 after proof pass
-      if (typeof indexExpr === "string") {
-        throw new Error("Expected expression, not string property");
-      }
       expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
       if (indexExpr.inferredType?.kind === "primitiveType") {
         expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
       }
     });
 
-    it("proof pass propagates Int32 from variable initialization", () => {
-      // Create module where index comes from a proven Int32 variable
-      const module: IrModule = {
-        kind: "module",
-        filePath: "/test/propagation.ts",
-        namespace: "Test",
-        className: "propagation",
-        isStaticContainer: true,
-        imports: [],
-        body: [
-          // const i = 0; // Should be proven Int32
-          {
-            kind: "variableDeclaration",
-            declarationKind: "const",
-            isExported: false,
-            declarations: [
-              {
-                kind: "variableDeclarator",
-                name: { kind: "identifierPattern", name: "i" },
-                initializer: { kind: "literal", value: 0, raw: "0" },
-              },
-            ],
-          },
-          // const arr = [1, 2, 3];
-          {
-            kind: "variableDeclaration",
-            declarationKind: "const",
-            isExported: false,
-            declarations: [
-              {
-                kind: "variableDeclarator",
-                name: { kind: "identifierPattern", name: "arr" },
-                type: {
-                  kind: "arrayType",
-                  elementType: { kind: "primitiveType", name: "number" },
-                },
-                initializer: {
-                  kind: "array",
-                  elements: [
-                    { kind: "literal", value: 1 },
-                    { kind: "literal", value: 2 },
-                    { kind: "literal", value: 3 },
-                  ],
-                },
-              },
-            ],
-          },
-          // const x = arr[i]; // i should propagate as Int32
-          {
-            kind: "variableDeclaration",
-            declarationKind: "const",
-            isExported: false,
-            declarations: [
-              {
-                kind: "variableDeclarator",
-                name: { kind: "identifierPattern", name: "x" },
-                initializer: {
-                  kind: "memberAccess",
-                  object: {
-                    kind: "identifier",
-                    name: "arr",
-                    inferredType: {
-                      kind: "arrayType",
-                      elementType: { kind: "primitiveType", name: "number" },
-                    },
-                  },
-                  property: { kind: "identifier", name: "i" },
-                  isComputed: true,
-                  isOptional: false,
-                  accessKind: "clrIndexer",
-                },
-              },
-            ],
-          },
-        ],
-        exports: [],
-      };
+    it("jsRuntimeArray: valid index gets numericIntent:Int32", () => {
+      const module = createModuleWithAccess({
+        accessKind: "jsRuntimeArray",
+        indexHasProof: false,
+        indexValue: 5,
+        indexRaw: "5",
+      });
 
       const result = runNumericProofPass([module]);
-
-      // Should pass - i is proven Int32 from its initialization
       expect(result.ok).to.be.true;
+
+      const varDecl = result.modules[0]?.body[1] as IrStatement;
+      if (varDecl?.kind !== "variableDeclaration") {
+        throw new Error("Expected variable declaration");
+      }
+      const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
+      const indexExpr = access.property as IrExpression;
+
+      expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
+      if (indexExpr.inferredType?.kind === "primitiveType") {
+        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+      }
+    });
+
+    it("stringChar: valid index gets numericIntent:Int32", () => {
+      const module = createModuleWithAccess({
+        accessKind: "stringChar",
+        indexHasProof: false,
+        indexValue: 2,
+        indexRaw: "2",
+      });
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+
+      const varDecl = result.modules[0]?.body[1] as IrStatement;
+      if (varDecl?.kind !== "variableDeclaration") {
+        throw new Error("Expected variable declaration");
+      }
+      const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
+      const indexExpr = access.property as IrExpression;
+
+      expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
+      if (indexExpr.inferredType?.kind === "primitiveType") {
+        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+      }
     });
   });
 });

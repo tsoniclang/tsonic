@@ -16,6 +16,9 @@ import { getBindingRegistry } from "../statements/declarations/registry.js";
  * Both jsRuntimeArray (JS mode) and clrIndexer (dotnet mode) require Int32 proof,
  * so we use clrIndexer as the default for TypeScript arrays.
  *
+ * IMPORTANT: If classification cannot be determined reliably, returns "unknown"
+ * which causes a compile-time error (TSN5109). This is safer than misclassifying.
+ *
  * @param objectType - The inferred type of the object being accessed
  * @returns The access kind classification
  */
@@ -30,7 +33,8 @@ const classifyComputedAccess = (
     return "clrIndexer";
   }
 
-  // IR dictionary type (if we have it)
+  // IR dictionary type - this is the PRIMARY way to detect dictionaries
+  // tsbindgen should emit dictionaryType for Record<K,V> and {[key: K]: V}
   if (objectType.kind === "dictionaryType") {
     return "dictionary";
   }
@@ -40,21 +44,28 @@ const classifyComputedAccess = (
     return "stringChar";
   }
 
-  // Reference types - use resolvedClrType for EXACT matching
+  // Reference types - default to clrIndexer (safe: requires Int32 proof)
+  // Dictionary detection requires resolvedClrType to be reliable
   if (objectType.kind === "referenceType") {
     const clr = objectType.resolvedClrType;
 
     // Dictionary types: no Int32 requirement (key is typed K)
-    // Use exact prefix matching, not substring
-    if (
-      clr?.startsWith("global::System.Collections.Generic.Dictionary`") ||
-      clr?.startsWith("System.Collections.Generic.Dictionary`")
-    ) {
-      return "dictionary";
+    // Use exact prefix matching for System.Collections.Generic.Dictionary
+    // Only detect if resolvedClrType is present (guaranteed by bindings)
+    if (clr) {
+      if (
+        clr.startsWith("global::System.Collections.Generic.Dictionary`") ||
+        clr.startsWith("System.Collections.Generic.Dictionary`")
+      ) {
+        return "dictionary";
+      }
     }
 
-    // All other reference types with indexers (List<T>, Array, Span<T>, etc.)
-    // require Int32 proof
+    // All other reference types (List<T>, Array, Span<T>, IList<T>, etc.)
+    // default to clrIndexer which requires Int32 proof.
+    // This is SAFE: if this is actually a Dictionary without resolvedClrType,
+    // the user would get a compile error (TSN5107) when using non-Int32 key,
+    // which is a safe failure mode (fails at compile time, not runtime).
     return "clrIndexer";
   }
 

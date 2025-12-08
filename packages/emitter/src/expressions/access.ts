@@ -16,6 +16,20 @@ import {
   getAllPropertySignatures,
 } from "../core/type-resolution.js";
 
+// ============================================================================
+// CONTRACT: Emitter ONLY consumes proof markers.
+//
+// The emitter MUST NOT re-derive numeric proofs. It only checks IR markers:
+// - primitiveType(number).numericIntent === "Int32"
+// - referenceType(name === "int")
+//
+// NO BigInt parsing, NO parseInt, NO lexeme (.raw) inspection, NO literal
+// special-casing, NO loop-var tables. If the proof pass didn't annotate it,
+// the emitter ICEs. Period.
+//
+// The numeric proof pass is the ONLY source of numeric proofs.
+// ============================================================================
+
 /**
  * Check if an expression has proven Int32 type from the numeric proof pass.
  * The emitter MUST NOT re-derive proofs - it only checks markers set by the proof pass.
