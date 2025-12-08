@@ -6,13 +6,21 @@
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { compile, buildIr } from "@tsonic/frontend";
+import { compile, buildIr, runNumericProofPass } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
 import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const TESTCASES_DIR = path.join(__dirname, "../testcases");
+
+// Resolve paths to js-globals and types packages
+const monorepoRoot = path.resolve(__dirname, "../../..");
+const jsGlobalsPath = path.join(
+  monorepoRoot,
+  "node_modules/@tsonic/js-globals"
+);
+const typesPath = path.join(monorepoRoot, "node_modules/@tsonic/types");
 
 interface TestEntry {
   input: string;
@@ -41,12 +49,12 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
         const rootNamespace = ["TestCases", ...namespaceParts].join(".");
         const sourceRoot = path.dirname(inputPath);
 
-        // Compile
+        // Compile using js-globals (JS mode types with int type alias for index-space values)
         const compileResult = compile([inputPath], {
-          projectRoot: sourceRoot, // Golden tests don't have node_modules
+          projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
           sourceRoot,
           rootNamespace,
-          useStandardLib: true,
+          typeRoots: [jsGlobalsPath, typesPath],
         });
 
         if (!compileResult.ok) {
@@ -65,8 +73,20 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
           continue;
         }
 
-        // Emit C#
-        const emitResult = emitCSharpFiles(irResult.value, { rootNamespace });
+        // Run numeric proof pass
+        const proofResult = runNumericProofPass(irResult.value);
+        if (!proofResult.ok) {
+          console.error(`  ERROR: Proof pass failed`);
+          for (const d of proofResult.diagnostics) {
+            console.error(`    ${d.code}: ${d.message}`);
+          }
+          continue;
+        }
+
+        // Emit C# using proof-annotated modules
+        const emitResult = emitCSharpFiles(proofResult.modules, {
+          rootNamespace,
+        });
 
         if (!emitResult.ok) {
           console.error(`  ERROR: Emit failed`);

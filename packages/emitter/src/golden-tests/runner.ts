@@ -5,10 +5,20 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import { compile, buildIr, runNumericProofPass } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { generateFileHeader } from "../constants.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
+
+// Resolve paths to js-globals and types packages for golden tests
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const monorepoRoot = path.resolve(__dirname, "../../../..");
+const jsGlobalsPath = path.join(
+  monorepoRoot,
+  "node_modules/@tsonic/js-globals"
+);
+const typesPath = path.join(monorepoRoot, "node_modules/@tsonic/types");
 
 /**
  * Normalize C# output for comparison
@@ -44,12 +54,12 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
-  // Use standard lib for golden tests (they don't have BCL bindings)
+  // Use js-globals for golden tests (JS mode types with int type alias for index-space values)
   const compileResult = compile([scenario.inputPath], {
-    projectRoot: sourceRoot, // Golden tests don't have node_modules
+    projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
     sourceRoot,
     rootNamespace,
-    useStandardLib: true,
+    typeRoots: [jsGlobalsPath, typesPath],
   });
 
   // Handle expected diagnostics tests

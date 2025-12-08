@@ -51,6 +51,89 @@ const isNumericAliasType = (tsType: ts.Type): boolean => {
 };
 
 /**
+ * Attempt to recover numeric intent from a property declaration's type annotation.
+ *
+ * When TypeScript normalizes `int` to `number`, we can still find the original
+ * annotation in the property's declaration AST.
+ *
+ * GUARDRAILS:
+ * - Only accepts clean TypeReferenceNode with simple identifier (not qualified names)
+ * - Only returns if identifier is in TSONIC_TO_NUMERIC_KIND vocabulary
+ * - Rejects unions, intersections, or complex types
+ */
+const tryRecoverNumericReferenceFromPropertyDecl = (
+  propSymbol: ts.Symbol
+): IrType | undefined => {
+  const declarations = propSymbol.declarations ?? [];
+
+  for (const decl of declarations) {
+    // Only handle PropertySignature and PropertyDeclaration with type annotation
+    if (
+      (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) &&
+      decl.type
+    ) {
+      const typeNode = decl.type;
+
+      // STRICT: Only accept TypeReferenceNode with simple identifier
+      if (
+        ts.isTypeReferenceNode(typeNode) &&
+        ts.isIdentifier(typeNode.typeName)
+      ) {
+        const name = typeNode.typeName.text;
+
+        // Only if name is in numeric vocabulary
+        if (TSONIC_TO_NUMERIC_KIND.has(name)) {
+          return { kind: "referenceType", name };
+        }
+      }
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Attempt to recover numeric intent from a method/function's return type annotation.
+ *
+ * For calls like arr.indexOf("x"), if the declaration says `indexOf(...): int`,
+ * we recover "int" even if checker normalizes to "number".
+ *
+ * STRICT: Only handles common declaration types, not arrow functions or function types.
+ */
+const tryRecoverNumericReferenceFromSignatureReturnDecl = (
+  signature: ts.Signature
+): IrType | undefined => {
+  const decl = signature.declaration;
+  if (!decl) return undefined;
+
+  // Get the return type annotation from the declaration
+  // STRICT: Only accept method/function declarations, not arrow functions
+  const returnTypeNode =
+    ts.isMethodSignature(decl) ||
+    ts.isMethodDeclaration(decl) ||
+    ts.isFunctionDeclaration(decl) ||
+    ts.isCallSignatureDeclaration(decl)
+      ? decl.type
+      : undefined;
+
+  if (!returnTypeNode) return undefined;
+
+  // STRICT: Only accept TypeReferenceNode with simple identifier
+  if (
+    ts.isTypeReferenceNode(returnTypeNode) &&
+    ts.isIdentifier(returnTypeNode.typeName)
+  ) {
+    const name = returnTypeNode.typeName.text;
+
+    if (TSONIC_TO_NUMERIC_KIND.has(name)) {
+      return { kind: "referenceType", name };
+    }
+  }
+
+  return undefined;
+};
+
+/**
  * Helper to get inferred type from TypeScript node
  * Prefers contextual type (from assignment target, return position, etc.)
  * over literal type to handle cases like empty arrays `[]` correctly.
@@ -90,13 +173,45 @@ export const getInferredType = (
     );
 
     // If typeNode conversion works, use convertType
-    if (typeNode) {
-      return convertType(typeNode, checker);
+    const result = typeNode
+      ? convertType(typeNode, checker)
+      : // Fallback: use convertTsTypeToIr directly for complex types
+        // This handles intersection types like List_1$instance<T> that can't be converted to TypeNodes
+        convertTsTypeToIr(tsType, checker);
+
+    // DECLARATION RECOVERY: If checker returned primitive "number", try to recover
+    // numeric intent from the declaration AST. TypeScript sometimes normalizes type
+    // aliases like `int` to plain `number`, losing the alias information.
+    if (result?.kind === "primitiveType" && result.name === "number") {
+      // For property access like arr.length, check the property declaration
+      if (ts.isPropertyAccessExpression(node)) {
+        const objType = checker.getTypeAtLocation(node.expression);
+        const propName = node.name.text;
+        const propSymbol = checker.getPropertyOfType(objType, propName);
+
+        if (propSymbol) {
+          const recovered =
+            tryRecoverNumericReferenceFromPropertyDecl(propSymbol);
+          if (recovered) {
+            return recovered; // Return referenceType("int") instead of primitiveType("number")
+          }
+        }
+      }
+
+      // For call expressions like arr.indexOf("x"), check the signature return type
+      if (ts.isCallExpression(node)) {
+        const signature = checker.getResolvedSignature(node);
+        if (signature) {
+          const recovered =
+            tryRecoverNumericReferenceFromSignatureReturnDecl(signature);
+          if (recovered) {
+            return recovered;
+          }
+        }
+      }
     }
 
-    // Fallback: use convertTsTypeToIr directly for complex types
-    // This handles intersection types like List_1$instance<T> that can't be converted to TypeNodes
-    return convertTsTypeToIr(tsType, checker);
+    return result;
   } catch {
     // If type extraction fails, return undefined
     return undefined;
