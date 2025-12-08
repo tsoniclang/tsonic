@@ -580,6 +580,27 @@ const processExpression = (
       };
     }
 
+    case "identifier": {
+      // Annotate identifiers with their proven numeric kind
+      // This allows the emitter to know that x is Int32 when used in binary expressions
+      const varKind = ctx.provenVariables.get(expr.name);
+      const paramKind = ctx.provenParameters.get(expr.name);
+      const numericKind = varKind ?? paramKind;
+
+      if (numericKind !== undefined) {
+        // Update inferredType to include numericIntent
+        return {
+          ...expr,
+          inferredType: {
+            kind: "primitiveType",
+            name: "number",
+            numericIntent: numericKind,
+          },
+        };
+      }
+      return expr;
+    }
+
     case "array":
       return {
         ...expr,
@@ -609,12 +630,35 @@ const processExpression = (
         }),
       };
 
-    case "binary":
+    case "binary": {
+      const processedLeft = processExpression(expr.left, ctx);
+      const processedRight = processExpression(expr.right, ctx);
+
+      // Infer numeric kind from processed operands
+      const leftKind = inferNumericKind(processedLeft, ctx);
+      const rightKind = inferNumericKind(processedRight, ctx);
+
+      // If both operands have numeric kinds, annotate the binary result
+      if (leftKind !== undefined && rightKind !== undefined) {
+        const resultKind = getBinaryResultKind(leftKind, rightKind);
+        return {
+          ...expr,
+          left: processedLeft,
+          right: processedRight,
+          inferredType: {
+            kind: "primitiveType",
+            name: "number",
+            numericIntent: resultKind,
+          },
+        };
+      }
+
       return {
         ...expr,
-        left: processExpression(expr.left, ctx),
-        right: processExpression(expr.right, ctx),
+        left: processedLeft,
+        right: processedRight,
       };
+    }
 
     case "logical":
       return {

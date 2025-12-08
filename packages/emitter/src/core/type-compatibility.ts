@@ -41,6 +41,20 @@ const INTEGER_TYPE_NAMES = new Set([
 ]);
 
 /**
+ * Integer NumericKinds - these are the NumericKind values that represent integer types
+ */
+const INTEGER_NUMERIC_KINDS = new Set([
+  "SByte",
+  "Byte",
+  "Int16",
+  "UInt16",
+  "Int32",
+  "UInt32",
+  "Int64",
+  "UInt64",
+]);
+
+/**
  * Check if an IR type represents an integer type
  */
 export const isIntegerType = (type: IrType | undefined): boolean => {
@@ -49,6 +63,14 @@ export const isIntegerType = (type: IrType | undefined): boolean => {
   // Reference type with integer name (e.g., "int" from @tsonic/types)
   if (type.kind === "referenceType") {
     return INTEGER_TYPE_NAMES.has(type.name);
+  }
+
+  // Primitive "number" type with integer numericIntent (from numericNarrowing)
+  if (type.kind === "primitiveType" && type.name === "number") {
+    const intent = (type as { numericIntent?: string }).numericIntent;
+    if (intent !== undefined) {
+      return INTEGER_NUMERIC_KINDS.has(intent);
+    }
   }
 
   return false;
