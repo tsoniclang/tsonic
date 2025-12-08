@@ -65,6 +65,7 @@ export type {
   IrNumericNarrowingExpression,
   NumericProof,
   ProofSource,
+  ComputedAccessKind,
   // Type system types
   IrType,
   IrPrimitiveType,

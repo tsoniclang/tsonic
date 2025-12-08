@@ -5,7 +5,7 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { compile, buildIr } from "@tsonic/frontend";
+import { compile, buildIr, runNumericProofPass } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { generateFileHeader } from "../constants.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
@@ -125,9 +125,19 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     throw new Error(`IR build failed:\n${errors}`);
   }
 
+  // Step 2.5: Run numeric proof pass (validates and annotates numeric types)
+  const proofResult = runNumericProofPass(irResult.value);
+  if (!proofResult.ok) {
+    const errors = proofResult.diagnostics
+      .map((d) => `${d.code}: ${d.message}`)
+      .join("\n");
+    throw new Error(`Numeric proof validation failed:\n${errors}`);
+  }
+
   // Step 3: Emit IR → C#
   // Note: Don't set entryPointPath - golden tests are NOT entry points
-  const emitResult = emitCSharpFiles(irResult.value, {
+  // Use the proof-annotated modules from the proof pass
+  const emitResult = emitCSharpFiles(proofResult.modules, {
     rootNamespace,
   });
 

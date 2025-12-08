@@ -2,7 +2,7 @@
  * Member access expression emitters
  */
 
-import { IrExpression, IrLiteralExpression } from "@tsonic/frontend";
+import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import {
@@ -17,31 +17,29 @@ import {
 } from "../core/type-resolution.js";
 
 /**
- * Check if an expression is an integer literal that fits in Int32 range.
- * Mirrors C# semantics where integer-looking literals default to int.
+ * Check if an expression has proven Int32 type from the numeric proof pass.
+ * The emitter MUST NOT re-derive proofs - it only checks markers set by the proof pass.
+ * This is the SINGLE source of truth for numeric proofs in the emitter.
  */
-const isInt32Literal = (expr: IrExpression): boolean => {
-  if (expr.kind !== "literal") return false;
-  const lit = expr as IrLiteralExpression;
-  if (typeof lit.value !== "number") return false;
-  if (lit.raw === undefined) return false;
-
-  // Check lexeme is integer (no decimal, no exponent)
-  const raw = lit.raw;
-  if (raw.includes(".") || raw.includes("e") || raw.includes("E")) {
-    return false;
+const hasInt32Proof = (expr: IrExpression): boolean => {
+  // Check numericIntent from proof pass (set on primitiveType)
+  if (
+    expr.inferredType?.kind === "primitiveType" &&
+    expr.inferredType.name === "number" &&
+    expr.inferredType.numericIntent === "Int32"
+  ) {
+    return true;
   }
 
-  // Parse and check Int32 range
-  try {
-    const bigValue = BigInt(raw.replace(/^-/, ""));
-    const MIN_INT32 = BigInt("-2147483648");
-    const MAX_INT32 = BigInt("2147483647");
-    const actualValue = raw.startsWith("-") ? -bigValue : bigValue;
-    return actualValue >= MIN_INT32 && actualValue <= MAX_INT32;
-  } catch {
-    return false;
+  // Check referenceType for CLR int (from .NET interop)
+  if (
+    expr.inferredType?.kind === "referenceType" &&
+    expr.inferredType.name === "int"
+  ) {
+    return true;
   }
+
+  return false;
 };
 
 /**
@@ -138,23 +136,9 @@ export const emitMemberAccess = (
       );
       const finalContext = { ...contextWithIndex, isArrayIndex: false };
       const accessor = expr.isOptional ? "?[" : "[";
-      // Check if index has Int32 proof (numericIntent from proof pass or loop var)
       const indexExpr = expr.property as IrExpression;
-      const hasInt32Proof =
-        // Check numericIntent from proof pass
-        (indexExpr.inferredType?.kind === "primitiveType" &&
-          indexExpr.inferredType.name === "number" &&
-          indexExpr.inferredType.numericIntent === "Int32") ||
-        // Check referenceType for CLR int
-        (indexExpr.inferredType?.kind === "referenceType" &&
-          indexExpr.inferredType.name === "int") ||
-        // Keep loop var recognition (they're proven by construction)
-        (indexExpr.kind === "identifier" &&
-          context.intLoopVars?.has(indexExpr.name)) ||
-        // Integer literals in Int32 range are valid (C# semantics)
-        isInt32Literal(indexExpr);
 
-      if (!hasInt32Proof) {
+      if (!hasInt32Proof(indexExpr)) {
         // ICE: Unproven index should have been caught by proof pass (TSN5107)
         throw new Error(
           `Internal Compiler Error: Array index must be proven Int32. ` +
@@ -187,21 +171,8 @@ export const emitMemberAccess = (
 
     // HARD GATE: Non-dictionary CLR indexers (List<T>, string) require Int32 proof
     const indexExpr = expr.property as IrExpression;
-    const hasInt32Proof =
-      // Check numericIntent from proof pass
-      (indexExpr.inferredType?.kind === "primitiveType" &&
-        indexExpr.inferredType.name === "number" &&
-        indexExpr.inferredType.numericIntent === "Int32") ||
-      // Check referenceType for CLR int
-      (indexExpr.inferredType?.kind === "referenceType" &&
-        indexExpr.inferredType.name === "int") ||
-      // Keep loop var recognition (they're proven by construction)
-      (indexExpr.kind === "identifier" &&
-        context.intLoopVars?.has(indexExpr.name)) ||
-      // Integer literals in Int32 range are valid (C# semantics)
-      isInt32Literal(indexExpr);
 
-    if (!hasInt32Proof) {
+    if (!hasInt32Proof(indexExpr)) {
       // ICE: Unproven index should have been caught by proof pass (TSN5107)
       throw new Error(
         `Internal Compiler Error: CLR indexer requires Int32 index. ` +

@@ -110,6 +110,23 @@ export type IrArrowFunctionExpression = {
   readonly sourceSpan?: SourceLocation;
 };
 
+/**
+ * Classification for computed member access lowering.
+ * Determines whether TSN5107 (Int32 proof) is required.
+ *
+ * - clrIndexer: CLR indexer (obj[int]) - requires Int32 proof
+ * - dictionary: Dictionary<K,V>[key] - NO Int32 requirement (key is typed)
+ * - jsRuntimeArray: Tsonic.JSRuntime.Array.get() - requires Int32 proof
+ * - stringChar: string[int] character access - requires Int32 proof
+ * - unknown: Fallback for unclassified access - emit error
+ */
+export type ComputedAccessKind =
+  | "clrIndexer"
+  | "dictionary"
+  | "jsRuntimeArray"
+  | "stringChar"
+  | "unknown";
+
 export type IrMemberExpression = {
   readonly kind: "memberAccess";
   readonly object: IrExpression;
@@ -126,6 +143,9 @@ export type IrMemberExpression = {
     readonly type: string; // Full CLR type e.g., "System.Linq.Enumerable"
     readonly member: string; // CLR member name e.g., "SelectMany"
   };
+  // Classification for computed access lowering (set during IR build)
+  // Determines whether Int32 proof is required for indices
+  readonly accessKind?: ComputedAccessKind;
 };
 
 export type IrCallExpression = {

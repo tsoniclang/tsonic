@@ -70,6 +70,7 @@ export type {
   IrNumericNarrowingExpression,
   NumericProof,
   ProofSource,
+  ComputedAccessKind,
 } from "./expressions.js";
 
 // Type system types

@@ -20,6 +20,7 @@ import {
   IrExpression,
   IrStatement,
   IrNumericNarrowingExpression,
+  IrMemberExpression,
 } from "../types.js";
 
 /**
@@ -97,6 +98,7 @@ const ident = (name: string): IrExpression => ({
 
 /**
  * Helper to create an array access expression
+ * Includes accessKind: "clrIndexer" to match IR build behavior
  */
 const arrayAccess = (
   object: IrExpression,
@@ -107,6 +109,7 @@ const arrayAccess = (
   property: index,
   isComputed: true,
   isOptional: false,
+  accessKind: "clrIndexer", // Set by IR converter for array types
   inferredType: { kind: "primitiveType", name: "number" },
 });
 
@@ -579,6 +582,172 @@ describe("Numeric Proof Invariants", () => {
 
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
+    });
+  });
+
+  /**
+   * ALICE'S REQUIRED TESTS: Proof propagation for array index expressions
+   *
+   * These tests verify that the proof pass correctly annotates array indices
+   * with numericIntent:Int32, which the emitter relies on (without re-deriving proofs).
+   */
+  describe("Array Index Proof Propagation (Alice's Requirements)", () => {
+    it("arr[0] - bare literal gets numericIntent:Int32", () => {
+      // const arr = [1, 2, 3];
+      // const x = arr[0];  // 0 should get numericIntent:Int32 after proof pass
+      const module = createModule([
+        createVarDecl("arr", {
+          kind: "array",
+          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+          },
+        }),
+        createVarDecl("x", arrayAccess(arrayIdent("arr"), numLiteral(0))),
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+
+      // Find the array access in the processed module
+      const varDecl = result.modules[0]?.body[1];
+      expect(varDecl?.kind).to.equal("variableDeclaration");
+      if (varDecl?.kind === "variableDeclaration") {
+        const access = varDecl.declarations[0]
+          ?.initializer as IrMemberExpression;
+        expect(access?.kind).to.equal("memberAccess");
+
+        const indexExpr = access.property;
+        expect(typeof indexExpr).to.not.equal("string");
+        if (typeof indexExpr !== "string") {
+          // Index should have numericIntent:Int32 after proof pass
+          expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
+          if (indexExpr.inferredType?.kind === "primitiveType") {
+            expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+          }
+        }
+      }
+    });
+
+    it("arr[i] where i=0 - inferred Int32 propagates to index", () => {
+      // const i = 0;  // i inferred as Int32 (integer literal in range)
+      // const arr = [1, 2, 3];
+      // const x = arr[i];  // i should propagate Int32 to index
+      const module = createModule([
+        createVarDecl("i", numLiteral(0)),
+        createVarDecl("arr", {
+          kind: "array",
+          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+          },
+        }),
+        createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("i"))),
+      ]);
+
+      const result = runNumericProofPass([module]);
+
+      // Should pass - i is proven Int32 from its integer literal initialization
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+
+      // Verify the index expression has numericIntent:Int32
+      const varDecl = result.modules[0]?.body[2];
+      expect(varDecl?.kind).to.equal("variableDeclaration");
+      if (varDecl?.kind === "variableDeclaration") {
+        const access = varDecl.declarations[0]
+          ?.initializer as IrMemberExpression;
+        const indexExpr = access.property;
+        if (typeof indexExpr !== "string") {
+          expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
+          if (indexExpr.inferredType?.kind === "primitiveType") {
+            expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+          }
+        }
+      }
+    });
+
+    it("arr[i] where i=0.0 - Double rejected with TSN5107", () => {
+      // const i = 0.0;  // i is Double (has decimal point)
+      // const arr = [1, 2, 3];
+      // const x = arr[i];  // SHOULD FAIL: Double is not Int32
+      const module = createModule([
+        createVarDecl("i", numLiteral(0.0, "0.0")), // raw has decimal point
+        createVarDecl("arr", {
+          kind: "array",
+          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+          },
+        }),
+        createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("i"))),
+      ]);
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.length).to.be.greaterThan(0);
+      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
+    });
+
+    it("for loop counter is proven Int32 for array access", () => {
+      // Simulates: for (let i = 0; i < arr.length; i++) { arr[i] }
+      // The loop counter i, initialized from integer literal, should be Int32
+      const module = createModule([
+        createVarDecl("arr", {
+          kind: "array",
+          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+          },
+        }),
+        // Simulate loop counter initialization
+        createVarDecl("i", numLiteral(0), "let"),
+        // Simulate arr[i] inside loop body
+        createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("i"))),
+      ]);
+
+      const result = runNumericProofPass([module]);
+
+      // Should pass - let i = 0 is proven Int32
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+    });
+
+    it("arr[1] - integer literal 1 gets numericIntent:Int32", () => {
+      // Specifically test literal 1 (not just 0)
+      const module = createModule([
+        createVarDecl("arr", {
+          kind: "array",
+          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
+          inferredType: {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+          },
+        }),
+        createVarDecl("x", arrayAccess(arrayIdent("arr"), numLiteral(1))),
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+
+      // Verify the literal 1 gets numericIntent:Int32
+      const varDecl = result.modules[0]?.body[1];
+      if (varDecl?.kind === "variableDeclaration") {
+        const access = varDecl.declarations[0]
+          ?.initializer as IrMemberExpression;
+        const indexExpr = access.property;
+        if (typeof indexExpr !== "string") {
+          expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
+          if (indexExpr.inferredType?.kind === "primitiveType") {
+            expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+          }
+        }
+      }
     });
   });
 });

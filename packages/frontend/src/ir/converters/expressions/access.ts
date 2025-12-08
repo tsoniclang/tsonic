@@ -3,10 +3,63 @@
  */
 
 import * as ts from "typescript";
-import { IrMemberExpression } from "../../types.js";
+import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getInferredType, getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { getBindingRegistry } from "../statements/declarations/registry.js";
+
+/**
+ * Classify computed member access for proof pass.
+ * This determines whether Int32 proof is required for the index.
+ *
+ * Classification is based on IR type kinds, NOT string matching.
+ * Both jsRuntimeArray (JS mode) and clrIndexer (dotnet mode) require Int32 proof,
+ * so we use clrIndexer as the default for TypeScript arrays.
+ *
+ * @param objectType - The inferred type of the object being accessed
+ * @returns The access kind classification
+ */
+const classifyComputedAccess = (
+  objectType: IrType | undefined
+): ComputedAccessKind => {
+  if (!objectType) return "unknown";
+
+  // TypeScript array type (number[], T[], etc.)
+  // Both clrIndexer and jsRuntimeArray require Int32 proof
+  if (objectType.kind === "arrayType") {
+    return "clrIndexer";
+  }
+
+  // IR dictionary type (if we have it)
+  if (objectType.kind === "dictionaryType") {
+    return "dictionary";
+  }
+
+  // String character access: string[int]
+  if (objectType.kind === "primitiveType" && objectType.name === "string") {
+    return "stringChar";
+  }
+
+  // Reference types - use resolvedClrType for EXACT matching
+  if (objectType.kind === "referenceType") {
+    const clr = objectType.resolvedClrType;
+
+    // Dictionary types: no Int32 requirement (key is typed K)
+    // Use exact prefix matching, not substring
+    if (
+      clr?.startsWith("global::System.Collections.Generic.Dictionary`") ||
+      clr?.startsWith("System.Collections.Generic.Dictionary`")
+    ) {
+      return "dictionary";
+    }
+
+    // All other reference types with indexers (List<T>, Array, Span<T>, etc.)
+    // require Int32 proof
+    return "clrIndexer";
+  }
+
+  return "unknown";
+};
 
 /**
  * Extract the type name from an inferred type for binding lookup.
@@ -145,14 +198,23 @@ export const convertMemberExpression = (
       memberBinding,
     };
   } else {
+    // Element access (computed): obj[expr]
+    const object = convertExpression(node.expression, checker);
+    const objectType = getInferredType(node.expression, checker);
+
+    // Classify the access kind for proof pass
+    // This determines whether Int32 proof is required for the index
+    const accessKind = classifyComputedAccess(objectType);
+
     return {
       kind: "memberAccess",
-      object: convertExpression(node.expression, checker),
+      object,
       property: convertExpression(node.argumentExpression, checker),
       isComputed: true,
       isOptional,
       inferredType,
       sourceSpan,
+      accessKind,
     };
   }
 };
