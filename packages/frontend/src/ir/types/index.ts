@@ -41,6 +41,7 @@ export type {
   IrBreakStatement,
   IrContinueStatement,
   IrEmptyStatement,
+  IrYieldStatement,
 } from "./statements.js";
 
 // Expression types

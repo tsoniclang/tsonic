@@ -39,6 +39,7 @@ export type {
   IrBreakStatement,
   IrContinueStatement,
   IrEmptyStatement,
+  IrYieldStatement,
   // Expression types
   IrExpression,
   IrLiteralExpression,

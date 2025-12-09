@@ -45,6 +45,9 @@ const KNOWN_BUILTINS = new Set([
   "Set",
   "Error",
   "Object",
+  "Generator",
+  "AsyncGenerator",
+  "IteratorResult",
   // C# signed integers (from @tsonic/types)
   "sbyte",
   "short",

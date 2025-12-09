@@ -31,7 +31,8 @@ export type IrStatement =
   | IrBlockStatement
   | IrBreakStatement
   | IrContinueStatement
-  | IrEmptyStatement;
+  | IrEmptyStatement
+  | IrYieldStatement;
 
 export type IrVariableDeclaration = {
   readonly kind: "variableDeclaration";
@@ -237,4 +238,24 @@ export type IrContinueStatement = {
 
 export type IrEmptyStatement = {
   readonly kind: "emptyStatement";
+};
+
+/**
+ * Lowered yield statement for bidirectional generators.
+ * Created by yield-lowering pass from IrYieldExpression patterns:
+ * - `yield expr;` → receiveTarget undefined
+ * - `const x = yield expr;` → receiveTarget = identifierPattern("x")
+ * - `x = yield expr;` → receiveTarget = identifierPattern("x")
+ * - `const {a, b} = yield expr;` → receiveTarget = objectPattern(...)
+ */
+export type IrYieldStatement = {
+  readonly kind: "yieldStatement";
+  /** Value to yield (maps to exchange.Output) */
+  readonly output?: IrExpression;
+  /** True for yield*, false for yield */
+  readonly delegate: boolean;
+  /** Where to assign received Input value after resumption */
+  readonly receiveTarget?: IrPattern;
+  /** Type of the received value (from Generator<Y, R, TNext>) */
+  readonly receivedType?: IrType;
 };

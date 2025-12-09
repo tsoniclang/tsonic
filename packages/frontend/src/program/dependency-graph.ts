@@ -14,6 +14,7 @@ import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
+import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -314,8 +315,15 @@ export const buildModuleDependencyGraph = (
     return error(numericResult.diagnostics);
   }
 
-  // Use the processed modules with proofs attached
-  const processedModules = [...numericResult.modules];
+  // Run yield lowering pass - transforms yield expressions in generators
+  // into IrYieldStatement nodes for the emitter
+  const yieldResult = runYieldLoweringPass(numericResult.modules);
+  if (!yieldResult.ok) {
+    return error(yieldResult.diagnostics);
+  }
+
+  // Use the processed modules with proofs and lowered yields
+  const processedModules = [...yieldResult.modules];
 
   // Sort modules by relative path for deterministic output
   processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));

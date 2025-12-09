@@ -15,6 +15,7 @@ import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
 import { emitParameters } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { needsBidirectionalSupport } from "../../generator-wrapper.js";
 
 /**
  * Emit a function declaration
@@ -51,18 +52,27 @@ export const emitFunctionDeclaration = (
     parts.push("async");
   }
 
+  // Check if this is a bidirectional generator (has TNext type)
+  const isBidirectional = needsBidirectionalSupport(stmt);
+
   // Return type
   if (stmt.isGenerator) {
-    // Generator functions return IEnumerable<exchange> or IAsyncEnumerable<exchange>
-    const exchangeName = `${stmt.name}_exchange`;
-    if (stmt.isAsync) {
-      parts.push(
-        `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
-      );
+    if (isBidirectional) {
+      // Bidirectional generators return the wrapper class
+      const wrapperName = `${stmt.name}_Generator`;
+      parts.push(wrapperName);
     } else {
-      parts.push(
-        `global::System.Collections.Generic.IEnumerable<${exchangeName}>`
-      );
+      // Unidirectional generators return IEnumerable<exchange> or IAsyncEnumerable<exchange>
+      const exchangeName = `${stmt.name}_exchange`;
+      if (stmt.isAsync) {
+        parts.push(
+          `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
+        );
+      } else {
+        parts.push(
+          `global::System.Collections.Generic.IEnumerable<${exchangeName}>`
+        );
+      }
     }
   } else if (stmt.returnType) {
     const [returnType, newContext] = emitType(stmt.returnType, currentContext);
@@ -141,25 +151,58 @@ export const emitFunctionDeclaration = (
   const bodyInd = getIndent(baseBodyContext);
   const injectLines: string[] = [];
 
-  // Add generator exchange initialization
-  if (stmt.isGenerator) {
+  // Handle bidirectional generators specially
+  if (stmt.isGenerator && isBidirectional) {
     const exchangeName = `${stmt.name}_exchange`;
-    injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
-  }
+    const wrapperName = `${stmt.name}_Generator`;
+    const enumerableType = stmt.isAsync
+      ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
+      : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
+    const asyncModifier = stmt.isAsync ? "async " : "";
 
-  // Add out parameter initializations
-  if (outParams.length > 0) {
-    for (const outParam of outParams) {
-      injectLines.push(`${bodyInd}${outParam.name} = default;`);
+    // Build the body with local iterator function
+    const iteratorBody = bodyCode
+      .split("\n")
+      .slice(1, -1) // Remove opening and closing braces
+      .map((line) => `    ${line}`) // Add extra indent
+      .join("\n");
+
+    // Construct the bidirectional generator body
+    const wrapperBody = [
+      `${ind}{`,
+      `${bodyInd}var exchange = new ${exchangeName}();`,
+      ``,
+      `${bodyInd}${asyncModifier}${enumerableType} __iterator()`,
+      `${bodyInd}{`,
+      iteratorBody,
+      `${bodyInd}}`,
+      ``,
+      `${bodyInd}return new ${wrapperName}(__iterator(), exchange);`,
+      `${ind}}`,
+    ].join("\n");
+
+    finalBodyCode = wrapperBody;
+  } else {
+    // Add generator exchange initialization for unidirectional generators
+    if (stmt.isGenerator) {
+      const exchangeName = `${stmt.name}_exchange`;
+      injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
     }
-  }
 
-  // Inject lines after opening brace
-  if (injectLines.length > 0) {
-    const lines = bodyCode.split("\n");
-    if (lines.length > 1) {
-      lines.splice(1, 0, ...injectLines, "");
-      finalBodyCode = lines.join("\n");
+    // Add out parameter initializations
+    if (outParams.length > 0) {
+      for (const outParam of outParams) {
+        injectLines.push(`${bodyInd}${outParam.name} = default;`);
+      }
+    }
+
+    // Inject lines after opening brace
+    if (injectLines.length > 0) {
+      const lines = bodyCode.split("\n");
+      if (lines.length > 1) {
+        lines.splice(1, 0, ...injectLines, "");
+        finalBodyCode = lines.join("\n");
+      }
     }
   }
 

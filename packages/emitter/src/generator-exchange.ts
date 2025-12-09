@@ -6,6 +6,11 @@
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import {
+  needsBidirectionalSupport,
+  generateWrapperClass,
+  generateIteratorResultStruct,
+} from "./generator-wrapper.js";
 
 /**
  * Collect all generator functions from a module
@@ -91,7 +96,7 @@ const generateExchangeClass = (
 };
 
 /**
- * Generate all exchange objects for generators in a module
+ * Generate all exchange objects, wrapper classes, and IteratorResult struct for generators in a module
  */
 export const generateGeneratorExchanges = (
   module: IrModule,
@@ -106,14 +111,40 @@ export const generateGeneratorExchanges = (
   const parts: string[] = [];
   let currentContext = context;
 
-  for (const generator of generators) {
-    const [exchangeCode, newContext] = generateExchangeClass(
-      generator,
+  // Check if any generator needs bidirectional support
+  const hasBidirectional = generators.some((g) => needsBidirectionalSupport(g));
+
+  // Generate IteratorResult struct if needed (once per module)
+  if (hasBidirectional) {
+    const [iteratorResultCode, newContext] = generateIteratorResultStruct(
       currentContext
     );
     currentContext = newContext;
+    parts.push(iteratorResultCode);
+    parts.push("");
+  }
+
+  // Generate exchange classes and wrapper classes for each generator
+  for (const generator of generators) {
+    // Exchange class (for all generators)
+    const [exchangeCode, exchangeContext] = generateExchangeClass(
+      generator,
+      currentContext
+    );
+    currentContext = exchangeContext;
     parts.push(exchangeCode);
-    parts.push(""); // Blank line between exchange classes
+    parts.push("");
+
+    // Wrapper class (only for bidirectional generators)
+    if (needsBidirectionalSupport(generator)) {
+      const [wrapperCode, wrapperContext] = generateWrapperClass(
+        generator,
+        currentContext
+      );
+      currentContext = wrapperContext;
+      parts.push(wrapperCode);
+      parts.push("");
+    }
   }
 
   return [parts.join("\n"), currentContext];

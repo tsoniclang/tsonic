@@ -20,6 +20,7 @@ import {
   emitBlockStatement,
   emitReturnStatement,
   emitExpressionStatement,
+  emitYieldStatement,
 } from "./statements/blocks.js";
 
 import {
@@ -103,6 +104,9 @@ export const emitStatement = (
 
     case "expressionStatement":
       return emitExpressionStatement(stmt, context);
+
+    case "yieldStatement":
+      return emitYieldStatement(stmt, context);
 
     case "emptyStatement":
       return [`${ind};`, context];

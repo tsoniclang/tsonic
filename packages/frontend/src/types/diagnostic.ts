@@ -87,7 +87,9 @@ export type DiagnosticCode =
   | "TSN5106" // Unproven numeric type at return boundary
   | "TSN5107" // Array index must be Int32
   | "TSN5108" // Value exceeds JS safe integer range
-  | "TSN5109"; // Computed access kind not classified (compiler bug)
+  | "TSN5109" // Computed access kind not classified (compiler bug)
+  // Yield lowering errors (TSN6101-TSN6199)
+  | "TSN6101"; // Yield expression in unsupported position
 
 export type SourceLocation = {
   readonly file: string;
