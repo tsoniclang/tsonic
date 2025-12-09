@@ -353,6 +353,82 @@ interface UserWithTimestamp {
 }
 ```
 
+### TSN7408: Mixed Variadic Tuples Not Supported
+
+Variadic tuple types with mixed elements are not supported.
+
+```typescript
+// Error
+type Mixed = [string, ...number[]];
+
+// Fix: Use a regular array or fixed tuple
+type Fixed = [string, number, number];
+type NumberArray = number[];
+```
+
+### TSN7409: 'infer' Keyword Not Supported
+
+The `infer` keyword in conditional types is not supported.
+
+```typescript
+// Error
+type UnwrapPromise<T> = T extends Promise<infer U> ? U : T;
+
+// Fix: Use explicit type parameters or overloads
+```
+
+### TSN7414: Type Cannot Be Represented
+
+The type cannot be represented in the compiler's type subset.
+
+```typescript
+// Error: Complex types that can't map to C#
+type Complex = { [K in keyof T]: T[K] };
+
+// Fix: Use simpler, explicit type definitions
+```
+
+### TSN7420: ref/out/In Are Parameter Modifiers
+
+`ref`, `out`, and `In` are parameter passing modifiers, not types.
+
+```typescript
+// Error
+function foo(x: ref<number>) {}  // Wrong - ref is not a type
+
+// Correct: Use type annotation on the .NET side
+// These are handled via metadata, not TypeScript syntax
+```
+
+## TSN5xxx: Numeric Proof Errors
+
+### TSN5101-TSN5109: Numeric Type Errors
+
+Errors related to numeric type narrowing and proof:
+
+| Code    | Error                                      |
+| ------- | ------------------------------------------ |
+| TSN5101 | Cannot prove numeric narrowing is safe     |
+| TSN5102 | Numeric literal out of range               |
+| TSN5103 | Mixed numeric types in expression          |
+| TSN5104 | Cannot infer numeric type                  |
+| TSN5105 | Numeric operation requires same types      |
+| TSN5106 | Integer division by zero                   |
+| TSN5107 | Numeric overflow possible                  |
+| TSN5108 | Cannot narrow to target numeric type       |
+| TSN5109 | Numeric type mismatch                      |
+
+## TSN6xxx: Generic Specialization Errors
+
+### TSN6101: Specialization Error
+
+Errors during generic type specialization:
+
+| Code    | Error                                      |
+| ------- | ------------------------------------------ |
+| TSN6101 | Cannot specialize generic type             |
+| TSN6199 | Generic specialization internal error      |
+
 ## TSN9xxx: Metadata Loading
 
 ### TSN9001-TSN9018: Metadata Errors
