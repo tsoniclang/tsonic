@@ -323,7 +323,7 @@ function sumRange(start: int, end: int): int {
 export function main(): void {
   const a = 10 as int;
   const b = 20 as int;
-  const sum = (a + b) as int;  // Integer arithmetic
+  const sum = (a + b) as int; // Integer arithmetic
 
   console.log(`Sum: ${sum}`);
   console.log(`Range sum 1-10: ${sumRange(1 as int, 10 as int)}`);
@@ -331,7 +331,7 @@ export function main(): void {
   // Integer division truncates
   const x = 10 as int;
   const y = 3 as int;
-  console.log(`10 / 3 = ${x / y}`);  // 3 (not 3.333...)
+  console.log(`10 / 3 = ${x / y}`); // 3 (not 3.333...)
 }
 ```
 

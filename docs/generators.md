@@ -22,11 +22,11 @@ for (const n of counter()) {
 
 The full generator type is `Generator<TYield, TReturn, TNext>`:
 
-| Type Parameter | Description | Default |
-|----------------|-------------|---------|
-| `TYield` | Type of values yielded by the generator | Required |
-| `TReturn` | Type of the final return value | `void` |
-| `TNext` | Type of values passed to `next()` | `undefined` |
+| Type Parameter | Description                             | Default     |
+| -------------- | --------------------------------------- | ----------- |
+| `TYield`       | Type of values yielded by the generator | Required    |
+| `TReturn`      | Type of the final return value          | `void`      |
+| `TNext`        | Type of values passed to `next()`       | `undefined` |
 
 ### Basic Generator (Yield Only)
 
@@ -76,7 +76,8 @@ Use `for...of` to iterate over yielded values:
 
 ```typescript
 function* fibonacci(): Generator<number> {
-  let a = 0, b = 1;
+  let a = 0,
+    b = 1;
   while (a < 100) {
     yield a;
     [a, b] = [b, a + b];
@@ -141,12 +142,12 @@ export function main(): void {
   const gen = accumulator(0);
 
   // First next() starts the generator - value is ignored
-  Console.writeLine(gen.next().value);      // 0
+  Console.writeLine(gen.next().value); // 0
 
   // Subsequent next(value) passes value to generator
-  Console.writeLine(gen.next(5).value);     // 5
-  Console.writeLine(gen.next(10).value);    // 15
-  Console.writeLine(gen.next(3).value);     // 18
+  Console.writeLine(gen.next(5).value); // 5
+  Console.writeLine(gen.next(10).value); // 15
+  Console.writeLine(gen.next(3).value); // 18
 }
 ```
 
@@ -163,10 +164,10 @@ function* echo(): Generator<string, void, string> {
 }
 
 const gen = echo();
-gen.next("ignored");     // First call - "ignored" is discarded
-                         // Returns: { value: "ready", done: false }
-gen.next("hello");       // "hello" is received
-                         // Returns: { value: "Echo: hello", done: false }
+gen.next("ignored"); // First call - "ignored" is discarded
+// Returns: { value: "ready", done: false }
+gen.next("hello"); // "hello" is received
+// Returns: { value: "Echo: hello", done: false }
 ```
 
 ### Practical Example: Data Processor
@@ -191,13 +192,13 @@ function* dataProcessor(): Generator<string, number, number> {
 export function main(): void {
   const processor = dataProcessor();
 
-  Console.writeLine(processor.next().value);    // "Received 0 values, sum = 0"
-  Console.writeLine(processor.next(10).value);  // "Received 1 values, sum = 10"
-  Console.writeLine(processor.next(20).value);  // "Received 2 values, sum = 30"
-  Console.writeLine(processor.next(5).value);   // "Received 3 values, sum = 35"
+  Console.writeLine(processor.next().value); // "Received 0 values, sum = 0"
+  Console.writeLine(processor.next(10).value); // "Received 1 values, sum = 10"
+  Console.writeLine(processor.next(20).value); // "Received 2 values, sum = 30"
+  Console.writeLine(processor.next(5).value); // "Received 3 values, sum = 35"
 
   const final = processor.next(-1);
-  Console.writeLine(`Done: ${final.done}`);     // "Done: true"
+  Console.writeLine(`Done: ${final.done}`); // "Done: true"
 }
 ```
 
@@ -209,8 +210,8 @@ Advances the generator to the next yield point:
 
 ```typescript
 const gen = myGenerator();
-const result = gen.next();      // Start or resume
-const result2 = gen.next(42);   // Resume with value 42
+const result = gen.next(); // Start or resume
+const result2 = gen.next(42); // Resume with value 42
 ```
 
 ### `return(value)`
@@ -226,10 +227,10 @@ function* counter(): Generator<number, string> {
 }
 
 const gen = counter();
-console.log(gen.next().value);  // 0
-console.log(gen.next().value);  // 1
-gen.return("done");             // Terminates generator
-console.log(gen.next().done);   // true
+console.log(gen.next().value); // 0
+console.log(gen.next().value); // 1
+gen.return("done"); // Terminates generator
+console.log(gen.next().done); // true
 ```
 
 **Note:** The value passed to `return()` becomes the generator's return value but does NOT appear in the `IteratorResult.value`. Access it via the `returnValue` property (Tsonic extension).
@@ -250,9 +251,9 @@ function* withTryCatch(): Generator<number> {
 }
 
 const gen = withTryCatch();
-gen.next();        // { value: 1, done: false }
+gen.next(); // { value: 1, done: false }
 gen.throw(Error()); // In JS: { value: -1, done: false }
-                    // In Tsonic: throws immediately, no catch
+// In Tsonic: throws immediately, no catch
 ```
 
 This is a fundamental limitation of C# iterators which don't support resumption with exceptions.
@@ -279,11 +280,11 @@ The return value is available after the generator completes:
 
 ```typescript
 const gen = countdown(3);
-console.log(gen.next().value);   // 3
-console.log(gen.next(1).value);  // 2
-console.log(gen.next(1).value);  // 1
+console.log(gen.next().value); // 3
+console.log(gen.next(1).value); // 2
+console.log(gen.next(1).value); // 1
 const final = gen.next(1);
-console.log(final.done);         // true
+console.log(final.done); // true
 // final.value in JS would be "Liftoff!"
 ```
 
@@ -335,10 +336,10 @@ export async function main(): Promise<void> {
   const gen = asyncAccumulator(10);
 
   const r1 = await gen.next();
-  Console.writeLine(`Initial: ${r1.value}`);   // 10
+  Console.writeLine(`Initial: ${r1.value}`); // 10
 
   const r2 = await gen.next(5);
-  Console.writeLine(`After +5: ${r2.value}`);  // 15
+  Console.writeLine(`After +5: ${r2.value}`); // 15
 
   const r3 = await gen.next(20);
   Console.writeLine(`After +20: ${r3.value}`); // 35

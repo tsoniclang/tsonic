@@ -205,7 +205,7 @@ fi
 # ============================================================
 
 echo "=== Building all packages ==="
-./scripts/build/all.sh
+./scripts/build/all.sh --no-format
 
 echo "=== Running ALL tests (unit, golden, E2E) ==="
 ./test/scripts/run-all.sh
@@ -256,13 +256,12 @@ fi
 
 echo "=== Publishing @tsonic packages ==="
 for pkg in "${PACKAGES[@]}"; do
-    PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
+    PKG_VERSION=$(node -p "require('$ROOT_DIR/packages/$pkg/package.json').version")
     echo "Publishing @tsonic/$pkg@$PKG_VERSION..."
     cd "$ROOT_DIR/packages/$pkg"
     npm publish --access public
+    cd "$ROOT_DIR"
 done
-
-cd "$ROOT_DIR"
 
 # ============================================================
 # UPDATE AND PUBLISH WRAPPER
@@ -294,11 +293,13 @@ npm publish --access public
 # DONE
 # ============================================================
 
+cd "$ROOT_DIR"
+
 echo ""
 echo "=== Done ==="
 echo "Published:"
 for pkg in "${PACKAGES[@]}"; do
-    PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
+    PKG_VERSION=$(node -p "require('$ROOT_DIR/packages/$pkg/package.json').version")
     echo "  - @tsonic/$pkg@$PKG_VERSION"
 done
 echo "  - tsonic@$CLI_VERSION"
