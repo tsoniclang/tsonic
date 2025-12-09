@@ -410,6 +410,8 @@ export function main(): void {
 }
 ```
 
+> **See also:** [Generators Guide](generators.md) for comprehensive coverage including bidirectional generators, async generators, and return values.
+
 ### Bidirectional Generators
 
 Generators can receive values via `next(value)`:

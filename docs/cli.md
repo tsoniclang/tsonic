@@ -191,6 +191,89 @@ tsonic run src/App.ts -- --input data.txt --verbose
 tsonic run src/App.ts --verbose -- --debug
 ```
 
+### add package
+
+Add a CLR package (DLL + types) to the project.
+
+```bash
+tsonic add package <dll-path> <types-package>
+```
+
+**Arguments:**
+
+| Argument          | Description                  | Required |
+| ----------------- | ---------------------------- | -------- |
+| `<dll-path>`      | Path to the .NET DLL file    | Yes      |
+| `<types-package>` | npm package with type decls  | Yes      |
+
+**Options:**
+
+| Option      | Short | Description     | Default |
+| ----------- | ----- | --------------- | ------- |
+| `--verbose` | `-V`  | Verbose output  | `false` |
+| `--quiet`   | `-q`  | Suppress output | `false` |
+
+**Examples:**
+
+```bash
+# Add a custom library
+tsonic add package ./libs/MyLib.dll @myorg/mylib-types
+
+# Add with verbose output
+tsonic add package ./libs/MyLib.dll @myorg/mylib-types --verbose
+```
+
+**What it does:**
+
+1. Copies the DLL to `lib/` directory
+2. Installs the npm types package
+3. Updates `tsonic.json` to register the library
+
+### pack
+
+Create a NuGet package from a library project.
+
+```bash
+tsonic pack [options]
+```
+
+**Prerequisites:**
+
+- `output.type` must be `"library"` in tsonic.json
+- `output.packable` must be `true` in tsonic.json
+
+**Options:**
+
+| Option            | Short | Description      | Default       |
+| ----------------- | ----- | ---------------- | ------------- |
+| `--config <file>` | `-c`  | Config file path | `tsonic.json` |
+| `--verbose`       | `-V`  | Verbose output   | `false`       |
+| `--quiet`         | `-q`  | Suppress output  | `false`       |
+
+**Examples:**
+
+```bash
+# Create NuGet package
+tsonic pack
+
+# With custom config
+tsonic pack --config tsonic.library.json
+```
+
+**Output:**
+
+```
+generated/bin/Release/MyLib.1.0.0.nupkg
+```
+
+**Publishing to NuGet:**
+
+```bash
+dotnet nuget push generated/bin/Release/MyLib.1.0.0.nupkg \
+  --api-key YOUR_API_KEY \
+  --source https://api.nuget.org/v3/index.json
+```
+
 ## Global Options
 
 These options work with all commands:

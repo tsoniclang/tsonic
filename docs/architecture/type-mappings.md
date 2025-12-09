@@ -381,3 +381,72 @@ public static async Task<string> getData()
     return "data";
 }
 ```
+
+## Generator Types
+
+### Simple Generators
+
+```typescript
+// TypeScript
+function* counter(): Generator<number> {
+  yield 1;
+  yield 2;
+}
+```
+
+Becomes:
+
+```csharp
+public static IEnumerable<double> counter()
+{
+    yield return 1.0;
+    yield return 2.0;
+}
+```
+
+### Bidirectional Generators
+
+```typescript
+// TypeScript
+function* acc(): Generator<number, void, number> {
+  let total = 0;
+  while (true) {
+    const v = yield total;
+    total += v;
+  }
+}
+```
+
+Generates wrapper classes for bidirectional communication:
+
+```csharp
+// Exchange class for passing values
+public sealed class acc_exchange { ... }
+
+// Wrapper with JS-style API
+public sealed class acc_Generator {
+    public IteratorResult<double> next(double? value = default) { ... }
+    public IteratorResult<double> @return(object? value = default) { ... }
+}
+```
+
+### Async Generators
+
+```typescript
+// TypeScript
+async function* stream(): AsyncGenerator<string> {
+  yield "a";
+  yield "b";
+}
+```
+
+Becomes:
+
+```csharp
+public static IAsyncEnumerable<string> stream()
+{
+    // async iterator implementation
+}
+```
+
+> **See also:** [Generators Guide](../generators.md) for complete documentation.

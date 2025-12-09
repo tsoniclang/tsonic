@@ -306,3 +306,70 @@ export function main(): void {
   }
 }
 ```
+
+## Integer Types
+
+```typescript
+import { int } from "@tsonic/types";
+
+function sumRange(start: int, end: int): int {
+  let total = 0 as int;
+  for (let i = start; (i as int) <= end; i = (i + 1) as int) {
+    total = (total + i) as int;
+  }
+  return total;
+}
+
+export function main(): void {
+  const a = 10 as int;
+  const b = 20 as int;
+  const sum = (a + b) as int;  // Integer arithmetic
+
+  console.log(`Sum: ${sum}`);
+  console.log(`Range sum 1-10: ${sumRange(1 as int, 10 as int)}`);
+
+  // Integer division truncates
+  const x = 10 as int;
+  const y = 3 as int;
+  console.log(`10 / 3 = ${x / y}`);  // 3 (not 3.333...)
+}
+```
+
+> **See also:** [Numeric Types Guide](../numeric-types.md) for complete coverage.
+
+## Callbacks
+
+```typescript
+import { int } from "@tsonic/types";
+
+// Action<T> - no return value
+function forEach(items: int[], action: (item: int) => void): void {
+  for (const item of items) {
+    action(item);
+  }
+}
+
+// Func<T, TResult> - with return value
+function map(items: int[], transform: (item: int) => int): int[] {
+  const result: int[] = [];
+  for (const item of items) {
+    result.push(transform(item));
+  }
+  return result;
+}
+
+export function main(): void {
+  const nums: int[] = [1 as int, 2 as int, 3 as int];
+
+  // Inline callback
+  forEach(nums, (n: int) => {
+    console.log(`Item: ${n}`);
+  });
+
+  // Transform callback
+  const doubled = map(nums, (n: int) => (n * 2) as int);
+  console.log(`Doubled: ${doubled}`);
+}
+```
+
+> **See also:** [Callbacks Guide](../callbacks.md) for Action/Func patterns.

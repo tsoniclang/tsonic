@@ -215,6 +215,30 @@ const withNew = [...arr1.slice(0, 1), 99, ...arr1.slice(1)];
 // [1, 99, 2, 3]
 ```
 
+## Integer Arrays
+
+Use `int` from `@tsonic/types` for integer arrays:
+
+```typescript
+import { int } from "@tsonic/types";
+
+// Integer array
+const counts: int[] = [1 as int, 2 as int, 3 as int];
+
+// Array indexing with integers
+const items = ["a", "b", "c"];
+const index = 1 as int;
+const item = items[index]; // "b"
+
+// LINQ operations require int for indexing
+import { Enumerable } from "@tsonic/dotnet/System.Linq";
+
+const numbers = [10, 20, 30];
+const first = Enumerable.ElementAt(numbers, 0 as int);
+```
+
+> **See also:** [Numeric Types Guide](../numeric-types.md) for complete integer type coverage.
+
 ## Tuples
 
 Tuples are fixed-length arrays with specific element types (different from regular arrays):

@@ -14,18 +14,22 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 
 4. [Language Guide](language.md) - Supported features
 5. [Type System](type-system.md) - Type mappings
-6. [Runtime Modes](runtime-modes.md) - JS vs dotnet mode
-7. [.NET Interop](dotnet-interop.md) - Using .NET BCL
+6. [Numeric Types](numeric-types.md) - Integer types and narrowing
+7. [Generators](generators.md) - Sync, async, and bidirectional generators
+8. [Callbacks](callbacks.md) - Action and Func patterns
+9. [Async Patterns](async-patterns.md) - Async/await and for-await
+10. [Runtime Modes](runtime-modes.md) - JS vs dotnet mode
+11. [.NET Interop](dotnet-interop.md) - Using .NET BCL
 
 ### Build
 
-8. [Build Output](build-output.md) - Pipeline and output
-9. [Diagnostics](diagnostics.md) - Error codes reference
+12. [Build Output](build-output.md) - Pipeline and output
+13. [Diagnostics](diagnostics.md) - Error codes reference
 
 ### Reference
 
-10. [Examples](examples/README.md) - Code examples
-11. [Troubleshooting](troubleshooting.md) - Common issues
+14. [Examples](examples/README.md) - Code examples
+15. [Troubleshooting](troubleshooting.md) - Common issues
 
 ## Quick Links
 

@@ -504,6 +504,101 @@ internal static class TsonicJson {
 }
 ```
 
+## Generator Emission
+
+`generator-wrapper.ts` and `generator-exchange.ts`:
+
+### Simple Generators
+
+Basic generators emit as `IEnumerable<T>`:
+
+```csharp
+public static IEnumerable<double> counter()
+{
+    yield return 1.0;
+    yield return 2.0;
+}
+```
+
+### Bidirectional Generators
+
+Generators with `TNext` type emit with wrapper classes:
+
+```typescript
+function* acc(): Generator<number, void, number> {
+  let total = 0;
+  while (true) {
+    const v = yield total;
+    total += v;
+  }
+}
+```
+
+Generates:
+
+1. **Exchange class** for bidirectional communication:
+
+```csharp
+public sealed class acc_exchange
+{
+    public double? Input { get; set; }
+    public double Output { get; set; }
+}
+```
+
+2. **Wrapper class** with JavaScript-style API:
+
+```csharp
+public sealed class acc_Generator
+{
+    private readonly IEnumerator<acc_exchange> _enumerator;
+    private readonly acc_exchange _exchange;
+    private bool _done = false;
+
+    public IteratorResult<double> next(double? value = default) { ... }
+    public IteratorResult<double> @return(object? value = default) { ... }
+    public IteratorResult<double> @throw(object e) { ... }
+}
+```
+
+3. **Core iterator** returning `IEnumerable<exchange>`:
+
+```csharp
+IEnumerable<acc_exchange> __iterator()
+{
+    var total = 0.0;
+    while (true)
+    {
+        exchange.Output = total;
+        yield return exchange;
+        var v = exchange.Input ?? 0.0;
+        total = total + v;
+    }
+}
+```
+
+### IteratorResult
+
+Located in `Tsonic.Runtime`:
+
+```csharp
+public readonly record struct IteratorResult<T>(T value, bool done);
+```
+
+Used with fully qualified names to avoid module collisions:
+
+```csharp
+global::Tsonic.Runtime.IteratorResult<double>
+```
+
+### Async Generators
+
+Async generators follow the same pattern but with:
+
+- `IAsyncEnumerable<exchange>` instead of `IEnumerable`
+- `async` methods in wrapper class
+- `await foreach` for iteration
+
 ## Module Map
 
 For cross-file import resolution:

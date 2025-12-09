@@ -125,6 +125,37 @@ Validates that unsupported utility types are not used:
 - Exported names must resolve
 - Re-exports must be valid
 
+### Yield Lowering Pass
+
+`validation/yield-lowering-pass.ts`:
+
+Transforms generator functions for C# emission:
+
+- Converts `yield` expressions to `yieldStatement` IR nodes
+- Handles `yield*` delegation
+- Transforms `return` in generators to `generatorReturnStatement`
+- Captures TNext values via receive targets
+
+```typescript
+// Input: const x = yield value;
+// Output: yieldStatement with receiveTarget for 'x'
+```
+
+### Numeric Proof Pass
+
+`validation/numeric-proof-pass.ts`:
+
+Recovers numeric intent from declarations:
+
+- Detects `int`, `long`, `byte`, etc. from `@tsonic/types`
+- Tracks numeric type through expressions
+- Enables clean integer emission without cosmetic casts
+
+```typescript
+// const x = 10 as int;
+// Proof: x has numeric kind 'int32'
+```
+
 ## IR Building
 
 ### Statement Conversion

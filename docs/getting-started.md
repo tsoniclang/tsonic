@@ -196,3 +196,10 @@ namespace MyApp.src
 - [Configuration](configuration.md) - tsonic.json in detail
 - [Language Guide](language.md) - TypeScript features supported
 - [Runtime Modes](runtime-modes.md) - JS vs Dotnet mode
+
+### Specialized Guides
+
+- [Numeric Types](numeric-types.md) - Integer types and narrowing
+- [Generators](generators.md) - Sync, async, and bidirectional generators
+- [Callbacks](callbacks.md) - Action and Func patterns
+- [Async Patterns](async-patterns.md) - Async/await and for-await

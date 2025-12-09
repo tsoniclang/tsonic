@@ -32,6 +32,8 @@ const small: byte = 255; // System.Byte
 const medium: short = 32000; // System.Int16
 ```
 
+> **See also:** [Numeric Types Guide](numeric-types.md) for complete coverage of integer types, narrowing patterns, and when to use integers vs numbers.
+
 ### Number Handling
 
 ```typescript
@@ -288,6 +290,8 @@ Generates:
 // Func<T, U> for Transformer
 ```
 
+> **See also:** [Callbacks Guide](callbacks.md) for complete coverage of Action, Func, and higher-order function patterns.
+
 ### Async Functions
 
 ```typescript
@@ -304,6 +308,8 @@ public static async Task<string> fetchData()
     return "data";
 }
 ```
+
+> **See also:** [Async Patterns Guide](async-patterns.md) for async/await, for-await loops, and async generators.
 
 ## Enums
 
