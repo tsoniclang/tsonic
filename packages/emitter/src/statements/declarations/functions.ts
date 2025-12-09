@@ -15,6 +15,11 @@ import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
 import { emitParameters } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import {
+  needsBidirectionalSupport,
+  hasGeneratorReturnType,
+  extractGeneratorTypeArgs,
+} from "../../generator-wrapper.js";
 
 /**
  * Emit a function declaration
@@ -51,18 +56,27 @@ export const emitFunctionDeclaration = (
     parts.push("async");
   }
 
+  // Check if this is a bidirectional generator (has TNext type)
+  const isBidirectional = needsBidirectionalSupport(stmt);
+
   // Return type
   if (stmt.isGenerator) {
-    // Generator functions return IEnumerable<exchange> or IAsyncEnumerable<exchange>
-    const exchangeName = `${stmt.name}_exchange`;
-    if (stmt.isAsync) {
-      parts.push(
-        `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
-      );
+    if (isBidirectional) {
+      // Bidirectional generators return the wrapper class
+      const wrapperName = `${stmt.name}_Generator`;
+      parts.push(wrapperName);
     } else {
-      parts.push(
-        `global::System.Collections.Generic.IEnumerable<${exchangeName}>`
-      );
+      // Unidirectional generators return IEnumerable<exchange> or IAsyncEnumerable<exchange>
+      const exchangeName = `${stmt.name}_exchange`;
+      if (stmt.isAsync) {
+        parts.push(
+          `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
+        );
+      } else {
+        parts.push(
+          `global::System.Collections.Generic.IEnumerable<${exchangeName}>`
+        );
+      }
     }
   } else if (stmt.returnType) {
     const [returnType, newContext] = emitType(stmt.returnType, currentContext);
@@ -141,25 +155,89 @@ export const emitFunctionDeclaration = (
   const bodyInd = getIndent(baseBodyContext);
   const injectLines: string[] = [];
 
-  // Add generator exchange initialization
-  if (stmt.isGenerator) {
+  // Handle bidirectional generators specially
+  if (stmt.isGenerator && isBidirectional) {
     const exchangeName = `${stmt.name}_exchange`;
-    injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
-  }
+    const wrapperName = `${stmt.name}_Generator`;
+    const enumerableType = stmt.isAsync
+      ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
+      : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
+    const asyncModifier = stmt.isAsync ? "async " : "";
 
-  // Add out parameter initializations
-  if (outParams.length > 0) {
-    for (const outParam of outParams) {
-      injectLines.push(`${bodyInd}${outParam.name} = default;`);
+    // Check if generator has a return type (TReturn is not void/undefined)
+    const hasReturnType = hasGeneratorReturnType(stmt);
+
+    // Extract return type for __returnValue variable
+    let returnTypeStr = "object";
+    if (hasReturnType) {
+      const {
+        returnType: extractedReturnType,
+        newContext: typeExtractContext,
+      } = extractGeneratorTypeArgs(stmt.returnType, currentContext);
+      currentContext = typeExtractContext;
+      returnTypeStr = extractedReturnType;
     }
-  }
 
-  // Inject lines after opening brace
-  if (injectLines.length > 0) {
-    const lines = bodyCode.split("\n");
-    if (lines.length > 1) {
-      lines.splice(1, 0, ...injectLines, "");
-      finalBodyCode = lines.join("\n");
+    // Build the body with local iterator function
+    const iteratorBody = bodyCode
+      .split("\n")
+      .slice(1, -1) // Remove opening and closing braces
+      .map((line) => `    ${line}`) // Add extra indent
+      .join("\n");
+
+    // Construct the bidirectional generator body
+    const bodyLines = [
+      `${ind}{`,
+      `${bodyInd}var exchange = new ${exchangeName}();`,
+    ];
+
+    // Add __returnValue capture if TReturn is not void
+    if (hasReturnType) {
+      bodyLines.push(`${bodyInd}${returnTypeStr} __returnValue = default!;`);
+    }
+
+    bodyLines.push(``);
+    bodyLines.push(`${bodyInd}${asyncModifier}${enumerableType} __iterator()`);
+    bodyLines.push(`${bodyInd}{`);
+    bodyLines.push(iteratorBody);
+    bodyLines.push(`${bodyInd}}`);
+    bodyLines.push(``);
+
+    // Wrapper constructor call - pass return value getter if needed
+    if (hasReturnType) {
+      bodyLines.push(
+        `${bodyInd}return new ${wrapperName}(__iterator(), exchange, () => __returnValue);`
+      );
+    } else {
+      bodyLines.push(
+        `${bodyInd}return new ${wrapperName}(__iterator(), exchange);`
+      );
+    }
+
+    bodyLines.push(`${ind}}`);
+
+    finalBodyCode = bodyLines.join("\n");
+  } else {
+    // Add generator exchange initialization for unidirectional generators
+    if (stmt.isGenerator) {
+      const exchangeName = `${stmt.name}_exchange`;
+      injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
+    }
+
+    // Add out parameter initializations
+    if (outParams.length > 0) {
+      for (const outParam of outParams) {
+        injectLines.push(`${bodyInd}${outParam.name} = default;`);
+      }
+    }
+
+    // Inject lines after opening brace
+    if (injectLines.length > 0) {
+      const lines = bodyCode.split("\n");
+      if (lines.length > 1) {
+        lines.splice(1, 0, ...injectLines, "");
+        finalBodyCode = lines.join("\n");
+      }
     }
   }
 

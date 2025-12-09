@@ -448,6 +448,33 @@ export async function main(): Promise<void> {
 }
 ```
 
+### Generator Wrapper Methods
+
+Bidirectional generators provide standard JavaScript generator methods:
+
+- `next(value?)` - Advances the generator and optionally passes a value
+- `return(value)` - Terminates the generator and sets the return value
+- `throw(error)` - Terminates the generator and throws an exception
+
+**Limitation:** Unlike JavaScript, the `.throw()` method does NOT inject the exception at the suspended yield point. C# iterators don't support resumption with exceptions. The exception is thrown externally after disposing the enumerator. Code like this will NOT behave the same as JavaScript:
+
+```typescript
+// This JavaScript pattern does NOT work the same in Tsonic:
+function* withTryCatch(): Generator<number> {
+  try {
+    yield 1;
+    yield 2; // JS: gen.throw() resumes here with exception
+  } catch (e) {
+    yield -1; // JS: caught exception, yields -1
+  }
+}
+
+const gen = withTryCatch();
+gen.next(); // { value: 1, done: false }
+gen.throw(Error()); // JS: { value: -1, done: false }
+// Tsonic: throws immediately
+```
+
 ## Type Narrowing
 
 Tsonic supports type narrowing through type guards and predicates.

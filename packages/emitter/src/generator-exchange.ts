@@ -6,6 +6,10 @@
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import {
+  needsBidirectionalSupport,
+  generateWrapperClass,
+} from "./generator-wrapper.js";
 
 /**
  * Collect all generator functions from a module
@@ -91,7 +95,7 @@ const generateExchangeClass = (
 };
 
 /**
- * Generate all exchange objects for generators in a module
+ * Generate all exchange objects, wrapper classes, and IteratorResult struct for generators in a module
  */
 export const generateGeneratorExchanges = (
   module: IrModule,
@@ -106,14 +110,28 @@ export const generateGeneratorExchanges = (
   const parts: string[] = [];
   let currentContext = context;
 
+  // Generate exchange classes and wrapper classes for each generator
+  // Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
   for (const generator of generators) {
-    const [exchangeCode, newContext] = generateExchangeClass(
+    // Exchange class (for all generators)
+    const [exchangeCode, exchangeContext] = generateExchangeClass(
       generator,
       currentContext
     );
-    currentContext = newContext;
+    currentContext = exchangeContext;
     parts.push(exchangeCode);
-    parts.push(""); // Blank line between exchange classes
+    parts.push("");
+
+    // Wrapper class (only for bidirectional generators)
+    if (needsBidirectionalSupport(generator)) {
+      const [wrapperCode, wrapperContext] = generateWrapperClass(
+        generator,
+        currentContext
+      );
+      currentContext = wrapperContext;
+      parts.push(wrapperCode);
+      parts.push("");
+    }
   }
 
   return [parts.join("\n"), currentContext];

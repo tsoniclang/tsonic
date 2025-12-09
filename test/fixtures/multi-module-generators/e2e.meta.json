@@ -1,0 +1,4 @@
+{
+  "description": "Multiple modules with bidirectional generators to test no IteratorResult collision",
+  "expectedOutput": "=== Counter Generator ===\nc1: 10, done: False\nc2: 15, done: False\nc3: 18, done: False\nc4: done=True\n=== Accumulator Generator ===\na1: 100, done: False\na2: 150, done: False\na3: 175, done: False\na4: done=True"
+}

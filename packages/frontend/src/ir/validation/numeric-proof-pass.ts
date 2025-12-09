@@ -1114,6 +1114,20 @@ const processStatement = <T extends IrStatement>(
         statements: stmt.statements.map((s) => processStatement(s, ctx)),
       } as T;
 
+    case "yieldStatement":
+      return {
+        ...stmt,
+        output: stmt.output ? processExpression(stmt.output, ctx) : undefined,
+      } as T;
+
+    case "generatorReturnStatement":
+      return {
+        ...stmt,
+        expression: stmt.expression
+          ? processExpression(stmt.expression, ctx)
+          : undefined,
+      } as T;
+
     default:
       return stmt;
   }

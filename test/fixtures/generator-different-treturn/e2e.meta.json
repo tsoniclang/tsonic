@@ -1,0 +1,4 @@
+{
+  "description": "Generator with TYield != TReturn types to test @return signature",
+  "expectedOutput": "Step 1 - yielded: 0, done: False\nStep 2 - yielded: 10, done: False\nStep 3 - yielded: 30, done: False\nStep 4 - done: True\nEarly termination result - done: True"
+}

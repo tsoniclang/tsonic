@@ -31,7 +31,9 @@ export type IrStatement =
   | IrBlockStatement
   | IrBreakStatement
   | IrContinueStatement
-  | IrEmptyStatement;
+  | IrEmptyStatement
+  | IrYieldStatement
+  | IrGeneratorReturnStatement;
 
 export type IrVariableDeclaration = {
   readonly kind: "variableDeclaration";
@@ -237,4 +239,41 @@ export type IrContinueStatement = {
 
 export type IrEmptyStatement = {
   readonly kind: "emptyStatement";
+};
+
+/**
+ * Lowered yield statement for bidirectional generators.
+ * Created by yield-lowering pass from IrYieldExpression patterns:
+ * - `yield expr;` → receiveTarget undefined
+ * - `const x = yield expr;` → receiveTarget = identifierPattern("x")
+ * - `x = yield expr;` → receiveTarget = identifierPattern("x")
+ * - `const {a, b} = yield expr;` → receiveTarget = objectPattern(...)
+ */
+export type IrYieldStatement = {
+  readonly kind: "yieldStatement";
+  /** Value to yield (maps to exchange.Output) */
+  readonly output?: IrExpression;
+  /** True for yield*, false for yield */
+  readonly delegate: boolean;
+  /** Where to assign received Input value after resumption */
+  readonly receiveTarget?: IrPattern;
+  /** Type of the received value (from Generator<Y, R, TNext>) */
+  readonly receivedType?: IrType;
+};
+
+/**
+ * Lowered return statement for generators with TReturn.
+ * Created by yield-lowering pass from `return expr;` statements.
+ *
+ * In generators, `return expr;` is transformed to:
+ * - Set __returnValue = expr (captured in closure)
+ * - Emit yield break; to terminate iteration
+ *
+ * This allows the wrapper's next() method to return the final value
+ * via the _getReturnValue closure when iteration completes.
+ */
+export type IrGeneratorReturnStatement = {
+  readonly kind: "generatorReturnStatement";
+  /** Expression to capture as the generator's return value */
+  readonly expression?: IrExpression;
 };

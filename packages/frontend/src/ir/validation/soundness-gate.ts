@@ -45,6 +45,9 @@ const KNOWN_BUILTINS = new Set([
   "Set",
   "Error",
   "Object",
+  "Generator",
+  "AsyncGenerator",
+  "IteratorResult",
   // C# signed integers (from @tsonic/types)
   "sbyte",
   "short",
@@ -594,6 +597,24 @@ const validateStatement = (stmt: IrStatement, ctx: ValidationContext): void => {
     case "breakStatement":
     case "continueStatement":
     case "emptyStatement":
+      break;
+
+    case "yieldStatement":
+      if (stmt.output) {
+        validateExpression(stmt.output, ctx);
+      }
+      if (stmt.receiveTarget) {
+        validatePattern(stmt.receiveTarget, ctx);
+      }
+      if (stmt.receivedType) {
+        validateType(stmt.receivedType, ctx, "yield received type");
+      }
+      break;
+
+    case "generatorReturnStatement":
+      if (stmt.expression) {
+        validateExpression(stmt.expression, ctx);
+      }
       break;
   }
 };
