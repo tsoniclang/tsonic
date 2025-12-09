@@ -101,7 +101,7 @@ namespace TestCases.realworld.shapes
 
                 public static Shape? findLargestShape(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    if (global::Tsonic.JSRuntime.Array.length(shapes) == 0.0)
+                    if (global::Tsonic.JSRuntime.Array.length(shapes) == 0)
                         {
                         return default;
                         }

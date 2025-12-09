@@ -50,7 +50,7 @@ namespace TestCases.functions.typeguardsv2
                     if (account.Is1())
                     {
                         var account__1_1 = account.As1();
-                        if (global::Tsonic.JSRuntime.String.length(account__1_1.email) > 0.0)
+                        if (global::Tsonic.JSRuntime.String.length(account__1_1.email) > 0)
                             {
                             return account__1_1.email;
                             }

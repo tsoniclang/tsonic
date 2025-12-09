@@ -510,4 +510,213 @@ describe("Expression Emission", () => {
     expect(result).to.include("global::System.Func<double, double, double>");
     expect(result).to.include("public static");
   });
+
+  it("should emit Map constructor with JSRuntime prefix in js mode", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "myMap" },
+              initializer: {
+                kind: "new",
+                callee: { kind: "identifier", name: "Map" },
+                arguments: [],
+                typeArguments: [
+                  { kind: "primitiveType", name: "string" },
+                  { kind: "primitiveType", name: "number" },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { runtime: "js" });
+
+    // Should use global::Tsonic.JSRuntime.Map
+    expect(result).to.include(
+      "new global::Tsonic.JSRuntime.Map<string, double>()"
+    );
+  });
+
+  it("should emit Set constructor with JSRuntime prefix in js mode", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "mySet" },
+              initializer: {
+                kind: "new",
+                callee: { kind: "identifier", name: "Set" },
+                arguments: [],
+                typeArguments: [{ kind: "primitiveType", name: "string" }],
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { runtime: "js" });
+
+    // Should use global::Tsonic.JSRuntime.Set
+    expect(result).to.include("new global::Tsonic.JSRuntime.Set<string>()");
+  });
+
+  it("should emit setTimeout with JSRuntime.Timers prefix in js mode", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "setTimeout" },
+            arguments: [
+              {
+                kind: "arrowFunction",
+                parameters: [],
+                body: { kind: "literal", value: null },
+                isAsync: false,
+              },
+              { kind: "literal", value: 1000 },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { runtime: "js" });
+
+    // Should use global::Tsonic.JSRuntime.Timers.setTimeout
+    expect(result).to.include("global::Tsonic.JSRuntime.Timers.setTimeout");
+  });
+
+  it("should emit clearTimeout with JSRuntime.Timers prefix in js mode", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "clearTimeout" },
+            arguments: [{ kind: "identifier", name: "timerId" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { runtime: "js" });
+
+    // Should use global::Tsonic.JSRuntime.Timers.clearTimeout
+    expect(result).to.include(
+      "global::Tsonic.JSRuntime.Timers.clearTimeout(timerId)"
+    );
+  });
+
+  it("should emit setInterval with JSRuntime.Timers prefix in js mode", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "setInterval" },
+            arguments: [
+              {
+                kind: "arrowFunction",
+                parameters: [],
+                body: { kind: "literal", value: null },
+                isAsync: false,
+              },
+              { kind: "literal", value: 500 },
+            ],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { runtime: "js" });
+
+    // Should use global::Tsonic.JSRuntime.Timers.setInterval
+    expect(result).to.include("global::Tsonic.JSRuntime.Timers.setInterval");
+  });
+
+  it("should emit clearInterval with JSRuntime.Timers prefix in js mode", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "clearInterval" },
+            arguments: [{ kind: "identifier", name: "intervalId" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module, { runtime: "js" });
+
+    // Should use global::Tsonic.JSRuntime.Timers.clearInterval
+    expect(result).to.include(
+      "global::Tsonic.JSRuntime.Timers.clearInterval(intervalId)"
+    );
+  });
 });

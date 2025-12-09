@@ -288,6 +288,7 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "IAsyncEnumerable",
+                resolvedClrType: "System.Collections.Generic.IAsyncEnumerable",
                 typeArguments: [{ kind: "primitiveType", name: "string" }],
               },
               isOptional: false,
@@ -298,6 +299,7 @@ describe("Statement Emission", () => {
           returnType: {
             kind: "referenceType",
             name: "Task",
+            resolvedClrType: "System.Threading.Tasks.Task",
             typeArguments: [],
           },
           body: {
@@ -366,6 +368,7 @@ describe("Statement Emission", () => {
               type: {
                 kind: "referenceType",
                 name: "IEnumerable",
+                resolvedClrType: "System.Collections.Generic.IEnumerable",
                 typeArguments: [{ kind: "primitiveType", name: "string" }],
               },
               isOptional: false,

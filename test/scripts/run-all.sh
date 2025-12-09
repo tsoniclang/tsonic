@@ -1,21 +1,21 @@
 #!/bin/bash
-# Run all E2E tests (dotnet and negative)
+# Run all tests: unit tests, golden tests, and E2E tests
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo "=== Running All E2E Tests ==="
+echo "=== Running All Tests ==="
 echo ""
 
-# Run dotnet tests
-echo "--- Running Dotnet Tests ---"
-"$SCRIPT_DIR/run-dotnet.sh"
+# Run unit and golden tests
+echo "--- Running Unit & Golden Tests (npm test) ---"
+cd "$ROOT_DIR"
+npm test
 echo ""
 
-# Run negative tests
-echo "--- Running Negative Tests ---"
-"$SCRIPT_DIR/run-negative.sh"
-echo ""
+# Run E2E tests
+"$SCRIPT_DIR/run-e2e.sh"
 
-echo "=== All E2E Tests Complete ==="
+echo "=== All Tests Complete ==="

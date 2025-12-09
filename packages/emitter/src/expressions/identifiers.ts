@@ -11,14 +11,20 @@ import { escapeCSharpIdentifier } from "../emitter-types/index.js";
  * Fallback mappings for well-known runtime globals.
  * ONLY includes globals actually declared in @tsonic/js-globals.
  * Per Alice's decision: no ambient knowledge of undeclared types.
- *
- * Note: Map, Set, parseInt, parseFloat, isNaN, isFinite are NOT in js-globals
- * and must be imported explicitly if needed.
  */
 const RUNTIME_FALLBACKS: Record<string, string> = {
+  // Objects with methods
   console: "global::Tsonic.JSRuntime.console",
   Math: "global::Tsonic.JSRuntime.Math",
   JSON: "global::Tsonic.JSRuntime.JSON",
+  // Constructors
+  Map: "global::Tsonic.JSRuntime.Map",
+  Set: "global::Tsonic.JSRuntime.Set",
+  // Timer functions (static methods on Timers class)
+  setTimeout: "global::Tsonic.JSRuntime.Timers.setTimeout",
+  clearTimeout: "global::Tsonic.JSRuntime.Timers.clearTimeout",
+  setInterval: "global::Tsonic.JSRuntime.Timers.setInterval",
+  clearInterval: "global::Tsonic.JSRuntime.Timers.clearInterval",
 };
 
 /**
