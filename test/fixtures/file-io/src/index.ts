@@ -3,20 +3,20 @@ import { Console } from "@tsonic/dotnet/System";
 import { File, Path } from "@tsonic/dotnet/System.IO";
 
 export function main(): void {
-  const testFile = Path.Combine(".", "test.txt");
+  const testFile = Path.combine(".", "test.txt");
 
   // Write to file
-  File.WriteAllText(testFile, "Hello from Tsonic with BCL!");
+  File.writeAllText(testFile, "Hello from Tsonic with BCL!");
 
   // Read from file
-  const content = File.ReadAllText(testFile);
-  Console.WriteLine(`File content: ${content}`);
+  const content = File.readAllText(testFile);
+  Console.writeLine(`File content: ${content}`);
 
   // Check if file exists
-  const exists = File.Exists(testFile);
-  Console.WriteLine(`File exists: ${exists}`);
+  const exists = File.exists(testFile);
+  Console.writeLine(`File exists: ${exists}`);
 
   // Clean up
-  File.Delete(testFile);
-  Console.WriteLine("File deleted");
+  File.delete_(testFile);
+  Console.writeLine("File deleted");
 }

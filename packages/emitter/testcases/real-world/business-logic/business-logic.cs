@@ -127,7 +127,7 @@ namespace TestCases.realworld.businesslogic
                 {
                 throw new Error("Invalid discount percentage");
                 }
-            return price * 1.0 - percentage / 100.0;
+            return price * (1.0 - percentage / 100.0);
             }
 
         public static double applyFixedDiscount(double price, double discount)

@@ -57,7 +57,7 @@ namespace TestCases.realworld.shapes
 
         public override double perimeter()
             {
-            return 2.0 * this.width + this.height;
+            return 2.0 * (this.width + this.height);
             }
 
         public bool isSquare()

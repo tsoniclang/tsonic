@@ -2,5 +2,5 @@
 import { Console } from "@tsonic/dotnet/System";
 
 export function main(): void {
-  Console.WriteLine("Hello from Tsonic E2E!");
+  Console.writeLine("Hello from Tsonic E2E!");
 }
