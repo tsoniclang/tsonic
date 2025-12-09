@@ -136,9 +136,9 @@ export const getTypePackageInfo = (
 };
 
 /**
- * Find nodejs.dll from the CLI package runtime directory
+ * Find the CLI package runtime directory containing DLLs
  */
-const findNodejsDll = (): string | null => {
+const findRuntimeDir = (): string | null => {
   // Try to find runtime directory bundled with CLI package
   // import.meta.dirname is the dist/commands directory when running from built CLI
   // Or src/commands when running from source
@@ -154,9 +154,8 @@ const findNodejsDll = (): string | null => {
   ];
 
   for (const p of possiblePaths) {
-    const dllPath = join(p, "nodejs.dll");
-    if (existsSync(dllPath)) {
-      return dllPath;
+    if (existsSync(p)) {
+      return p;
     }
   }
 
@@ -164,24 +163,62 @@ const findNodejsDll = (): string | null => {
 };
 
 /**
- * Copy nodejs.dll to project's lib/ directory
+ * Copy runtime DLLs to project's lib/ directory
+ * - Tsonic.Runtime.dll: Always copied (core runtime)
+ * - Tsonic.JSRuntime.dll: Copied for js mode
+ * - nodejs.dll: Copied if --nodejs flag is used
  */
-const copyNodejsDll = (cwd: string): Result<string, string> => {
-  const sourceDll = findNodejsDll();
-  if (!sourceDll) {
+const copyRuntimeDlls = (
+  cwd: string,
+  runtime: "js" | "dotnet",
+  includeNodejs: boolean
+): Result<readonly string[], string> => {
+  const runtimeDir = findRuntimeDir();
+  if (!runtimeDir) {
     return {
       ok: false,
-      error: "nodejs.dll not found. Make sure @tsonic/tsonic is installed.",
+      error: "Runtime directory not found. Make sure @tsonic/tsonic is installed.",
     };
   }
 
   const libDir = join(cwd, "lib");
-  const destDll = join(libDir, "nodejs.dll");
-
   mkdirSync(libDir, { recursive: true });
-  copyFileSync(sourceDll, destDll);
 
-  return { ok: true, value: "lib/nodejs.dll" };
+  const copiedPaths: string[] = [];
+
+  // Always copy Tsonic.Runtime.dll
+  const runtimeDll = join(runtimeDir, "Tsonic.Runtime.dll");
+  if (existsSync(runtimeDll)) {
+    copyFileSync(runtimeDll, join(libDir, "Tsonic.Runtime.dll"));
+    copiedPaths.push("lib/Tsonic.Runtime.dll");
+  } else {
+    return {
+      ok: false,
+      error: "Tsonic.Runtime.dll not found in runtime directory.",
+    };
+  }
+
+  // Copy Tsonic.JSRuntime.dll for js mode
+  if (runtime === "js") {
+    const jsRuntimeDll = join(runtimeDir, "Tsonic.JSRuntime.dll");
+    if (existsSync(jsRuntimeDll)) {
+      copyFileSync(jsRuntimeDll, join(libDir, "Tsonic.JSRuntime.dll"));
+      copiedPaths.push("lib/Tsonic.JSRuntime.dll");
+    }
+  }
+
+  // Copy nodejs.dll if requested
+  if (includeNodejs) {
+    const nodejsDll = join(runtimeDir, "nodejs.dll");
+    if (existsSync(nodejsDll)) {
+      copyFileSync(nodejsDll, join(libDir, "nodejs.dll"));
+      copiedPaths.push("lib/nodejs.dll");
+    } else {
+      console.log("⚠ Warning: nodejs.dll not found in runtime directory.");
+    }
+  }
+
+  return { ok: true, value: copiedPaths };
 };
 
 /**
@@ -190,7 +227,7 @@ const copyNodejsDll = (cwd: string): Result<string, string> => {
 const generateConfig = (
   includeTypeRoots: boolean,
   runtime: "js" | "dotnet",
-  nodejsLibPath?: string
+  libraryPaths: readonly string[] = []
 ): string => {
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
@@ -208,7 +245,7 @@ const generateConfig = (
     },
   };
 
-  if (includeTypeRoots || nodejsLibPath) {
+  if (includeTypeRoots || libraryPaths.length > 0) {
     const typeInfo = getTypePackageInfo(runtime);
     const dotnet: Record<string, unknown> = {};
 
@@ -216,8 +253,8 @@ const generateConfig = (
       dotnet.typeRoots = typeInfo.typeRoots;
     }
 
-    if (nodejsLibPath) {
-      dotnet.libraries = [nodejsLibPath];
+    if (libraryPaths.length > 0) {
+      dotnet.libraries = [...libraryPaths];
     }
 
     config.dotnet = dotnet;
@@ -356,21 +393,23 @@ export const initProject = (
       }
     }
 
-    // Copy nodejs.dll if nodejs option is enabled
-    let nodejsLibPath: string | undefined;
-    if (nodejs) {
-      const copyResult = copyNodejsDll(cwd);
-      if (!copyResult.ok) {
-        // Log warning but continue - user can add manually later
-        console.log(`⚠ Warning: ${copyResult.error}`);
-      } else {
-        nodejsLibPath = copyResult.value;
-        console.log("✓ Copied nodejs.dll to lib/");
+    // Copy runtime DLLs to lib/ directory
+    // This includes Tsonic.Runtime.dll (always), Tsonic.JSRuntime.dll (js mode), nodejs.dll (if --nodejs)
+    // Note: These are NOT added to dotnet.libraries - findRuntimeDlls in generate.ts looks in lib/ first
+    console.log("Copying runtime DLLs to lib/...");
+    const copyResult = copyRuntimeDlls(cwd, runtime, nodejs);
+    if (!copyResult.ok) {
+      // Log warning but continue - user can add manually later
+      console.log(`⚠ Warning: ${copyResult.error}`);
+    } else {
+      for (const path of copyResult.value) {
+        console.log(`✓ Copied ${path.split("/").pop()}`);
       }
     }
 
     // Create tsonic.json
-    const config = generateConfig(shouldInstallTypes, runtime, nodejsLibPath);
+    // Note: Runtime DLLs in lib/ are found automatically by generate command
+    const config = generateConfig(shouldInstallTypes, runtime);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 

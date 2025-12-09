@@ -55,17 +55,18 @@ const collectClrAssemblies = (modules: readonly IrModule[]): Set<string> => {
 };
 
 /**
- * Find runtime DLLs bundled with @tsonic/cli npm package
- * Returns assembly references for the csproj file
+ * Find a specific DLL, checking project's lib/ first, then CLI package runtime
+ * Returns the absolute path to the DLL or null if not found
  */
-const findRuntimeDlls = (
-  runtime: "js" | "dotnet",
-  outputDir: string,
-  usedAssemblies: Set<string> = new Set()
-): readonly AssemblyReference[] => {
-  // Try to find runtime directory bundled with CLI package
-  // import.meta.dirname is the dist/commands directory
-  const possiblePaths = [
+const findDll = (dllName: string): string | null => {
+  // 1. First check project's lib/ directory (created by tsonic init)
+  const projectLibPath = join(process.cwd(), "lib", dllName);
+  if (existsSync(projectLibPath)) {
+    return projectLibPath;
+  }
+
+  // 2. Fall back to CLI package runtime directory
+  const cliRuntimePaths = [
     // Development: From dist/commands -> ../../runtime
     join(import.meta.dirname, "../../runtime"),
     // npm installed: From dist/commands -> ../runtime (inside @tsonic/cli package)
@@ -74,50 +75,55 @@ const findRuntimeDlls = (
     join(process.cwd(), "node_modules/@tsonic/cli/runtime"),
   ];
 
-  let runtimeDir: string | null = null;
-  for (const p of possiblePaths) {
-    if (existsSync(p)) {
-      runtimeDir = p;
-      break;
+  for (const runtimeDir of cliRuntimePaths) {
+    const dllPath = join(runtimeDir, dllName);
+    if (existsSync(dllPath)) {
+      return dllPath;
     }
   }
 
-  if (!runtimeDir) {
-    return [];
-  }
+  return null;
+};
 
+/**
+ * Find runtime DLLs for the project
+ * Checks project's lib/ directory first, then falls back to CLI package
+ * Returns assembly references for the csproj file
+ */
+const findRuntimeDlls = (
+  runtime: "js" | "dotnet",
+  outputDir: string,
+  usedAssemblies: Set<string> = new Set()
+): readonly AssemblyReference[] => {
   const refs: AssemblyReference[] = [];
 
-  // Calculate relative path from output directory to runtime directory
-  const relativeRuntimeDir = relative(outputDir, runtimeDir);
-
-  // Always include Tsonic.Runtime
-  const runtimeDll = join(runtimeDir, "Tsonic.Runtime.dll");
-  if (existsSync(runtimeDll)) {
+  // Always include Tsonic.Runtime (required for both js and dotnet modes)
+  const runtimeDll = findDll("Tsonic.Runtime.dll");
+  if (runtimeDll) {
     refs.push({
       name: "Tsonic.Runtime",
-      hintPath: join(relativeRuntimeDir, "Tsonic.Runtime.dll"),
+      hintPath: relative(outputDir, runtimeDll),
     });
   }
 
-  // Include Tsonic.JSRuntime for js mode
+  // Include Tsonic.JSRuntime for js mode only
   if (runtime === "js") {
-    const jsRuntimeDll = join(runtimeDir, "Tsonic.JSRuntime.dll");
-    if (existsSync(jsRuntimeDll)) {
+    const jsRuntimeDll = findDll("Tsonic.JSRuntime.dll");
+    if (jsRuntimeDll) {
       refs.push({
         name: "Tsonic.JSRuntime",
-        hintPath: join(relativeRuntimeDir, "Tsonic.JSRuntime.dll"),
+        hintPath: relative(outputDir, jsRuntimeDll),
       });
     }
   }
 
   // Include nodejs.dll if nodejs assembly is used
   if (usedAssemblies.has("nodejs")) {
-    const nodejsDll = join(runtimeDir, "nodejs.dll");
-    if (existsSync(nodejsDll)) {
+    const nodejsDll = findDll("nodejs.dll");
+    if (nodejsDll) {
       refs.push({
         name: "nodejs",
-        hintPath: join(relativeRuntimeDir, "nodejs.dll"),
+        hintPath: relative(outputDir, nodejsDll),
       });
     }
   }
