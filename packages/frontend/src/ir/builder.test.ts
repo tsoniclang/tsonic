@@ -590,4 +590,70 @@ describe("IR Builder", () => {
       }
     });
   });
+
+  describe("For-Await Loop Conversion", () => {
+    it("should set isAwait=true for 'for await' loop", () => {
+      const source = `
+        async function process(items: AsyncIterable<string>): Promise<void> {
+          for await (const item of items) {
+            console.log(item);
+          }
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const func = result.value.body[0];
+        if (func?.kind !== "functionDeclaration") {
+          throw new Error("Expected function declaration");
+        }
+        const forAwaitStmt = func.body.statements[0];
+        if (forAwaitStmt?.kind !== "forOfStatement") {
+          throw new Error("Expected forOfStatement");
+        }
+        expect(forAwaitStmt.isAwait).to.equal(true);
+      }
+    });
+
+    it("should set isAwait=false for regular 'for of' loop", () => {
+      const source = `
+        function process(items: string[]): void {
+          for (const item of items) {
+            console.log(item);
+          }
+        }
+      `;
+
+      const testProgram = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, {
+        sourceRoot: "/test",
+        rootNamespace: "TestApp",
+      });
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const func = result.value.body[0];
+        if (func?.kind !== "functionDeclaration") {
+          throw new Error("Expected function declaration");
+        }
+        const forOfStmt = func.body.statements[0];
+        if (forOfStmt?.kind !== "forOfStatement") {
+          throw new Error("Expected forOfStatement");
+        }
+        expect(forOfStmt.isAwait).to.equal(false);
+      }
+    });
+  });
 });

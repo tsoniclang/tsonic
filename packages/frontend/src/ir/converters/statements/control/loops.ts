@@ -74,6 +74,7 @@ export const convertForOfStatement = (
     variable,
     expression: convertExpression(node.expression, checker),
     body: body ?? { kind: "emptyStatement" },
+    isAwait: !!node.awaitModifier,
   };
 };
 
