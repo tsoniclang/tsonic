@@ -177,7 +177,8 @@ const copyRuntimeDlls = (
   if (!runtimeDir) {
     return {
       ok: false,
-      error: "Runtime directory not found. Make sure @tsonic/tsonic is installed.",
+      error:
+        "Runtime directory not found. Make sure @tsonic/tsonic is installed.",
     };
   }
 

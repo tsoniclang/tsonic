@@ -4,8 +4,9 @@
  * Tests:
  * - extractGeneratorTypeArgs type extraction
  * - needsBidirectionalSupport detection
- * - generateIteratorResultStruct output
  * - generateWrapperClass output
+ *
+ * Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
  */
 
 import { describe, it } from "mocha";
@@ -13,7 +14,6 @@ import { expect } from "chai";
 import {
   extractGeneratorTypeArgs,
   needsBidirectionalSupport,
-  generateIteratorResultStruct,
   generateWrapperClass,
 } from "./generator-wrapper.js";
 import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
@@ -173,19 +173,7 @@ describe("Generator Wrapper", () => {
     });
   });
 
-  describe("generateIteratorResultStruct", () => {
-    it("should generate correct struct", () => {
-      const context = createContext({ rootNamespace: "Test" });
-
-      const [code] = generateIteratorResultStruct(context);
-
-      expect(code).to.include(
-        "public readonly record struct IteratorResult<T>"
-      );
-      expect(code).to.include("T value");
-      expect(code).to.include("bool done");
-    });
-  });
+  // Note: generateIteratorResultStruct tests removed - IteratorResult<T> is now in Tsonic.Runtime
 
   describe("generateWrapperClass", () => {
     it("should generate wrapper class for sync generator", () => {
@@ -217,18 +205,24 @@ describe("Generator Wrapper", () => {
       expect(code).to.include("GetEnumerator()");
 
       // next() method
-      expect(code).to.include("public IteratorResult<double> next(");
+      expect(code).to.include(
+        "public global::Tsonic.Runtime.IteratorResult<double> next("
+      );
       expect(code).to.include("double? value = default");
       expect(code).to.include("_exchange.Input = value");
       expect(code).to.include("MoveNext()");
       expect(code).to.include("_exchange.Output");
 
-      // return() method
-      expect(code).to.include("public IteratorResult<double> @return(");
+      // return() method - takes object when TReturn is void
+      expect(code).to.include(
+        "public global::Tsonic.Runtime.IteratorResult<double> @return("
+      );
       expect(code).to.include("Dispose()");
 
       // throw() method
-      expect(code).to.include("public IteratorResult<double> @throw(object e)");
+      expect(code).to.include(
+        "public global::Tsonic.Runtime.IteratorResult<double> @throw(object e)"
+      );
       expect(code).to.include("System.Exception");
     });
 
@@ -260,7 +254,7 @@ describe("Generator Wrapper", () => {
 
       // Async next() method
       expect(code).to.include(
-        "public async global::System.Threading.Tasks.Task<IteratorResult<double>> next("
+        "public async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
 
@@ -282,7 +276,7 @@ describe("Generator Wrapper", () => {
 
       const [code] = generateWrapperClass(func, context);
 
-      expect(code).to.include("IteratorResult<string>");
+      expect(code).to.include("global::Tsonic.Runtime.IteratorResult<string>");
       expect(code).to.include("string? value = default");
     });
   });

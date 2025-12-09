@@ -89,21 +89,8 @@ export const extractGeneratorTypeArgs = (
   };
 };
 
-/**
- * Generate the IteratorResult struct for a generator
- *
- * Example:
- * public readonly record struct IteratorResult<T>(T value, bool done);
- *
- * Note: We emit this as a generic record struct that can be reused
- */
-export const generateIteratorResultStruct = (
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-  const code = `${ind}public readonly record struct IteratorResult<T>(T value, bool done);`;
-  return [code, context];
-};
+// Note: IteratorResult<T> is now defined in Tsonic.Runtime.Generators
+// Use global::Tsonic.Runtime.IteratorResult<T> in generated code
 
 /**
  * Generate wrapper class for a generator function
@@ -122,26 +109,28 @@ export const generateIteratorResultStruct = (
  *         _exchange = exchange;
  *     }
  *
- *     public IteratorResult<double> next(double? value = default)
+ *     public global::Tsonic.Runtime.IteratorResult<double> next(double? value = default)
  *     {
- *         if (_done) return new IteratorResult<double>(default!, true);
+ *         if (_done) return new global::Tsonic.Runtime.IteratorResult<double>(default!, true);
  *         _exchange.Input = value;
  *         if (_enumerator.MoveNext())
  *         {
- *             return new IteratorResult<double>(_exchange.Output, false);
+ *             return new global::Tsonic.Runtime.IteratorResult<double>(_exchange.Output, false);
  *         }
  *         _done = true;
- *         return new IteratorResult<double>(default!, true);
+ *         return new global::Tsonic.Runtime.IteratorResult<double>(default!, true);
  *     }
  *
- *     public IteratorResult<double> @return(double value = default)
+ *     public global::Tsonic.Runtime.IteratorResult<double> @return(TReturn value = default!)
  *     {
  *         _done = true;
+ *         _returnValue = value;
+ *         _wasExternallyTerminated = true;
  *         _enumerator.Dispose();
- *         return new IteratorResult<double>(value, true);
+ *         return new global::Tsonic.Runtime.IteratorResult<double>(default!, true);
  *     }
  *
- *     public IteratorResult<double> @throw(object e)
+ *     public global::Tsonic.Runtime.IteratorResult<double> @throw(object e)
  *     {
  *         _done = true;
  *         _enumerator.Dispose();
@@ -180,12 +169,15 @@ export const generateWrapperClass = (
     : `global::System.Collections.Generic.IEnumerator<${exchangeName}>`;
   parts.push(`${bodyInd}private readonly ${enumeratorType} _enumerator;`);
   parts.push(`${bodyInd}private readonly ${exchangeName} _exchange;`);
-  // Return value getter - captures TReturn from generator return statements
+  // Return value getter - captures TReturn from generator return statements (natural completion)
   const hasReturnType = returnType !== "void";
   if (hasReturnType) {
     parts.push(
       `${bodyInd}private readonly global::System.Func<${returnType}> _getReturnValue;`
     );
+    // Field for external termination via @return(value)
+    parts.push(`${bodyInd}private ${returnType} _returnValue = default!;`);
+    parts.push(`${bodyInd}private bool _wasExternallyTerminated = false;`);
   }
   parts.push(`${bodyInd}private bool _done = false;`);
   parts.push("");
@@ -214,8 +206,8 @@ export const generateWrapperClass = (
 
   // next() method
   const nextReturnType = func.isAsync
-    ? `global::System.Threading.Tasks.Task<IteratorResult<${resultType}>>`
-    : `IteratorResult<${resultType}>`;
+    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${resultType}>>`
+    : `global::Tsonic.Runtime.IteratorResult<${resultType}>`;
   const nextParamType = hasNextType ? `${nextType}?` : "object?";
   const asyncKeyword = func.isAsync ? "async " : "";
   const awaitKeyword = func.isAsync ? "await " : "";
@@ -229,13 +221,13 @@ export const generateWrapperClass = (
   // Note: JS IteratorResult has value: TYield | TReturn on completion
   // We use default! for the value since the consumer should check done first
   parts.push(
-    `${innerInd}if (_done) return new IteratorResult<${resultType}>(default!, true);`
+    `${innerInd}if (_done) return new global::Tsonic.Runtime.IteratorResult<${resultType}>(default!, true);`
   );
   parts.push(`${innerInd}_exchange.Input = value;`);
   parts.push(`${innerInd}if (${awaitKeyword}_enumerator.${moveNextMethod})`);
   parts.push(`${innerInd}{`);
   parts.push(
-    `${innerInd}    return new IteratorResult<${resultType}>(_exchange.Output, false);`
+    `${innerInd}    return new global::Tsonic.Runtime.IteratorResult<${resultType}>(_exchange.Output, false);`
   );
   parts.push(`${innerInd}}`);
   parts.push(`${innerInd}_done = true;`);
@@ -243,7 +235,7 @@ export const generateWrapperClass = (
   // The return value can be accessed via the returnValue property if TReturn is not void
   // Note: JavaScript IteratorResult has value: TYield | TReturn, but C# can't represent this union
   parts.push(
-    `${innerInd}return new IteratorResult<${resultType}>(default!, true);`
+    `${innerInd}return new global::Tsonic.Runtime.IteratorResult<${resultType}>(default!, true);`
   );
   parts.push(`${bodyInd}}`);
   parts.push("");
@@ -257,30 +249,70 @@ export const generateWrapperClass = (
     parts.push(
       `${bodyInd}/// Only valid after the generator is done (next() returned done=true).`
     );
+    parts.push(
+      `${bodyInd}/// If terminated via @return(value), returns that value.`
+    );
+    parts.push(
+      `${bodyInd}/// Otherwise, returns the value from the generator's return statement.`
+    );
     parts.push(`${bodyInd}/// </summary>`);
     parts.push(
-      `${bodyInd}public ${returnType} returnValue => _getReturnValue();`
+      `${bodyInd}public ${returnType} returnValue => _wasExternallyTerminated ? _returnValue : _getReturnValue();`
     );
     parts.push("");
   }
 
   // return() method - use @ prefix since 'return' is a C# keyword
+  // Per JS spec: return(value) takes TReturn, not TYield
+  // The returned IteratorResult still uses TYield for type consistency with next()
   const returnReturnType = func.isAsync
-    ? `global::System.Threading.Tasks.Task<IteratorResult<${resultType}>>`
-    : `IteratorResult<${resultType}>`;
+    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${resultType}>>`
+    : `global::Tsonic.Runtime.IteratorResult<${resultType}>`;
 
+  // Parameter type is TReturn (returnType), not TYield (resultType)
+  // For void-return generators, use object? since return() can be called with no argument
+  const returnParamType = returnType !== "void" ? returnType : "object?";
+
+  parts.push(`${bodyInd}/// <summary>`);
   parts.push(
-    `${bodyInd}public ${asyncKeyword}${returnReturnType} @return(${resultType} value = default!)`
+    `${bodyInd}/// Terminates the generator and sets the return value.`
+  );
+  parts.push(`${bodyInd}/// </summary>`);
+  parts.push(
+    `${bodyInd}/// <param name="value">The return value (TReturn type)</param>`
+  );
+  parts.push(
+    `${bodyInd}/// <returns>IteratorResult with done=true and default TYield value</returns>`
+  );
+  parts.push(`${bodyInd}/// <remarks>`);
+  parts.push(
+    `${bodyInd}/// NOTE: The passed value does NOT appear in the returned IteratorResult.value.`
+  );
+  parts.push(
+    `${bodyInd}/// C# cannot represent JavaScript's TYield | TReturn union type.`
+  );
+  parts.push(
+    `${bodyInd}/// Access the return value via the 'returnValue' property after calling this method.`
+  );
+  parts.push(`${bodyInd}/// </remarks>`);
+  parts.push(
+    `${bodyInd}public ${asyncKeyword}${returnReturnType} @return(${returnParamType} value = default!)`
   );
   parts.push(`${bodyInd}{`);
   parts.push(`${innerInd}_done = true;`);
+  // If TReturn is not void, capture the return value for the returnValue property
+  if (hasReturnType) {
+    parts.push(`${innerInd}_returnValue = value;`);
+    parts.push(`${innerInd}_wasExternallyTerminated = true;`);
+  }
   if (func.isAsync) {
     parts.push(`${innerInd}await _enumerator.DisposeAsync();`);
   } else {
     parts.push(`${innerInd}_enumerator.Dispose();`);
   }
+  // Return IteratorResult with default TYield (since we're returning TReturn via returnValue property)
   parts.push(
-    `${innerInd}return new IteratorResult<${resultType}>(value!, true);`
+    `${innerInd}return new global::Tsonic.Runtime.IteratorResult<${resultType}>(default!, true);`
   );
   parts.push(`${bodyInd}}`);
   parts.push("");
@@ -292,8 +324,8 @@ export const generateWrapperClass = (
   // This is a semantic limitation - JS generators can catch thrown exceptions
   // inside try/catch around yield, but our C# implementation cannot.
   const throwReturnType = func.isAsync
-    ? `global::System.Threading.Tasks.Task<IteratorResult<${resultType}>>`
-    : `IteratorResult<${resultType}>`;
+    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${resultType}>>`
+    : `global::Tsonic.Runtime.IteratorResult<${resultType}>`;
 
   parts.push(`${bodyInd}/// <summary>`);
   parts.push(

@@ -9,7 +9,6 @@ import { emitType } from "./type-emitter.js";
 import {
   needsBidirectionalSupport,
   generateWrapperClass,
-  generateIteratorResultStruct,
 } from "./generator-wrapper.js";
 
 /**
@@ -111,19 +110,8 @@ export const generateGeneratorExchanges = (
   const parts: string[] = [];
   let currentContext = context;
 
-  // Check if any generator needs bidirectional support
-  const hasBidirectional = generators.some((g) => needsBidirectionalSupport(g));
-
-  // Generate IteratorResult struct if needed (once per module)
-  if (hasBidirectional) {
-    const [iteratorResultCode, newContext] =
-      generateIteratorResultStruct(currentContext);
-    currentContext = newContext;
-    parts.push(iteratorResultCode);
-    parts.push("");
-  }
-
   // Generate exchange classes and wrapper classes for each generator
+  // Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
   for (const generator of generators) {
     // Exchange class (for all generators)
     const [exchangeCode, exchangeContext] = generateExchangeClass(

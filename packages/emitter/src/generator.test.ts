@@ -283,12 +283,7 @@ describe("Generator Emission", () => {
 
       const code = emitModule(module);
 
-      // Should generate IteratorResult struct
-      expect(code).to.include(
-        "public readonly record struct IteratorResult<T>"
-      );
-      expect(code).to.include("T value");
-      expect(code).to.include("bool done");
+      // Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
 
       // Should generate exchange class
       expect(code).to.include("public sealed class accumulator_exchange");
@@ -301,13 +296,19 @@ describe("Generator Emission", () => {
       expect(code).to.include("accumulator_exchange _exchange");
 
       // next() method with nullable parameter
-      expect(code).to.include("IteratorResult<double> next(double? value");
+      expect(code).to.include(
+        "global::Tsonic.Runtime.IteratorResult<double> next(double? value"
+      );
       expect(code).to.include("_exchange.Input = value");
       expect(code).to.include("MoveNext()");
 
       // return() and throw() methods
-      expect(code).to.include("IteratorResult<double> @return(");
-      expect(code).to.include("IteratorResult<double> @throw(object e)");
+      expect(code).to.include(
+        "global::Tsonic.Runtime.IteratorResult<double> @return("
+      );
+      expect(code).to.include(
+        "global::Tsonic.Runtime.IteratorResult<double> @throw(object e)"
+      );
 
       // Function should return wrapper type
       expect(code).to.include("accumulator_Generator accumulator(");
@@ -474,7 +475,7 @@ describe("Generator Emission", () => {
       expect(code).to.include("asyncAccumulator_Generator");
       expect(code).to.include("IAsyncEnumerator<asyncAccumulator_exchange>");
       expect(code).to.include(
-        "async global::System.Threading.Tasks.Task<IteratorResult<double>> next("
+        "async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
     });
