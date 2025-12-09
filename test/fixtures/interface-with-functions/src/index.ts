@@ -8,5 +8,5 @@ import { User, createUser, formatUser } from "./models/User.ts";
 
 export function main(): void {
   const user: User = createUser(1, "Alice", "alice@example.com");
-  Console.WriteLine(formatUser(user));
+  Console.writeLine(formatUser(user));
 }

@@ -24,19 +24,19 @@ function getConcreteNull(): Result<string> {
 export function main(): void {
   // Test wrapError - the value is null (default in C#)
   const err = wrapError<number>("something went wrong");
-  Console.WriteLine(`Error: ${err.error}`);
-  Console.WriteLine(`Value is null: ${err.value === null}`);
+  Console.writeLine(`Error: ${err.error}`);
+  Console.writeLine(`Value is null: ${err.value === null}`);
 
   // Test wrapValue - error is null, value has data
   const ok = wrapValue(42);
-  Console.WriteLine(`Value: ${ok.value}`);
-  Console.WriteLine(`Error is null: ${ok.error === null}`);
+  Console.writeLine(`Value: ${ok.value}`);
+  Console.writeLine(`Error is null: ${ok.error === null}`);
 
   // Test concrete - both are null
   const concrete = getConcreteNull();
-  Console.WriteLine(
+  Console.writeLine(
     `Both null: ${concrete.value === null && concrete.error === null}`
   );
 
-  Console.WriteLine("All tests passed!");
+  Console.writeLine("All tests passed!");
 }

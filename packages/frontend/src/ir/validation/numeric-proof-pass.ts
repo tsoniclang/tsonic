@@ -814,7 +814,9 @@ const processExpression = (
               "TSN5109",
               "error",
               `Computed access kind was not classified during IR build (accessKind=${accessKind ?? "undefined"}, ${typeInfo})`,
-              expr.sourceSpan ?? processedProperty.sourceSpan ?? moduleLocation(ctx),
+              expr.sourceSpan ??
+                processedProperty.sourceSpan ??
+                moduleLocation(ctx),
               "This is a compiler bug: cannot validate index proof without access classification. " +
                 "Report this issue with the source code that triggered it."
             )

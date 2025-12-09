@@ -58,7 +58,8 @@
   "license": "MIT",
   "dependencies": {
     "@tsonic/cli": "^0.0.1",
-    "@tsonic/dotnet": "^0.2.0",
-    "@tsonic/types": "^0.2.0"
+    "@tsonic/dotnet": "^0.7.4",
+    "@tsonic/js-globals": "^0.2.3",
+    "@tsonic/types": "^0.3.1"
   }
 }

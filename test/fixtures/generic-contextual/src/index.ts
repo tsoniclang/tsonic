@@ -14,6 +14,6 @@ function createContainer<T>(value: T, label: string): Container<T> {
 export function main(): void {
   const strContainer = createContainer("hello", "string container");
 
-  Console.WriteLine(strContainer.label);
-  Console.WriteLine(strContainer.value);
+  Console.writeLine(strContainer.label);
+  Console.writeLine(strContainer.value);
 }

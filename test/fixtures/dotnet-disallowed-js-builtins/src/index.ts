@@ -22,5 +22,5 @@ export function main(): void {
   // ERROR: .filter() is a JS array method, not available in dotnet mode
   const filtered = numbers.filter((x: number) => x > 1);
 
-  Console.WriteLine("This should never compile");
+  Console.writeLine("This should never compile");
 }

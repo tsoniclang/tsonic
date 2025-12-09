@@ -4,12 +4,12 @@ import { Console } from "@tsonic/dotnet/System";
 
 // Use imported type in type annotation
 function greetUser(user: User): void {
-  Console.WriteLine(`Hello, ${formatUser(user)}!`);
+  Console.writeLine(`Hello, ${formatUser(user)}!`);
 }
 
 // Entry point
 export function main(): void {
   const alice: User = createUser("Alice", 30);
   greetUser(alice);
-  Console.WriteLine("Done");
+  Console.writeLine("Done");
 }

@@ -30,7 +30,7 @@ namespace TestCases.classes.abstract
 
         public override double getPerimeter()
             {
-            return 2.0 * this.width + this.height;
+            return 2.0 * (this.width + this.height);
             }
     }
     public class Circle : Shape

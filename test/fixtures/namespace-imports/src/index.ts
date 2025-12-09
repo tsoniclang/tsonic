@@ -7,8 +7,8 @@ export function main(): void {
   const sum = MathUtils.add(5, 3);
   const product = MathUtils.multiply(4, 7);
 
-  Console.WriteLine(`Sum: ${sum}`);
-  Console.WriteLine(`Product: ${product}`);
-  Console.WriteLine(`PI: ${MathUtils.PI}`);
-  Console.WriteLine("Done");
+  Console.writeLine(`Sum: ${sum}`);
+  Console.writeLine(`Product: ${product}`);
+  Console.writeLine(`PI: ${MathUtils.PI}`);
+  Console.writeLine("Done");
 }
