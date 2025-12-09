@@ -233,6 +233,12 @@ export const emitForStatement = (
 
 /**
  * Emit a for-of statement
+ *
+ * TypeScript: for (const x of items) { ... }
+ * C#: foreach (var x in items) { ... }
+ *
+ * TypeScript: for await (const x of asyncItems) { ... }
+ * C#: await foreach (var x in asyncItems) { ... }
  */
 export const emitForOfStatement = (
   stmt: Extract<IrStatement, { kind: "forOfStatement" }>,
@@ -243,11 +249,12 @@ export const emitForOfStatement = (
 
   const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(exprContext));
 
-  // Use foreach in C#
+  // Use foreach in C#, with await prefix for async iteration
   const varName =
     stmt.variable.kind === "identifierPattern"
       ? escapeCSharpIdentifier(stmt.variable.name)
       : "item";
-  const code = `${ind}foreach (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
+  const foreachKeyword = stmt.isAwait ? "await foreach" : "foreach";
+  const code = `${ind}${foreachKeyword} (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
   return [code, dedent(bodyContext)];
 };

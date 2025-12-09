@@ -186,6 +186,8 @@ export type IrForOfStatement = {
   readonly variable: IrPattern;
   readonly expression: IrExpression;
   readonly body: IrStatement;
+  /** True for `for await (... of ...)` - async iteration */
+  readonly isAwait: boolean;
 };
 
 export type IrSwitchStatement = {
