@@ -12,24 +12,46 @@ cd "$ROOT_DIR"
 # Check if on main branch - can't push directly to main due to branch rules
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" = "main" ]; then
-    echo "Error: Cannot run publish script on main branch."
-    echo "Create a feature branch first: git checkout -b release/vX.Y.Z"
-    exit 1
+    echo "=== On main branch, checking if synced with origin ==="
+    git fetch origin main
+    LOCAL_COMMIT=$(git rev-parse HEAD)
+    REMOTE_COMMIT=$(git rev-parse origin/main)
+
+    if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
+        echo "Error: Local main is not synced with origin/main."
+        echo "Please run: git pull"
+        exit 1
+    fi
+
+    # Check for uncommitted changes
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "Error: Uncommitted changes detected."
+        echo "Please commit or discard changes first."
+        exit 1
+    fi
+
+    # Calculate new version for branch name
+    CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
+    PUBLISHED_VERSION=$(npm view @tsonic/cli version 2>/dev/null || echo "0.0.0")
+
+    if [ "$CLI_VERSION" = "$PUBLISHED_VERSION" ]; then
+        IFS='.' read -r major minor patch <<< "$CLI_VERSION"
+        NEW_VERSION="$major.$minor.$((patch + 1))"
+    else
+        NEW_VERSION="$CLI_VERSION"
+    fi
+
+    RELEASE_BRANCH="release/v$NEW_VERSION"
+    echo "=== Creating release branch: $RELEASE_BRANCH ==="
+    git checkout -b "$RELEASE_BRANCH"
+    CURRENT_BRANCH="$RELEASE_BRANCH"
 fi
 
 echo "=== Building all packages ==="
 ./scripts/build/all.sh
 
-echo "=== Running tests ==="
-# npm test returns exit code 7 in workspaces even when all tests pass
-# Check for actual test failures in output instead
-set +e
-npm test 2>&1 | tee /tmp/tsonic-test-output.txt
-set -e
-if grep -q "failing" /tmp/tsonic-test-output.txt; then
-    echo "Tests failed!"
-    exit 1
-fi
+echo "=== Running ALL tests (unit, golden, E2E) ==="
+./test/scripts/run-all.sh
 echo "All tests passed"
 
 echo "=== Checking versions ==="
@@ -79,7 +101,7 @@ echo "=== Publishing @tsonic packages ==="
 for pkg in frontend emitter backend cli; do
     echo "Publishing @tsonic/$pkg@$CLI_VERSION..."
     cd "$ROOT_DIR/packages/$pkg"
-    # npm publish --access public  # TEMPORARILY COMMENTED FOR TESTING
+    npm publish --access public
 done
 
 cd "$ROOT_DIR"
@@ -102,7 +124,7 @@ git commit -m "chore: bump version to $CLI_VERSION" || echo "No changes to commi
 git push -u origin HEAD
 
 echo "=== Publishing tsonic@$CLI_VERSION ==="
-# npm publish --access public  # TEMPORARILY COMMENTED FOR TESTING
+npm publish --access public
 
 echo "=== Done ==="
 echo "Published:"
