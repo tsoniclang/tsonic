@@ -47,10 +47,12 @@ type SourceLocation = {
 | TSN7405 | Object literal contains ineligible pattern           |
 | TSN7406 | Mapped type not supported (Partial, Required, etc.)  |
 | TSN7407 | Conditional type not supported (Extract, Exclude)    |
-| TSN7408 | Template literal types not supported                 |
+| TSN7408 | Mixed variadic tuples not supported                  |
 | TSN7409 | `infer` keyword not supported                        |
 | TSN7410 | Intersection types not supported (A & B)             |
 | TSN7413 | Dictionary key type restriction (string/number only) |
+| TSN7414 | Type cannot be represented in compiler subset        |
+| TSN7420 | ref/out/In are parameter modifiers, not types        |
 
 ## Creating Diagnostics
 
