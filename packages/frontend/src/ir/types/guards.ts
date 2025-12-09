@@ -28,6 +28,8 @@ export const isStatement = (
     "breakStatement",
     "continueStatement",
     "emptyStatement",
+    "yieldStatement",
+    "generatorReturnStatement",
   ];
   return statementKinds.includes(node.kind);
 };

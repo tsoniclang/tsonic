@@ -30,6 +30,7 @@ import {
   IrExpression,
   IrBlockStatement,
   IrYieldStatement,
+  IrGeneratorReturnStatement,
   IrYieldExpression,
   IrPattern,
   IrType,
@@ -232,6 +233,17 @@ const createYieldStatement = (
 });
 
 /**
+ * Create an IrGeneratorReturnStatement from a return statement's expression.
+ * This captures the return value for generators with TReturn.
+ */
+const createGeneratorReturnStatement = (
+  expression: IrExpression | undefined
+): IrGeneratorReturnStatement => ({
+  kind: "generatorReturnStatement",
+  expression,
+});
+
+/**
  * Emit diagnostic for unsupported yield position.
  */
 const emitUnsupportedYieldDiagnostic = (
@@ -379,7 +391,10 @@ const processStatement = (
       }
 
       // Return single statement or array of statements
-      if (transformedDeclarations.length === 1 && transformedDeclarations[0] !== undefined) {
+      if (
+        transformedDeclarations.length === 1 &&
+        transformedDeclarations[0] !== undefined
+      ) {
         return transformedDeclarations[0];
       }
       return transformedDeclarations;
@@ -397,7 +412,9 @@ const processStatement = (
     case "ifStatement":
       return {
         ...stmt,
-        thenStatement: flattenStatement(processStatement(stmt.thenStatement, ctx)),
+        thenStatement: flattenStatement(
+          processStatement(stmt.thenStatement, ctx)
+        ),
         elseStatement: stmt.elseStatement
           ? flattenStatement(processStatement(stmt.elseStatement, ctx))
           : undefined,
@@ -460,15 +477,21 @@ const processStatement = (
     case "tryStatement":
       return {
         ...stmt,
-        tryBlock: flattenStatement(processStatement(stmt.tryBlock, ctx)) as IrBlockStatement,
+        tryBlock: flattenStatement(
+          processStatement(stmt.tryBlock, ctx)
+        ) as IrBlockStatement,
         catchClause: stmt.catchClause
           ? {
               ...stmt.catchClause,
-              body: flattenStatement(processStatement(stmt.catchClause.body, ctx)) as IrBlockStatement,
+              body: flattenStatement(
+                processStatement(stmt.catchClause.body, ctx)
+              ) as IrBlockStatement,
             }
           : undefined,
         finallyBlock: stmt.finallyBlock
-          ? flattenStatement(processStatement(stmt.finallyBlock, ctx)) as IrBlockStatement
+          ? (flattenStatement(
+              processStatement(stmt.finallyBlock, ctx)
+            ) as IrBlockStatement)
           : undefined,
       };
 
@@ -481,7 +504,10 @@ const processStatement = (
           stmt.expression.sourceSpan
         );
       }
-      return stmt;
+      // Transform return statements in generators to IrGeneratorReturnStatement
+      // This captures the return value for generators with TReturn
+      // The emitter will emit: __returnValue = expr; yield break;
+      return createGeneratorReturnStatement(stmt.expression);
 
     case "throwStatement":
       // Check for yield in throw expression
@@ -543,12 +569,16 @@ const processNonGeneratorStatement = (
         };
         return {
           ...stmt,
-          body: flattenStatement(processStatement(stmt.body, generatorCtx)) as IrBlockStatement,
+          body: flattenStatement(
+            processStatement(stmt.body, generatorCtx)
+          ) as IrBlockStatement,
         };
       }
       return {
         ...stmt,
-        body: flattenStatement(processStatement(stmt.body, ctx)) as IrBlockStatement,
+        body: flattenStatement(
+          processStatement(stmt.body, ctx)
+        ) as IrBlockStatement,
       };
 
     case "classDeclaration":
@@ -621,10 +651,10 @@ const processNonGeneratorStatement = (
             }
           : undefined,
         finallyBlock: stmt.finallyBlock
-          ? processNonGeneratorStatement(
+          ? (processNonGeneratorStatement(
               stmt.finallyBlock,
               ctx
-            ) as IrBlockStatement
+            ) as IrBlockStatement)
           : undefined,
       };
 
@@ -648,18 +678,24 @@ const processClassMember = (
       };
       return {
         ...member,
-        body: flattenStatement(processStatement(member.body, generatorCtx)) as IrBlockStatement,
+        body: flattenStatement(
+          processStatement(member.body, generatorCtx)
+        ) as IrBlockStatement,
       };
     }
     return {
       ...member,
-      body: flattenStatement(processStatement(member.body, ctx)) as IrBlockStatement,
+      body: flattenStatement(
+        processStatement(member.body, ctx)
+      ) as IrBlockStatement,
     };
   }
   if (member.kind === "constructorDeclaration" && member.body) {
     return {
       ...member,
-      body: flattenStatement(processStatement(member.body, ctx)) as IrBlockStatement,
+      body: flattenStatement(
+        processStatement(member.body, ctx)
+      ) as IrBlockStatement,
     };
   }
   return member;
@@ -685,7 +721,9 @@ const processModule = (
       };
       return {
         ...stmt,
-        body: flattenStatement(processStatement(stmt.body, generatorCtx)) as IrBlockStatement,
+        body: flattenStatement(
+          processStatement(stmt.body, generatorCtx)
+        ) as IrBlockStatement,
       };
     }
     return processNonGeneratorStatement(stmt, ctx);

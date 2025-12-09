@@ -64,10 +64,7 @@ const createGeneratorModule = (
 /**
  * Helper to create a yield expression
  */
-const createYield = (
-  value?: IrExpression,
-  delegate = false
-): IrExpression => ({
+const createYield = (value?: IrExpression, delegate = false): IrExpression => ({
   kind: "yield",
   expression: value,
   delegate,
@@ -802,6 +799,149 @@ describe("Yield Lowering Pass", () => {
       const hasYieldExpr = containsYieldExpression(func.body);
 
       expect(hasYieldExpr).to.be.true;
+    });
+  });
+
+  describe("Generator Return Statement Transformation", () => {
+    it("should transform return statements in generators to generatorReturnStatement", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: createYield({ kind: "literal", value: 1 }),
+        },
+        {
+          kind: "returnStatement",
+          expression: { kind: "literal", value: "done" },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+
+      const func = result.modules[0]?.body[0] as Extract<
+        IrStatement,
+        { kind: "functionDeclaration" }
+      >;
+      const body = func.body.statements;
+
+      // First statement should be yieldStatement
+      expect(body[0]?.kind).to.equal("yieldStatement");
+
+      // Second statement should be generatorReturnStatement
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
+
+      const genReturn = body[1] as Extract<
+        IrStatement,
+        { kind: "generatorReturnStatement" }
+      >;
+      expect(genReturn.expression?.kind).to.equal("literal");
+      expect((genReturn.expression as { value: string }).value).to.equal(
+        "done"
+      );
+    });
+
+    it("should transform bare return statements (no expression) to generatorReturnStatement", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: createYield({ kind: "literal", value: 1 }),
+        },
+        {
+          kind: "returnStatement",
+          expression: undefined,
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+
+      const func = result.modules[0]?.body[0] as Extract<
+        IrStatement,
+        { kind: "functionDeclaration" }
+      >;
+      const body = func.body.statements;
+
+      // Second statement should be generatorReturnStatement with no expression
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
+
+      const genReturn = body[1] as Extract<
+        IrStatement,
+        { kind: "generatorReturnStatement" }
+      >;
+      expect(genReturn.expression).to.be.undefined;
+    });
+
+    it("should transform return statements inside nested control flow", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "ifStatement",
+          condition: { kind: "identifier", name: "cond" },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: { kind: "literal", value: "early" },
+              },
+            ],
+          },
+        },
+        {
+          kind: "returnStatement",
+          expression: { kind: "literal", value: "done" },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+
+      const func = result.modules[0]?.body[0] as Extract<
+        IrStatement,
+        { kind: "functionDeclaration" }
+      >;
+      const body = func.body.statements;
+
+      // Check if statement then branch contains generatorReturnStatement
+      const ifStmt = body[0] as Extract<IrStatement, { kind: "ifStatement" }>;
+      const thenBlock = ifStmt.thenStatement as Extract<
+        IrStatement,
+        { kind: "blockStatement" }
+      >;
+      expect(thenBlock.statements[0]?.kind).to.equal(
+        "generatorReturnStatement"
+      );
+
+      // Final return also transformed
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
+    });
+
+    it("should NOT transform return statements in non-generator functions", () => {
+      // Non-generator function
+      const module = createGeneratorModule(
+        [
+          {
+            kind: "returnStatement",
+            expression: { kind: "literal", value: "result" },
+          },
+        ],
+        { isGenerator: false }
+      );
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+
+      const func = result.modules[0]?.body[0] as Extract<
+        IrStatement,
+        { kind: "functionDeclaration" }
+      >;
+      const body = func.body.statements;
+
+      // Return statement should remain as returnStatement (not transformed)
+      expect(body[0]?.kind).to.equal("returnStatement");
     });
   });
 });

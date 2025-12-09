@@ -98,6 +98,14 @@ export const substituteStatement = (
           : undefined,
       };
 
+    case "generatorReturnStatement":
+      return {
+        ...stmt,
+        expression: stmt.expression
+          ? substituteExpression(stmt.expression, substitutions)
+          : undefined,
+      };
+
     case "expressionStatement":
       return {
         ...stmt,

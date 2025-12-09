@@ -42,6 +42,7 @@ export type {
   IrContinueStatement,
   IrEmptyStatement,
   IrYieldStatement,
+  IrGeneratorReturnStatement,
 } from "./statements.js";
 
 // Expression types

@@ -193,9 +193,7 @@ export const emitFunctionDeclaration = (
 
     // Add __returnValue capture if TReturn is not void
     if (hasReturnType) {
-      bodyLines.push(
-        `${bodyInd}${returnTypeStr} __returnValue = default!;`
-      );
+      bodyLines.push(`${bodyInd}${returnTypeStr} __returnValue = default!;`);
     }
 
     bodyLines.push(``);

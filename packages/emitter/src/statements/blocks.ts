@@ -82,7 +82,9 @@ export const emitYieldExpression = (
       );
       currentContext = newContext;
       // Use await foreach for async generators, foreach for sync
-      const foreachKeyword = currentContext.isAsync ? "await foreach" : "foreach";
+      const foreachKeyword = currentContext.isAsync
+        ? "await foreach"
+        : "foreach";
       parts.push(`${ind}${foreachKeyword} (var item in ${delegateFrag.text})`);
       parts.push(`${ind}    yield return item;`);
     }
@@ -137,7 +139,9 @@ export const emitYieldStatement = (
       );
       currentContext = newContext;
       // Use await foreach for async generators, foreach for sync
-      const foreachKeyword = currentContext.isAsync ? "await foreach" : "foreach";
+      const foreachKeyword = currentContext.isAsync
+        ? "await foreach"
+        : "foreach";
       parts.push(`${ind}${foreachKeyword} (var item in ${delegateFrag.text})`);
       parts.push(`${ind}    yield return item;`);
     }
@@ -208,8 +212,7 @@ const emitPattern = (
           prop.kind === "property" &&
           prop.value.kind === "identifierPattern"
         ) {
-          const key =
-            typeof prop.key === "string" ? prop.key : prop.value.name;
+          const key = typeof prop.key === "string" ? prop.key : prop.value.name;
           parts.push(`${indent}var ${prop.value.name} = __input.${key};`);
         }
         // TODO: Handle shorthand and rest patterns
@@ -237,4 +240,44 @@ export const emitExpressionStatement = (
 
   const [exprFrag, newContext] = emitExpression(stmt.expression, context);
   return [`${ind}${exprFrag.text};`, newContext];
+};
+
+/**
+ * Emit IrGeneratorReturnStatement (lowered form from yield-lowering pass)
+ * Handles return statements in generators with TReturn.
+ *
+ * TypeScript: return "done";
+ * C#:
+ *   __returnValue = "done";
+ *   yield break;
+ *
+ * TypeScript: return;  (no expression)
+ * C#:
+ *   yield break;
+ *
+ * The __returnValue variable is declared in the enclosing function emission.
+ * The wrapper's _getReturnValue closure captures this value when iteration completes.
+ */
+export const emitGeneratorReturnStatement = (
+  stmt: Extract<IrStatement, { kind: "generatorReturnStatement" }>,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  const ind = getIndent(context);
+  let currentContext = context;
+  const parts: string[] = [];
+
+  if (stmt.expression) {
+    // Capture the return value in __returnValue before terminating
+    const [valueFrag, newContext] = emitExpression(
+      stmt.expression,
+      currentContext
+    );
+    currentContext = newContext;
+    parts.push(`${ind}__returnValue = ${valueFrag.text};`);
+  }
+
+  // Terminate the iterator
+  parts.push(`${ind}yield break;`);
+
+  return [parts.join("\n"), currentContext];
 };

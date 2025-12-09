@@ -179,7 +179,9 @@ describe("Generator Wrapper", () => {
 
       const [code] = generateIteratorResultStruct(context);
 
-      expect(code).to.include("public readonly record struct IteratorResult<T>");
+      expect(code).to.include(
+        "public readonly record struct IteratorResult<T>"
+      );
       expect(code).to.include("T value");
       expect(code).to.include("bool done");
     });

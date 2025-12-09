@@ -598,6 +598,24 @@ const validateStatement = (stmt: IrStatement, ctx: ValidationContext): void => {
     case "continueStatement":
     case "emptyStatement":
       break;
+
+    case "yieldStatement":
+      if (stmt.output) {
+        validateExpression(stmt.output, ctx);
+      }
+      if (stmt.receiveTarget) {
+        validatePattern(stmt.receiveTarget, ctx);
+      }
+      if (stmt.receivedType) {
+        validateType(stmt.receivedType, ctx, "yield received type");
+      }
+      break;
+
+    case "generatorReturnStatement":
+      if (stmt.expression) {
+        validateExpression(stmt.expression, ctx);
+      }
+      break;
   }
 };
 

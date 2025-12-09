@@ -40,6 +40,7 @@ export type {
   IrContinueStatement,
   IrEmptyStatement,
   IrYieldStatement,
+  IrGeneratorReturnStatement,
   // Expression types
   IrExpression,
   IrLiteralExpression,

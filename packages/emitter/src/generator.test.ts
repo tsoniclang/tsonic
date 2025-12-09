@@ -473,7 +473,9 @@ describe("Generator Emission", () => {
       // Should generate async wrapper
       expect(code).to.include("asyncAccumulator_Generator");
       expect(code).to.include("IAsyncEnumerator<asyncAccumulator_exchange>");
-      expect(code).to.include("async global::System.Threading.Tasks.Task<IteratorResult<double>> next(");
+      expect(code).to.include(
+        "async global::System.Threading.Tasks.Task<IteratorResult<double>> next("
+      );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
     });
 
@@ -599,7 +601,10 @@ describe("Generator Emission", () => {
                 typeArguments: [
                   { kind: "primitiveType", name: "number" },
                   { kind: "voidType" },
-                  { kind: "arrayType", elementType: { kind: "primitiveType", name: "number" } },
+                  {
+                    kind: "arrayType",
+                    elementType: { kind: "primitiveType", name: "number" },
+                  },
                 ],
               },
               body: {
@@ -708,6 +713,120 @@ describe("Generator Emission", () => {
         expect(code).to.include("var __input = exchange.Input");
         expect(code).to.include("var x = __input.x");
         expect(code).to.include("var y = __input.y");
+      });
+    });
+
+    describe("Generator Return Statement", () => {
+      it("should emit __returnValue assignment and yield break for generatorReturnStatement", () => {
+        const module: IrModule = {
+          kind: "module",
+          filePath: "/test/generatorReturn.ts",
+          namespace: "Test",
+          className: "generatorReturn",
+          isStaticContainer: true,
+          imports: [],
+          exports: [],
+          body: [
+            {
+              kind: "functionDeclaration",
+              name: "genWithReturn",
+              parameters: [],
+              returnType: {
+                kind: "referenceType",
+                name: "Generator",
+                typeArguments: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "primitiveType", name: "string" }, // TReturn is string, not void
+                  { kind: "primitiveType", name: "number" },
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "yieldStatement",
+                    output: { kind: "literal", value: 1 },
+                    delegate: false,
+                  },
+                  {
+                    kind: "generatorReturnStatement",
+                    expression: { kind: "literal", value: "done" },
+                  },
+                ],
+              },
+              isAsync: false,
+              isGenerator: true,
+              isExported: true,
+            },
+          ],
+        };
+
+        const code = emitModule(module);
+
+        // Should emit __returnValue assignment
+        expect(code).to.include('__returnValue = "done"');
+
+        // Should emit yield break to terminate iterator
+        expect(code).to.include("yield break;");
+
+        // Wrapper should declare __returnValue
+        expect(code).to.include("string __returnValue = default!");
+
+        // Wrapper should use _getReturnValue
+        expect(code).to.include("_getReturnValue");
+      });
+
+      it("should emit bare yield break for generatorReturnStatement without expression", () => {
+        const module: IrModule = {
+          kind: "module",
+          filePath: "/test/bareReturn.ts",
+          namespace: "Test",
+          className: "bareReturn",
+          isStaticContainer: true,
+          imports: [],
+          exports: [],
+          body: [
+            {
+              kind: "functionDeclaration",
+              name: "genBareReturn",
+              parameters: [],
+              returnType: {
+                kind: "referenceType",
+                name: "Generator",
+                typeArguments: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "voidType" }, // TReturn is void
+                  { kind: "primitiveType", name: "number" },
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "yieldStatement",
+                    output: { kind: "literal", value: 1 },
+                    delegate: false,
+                  },
+                  {
+                    kind: "generatorReturnStatement",
+                    expression: undefined, // bare return
+                  },
+                ],
+              },
+              isAsync: false,
+              isGenerator: true,
+              isExported: true,
+            },
+          ],
+        };
+
+        const code = emitModule(module);
+
+        // Should emit yield break (no __returnValue assignment)
+        expect(code).to.include("yield break;");
+
+        // Should NOT have _getReturnValue for void return
+        expect(code).not.to.include("_getReturnValue");
       });
     });
   });

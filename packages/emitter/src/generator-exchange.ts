@@ -116,9 +116,8 @@ export const generateGeneratorExchanges = (
 
   // Generate IteratorResult struct if needed (once per module)
   if (hasBidirectional) {
-    const [iteratorResultCode, newContext] = generateIteratorResultStruct(
-      currentContext
-    );
+    const [iteratorResultCode, newContext] =
+      generateIteratorResultStruct(currentContext);
     currentContext = newContext;
     parts.push(iteratorResultCode);
     parts.push("");
