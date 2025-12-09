@@ -2,10 +2,25 @@
 set -euo pipefail
 
 # Publish @tsonic/* packages and tsonic wrapper to npm
+#
+# Usage: ./scripts/publish-npm.sh [--ignore-branches-ahead]
+#
+# Options:
+#   --ignore-branches-ahead  Skip check for local branches ahead of main
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER_DIR="$(cd "$ROOT_DIR/../tsonic-wrapper" && pwd)"
+
+# Parse arguments
+IGNORE_BRANCHES_AHEAD=false
+for arg in "$@"; do
+    case $arg in
+        --ignore-branches-ahead)
+            IGNORE_BRANCHES_AHEAD=true
+            ;;
+    esac
+done
 
 cd "$ROOT_DIR"
 
@@ -41,7 +56,7 @@ if [ "$CURRENT_BRANCH" != "main" ]; then
     exit 1
 fi
 
-# 2. Must be synced with origin
+# 2. Must be synced with origin (no bypass)
 git fetch origin main
 LOCAL_COMMIT=$(git rev-parse HEAD)
 REMOTE_COMMIT=$(git rev-parse origin/main)
@@ -52,14 +67,51 @@ if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
     exit 1
 fi
 
-# 3. No uncommitted changes
+# 3. Check for local branches ahead of main (bypass with --ignore-branches-ahead)
+echo "=== Checking for branches ahead of main ==="
+BRANCHES_AHEAD=()
+
+for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
+    if [ "$branch" = "main" ]; then
+        continue
+    fi
+
+    # Get ahead/behind counts relative to main
+    COUNTS=$(git rev-list --left-right --count main..."$branch" 2>/dev/null || echo "0 0")
+    BEHIND=$(echo "$COUNTS" | awk '{print $1}')
+    AHEAD=$(echo "$COUNTS" | awk '{print $2}')
+
+    # Only flag branches that are X ahead and 0 behind (unmerged work)
+    if [ "$AHEAD" -gt 0 ] && [ "$BEHIND" -eq 0 ]; then
+        BRANCHES_AHEAD+=("$branch ($AHEAD ahead)")
+    fi
+done
+
+if [ ${#BRANCHES_AHEAD[@]} -gt 0 ]; then
+    echo "Warning: The following branches are ahead of main:"
+    for branch_info in "${BRANCHES_AHEAD[@]}"; do
+        echo "  - $branch_info"
+    done
+
+    if [ "$IGNORE_BRANCHES_AHEAD" = true ]; then
+        echo "Continuing anyway (--ignore-branches-ahead specified)"
+    else
+        echo ""
+        echo "Error: Unmerged branches detected. Merge them first or use --ignore-branches-ahead"
+        exit 1
+    fi
+else
+    echo "  No branches ahead of main ✓"
+fi
+
+# 4. No uncommitted changes
 if [ -n "$(git status --porcelain)" ]; then
     echo "Error: Uncommitted changes detected."
     echo "Please commit or discard changes first."
     exit 1
 fi
 
-# 4. Ensure all packages have the same version (including wrapper)
+# 5. Ensure all packages have the same version (including wrapper)
 echo "=== Checking package version consistency ==="
 PACKAGES=(frontend emitter backend cli)
 FIRST_VERSION=$(node -p "require('./packages/cli/package.json').version")
@@ -87,7 +139,7 @@ fi
 
 echo "  All packages at version $FIRST_VERSION ✓"
 
-# 5. Check all package versions against npm
+# 6. Check all package versions against npm
 echo "=== Checking versions against npm ==="
 NEEDS_BUMP=()
 ALL_GREATER=true
