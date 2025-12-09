@@ -72,7 +72,7 @@ namespace TestCases.realworld.businesslogic
         public bool removeItem(string productId)
             {
             var index = global::Tsonic.JSRuntime.Array.findIndex(this.items, (CartItem item) => item.product.id == productId);
-            if (index != -1.0)
+            if (index != (int)(-1.0))
                 {
                 global::Tsonic.JSRuntime.Array.splice(this.items, index, 1.0);
                 return true;
@@ -162,7 +162,7 @@ namespace TestCases.realworld.businesslogic
         public Order createOrder(ShoppingCart cart)
             {
             var items = cart.getItems();
-            if (global::Tsonic.JSRuntime.Array.length(items) == 0.0)
+            if (global::Tsonic.JSRuntime.Array.length(items) == 0)
                 {
                 throw new Error("Cannot create order from empty cart");
                 }

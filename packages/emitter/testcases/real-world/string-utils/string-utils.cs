@@ -4,7 +4,7 @@ namespace TestCases.realworld.stringutils
         {
             public static string capitalize(string str)
                 {
-                if (global::Tsonic.JSRuntime.String.length(str) == 0.0)
+                if (global::Tsonic.JSRuntime.String.length(str) == 0)
                     {
                     return str;
                     }

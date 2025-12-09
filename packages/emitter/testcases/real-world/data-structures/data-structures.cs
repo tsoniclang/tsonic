@@ -21,7 +21,7 @@ namespace TestCases.realworld.datastructures
 
         public bool isEmpty()
             {
-            return global::Tsonic.JSRuntime.Array.length(this.items) == 0.0;
+            return global::Tsonic.JSRuntime.Array.length(this.items) == 0;
             }
 
         public double size()
@@ -55,7 +55,7 @@ namespace TestCases.realworld.datastructures
 
         public bool isEmpty()
             {
-            return global::Tsonic.JSRuntime.Array.length(this.items) == 0.0;
+            return global::Tsonic.JSRuntime.Array.length(this.items) == 0;
             }
 
         public double size()

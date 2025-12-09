@@ -105,7 +105,7 @@ namespace TestCases.realworld.advancedgenerics
                 public static T? min<T>(global::System.Collections.Generic.List<T> items)
                     where T : Comparable<T>
                     {
-                    if (global::Tsonic.JSRuntime.Array.length(items) == 0.0)
+                    if (global::Tsonic.JSRuntime.Array.length(items) == 0)
                         {
                         return default;
                         }
@@ -123,7 +123,7 @@ namespace TestCases.realworld.advancedgenerics
                 public static T? max<T>(global::System.Collections.Generic.List<T> items)
                     where T : Comparable<T>
                     {
-                    if (global::Tsonic.JSRuntime.Array.length(items) == 0.0)
+                    if (global::Tsonic.JSRuntime.Array.length(items) == 0)
                         {
                         return default;
                         }
