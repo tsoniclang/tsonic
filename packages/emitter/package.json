@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/emitter",
-  "version": "0.0.6",
+  "version": "0.0.11",
   "description": "C# code generator for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
