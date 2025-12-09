@@ -73,13 +73,13 @@ fi
 echo "=== Committing version changes ==="
 git add packages/*/package.json
 git commit -m "chore: bump version to $CLI_VERSION" || echo "No changes to commit"
-git push
+git push -u origin HEAD
 
 echo "=== Publishing @tsonic packages ==="
 for pkg in frontend emitter backend cli; do
     echo "Publishing @tsonic/$pkg@$CLI_VERSION..."
     cd "$ROOT_DIR/packages/$pkg"
-    npm publish --access public
+    # npm publish --access public  # TEMPORARILY COMMENTED FOR TESTING
 done
 
 cd "$ROOT_DIR"
@@ -99,10 +99,10 @@ node -e "
 echo "=== Committing wrapper changes ==="
 git add package.json
 git commit -m "chore: bump version to $CLI_VERSION" || echo "No changes to commit"
-git push
+git push -u origin HEAD
 
 echo "=== Publishing tsonic@$CLI_VERSION ==="
-npm publish --access public
+# npm publish --access public  # TEMPORARILY COMMENTED FOR TESTING
 
 echo "=== Done ==="
 echo "Published:"
