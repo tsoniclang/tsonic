@@ -11,6 +11,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER_DIR="$(cd "$ROOT_DIR/../tsonic-wrapper" && pwd)"
+RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
+JSRUNTIME_DIR="$(cd "$ROOT_DIR/../js-runtime" && pwd)"
+NODEJS_CLR_DIR="$(cd "$ROOT_DIR/../nodejs-clr" && pwd)"
 
 # Parse arguments
 IGNORE_BRANCHES_AHEAD=false
@@ -111,7 +114,50 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-# 5. Ensure all packages have the same version (including wrapper)
+# 5. Check runtime dependencies are on main
+echo "=== Checking runtime dependencies ==="
+RUNTIME_PROJECTS=(
+    "$RUNTIME_DIR:runtime"
+    "$JSRUNTIME_DIR:js-runtime"
+    "$NODEJS_CLR_DIR:nodejs-clr"
+)
+
+for entry in "${RUNTIME_PROJECTS[@]}"; do
+    DIR="${entry%%:*}"
+    NAME="${entry##*:}"
+
+    BRANCH=$(cd "$DIR" && git branch --show-current)
+    if [ "$BRANCH" != "main" ]; then
+        echo "Error: $NAME is not on main branch (currently on: $BRANCH)"
+        exit 1
+    fi
+    echo "  $NAME: on main ✓"
+done
+
+# 6. Build runtime projects and copy DLLs
+echo "=== Building runtime projects ==="
+
+echo "  Building runtime..."
+cd "$RUNTIME_DIR"
+dotnet build -c Release --verbosity quiet
+
+echo "  Building js-runtime..."
+cd "$JSRUNTIME_DIR"
+dotnet build -c Release --verbosity quiet
+
+echo "  Building nodejs-clr..."
+cd "$NODEJS_CLR_DIR"
+dotnet build -c Release --verbosity quiet
+
+cd "$ROOT_DIR"
+
+echo "=== Copying runtime DLLs ==="
+cp "$RUNTIME_DIR/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll" "$ROOT_DIR/packages/cli/runtime/"
+cp "$JSRUNTIME_DIR/artifacts/bin/Tsonic.JSRuntime/Release/net10.0/Tsonic.JSRuntime.dll" "$ROOT_DIR/packages/cli/runtime/"
+cp "$NODEJS_CLR_DIR/artifacts/bin/nodejs/Release/net10.0/nodejs.dll" "$ROOT_DIR/packages/cli/runtime/"
+echo "  Copied all runtime DLLs ✓"
+
+# 7. Ensure all packages have the same version (including wrapper)
 echo "=== Checking package version consistency ==="
 PACKAGES=(frontend emitter backend cli)
 FIRST_VERSION=$(node -p "require('./packages/cli/package.json').version")
@@ -139,7 +185,7 @@ fi
 
 echo "  All packages at version $FIRST_VERSION ✓"
 
-# 6. Check all package versions against npm
+# 8. Check all package versions against npm
 echo "=== Checking versions against npm ==="
 NEEDS_BUMP=()
 ALL_GREATER=true
