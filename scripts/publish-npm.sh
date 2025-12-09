@@ -9,43 +9,148 @@ WRAPPER_DIR="$(cd "$ROOT_DIR/../tsonic-wrapper" && pwd)"
 
 cd "$ROOT_DIR"
 
-# Check if on main branch - can't push directly to main due to branch rules
+# Helper: Compare semver versions
+# Returns: 1 if v1 > v2, 0 if v1 == v2, -1 if v1 < v2
+compare_versions() {
+    local v1="$1" v2="$2"
+    if [ "$v1" = "$v2" ]; then echo 0; return; fi
+
+    IFS='.' read -r v1_major v1_minor v1_patch <<< "$v1"
+    IFS='.' read -r v2_major v2_minor v2_patch <<< "$v2"
+
+    if [ "$v1_major" -gt "$v2_major" ]; then echo 1; return; fi
+    if [ "$v1_major" -lt "$v2_major" ]; then echo -1; return; fi
+    if [ "$v1_minor" -gt "$v2_minor" ]; then echo 1; return; fi
+    if [ "$v1_minor" -lt "$v2_minor" ]; then echo -1; return; fi
+    if [ "$v1_patch" -gt "$v2_patch" ]; then echo 1; return; fi
+    if [ "$v1_patch" -lt "$v2_patch" ]; then echo -1; return; fi
+    echo 0
+}
+
+# ============================================================
+# PRE-FLIGHT CHECKS (before any action)
+# ============================================================
+
+echo "=== Pre-flight checks ==="
+
+# 1. Must be on main branch
 CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" = "main" ]; then
-    echo "=== On main branch, checking if synced with origin ==="
-    git fetch origin main
-    LOCAL_COMMIT=$(git rev-parse HEAD)
-    REMOTE_COMMIT=$(git rev-parse origin/main)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    echo "Error: Must be on main branch to publish."
+    echo "Current branch: $CURRENT_BRANCH"
+    exit 1
+fi
 
-    if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
-        echo "Error: Local main is not synced with origin/main."
-        echo "Please run: git pull"
+# 2. Must be synced with origin
+git fetch origin main
+LOCAL_COMMIT=$(git rev-parse HEAD)
+REMOTE_COMMIT=$(git rev-parse origin/main)
+
+if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
+    echo "Error: Local main is not synced with origin/main."
+    echo "Please run: git pull"
+    exit 1
+fi
+
+# 3. No uncommitted changes
+if [ -n "$(git status --porcelain)" ]; then
+    echo "Error: Uncommitted changes detected."
+    echo "Please commit or discard changes first."
+    exit 1
+fi
+
+# 4. Ensure all packages have the same version (including wrapper)
+echo "=== Checking package version consistency ==="
+PACKAGES=(frontend emitter backend cli)
+FIRST_VERSION=$(node -p "require('./packages/cli/package.json').version")
+
+for pkg in "${PACKAGES[@]}"; do
+    PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
+    if [ "$PKG_VERSION" != "$FIRST_VERSION" ]; then
+        echo "Error: Package version mismatch!"
+        echo "  @tsonic/cli: $FIRST_VERSION"
+        echo "  @tsonic/$pkg: $PKG_VERSION"
+        echo "All packages must have the same version."
         exit 1
     fi
+done
 
-    # Check for uncommitted changes
-    if [ -n "$(git status --porcelain)" ]; then
-        echo "Error: Uncommitted changes detected."
-        echo "Please commit or discard changes first."
+# Check wrapper too
+WRAPPER_VERSION=$(node -p "require('$WRAPPER_DIR/package.json').version")
+if [ "$WRAPPER_VERSION" != "$FIRST_VERSION" ]; then
+    echo "Error: Package version mismatch!"
+    echo "  @tsonic/cli: $FIRST_VERSION"
+    echo "  tsonic (wrapper): $WRAPPER_VERSION"
+    echo "All packages must have the same version."
+    exit 1
+fi
+
+echo "  All packages at version $FIRST_VERSION ✓"
+
+# 5. Check all package versions against npm
+echo "=== Checking versions against npm ==="
+NEEDS_BUMP=()
+ALL_GREATER=true
+
+for pkg in "${PACKAGES[@]}"; do
+    LOCAL_VER=$(node -p "require('./packages/$pkg/package.json').version")
+    NPM_VER=$(npm view @tsonic/$pkg version 2>/dev/null || echo "0.0.0")
+    CMP=$(compare_versions "$LOCAL_VER" "$NPM_VER")
+
+    echo "  @tsonic/$pkg: local=$LOCAL_VER npm=$NPM_VER"
+
+    if [ "$CMP" = "-1" ]; then
+        echo "Error: Local version ($LOCAL_VER) is LESS than npm version ($NPM_VER) for @tsonic/$pkg"
+        echo "This should never happen. Please investigate."
         exit 1
+    elif [ "$CMP" = "0" ]; then
+        NEEDS_BUMP+=("$pkg")
+        ALL_GREATER=false
     fi
+done
 
-    # Calculate new version for branch name
+# Also check wrapper
+WRAPPER_LOCAL_VER=$(node -p "require('$WRAPPER_DIR/package.json').version")
+WRAPPER_NPM_VER=$(npm view tsonic version 2>/dev/null || echo "0.0.0")
+WRAPPER_CMP=$(compare_versions "$WRAPPER_LOCAL_VER" "$WRAPPER_NPM_VER")
+
+echo "  tsonic (wrapper): local=$WRAPPER_LOCAL_VER npm=$WRAPPER_NPM_VER"
+
+if [ "$WRAPPER_CMP" = "-1" ]; then
+    echo "Error: Local wrapper version ($WRAPPER_LOCAL_VER) is LESS than npm version ($WRAPPER_NPM_VER)"
+    echo "This should never happen. Please investigate."
+    exit 1
+elif [ "$WRAPPER_CMP" = "0" ]; then
+    NEEDS_BUMP+=("wrapper")
+    ALL_GREATER=false
+fi
+
+echo ""
+
+# ============================================================
+# DETERMINE ACTION
+# ============================================================
+
+if [ "$ALL_GREATER" = true ]; then
+    echo "=== All local versions are greater than npm - publishing directly ==="
+    NEED_BRANCH=false
+else
+    echo "=== Some packages need version bump: ${NEEDS_BUMP[*]} ==="
+    NEED_BRANCH=true
+
+    # Calculate new version (based on cli package)
     CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
-    PUBLISHED_VERSION=$(npm view @tsonic/cli version 2>/dev/null || echo "0.0.0")
-
-    if [ "$CLI_VERSION" = "$PUBLISHED_VERSION" ]; then
-        IFS='.' read -r major minor patch <<< "$CLI_VERSION"
-        NEW_VERSION="$major.$minor.$((patch + 1))"
-    else
-        NEW_VERSION="$CLI_VERSION"
-    fi
+    IFS='.' read -r major minor patch <<< "$CLI_VERSION"
+    NEW_VERSION="$major.$minor.$((patch + 1))"
 
     RELEASE_BRANCH="release/v$NEW_VERSION"
     echo "=== Creating release branch: $RELEASE_BRANCH ==="
     git checkout -b "$RELEASE_BRANCH"
-    CURRENT_BRANCH="$RELEASE_BRANCH"
 fi
+
+# ============================================================
+# BUILD AND TEST
+# ============================================================
 
 echo "=== Building all packages ==="
 ./scripts/build/all.sh
@@ -54,21 +159,15 @@ echo "=== Running ALL tests (unit, golden, E2E) ==="
 ./test/scripts/run-all.sh
 echo "All tests passed"
 
-echo "=== Checking versions ==="
-CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
-PUBLISHED_VERSION=$(npm view @tsonic/cli version 2>/dev/null || echo "0.0.0")
+# ============================================================
+# VERSION BUMP (if needed)
+# ============================================================
 
-echo "Local @tsonic/cli version: $CLI_VERSION"
-echo "Published version: $PUBLISHED_VERSION"
-
-if [ "$CLI_VERSION" = "$PUBLISHED_VERSION" ]; then
-    echo "=== Auto-bumping patch version ==="
-    IFS='.' read -r major minor patch <<< "$CLI_VERSION"
-    NEW_VERSION="$major.$minor.$((patch + 1))"
-    echo "New version: $NEW_VERSION"
+if [ "$NEED_BRANCH" = true ]; then
+    echo "=== Bumping versions to $NEW_VERSION ==="
 
     # Update all package.json files
-    for pkg in frontend emitter backend cli; do
+    for pkg in "${PACKAGES[@]}"; do
         node -e "
             const fs = require('fs');
             const path = './packages/$pkg/package.json';
@@ -89,47 +188,71 @@ if [ "$CLI_VERSION" = "$PUBLISHED_VERSION" ]; then
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
     "
 
+    echo "=== Committing version changes ==="
+    git add packages/*/package.json
+    git commit -m "chore: bump version to $NEW_VERSION"
+    git push -u origin HEAD
+
     CLI_VERSION="$NEW_VERSION"
+else
+    CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
 fi
 
-echo "=== Committing version changes ==="
-git add packages/*/package.json
-git commit -m "chore: bump version to $CLI_VERSION" || echo "No changes to commit"
-git push -u origin HEAD
+# ============================================================
+# PUBLISH @tsonic/* PACKAGES
+# ============================================================
 
 echo "=== Publishing @tsonic packages ==="
-for pkg in frontend emitter backend cli; do
-    echo "Publishing @tsonic/$pkg@$CLI_VERSION..."
+for pkg in "${PACKAGES[@]}"; do
+    PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
+    echo "Publishing @tsonic/$pkg@$PKG_VERSION..."
     cd "$ROOT_DIR/packages/$pkg"
     npm publish --access public
 done
 
 cd "$ROOT_DIR"
 
+# ============================================================
+# UPDATE AND PUBLISH WRAPPER
+# ============================================================
+
 echo "=== Updating tsonic-wrapper ==="
 cd "$WRAPPER_DIR"
 
-# Update wrapper package.json
-node -e "
-    const fs = require('fs');
-    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-    pkg.version = '$CLI_VERSION';
-    pkg.dependencies['@tsonic/cli'] = '$CLI_VERSION';
-    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-"
+if [ "$NEED_BRANCH" = true ]; then
+    # Update wrapper package.json
+    node -e "
+        const fs = require('fs');
+        const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        pkg.version = '$CLI_VERSION';
+        pkg.dependencies['@tsonic/cli'] = '$CLI_VERSION';
+        fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+    "
 
-echo "=== Committing wrapper changes ==="
-git add package.json
-git commit -m "chore: bump version to $CLI_VERSION" || echo "No changes to commit"
-git push -u origin HEAD
+    echo "=== Committing wrapper changes ==="
+    git add package.json
+    git commit -m "chore: bump version to $CLI_VERSION"
+    git push -u origin HEAD
+fi
 
 echo "=== Publishing tsonic@$CLI_VERSION ==="
 npm publish --access public
 
+# ============================================================
+# DONE
+# ============================================================
+
+echo ""
 echo "=== Done ==="
 echo "Published:"
-echo "  - @tsonic/frontend@$CLI_VERSION"
-echo "  - @tsonic/emitter@$CLI_VERSION"
-echo "  - @tsonic/backend@$CLI_VERSION"
-echo "  - @tsonic/cli@$CLI_VERSION"
+for pkg in "${PACKAGES[@]}"; do
+    PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
+    echo "  - @tsonic/$pkg@$PKG_VERSION"
+done
 echo "  - tsonic@$CLI_VERSION"
+
+if [ "$NEED_BRANCH" = true ]; then
+    echo ""
+    echo "Note: Changes were made on branch '$RELEASE_BRANCH'"
+    echo "Please create a PR to merge back to main."
+fi
