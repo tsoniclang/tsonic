@@ -1,0 +1,4 @@
+Initial value: 10
+After adding 5: 15
+After adding 20: 35
+After adding 7: 42
