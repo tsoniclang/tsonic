@@ -15,7 +15,11 @@ import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
 import { emitParameters } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { needsBidirectionalSupport } from "../../generator-wrapper.js";
+import {
+  needsBidirectionalSupport,
+  hasGeneratorReturnType,
+  extractGeneratorTypeArgs,
+} from "../../generator-wrapper.js";
 
 /**
  * Emit a function declaration
@@ -160,6 +164,20 @@ export const emitFunctionDeclaration = (
       : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
     const asyncModifier = stmt.isAsync ? "async " : "";
 
+    // Check if generator has a return type (TReturn is not void/undefined)
+    const hasReturnType = hasGeneratorReturnType(stmt);
+
+    // Extract return type for __returnValue variable
+    let returnTypeStr = "object";
+    if (hasReturnType) {
+      const {
+        returnType: extractedReturnType,
+        newContext: typeExtractContext,
+      } = extractGeneratorTypeArgs(stmt.returnType, currentContext);
+      currentContext = typeExtractContext;
+      returnTypeStr = extractedReturnType;
+    }
+
     // Build the body with local iterator function
     const iteratorBody = bodyCode
       .split("\n")
@@ -168,20 +186,39 @@ export const emitFunctionDeclaration = (
       .join("\n");
 
     // Construct the bidirectional generator body
-    const wrapperBody = [
+    const bodyLines = [
       `${ind}{`,
       `${bodyInd}var exchange = new ${exchangeName}();`,
-      ``,
-      `${bodyInd}${asyncModifier}${enumerableType} __iterator()`,
-      `${bodyInd}{`,
-      iteratorBody,
-      `${bodyInd}}`,
-      ``,
-      `${bodyInd}return new ${wrapperName}(__iterator(), exchange);`,
-      `${ind}}`,
-    ].join("\n");
+    ];
 
-    finalBodyCode = wrapperBody;
+    // Add __returnValue capture if TReturn is not void
+    if (hasReturnType) {
+      bodyLines.push(
+        `${bodyInd}${returnTypeStr} __returnValue = default!;`
+      );
+    }
+
+    bodyLines.push(``);
+    bodyLines.push(`${bodyInd}${asyncModifier}${enumerableType} __iterator()`);
+    bodyLines.push(`${bodyInd}{`);
+    bodyLines.push(iteratorBody);
+    bodyLines.push(`${bodyInd}}`);
+    bodyLines.push(``);
+
+    // Wrapper constructor call - pass return value getter if needed
+    if (hasReturnType) {
+      bodyLines.push(
+        `${bodyInd}return new ${wrapperName}(__iterator(), exchange, () => __returnValue);`
+      );
+    } else {
+      bodyLines.push(
+        `${bodyInd}return new ${wrapperName}(__iterator(), exchange);`
+      );
+    }
+
+    bodyLines.push(`${ind}}`);
+
+    finalBodyCode = bodyLines.join("\n");
   } else {
     // Add generator exchange initialization for unidirectional generators
     if (stmt.isGenerator) {

@@ -180,6 +180,11 @@ export const generateWrapperClass = (
     : `global::System.Collections.Generic.IEnumerator<${exchangeName}>`;
   parts.push(`${bodyInd}private readonly ${enumeratorType} _enumerator;`);
   parts.push(`${bodyInd}private readonly ${exchangeName} _exchange;`);
+  // Return value getter - captures TReturn from generator return statements
+  const hasReturnType = returnType !== "void";
+  if (hasReturnType) {
+    parts.push(`${bodyInd}private readonly global::System.Func<${returnType}> _getReturnValue;`);
+  }
   parts.push(`${bodyInd}private bool _done = false;`);
   parts.push("");
 
@@ -188,14 +193,22 @@ export const generateWrapperClass = (
     ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
     : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
 
+  // Constructor signature includes return value getter if TReturn is not void
+  const constructorParams = hasReturnType
+    ? `${enumerableType} enumerable, ${exchangeName} exchange, global::System.Func<${returnType}> getReturnValue`
+    : `${enumerableType} enumerable, ${exchangeName} exchange`;
+
   parts.push(
-    `${bodyInd}public ${wrapperName}(${enumerableType} enumerable, ${exchangeName} exchange)`
+    `${bodyInd}public ${wrapperName}(${constructorParams})`
   );
   parts.push(`${bodyInd}{`);
   parts.push(
     `${innerInd}_enumerator = enumerable.${func.isAsync ? "GetAsyncEnumerator()" : "GetEnumerator()"};`
   );
   parts.push(`${innerInd}_exchange = exchange;`);
+  if (hasReturnType) {
+    parts.push(`${innerInd}_getReturnValue = getReturnValue;`);
+  }
   parts.push(`${bodyInd}}`);
   parts.push("");
 
@@ -212,6 +225,9 @@ export const generateWrapperClass = (
     `${bodyInd}public ${asyncKeyword}${nextReturnType} next(${nextParamType} value = default)`
   );
   parts.push(`${bodyInd}{`);
+  // When already done, return cached result (with TReturn value if available)
+  // Note: JS IteratorResult has value: TYield | TReturn on completion
+  // We use default! for the value since the consumer should check done first
   parts.push(
     `${innerInd}if (_done) return new IteratorResult<${resultType}>(default!, true);`
   );
@@ -223,9 +239,18 @@ export const generateWrapperClass = (
   );
   parts.push(`${innerInd}}`);
   parts.push(`${innerInd}_done = true;`);
-  parts.push(
-    `${innerInd}return new IteratorResult<${resultType}>(default!, true);`
-  );
+  // When iterator completes, return the captured TReturn value if available
+  // Note: The return value is captured via __returnValue closure in the generator function
+  if (hasReturnType) {
+    // Cast TReturn to TYield for the IteratorResult - consumer should use returnValue property
+    parts.push(
+      `${innerInd}return new IteratorResult<${resultType}>((${resultType})(object)_getReturnValue()!, true);`
+    );
+  } else {
+    parts.push(
+      `${innerInd}return new IteratorResult<${resultType}>(default!, true);`
+    );
+  }
   parts.push(`${bodyInd}}`);
   parts.push("");
 
@@ -252,10 +277,33 @@ export const generateWrapperClass = (
   parts.push("");
 
   // throw() method - use @ prefix since 'throw' is a C# keyword
+  // NOTE: Unlike JavaScript, this does NOT inject the exception at the suspended
+  // yield point. C# iterators don't support resumption with exceptions.
+  // This method terminates the generator and throws the exception externally.
+  // This is a semantic limitation - JS generators can catch thrown exceptions
+  // inside try/catch around yield, but our C# implementation cannot.
   const throwReturnType = func.isAsync
     ? `global::System.Threading.Tasks.Task<IteratorResult<${resultType}>>`
     : `IteratorResult<${resultType}>`;
 
+  parts.push(
+    `${bodyInd}/// <summary>`
+  );
+  parts.push(
+    `${bodyInd}/// Terminates the generator and throws the provided exception.`
+  );
+  parts.push(
+    `${bodyInd}/// NOTE: Unlike JavaScript, this does NOT inject the exception at the`
+  );
+  parts.push(
+    `${bodyInd}/// suspended yield point. The exception is thrown externally after`
+  );
+  parts.push(
+    `${bodyInd}/// disposing the enumerator. This is a limitation of C# iterators.`
+  );
+  parts.push(
+    `${bodyInd}/// </summary>`
+  );
   parts.push(`${bodyInd}public ${throwReturnType} @throw(object e)`);
   parts.push(`${bodyInd}{`);
   parts.push(`${innerInd}_done = true;`);
@@ -294,6 +342,37 @@ export const needsBidirectionalSupport = (
         !(
           nextTypeArg.kind === "primitiveType" &&
           nextTypeArg.name === "undefined"
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+/**
+ * Check if a generator function has a return type (TReturn is not void/undefined)
+ * This determines whether we need to capture the return value via closure
+ */
+export const hasGeneratorReturnType = (
+  func: IrFunctionDeclaration
+): boolean => {
+  if (!func.isGenerator) return false;
+
+  if (func.returnType?.kind === "referenceType") {
+    const typeRef = func.returnType;
+    // TReturn is the second type argument: Generator<Yield, Return, Next>
+    if (typeRef.typeArguments && typeRef.typeArguments.length > 1) {
+      const returnTypeArg = typeRef.typeArguments[1];
+      // Check if TReturn is not void/undefined
+      if (
+        returnTypeArg &&
+        returnTypeArg.kind !== "voidType" &&
+        !(
+          returnTypeArg.kind === "primitiveType" &&
+          returnTypeArg.name === "undefined"
         )
       ) {
         return true;

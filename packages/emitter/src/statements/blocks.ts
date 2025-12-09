@@ -81,7 +81,9 @@ export const emitYieldExpression = (
         currentContext
       );
       currentContext = newContext;
-      parts.push(`${ind}foreach (var item in ${delegateFrag.text})`);
+      // Use await foreach for async generators, foreach for sync
+      const foreachKeyword = currentContext.isAsync ? "await foreach" : "foreach";
+      parts.push(`${ind}${foreachKeyword} (var item in ${delegateFrag.text})`);
       parts.push(`${ind}    yield return item;`);
     }
   } else {
@@ -134,7 +136,9 @@ export const emitYieldStatement = (
         currentContext
       );
       currentContext = newContext;
-      parts.push(`${ind}foreach (var item in ${delegateFrag.text})`);
+      // Use await foreach for async generators, foreach for sync
+      const foreachKeyword = currentContext.isAsync ? "await foreach" : "foreach";
+      parts.push(`${ind}${foreachKeyword} (var item in ${delegateFrag.text})`);
       parts.push(`${ind}    yield return item;`);
     }
   } else {

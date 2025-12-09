@@ -476,5 +476,239 @@ describe("Generator Emission", () => {
       expect(code).to.include("async global::System.Threading.Tasks.Task<IteratorResult<double>> next(");
       expect(code).to.include("await _enumerator.MoveNextAsync()");
     });
+
+    describe("Edge Cases", () => {
+      it("should handle string TNext type (non-number)", () => {
+        // Generator<number, void, string> - receives strings
+        const module: IrModule = {
+          kind: "module",
+          filePath: "/test/stringNext.ts",
+          namespace: "Test",
+          className: "stringNext",
+          isStaticContainer: true,
+          imports: [],
+          exports: [],
+          body: [
+            {
+              kind: "functionDeclaration",
+              name: "stringReceiver",
+              parameters: [],
+              returnType: {
+                kind: "referenceType",
+                name: "Generator",
+                typeArguments: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "voidType" },
+                  { kind: "primitiveType", name: "string" }, // TNext is string
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "yieldStatement",
+                    output: { kind: "literal", value: 42 },
+                    delegate: false,
+                    receiveTarget: { kind: "identifierPattern", name: "msg" },
+                  },
+                ],
+              },
+              isAsync: false,
+              isGenerator: true,
+              isExported: true,
+            },
+          ],
+        };
+
+        const code = emitModule(module);
+
+        // Should generate wrapper with string? Input
+        expect(code).to.include("public string? Input { get; set; }");
+        // next() method should accept string?
+        expect(code).to.include("next(string? value = default)");
+      });
+
+      it("should use await foreach for async yield* delegation", () => {
+        // Async generator with yield* should use await foreach
+        const module: IrModule = {
+          kind: "module",
+          filePath: "/test/asyncYieldStar.ts",
+          namespace: "Test",
+          className: "asyncYieldStar",
+          isStaticContainer: true,
+          imports: [],
+          exports: [],
+          body: [
+            {
+              kind: "functionDeclaration",
+              name: "asyncDelegate",
+              parameters: [],
+              returnType: {
+                kind: "referenceType",
+                name: "AsyncGenerator",
+                typeArguments: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "voidType" },
+                  { kind: "primitiveType", name: "number" },
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "yieldStatement",
+                    output: { kind: "identifier", name: "otherGen" },
+                    delegate: true, // yield*
+                  },
+                ],
+              },
+              isAsync: true,
+              isGenerator: true,
+              isExported: true,
+            },
+          ],
+        };
+
+        const code = emitModule(module);
+
+        // Should use await foreach, not just foreach
+        expect(code).to.include("await foreach");
+        expect(code).to.include("(var item in otherGen)");
+      });
+    });
+
+    describe("Pattern receiveTargets", () => {
+      it("should emit array destructuring from yield", () => {
+        // const [a, b] = yield expr;
+        const module: IrModule = {
+          kind: "module",
+          filePath: "/test/arrayPattern.ts",
+          namespace: "Test",
+          className: "arrayPattern",
+          isStaticContainer: true,
+          imports: [],
+          exports: [],
+          body: [
+            {
+              kind: "functionDeclaration",
+              name: "arrayDestructure",
+              parameters: [],
+              returnType: {
+                kind: "referenceType",
+                name: "Generator",
+                typeArguments: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "voidType" },
+                  { kind: "arrayType", elementType: { kind: "primitiveType", name: "number" } },
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "yieldStatement",
+                    output: { kind: "literal", value: 1 },
+                    delegate: false,
+                    receiveTarget: {
+                      kind: "arrayPattern",
+                      elements: [
+                        { kind: "identifierPattern", name: "a" },
+                        { kind: "identifierPattern", name: "b" },
+                      ],
+                    },
+                  },
+                ],
+              },
+              isAsync: false,
+              isGenerator: true,
+              isExported: true,
+            },
+          ],
+        };
+
+        const code = emitModule(module);
+
+        // Should emit array destructuring pattern
+        expect(code).to.include("var __input = exchange.Input");
+        expect(code).to.include("var a = __input[0]");
+        expect(code).to.include("var b = __input[1]");
+      });
+
+      it("should emit object destructuring from yield", () => {
+        // const {x, y} = yield expr;
+        // Note: We use a reference type (Point) for TNext since inline object types
+        // are not supported by the emitter (TSN7403)
+        const module: IrModule = {
+          kind: "module",
+          filePath: "/test/objectPattern.ts",
+          namespace: "Test",
+          className: "objectPattern",
+          isStaticContainer: true,
+          imports: [],
+          exports: [],
+          body: [
+            {
+              kind: "functionDeclaration",
+              name: "objectDestructure",
+              parameters: [],
+              returnType: {
+                kind: "referenceType",
+                name: "Generator",
+                typeArguments: [
+                  { kind: "primitiveType", name: "number" },
+                  { kind: "voidType" },
+                  // Use a reference type for TNext since inline object types
+                  // aren't supported. The test focuses on pattern emission,
+                  // not type resolution.
+                  {
+                    kind: "referenceType",
+                    name: "Point",
+                    typeArguments: [],
+                    resolvedClrType: "Point",
+                  },
+                ],
+              },
+              body: {
+                kind: "blockStatement",
+                statements: [
+                  {
+                    kind: "yieldStatement",
+                    output: { kind: "literal", value: 42 },
+                    delegate: false,
+                    receiveTarget: {
+                      kind: "objectPattern",
+                      properties: [
+                        {
+                          kind: "property",
+                          key: "x",
+                          value: { kind: "identifierPattern", name: "x" },
+                          shorthand: true,
+                        },
+                        {
+                          kind: "property",
+                          key: "y",
+                          value: { kind: "identifierPattern", name: "y" },
+                          shorthand: true,
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              isAsync: false,
+              isGenerator: true,
+              isExported: true,
+            },
+          ],
+        };
+
+        const code = emitModule(module);
+
+        // Should emit object destructuring pattern
+        expect(code).to.include("var __input = exchange.Input");
+        expect(code).to.include("var x = __input.x");
+        expect(code).to.include("var y = __input.y");
+      });
+    });
   });
 });
