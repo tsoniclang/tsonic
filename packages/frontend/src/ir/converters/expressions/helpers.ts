@@ -60,11 +60,19 @@ const isNumericAliasType = (tsType: ts.Type): boolean => {
  * - Only accepts clean TypeReferenceNode with simple identifier (not qualified names)
  * - Only returns if identifier is in TSONIC_TO_NUMERIC_KIND vocabulary
  * - Rejects unions, intersections, or complex types
+ * - CONSERVATIVE: If multiple declarations have conflicting numeric annotations,
+ *   returns undefined to avoid incorrect recovery from partial declaration merges
+ *
+ * NOTE: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
+ * not package-path based. Do not add special casing for @tsonic/types paths.
  */
 const tryRecoverNumericReferenceFromPropertyDecl = (
   propSymbol: ts.Symbol
 ): IrType | undefined => {
   const declarations = propSymbol.declarations ?? [];
+
+  // Collect all numeric annotations found across declarations
+  const recoveredNames = new Set<string>();
 
   for (const decl of declarations) {
     // Only handle PropertySignature and PropertyDeclaration with type annotation
@@ -83,9 +91,19 @@ const tryRecoverNumericReferenceFromPropertyDecl = (
 
         // Only if name is in numeric vocabulary
         if (TSONIC_TO_NUMERIC_KIND.has(name)) {
-          return { kind: "referenceType", name };
+          recoveredNames.add(name);
         }
       }
+    }
+  }
+
+  // CONSERVATIVE: Only return if exactly one numeric annotation was found
+  // If conflicting (e.g., one says `int`, another says `long`), return undefined
+  if (recoveredNames.size === 1) {
+    const names = [...recoveredNames];
+    const name = names[0];
+    if (name !== undefined) {
+      return { kind: "referenceType", name };
     }
   }
 
@@ -99,6 +117,11 @@ const tryRecoverNumericReferenceFromPropertyDecl = (
  * we recover "int" even if checker normalizes to "number".
  *
  * STRICT: Only handles common declaration types, not arrow functions or function types.
+ * CONSERVATIVE: If signature has multiple declarations with conflicting return types,
+ * returns undefined to avoid incorrect recovery.
+ *
+ * NOTE: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
+ * not package-path based. Do not add special casing for @tsonic/types paths.
  */
 const tryRecoverNumericReferenceFromSignatureReturnDecl = (
   signature: ts.Signature
@@ -182,6 +205,10 @@ export const getInferredType = (
     // DECLARATION RECOVERY: If checker returned primitive "number", try to recover
     // numeric intent from the declaration AST. TypeScript sometimes normalizes type
     // aliases like `int` to plain `number`, losing the alias information.
+    //
+    // IMPORTANT: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
+    // not package-path based. We recognize `int`, `long`, `byte`, etc. by NAME only.
+    // Do not add special casing for "@tsonic/types" or other package paths.
     if (result?.kind === "primitiveType" && result.name === "number") {
       // For property access like arr.length, check the property declaration
       if (ts.isPropertyAccessExpression(node)) {

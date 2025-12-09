@@ -16,7 +16,7 @@ import { expect } from "chai";
 import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
-import { compile } from "../../../index.js";
+import { compile, runNumericProofPass } from "../../../index.js";
 import { buildIr } from "../../builder.js";
 import { IrModule, IrExpression, IrMemberExpression } from "../../types.js";
 
@@ -267,6 +267,95 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         kind: "referenceType",
         name: "int",
       });
+    });
+  });
+
+  describe("End-to-End Integration: arr[arr.length - 1]", () => {
+    it("should pass numeric proof validation for arr[arr.length - 1] pattern", () => {
+      // This is the specific regression guard for the original issue.
+      // The pattern arr[arr.length - 1] must:
+      // 1. Compile successfully
+      // 2. Build IR with arr.length having int intent
+      // 3. Pass numeric proof pass without TSN5107
+      const code = `
+        export function getLast(arr: string[]): string {
+          return arr[arr.length - 1];
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsGlobals(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+      expect(modules.length).to.be.greaterThan(0);
+
+      // Run numeric proof pass - this should NOT produce TSN5107
+      const proofResult = runNumericProofPass(modules);
+
+      // Check for TSN5107 specifically (cannot prove int for array index)
+      const tsn5107Errors = proofResult.diagnostics.filter(
+        (d) => d.code === "TSN5107"
+      );
+
+      expect(
+        tsn5107Errors.length,
+        `Expected no TSN5107 errors but got: ${tsn5107Errors.map((d) => d.message).join("; ")}`
+      ).to.equal(0);
+
+      // The proof pass should succeed (or have only non-blocking diagnostics)
+      expect(
+        proofResult.ok,
+        `Proof pass failed: ${proofResult.diagnostics.map((d) => `${d.code}: ${d.message}`).join("; ")}`
+      ).to.be.true;
+    });
+
+    it("should pass numeric proof for arr.indexOf() as index", () => {
+      // Another common pattern: using indexOf result as array index
+      const code = `
+        export function getAtIndex(arr: string[], search: string): string {
+          const idx = arr.indexOf(search);
+          return arr[idx];
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsGlobals(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const proofResult = runNumericProofPass(modules);
+
+      const tsn5107Errors = proofResult.diagnostics.filter(
+        (d) => d.code === "TSN5107"
+      );
+
+      expect(
+        tsn5107Errors.length,
+        `Expected no TSN5107 errors but got: ${tsn5107Errors.map((d) => d.message).join("; ")}`
+      ).to.equal(0);
+
+      expect(proofResult.ok).to.be.true;
+    });
+
+    it("should pass numeric proof for length-based arithmetic", () => {
+      // Pattern: arr.length in subtraction (common for last element access)
+      const code = `
+        export function getSecondLast(arr: string[]): string {
+          return arr[arr.length - 2];
+        }
+      `;
+
+      const { modules, ok, error } = compileWithJsGlobals(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      const proofResult = runNumericProofPass(modules);
+
+      const tsn5107Errors = proofResult.diagnostics.filter(
+        (d) => d.code === "TSN5107"
+      );
+
+      expect(
+        tsn5107Errors.length,
+        `Expected no TSN5107 errors but got: ${tsn5107Errors.map((d) => d.message).join("; ")}`
+      ).to.equal(0);
+
+      expect(proofResult.ok).to.be.true;
     });
   });
 });
