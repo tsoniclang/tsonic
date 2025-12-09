@@ -22,7 +22,7 @@
     "test:watch": "mocha 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/frontend": "0.0.4"
+    "@tsonic/frontend": "*"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
