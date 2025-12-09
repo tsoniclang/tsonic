@@ -6,11 +6,11 @@ Tsonic maps TypeScript function types to .NET delegate types. This guide covers 
 
 TypeScript arrow function types map to .NET delegates:
 
-| TypeScript | C# Type | Description |
-|------------|---------|-------------|
-| `(x: T) => void` | `Action<T>` | Callback with no return |
-| `(x: T) => R` | `Func<T, R>` | Callback with return value |
-| `(x: T) => boolean` | `Func<T, bool>` | Predicate callback |
+| TypeScript          | C# Type         | Description                |
+| ------------------- | --------------- | -------------------------- |
+| `(x: T) => void`    | `Action<T>`     | Callback with no return    |
+| `(x: T) => R`       | `Func<T, R>`    | Callback with return value |
+| `(x: T) => boolean` | `Func<T, bool>` | Predicate callback         |
 
 ## Action Callbacks
 
@@ -91,10 +91,7 @@ Use `Func<T, TResult>` for callbacks that return a value.
 ```typescript
 import { int } from "@tsonic/types";
 
-function map(
-  items: List<int>,
-  transform: (item: int) => int
-): List<int> {
+function map(items: List<int>, transform: (item: int) => int): List<int> {
   const result = new List<int>();
   const len = items.count;
   for (let i = 0; i < len; i++) {
@@ -175,20 +172,20 @@ public static int reduce(List<int> items, Func<int, int, int> reducer, int initi
 
 ### Action Variants
 
-| TypeScript | C# |
-|------------|-----|
-| `() => void` | `Action` |
-| `(a: A) => void` | `Action<A>` |
-| `(a: A, b: B) => void` | `Action<A, B>` |
+| TypeScript                   | C#                |
+| ---------------------------- | ----------------- |
+| `() => void`                 | `Action`          |
+| `(a: A) => void`             | `Action<A>`       |
+| `(a: A, b: B) => void`       | `Action<A, B>`    |
 | `(a: A, b: B, c: C) => void` | `Action<A, B, C>` |
 
 ### Func Variants
 
-| TypeScript | C# |
-|------------|-----|
-| `() => R` | `Func<R>` |
-| `(a: A) => R` | `Func<A, R>` |
-| `(a: A, b: B) => R` | `Func<A, B, R>` |
+| TypeScript                | C#                 |
+| ------------------------- | ------------------ |
+| `() => R`                 | `Func<R>`          |
+| `(a: A) => R`             | `Func<A, R>`       |
+| `(a: A, b: B) => R`       | `Func<A, B, R>`    |
 | `(a: A, b: B, c: C) => R` | `Func<A, B, C, R>` |
 
 ## Inline Lambdas
@@ -237,10 +234,7 @@ Console.writeLine(`${triple(5 as int)}`); // 15
 ```typescript
 import { int } from "@tsonic/types";
 
-function compose(
-  f: (x: int) => int,
-  g: (x: int) => int
-): (x: int) => int {
+function compose(f: (x: int) => int, g: (x: int) => int): (x: int) => int {
   return (x: int) => f(g(x));
 }
 
@@ -258,9 +252,7 @@ For async callbacks, use `Promise` return types:
 ```typescript
 import { Console } from "@tsonic/dotnet/System";
 
-async function processAsync(
-  callback: () => Promise<string>
-): Promise<void> {
+async function processAsync(callback: () => Promise<string>): Promise<void> {
   const result = await callback();
   Console.writeLine(result);
 }
@@ -301,10 +293,7 @@ addClickHandler((sender: object, args: EventArgs) => {
 ```typescript
 import { int } from "@tsonic/types";
 
-function sort(
-  items: List<int>,
-  compare: (a: int, b: int) => int
-): void {
+function sort(items: List<int>, compare: (a: int, b: int) => int): void {
   // Use compare function for sorting
 }
 
@@ -321,7 +310,7 @@ function createItem<T>(factory: () => T): T {
 
 const user = createItem(() => ({
   name: "Alice",
-  age: 30
+  age: 30,
 }));
 ```
 

@@ -201,10 +201,10 @@ tsonic add package <dll-path> <types-package>
 
 **Arguments:**
 
-| Argument          | Description                  | Required |
-| ----------------- | ---------------------------- | -------- |
-| `<dll-path>`      | Path to the .NET DLL file    | Yes      |
-| `<types-package>` | npm package with type decls  | Yes      |
+| Argument          | Description                 | Required |
+| ----------------- | --------------------------- | -------- |
+| `<dll-path>`      | Path to the .NET DLL file   | Yes      |
+| `<types-package>` | npm package with type decls | Yes      |
 
 **Options:**
 

@@ -394,7 +394,7 @@ type Complex = { [K in keyof T]: T[K] };
 
 ```typescript
 // Error
-function foo(x: ref<number>) {}  // Wrong - ref is not a type
+function foo(x: ref<number>) {} // Wrong - ref is not a type
 
 // Correct: Use type annotation on the .NET side
 // These are handled via metadata, not TypeScript syntax
@@ -406,17 +406,17 @@ function foo(x: ref<number>) {}  // Wrong - ref is not a type
 
 Errors related to numeric type narrowing and proof:
 
-| Code    | Error                                      |
-| ------- | ------------------------------------------ |
-| TSN5101 | Cannot prove numeric narrowing is safe     |
-| TSN5102 | Numeric literal out of range               |
-| TSN5103 | Mixed numeric types in expression          |
-| TSN5104 | Cannot infer numeric type                  |
-| TSN5105 | Numeric operation requires same types      |
-| TSN5106 | Integer division by zero                   |
-| TSN5107 | Numeric overflow possible                  |
-| TSN5108 | Cannot narrow to target numeric type       |
-| TSN5109 | Numeric type mismatch                      |
+| Code    | Error                                  |
+| ------- | -------------------------------------- |
+| TSN5101 | Cannot prove numeric narrowing is safe |
+| TSN5102 | Numeric literal out of range           |
+| TSN5103 | Mixed numeric types in expression      |
+| TSN5104 | Cannot infer numeric type              |
+| TSN5105 | Numeric operation requires same types  |
+| TSN5106 | Integer division by zero               |
+| TSN5107 | Numeric overflow possible              |
+| TSN5108 | Cannot narrow to target numeric type   |
+| TSN5109 | Numeric type mismatch                  |
 
 ## TSN6xxx: Generic Specialization Errors
 
@@ -424,10 +424,10 @@ Errors related to numeric type narrowing and proof:
 
 Errors during generic type specialization:
 
-| Code    | Error                                      |
-| ------- | ------------------------------------------ |
-| TSN6101 | Cannot specialize generic type             |
-| TSN6199 | Generic specialization internal error      |
+| Code    | Error                                 |
+| ------- | ------------------------------------- |
+| TSN6101 | Cannot specialize generic type        |
+| TSN6199 | Generic specialization internal error |
 
 ## TSN9xxx: Metadata Loading
 

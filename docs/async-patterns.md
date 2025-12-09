@@ -183,10 +183,10 @@ export async function main(): Promise<void> {
   const gen = asyncAccumulator(10);
 
   const r1 = await gen.next();
-  Console.writeLine(`Initial: ${r1.value}`);   // 10
+  Console.writeLine(`Initial: ${r1.value}`); // 10
 
   const r2 = await gen.next(5);
-  Console.writeLine(`After +5: ${r2.value}`);  // 15
+  Console.writeLine(`After +5: ${r2.value}`); // 15
 
   const r3 = await gen.next(20);
   Console.writeLine(`After +20: ${r3.value}`); // 35
@@ -300,12 +300,12 @@ async function consumer(): Promise<number> {
 
 ## Type Mappings
 
-| TypeScript | C# |
-|------------|-----|
-| `Promise<T>` | `Task<T>` |
-| `Promise<void>` | `Task` |
-| `AsyncGenerator<T>` | `IAsyncEnumerable<T>` (simplified) |
-| `AsyncGenerator<Y, R, N>` | Wrapper class with async methods |
+| TypeScript                | C#                                 |
+| ------------------------- | ---------------------------------- |
+| `Promise<T>`              | `Task<T>`                          |
+| `Promise<void>`           | `Task`                             |
+| `AsyncGenerator<T>`       | `IAsyncEnumerable<T>` (simplified) |
+| `AsyncGenerator<Y, R, N>` | Wrapper class with async methods   |
 
 ## Async Entry Points
 

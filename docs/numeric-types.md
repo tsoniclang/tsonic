@@ -19,17 +19,17 @@ const y = 42 as int; // C#: int y = 42;
 
 Import from `@tsonic/types`:
 
-| TypeScript | C# Type | Range | Use Case |
-|------------|---------|-------|----------|
-| `byte` | `byte` | 0 to 255 | Binary data, small counts |
-| `sbyte` | `sbyte` | -128 to 127 | Signed byte values |
-| `short` | `short` | -32,768 to 32,767 | Small integers |
-| `ushort` | `ushort` | 0 to 65,535 | Unsigned small integers |
-| `int` | `int` | -2B to 2B | Most integer operations |
-| `uint` | `uint` | 0 to 4B | Unsigned integers |
-| `long` | `long` | -9Q to 9Q | Large integers |
-| `ulong` | `ulong` | 0 to 18Q | Large unsigned integers |
-| `float` | `float` | ±3.4e38 | Single precision floats |
+| TypeScript | C# Type  | Range             | Use Case                  |
+| ---------- | -------- | ----------------- | ------------------------- |
+| `byte`     | `byte`   | 0 to 255          | Binary data, small counts |
+| `sbyte`    | `sbyte`  | -128 to 127       | Signed byte values        |
+| `short`    | `short`  | -32,768 to 32,767 | Small integers            |
+| `ushort`   | `ushort` | 0 to 65,535       | Unsigned small integers   |
+| `int`      | `int`    | -2B to 2B         | Most integer operations   |
+| `uint`     | `uint`   | 0 to 4B           | Unsigned integers         |
+| `long`     | `long`   | -9Q to 9Q         | Large integers            |
+| `ulong`    | `ulong`  | 0 to 18Q          | Large unsigned integers   |
+| `float`    | `float`  | ±3.4e38           | Single precision floats   |
 
 ## Basic Usage
 
@@ -302,13 +302,13 @@ const right = a >> 1; // 5
 
 ## Comparison with JavaScript
 
-| Aspect | JavaScript | Tsonic (int) |
-|--------|------------|--------------|
-| `10 / 3` | 3.333... | 3 |
-| `10 / 4` | 2.5 | 2 |
-| `(-7) / 3` | -2.333... | -2 |
-| Array index | Any number | Exact int |
-| Overflow | Infinity | Wraps (C# behavior) |
+| Aspect      | JavaScript | Tsonic (int)        |
+| ----------- | ---------- | ------------------- |
+| `10 / 3`    | 3.333...   | 3                   |
+| `10 / 4`    | 2.5        | 2                   |
+| `(-7) / 3`  | -2.333...  | -2                  |
+| Array index | Any number | Exact int           |
+| Overflow    | Infinity   | Wraps (C# behavior) |
 
 ## Generated C# Code
 
