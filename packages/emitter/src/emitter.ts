@@ -61,8 +61,13 @@ export const emitCSharpFiles = (
     const outputPath = relativePath.replace(/\.ts$/, ".cs");
 
     // Mark this module as entry point if it matches the entry point path
+    // Module filePath is relative (e.g., "index.ts"), entryPointPath is absolute
+    // Check both exact match and if entryPointPath ends with the relative path
     const isEntryPoint = !!(
-      options.entryPointPath && module.filePath === options.entryPointPath
+      options.entryPointPath &&
+      (module.filePath === options.entryPointPath ||
+        options.entryPointPath.endsWith("/" + module.filePath) ||
+        options.entryPointPath.endsWith("\\" + module.filePath))
     );
     const moduleOptions = {
       ...options,

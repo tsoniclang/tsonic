@@ -3,4 +3,9 @@
  */
 
 export * from "./types.js";
-export { buildIr, buildIrModule, type IrBuildOptions } from "./builder.js";
+export {
+  buildIr,
+  buildIrModule,
+  isExecutableStatement,
+  type IrBuildOptions,
+} from "./builder.js";
