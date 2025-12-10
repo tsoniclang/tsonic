@@ -665,8 +665,8 @@ describe("Static Safety Validation", () => {
     });
   });
 
-  describe("TSN7406 - Mapped utility types not supported", () => {
-    it("should reject Partial<T>", () => {
+  describe("Mapped utility types now supported", () => {
+    it("should accept Partial<T>", () => {
       const source = `
         interface Person { name: string; age: number; }
         type PartialPerson = Partial<Person>;
@@ -676,11 +676,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Partial");
+      expect(diag).to.equal(undefined);
     });
 
-    it("should reject Required<T>", () => {
+    it("should accept Required<T>", () => {
       const source = `
         interface Person { name?: string; }
         type RequiredPerson = Required<Person>;
@@ -690,11 +689,23 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Required");
+      expect(diag).to.equal(undefined);
     });
 
-    it("should reject Pick<T, K>", () => {
+    it("should accept Readonly<T>", () => {
+      const source = `
+        interface Person { name: string; age: number; }
+        type ReadonlyPerson = Readonly<Person>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
+      expect(diag).to.equal(undefined);
+    });
+
+    it("should accept Pick<T, K>", () => {
       const source = `
         interface Person { name: string; age: number; email: string; }
         type NameOnly = Pick<Person, "name">;
@@ -704,11 +715,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Pick");
+      expect(diag).to.equal(undefined);
     });
 
-    it("should reject Omit<T, K>", () => {
+    it("should accept Omit<T, K>", () => {
       const source = `
         interface Person { name: string; age: number; }
         type NoAge = Omit<Person, "age">;
@@ -718,8 +728,7 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7406");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Omit");
+      expect(diag).to.equal(undefined);
     });
   });
 

@@ -11,7 +11,7 @@
 /**
  * Mapped-type utility types (TSN7406)
  *
- * These expand to mapped types internally:
+ * SUPPORTED (expanded at compile time for concrete types):
  * - Partial<T>   → { [P in keyof T]?: T[P] }
  * - Required<T>  → { [P in keyof T]-?: T[P] }
  * - Readonly<T>  → { readonly [P in keyof T]: T[P] }
@@ -21,12 +21,9 @@
  * Note: Record<K, V> is handled separately (allowed when K is string, TSN7413 otherwise)
  * Note: ReadonlyArray<T> is NOT a mapped type - it maps to IReadOnlyList<T> and is supported
  */
-export const UNSUPPORTED_MAPPED_UTILITY_TYPES = new Set([
-  "Partial",
-  "Required",
-  "Readonly",
-  "Pick",
-  "Omit",
+export const UNSUPPORTED_MAPPED_UTILITY_TYPES = new Set<string>([
+  // Partial, Required, Readonly, Pick, Omit are now supported
+  // They are expanded to IrObjectType in type-converter/utility-types.ts
 ]);
 
 /**

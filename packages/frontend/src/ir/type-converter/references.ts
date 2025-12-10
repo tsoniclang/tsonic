@@ -5,6 +5,10 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
+import {
+  isExpandableUtilityType,
+  expandUtilityType,
+} from "./utility-types.js";
 
 /**
  * Convert TypeScript type reference to IR type
@@ -48,6 +52,14 @@ export const convertTypeReference = (
       keyType,
       valueType,
     } as IrDictionaryType;
+  }
+
+  // Check for expandable utility types (Partial, Required, Readonly, Pick, Omit)
+  // These are expanded to IrObjectType at compile time for concrete types
+  if (isExpandableUtilityType(typeName) && node.typeArguments?.length) {
+    const expanded = expandUtilityType(node, typeName, checker, convertType);
+    if (expanded) return expanded;
+    // Fall through to referenceType if can't expand (e.g., type parameter)
   }
 
   // NOTE: ref<T>, out<T>, In<T> are no longer supported as types.
