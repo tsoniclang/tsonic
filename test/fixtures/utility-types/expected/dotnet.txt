@@ -1,0 +1,7 @@
+Partial: name=Alice
+Person: name=Bob, age=30
+Pick: name=Diana
+Omit: name=Eve, age=35
+Required: name=Frank, age=40
+Partial<Partial>: name=Grace
+All utility type tests passed!

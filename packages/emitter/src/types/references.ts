@@ -274,9 +274,19 @@ export const emitReferenceType = (
 
   // FALLTHROUGH is only permitted for local types.
   // Emitting a bare external name is unsound and forbidden.
-  if (context.localTypes?.has(name)) {
+  const localTypeInfo = context.localTypes?.get(name);
+  if (localTypeInfo) {
     // Convert nested type names (Outer$Inner → Outer.Inner)
-    const csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
+    let csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
+
+    // Type aliases with objectType underlying type are emitted as classes with __Alias suffix
+    // (per spec/16-types-and-interfaces.md §3.4)
+    if (
+      localTypeInfo.kind === "typeAlias" &&
+      localTypeInfo.type.kind === "objectType"
+    ) {
+      csharpName = `${csharpName}__Alias`;
+    }
 
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];
