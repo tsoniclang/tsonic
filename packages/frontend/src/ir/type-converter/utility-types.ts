@@ -48,6 +48,82 @@ const typeNodeContainsUndefined = (
 };
 
 /**
+ * Check if ANY declaration in the list explicitly contains undefined.
+ * Handles merged declarations where any declaration might have explicit undefined.
+ */
+const anyDeclarationHasExplicitUndefined = (
+  declarations: readonly ts.Declaration[] | undefined
+): boolean => {
+  if (!declarations) return false;
+  return declarations.some((decl) => {
+    if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
+      return typeNodeContainsUndefined(decl.type);
+    }
+    return false;
+  });
+};
+
+/**
+ * Check if a declaration has a readonly modifier.
+ */
+const declarationHasReadonlyModifier = (decl: ts.Declaration): boolean => {
+  if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
+    return (
+      decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ??
+      false
+    );
+  }
+  return false;
+};
+
+/**
+ * Get readonly status from TypeScript internal checkFlags.
+ * WARNING: This uses TypeScript internal API (symbol.links.checkFlags).
+ * The value 8 is CheckFlags.Readonly in TypeScript's internal enum.
+ * This is necessary for mapped types where readonly is not in declaration modifiers.
+ * If TypeScript internals change, this will need updating.
+ */
+const isReadonlyFromCheckFlags = (symbol: ts.Symbol): boolean => {
+  const CHECK_FLAGS_READONLY = 8; // TypeScript internal: CheckFlags.Readonly
+  const checkFlags =
+    (symbol as unknown as { links?: { checkFlags?: number } }).links
+      ?.checkFlags ?? 0;
+  return (checkFlags & CHECK_FLAGS_READONLY) !== 0;
+};
+
+/**
+ * Determine if a property is readonly.
+ * Combines declaration-based check (stable) with internal checkFlags (for mapped types).
+ * Prefers declaration-based when available for stability across TS versions.
+ */
+const isPropertyReadonly = (
+  symbol: ts.Symbol,
+  declarations: readonly ts.Declaration[] | undefined
+): boolean => {
+  // First try declaration-based (stable public API)
+  const fromDeclaration =
+    declarations?.some(declarationHasReadonlyModifier) ?? false;
+  if (fromDeclaration) return true;
+
+  // Fall back to internal checkFlags for mapped types (Readonly<T>, etc.)
+  // This handles cases where readonly is synthesized, not in declaration
+  return isReadonlyFromCheckFlags(symbol);
+};
+
+/**
+ * Check if a property name is a non-string key (symbol or computed).
+ * These cannot be represented as C# property names.
+ */
+const isNonStringKey = (symbol: ts.Symbol): boolean => {
+  const propName = symbol.getName();
+  return (
+    propName.startsWith("__@") || // Internal symbol marker
+    ((symbol.flags & ts.SymbolFlags.Transient) !== 0 &&
+      propName.startsWith("["))
+  );
+};
+
+/**
  * Strip `undefined` from a union type, but ONLY the synthetic undefined
  * introduced by optionality. If the declaration explicitly included undefined
  * (like `x?: T | undefined`), we preserve it to maintain type semantics.
@@ -62,10 +138,11 @@ const stripSyntheticUndefined = (
   checker: ts.TypeChecker,
   enclosingNode: ts.Node,
   flags: ts.NodeBuilderFlags,
-  declarationTypeNode: ts.TypeNode | undefined
+  declarations: readonly ts.Declaration[] | undefined
 ): ts.TypeNode | undefined => {
-  // If declaration explicitly contains undefined, don't strip anything
-  if (typeNodeContainsUndefined(declarationTypeNode)) {
+  // If ANY declaration explicitly contains undefined, don't strip anything
+  // This handles merged declarations where any might have explicit undefined
+  if (anyDeclarationHasExplicitUndefined(declarations)) {
     return checker.typeToTypeNode(type, enclosingNode, flags);
   }
 
@@ -141,42 +218,47 @@ export const expandUtilityType = (
     }
   }
 
+  // SAFETY: Check for index signatures - expansion would lose them
+  // Never expand if doing so would drop members (compiler-grade rule)
+  const stringIndexType = checker.getIndexInfoOfType(
+    resolvedType,
+    ts.IndexKind.String
+  );
+  const numberIndexType = checker.getIndexInfoOfType(
+    resolvedType,
+    ts.IndexKind.Number
+  );
+  if (stringIndexType || numberIndexType) {
+    // Type has index signatures that cannot be represented in expansion
+    // Return null to fall back to referenceType behavior
+    return null;
+  }
+
+  // SAFETY: Check for non-string keys before processing
+  // Never expand if doing so would drop members (compiler-grade rule)
+  for (const prop of properties) {
+    if (isNonStringKey(prop)) {
+      // Type has symbol/computed keys that cannot be represented as C# properties
+      // Return null to fall back to referenceType behavior
+      return null;
+    }
+  }
+
   // Convert properties to IR members
-  // NOTE: Index signatures (e.g., [key: string]: T) are NOT returned by
-  // getProperties() and are intentionally not supported in utility type
-  // expansion. If the source type has index signatures, they will be lost.
   const members: IrInterfaceMember[] = [];
 
-  // CheckFlags.Readonly = 8 (internal TypeScript flag for mapped type readonly)
-  const CHECK_FLAGS_READONLY = 8;
-
   for (const prop of properties) {
-    // Skip non-string keys (symbols, computed properties)
-    // These cannot be represented as C# property names
-    const propName = prop.getName();
-    if (
-      propName.startsWith("__@") || // Internal symbol marker
-      ((prop.flags & ts.SymbolFlags.Transient) !== 0 &&
-        propName.startsWith("["))
-    ) {
-      // Skip symbol/computed keys - they can't be emitted as C# properties
-      // TODO: Consider emitting a diagnostic for this
-      continue;
-    }
-
     const propType = checker.getTypeOfSymbolAtLocation(prop, node);
 
-    // Get optional/readonly status from symbol flags and checkFlags
+    // Get declarations for readonly check and explicit undefined detection
+    const declarations = prop.getDeclarations();
+
+    // Get optional/readonly status
     // TypeScript correctly sets Optional flag for Partial<T> properties
     const symbolOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
 
-    // For mapped types like Readonly<T>, readonly is stored in symbol.links.checkFlags
-    // not in the original declaration modifiers. This correctly handles nested
-    // utility types like Partial<Readonly<T>> where readonly must be preserved.
-    const checkFlags =
-      (prop as unknown as { links?: { checkFlags?: number } }).links
-        ?.checkFlags ?? 0;
-    const baseReadonly = (checkFlags & CHECK_FLAGS_READONLY) !== 0;
+    // Readonly: combine declaration-based (stable) with internal checkFlags (mapped types)
+    const baseReadonly = isPropertyReadonly(prop, declarations);
 
     // Apply utility type transformations
     // Readonly<T> makes all properties readonly
@@ -185,19 +267,9 @@ export const expandUtilityType = (
     const isReadonly = typeName === "Readonly" ? true : baseReadonly;
     const isOptional = typeName === "Required" ? false : symbolOptional;
 
-    // Get declarations for checking method signatures and explicit undefined
-    const declarations = prop.getDeclarations();
-
-    // Get the declaration's type node to check for explicit undefined
-    const declarationTypeNode =
-      declarations?.[0] &&
-      (ts.isPropertySignature(declarations[0]) ||
-        ts.isPropertyDeclaration(declarations[0]))
-        ? declarations[0].type
-        : undefined;
-
     // For optional properties, TypeScript includes `| undefined` in the type.
     // We strip ONLY synthetic undefined (from optionality), not explicit undefined.
+    // Pass all declarations so we check ALL for explicit undefined (handles merges).
     // Use NoTruncation to get complete type representation.
     const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
     const propTypeNode = isOptional
@@ -206,7 +278,7 @@ export const expandUtilityType = (
           checker,
           node,
           typeNodeFlags,
-          declarationTypeNode
+          declarations
         )
       : checker.typeToTypeNode(propType, node, typeNodeFlags);
 
