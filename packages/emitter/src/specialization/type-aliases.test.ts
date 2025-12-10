@@ -129,6 +129,96 @@ describe("Type Aliases (spec/16 §3)", () => {
     expect(result).to.include("public sealed class Node__Alias");
     expect(result).to.include("public string name { get; set; } = default!;");
     // Self-reference should use __Alias suffix and be nullable
-    expect(result).to.include("public Node__Alias? next { get; set; } = default!;");
+    expect(result).to.include(
+      "public Node__Alias? next { get; set; } = default!;"
+    );
+  });
+
+  it("should emit __Alias suffix when alias is referenced from another alias", () => {
+    // Test case: type A = { name: string }; type B = { item: A }
+    // B's item property should reference A__Alias, not A
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/types.ts",
+      namespace: "MyApp",
+      className: "types",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "typeAliasDeclaration",
+          name: "PersonData",
+          typeParameters: undefined,
+          type: {
+            kind: "objectType",
+            members: [
+              {
+                kind: "propertySignature",
+                name: "name",
+                type: { kind: "primitiveType", name: "string" },
+                isOptional: false,
+                isReadonly: false,
+              },
+            ],
+          },
+          isStruct: false,
+          isExported: true,
+        },
+        {
+          kind: "typeAliasDeclaration",
+          name: "Container",
+          typeParameters: undefined,
+          type: {
+            kind: "objectType",
+            members: [
+              {
+                kind: "propertySignature",
+                name: "item",
+                type: {
+                  kind: "referenceType",
+                  name: "PersonData",
+                  typeArguments: [],
+                },
+                isOptional: false,
+                isReadonly: false,
+              },
+              {
+                kind: "propertySignature",
+                name: "items",
+                type: {
+                  kind: "referenceType",
+                  name: "Array",
+                  typeArguments: [
+                    {
+                      kind: "referenceType",
+                      name: "PersonData",
+                      typeArguments: [],
+                    },
+                  ],
+                },
+                isOptional: false,
+                isReadonly: false,
+              },
+            ],
+          },
+          isStruct: false,
+          isExported: true,
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // PersonData should be emitted with __Alias suffix
+    expect(result).to.include("public sealed class PersonData__Alias");
+    // Container should be emitted with __Alias suffix
+    expect(result).to.include("public sealed class Container__Alias");
+    // Reference to PersonData inside Container should use __Alias suffix
+    expect(result).to.include("public PersonData__Alias item { get; set; }");
+    // Array of PersonData should also use __Alias suffix
+    expect(result).to.include(
+      "public global::System.Collections.Generic.List<PersonData__Alias> items { get; set; }"
+    );
   });
 });

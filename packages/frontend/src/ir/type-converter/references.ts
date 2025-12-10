@@ -5,10 +5,7 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
-import {
-  isExpandableUtilityType,
-  expandUtilityType,
-} from "./utility-types.js";
+import { isExpandableUtilityType, expandUtilityType } from "./utility-types.js";
 
 /**
  * Convert TypeScript type reference to IR type

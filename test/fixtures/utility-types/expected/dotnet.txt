@@ -1,7 +1,9 @@
 Partial: name=Alice
 Person: name=Bob, age=30
 Pick: name=Diana
+Pick multi: name=Elaine, email=elaine@test.com
 Omit: name=Eve, age=35
+Omit multi: name=Fiona
 Required: name=Frank, age=40
 Partial<Partial>: name=Grace
 All utility type tests passed!

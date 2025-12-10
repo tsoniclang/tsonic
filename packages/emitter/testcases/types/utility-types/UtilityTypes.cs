@@ -22,6 +22,14 @@ namespace TestCases.types.utilitytypes
 
         public string? email { get; set; }
     }
+    public class WithMethods
+    {
+        public string name { get; set; }
+
+        public string greet(string greeting) => throw new NotImplementedException();
+
+        public double calculate(double a, double b) => throw new NotImplementedException();
+    }
 
             public static class UtilityTypes
             {
@@ -69,9 +77,9 @@ namespace TestCases.types.utilitytypes
 
                 public sealed class PartialReadonly__Alias
                 {
-                    public string? name { get; set; } = default!;
-                    public double? age { get; set; } = default!;
-                    public string? email { get; set; } = default!;
+                    public string? name { get; private set; } = default!;
+                    public double? age { get; private set; } = default!;
+                    public string? email { get; private set; } = default!;
                 }
 
                 public sealed class ReadonlyPartial__Alias
@@ -103,8 +111,18 @@ namespace TestCases.types.utilitytypes
 
                 public sealed class OmitFromReadonly__Alias
                 {
-                    public string name { get; set; } = default!;
-                    public double age { get; set; } = default!;
+                    public string name { get; private set; } = default!;
+                    public double age { get; private set; } = default!;
+                }
+
+                public sealed class PartialWithMethods__Alias
+                {
+                    public string? name { get; set; } = default!;
+                }
+
+                public sealed class ReadonlyWithMethods__Alias
+                {
+                    public string name { get; private set; } = default!;
                 }
             }
 }

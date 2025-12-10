@@ -43,3 +43,12 @@ export type PickFromPartial = Pick<Partial<Person>, "name" | "age">;
 
 // Omit from readonly
 export type OmitFromReadonly = Omit<Readonly<Person>, "email">;
+
+// Interface with methods
+export interface WithMethods {
+  name: string;
+  greet(greeting: string): string;
+  calculate(a: number, b: number): number;
+}
+export type PartialWithMethods = Partial<WithMethods>;
+export type ReadonlyWithMethods = Readonly<WithMethods>;
