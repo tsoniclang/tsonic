@@ -1,4 +1,6 @@
 // E2E test for utility types: Partial, Required, Pick, Omit
+// Note: Readonly<T> types cannot be instantiated with object initializers in C#
+// because the private setter prevents initialization. We test them via interface type.
 import { Console } from "@tsonic/dotnet/System";
 
 interface Person {
@@ -11,6 +13,8 @@ interface Person {
 type PartialPerson = Partial<Person>;
 type NameOnly = Pick<Person, "name">;
 type WithoutEmail = Omit<Person, "email">;
+type ContactInfo = Pick<Person, "name" | "email">;
+type MinimalPerson = Omit<Person, "age" | "email">;
 
 // Interface with optional properties
 interface OptionalFields {
@@ -19,7 +23,7 @@ interface OptionalFields {
 }
 type AllRequired = Required<OptionalFields>;
 
-// Nested utility types
+// Nested utility types (non-readonly)
 type PartialPartial = Partial<Partial<Person>>;
 
 export function main(): void {
@@ -35,9 +39,19 @@ export function main(): void {
   const nameOnly: NameOnly = { name: "Diana" };
   Console.writeLine(`Pick: name=${nameOnly.name}`);
 
+  // Test Pick with multiple keys
+  const contactInfo: ContactInfo = { name: "Elaine", email: "elaine@test.com" };
+  Console.writeLine(
+    `Pick multi: name=${contactInfo.name}, email=${contactInfo.email}`
+  );
+
   // Test Omit<T, K> - without email
   const withoutEmail: WithoutEmail = { name: "Eve", age: 35 };
   Console.writeLine(`Omit: name=${withoutEmail.name}, age=${withoutEmail.age}`);
+
+  // Test Omit with multiple keys
+  const minimalPerson: MinimalPerson = { name: "Fiona" };
+  Console.writeLine(`Omit multi: name=${minimalPerson.name}`);
 
   // Test Required<T> on optional fields
   const allReq: AllRequired = { name: "Frank", age: 40 };

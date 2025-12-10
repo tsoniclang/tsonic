@@ -293,11 +293,13 @@ export const expandUtilityType = (
       const methSig: IrMethodSignature = {
         kind: "methodSignature",
         name: prop.name,
-        parameters: propTypeNode.parameters.map((param) => ({
+        parameters: propTypeNode.parameters.map((param, index) => ({
           kind: "parameter" as const,
           pattern: {
             kind: "identifierPattern" as const,
-            name: param.name.getText(),
+            // Use identifier text if available, otherwise fallback to arg{index}
+            // typeToTypeNode may create synthetic nodes without source file context
+            name: ts.isIdentifier(param.name) ? param.name.text : `arg${index}`,
           },
           type: param.type ? convertType(param.type, checker) : undefined,
           isOptional: !!param.questionToken,

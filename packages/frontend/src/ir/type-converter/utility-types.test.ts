@@ -385,5 +385,190 @@ describe("Utility Type Expansion Safety", () => {
         expect(nameProp.isOptional).to.equal(true);
       }
     });
+
+    it("should preserve readonly and optional in Readonly<Partial<T>>", () => {
+      const source = `
+        interface Person {
+          name: string;
+          age: number;
+        }
+        type ReadonlyPartial = Readonly<Partial<Person>>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "ReadonlyPartial");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandUtilityType(
+        typeRef!,
+        "Readonly",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+
+      // All properties should be both readonly (from Readonly<T>) and optional (from Partial<T>)
+      const nameProp = result?.members.find(
+        (m) => m.kind === "propertySignature" && m.name === "name"
+      );
+      expect(nameProp).not.to.equal(undefined);
+      if (nameProp && nameProp.kind === "propertySignature") {
+        expect(nameProp.isReadonly).to.equal(true);
+        expect(nameProp.isOptional).to.equal(true);
+      }
+    });
+  });
+
+  describe("Method signatures in utility types", () => {
+    it("should expand interface with method as methodSignature", () => {
+      const source = `
+        interface WithMethod {
+          name: string;
+          greet(greeting: string): string;
+        }
+        type PartialWithMethod = Partial<WithMethod>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "PartialWithMethod");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandUtilityType(
+        typeRef!,
+        "Partial",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+
+      // Should have both property and method
+      const nameProp = result?.members.find(
+        (m) => m.kind === "propertySignature" && m.name === "name"
+      );
+      const greetMethod = result?.members.find(
+        (m) => m.kind === "methodSignature" && m.name === "greet"
+      );
+
+      expect(nameProp).not.to.equal(undefined);
+      expect(greetMethod).not.to.equal(undefined);
+
+      // Method should have parameters
+      if (greetMethod && greetMethod.kind === "methodSignature") {
+        expect(greetMethod.parameters).to.have.length(1);
+      }
+    });
+  });
+
+  describe("Pick and Omit with multiple keys", () => {
+    it("should expand Pick with multiple keys", () => {
+      const source = `
+        interface Person {
+          name: string;
+          age: number;
+          email: string;
+          phone: string;
+        }
+        type ContactInfo = Pick<Person, "name" | "email" | "phone">;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "ContactInfo");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandUtilityType(
+        typeRef!,
+        "Pick",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+      // Should only have name, email, phone (not age)
+      expect(result?.members).to.have.length(3);
+
+      const propNames = result?.members
+        .filter((m) => m.kind === "propertySignature")
+        .map((m) => (m as { name: string }).name);
+      expect(propNames).to.include("name");
+      expect(propNames).to.include("email");
+      expect(propNames).to.include("phone");
+      expect(propNames).not.to.include("age");
+    });
+
+    it("should expand Omit with multiple keys", () => {
+      const source = `
+        interface Person {
+          name: string;
+          age: number;
+          email: string;
+          phone: string;
+        }
+        type MinimalPerson = Omit<Person, "email" | "phone">;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "MinimalPerson");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandUtilityType(
+        typeRef!,
+        "Omit",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+      // Should only have name, age (not email, phone)
+      expect(result?.members).to.have.length(2);
+
+      const propNames = result?.members
+        .filter((m) => m.kind === "propertySignature")
+        .map((m) => (m as { name: string }).name);
+      expect(propNames).to.include("name");
+      expect(propNames).to.include("age");
+      expect(propNames).not.to.include("email");
+      expect(propNames).not.to.include("phone");
+    });
+  });
+
+  describe("Type parameter detection", () => {
+    it("should return null for Partial<T> where T is a type parameter", () => {
+      const source = `
+        function process<T>(data: Partial<T>): void {}
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      // Find the Partial<T> type reference in the function parameter
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "Partial"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandUtilityType(
+        typeRef!,
+        "Partial",
+        checker,
+        stubConvertType
+      );
+
+      // Should return null because T is a type parameter - can't expand at compile time
+      expect(result).to.equal(null);
+    });
   });
 });
