@@ -128,7 +128,7 @@ describe("Type Aliases (spec/16 §3)", () => {
 
     expect(result).to.include("public sealed class Node__Alias");
     expect(result).to.include("public string name { get; set; } = default!;");
-    // Self-reference should be nullable
-    expect(result).to.include("public Node? next { get; set; } = default!;");
+    // Self-reference should use __Alias suffix and be nullable
+    expect(result).to.include("public Node__Alias? next { get; set; } = default!;");
   });
 });
