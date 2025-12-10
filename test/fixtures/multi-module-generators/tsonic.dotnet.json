@@ -13,6 +13,6 @@
     "invariantGlobalization": true
   },
   "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/dotnet-globals"]
+    "typeRoots": ["node_modules/@tsonic/globals"]
   }
 }

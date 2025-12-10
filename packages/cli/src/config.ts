@@ -168,8 +168,8 @@ export const resolveConfig = (
   const runtime = config.runtime ?? "js";
   const defaultTypeRoots =
     runtime === "js"
-      ? ["node_modules/@tsonic/js-globals"]
-      : ["node_modules/@tsonic/dotnet-globals"];
+      ? ["node_modules/@tsonic/globals", "node_modules/@tsonic/js-globals"]
+      : ["node_modules/@tsonic/globals"];
   const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
 
   // Merge libraries from config and CLI

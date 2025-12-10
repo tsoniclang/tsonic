@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "noLib": true,
-    "types": ["@tsonic/dotnet-globals"],
+    "types": ["@tsonic/globals"],
     "moduleResolution": "nodenext",
     "module": "nodenext",
     "target": "ES2022",

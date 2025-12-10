@@ -45,10 +45,10 @@ const EMITTER_SPECIAL_CASES = {
 const REQUIRED_IN_JS_GLOBALS = ["Array", "Promise", "PromiseLike", "Error"];
 
 /**
- * Types that MUST be declared in dotnet-globals for the emitter to work correctly.
+ * Types that MUST be declared in base globals for the emitter to work correctly.
  * These are types that have special-case handling when runtime === "dotnet".
  */
-const REQUIRED_IN_DOTNET_GLOBALS = ["Array", "Promise", "PromiseLike"];
+const REQUIRED_IN_BASE_GLOBALS = ["Array", "Promise", "PromiseLike"];
 
 /**
  * Types that are NOT in any globals package.
@@ -98,15 +98,15 @@ describe("Emitter-Globals Subset Invariant", () => {
       );
     });
 
-    it("all dotnet-mode special cases are in dotnet-globals", () => {
+    it("all dotnet-mode special cases are in base globals", () => {
       const dotnetSpecialCases = Object.entries(EMITTER_SPECIAL_CASES)
         .filter(([_, modes]) => modes.dotnet)
         .map(([name]) => name);
 
       assert.deepEqual(
         dotnetSpecialCases.sort(),
-        REQUIRED_IN_DOTNET_GLOBALS.sort(),
-        "Dotnet-mode special cases must match required dotnet-globals types"
+        REQUIRED_IN_BASE_GLOBALS.sort(),
+        "Dotnet-mode special cases must match required base globals types"
       );
     });
 

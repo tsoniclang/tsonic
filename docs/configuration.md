@@ -44,7 +44,7 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
     "invariantGlobalization": true
   },
   "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/dotnet-globals"],
+    "typeRoots": ["node_modules/@tsonic/globals"],
     "packages": [{ "name": "Newtonsoft.Json", "version": "13.0.3" }],
     "libraries": ["./libs/MyLib"]
   }
@@ -285,15 +285,15 @@ Paths to type declaration directories.
 ```json
 {
   "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/dotnet-globals"]
+    "typeRoots": ["node_modules/@tsonic/globals"]
   }
 }
 ```
 
 **Default:** Based on `runtime`:
 
-- JS mode: `["node_modules/@tsonic/js-globals"]`
-- Dotnet mode: `["node_modules/@tsonic/dotnet-globals"]`
+- JS mode: `["node_modules/@tsonic/globals", "node_modules/@tsonic/js-globals"]`
+- Dotnet mode: `["node_modules/@tsonic/globals"]`
 
 #### dotnet.packages
 
@@ -341,7 +341,7 @@ Paths to external .NET library bindings.
   "entryPoint": "src/App.ts",
   "runtime": "dotnet",
   "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/dotnet-globals"]
+    "typeRoots": ["node_modules/@tsonic/globals"]
   }
 }
 ```

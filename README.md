@@ -160,12 +160,12 @@ my-app/
 
 ## Type Packages
 
-| Package                  | Description                   |
-| ------------------------ | ----------------------------- |
-| `@tsonic/types`          | Core types (int, float, etc.) |
-| `@tsonic/js-globals`     | JS mode ambient types         |
-| `@tsonic/dotnet-globals` | Dotnet mode ambient types     |
-| `@tsonic/dotnet`         | .NET BCL type declarations    |
+| Package              | Description                                    |
+| -------------------- | ---------------------------------------------- |
+| `@tsonic/globals`    | Base types (Array, String, iterators, Promise) |
+| `@tsonic/js-globals` | JS mode extensions (.map, .length, console)    |
+| `@tsonic/types`      | Core types (int, float, etc.)                  |
+| `@tsonic/dotnet`     | .NET BCL type declarations                     |
 
 ## License
 
