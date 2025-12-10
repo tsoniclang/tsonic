@@ -160,13 +160,13 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Exception");
     });
 
-    it("should fail for Error in dotnet mode (not in dotnet-globals)", () => {
+    it("should fail for Error in dotnet mode (not in base globals)", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Error",
       });
 
-      // Error is not in dotnet-globals, so it should fail as unresolved
+      // Error is not in base globals, so it should fail as unresolved
       expect(() => emitModule(module, { runtime: "dotnet" })).to.throw(
         "ICE: Unresolved reference type 'Error'"
       );

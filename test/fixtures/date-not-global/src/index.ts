@@ -7,7 +7,7 @@
 //   const now: DateTime = DateTime.Now;
 
 // ERROR: Cannot find name 'Date'
-// Date is not declared in js-globals or dotnet-globals
+// Date is not declared in globals or js-globals
 // It must be explicitly imported as System.DateTime
 const now: Date = new Date();
 

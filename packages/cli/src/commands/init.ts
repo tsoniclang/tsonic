@@ -101,10 +101,12 @@ export const getTypePackageInfo = (
   if (runtime === "js") {
     // JS mode:
     // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
-    // - @tsonic/js-globals: ambient globals (Array, console, etc.) - needs typeRoots
+    // - @tsonic/globals: base types (Array, String, iterators, Promise, etc.) - needs typeRoots
+    // - @tsonic/js-globals: extends base with JS methods (.map, .length, etc.) - needs typeRoots
     // - @tsonic/types: explicit imports (int, float, etc.) - just npm dep
     const packages = [
       CLI_PACKAGE,
+      { name: "@tsonic/globals", version: "latest" },
       { name: "@tsonic/js-globals", version: "latest" },
       { name: "@tsonic/types", version: "latest" },
     ];
@@ -113,17 +115,20 @@ export const getTypePackageInfo = (
     }
     return {
       packages,
-      typeRoots: ["node_modules/@tsonic/js-globals"],
+      typeRoots: [
+        "node_modules/@tsonic/globals",
+        "node_modules/@tsonic/js-globals",
+      ],
     };
   }
   // Dotnet mode:
   // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
-  // - @tsonic/dotnet-globals: ambient globals - needs typeRoots
+  // - @tsonic/globals: base types (Array, String, iterators, Promise, etc.) - needs typeRoots
   // - @tsonic/dotnet: explicit imports (System.*, etc.) - just npm dep
   // - @tsonic/types: transitive dep of @tsonic/dotnet
   const packages = [
     CLI_PACKAGE,
-    { name: "@tsonic/dotnet-globals", version: "latest" },
+    { name: "@tsonic/globals", version: "latest" },
     { name: "@tsonic/dotnet", version: "latest" },
   ];
   if (nodejs) {
@@ -131,7 +136,7 @@ export const getTypePackageInfo = (
   }
   return {
     packages,
-    typeRoots: ["node_modules/@tsonic/dotnet-globals"],
+    typeRoots: ["node_modules/@tsonic/globals"],
   };
 };
 

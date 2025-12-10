@@ -14,15 +14,17 @@ describe("Init Command", () => {
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("@tsonic/tsonic");
+        expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.include("@tsonic/js-globals");
         expect(packageNames).to.include("@tsonic/types");
         expect(packageNames).to.not.include("@tsonic/dotnet");
         expect(packageNames).to.not.include("@tsonic/nodejs");
       });
 
-      it("should set typeRoots to js-globals", () => {
+      it("should set typeRoots to globals and js-globals", () => {
         const result = getTypePackageInfo("js");
         expect(result.typeRoots).to.deep.equal([
+          "node_modules/@tsonic/globals",
           "node_modules/@tsonic/js-globals",
         ]);
       });
@@ -39,21 +41,21 @@ describe("Init Command", () => {
     });
 
     describe("dotnet runtime", () => {
-      it("should return dotnet-globals and dotnet packages", () => {
+      it("should return globals and dotnet packages", () => {
         const result = getTypePackageInfo("dotnet");
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("@tsonic/tsonic");
-        expect(packageNames).to.include("@tsonic/dotnet-globals");
+        expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.include("@tsonic/dotnet");
         expect(packageNames).to.not.include("@tsonic/js-globals");
         expect(packageNames).to.not.include("@tsonic/nodejs");
       });
 
-      it("should set typeRoots to dotnet-globals", () => {
+      it("should set typeRoots to globals", () => {
         const result = getTypePackageInfo("dotnet");
         expect(result.typeRoots).to.deep.equal([
-          "node_modules/@tsonic/dotnet-globals",
+          "node_modules/@tsonic/globals",
         ]);
       });
 
@@ -62,7 +64,7 @@ describe("Init Command", () => {
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("@tsonic/tsonic");
-        expect(packageNames).to.include("@tsonic/dotnet-globals");
+        expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.include("@tsonic/dotnet");
         expect(packageNames).to.include("@tsonic/nodejs");
       });

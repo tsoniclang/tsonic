@@ -30,10 +30,11 @@ tsonic project init --runtime js
 ### Type Packages
 
 ```bash
-npm install --save-dev @tsonic/js-globals @tsonic/types
+npm install --save-dev @tsonic/globals @tsonic/js-globals @tsonic/types
 ```
 
-- `@tsonic/js-globals` - Ambient types (console, Array, etc.)
+- `@tsonic/globals` - Base types (Array, String, iterators, Promise, etc.)
+- `@tsonic/js-globals` - JS-specific methods (.map, .length, console, etc.)
 - `@tsonic/types` - Core types (int, float, etc.)
 
 ### Behavior
@@ -118,10 +119,10 @@ tsonic project init --runtime dotnet
 ### Type Packages
 
 ```bash
-npm install --save-dev @tsonic/dotnet-globals @tsonic/dotnet
+npm install --save-dev @tsonic/globals @tsonic/dotnet
 ```
 
-- `@tsonic/dotnet-globals` - Ambient .NET types
+- `@tsonic/globals` - Base types (Array, String, iterators, Promise, etc.)
 - `@tsonic/dotnet` - BCL type declarations
 
 ### Behavior
@@ -260,8 +261,10 @@ If you need both behaviors, consider:
 
    ```bash
    npm uninstall @tsonic/js-globals
-   npm install --save-dev @tsonic/dotnet-globals @tsonic/dotnet
+   npm install --save-dev @tsonic/dotnet
    ```
+
+   Note: Keep `@tsonic/globals` as it's used by both modes.
 
 3. Update imports:
 
@@ -287,8 +290,10 @@ If you need both behaviors, consider:
 2. Replace type packages:
 
    ```bash
-   npm uninstall @tsonic/dotnet-globals @tsonic/dotnet
+   npm uninstall @tsonic/dotnet
    npm install --save-dev @tsonic/js-globals @tsonic/types
    ```
+
+   Note: Keep `@tsonic/globals` as it's used by both modes.
 
 3. Update imports to use standard TypeScript patterns.
