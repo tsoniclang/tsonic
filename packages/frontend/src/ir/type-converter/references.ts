@@ -5,7 +5,13 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
-import { isExpandableUtilityType, expandUtilityType } from "./utility-types.js";
+import {
+  isExpandableUtilityType,
+  expandUtilityType,
+  isExpandableConditionalUtilityType,
+  expandConditionalUtilityType,
+  expandRecordType,
+} from "./utility-types.js";
 
 /**
  * Convert TypeScript type reference to IR type
@@ -36,11 +42,34 @@ export const convertTypeReference = (
     };
   }
 
-  // Check for Record<K, V> utility type → convert to IrDictionaryType
+  // Check for expandable conditional utility types (NonNullable, Exclude, Extract)
+  // These are expanded at compile time by delegating to TypeScript's type checker
+  if (
+    isExpandableConditionalUtilityType(typeName) &&
+    node.typeArguments?.length
+  ) {
+    const expanded = expandConditionalUtilityType(
+      node,
+      typeName,
+      checker,
+      convertType
+    );
+    if (expanded) return expanded;
+    // Fall through to referenceType if can't expand (e.g., type parameter)
+  }
+
+  // Check for Record<K, V> utility type
+  // First try to expand to IrObjectType for finite literal keys
+  // Falls back to IrDictionaryType for string/number keys
   const typeArgsForRecord = node.typeArguments;
   const keyTypeNode = typeArgsForRecord?.[0];
   const valueTypeNode = typeArgsForRecord?.[1];
   if (typeName === "Record" && keyTypeNode && valueTypeNode) {
+    // Try to expand to IrObjectType for finite literal keys
+    const expandedRecord = expandRecordType(node, checker, convertType);
+    if (expandedRecord) return expandedRecord;
+
+    // Fallback to IrDictionaryType for string/number keys
     const keyType = convertType(keyTypeNode, checker);
     const valueType = convertType(valueTypeNode, checker);
 

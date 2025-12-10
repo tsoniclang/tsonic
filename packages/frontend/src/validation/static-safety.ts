@@ -451,6 +451,23 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
     return true;
   }
 
+  // String literal types (e.g., "a", "b")
+  if (ts.isLiteralTypeNode(typeNode)) {
+    const literal = typeNode.literal;
+    if (
+      ts.isStringLiteral(literal) ||
+      ts.isNumericLiteral(literal) ||
+      literal.kind === ts.SyntaxKind.NumericLiteral
+    ) {
+      return true;
+    }
+  }
+
+  // Union types - all constituents must be allowed key types
+  if (ts.isUnionTypeNode(typeNode)) {
+    return typeNode.types.every((t) => isAllowedKeyType(t));
+  }
+
   // Type reference to allowed types
   if (ts.isTypeReferenceNode(typeNode)) {
     const typeName = typeNode.typeName;

@@ -29,10 +29,12 @@ export const UNSUPPORTED_MAPPED_UTILITY_TYPES = new Set<string>([
 /**
  * Conditional-type utility types (TSN7407)
  *
- * These expand to conditional types internally:
- * - Extract<T, U>         → T extends U ? T : never
- * - Exclude<T, U>         → T extends U ? never : T
- * - NonNullable<T>        → T & {}  (or T extends null | undefined ? never : T)
+ * SUPPORTED (expanded at compile time for concrete types):
+ * - Extract<T, U>    → T extends U ? T : never
+ * - Exclude<T, U>    → T extends U ? never : T
+ * - NonNullable<T>   → T & {}  (filters null/undefined from unions)
+ *
+ * UNSUPPORTED (require function introspection or complex inference):
  * - ReturnType<T>         → T extends (...args: any) => infer R ? R : any
  * - Parameters<T>         → T extends (...args: infer P) => any ? P : never
  * - ConstructorParameters → ConstructorType extends abstract new (...args: infer P) => any ? P : never
@@ -40,9 +42,6 @@ export const UNSUPPORTED_MAPPED_UTILITY_TYPES = new Set<string>([
  * - Awaited<T>            → T extends PromiseLike<infer U> ? Awaited<U> : T
  */
 export const UNSUPPORTED_CONDITIONAL_UTILITY_TYPES = new Set([
-  "Extract",
-  "Exclude",
-  "NonNullable",
   "ReturnType",
   "Parameters",
   "ConstructorParameters",

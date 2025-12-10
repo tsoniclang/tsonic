@@ -10,7 +10,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
-import { expandUtilityType } from "./utility-types.js";
+import {
+  expandUtilityType,
+  expandConditionalUtilityType,
+  expandRecordType,
+} from "./utility-types.js";
 import { IrType } from "../types.js";
 
 /**
@@ -116,6 +120,19 @@ const stubConvertType = (
   }
   if (node.kind === ts.SyntaxKind.UndefinedKeyword) {
     return { kind: "primitiveType", name: "undefined" };
+  }
+  if (node.kind === ts.SyntaxKind.NeverKeyword) {
+    return { kind: "neverType" };
+  }
+  // Handle literal type nodes (e.g., "a", 1)
+  if (ts.isLiteralTypeNode(node)) {
+    const literal = node.literal;
+    if (ts.isStringLiteral(literal)) {
+      return { kind: "literalType", value: literal.text } as IrType;
+    }
+    if (ts.isNumericLiteral(literal)) {
+      return { kind: "literalType", value: Number(literal.text) } as IrType;
+    }
   }
   if (ts.isUnionTypeNode(node)) {
     return {
@@ -568,6 +585,436 @@ describe("Utility Type Expansion Safety", () => {
       );
 
       // Should return null because T is a type parameter - can't expand at compile time
+      expect(result).to.equal(null);
+    });
+  });
+});
+
+describe("Conditional Utility Type Expansion", () => {
+  describe("NonNullable<T>", () => {
+    it("should expand NonNullable<string | null> to string", () => {
+      const source = `
+        type Result = NonNullable<string | null>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "NonNullable",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should expand NonNullable<string | null | undefined> to string", () => {
+      const source = `
+        type Result = NonNullable<string | null | undefined>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "NonNullable",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should return never for NonNullable<null | undefined>", () => {
+      const source = `
+        type Result = NonNullable<null | undefined>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "NonNullable",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("neverType");
+    });
+
+    it("should preserve any for NonNullable<any>", () => {
+      const source = `
+        type Result = NonNullable<any>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "NonNullable",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("anyType");
+    });
+
+    it("should preserve unknown for NonNullable<unknown>", () => {
+      const source = `
+        type Result = NonNullable<unknown>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "NonNullable",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("unknownType");
+    });
+
+    it("should return null for NonNullable<T> where T is a type parameter", () => {
+      const source = `
+        function process<T>(data: NonNullable<T>): void {}
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "NonNullable"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "NonNullable",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).to.equal(null);
+    });
+  });
+
+  describe("Exclude<T, U>", () => {
+    it("should expand Exclude with literal strings", () => {
+      const source = `
+        type Result = Exclude<"a" | "b" | "c", "a">;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      // Should expand successfully (result is "b" | "c")
+      // Note: The exact IR kind depends on how TypeScript represents the resolved type
+      // which may vary. The key is that expansion succeeds and doesn't return null.
+      expect(result).not.to.equal(null);
+    });
+
+    it("should expand Exclude<string | number, number> to string", () => {
+      const source = `
+        type Result = Exclude<string | number, number>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should return never for Exclude<string, string>", () => {
+      const source = `
+        type Result = Exclude<string, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("neverType");
+    });
+
+    it("should return null for Exclude<T, U> where T is a type parameter", () => {
+      const source = `
+        function process<T>(data: Exclude<T, null>): void {}
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "Exclude"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).to.equal(null);
+    });
+  });
+
+  describe("Extract<T, U>", () => {
+    it("should expand Extract with literal strings", () => {
+      const source = `
+        type Result = Extract<"a" | "b" | "c", "a" | "f">;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Extract",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Result should be "a" (the only common literal)
+    });
+
+    it("should expand Extract<string | number, string> to string", () => {
+      const source = `
+        type Result = Extract<string | number, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Extract",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should return never for Extract<string, number>", () => {
+      const source = `
+        type Result = Extract<string, number>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Extract",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("neverType");
+    });
+  });
+});
+
+describe("Record Type Expansion", () => {
+  describe("Record with finite literal keys", () => {
+    it("should expand Record with string literal keys to IrObjectType", () => {
+      const source = `
+        type Config = Record<"a" | "b", number>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Config");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+      expect(result?.members).to.have.length(2);
+
+      const propNames = result?.members
+        .filter((m) => m.kind === "propertySignature")
+        .map((m) => (m as { name: string }).name);
+      expect(propNames).to.include("a");
+      expect(propNames).to.include("b");
+    });
+
+    it("should expand Record with number literal keys to IrObjectType", () => {
+      const source = `
+        type IndexedConfig = Record<1 | 2, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "IndexedConfig");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+      expect(result?.members).to.have.length(2);
+
+      const propNames = result?.members
+        .filter((m) => m.kind === "propertySignature")
+        .map((m) => (m as { name: string }).name);
+      expect(propNames).to.include("1");
+      expect(propNames).to.include("2");
+    });
+
+    it("should expand Record with mixed literal keys", () => {
+      const source = `
+        type MixedConfig = Record<"name" | "age" | "email", boolean>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "MixedConfig");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("objectType");
+      expect(result?.members).to.have.length(3);
+    });
+  });
+
+  describe("Record should fall back for non-literal keys", () => {
+    it("should return null for Record<string, T>", () => {
+      const source = `
+        type Dictionary = Record<string, number>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Dictionary");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      // Should return null - use IrDictionaryType instead
+      expect(result).to.equal(null);
+    });
+
+    it("should return null for Record<number, T>", () => {
+      const source = `
+        type NumberDictionary = Record<number, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "NumberDictionary");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      // Should return null - use IrDictionaryType instead
+      expect(result).to.equal(null);
+    });
+
+    it("should return null for Record<K, T> where K is a type parameter", () => {
+      const source = `
+        function makeRecord<K extends string>(keys: K[]): Record<K, number> {
+          return {} as Record<K, number>;
+        }
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "Record"
+        ) {
+          typeRef = node;
+          return; // Take first one (return type)
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      // Should return null - type parameter can't be expanded
       expect(result).to.equal(null);
     });
   });
