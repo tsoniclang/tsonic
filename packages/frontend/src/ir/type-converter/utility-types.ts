@@ -439,7 +439,14 @@ export const expandConditionalUtilityType = (
     return { kind: "neverType" };
   }
 
-  // Convert the resolved type to a TypeNode, then to IR
+  // Directly convert the resolved type to IR without using typeToTypeNode
+  // This avoids TypeScript substituting back the original type alias name
+  const irType = convertTypeDirectly(resolvedType, checker, convertType);
+  if (irType) {
+    return irType;
+  }
+
+  // Fallback: use typeToTypeNode for complex types
   const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
   const resolvedTypeNode = checker.typeToTypeNode(
     resolvedType,
@@ -452,6 +459,71 @@ export const expandConditionalUtilityType = (
   }
 
   return convertType(resolvedTypeNode, checker);
+};
+
+/**
+ * Directly convert a ts.Type to IrType without going through typeToTypeNode.
+ * This handles the common cases (primitives, literals, unions) to avoid
+ * TypeScript substituting back type alias names.
+ */
+const convertTypeDirectly = (
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+): IrType | null => {
+  // Primitive types
+  if (type.flags & ts.TypeFlags.String) {
+    return { kind: "primitiveType", name: "string" };
+  }
+  if (type.flags & ts.TypeFlags.Number) {
+    return { kind: "primitiveType", name: "number" };
+  }
+  if (type.flags & ts.TypeFlags.Boolean) {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+  if (type.flags & ts.TypeFlags.Null) {
+    return { kind: "primitiveType", name: "null" };
+  }
+  if (type.flags & ts.TypeFlags.Undefined) {
+    return { kind: "primitiveType", name: "undefined" };
+  }
+
+  // String literal
+  if (type.flags & ts.TypeFlags.StringLiteral) {
+    const literal = type as ts.StringLiteralType;
+    return { kind: "literalType", value: literal.value };
+  }
+
+  // Number literal
+  if (type.flags & ts.TypeFlags.NumberLiteral) {
+    const literal = type as ts.NumberLiteralType;
+    return { kind: "literalType", value: literal.value };
+  }
+
+  // Boolean literal (true/false)
+  if (type.flags & ts.TypeFlags.BooleanLiteral) {
+    // TypeScript represents true/false via symbol name
+    const symbol = type.getSymbol();
+    const isTrue = symbol?.getName() === "true";
+    return { kind: "literalType", value: isTrue };
+  }
+
+  // Union type - recursively convert constituents
+  if (type.isUnion()) {
+    const irTypes: IrType[] = [];
+    for (const constituent of type.types) {
+      const irType = convertTypeDirectly(constituent, checker, convertType);
+      if (!irType) {
+        // Can't convert this constituent directly, fall back
+        return null;
+      }
+      irTypes.push(irType);
+    }
+    return { kind: "unionType", types: irTypes };
+  }
+
+  // Can't handle directly - return null to use fallback
+  return null;
 };
 
 /**
@@ -568,9 +640,10 @@ export const expandRecordType = (
   const irValueType = convertType(valueTypeNode, checker);
 
   // Build IrObjectType with a property for each key
+  // Prefix numeric keys with '_' to make them valid C# identifiers
   const members: IrPropertySignature[] = literalKeys.map((key) => ({
     kind: "propertySignature" as const,
-    name: key,
+    name: /^\d/.test(key) ? `_${key}` : key,
     type: irValueType,
     isOptional: false,
     isReadonly: false,

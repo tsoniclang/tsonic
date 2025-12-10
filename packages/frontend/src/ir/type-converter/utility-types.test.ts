@@ -933,11 +933,12 @@ describe("Record Type Expansion", () => {
       expect(result?.kind).to.equal("objectType");
       expect(result?.members).to.have.length(2);
 
+      // Numeric keys are prefixed with '_' to be valid C# identifiers
       const propNames = result?.members
         .filter((m) => m.kind === "propertySignature")
         .map((m) => (m as { name: string }).name);
-      expect(propNames).to.include("1");
-      expect(propNames).to.include("2");
+      expect(propNames).to.include("_1");
+      expect(propNames).to.include("_2");
     });
 
     it("should expand Record with mixed literal keys", () => {

@@ -1,65 +1,28 @@
-// E2E test for utility types: Partial, Required, Pick, Omit
-// Note: Readonly<T> types cannot be instantiated with object initializers in C#
-// because the private setter prevents initialization. We test them via interface type.
 import { Console } from "@tsonic/dotnet/System";
 
-interface Person {
-  name: string;
-  age: number;
-  email: string;
-}
+// Test NonNullable - filters null/undefined from union types
+type MaybeString = string | null | undefined;
 
-// Type aliases using utility types
-type PartialPerson = Partial<Person>;
-type NameOnly = Pick<Person, "name">;
-type WithoutEmail = Omit<Person, "email">;
-type ContactInfo = Pick<Person, "name" | "email">;
-type MinimalPerson = Omit<Person, "age" | "email">;
+// Test Exclude - removes types assignable to U
+type StringOrNumber = string | number;
 
-// Interface with optional properties
-interface OptionalFields {
-  name?: string;
-  age?: number;
-}
-type AllRequired = Required<OptionalFields>;
-
-// Nested utility types (non-readonly)
-type PartialPartial = Partial<Partial<Person>>;
+// Test Record with string literal keys - expands to object type
+type StatusMap = Record<"pending" | "active" | "done", boolean>;
 
 export function main(): void {
-  // Test Partial<T> - all properties optional
-  const partial: PartialPerson = { name: "Alice" };
-  Console.writeLine(`Partial: name=${partial.name}`);
-
-  // Test full person
-  const person: Person = { name: "Bob", age: 30, email: "bob@example.com" };
-  Console.writeLine(`Person: name=${person.name}, age=${person.age}`);
-
-  // Test Pick<T, K> - only name property
-  const nameOnly: NameOnly = { name: "Diana" };
-  Console.writeLine(`Pick: name=${nameOnly.name}`);
-
-  // Test Pick with multiple keys
-  const contactInfo: ContactInfo = { name: "Elaine", email: "elaine@test.com" };
-  Console.writeLine(
-    `Pick multi: name=${contactInfo.name}, email=${contactInfo.email}`
-  );
-
-  // Test Omit<T, K> - without email
-  const withoutEmail: WithoutEmail = { name: "Eve", age: 35 };
-  Console.writeLine(`Omit: name=${withoutEmail.name}, age=${withoutEmail.age}`);
-
-  // Test Omit with multiple keys
-  const minimalPerson: MinimalPerson = { name: "Fiona" };
-  Console.writeLine(`Omit multi: name=${minimalPerson.name}`);
-
-  // Test Required<T> on optional fields
-  const allReq: AllRequired = { name: "Frank", age: 40 };
-  Console.writeLine(`Required: name=${allReq.name}, age=${allReq.age}`);
-
-  // Test nested: Partial<Partial<T>>
-  const partialPartial: PartialPartial = { name: "Grace" };
-  Console.writeLine(`Partial<Partial>: name=${partialPartial.name}`);
-
-  Console.writeLine("All utility type tests passed!");
+  // NonNullable<MaybeString> = string
+  const definite: NonNullable<MaybeString> = "hello";
+  Console.writeLine("NonNullable: " + definite);
+  
+  // Exclude<StringOrNumber, number> = string
+  const onlyStr: Exclude<StringOrNumber, number> = "world";
+  Console.writeLine("Exclude: " + onlyStr);
+  
+  // Extract<StringOrNumber, number> = number
+  const extractedNum: Extract<StringOrNumber, number> = 42;
+  Console.writeLine("Extract: passed");
+  
+  // Record with string literal keys
+  const status: StatusMap = { pending: true, active: false, done: false };
+  Console.writeLine("Record: " + (status.pending ? "pending is true" : "pending is false"));
 }

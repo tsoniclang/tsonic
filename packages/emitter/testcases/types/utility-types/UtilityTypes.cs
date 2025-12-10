@@ -141,7 +141,7 @@ namespace TestCases.types.utilitytypes
 
                 // type Literals = global::Tsonic.Runtime.Union<string, string, string>
 
-                // type WithoutA = WithoutA
+                // type WithoutA = global::Tsonic.Runtime.Union<string, string>
 
                 // type ExtractedString = string
 
@@ -156,9 +156,9 @@ namespace TestCases.types.utilitytypes
 
                 public sealed class NumericKeys__Alias
                 {
-                    public string 1 { get; set; } = default!;
-                    public string 2 { get; set; } = default!;
-                    public string 3 { get; set; } = default!;
+                    public string _1 { get; set; } = default!;
+                    public string _2 { get; set; } = default!;
+                    public string _3 { get; set; } = default!;
                 }
             }
 }
