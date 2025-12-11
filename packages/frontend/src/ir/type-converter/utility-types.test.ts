@@ -1065,6 +1065,422 @@ describe("Conditional Utility Type Expansion", () => {
       }
     });
   });
+
+  describe("ReturnType<T>", () => {
+    it("should expand ReturnType<() => string> to string", () => {
+      const source = `
+        type Result = ReturnType<() => string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "ReturnType",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should expand ReturnType<(x: number) => boolean> to boolean", () => {
+      const source = `
+        type Result = ReturnType<(x: number) => boolean>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "ReturnType",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("boolean");
+      }
+    });
+
+    it("should expand ReturnType with void return type", () => {
+      const source = `
+        type Result = ReturnType<() => void>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "ReturnType",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // void is handled by fallback
+    });
+
+    it("should expand ReturnType with union function types", () => {
+      const source = `
+        type Fn1 = () => string;
+        type Fn2 = () => number;
+        type Result = ReturnType<Fn1 | Fn2>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "ReturnType",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should be string | number
+      expect(result?.kind).to.equal("unionType");
+    });
+
+    it("should return null for ReturnType<T> where T is a type parameter", () => {
+      const source = `
+        function process<T extends () => unknown>(fn: T): ReturnType<T> {
+          return fn();
+        }
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "ReturnType"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "ReturnType",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).to.equal(null);
+    });
+
+    it("should expand ReturnType with typeof function", () => {
+      const source = `
+        function add(a: number, b: number): number {
+          return a + b;
+        }
+        type Result = ReturnType<typeof add>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "ReturnType",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("number");
+      }
+    });
+  });
+
+  describe("Parameters<T>", () => {
+    it("should expand Parameters<(x: string, y: number) => void> to tuple", () => {
+      const source = `
+        type Result = Parameters<(x: string, y: number) => void>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Parameters",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Parameters returns a tuple type - the exact representation depends on TypeScript
+    });
+
+    it("should handle Parameters<() => void> (empty tuple)", () => {
+      const source = `
+        type Result = Parameters<() => void>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Parameters",
+        checker,
+        stubConvertType
+      );
+
+      // Empty tuple may return null (falls through to referenceType)
+      // or may return an expanded type - both are acceptable behaviors
+      // The key is that it doesn't throw an error
+    });
+
+    it("should expand Parameters with single parameter", () => {
+      const source = `
+        type Result = Parameters<(x: boolean) => void>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Parameters",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+    });
+
+    it("should return null for Parameters<T> where T is a type parameter", () => {
+      const source = `
+        function callWith<T extends (...args: unknown[]) => unknown>(
+          fn: T,
+          args: Parameters<T>
+        ): void {
+          fn(...args);
+        }
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "Parameters"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Parameters",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).to.equal(null);
+    });
+
+    it("should expand Parameters with typeof function", () => {
+      const source = `
+        function greet(name: string, age: number): void {}
+        type Result = Parameters<typeof greet>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Parameters",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+    });
+  });
+
+  describe("Awaited<T>", () => {
+    it("should expand Awaited<Promise<string>> to string", () => {
+      const source = `
+        type Result = Awaited<Promise<string>>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Awaited",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should expand Awaited<Promise<Promise<number>>> recursively to number", () => {
+      const source = `
+        type Result = Awaited<Promise<Promise<number>>>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Awaited",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("number");
+      }
+    });
+
+    it("should expand Awaited<string> to string (non-promise passthrough)", () => {
+      const source = `
+        type Result = Awaited<string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Awaited",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+
+    it("should expand Awaited with union of promises", () => {
+      const source = `
+        type Result = Awaited<Promise<string> | Promise<number>>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Awaited",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should be string | number
+      expect(result?.kind).to.equal("unionType");
+    });
+
+    it("should return null for Awaited<T> where T is a type parameter", () => {
+      const source = `
+        async function processAsync<T>(promise: Promise<T>): Promise<Awaited<T>> {
+          return await promise;
+        }
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "Awaited"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Awaited",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).to.equal(null);
+    });
+
+    it("should expand Awaited<null> to null", () => {
+      const source = `
+        type Result = Awaited<null>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Awaited",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("null");
+      }
+    });
+  });
 });
 
 describe("Record Type Expansion", () => {

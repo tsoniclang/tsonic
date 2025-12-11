@@ -39,6 +39,9 @@ export const EXPANDABLE_CONDITIONAL_UTILITY_TYPES = new Set([
   "NonNullable",
   "Exclude",
   "Extract",
+  "ReturnType",
+  "Parameters",
+  "Awaited",
 ]);
 
 /**
