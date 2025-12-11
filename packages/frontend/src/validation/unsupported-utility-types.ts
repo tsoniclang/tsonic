@@ -33,18 +33,15 @@ export const UNSUPPORTED_MAPPED_UTILITY_TYPES = new Set<string>([
  * - Extract<T, U>    → T extends U ? T : never
  * - Exclude<T, U>    → T extends U ? never : T
  * - NonNullable<T>   → T & {}  (filters null/undefined from unions)
+ * - ReturnType<T>    → T extends (...args: any) => infer R ? R : any
+ * - Parameters<T>    → T extends (...args: infer P) => any ? P : never
+ * - Awaited<T>       → T extends PromiseLike<infer U> ? Awaited<U> : T
  *
- * UNSUPPORTED (require function introspection or complex inference):
- * - ReturnType<T>         → T extends (...args: any) => infer R ? R : any
- * - Parameters<T>         → T extends (...args: infer P) => any ? P : never
+ * UNSUPPORTED (require constructor introspection):
  * - ConstructorParameters → ConstructorType extends abstract new (...args: infer P) => any ? P : never
  * - InstanceType<T>       → T extends abstract new (...args: any) => infer R ? R : any
- * - Awaited<T>            → T extends PromiseLike<infer U> ? Awaited<U> : T
  */
 export const UNSUPPORTED_CONDITIONAL_UTILITY_TYPES = new Set([
-  "ReturnType",
-  "Parameters",
   "ConstructorParameters",
   "InstanceType",
-  "Awaited",
 ]);

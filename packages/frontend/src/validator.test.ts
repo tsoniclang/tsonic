@@ -894,7 +894,7 @@ describe("Static Safety Validation", () => {
       expect(diag).to.equal(undefined);
     });
 
-    it("should reject ReturnType<T>", () => {
+    it("should accept ReturnType<T> (now supported)", () => {
       const source = `
         function greet(name: string): string { return name; }
         type GreetReturn = ReturnType<typeof greet>;
@@ -904,11 +904,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("ReturnType");
+      expect(diag).to.equal(undefined);
     });
 
-    it("should reject Parameters<T>", () => {
+    it("should accept Parameters<T> (now supported)", () => {
       const source = `
         function add(a: number, b: number): number { return a + b; }
         type AddParams = Parameters<typeof add>;
@@ -918,8 +917,19 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Parameters");
+      expect(diag).to.equal(undefined);
+    });
+
+    it("should accept Awaited<T> (now supported)", () => {
+      const source = `
+        type Result = Awaited<Promise<string>>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).to.equal(undefined);
     });
   });
 
