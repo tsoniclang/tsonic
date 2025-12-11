@@ -5,7 +5,13 @@
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../types.js";
 import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
-import { isExpandableUtilityType, expandUtilityType } from "./utility-types.js";
+import {
+  isExpandableUtilityType,
+  expandUtilityType,
+  isExpandableConditionalUtilityType,
+  expandConditionalUtilityType,
+  expandRecordType,
+} from "./utility-types.js";
 
 /**
  * Convert TypeScript type reference to IR type
@@ -36,19 +42,57 @@ export const convertTypeReference = (
     };
   }
 
-  // Check for Record<K, V> utility type → convert to IrDictionaryType
+  // Check for expandable conditional utility types (NonNullable, Exclude, Extract)
+  // These are expanded at compile time by delegating to TypeScript's type checker
+  if (
+    isExpandableConditionalUtilityType(typeName) &&
+    node.typeArguments?.length
+  ) {
+    const expanded = expandConditionalUtilityType(
+      node,
+      typeName,
+      checker,
+      convertType
+    );
+    if (expanded) return expanded;
+    // Fall through to referenceType if can't expand (e.g., type parameter)
+  }
+
+  // Check for Record<K, V> utility type
+  // First try to expand to IrObjectType for finite literal keys
+  // Falls back to IrDictionaryType ONLY for string/number keys (not type parameters)
   const typeArgsForRecord = node.typeArguments;
   const keyTypeNode = typeArgsForRecord?.[0];
   const valueTypeNode = typeArgsForRecord?.[1];
   if (typeName === "Record" && keyTypeNode && valueTypeNode) {
-    const keyType = convertType(keyTypeNode, checker);
-    const valueType = convertType(valueTypeNode, checker);
+    // Try to expand to IrObjectType for finite literal keys
+    const expandedRecord = expandRecordType(node, checker, convertType);
+    if (expandedRecord) return expandedRecord;
 
-    return {
-      kind: "dictionaryType",
-      keyType,
-      valueType,
-    } as IrDictionaryType;
+    // Only create dictionary if K is exactly 'string' or 'number'
+    // Type parameters should fall through to referenceType
+    //
+    // NOTE: We check SyntaxKind FIRST because getTypeAtLocation fails on synthesized nodes
+    // (from typeToTypeNode). For synthesized nodes like NumberKeyword, getTypeAtLocation
+    // returns `any` instead of the correct type. Checking SyntaxKind handles both cases.
+    const isStringKey =
+      keyTypeNode.kind === ts.SyntaxKind.StringKeyword ||
+      (!!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.String));
+    const isNumberKey =
+      keyTypeNode.kind === ts.SyntaxKind.NumberKeyword ||
+      (!!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.Number));
+
+    if (isStringKey || isNumberKey) {
+      const keyType = convertType(keyTypeNode, checker);
+      const valueType = convertType(valueTypeNode, checker);
+
+      return {
+        kind: "dictionaryType",
+        keyType,
+        valueType,
+      } as IrDictionaryType;
+    }
+    // Type parameter or other complex key type - fall through to referenceType
   }
 
   // Check for expandable utility types (Partial, Required, Readonly, Pick, Omit)

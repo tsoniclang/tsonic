@@ -124,5 +124,41 @@ namespace TestCases.types.utilitytypes
                 {
                     public string name { get; private set; } = default!;
                 }
+
+                // type MaybeString = string?
+
+                // type DefiniteString = string
+
+                // type MaybeNumber = double?
+
+                // type DefiniteNumber = double
+
+                // type StringOrNumber = global::Tsonic.Runtime.Union<string, double>
+
+                // type OnlyString = string
+
+                // type OnlyNumber = double
+
+                // type Literals = global::Tsonic.Runtime.Union<string, string, string>
+
+                // type WithoutA = global::Tsonic.Runtime.Union<string, string>
+
+                // type ExtractedString = string
+
+                // type ExtractedNumber = double
+
+                public sealed class StatusMap__Alias
+                {
+                    public bool pending { get; set; } = default!;
+                    public bool active { get; set; } = default!;
+                    public bool done { get; set; } = default!;
+                }
+
+                public sealed class NumericKeys__Alias
+                {
+                    public string _1 { get; set; } = default!;
+                    public string _2 { get; set; } = default!;
+                    public string _3 { get; set; } = default!;
+                }
             }
 }

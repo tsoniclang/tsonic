@@ -23,8 +23,9 @@ export const emitVariableDeclaration = (
     let varDecl = "";
 
     // In static contexts, variable declarations become fields with modifiers
-    if (context.isStatic && stmt.isExported) {
-      varDecl = "public static ";
+    if (context.isStatic) {
+      // Exported: public, non-exported: private
+      varDecl = stmt.isExported ? "public static " : "private static ";
       if (stmt.declarationKind === "const") {
         varDecl += "readonly ";
       }
@@ -88,6 +89,24 @@ export const emitVariableDeclaration = (
       const allTypes = [...paramTypes, returnType];
       const funcType = `global::System.Func<${allTypes.join(", ")}>`;
       varDecl += `${funcType} `;
+    } else if (context.isStatic) {
+      // Static fields cannot use 'var' - infer type from initializer if possible
+      // For string literals, use 'string'; for number literals, use 'double'
+      // Otherwise fall back to 'object' (not ideal but safe)
+      if (decl.initializer?.kind === "literal") {
+        const lit = decl.initializer;
+        if (typeof lit.value === "string") {
+          varDecl += "string ";
+        } else if (typeof lit.value === "number") {
+          varDecl += "double ";
+        } else if (typeof lit.value === "boolean") {
+          varDecl += "bool ";
+        } else {
+          varDecl += "object ";
+        }
+      } else {
+        varDecl += "object ";
+      }
     } else {
       varDecl += "var ";
     }

@@ -854,7 +854,8 @@ describe("Static Safety Validation", () => {
   });
 
   describe("TSN7407 - Conditional utility types not supported", () => {
-    it("should reject Extract<T, U>", () => {
+    // Extract, Exclude, NonNullable are now supported and expanded at compile time
+    it("should accept Extract<T, U>", () => {
       const source = `
         type StringOrNumber = string | number;
         type OnlyStrings = Extract<StringOrNumber, string>;
@@ -864,11 +865,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Extract");
+      expect(diag).to.equal(undefined);
     });
 
-    it("should reject Exclude<T, U>", () => {
+    it("should accept Exclude<T, U>", () => {
       const source = `
         type StringOrNumber = string | number;
         type NoStrings = Exclude<StringOrNumber, string>;
@@ -878,11 +878,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("Exclude");
+      expect(diag).to.equal(undefined);
     });
 
-    it("should reject NonNullable<T>", () => {
+    it("should accept NonNullable<T>", () => {
       const source = `
         type MaybeString = string | null | undefined;
         type DefinitelyString = NonNullable<MaybeString>;
@@ -892,8 +891,7 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
-      expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("NonNullable");
+      expect(diag).to.equal(undefined);
     });
 
     it("should reject ReturnType<T>", () => {

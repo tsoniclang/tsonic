@@ -32,6 +32,22 @@ export const isExpandableUtilityType = (name: string): boolean =>
   EXPANDABLE_UTILITY_TYPES.has(name);
 
 /**
+ * Set of supported conditional utility types that can be expanded
+ * These delegate to TypeScript's type checker for evaluation.
+ */
+export const EXPANDABLE_CONDITIONAL_UTILITY_TYPES = new Set([
+  "NonNullable",
+  "Exclude",
+  "Extract",
+]);
+
+/**
+ * Check if a type name is an expandable conditional utility type
+ */
+export const isExpandableConditionalUtilityType = (name: string): boolean =>
+  EXPANDABLE_CONDITIONAL_UTILITY_TYPES.has(name);
+
+/**
  * Check if a type node explicitly contains undefined in a union.
  * Used to detect explicit `x?: T | undefined` vs synthetic `x?: T`.
  */
@@ -325,6 +341,324 @@ export const expandUtilityType = (
       members.push(propSig);
     }
   }
+
+  return { kind: "objectType", members };
+};
+
+/**
+ * Check if a type contains any type parameters (is generic).
+ * Returns true if the type or any nested type is a type parameter.
+ */
+const containsTypeParameter = (
+  type: ts.Type,
+  checker: ts.TypeChecker
+): boolean => {
+  // Direct type parameter check
+  if (type.flags & ts.TypeFlags.TypeParameter) {
+    return true;
+  }
+
+  // Check union types recursively
+  if (type.isUnion()) {
+    return type.types.some((t) => containsTypeParameter(t, checker));
+  }
+
+  // Check intersection types recursively
+  if (type.isIntersection()) {
+    return type.types.some((t) => containsTypeParameter(t, checker));
+  }
+
+  return false;
+};
+
+/**
+ * Expand a conditional utility type (NonNullable, Exclude, Extract) to IR.
+ *
+ * This function delegates to TypeScript's type checker to evaluate the
+ * conditional type, then converts the resolved result to IR.
+ *
+ * CONCRETE-ONLY EXPANSION RULE:
+ * This function ONLY expands utility types when ALL type arguments are concrete
+ * (non-generic). If any type argument contains a type parameter, we return null
+ * and let the caller fall through to referenceType. This is intentional because:
+ *
+ * 1. TypeScript's conditional types are distributive over unions, which requires
+ *    knowing the actual types at compile time.
+ * 2. For generic contexts like `function f<T>(x: NonNullable<T>)`, we cannot
+ *    evaluate the conditional - it must remain as a type reference.
+ * 3. This matches TypeScript semantics: deferred evaluation in generic contexts.
+ *
+ * Gating conditions:
+ * - Returns null if any type argument contains type parameters (generic context)
+ * - Returns null if TypeScript cannot resolve the type
+ *
+ * Special handling:
+ * - NonNullable<any> → anyType (preserve)
+ * - NonNullable<unknown> → unknownType (preserve)
+ * - NonNullable<never> → neverType (preserve)
+ * - Result is never → neverType
+ *
+ * @param node - The TypeReferenceNode for the utility type
+ * @param typeName - The name of the utility type (NonNullable, Exclude, Extract)
+ * @param checker - The TypeScript type checker
+ * @param convertType - Function to convert nested types
+ * @returns IR type with the expanded result, or null if expansion fails
+ */
+export const expandConditionalUtilityType = (
+  node: ts.TypeReferenceNode,
+  typeName: string,
+  checker: ts.TypeChecker,
+  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+): IrType | null => {
+  const typeArgs = node.typeArguments;
+  if (!typeArgs || typeArgs.length === 0) {
+    return null;
+  }
+
+  // Check if ANY type argument contains type parameters (generic)
+  // We can only expand when ALL type arguments are concrete.
+  for (const typeArg of typeArgs) {
+    const argType = checker.getTypeAtLocation(typeArg);
+    if (containsTypeParameter(argType, checker)) {
+      return null;
+    }
+  }
+
+  // Special handling for NonNullable with any/unknown/never
+  // These should be preserved rather than transformed
+  if (typeName === "NonNullable" && typeArgs.length >= 1) {
+    const firstArg = typeArgs[0];
+    if (firstArg) {
+      const argType = checker.getTypeAtLocation(firstArg);
+      if (argType.flags & ts.TypeFlags.Any) {
+        return { kind: "anyType" };
+      }
+      if (argType.flags & ts.TypeFlags.Unknown) {
+        return { kind: "unknownType" };
+      }
+      if (argType.flags & ts.TypeFlags.Never) {
+        return { kind: "neverType" };
+      }
+    }
+  }
+
+  // Get the resolved type from TypeScript's type checker
+  const resolvedType = checker.getTypeAtLocation(node);
+
+  // Check for never result (e.g., Exclude<string, string> → never)
+  if (resolvedType.flags & ts.TypeFlags.Never) {
+    return { kind: "neverType" };
+  }
+
+  // Directly convert the resolved type to IR without using typeToTypeNode
+  // This avoids TypeScript substituting back the original type alias name
+  const irType = convertTypeDirectly(resolvedType, checker, convertType);
+  if (irType) {
+    return irType;
+  }
+
+  // Fallback: use typeToTypeNode for complex types
+  const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
+  const resolvedTypeNode = checker.typeToTypeNode(
+    resolvedType,
+    node,
+    typeNodeFlags
+  );
+
+  if (!resolvedTypeNode) {
+    return null;
+  }
+
+  return convertType(resolvedTypeNode, checker);
+};
+
+/**
+ * Directly convert a ts.Type to IrType without going through typeToTypeNode.
+ * This handles the common cases (primitives, literals, unions) to avoid
+ * TypeScript substituting back type alias names.
+ */
+const convertTypeDirectly = (
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+): IrType | null => {
+  // Primitive types
+  if (type.flags & ts.TypeFlags.String) {
+    return { kind: "primitiveType", name: "string" };
+  }
+  if (type.flags & ts.TypeFlags.Number) {
+    return { kind: "primitiveType", name: "number" };
+  }
+  if (type.flags & ts.TypeFlags.Boolean) {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+  if (type.flags & ts.TypeFlags.Null) {
+    return { kind: "primitiveType", name: "null" };
+  }
+  if (type.flags & ts.TypeFlags.Undefined) {
+    return { kind: "primitiveType", name: "undefined" };
+  }
+
+  // String literal
+  if (type.flags & ts.TypeFlags.StringLiteral) {
+    const literal = type as ts.StringLiteralType;
+    return { kind: "literalType", value: literal.value };
+  }
+
+  // Number literal
+  if (type.flags & ts.TypeFlags.NumberLiteral) {
+    const literal = type as ts.NumberLiteralType;
+    return { kind: "literalType", value: literal.value };
+  }
+
+  // Boolean literal (true/false)
+  if (type.flags & ts.TypeFlags.BooleanLiteral) {
+    // TypeScript represents true/false via symbol name
+    const symbol = type.getSymbol();
+    const isTrue = symbol?.getName() === "true";
+    return { kind: "literalType", value: isTrue };
+  }
+
+  // Union type - recursively convert constituents
+  if (type.isUnion()) {
+    const irTypes: IrType[] = [];
+    for (const constituent of type.types) {
+      const irType = convertTypeDirectly(constituent, checker, convertType);
+      if (!irType) {
+        // Can't convert this constituent directly, fall back
+        return null;
+      }
+      irTypes.push(irType);
+    }
+    return { kind: "unionType", types: irTypes };
+  }
+
+  // Can't handle directly - return null to use fallback
+  return null;
+};
+
+/**
+ * Extract literal values from a type.
+ * Returns an array of string literals (numbers are converted to strings).
+ * Returns null if the type contains non-literal constituents or type parameters.
+ */
+const extractLiteralKeys = (
+  type: ts.Type,
+  checker: ts.TypeChecker
+): readonly string[] | null => {
+  // Check for type parameter
+  if (containsTypeParameter(type, checker)) {
+    return null;
+  }
+
+  // Check for string type (not literal)
+  if (type.flags & ts.TypeFlags.String) {
+    return null;
+  }
+
+  // Check for number type (not literal)
+  if (type.flags & ts.TypeFlags.Number) {
+    return null;
+  }
+
+  // String literal
+  if (type.flags & ts.TypeFlags.StringLiteral) {
+    const literal = type as ts.StringLiteralType;
+    return [literal.value];
+  }
+
+  // Number literal
+  if (type.flags & ts.TypeFlags.NumberLiteral) {
+    const literal = type as ts.NumberLiteralType;
+    return [String(literal.value)];
+  }
+
+  // Union type - collect all literals
+  if (type.isUnion()) {
+    const keys: string[] = [];
+    for (const t of type.types) {
+      const subKeys = extractLiteralKeys(t, checker);
+      if (subKeys === null) {
+        return null;
+      }
+      keys.push(...subKeys);
+    }
+    return keys;
+  }
+
+  // Other types (boolean, object, etc.) - not supported as Record keys
+  return null;
+};
+
+/**
+ * Expand Record<K, T> to IrObjectType when K is a finite set of literal keys.
+ *
+ * Gating conditions:
+ * - Returns null if K contains type parameters (generic context)
+ * - Returns null if K is string or number (should remain IrDictionaryType)
+ * - Returns null if K contains non-literal types
+ *
+ * Examples:
+ * - Record<"a" | "b", number> → IrObjectType with props {a: number, b: number}
+ * - Record<1 | 2, string> → IrObjectType with props {"1": string, "2": string}
+ * - Record<string, number> → null (use IrDictionaryType)
+ * - Record<K, T> → null (type parameter)
+ *
+ * @param node - The TypeReferenceNode for Record<K, T>
+ * @param checker - The TypeScript type checker
+ * @param convertType - Function to convert nested types
+ * @returns IrObjectType with the expanded properties, or null if should use dictionary
+ */
+export const expandRecordType = (
+  node: ts.TypeReferenceNode,
+  checker: ts.TypeChecker,
+  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+): IrObjectType | null => {
+  const typeArgs = node.typeArguments;
+  if (!typeArgs || typeArgs.length !== 2) {
+    return null;
+  }
+
+  const keyTypeNode = typeArgs[0];
+  const valueTypeNode = typeArgs[1];
+
+  if (!keyTypeNode || !valueTypeNode) {
+    return null;
+  }
+
+  // Get the key type
+  const keyType = checker.getTypeAtLocation(keyTypeNode);
+
+  // Check for type parameters in key
+  if (containsTypeParameter(keyType, checker)) {
+    return null;
+  }
+
+  // Check for type parameters in value
+  const valueType = checker.getTypeAtLocation(valueTypeNode);
+  if (containsTypeParameter(valueType, checker)) {
+    return null;
+  }
+
+  // Try to extract finite literal keys
+  const literalKeys = extractLiteralKeys(keyType, checker);
+  if (literalKeys === null || literalKeys.length === 0) {
+    // Not a finite set of literals - use IrDictionaryType
+    return null;
+  }
+
+  // Convert the value type
+  const irValueType = convertType(valueTypeNode, checker);
+
+  // Build IrObjectType with a property for each key
+  // Prefix numeric keys with '_' to make them valid C# identifiers
+  const members: IrPropertySignature[] = literalKeys.map((key) => ({
+    kind: "propertySignature" as const,
+    name: /^\d/.test(key) ? `_${key}` : key,
+    type: irValueType,
+    isOptional: false,
+    isReadonly: false,
+  }));
 
   return { kind: "objectType", members };
 };

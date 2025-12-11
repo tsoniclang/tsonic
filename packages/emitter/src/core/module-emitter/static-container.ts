@@ -2,7 +2,7 @@
  * Static container class emission
  */
 
-import { IrModule, IrStatement } from "@tsonic/frontend";
+import { IrModule, IrStatement, isExecutableStatement } from "@tsonic/frontend";
 import { EmitterContext, indent, getIndent, withStatic } from "../../types.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { emitExport } from "../exports.js";
@@ -42,6 +42,7 @@ export const emitStaticContainer = (
   const classContext = withStatic(indent(baseContext), true);
   const bodyContext = indent(classContext);
   const ind = getIndent(classContext);
+  const bodyInd = getIndent(bodyContext);
 
   const containerParts: string[] = [];
   const escapedClassName = escapeCSharpIdentifier(module.className);
@@ -52,10 +53,38 @@ export const emitStaticContainer = (
   containerParts.push(`${ind}public static class ${containerName}`);
   containerParts.push(`${ind}{`);
 
+  // Separate declarations from executable statements
+  // For entry points with top-level code, only expression statements go into Main
+  // Variable declarations stay as static fields (they may be referenced by exported functions)
+  const isEntryPointWithTopLevelCode =
+    baseContext.options.isEntryPoint && members.some(isExecutableStatement);
+
+  // Static member declarations: functions, classes, interfaces, type aliases, enums, variables
+  // These stay outside Main even in entry points
+  // Variable declarations must stay as static fields because they may be referenced
+  // by exported functions (which are also static members)
+  const staticMemberKinds = [
+    "functionDeclaration",
+    "classDeclaration",
+    "interfaceDeclaration",
+    "typeAliasDeclaration",
+    "enumDeclaration",
+    "variableDeclaration", // Must stay outside Main - may be referenced by static functions
+  ];
+
+  const declarations = isEntryPointWithTopLevelCode
+    ? members.filter((m) => staticMemberKinds.includes(m.kind))
+    : members.filter((m) => !isExecutableStatement(m));
+
+  const mainBodyStmts = isEntryPointWithTopLevelCode
+    ? members.filter((m) => !staticMemberKinds.includes(m.kind))
+    : members.filter(isExecutableStatement);
+
   const bodyParts: string[] = [];
   let bodyCurrentContext = bodyContext;
 
-  for (const stmt of members) {
+  // Emit declarations as static members
+  for (const stmt of declarations) {
     const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
     bodyParts.push(code);
     bodyCurrentContext = newContext;
@@ -67,6 +96,33 @@ export const emitStaticContainer = (
     if (exportCode[0]) {
       bodyParts.push(exportCode[0]);
       bodyCurrentContext = exportCode[1];
+    }
+  }
+
+  // Wrap statements in Main method if this is an entry point with top-level code
+  if (mainBodyStmts.length > 0 && baseContext.options.isEntryPoint) {
+    const mainParts: string[] = [];
+    mainParts.push(`${bodyInd}public static void Main()`);
+    mainParts.push(`${bodyInd}{`);
+
+    const mainBodyContext = indent(bodyCurrentContext);
+    let mainCurrentContext = mainBodyContext;
+
+    for (const stmt of mainBodyStmts) {
+      const [code, newContext] = emitStatement(stmt, mainCurrentContext);
+      mainParts.push(code);
+      mainCurrentContext = newContext;
+    }
+
+    mainParts.push(`${bodyInd}}`);
+    bodyParts.push(mainParts.join("\n"));
+    bodyCurrentContext = mainCurrentContext;
+  } else if (mainBodyStmts.length > 0) {
+    // Not an entry point - emit statements directly (for compatibility)
+    for (const stmt of mainBodyStmts) {
+      const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
+      bodyParts.push(code);
+      bodyCurrentContext = newContext;
     }
   }
 

@@ -52,3 +52,24 @@ export interface WithMethods {
 }
 export type PartialWithMethods = Partial<WithMethods>;
 export type ReadonlyWithMethods = Readonly<WithMethods>;
+
+// NonNullable<T> - removes null and undefined from T
+export type MaybeString = string | null | undefined;
+export type DefiniteString = NonNullable<MaybeString>;
+export type MaybeNumber = number | null;
+export type DefiniteNumber = NonNullable<MaybeNumber>;
+
+// Exclude<T, U> - removes types from T that are assignable to U
+export type StringOrNumber = string | number;
+export type OnlyString = Exclude<StringOrNumber, number>;
+export type OnlyNumber = Exclude<StringOrNumber, string>;
+export type Literals = "a" | "b" | "c";
+export type WithoutA = Exclude<Literals, "a">;
+
+// Extract<T, U> - keeps types from T that are assignable to U
+export type ExtractedString = Extract<StringOrNumber, string>;
+export type ExtractedNumber = Extract<StringOrNumber, number>;
+
+// Record<K, T> with literal keys - expands to object type
+export type StatusMap = Record<"pending" | "active" | "done", boolean>;
+export type NumericKeys = Record<1 | 2 | 3, string>;

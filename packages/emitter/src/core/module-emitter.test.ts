@@ -77,7 +77,8 @@ describe("Module Generation", () => {
     const result = emitModule(module);
 
     expect(result).to.include("public static class math");
-    expect(result).to.include("var PI = 3.14159");
+    // Static fields cannot use 'var' in C#; type is inferred from literal
+    expect(result).to.include("public static readonly double PI = 3.14159");
     expect(result).to.include("public static double add(double a, double b)");
     expect(result).to.include("return a + b");
     expect(result).to.include("namespace MyApp");
