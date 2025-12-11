@@ -60,7 +60,7 @@ export const convertTypeReference = (
 
   // Check for Record<K, V> utility type
   // First try to expand to IrObjectType for finite literal keys
-  // Falls back to IrDictionaryType for string/number keys
+  // Falls back to IrDictionaryType ONLY for string/number keys (not type parameters)
   const typeArgsForRecord = node.typeArguments;
   const keyTypeNode = typeArgsForRecord?.[0];
   const valueTypeNode = typeArgsForRecord?.[1];
@@ -69,15 +69,30 @@ export const convertTypeReference = (
     const expandedRecord = expandRecordType(node, checker, convertType);
     if (expandedRecord) return expandedRecord;
 
-    // Fallback to IrDictionaryType for string/number keys
-    const keyType = convertType(keyTypeNode, checker);
-    const valueType = convertType(valueTypeNode, checker);
+    // Only create dictionary if K is exactly 'string' or 'number'
+    // Type parameters should fall through to referenceType
+    //
+    // NOTE: We check SyntaxKind FIRST because getTypeAtLocation fails on synthesized nodes
+    // (from typeToTypeNode). For synthesized nodes like NumberKeyword, getTypeAtLocation
+    // returns `any` instead of the correct type. Checking SyntaxKind handles both cases.
+    const isStringKey =
+      keyTypeNode.kind === ts.SyntaxKind.StringKeyword ||
+      (!!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.String));
+    const isNumberKey =
+      keyTypeNode.kind === ts.SyntaxKind.NumberKeyword ||
+      (!!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.Number));
 
-    return {
-      kind: "dictionaryType",
-      keyType,
-      valueType,
-    } as IrDictionaryType;
+    if (isStringKey || isNumberKey) {
+      const keyType = convertType(keyTypeNode, checker);
+      const valueType = convertType(valueTypeNode, checker);
+
+      return {
+        kind: "dictionaryType",
+        keyType,
+        valueType,
+      } as IrDictionaryType;
+    }
+    // Type parameter or other complex key type - fall through to referenceType
   }
 
   // Check for expandable utility types (Partial, Required, Readonly, Pick, Omit)

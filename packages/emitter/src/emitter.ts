@@ -3,6 +3,7 @@
  * Orchestrates code generation from IR
  */
 
+import * as path from "node:path";
 import { IrModule, Diagnostic } from "@tsonic/frontend";
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
 import { emitModule } from "./core/module-emitter.js";
@@ -61,13 +62,10 @@ export const emitCSharpFiles = (
     const outputPath = relativePath.replace(/\.ts$/, ".cs");
 
     // Mark this module as entry point if it matches the entry point path
-    // Module filePath is relative (e.g., "index.ts"), entryPointPath is absolute
-    // Check both exact match and if entryPointPath ends with the relative path
+    // Use path normalization for robust comparison across platforms
     const isEntryPoint = !!(
       options.entryPointPath &&
-      (module.filePath === options.entryPointPath ||
-        options.entryPointPath.endsWith("/" + module.filePath) ||
-        options.entryPointPath.endsWith("\\" + module.filePath))
+      isPathMatch(module.filePath, options.entryPointPath)
     );
     const moduleOptions = {
       ...options,
@@ -164,6 +162,58 @@ const findCommonRoot = (paths: readonly string[]): string => {
   }
 
   return firstSegments.slice(0, commonLength).join("/") + "/";
+};
+
+/**
+ * Check if a module path matches an entry point path.
+ * Handles both relative and absolute paths, and normalizes path separators.
+ *
+ * @param modulePath - Path from the IR module (may be relative or absolute)
+ * @param entryPointPath - Entry point path from config (typically absolute)
+ */
+const isPathMatch = (modulePath: string, entryPointPath: string): boolean => {
+  // Normalize both paths to use forward slashes and resolve any . or ..
+  const normalizedModule = path.normalize(modulePath).replace(/\\/g, "/");
+  const normalizedEntryPoint = path
+    .normalize(entryPointPath)
+    .replace(/\\/g, "/");
+
+  // Exact match (both absolute or both relative with same base)
+  if (normalizedModule === normalizedEntryPoint) {
+    return true;
+  }
+
+  // Check if entryPointPath ends with modulePath (for relative module paths)
+  // This handles the case where modulePath is "index.ts" and entryPointPath is "/path/to/index.ts"
+  if (normalizedEntryPoint.endsWith("/" + normalizedModule)) {
+    return true;
+  }
+
+  // Check if the basename matches (last resort for edge cases)
+  // e.g., both "/a/b/index.ts" and "src/index.ts" have basename "index.ts"
+  const moduleBase = path.basename(normalizedModule);
+  const entryPointBase = path.basename(normalizedEntryPoint);
+  if (moduleBase === entryPointBase) {
+    // Only match by basename if the directory structure also matches
+    // Get the parent directory name to avoid false positives
+    const moduleDir = path.dirname(normalizedModule);
+    const entryPointDir = path.dirname(normalizedEntryPoint);
+
+    // If module is just a filename (no directory), it's a match
+    if (moduleDir === "." || moduleDir === "") {
+      return true;
+    }
+
+    // Check if the entry point dir ends with the module's directory structure
+    if (
+      entryPointDir.endsWith(moduleDir) ||
+      entryPointDir.endsWith("/" + moduleDir)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 // Re-export emitModule for backward compatibility

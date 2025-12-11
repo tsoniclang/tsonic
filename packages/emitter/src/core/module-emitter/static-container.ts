@@ -54,19 +54,22 @@ export const emitStaticContainer = (
   containerParts.push(`${ind}{`);
 
   // Separate declarations from executable statements
-  // For entry points with top-level code, variable declarations also go into Main
-  // because C# requires `var` to be inside a method (can't be a static field)
+  // For entry points with top-level code, only expression statements go into Main
+  // Variable declarations stay as static fields (they may be referenced by exported functions)
   const isEntryPointWithTopLevelCode =
     baseContext.options.isEntryPoint && members.some(isExecutableStatement);
 
-  // Static member declarations: functions, classes, interfaces, type aliases, enums
+  // Static member declarations: functions, classes, interfaces, type aliases, enums, variables
   // These stay outside Main even in entry points
+  // Variable declarations must stay as static fields because they may be referenced
+  // by exported functions (which are also static members)
   const staticMemberKinds = [
     "functionDeclaration",
     "classDeclaration",
     "interfaceDeclaration",
     "typeAliasDeclaration",
     "enumDeclaration",
+    "variableDeclaration", // Must stay outside Main - may be referenced by static functions
   ];
 
   const declarations = isEntryPointWithTopLevelCode

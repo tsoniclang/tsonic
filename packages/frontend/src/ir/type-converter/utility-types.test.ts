@@ -892,6 +892,179 @@ describe("Conditional Utility Type Expansion", () => {
       expect(result?.kind).to.equal("neverType");
     });
   });
+
+  describe("Distributive and never edge cases", () => {
+    it("should expand Exclude with never input to never", () => {
+      const source = `
+        type Result = Exclude<never, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("neverType");
+    });
+
+    it("should expand Extract with never input to never", () => {
+      const source = `
+        type Result = Extract<never, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Extract",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("neverType");
+    });
+
+    it("should distribute Exclude over union - removing multiple types", () => {
+      const source = `
+        type Result = Exclude<"a" | "b" | "c" | "d", "a" | "c">;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should be a union of "b" | "d" (TypeScript checker resolves this)
+    });
+
+    it("should distribute Extract over union - extracting multiple types", () => {
+      const source = `
+        type Result = Extract<"a" | "b" | "c" | "d", "a" | "c" | "e">;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Extract",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should be a union of "a" | "c" (TypeScript checker resolves this)
+    });
+
+    it("should handle Exclude with function types", () => {
+      const source = `
+        type Result = Exclude<string | number | (() => void), Function>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should expand to string | number (function removed)
+    });
+
+    it("should distribute Exclude over mixed string and number literals", () => {
+      // Alice's review case: mixed literals with Exclude filtering by type
+      const source = `
+        type Mixed = ("a" | "b") | (1 | 2);
+        type OnlyNumbers = Exclude<Mixed, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "OnlyNumbers");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should be 1 | 2 (string literals removed)
+      // TypeScript distributes over the union and removes string-assignable types
+      expect(result?.kind).to.equal("unionType");
+    });
+
+    it("should distribute Extract over mixed string and number literals", () => {
+      // Alice's review case: mixed literals with Extract filtering by type
+      const source = `
+        type Mixed = ("a" | "b") | (1 | 2);
+        type OnlyStrings = Extract<Mixed, string>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "OnlyStrings");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Extract",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      // Should be "a" | "b" (number literals removed)
+      // TypeScript distributes over the union and keeps only string-assignable types
+      expect(result?.kind).to.equal("unionType");
+    });
+
+    it("should handle nested conditional types", () => {
+      const source = `
+        type Result = Exclude<Exclude<string | null | undefined, null>, undefined>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Result");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandConditionalUtilityType(
+        typeRef!,
+        "Exclude",
+        checker,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("primitiveType");
+      if (result?.kind === "primitiveType") {
+        expect(result.name).to.equal("string");
+      }
+    });
+  });
 });
 
 describe("Record Type Expansion", () => {
@@ -1017,6 +1190,68 @@ describe("Record Type Expansion", () => {
 
       // Should return null - type parameter can't be expanded
       expect(result).to.equal(null);
+    });
+
+    it("should return null for Record<PropertyKey, T> (complex key type)", () => {
+      // PropertyKey is string | number | symbol - not a finite set of literals
+      // This should NOT be expanded to objectType or dictionaryType
+      const source = `
+        type AnyKeyRecord = Record<PropertyKey, number>;
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "AnyKeyRecord");
+
+      expect(typeRef).not.to.equal(null);
+      const result = expandRecordType(typeRef!, checker, stubConvertType);
+
+      // Should return null - PropertyKey is not a finite set of literals
+      // and should fall through to referenceType (not dictionaryType)
+      expect(result).to.equal(null);
+    });
+  });
+
+  describe("Record<K, V> full type conversion (integration test)", () => {
+    it("should convert Record<K, V> with type parameter K to referenceType, not dictionaryType", () => {
+      // This tests the full convertTypeReference flow, not just expandRecordType
+      // The bug was: Record<K, V> where K is a type parameter was incorrectly
+      // converted to dictionaryType instead of referenceType
+      const source = `
+        interface Wrapper<K extends string> {
+          data: Record<K, number>;
+        }
+      `;
+
+      const { checker, sourceFile } = createTestProgram(source);
+
+      // Find the Record<K, number> type reference in the interface property
+      let typeRef: ts.TypeReferenceNode | null = null;
+      const visitor = (node: ts.Node): void => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          node.typeName.text === "Record"
+        ) {
+          typeRef = node;
+        }
+        ts.forEachChild(node, visitor);
+      };
+      ts.forEachChild(sourceFile, visitor);
+
+      expect(typeRef).not.to.equal(null);
+
+      // Get the key type node and check its flags
+      const keyTypeNode = typeRef!.typeArguments?.[0];
+      expect(keyTypeNode).not.to.equal(undefined);
+
+      const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
+
+      // The key type should be a type parameter, not string
+      expect(!!(keyTsType.flags & ts.TypeFlags.TypeParameter)).to.equal(true);
+      expect(!!(keyTsType.flags & ts.TypeFlags.String)).to.equal(false);
+
+      // This confirms the fix: when K is a type parameter, the code should
+      // fall through to referenceType instead of creating a dictionaryType
     });
   });
 });

@@ -377,6 +377,17 @@ const containsTypeParameter = (
  * This function delegates to TypeScript's type checker to evaluate the
  * conditional type, then converts the resolved result to IR.
  *
+ * CONCRETE-ONLY EXPANSION RULE:
+ * This function ONLY expands utility types when ALL type arguments are concrete
+ * (non-generic). If any type argument contains a type parameter, we return null
+ * and let the caller fall through to referenceType. This is intentional because:
+ *
+ * 1. TypeScript's conditional types are distributive over unions, which requires
+ *    knowing the actual types at compile time.
+ * 2. For generic contexts like `function f<T>(x: NonNullable<T>)`, we cannot
+ *    evaluate the conditional - it must remain as a type reference.
+ * 3. This matches TypeScript semantics: deferred evaluation in generic contexts.
+ *
  * Gating conditions:
  * - Returns null if any type argument contains type parameters (generic context)
  * - Returns null if TypeScript cannot resolve the type
