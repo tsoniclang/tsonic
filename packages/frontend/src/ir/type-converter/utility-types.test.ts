@@ -1246,16 +1246,15 @@ describe("Conditional Utility Type Expansion", () => {
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       expect(typeRef).not.to.equal(null);
-      const result = expandConditionalUtilityType(
+      // Empty tuple may return null (falls through to referenceType)
+      // or may return an expanded type - both are acceptable behaviors
+      // The key is that it doesn't throw an error
+      expandConditionalUtilityType(
         typeRef!,
         "Parameters",
         checker,
         stubConvertType
       );
-
-      // Empty tuple may return null (falls through to referenceType)
-      // or may return an expanded type - both are acceptable behaviors
-      // The key is that it doesn't throw an error
     });
 
     it("should expand Parameters with single parameter", () => {

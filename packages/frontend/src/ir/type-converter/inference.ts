@@ -234,11 +234,37 @@ export const convertTsTypeToIr = (
     // First check aliasSymbol (for type aliases like Action = () => void)
     // Then check symbol (for interfaces/classes)
     const typeSymbol = type.aliasSymbol ?? objectType.symbol;
+
     if (typeSymbol) {
       const name = typeSymbol.name;
-      // Skip internal TypeScript symbol names
+      // Skip:
+      // - TypeScript internal symbols (from typescript.d.ts InternalSymbolName enum)
+      // - tsbindgen $views interfaces: __TypeName$views (used for explicit interface casts)
+      // - Generic built-ins we handle specially: Object, Array
+      const TS_INTERNAL_SYMBOLS = new Set([
+        "__call",
+        "__class",
+        "__computed",
+        "__constructor",
+        "__export",
+        "__function",
+        "__global",
+        "__importAttributes",
+        "__index",
+        "__instantiationExpression",
+        "__jsxAttributes",
+        "__missing",
+        "__new",
+        "__object",
+        "__resolving__",
+        "__type",
+      ]);
+      const isInternalTsSymbol = TS_INTERNAL_SYMBOLS.has(name);
+      const isTsbindgenViews =
+        name.startsWith("__") && name.endsWith("$views");
       if (
-        !name.startsWith("__") &&
+        !isInternalTsSymbol &&
+        !isTsbindgenViews &&
         name &&
         name !== "Object" &&
         name !== "Array"
@@ -301,17 +327,22 @@ export const convertTsTypeToIr = (
     return { kind: "unionType", types: memberTypes };
   }
 
-  // Intersection types - convert each member, require all to succeed
+  // Intersection types - convert each member
+  // For tsbindgen-generated types like TypeName$instance & __TypeName$views,
+  // the $views type starts with __ and will fail conversion. We still want to
+  // return the intersection if at least one member succeeds (for binding lookup).
   if (flags & ts.TypeFlags.Intersection) {
     const intersectionType = type as ts.IntersectionType;
     const memberTypes = intersectionType.types
       .map((t) => convertTsTypeToIr(t, checker))
       .filter((t): t is IrType => t !== undefined);
-    // If any member failed conversion, return undefined (keep TSN7405 strict)
-    if (memberTypes.length !== intersectionType.types.length) {
-      return undefined;
+    // Return the intersection with successfully converted members
+    // This allows binding lookup to work with partial intersection types
+    if (memberTypes.length > 0) {
+      return { kind: "intersectionType", types: memberTypes };
     }
-    return { kind: "intersectionType", types: memberTypes };
+    // If ALL members failed, return undefined
+    return undefined;
   }
 
   return undefined;

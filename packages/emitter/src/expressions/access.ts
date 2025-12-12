@@ -80,10 +80,13 @@ const isStaticTypeReference = (
   //   (or its inferredType would be "typeof Console" not "Console")
   const objectType = expr.object.inferredType;
 
-  // If object has a reference type as inferredType, it's an instance access
+  // If object has a reference type (or intersection containing reference types) as inferredType,
+  // it's an instance access. Intersection types are common with tsbindgen-generated types
+  // like TypeName$instance & __TypeName$views.
   if (
     objectType?.kind === "referenceType" ||
-    objectType?.kind === "arrayType"
+    objectType?.kind === "arrayType" ||
+    objectType?.kind === "intersectionType"
   ) {
     return false;
   }

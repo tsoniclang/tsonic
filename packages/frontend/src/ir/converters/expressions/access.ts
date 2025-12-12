@@ -76,6 +76,10 @@ const classifyComputedAccess = (
  * Extract the type name from an inferred type for binding lookup.
  * Handles tsbindgen's naming convention where instance types are suffixed with $instance
  * (e.g., List_1$instance → List_1 for binding lookup)
+ *
+ * Also handles intersection types like `TypeName$instance & __TypeName$views`
+ * which are common in tsbindgen-generated types. In this case, we look for
+ * the $instance member and extract the type name from it.
  */
 const extractTypeName = (
   inferredType: ReturnType<typeof getInferredType>
@@ -92,6 +96,31 @@ const extractTypeName = (
     }
 
     return name;
+  }
+
+  // Handle intersection types: TypeName$instance & __TypeName$views
+  // This happens when TypeScript expands a type alias to its underlying intersection
+  // during property access (e.g., listener.prefixes returns HttpListenerPrefixCollection
+  // which is HttpListenerPrefixCollection$instance & __HttpListenerPrefixCollection$views)
+  if (inferredType.kind === "intersectionType") {
+    // Look for a member that ends with $instance - that's the main type
+    for (const member of inferredType.types) {
+      if (member.kind === "referenceType" && member.name.endsWith("$instance")) {
+        // Found the $instance member, strip the suffix to get the type name
+        return member.name.slice(0, -"$instance".length);
+      }
+    }
+
+    // Fallback: look for any referenceType that's not a $views type
+    for (const member of inferredType.types) {
+      if (
+        member.kind === "referenceType" &&
+        !member.name.startsWith("__") &&
+        !member.name.endsWith("$views")
+      ) {
+        return member.name;
+      }
+    }
   }
 
   return undefined;
