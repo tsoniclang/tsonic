@@ -18,6 +18,7 @@ type InitOptions = {
   readonly typesVersion?: string;
   readonly runtime?: "js" | "dotnet";
   readonly nodejs?: boolean; // Enable Node.js interop
+  readonly pure?: boolean; // Use PascalCase CLR naming (dotnet mode only)
 };
 
 const DEFAULT_GITIGNORE = `# .NET build artifacts
@@ -93,22 +94,27 @@ const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "latest" };
  *
  * typeRoots: Only ambient globals packages (provide global types without imports)
  * packages: All type packages to install (includes explicit import packages)
+ *
+ * Package structure:
+ * - @tsonic/globals depends on @tsonic/dotnet (camelCase BCL methods)
+ * - @tsonic/globals-pure depends on @tsonic/dotnet-pure (PascalCase CLR naming)
+ * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (uses whichever globals provides)
  */
 export const getTypePackageInfo = (
   runtime: "js" | "dotnet",
-  nodejs: boolean = false
+  nodejs: boolean = false,
+  pure: boolean = false
 ): TypePackageInfo => {
   if (runtime === "js") {
     // JS mode:
     // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
-    // - @tsonic/globals: base types (Array, String, iterators, Promise, etc.) - needs typeRoots
+    // - @tsonic/globals: base types + BCL methods (transitive @tsonic/dotnet) - needs typeRoots
     // - @tsonic/js-globals: extends base with JS methods (.map, .length, etc.) - needs typeRoots
-    // - @tsonic/types: explicit imports (int, float, etc.) - just npm dep
+    // Note: --pure is ignored in JS mode (always uses camelCase)
     const packages = [
       CLI_PACKAGE,
       { name: "@tsonic/globals", version: "latest" },
       { name: "@tsonic/js-globals", version: "latest" },
-      { name: "@tsonic/types", version: "latest" },
     ];
     if (nodejs) {
       packages.push({ name: "@tsonic/nodejs", version: "latest" });
@@ -123,20 +129,16 @@ export const getTypePackageInfo = (
   }
   // Dotnet mode:
   // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
-  // - @tsonic/globals: base types (Array, String, iterators, Promise, etc.) - needs typeRoots
-  // - @tsonic/dotnet: explicit imports (System.*, etc.) - just npm dep
-  // - @tsonic/types: transitive dep of @tsonic/dotnet
-  const packages = [
-    CLI_PACKAGE,
-    { name: "@tsonic/globals", version: "latest" },
-    { name: "@tsonic/dotnet", version: "latest" },
-  ];
+  // - @tsonic/globals[-pure]: base types + BCL methods (transitive @tsonic/dotnet[-pure]) - needs typeRoots
+  // - @tsonic/nodejs: Node.js interop (peerDep on @tsonic/dotnet, satisfied by globals)
+  const globalsPackage = pure ? "@tsonic/globals-pure" : "@tsonic/globals";
+  const packages = [CLI_PACKAGE, { name: globalsPackage, version: "latest" }];
   if (nodejs) {
     packages.push({ name: "@tsonic/nodejs", version: "latest" });
   }
   return {
     packages,
-    typeRoots: ["node_modules/@tsonic/globals"],
+    typeRoots: [`node_modules/${globalsPackage}`],
   };
 };
 
@@ -233,7 +235,8 @@ const copyRuntimeDlls = (
 const generateConfig = (
   includeTypeRoots: boolean,
   runtime: "js" | "dotnet",
-  libraryPaths: readonly string[] = []
+  libraryPaths: readonly string[] = [],
+  pure: boolean = false
 ): string => {
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.dev/schema/v1.json",
@@ -252,7 +255,7 @@ const generateConfig = (
   };
 
   if (includeTypeRoots || libraryPaths.length > 0) {
-    const typeInfo = getTypePackageInfo(runtime);
+    const typeInfo = getTypePackageInfo(runtime, false, pure);
     const dotnet: Record<string, unknown> = {};
 
     if (includeTypeRoots) {
@@ -385,7 +388,8 @@ export const initProject = (
     // Install type declarations based on runtime mode
     const shouldInstallTypes = !options.skipTypes;
     const nodejs = options.nodejs ?? false;
-    const typeInfo = getTypePackageInfo(runtime, nodejs);
+    const pure = options.pure ?? false;
+    const typeInfo = getTypePackageInfo(runtime, nodejs, pure);
 
     if (shouldInstallTypes) {
       for (const pkg of typeInfo.packages) {
@@ -415,7 +419,7 @@ export const initProject = (
 
     // Create tsonic.json
     // Note: Runtime DLLs in lib/ are found automatically by generate command
-    const config = generateConfig(shouldInstallTypes, runtime);
+    const config = generateConfig(shouldInstallTypes, runtime, [], pure);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 

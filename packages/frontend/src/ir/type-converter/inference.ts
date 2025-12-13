@@ -260,8 +260,7 @@ export const convertTsTypeToIr = (
         "__type",
       ]);
       const isInternalTsSymbol = TS_INTERNAL_SYMBOLS.has(name);
-      const isTsbindgenViews =
-        name.startsWith("__") && name.endsWith("$views");
+      const isTsbindgenViews = name.startsWith("__") && name.endsWith("$views");
       if (
         !isInternalTsSymbol &&
         !isTsbindgenViews &&

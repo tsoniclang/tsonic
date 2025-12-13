@@ -105,7 +105,10 @@ const extractTypeName = (
   if (inferredType.kind === "intersectionType") {
     // Look for a member that ends with $instance - that's the main type
     for (const member of inferredType.types) {
-      if (member.kind === "referenceType" && member.name.endsWith("$instance")) {
+      if (
+        member.kind === "referenceType" &&
+        member.name.endsWith("$instance")
+      ) {
         // Found the $instance member, strip the suffix to get the type name
         return member.name.slice(0, -"$instance".length);
       }
