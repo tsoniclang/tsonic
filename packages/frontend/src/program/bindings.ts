@@ -411,44 +411,113 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
 };
 
 /**
+ * Load bindings from a package directory and recursively from its @tsonic/* dependencies.
+ * This ensures that when @tsonic/globals depends on @tsonic/dotnet, the bindings from
+ * @tsonic/dotnet are also loaded.
+ *
+ * Supports two package structures:
+ * 1. globals/globals-pure: Only has index.d.ts, depends on dotnet/dotnet-pure
+ * 2. dotnet/dotnet-pure: Has facade pattern with Namespace.d.ts + Namespace/bindings.json
+ */
+const loadBindingsFromPackage = (
+  registry: BindingRegistry,
+  packageRoot: string,
+  visited: Set<string>
+): void => {
+  // Avoid cycles
+  const absoluteRoot = path.resolve(packageRoot);
+  if (visited.has(absoluteRoot)) {
+    return;
+  }
+  visited.add(absoluteRoot);
+
+  // Skip if directory doesn't exist
+  if (!fs.existsSync(absoluteRoot)) {
+    return;
+  }
+
+  // Strategy 1: Look for *.bindings.json manifest files in the package root
+  const rootEntries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
+  const rootManifests = rootEntries
+    .filter((e) => e.isFile() && e.name.endsWith(".bindings.json"))
+    .map((e) => path.join(absoluteRoot, e.name));
+
+  for (const manifestPath of rootManifests) {
+    loadBindingsFromPath(registry, manifestPath);
+  }
+
+  // Strategy 2: Look for Namespace/bindings.json for each Namespace.d.ts facade
+  // This supports @tsonic/dotnet structure: System.d.ts facade + System/bindings.json
+  const facadeFiles = rootEntries
+    .filter((e) => e.isFile() && e.name.endsWith(".d.ts"))
+    .map((e) => e.name);
+
+  for (const facadeFile of facadeFiles) {
+    // e.g., "System.d.ts" → "System"
+    const namespaceName = facadeFile.slice(0, -".d.ts".length);
+    const namespaceDir = path.join(absoluteRoot, namespaceName);
+    const bindingsPath = path.join(namespaceDir, "bindings.json");
+
+    if (fs.existsSync(bindingsPath)) {
+      loadBindingsFromPath(registry, bindingsPath);
+    }
+  }
+
+  // Strategy 3: Look for *.bindings.json next to each .d.ts file (recursive)
+  const declFiles = scanForDeclarationFiles(absoluteRoot);
+  for (const declPath of declFiles) {
+    const manifestPath = declPath.replace(/\.d\.ts$/, ".bindings.json");
+    loadBindingsFromPath(registry, manifestPath);
+
+    // Strategy 4: Look for bindings.json in same directory as index.d.ts
+    if (path.basename(declPath) === "index.d.ts") {
+      const dirBindings = path.join(path.dirname(declPath), "bindings.json");
+      loadBindingsFromPath(registry, dirBindings);
+    }
+  }
+
+  // Strategy 5: Recursively load bindings from @tsonic/* dependencies
+  // This is crucial for packages like @tsonic/globals that depend on @tsonic/dotnet
+  // and @tsonic/globals-pure that depends on @tsonic/dotnet-pure
+  const packageJsonPath = path.join(absoluteRoot, "package.json");
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+      const deps = packageJson.dependencies || {};
+
+      for (const depName of Object.keys(deps)) {
+        // Only follow @tsonic/* dependencies to load their bindings
+        if (depName.startsWith("@tsonic/")) {
+          // Find the dependency in node_modules
+          // Try sibling node_modules first (hoisted), then nested
+          const nodeModulesDir = path.dirname(path.dirname(absoluteRoot));
+          const hoistedPath = path.join(nodeModulesDir, depName);
+          const nestedPath = path.join(absoluteRoot, "node_modules", depName);
+
+          if (fs.existsSync(hoistedPath)) {
+            loadBindingsFromPackage(registry, hoistedPath, visited);
+          } else if (fs.existsSync(nestedPath)) {
+            loadBindingsFromPackage(registry, nestedPath, visited);
+          }
+        }
+      }
+    } catch {
+      // Ignore JSON parse errors in package.json
+    }
+  }
+};
+
+/**
  * Load binding manifests from configured type roots
  * Looks for *.bindings.json files alongside .d.ts files OR directly in typeRoot
+ * Also recursively loads bindings from @tsonic/* dependencies of typeRoot packages
  */
 export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
   const registry = new BindingRegistry();
+  const visited = new Set<string>();
 
   for (const typeRoot of typeRoots) {
-    const absoluteRoot = path.resolve(typeRoot);
-
-    // Skip if directory doesn't exist
-    if (!fs.existsSync(absoluteRoot)) {
-      continue;
-    }
-
-    // Strategy 1: Look for manifest in the typeRoot itself
-    const rootManifests = fs
-      .readdirSync(absoluteRoot)
-      .filter((f) => f.endsWith(".bindings.json"))
-      .map((f) => path.join(absoluteRoot, f));
-
-    for (const manifestPath of rootManifests) {
-      loadBindingsFromPath(registry, manifestPath);
-    }
-
-    // Strategy 2: Look for *.bindings.json next to each .d.ts file
-    const declFiles = scanForDeclarationFiles(absoluteRoot);
-    for (const declPath of declFiles) {
-      const manifestPath = declPath.replace(/\.d\.ts$/, ".bindings.json");
-      loadBindingsFromPath(registry, manifestPath);
-
-      // Strategy 3: Look for bindings.json in same directory as index.d.ts
-      // This supports @tsonic/dotnet package structure where bindings.json
-      // lives alongside index.d.ts in each namespace directory
-      if (path.basename(declPath) === "index.d.ts") {
-        const dirBindings = path.join(path.dirname(declPath), "bindings.json");
-        loadBindingsFromPath(registry, dirBindings);
-      }
-    }
+    loadBindingsFromPackage(registry, typeRoot, visited);
   }
 
   return registry;

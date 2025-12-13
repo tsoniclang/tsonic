@@ -80,13 +80,19 @@ const isStaticTypeReference = (
   //   (or its inferredType would be "typeof Console" not "Console")
   const objectType = expr.object.inferredType;
 
-  // If object has a reference type (or intersection containing reference types) as inferredType,
-  // it's an instance access. Intersection types are common with tsbindgen-generated types
-  // like TypeName$instance & __TypeName$views.
+  // If object has a value type as inferredType, it's an instance access.
+  // This includes:
+  // - referenceType: class/interface instances (e.g., List<T>)
+  // - arrayType: array instances
+  // - intersectionType: tsbindgen-generated types like TypeName$instance & __TypeName$views
+  // - primitiveType: string, number, boolean primitives with BCL methods
+  // - literalType: string/number/boolean literals like "hello".split()
   if (
     objectType?.kind === "referenceType" ||
     objectType?.kind === "arrayType" ||
-    objectType?.kind === "intersectionType"
+    objectType?.kind === "intersectionType" ||
+    objectType?.kind === "primitiveType" ||
+    objectType?.kind === "literalType"
   ) {
     return false;
   }

@@ -86,6 +86,37 @@ const extractTypeName = (
 ): string | undefined => {
   if (!inferredType) return undefined;
 
+  // Handle primitive types - map to their CLR type names for binding lookup
+  // This enables binding resolution for methods like string.split(), number.toString()
+  if (inferredType.kind === "primitiveType") {
+    switch (inferredType.name) {
+      case "string":
+        return "String"; // System.String
+      case "number":
+        return "Double"; // System.Double (TS number is double)
+      case "boolean":
+        return "Boolean"; // System.Boolean
+      default:
+        return undefined;
+    }
+  }
+
+  // Handle literal types - determine the CLR type from the value type
+  // This enables binding resolution for string literals like "hello".split(" ")
+  if (inferredType.kind === "literalType") {
+    const valueType = typeof inferredType.value;
+    switch (valueType) {
+      case "string":
+        return "String"; // System.String
+      case "number":
+        return "Double"; // System.Double
+      case "boolean":
+        return "Boolean"; // System.Boolean
+      default:
+        return undefined;
+    }
+  }
+
   if (inferredType.kind === "referenceType") {
     const name = inferredType.name;
 
