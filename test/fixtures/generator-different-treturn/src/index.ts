@@ -3,8 +3,10 @@
 import { Console } from "@tsonic/dotnet/System";
 
 // Generator yields numbers, accepts numbers, but returns a string
+// Note: Use 0.0 for sum since it participates in double arithmetic (value is double)
+// count uses integer arithmetic only, so 0 is fine
 export function* dataCollector(): Generator<number, string, number> {
-  let sum = 0;
+  let sum = 0.0;
   let count = 0;
 
   while (count < 3) {

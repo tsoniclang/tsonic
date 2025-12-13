@@ -11,10 +11,7 @@ import {
 import { EmitterContext, CSharpFragment } from "./types.js";
 
 // Import expression emitters from specialized modules
-import {
-  emitLiteral,
-  getExpectedClrTypeForNumeric,
-} from "./expressions/literals.js";
+import { emitLiteral } from "./expressions/literals.js";
 import { emitIdentifier } from "./expressions/identifiers.js";
 import { emitArray, emitObject } from "./expressions/collections.js";
 import { emitMemberAccess } from "./expressions/access.js";
@@ -113,13 +110,8 @@ export const emitExpression = (
   switch (expr.kind) {
     case "literal":
       // Pass expectedType for null → default conversion in generic contexts
-      // Also check if the literal has an inferredType that requires integer emission
-      return emitLiteral(
-        expr,
-        context,
-        expectedType,
-        getExpectedClrTypeForNumeric(expr.inferredType)
-      );
+      // Numeric literals use raw lexeme (no contextual widening under new spec)
+      return emitLiteral(expr, context, expectedType);
 
     case "identifier":
       return emitIdentifier(expr, context);
