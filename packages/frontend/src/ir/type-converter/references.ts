@@ -77,10 +77,10 @@ export const convertTypeReference = (
     // returns `any` instead of the correct type. Checking SyntaxKind handles both cases.
     const isStringKey =
       keyTypeNode.kind === ts.SyntaxKind.StringKeyword ||
-      (!!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.String));
+      !!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.String);
     const isNumberKey =
       keyTypeNode.kind === ts.SyntaxKind.NumberKeyword ||
-      (!!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.Number));
+      !!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.Number);
 
     if (isStringKey || isNumberKey) {
       const keyType = convertType(keyTypeNode, checker);

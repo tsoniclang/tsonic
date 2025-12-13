@@ -39,6 +39,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       skipTypes: parsed.options.skipTypes,
       typesVersion: parsed.options.typesVersion,
       nodejs: parsed.options.nodejs,
+      pure: parsed.options.pure,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
