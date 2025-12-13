@@ -114,11 +114,9 @@ export const emitLiteral = (
       return [{ text }, context];
     }
 
-    // TypeScript `number` is always `double` in C#
-    // Emit as double: ensure decimal point for integer values
-    if (Number.isInteger(value) && !String(value).includes(".")) {
-      return [{ text: `${value}.0` }, context];
-    }
+    // Let C# infer int vs double from the literal value
+    // Integer literals (1, 2, 3) → C# infers int
+    // Decimal literals (1.0, 3.14) → C# infers double
     return [{ text: String(value) }, context];
   }
 

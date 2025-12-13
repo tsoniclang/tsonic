@@ -13,6 +13,18 @@ import { IrBlockStatement } from "./statements.js";
 import { NumericKind } from "./numeric-kind.js";
 import { SourceLocation } from "../../types/diagnostic.js";
 
+/**
+ * Base fields shared by all expression types.
+ * - inferredType: The type TypeScript infers for this expression
+ * - contextualType: The type expected from context (assignment target, return type, etc.)
+ * - sourceSpan: Source location for error reporting
+ */
+export type IrExpressionBase = {
+  readonly inferredType?: IrType;
+  readonly contextualType?: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
 export type IrExpression =
   | IrLiteralExpression
   | IrIdentifierExpression

@@ -364,8 +364,8 @@ describe("Generator Emission", () => {
 
       const code = emitModule(module);
 
-      // Should emit yield output
-      expect(code).to.include("exchange.Output = 42.0");
+      // Should emit yield output - integer literal emits as-is
+      expect(code).to.include("exchange.Output = 42");
       expect(code).to.include("yield return exchange");
 
       // Should emit receive pattern with null coalescing

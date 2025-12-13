@@ -177,7 +177,7 @@ describe("emitLiteral", () => {
   });
 
   describe("number literal", () => {
-    it("emits double format for integers", () => {
+    it("emits integer literals as-is (lets C# infer type)", () => {
       const expr: Extract<IrExpression, { kind: "literal" }> = {
         kind: "literal",
         value: 42,
@@ -186,7 +186,19 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("42.0");
+      expect(fragment.text).to.equal("42");
+    });
+
+    it("emits decimal literals as-is (lets C# infer double)", () => {
+      const expr: Extract<IrExpression, { kind: "literal" }> = {
+        kind: "literal",
+        value: 3.14,
+      };
+      const context = createContext();
+
+      const [fragment] = emitLiteral(expr, context);
+
+      expect(fragment.text).to.equal("3.14");
     });
 
     it("emits integer format in array index context", () => {
