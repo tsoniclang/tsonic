@@ -248,9 +248,9 @@ const isNumberType = (type: IrType | undefined): boolean => {
  * Used for validating object literal properties against their expected types.
  * Returns undefined if the property type cannot be determined (conservative).
  *
- * NOTE: Only handles objectType directly. Reference types (interfaces, type aliases)
- * would need resolution to their structural members, which is not available at this
- * pass. For TSN5110, this is conservative - we only check when we have full info.
+ * Handles:
+ * - objectType: inline object types like `{ x: number }`
+ * - referenceType with structuralMembers: interfaces and type aliases
  */
 const tryGetObjectPropertyType = (
   expectedType: IrType | undefined,
@@ -267,8 +267,18 @@ const tryGetObjectPropertyType = (
     return member?.type;
   }
 
-  // Reference types (interfaces, type aliases) don't carry structural members
-  // in the IR at this point. Conservative: return undefined.
+  // Reference type with structural members (interfaces, type aliases)
+  if (
+    expectedType.kind === "referenceType" &&
+    expectedType.structuralMembers
+  ) {
+    const member = expectedType.structuralMembers.find(
+      (m): m is IrInterfaceMember & { kind: "propertySignature" } =>
+        m.kind === "propertySignature" && m.name === propName
+    );
+    return member?.type;
+  }
+
   return undefined;
 };
 

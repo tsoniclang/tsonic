@@ -51,6 +51,12 @@ export type IrReferenceType = {
   readonly typeArguments?: readonly IrType[];
   /** Fully-qualified CLR type for imported types (e.g., "MyApp.models.User") */
   readonly resolvedClrType?: string;
+  /**
+   * Structural members for interfaces and type aliases that resolve to object types.
+   * Populated when the reference resolves to a structural type (interface, type literal, etc.)
+   * Used by TSN5110 to validate object literal properties against expected types.
+   */
+  readonly structuralMembers?: readonly IrInterfaceMember[];
 };
 
 /**

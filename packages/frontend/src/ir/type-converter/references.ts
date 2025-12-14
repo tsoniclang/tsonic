@@ -3,7 +3,13 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrDictionaryType } from "../types.js";
+import {
+  IrType,
+  IrDictionaryType,
+  IrInterfaceMember,
+  IrPropertySignature,
+  IrMethodSignature,
+} from "../types.js";
 import {
   isPrimitiveTypeName,
   getPrimitiveType,
@@ -17,6 +23,130 @@ import {
   expandConditionalUtilityType,
   expandRecordType,
 } from "./utility-types.js";
+
+/**
+ * Extract structural members from a resolved type.
+ *
+ * Used to populate structuralMembers on referenceType for interfaces and type aliases.
+ * This enables TSN5110 validation for object literal properties against expected types.
+ *
+ * Returns undefined if:
+ * - Type is a type parameter (generic)
+ * - Type has no properties
+ * - Type has index signatures (can't be fully represented)
+ * - Type has non-string keys (symbols, computed)
+ *
+ * @param resolvedType - The resolved TypeScript type
+ * @param node - The enclosing node for type-to-node conversion
+ * @param checker - The TypeScript type checker
+ * @param convertType - Function to convert nested types
+ * @returns Structural members or undefined if extraction fails
+ */
+const extractStructuralMembers = (
+  resolvedType: ts.Type,
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+): readonly IrInterfaceMember[] | undefined => {
+  // Don't extract for type parameters
+  if (resolvedType.flags & ts.TypeFlags.TypeParameter) {
+    return undefined;
+  }
+
+  // Get properties
+  const properties = resolvedType.getProperties();
+  if (!properties || properties.length === 0) {
+    return undefined;
+  }
+
+  // Check for index signatures - can't fully represent these structurally
+  const stringIndexType = checker.getIndexInfoOfType(
+    resolvedType,
+    ts.IndexKind.String
+  );
+  const numberIndexType = checker.getIndexInfoOfType(
+    resolvedType,
+    ts.IndexKind.Number
+  );
+  if (stringIndexType || numberIndexType) {
+    return undefined;
+  }
+
+  // Extract members
+  const members: IrInterfaceMember[] = [];
+
+  for (const prop of properties) {
+    const propName = prop.getName();
+
+    // Skip non-string keys (symbols, computed)
+    if (propName.startsWith("__@") || propName.startsWith("[")) {
+      return undefined; // Can't represent all members, bail out
+    }
+
+    const propType = checker.getTypeOfSymbolAtLocation(prop, node);
+    const declarations = prop.getDeclarations();
+
+    // Check optional/readonly
+    const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+    const isReadonly =
+      declarations?.some((decl) => {
+        if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
+          return (
+            decl.modifiers?.some(
+              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+            ) ?? false
+          );
+        }
+        return false;
+      }) ?? false;
+
+    // Check if it's a method
+    const isMethod =
+      declarations?.some(
+        (decl) => ts.isMethodSignature(decl) || ts.isMethodDeclaration(decl)
+      ) ?? false;
+
+    const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
+    const propTypeNode = checker.typeToTypeNode(propType, node, typeNodeFlags);
+
+    if (isMethod && propTypeNode && ts.isFunctionTypeNode(propTypeNode)) {
+      // Method signature
+      const methSig: IrMethodSignature = {
+        kind: "methodSignature",
+        name: propName,
+        parameters: propTypeNode.parameters.map((param, index) => ({
+          kind: "parameter" as const,
+          pattern: {
+            kind: "identifierPattern" as const,
+            name: ts.isIdentifier(param.name) ? param.name.text : `arg${index}`,
+          },
+          type: param.type ? convertType(param.type, checker) : undefined,
+          isOptional: !!param.questionToken,
+          isRest: !!param.dotDotDotToken,
+          passing: "value" as const,
+        })),
+        returnType: propTypeNode.type
+          ? convertType(propTypeNode.type, checker)
+          : undefined,
+      };
+      members.push(methSig);
+    } else {
+      // Property signature
+      const propSig: IrPropertySignature = {
+        kind: "propertySignature",
+        name: propName,
+        type: propTypeNode
+          ? convertType(propTypeNode, checker)
+          : { kind: "anyType" },
+        isOptional,
+        isReadonly,
+      };
+      members.push(propSig);
+    }
+  }
+
+  return members.length > 0 ? members : undefined;
+};
 
 /**
  * Convert TypeScript type reference to IR type
@@ -126,10 +256,20 @@ export const convertTypeReference = (
     return { kind: "typeParameterType", name: typeName };
   }
 
+  // Extract structural members for interfaces and type aliases.
+  // This enables TSN5110 validation for object literal properties.
+  const structuralMembers = extractStructuralMembers(
+    type,
+    node,
+    checker,
+    convertType
+  );
+
   // Reference type (user-defined or library)
   return {
     kind: "referenceType",
     name: typeName,
     typeArguments: node.typeArguments?.map((t) => convertType(t, checker)),
+    structuralMembers,
   };
 };
