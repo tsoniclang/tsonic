@@ -25,22 +25,124 @@ import {
 } from "./utility-types.js";
 
 /**
+ * Cache for structural member extraction to prevent infinite recursion
+ * on recursive types like `type Node = { next: Node }`.
+ *
+ * Key: ts.Type (by identity)
+ * Value: extracted members, null (not extractable), or "in-progress" sentinel
+ */
+const structuralMembersCache = new WeakMap<
+  ts.Type,
+  readonly IrInterfaceMember[] | null | "in-progress"
+>();
+
+/**
+ * Check if a type should have structural members extracted.
+ *
+ * Only extract for:
+ * - Interfaces (InterfaceDeclaration)
+ * - Type aliases to object types (TypeAliasDeclaration)
+ *
+ * Do NOT extract for:
+ * - Classes (have implementation, not just shape)
+ * - Enums, namespaces
+ * - Library types (from node_modules or lib.*.d.ts)
+ * - CLR interop types
+ * - Union/intersection types (ambiguous property semantics)
+ */
+const shouldExtractStructuralMembers = (
+  resolvedType: ts.Type,
+  _checker: ts.TypeChecker
+): boolean => {
+  // Don't extract for type parameters
+  if (resolvedType.flags & ts.TypeFlags.TypeParameter) {
+    return false;
+  }
+
+  // Don't extract for union types (ambiguous property semantics)
+  if (resolvedType.isUnion()) {
+    return false;
+  }
+
+  // Don't extract for intersection types (conservative)
+  if (resolvedType.isIntersection()) {
+    return false;
+  }
+
+  // Check the symbol to determine if this is a structural type we should extract
+  const symbol = resolvedType.getSymbol();
+  if (!symbol) {
+    return false;
+  }
+
+  const declarations = symbol.getDeclarations();
+  if (!declarations || declarations.length === 0) {
+    return false;
+  }
+
+  // Check if ANY declaration is from a library file (node_modules or lib.*.d.ts)
+  for (const decl of declarations) {
+    const sourceFile = decl.getSourceFile();
+    const fileName = sourceFile.fileName;
+
+    // Skip library types
+    if (
+      fileName.includes("node_modules") ||
+      fileName.includes("lib.") ||
+      sourceFile.isDeclarationFile
+    ) {
+      return false;
+    }
+  }
+
+  // Check the first declaration to determine type
+  const firstDecl = declarations[0];
+  if (!firstDecl) {
+    return false;
+  }
+
+  // Only extract for interfaces and type aliases
+  if (ts.isInterfaceDeclaration(firstDecl)) {
+    return true;
+  }
+
+  if (ts.isTypeAliasDeclaration(firstDecl)) {
+    // Only extract if the alias resolves to an object-like type
+    // (has properties, not a primitive/union/etc)
+    const properties = resolvedType.getProperties();
+    return properties !== undefined && properties.length > 0;
+  }
+
+  // TypeLiteral: When a type alias resolves to an object type like `type Config = { x: number }`,
+  // TypeScript's getTypeAtLocation returns the underlying object type, whose declaration is TypeLiteral.
+  // We need to extract structural members in this case too.
+  if (ts.isTypeLiteralNode(firstDecl)) {
+    const properties = resolvedType.getProperties();
+    return properties !== undefined && properties.length > 0;
+  }
+
+  // Don't extract for classes, enums, etc.
+  return false;
+};
+
+/**
  * Extract structural members from a resolved type.
  *
  * Used to populate structuralMembers on referenceType for interfaces and type aliases.
  * This enables TSN5110 validation for object literal properties against expected types.
  *
- * Returns undefined if:
- * - Type is a type parameter (generic)
- * - Type has no properties
- * - Type has index signatures (can't be fully represented)
- * - Type has non-string keys (symbols, computed)
+ * Safety guards:
+ * - Only extracts for interfaces/type-aliases (not classes, enums, lib types)
+ * - Uses cache to prevent infinite recursion on recursive types
+ * - Skips unsupported keys instead of bailing entirely
+ * - Returns undefined for union/intersection (conservative)
+ * - Returns undefined for index signatures (can't fully represent)
  *
  * @param resolvedType - The resolved TypeScript type
  * @param node - The enclosing node for type-to-node conversion
  * @param checker - The TypeScript type checker
  * @param convertType - Function to convert nested types
- * @returns Structural members or undefined if extraction fails
+ * @returns Structural members or undefined if extraction fails/skipped
  */
 const extractStructuralMembers = (
   resolvedType: ts.Type,
@@ -48,14 +150,29 @@ const extractStructuralMembers = (
   checker: ts.TypeChecker,
   convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
 ): readonly IrInterfaceMember[] | undefined => {
-  // Don't extract for type parameters
-  if (resolvedType.flags & ts.TypeFlags.TypeParameter) {
+  // Check cache first (handles recursion)
+  const cached = structuralMembersCache.get(resolvedType);
+  if (cached === "in-progress") {
+    // Recursive reference - return undefined to break cycle
     return undefined;
   }
+  if (cached !== undefined) {
+    return cached === null ? undefined : cached;
+  }
+
+  // Gate: only extract for structural types we own
+  if (!shouldExtractStructuralMembers(resolvedType, checker)) {
+    structuralMembersCache.set(resolvedType, null);
+    return undefined;
+  }
+
+  // Mark as in-progress before recursing
+  structuralMembersCache.set(resolvedType, "in-progress");
 
   // Get properties
   const properties = resolvedType.getProperties();
   if (!properties || properties.length === 0) {
+    structuralMembersCache.set(resolvedType, null);
     return undefined;
   }
 
@@ -69,6 +186,7 @@ const extractStructuralMembers = (
     ts.IndexKind.Number
   );
   if (stringIndexType || numberIndexType) {
+    structuralMembersCache.set(resolvedType, null);
     return undefined;
   }
 
@@ -78,9 +196,9 @@ const extractStructuralMembers = (
   for (const prop of properties) {
     const propName = prop.getName();
 
-    // Skip non-string keys (symbols, computed)
+    // Skip non-string keys (symbols, computed) - don't bail entirely
     if (propName.startsWith("__@") || propName.startsWith("[")) {
-      return undefined; // Can't represent all members, bail out
+      continue; // Skip this property, keep extracting others
     }
 
     const propType = checker.getTypeOfSymbolAtLocation(prop, node);
@@ -145,7 +263,9 @@ const extractStructuralMembers = (
     }
   }
 
-  return members.length > 0 ? members : undefined;
+  const result = members.length > 0 ? members : undefined;
+  structuralMembersCache.set(resolvedType, result ?? null);
+  return result;
 };
 
 /**

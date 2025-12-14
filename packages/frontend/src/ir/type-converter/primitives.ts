@@ -62,9 +62,7 @@ export const isPrimitiveTypeName = (
  * Check if a type name is a CLR primitive type (int)
  * These come from @tsonic/types and are compiler-known primitives.
  */
-export const isClrPrimitiveTypeName = (
-  typeName: string
-): typeName is "int" => {
+export const isClrPrimitiveTypeName = (typeName: string): typeName is "int" => {
   return CLR_PRIMITIVE_TYPES.has(typeName);
 };
 

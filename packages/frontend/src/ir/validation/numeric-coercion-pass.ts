@@ -268,10 +268,7 @@ const tryGetObjectPropertyType = (
   }
 
   // Reference type with structural members (interfaces, type aliases)
-  if (
-    expectedType.kind === "referenceType" &&
-    expectedType.structuralMembers
-  ) {
+  if (expectedType.kind === "referenceType" && expectedType.structuralMembers) {
     const member = expectedType.structuralMembers.find(
       (m): m is IrInterfaceMember & { kind: "propertySignature" } =>
         m.kind === "propertySignature" && m.name === propName
