@@ -100,7 +100,7 @@ Add `.ts` extension to local imports:
 
 ```typescript
 // ✅ Correct
-import { User } from "./User.ts";
+import { User } from "./User.js";
 
 // ❌ Wrong
 import { User } from "./User";
@@ -113,7 +113,7 @@ import { User } from "./User";
 1. Check TypeScript errors in output
 2. Ensure type packages are installed:
    ```bash
-   npm install --save-dev @tsonic/types @tsonic/js-globals
+   npm install --save-dev @tsonic/core @tsonic/js-globals
    ```
 3. Run emit only to see generated C#:
    ```bash

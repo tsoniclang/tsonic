@@ -17,7 +17,7 @@ const jsGlobalsPath = path.join(
   monorepoRoot,
   "node_modules/@tsonic/js-globals"
 );
-const typesPath = path.join(monorepoRoot, "node_modules/@tsonic/types");
+const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 /**
  * Normalize C# output for comparison
@@ -58,7 +58,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
     sourceRoot,
     rootNamespace,
-    typeRoots: [jsGlobalsPath, typesPath],
+    typeRoots: [jsGlobalsPath, corePath],
   });
 
   // Handle expected diagnostics tests

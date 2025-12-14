@@ -30,12 +30,12 @@ tsonic project init --runtime js
 ### Type Packages
 
 ```bash
-npm install --save-dev @tsonic/globals @tsonic/js-globals @tsonic/types
+npm install --save-dev @tsonic/globals @tsonic/js-globals @tsonic/core
 ```
 
 - `@tsonic/globals` - Base types (Array, String, iterators, Promise, etc.)
 - `@tsonic/js-globals` - JS-specific methods (.map, .length, console, etc.)
-- `@tsonic/types` - Core types (int, float, etc.)
+- `@tsonic/core` - Core types (int, float, etc.)
 
 ### Behavior
 
@@ -67,7 +67,7 @@ console.log(x / 4); // 10.5 (floating point)
 Use explicit integer types when needed:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const count: int = 42;
 ```
@@ -291,7 +291,7 @@ If you need both behaviors, consider:
 
    ```bash
    npm uninstall @tsonic/dotnet
-   npm install --save-dev @tsonic/js-globals @tsonic/types
+   npm install --save-dev @tsonic/js-globals @tsonic/core
    ```
 
    Note: Keep `@tsonic/globals` as it's used by both modes.

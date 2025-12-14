@@ -35,7 +35,7 @@ export type SoundnessValidationResult = {
 /**
  * Known builtin types that are handled by emitter's built-in mappings
  * or are C# primitive type names that may appear in IR.
- * C# primitives correspond to types defined in @tsonic/types package.
+ * C# primitives correspond to types defined in @tsonic/core package.
  */
 const KNOWN_BUILTINS = new Set([
   // JS/TS builtins handled by emitter
@@ -48,26 +48,26 @@ const KNOWN_BUILTINS = new Set([
   "Generator",
   "AsyncGenerator",
   "IteratorResult",
-  // C# signed integers (from @tsonic/types)
+  // C# signed integers (from @tsonic/core)
   "sbyte",
   "short",
   "int",
   "long",
   "nint",
   "int128",
-  // C# unsigned integers (from @tsonic/types)
+  // C# unsigned integers (from @tsonic/core)
   "byte",
   "ushort",
   "uint",
   "ulong",
   "nuint",
   "uint128",
-  // C# floating-point (from @tsonic/types)
+  // C# floating-point (from @tsonic/core)
   "half",
   "float",
   "double",
   "decimal",
-  // C# other primitives (from @tsonic/types)
+  // C# other primitives (from @tsonic/core)
   "bool",
   "char",
   // Additional C# keywords that are valid type names

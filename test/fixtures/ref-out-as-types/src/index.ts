@@ -4,9 +4,9 @@
  */
 
 import { Console } from "@tsonic/dotnet/System";
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
-// Define ref locally since it's no longer exported from @tsonic/types
+// Define ref locally since it's not exported from @tsonic/core
 type ref<T> = T;
 type out<T> = T;
 type In<T> = T;

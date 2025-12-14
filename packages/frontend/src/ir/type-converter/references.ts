@@ -301,7 +301,7 @@ export const convertTypeReference = (
     return getPrimitiveType(typeName);
   }
 
-  // Check for CLR primitive type names (e.g., int from @tsonic/types)
+  // Check for CLR primitive type names (e.g., int from @tsonic/core)
   // These are compiler-known types that map to distinct primitives, not referenceType
   if (isClrPrimitiveTypeName(typeName)) {
     return getClrPrimitiveType(typeName);

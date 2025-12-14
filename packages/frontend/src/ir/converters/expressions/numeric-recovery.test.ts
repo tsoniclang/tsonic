@@ -28,7 +28,7 @@ const jsGlobalsPath = path.join(
   monorepoRoot,
   "node_modules/@tsonic/js-globals"
 );
-const typesPath = path.join(monorepoRoot, "node_modules/@tsonic/types");
+const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 /**
  * Helper to compile TypeScript code with js-globals and extract IR
@@ -46,7 +46,7 @@ const compileWithJsGlobals = (
     projectRoot: monorepoRoot,
     sourceRoot: tmpDir,
     rootNamespace: "Test",
-    typeRoots: [jsGlobalsPath, typesPath],
+    typeRoots: [jsGlobalsPath, corePath],
   });
 
   if (!compileResult.ok) {

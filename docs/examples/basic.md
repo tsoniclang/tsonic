@@ -310,7 +310,7 @@ export function main(): void {
 ## Integer Types
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function sumRange(start: int, end: int): int {
   let total = 0 as int;
@@ -340,7 +340,7 @@ export function main(): void {
 ## Callbacks
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 // Action<T> - no return value
 function forEach(items: int[], action: (item: int) => void): void {

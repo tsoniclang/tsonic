@@ -1,6 +1,6 @@
 // Multi-file import test
 import { Console } from "@tsonic/dotnet/System";
-import { add, multiply } from "./utils/Math.ts";
+import { add, multiply } from "./utils/Math.js";
 
 export function main(): void {
   const sum = add(5.0, 3.0);

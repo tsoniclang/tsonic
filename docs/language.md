@@ -276,7 +276,7 @@ Tsonic uses ESM (ECMAScript Modules) with **mandatory `.ts` extensions** for loc
 
 ```typescript
 // ✅ Correct - with .ts extension
-import { User } from "./models/User.ts";
+import { User } from "./models/User.js";
 import { formatDate } from "../utils/date.ts";
 
 // ❌ Wrong - missing extension
@@ -293,25 +293,25 @@ export function add(a: number, b: number): number {
 }
 
 // App.ts
-import { PI, add } from "./utils.ts";
+import { PI, add } from "./utils.js";
 ```
 
 ### Re-exports
 
 ```typescript
 // models/index.ts (barrel file)
-export { User } from "./User.ts";
-export { Product } from "./Product.ts";
-export type { Order } from "./Order.ts";
+export { User } from "./User.js";
+export { Product } from "./Product.js";
+export type { Order } from "./Order.js";
 
 // App.ts
-import { User, Product } from "./models/index.ts";
+import { User, Product } from "./models/index.js";
 ```
 
 ### Namespace Imports
 
 ```typescript
-import * as utils from "./utils.ts";
+import * as utils from "./utils.js";
 console.log(utils.PI);
 utils.add(1, 2);
 ```
@@ -371,7 +371,7 @@ Run with:
 Return an exit code to indicate success or failure:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 export function main(): int {
   if (errorCondition) {

@@ -18,7 +18,7 @@ How TypeScript types are converted to C# types.
 
 ## Explicit Numeric Types
 
-From `@tsonic/types`:
+From `@tsonic/core`:
 
 | TypeScript | C#        | .NET Type      |
 | ---------- | --------- | -------------- |

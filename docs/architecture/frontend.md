@@ -147,7 +147,7 @@ Transforms generator functions for C# emission:
 
 Recovers numeric intent from declarations:
 
-- Detects `int`, `long`, `byte`, etc. from `@tsonic/types`
+- Detects `int`, `long`, `byte`, etc. from `@tsonic/core`
 - Tracks numeric type through expressions
 - Enables clean integer emission without cosmetic casts
 

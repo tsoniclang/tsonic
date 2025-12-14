@@ -20,10 +20,10 @@ How TypeScript types map to C# types in Tsonic.
 
 ### Explicit Numeric Types
 
-Use `@tsonic/types` for precise numeric control:
+Use `@tsonic/core` for precise numeric control:
 
 ```typescript
-import { int, float, long, byte, short } from "@tsonic/types";
+import { int, float, long, byte, short } from "@tsonic/core/types.js";
 
 const count: int = 42; // System.Int32
 const ratio: float = 3.14; // System.Single
@@ -43,7 +43,7 @@ const y = 3.14; // double
 const z = x / 4; // 10.5 (floating point division)
 
 // Integer math
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 const a: int = 42;
 const b: int = 4;
 const c = a / b; // Integer division in C#

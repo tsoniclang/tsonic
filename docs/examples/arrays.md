@@ -217,10 +217,10 @@ const withNew = [...arr1.slice(0, 1), 99, ...arr1.slice(1)];
 
 ## Integer Arrays
 
-Use `int` from `@tsonic/types` for integer arrays:
+Use `int` from `@tsonic/core` for integer arrays:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 // Integer array
 const counts: int[] = [1 as int, 2 as int, 3 as int];

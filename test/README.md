@@ -40,7 +40,7 @@ Each fixture is a complete Tsonic project with:
 - `src/index.ts` - TypeScript source code
 - `tsonic.json` or `tsonic.dotnet.json` - Project configuration
 - `expected-output.txt` - Expected console output (optional)
-- `package.json` - NPM dependencies (optional, for @tsonic/types)
+- `package.json` - NPM dependencies (optional, for @tsonic/core)
 
 ## How It Works
 
@@ -58,7 +58,7 @@ Each fixture is a complete Tsonic project with:
 3. Create `tsonic.dotnet.json` configuration
 4. Optionally add:
    - `expected-output.txt` for output validation
-   - `package.json` if using @tsonic/types
+   - `package.json` if using @tsonic/core
    - `e2e.meta.json` with `{"expectFailure": true}` for negative tests
 
 ## Negative Tests

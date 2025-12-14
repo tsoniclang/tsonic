@@ -3,8 +3,8 @@
 // across separate modules without collisions
 
 import { Console } from "@tsonic/dotnet/System";
-import { counter } from "./counter-gen.ts";
-import { accumulator } from "./accumulator-gen.ts";
+import { counter } from "./counter-gen.js";
+import { accumulator } from "./accumulator-gen.js";
 
 export function main(): void {
   // Test counter generator (returns string)

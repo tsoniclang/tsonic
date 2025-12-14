@@ -8,7 +8,7 @@
 
 import { Console } from "@tsonic/dotnet/System";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 // Action<T> - callback with no return value
 export function forEach(items: List<int>, callback: (item: int) => void): void {

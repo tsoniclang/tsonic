@@ -51,8 +51,8 @@ export const resolveImport = (
     });
   }
 
-  // @tsonic/types is a type-only package (phantom types) - no runtime code
-  if (importSpecifier === "@tsonic/types") {
+  // @tsonic/core/types.js is a type-only package (phantom types) - no runtime code
+  if (importSpecifier === "@tsonic/core/types.js") {
     return ok({
       resolvedPath: "", // No file path for type-only packages
       isLocal: false,
@@ -69,34 +69,46 @@ export const resolveImport = (
       "error",
       `Unsupported module import: "${importSpecifier}"`,
       undefined,
-      "Tsonic only supports local imports (with .ts), .NET imports, and registered module bindings"
+      "Tsonic only supports local imports (with .js or .ts), .NET imports, and registered module bindings"
     )
   );
 };
 
 /**
  * Resolve local import with ESM rules
+ *
+ * Accepts both .js and .ts extensions:
+ * - .js is the ESM-compliant extension (resolves to .ts source file)
+ * - .ts is also accepted for convenience
  */
 export const resolveLocalImport = (
   importSpecifier: string,
   containingFile: string,
   sourceRoot: string
 ): Result<ResolvedModule, Diagnostic> => {
-  // Check for .ts extension
-  if (!importSpecifier.endsWith(".ts")) {
+  // Check for .js or .ts extension
+  const hasJsExtension = importSpecifier.endsWith(".js");
+  const hasTsExtension = importSpecifier.endsWith(".ts");
+
+  if (!hasJsExtension && !hasTsExtension) {
     return error(
       createDiagnostic(
         "TSN1001",
         "error",
-        `Local import must have .ts extension: "${importSpecifier}"`,
+        `Local import must have .js or .ts extension: "${importSpecifier}"`,
         undefined,
-        `Change to: "${importSpecifier}.ts"`
+        `Change to: "${importSpecifier}.js" (ESM) or "${importSpecifier}.ts"`
       )
     );
   }
 
   const containingDir = path.dirname(containingFile);
-  const resolvedPath = path.resolve(containingDir, importSpecifier);
+
+  // If .js extension, resolve to .ts source file
+  const tsSpecifier = hasJsExtension
+    ? importSpecifier.slice(0, -3) + ".ts"
+    : importSpecifier;
+  const resolvedPath = path.resolve(containingDir, tsSpecifier);
 
   // Check if file exists
   if (!fs.existsSync(resolvedPath)) {

@@ -1,3 +1,3 @@
-// Barrel file - re-exports from user.ts
-export type { User } from "./user.ts";
-export { createUser } from "./user.ts";
+// Barrel file - re-exports from user.js
+export type { User } from "./user.js";
+export { createUser } from "./user.js";

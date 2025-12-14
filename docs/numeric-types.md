@@ -1,6 +1,6 @@
 # Numeric Types
 
-Tsonic provides precise control over numeric types through the `@tsonic/types` package. This guide covers when and how to use integer types in your Tsonic programs.
+Tsonic provides precise control over numeric types through the `@tsonic/core` package. This guide covers when and how to use integer types in your Tsonic programs.
 
 ## Overview
 
@@ -11,13 +11,13 @@ By default, TypeScript's `number` type maps to C#'s `double` (64-bit floating po
 const x = 42; // C#: double x = 42.0;
 
 // Integer: int → System.Int32
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 const y = 42 as int; // C#: int y = 42;
 ```
 
 ## Available Integer Types
 
-Import from `@tsonic/types`:
+Import from `@tsonic/core`:
 
 | TypeScript | C# Type  | Range             | Use Case                  |
 | ---------- | -------- | ----------------- | ------------------------- |
@@ -38,7 +38,7 @@ Import from `@tsonic/types`:
 Use `as int` to narrow a number to an integer:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const count = 10 as int;
 const index = 0 as int;
@@ -48,7 +48,7 @@ const max = 100 as int;
 Or use type annotations:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const count: int = 10 as int;
 ```
@@ -58,7 +58,7 @@ const count: int = 10 as int;
 Integer operations produce integer results:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const x = 10 as int;
 const y = 20 as int;
@@ -74,7 +74,7 @@ const product = x * y; // 200
 Integer division truncates toward zero (unlike JavaScript):
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const a = 10 as int;
 const b = 3 as int;
@@ -92,7 +92,7 @@ const quotient = c / d; // 3
 Many .NET APIs require integer parameters:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
 const list = new List<string>();
@@ -109,7 +109,7 @@ const item = list.get(idx);
 Some LINQ methods require integer return values:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 import { Enumerable } from "@tsonic/dotnet/System.Linq";
 
@@ -125,7 +125,7 @@ const total = Enumerable.sum(numbers);
 Use integers for array access to avoid floating-point issues:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const items: string[] = ["a", "b", "c", "d"];
 const idx = 2 as int;
@@ -141,7 +141,7 @@ const nextItem = items[nextIdx]; // "d"
 Use integers for loop counters:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const max = 10 as int;
 for (let i = 0 as int; (i as int) < max; i = (i + 1) as int) {
@@ -167,7 +167,7 @@ const total = price + tax;
 Use `as int` to convert a number expression to integer:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const x = 10 as int;
 const y = 3 as int;
@@ -181,7 +181,7 @@ const result: int = ((x + y) * 2) as int;
 Multiple `as int` on the same expression produces clean code:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const x = 10 as int;
 const y = 20 as int;
@@ -198,7 +198,7 @@ The compiler optimizes away redundant casts.
 When mixing int and number, the result promotes to number:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const intVal = 10 as int;
 const numVal = 3.5;
@@ -209,7 +209,7 @@ const result = intVal + numVal; // double result: 13.5
 To get an integer result, narrow explicitly:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const intVal = 10 as int;
 const numVal = 3.5;
@@ -224,7 +224,7 @@ const intResult = (intVal + numVal) as int; // int result: 13
 Declare function parameters with integer types:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function factorial(n: int): int {
   if (n <= 1) return 1 as int;
@@ -239,7 +239,7 @@ const result = factorial(5 as int); // 120
 Functions can return integer types:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function sumRange(start: int, end: int): int {
   let total = 0 as int;
@@ -255,7 +255,7 @@ function sumRange(start: int, end: int): int {
 ### Counter Variables
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 let count = 0 as int;
 count = (count + 1) as int;
@@ -264,7 +264,7 @@ count = (count + 1) as int;
 ### Array Length Access
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const items: string[] = ["a", "b", "c"];
 const len = items.length as int;
@@ -275,7 +275,7 @@ const lastItem = items[lastIdx];
 ### Modulo Operations
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const value = 17 as int;
 const divisor = 5 as int;
@@ -287,7 +287,7 @@ const remainder = value % divisor; // 2
 Integer types support all bitwise operations:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const a = 0b1010 as int; // 10
 const b = 0b1100 as int; // 12
@@ -315,7 +315,7 @@ const right = a >> 1; // 5
 Tsonic generates clean C# without unnecessary casts:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const x = 10 as int;
 const y = 20 as int;
@@ -349,7 +349,7 @@ You need to narrow the expression:
 const x: int = 10 + 5;
 
 // Fix
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 const x: int = (10 + 5) as int;
 ```
 
@@ -358,7 +358,7 @@ const x: int = (10 + 5) as int;
 Ensure array indices are integers:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const items: string[] = ["a", "b", "c"];
 const idx = 1 as int;
@@ -370,7 +370,7 @@ const item = items[idx]; // OK
 Use integer types for LINQ operations that expect them:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
 const nums = new List<int>();

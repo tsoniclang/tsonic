@@ -20,7 +20,7 @@ const jsGlobalsPath = path.join(
   monorepoRoot,
   "node_modules/@tsonic/js-globals"
 );
-const typesPath = path.join(monorepoRoot, "node_modules/@tsonic/types");
+const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 interface TestEntry {
   input: string;
@@ -54,7 +54,7 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
           projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
           sourceRoot,
           rootNamespace,
-          typeRoots: [jsGlobalsPath, typesPath],
+          typeRoots: [jsGlobalsPath, corePath],
         });
 
         if (!compileResult.ok) {

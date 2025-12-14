@@ -15,29 +15,29 @@ import { substituteTypeArgs } from "../core/type-resolution.js";
 
 /**
  * C# primitive type names that can be emitted directly without qualification.
- * These correspond to the types defined in @tsonic/types package.
+ * These correspond to the types defined in @tsonic/core package.
  */
 const CSHARP_PRIMITIVES = new Set([
-  // Signed integers (from @tsonic/types)
+  // Signed integers (from @tsonic/core)
   "sbyte",
   "short",
   "int",
   "long",
   "nint",
   "int128",
-  // Unsigned integers (from @tsonic/types)
+  // Unsigned integers (from @tsonic/core)
   "byte",
   "ushort",
   "uint",
   "ulong",
   "nuint",
   "uint128",
-  // Floating-point (from @tsonic/types)
+  // Floating-point (from @tsonic/core)
   "half",
   "float",
   "double",
   "decimal",
-  // Other primitives (from @tsonic/types)
+  // Other primitives (from @tsonic/core)
   "bool",
   "char",
   // Additional C# keywords that are valid type names

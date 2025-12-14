@@ -29,7 +29,7 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
 };
 
 /**
- * Check if a TypeScript type is a numeric alias from @tsonic/types.
+ * Check if a TypeScript type is a numeric alias from @tsonic/core.
  * Returns true for types like `int`, `byte`, `float`, etc.
  *
  * This is used to prevent numeric intent from leaking through contextual typing.
@@ -64,7 +64,7 @@ const isNumericAliasType = (tsType: ts.Type): boolean => {
  *   returns undefined to avoid incorrect recovery from partial declaration merges
  *
  * NOTE: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
- * not package-path based. Do not add special casing for @tsonic/types paths.
+ * not package-path based. Do not add special casing for @tsonic/core paths.
  */
 const tryRecoverNumericReferenceFromPropertyDecl = (
   propSymbol: ts.Symbol
@@ -121,7 +121,7 @@ const tryRecoverNumericReferenceFromPropertyDecl = (
  * returns undefined to avoid incorrect recovery.
  *
  * NOTE: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
- * not package-path based. Do not add special casing for @tsonic/types paths.
+ * not package-path based. Do not add special casing for @tsonic/core paths.
  */
 const tryRecoverNumericReferenceFromSignatureReturnDecl = (
   signature: ts.Signature
@@ -208,7 +208,7 @@ export const getInferredType = (
     //
     // IMPORTANT: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
     // not package-path based. We recognize `int`, `long`, `byte`, etc. by NAME only.
-    // Do not add special casing for "@tsonic/types" or other package paths.
+    // Do not add special casing for "@tsonic/core" or other package paths.
     if (result?.kind === "primitiveType" && result.name === "number") {
       // For property access like arr.length, check the property declaration
       if (ts.isPropertyAccessExpression(node)) {
