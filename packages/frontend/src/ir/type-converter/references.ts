@@ -166,106 +166,121 @@ const extractStructuralMembers = (
     return undefined;
   }
 
-  // Mark as in-progress before recursing
+  // Mark as in-progress before recursing.
+  // IMPORTANT: Use try/finally to ensure cache is always settled.
+  // If typeToTypeNode() or convertType() throws, we must not leave
+  // "in-progress" in the cache (would cause future lookups to fail).
   structuralMembersCache.set(resolvedType, "in-progress");
 
-  // Get properties
-  const properties = resolvedType.getProperties();
-  if (!properties || properties.length === 0) {
+  try {
+    // Get properties
+    const properties = resolvedType.getProperties();
+    if (!properties || properties.length === 0) {
+      structuralMembersCache.set(resolvedType, null);
+      return undefined;
+    }
+
+    // Check for index signatures - can't fully represent these structurally
+    const stringIndexType = checker.getIndexInfoOfType(
+      resolvedType,
+      ts.IndexKind.String
+    );
+    const numberIndexType = checker.getIndexInfoOfType(
+      resolvedType,
+      ts.IndexKind.Number
+    );
+    if (stringIndexType || numberIndexType) {
+      structuralMembersCache.set(resolvedType, null);
+      return undefined;
+    }
+
+    // Extract members
+    const members: IrInterfaceMember[] = [];
+
+    for (const prop of properties) {
+      const propName = prop.getName();
+
+      // Skip non-string keys (symbols, computed) - don't bail entirely
+      if (propName.startsWith("__@") || propName.startsWith("[")) {
+        continue; // Skip this property, keep extracting others
+      }
+
+      const propType = checker.getTypeOfSymbolAtLocation(prop, node);
+      const declarations = prop.getDeclarations();
+
+      // Check optional/readonly
+      const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+      const isReadonly =
+        declarations?.some((decl) => {
+          if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
+            return (
+              decl.modifiers?.some(
+                (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+              ) ?? false
+            );
+          }
+          return false;
+        }) ?? false;
+
+      // Check if it's a method
+      const isMethod =
+        declarations?.some(
+          (decl) => ts.isMethodSignature(decl) || ts.isMethodDeclaration(decl)
+        ) ?? false;
+
+      const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
+      const propTypeNode = checker.typeToTypeNode(
+        propType,
+        node,
+        typeNodeFlags
+      );
+
+      if (isMethod && propTypeNode && ts.isFunctionTypeNode(propTypeNode)) {
+        // Method signature
+        const methSig: IrMethodSignature = {
+          kind: "methodSignature",
+          name: propName,
+          parameters: propTypeNode.parameters.map((param, index) => ({
+            kind: "parameter" as const,
+            pattern: {
+              kind: "identifierPattern" as const,
+              name: ts.isIdentifier(param.name)
+                ? param.name.text
+                : `arg${index}`,
+            },
+            type: param.type ? convertType(param.type, checker) : undefined,
+            isOptional: !!param.questionToken,
+            isRest: !!param.dotDotDotToken,
+            passing: "value" as const,
+          })),
+          returnType: propTypeNode.type
+            ? convertType(propTypeNode.type, checker)
+            : undefined,
+        };
+        members.push(methSig);
+      } else {
+        // Property signature
+        const propSig: IrPropertySignature = {
+          kind: "propertySignature",
+          name: propName,
+          type: propTypeNode
+            ? convertType(propTypeNode, checker)
+            : { kind: "anyType" },
+          isOptional,
+          isReadonly,
+        };
+        members.push(propSig);
+      }
+    }
+
+    const result = members.length > 0 ? members : undefined;
+    structuralMembersCache.set(resolvedType, result ?? null);
+    return result;
+  } catch {
+    // On any error, settle cache to null (not extractable)
     structuralMembersCache.set(resolvedType, null);
     return undefined;
   }
-
-  // Check for index signatures - can't fully represent these structurally
-  const stringIndexType = checker.getIndexInfoOfType(
-    resolvedType,
-    ts.IndexKind.String
-  );
-  const numberIndexType = checker.getIndexInfoOfType(
-    resolvedType,
-    ts.IndexKind.Number
-  );
-  if (stringIndexType || numberIndexType) {
-    structuralMembersCache.set(resolvedType, null);
-    return undefined;
-  }
-
-  // Extract members
-  const members: IrInterfaceMember[] = [];
-
-  for (const prop of properties) {
-    const propName = prop.getName();
-
-    // Skip non-string keys (symbols, computed) - don't bail entirely
-    if (propName.startsWith("__@") || propName.startsWith("[")) {
-      continue; // Skip this property, keep extracting others
-    }
-
-    const propType = checker.getTypeOfSymbolAtLocation(prop, node);
-    const declarations = prop.getDeclarations();
-
-    // Check optional/readonly
-    const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-    const isReadonly =
-      declarations?.some((decl) => {
-        if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
-          return (
-            decl.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-            ) ?? false
-          );
-        }
-        return false;
-      }) ?? false;
-
-    // Check if it's a method
-    const isMethod =
-      declarations?.some(
-        (decl) => ts.isMethodSignature(decl) || ts.isMethodDeclaration(decl)
-      ) ?? false;
-
-    const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
-    const propTypeNode = checker.typeToTypeNode(propType, node, typeNodeFlags);
-
-    if (isMethod && propTypeNode && ts.isFunctionTypeNode(propTypeNode)) {
-      // Method signature
-      const methSig: IrMethodSignature = {
-        kind: "methodSignature",
-        name: propName,
-        parameters: propTypeNode.parameters.map((param, index) => ({
-          kind: "parameter" as const,
-          pattern: {
-            kind: "identifierPattern" as const,
-            name: ts.isIdentifier(param.name) ? param.name.text : `arg${index}`,
-          },
-          type: param.type ? convertType(param.type, checker) : undefined,
-          isOptional: !!param.questionToken,
-          isRest: !!param.dotDotDotToken,
-          passing: "value" as const,
-        })),
-        returnType: propTypeNode.type
-          ? convertType(propTypeNode.type, checker)
-          : undefined,
-      };
-      members.push(methSig);
-    } else {
-      // Property signature
-      const propSig: IrPropertySignature = {
-        kind: "propertySignature",
-        name: propName,
-        type: propTypeNode
-          ? convertType(propTypeNode, checker)
-          : { kind: "anyType" },
-        isOptional,
-        isReadonly,
-      };
-      members.push(propSig);
-    }
-  }
-
-  const result = members.length > 0 ? members : undefined;
-  structuralMembersCache.set(resolvedType, result ?? null);
-  return result;
 };
 
 /**
