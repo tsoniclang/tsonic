@@ -55,40 +55,8 @@ export const emitArray = (
   // Determine element type from expected type or inferred type
   let elementType = "object";
 
-  // Check if all elements are literals to infer element type
-  const definedElements = expr.elements.filter(
-    (el): el is IrExpression => el !== undefined
-  );
-
-  if (definedElements.length > 0) {
-    const allLiterals = definedElements.every((el) => el.kind === "literal");
-
-    if (allLiterals) {
-      const literals = definedElements as Extract<
-        IrExpression,
-        { kind: "literal" }
-      >[];
-
-      // Check if all are numbers
-      const allNumbers = literals.every((lit) => typeof lit.value === "number");
-
-      if (allNumbers) {
-        // TypeScript `number` is always `double` in C#
-        // Even if all literals are integers, use double for TS semantics
-        elementType = "double";
-      }
-      // Check if all are strings
-      else if (literals.every((lit) => typeof lit.value === "string")) {
-        elementType = "string";
-      }
-      // Check if all are booleans
-      else if (literals.every((lit) => typeof lit.value === "boolean")) {
-        elementType = "bool";
-      }
-    }
-  }
-
-  // Use expected/inferred type if available (takes precedence over literal inference)
+  // Priority 1: Use explicit type annotation if provided (e.g., const arr: number[] = [1, 2, 3])
+  // This ensures the array type matches the declared variable type
   if (expectedType) {
     if (expectedType.kind === "arrayType") {
       const [elemTypeStr, newContext] = emitType(
@@ -111,10 +79,51 @@ export const emitArray = (
       }
     }
   }
-  // If no expectedType, try to use the inferredType from the expression
-  else if (expr.inferredType && expr.inferredType.kind === "arrayType") {
-    // Only use inferredType if we didn't already determine the type from literals
-    if (elementType === "object") {
+
+  // Priority 2: If no explicit type, infer from literals (e.g., const arr = [1, 2, 3])
+  // All integers → int, any decimal → double, all strings → string, all bools → bool
+  if (elementType === "object") {
+    const definedElements = expr.elements.filter(
+      (el): el is IrExpression => el !== undefined
+    );
+
+    if (definedElements.length > 0) {
+      const allLiterals = definedElements.every((el) => el.kind === "literal");
+
+      if (allLiterals) {
+        const literals = definedElements as Extract<
+          IrExpression,
+          { kind: "literal" }
+        >[];
+
+        // Check if all are numbers
+        const allNumbers = literals.every(
+          (lit) => typeof lit.value === "number"
+        );
+
+        if (allNumbers) {
+          // Infer int vs double from numericIntent (based on raw lexeme)
+          // All Int32 → int, any Double → double
+          const hasDouble = literals.some(
+            (lit) => lit.numericIntent === "Double"
+          );
+          elementType = hasDouble ? "double" : "int";
+        }
+        // Check if all are strings
+        else if (literals.every((lit) => typeof lit.value === "string")) {
+          elementType = "string";
+        }
+        // Check if all are booleans
+        else if (literals.every((lit) => typeof lit.value === "boolean")) {
+          elementType = "bool";
+        }
+      }
+    }
+  }
+
+  // Priority 3: Fall back to inferred type from expression
+  if (elementType === "object") {
+    if (expr.inferredType && expr.inferredType.kind === "arrayType") {
       const [elemTypeStr, newContext] = emitType(
         expr.inferredType.elementType,
         currentContext
@@ -203,14 +212,21 @@ export const emitArray = (
     expectedType?.kind === "arrayType" &&
     expectedType.origin === "explicit";
 
+  // In dotnet mode, use new[] { } syntax to let C# infer array type
+  // This works for non-empty arrays with literal values
+  const useInferredArraySyntax =
+    runtime === "dotnet" && elements.length > 0 && !shouldEmitNativeArray;
+
   // Use constructor syntax for empty arrays, initializer syntax for non-empty
-  const text = shouldEmitNativeArray
-    ? elements.length === 0
-      ? `new ${elementType}[0]`
-      : `new ${elementType}[] { ${elements.join(", ")} }`
-    : elements.length === 0
-      ? `new global::System.Collections.Generic.List<${elementType}>()`
-      : `new global::System.Collections.Generic.List<${elementType}> { ${elements.join(", ")} }`;
+  const text = useInferredArraySyntax
+    ? `new[] { ${elements.join(", ")} }`
+    : shouldEmitNativeArray
+      ? elements.length === 0
+        ? `new ${elementType}[0]`
+        : `new ${elementType}[] { ${elements.join(", ")} }`
+      : elements.length === 0
+        ? `new global::System.Collections.Generic.List<${elementType}>()`
+        : `new global::System.Collections.Generic.List<${elementType}> { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

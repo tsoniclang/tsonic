@@ -1,3 +1,7 @@
+// Generated from: business-logic.ts
+// Generated at: 2025-12-13T16:22:31.606Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.businesslogic
 {
     public class __Anon_business_logic_152_61
@@ -48,7 +52,7 @@ namespace TestCases.realworld.businesslogic
 
         public bool addItem(Product product, double quantity)
             {
-            if (quantity <= 0.0 || quantity > product.stock)
+            if (quantity <= 0 || quantity > product.stock)
                 {
                 return false;
                 }
@@ -72,9 +76,9 @@ namespace TestCases.realworld.businesslogic
         public bool removeItem(string productId)
             {
             var index = global::Tsonic.JSRuntime.Array.findIndex(this.items, (CartItem item) => item.product.id == productId);
-            if (index != (int)(-1.0))
+            if (index != -1)
                 {
-                global::Tsonic.JSRuntime.Array.splice(this.items, index, 1.0);
+                global::Tsonic.JSRuntime.Array.splice(this.items, index, 1);
                 return true;
                 }
             return false;
@@ -87,7 +91,7 @@ namespace TestCases.realworld.businesslogic
                 {
                 return false;
                 }
-            if (quantity <= 0.0)
+            if (quantity <= 0)
                 {
                 return this.removeItem(productId);
                 }
@@ -101,12 +105,12 @@ namespace TestCases.realworld.businesslogic
 
         public double getTotal()
             {
-            return global::Tsonic.JSRuntime.Array.reduce(this.items, (double sum, CartItem item) => sum + item.product.price * item.quantity, 0.0);
+            return global::Tsonic.JSRuntime.Array.reduce(this.items, (double sum, CartItem item) => sum + item.product.price * item.quantity, 0);
             }
 
         public double getItemCount()
             {
-            return global::Tsonic.JSRuntime.Array.reduce(this.items, (double sum, CartItem item) => sum + item.quantity, 0.0);
+            return global::Tsonic.JSRuntime.Array.reduce(this.items, (double sum, CartItem item) => sum + item.quantity, 0);
             }
 
         public global::System.Collections.Generic.List<CartItem> getItems()
@@ -123,41 +127,41 @@ namespace TestCases.realworld.businesslogic
     {
         public static double applyPercentageDiscount(double price, double percentage)
             {
-            if (percentage < 0.0 || percentage > 100.0)
+            if (percentage < 0 || percentage > 100)
                 {
                 throw new Error("Invalid discount percentage");
                 }
-            return price * (1.0 - percentage / 100.0);
+            return price * (1 - percentage / 100);
             }
 
         public static double applyFixedDiscount(double price, double discount)
             {
             var result = price - discount;
-            return result < 0.0 ? 0.0 : result;
+            return result < 0 ? 0 : result;
             }
 
         public static double calculateBulkDiscount(double quantity, double price)
             {
-            if (quantity >= 100.0)
+            if (quantity >= 100)
                 {
-                return this.applyPercentageDiscount(price, 20.0);
+                return this.applyPercentageDiscount(price, 20);
                 }
             else
-                if (quantity >= 50.0)
+                if (quantity >= 50)
                     {
-                    return this.applyPercentageDiscount(price, 15.0);
+                    return this.applyPercentageDiscount(price, 15);
                     }
                 else
-                    if (quantity >= 10.0)
+                    if (quantity >= 10)
                         {
-                        return this.applyPercentageDiscount(price, 10.0);
+                        return this.applyPercentageDiscount(price, 10);
                         }
             return price;
             }
     }
     public class OrderProcessor
     {
-        private double nextOrderId = 1.0;
+        private double nextOrderId = 1;
 
         public Order createOrder(ShoppingCart cart)
             {

@@ -7,8 +7,8 @@ function formatUser(user: User): string {
 }
 
 export function main(): void {
-  const alice: User = createUser(1, "Alice");
-  const bob: User = createUser(2, "Bob");
+  const alice: User = createUser(1.0, "Alice");
+  const bob: User = createUser(2.0, "Bob");
 
   Console.writeLine(formatUser(alice));
   Console.writeLine(formatUser(bob));

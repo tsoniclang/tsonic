@@ -1,0 +1,4 @@
+{
+  "expectFailure": true,
+  "description": "TSN5110: Type alias object property with int literal where number expected"
+}

@@ -115,4 +115,9 @@ export {
   getBinaryResultKind,
   literalFitsInKind,
   isWideningConversion,
+  // Numeric helpers (literal type inference)
+  isValidIntegerLexeme,
+  parseBigIntFromRaw,
+  bigIntFitsInKind,
+  inferNumericKindFromRaw,
 } from "./types/index.js";

@@ -3,8 +3,19 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrDictionaryType } from "../types.js";
-import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
+import {
+  IrType,
+  IrDictionaryType,
+  IrInterfaceMember,
+  IrPropertySignature,
+  IrMethodSignature,
+} from "../types.js";
+import {
+  isPrimitiveTypeName,
+  getPrimitiveType,
+  isClrPrimitiveTypeName,
+  getClrPrimitiveType,
+} from "./primitives.js";
 import {
   isExpandableUtilityType,
   expandUtilityType,
@@ -12,6 +23,265 @@ import {
   expandConditionalUtilityType,
   expandRecordType,
 } from "./utility-types.js";
+
+/**
+ * Cache for structural member extraction to prevent infinite recursion
+ * on recursive types like `type Node = { next: Node }`.
+ *
+ * Key: ts.Type (by identity)
+ * Value: extracted members, null (not extractable), or "in-progress" sentinel
+ */
+const structuralMembersCache = new WeakMap<
+  ts.Type,
+  readonly IrInterfaceMember[] | null | "in-progress"
+>();
+
+/**
+ * Check if a type should have structural members extracted.
+ *
+ * Only extract for:
+ * - Interfaces (InterfaceDeclaration)
+ * - Type aliases to object types (TypeAliasDeclaration)
+ *
+ * Do NOT extract for:
+ * - Classes (have implementation, not just shape)
+ * - Enums, namespaces
+ * - Library types (from node_modules or lib.*.d.ts)
+ * - CLR interop types
+ * - Union/intersection types (ambiguous property semantics)
+ */
+const shouldExtractStructuralMembers = (
+  resolvedType: ts.Type,
+  _checker: ts.TypeChecker
+): boolean => {
+  // Don't extract for type parameters
+  if (resolvedType.flags & ts.TypeFlags.TypeParameter) {
+    return false;
+  }
+
+  // Don't extract for union types (ambiguous property semantics)
+  if (resolvedType.isUnion()) {
+    return false;
+  }
+
+  // Don't extract for intersection types (conservative)
+  if (resolvedType.isIntersection()) {
+    return false;
+  }
+
+  // Check the symbol to determine if this is a structural type we should extract
+  const symbol = resolvedType.getSymbol();
+  if (!symbol) {
+    return false;
+  }
+
+  const declarations = symbol.getDeclarations();
+  if (!declarations || declarations.length === 0) {
+    return false;
+  }
+
+  // Check if ANY declaration is from a library file (node_modules or lib.*.d.ts)
+  for (const decl of declarations) {
+    const sourceFile = decl.getSourceFile();
+    const fileName = sourceFile.fileName;
+
+    // Skip library types
+    if (
+      fileName.includes("node_modules") ||
+      fileName.includes("lib.") ||
+      sourceFile.isDeclarationFile
+    ) {
+      return false;
+    }
+  }
+
+  // Check the first declaration to determine type
+  const firstDecl = declarations[0];
+  if (!firstDecl) {
+    return false;
+  }
+
+  // Only extract for interfaces and type aliases
+  if (ts.isInterfaceDeclaration(firstDecl)) {
+    return true;
+  }
+
+  if (ts.isTypeAliasDeclaration(firstDecl)) {
+    // Only extract if the alias resolves to an object-like type
+    // (has properties, not a primitive/union/etc)
+    const properties = resolvedType.getProperties();
+    return properties !== undefined && properties.length > 0;
+  }
+
+  // TypeLiteral: When a type alias resolves to an object type like `type Config = { x: number }`,
+  // TypeScript's getTypeAtLocation returns the underlying object type, whose declaration is TypeLiteral.
+  // We need to extract structural members in this case too.
+  if (ts.isTypeLiteralNode(firstDecl)) {
+    const properties = resolvedType.getProperties();
+    return properties !== undefined && properties.length > 0;
+  }
+
+  // Don't extract for classes, enums, etc.
+  return false;
+};
+
+/**
+ * Extract structural members from a resolved type.
+ *
+ * Used to populate structuralMembers on referenceType for interfaces and type aliases.
+ * This enables TSN5110 validation for object literal properties against expected types.
+ *
+ * Safety guards:
+ * - Only extracts for interfaces/type-aliases (not classes, enums, lib types)
+ * - Uses cache to prevent infinite recursion on recursive types
+ * - Skips unsupported keys instead of bailing entirely
+ * - Returns undefined for union/intersection (conservative)
+ * - Returns undefined for index signatures (can't fully represent)
+ *
+ * @param resolvedType - The resolved TypeScript type
+ * @param node - The enclosing node for type-to-node conversion
+ * @param checker - The TypeScript type checker
+ * @param convertType - Function to convert nested types
+ * @returns Structural members or undefined if extraction fails/skipped
+ */
+const extractStructuralMembers = (
+  resolvedType: ts.Type,
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+): readonly IrInterfaceMember[] | undefined => {
+  // Check cache first (handles recursion)
+  const cached = structuralMembersCache.get(resolvedType);
+  if (cached === "in-progress") {
+    // Recursive reference - return undefined to break cycle
+    return undefined;
+  }
+  if (cached !== undefined) {
+    return cached === null ? undefined : cached;
+  }
+
+  // Gate: only extract for structural types we own
+  if (!shouldExtractStructuralMembers(resolvedType, checker)) {
+    structuralMembersCache.set(resolvedType, null);
+    return undefined;
+  }
+
+  // Mark as in-progress before recursing.
+  // IMPORTANT: Use try/finally to ensure cache is always settled.
+  // If typeToTypeNode() or convertType() throws, we must not leave
+  // "in-progress" in the cache (would cause future lookups to fail).
+  structuralMembersCache.set(resolvedType, "in-progress");
+
+  try {
+    // Get properties
+    const properties = resolvedType.getProperties();
+    if (!properties || properties.length === 0) {
+      structuralMembersCache.set(resolvedType, null);
+      return undefined;
+    }
+
+    // Check for index signatures - can't fully represent these structurally
+    const stringIndexType = checker.getIndexInfoOfType(
+      resolvedType,
+      ts.IndexKind.String
+    );
+    const numberIndexType = checker.getIndexInfoOfType(
+      resolvedType,
+      ts.IndexKind.Number
+    );
+    if (stringIndexType || numberIndexType) {
+      structuralMembersCache.set(resolvedType, null);
+      return undefined;
+    }
+
+    // Extract members
+    const members: IrInterfaceMember[] = [];
+
+    for (const prop of properties) {
+      const propName = prop.getName();
+
+      // Skip non-string keys (symbols, computed) - don't bail entirely
+      if (propName.startsWith("__@") || propName.startsWith("[")) {
+        continue; // Skip this property, keep extracting others
+      }
+
+      const propType = checker.getTypeOfSymbolAtLocation(prop, node);
+      const declarations = prop.getDeclarations();
+
+      // Check optional/readonly
+      const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+      const isReadonly =
+        declarations?.some((decl) => {
+          if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
+            return (
+              decl.modifiers?.some(
+                (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+              ) ?? false
+            );
+          }
+          return false;
+        }) ?? false;
+
+      // Check if it's a method
+      const isMethod =
+        declarations?.some(
+          (decl) => ts.isMethodSignature(decl) || ts.isMethodDeclaration(decl)
+        ) ?? false;
+
+      const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
+      const propTypeNode = checker.typeToTypeNode(
+        propType,
+        node,
+        typeNodeFlags
+      );
+
+      if (isMethod && propTypeNode && ts.isFunctionTypeNode(propTypeNode)) {
+        // Method signature
+        const methSig: IrMethodSignature = {
+          kind: "methodSignature",
+          name: propName,
+          parameters: propTypeNode.parameters.map((param, index) => ({
+            kind: "parameter" as const,
+            pattern: {
+              kind: "identifierPattern" as const,
+              name: ts.isIdentifier(param.name)
+                ? param.name.text
+                : `arg${index}`,
+            },
+            type: param.type ? convertType(param.type, checker) : undefined,
+            isOptional: !!param.questionToken,
+            isRest: !!param.dotDotDotToken,
+            passing: "value" as const,
+          })),
+          returnType: propTypeNode.type
+            ? convertType(propTypeNode.type, checker)
+            : undefined,
+        };
+        members.push(methSig);
+      } else {
+        // Property signature
+        const propSig: IrPropertySignature = {
+          kind: "propertySignature",
+          name: propName,
+          type: propTypeNode
+            ? convertType(propTypeNode, checker)
+            : { kind: "anyType" },
+          isOptional,
+          isReadonly,
+        };
+        members.push(propSig);
+      }
+    }
+
+    const result = members.length > 0 ? members : undefined;
+    structuralMembersCache.set(resolvedType, result ?? null);
+    return result;
+  } catch {
+    // On any error, settle cache to null (not extractable)
+    structuralMembersCache.set(resolvedType, null);
+    return undefined;
+  }
+};
 
 /**
  * Convert TypeScript type reference to IR type
@@ -29,6 +299,12 @@ export const convertTypeReference = (
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
     return getPrimitiveType(typeName);
+  }
+
+  // Check for CLR primitive type names (e.g., int from @tsonic/types)
+  // These are compiler-known types that map to distinct primitives, not referenceType
+  if (isClrPrimitiveTypeName(typeName)) {
+    return getClrPrimitiveType(typeName);
   }
 
   // Check for Array<T> utility type → convert to arrayType with explicit origin
@@ -115,10 +391,20 @@ export const convertTypeReference = (
     return { kind: "typeParameterType", name: typeName };
   }
 
+  // Extract structural members for interfaces and type aliases.
+  // This enables TSN5110 validation for object literal properties.
+  const structuralMembers = extractStructuralMembers(
+    type,
+    node,
+    checker,
+    convertType
+  );
+
   // Reference type (user-defined or library)
   return {
     kind: "referenceType",
     name: typeName,
     typeArguments: node.typeArguments?.map((t) => convertType(t, checker)),
+    structuralMembers,
   };
 };

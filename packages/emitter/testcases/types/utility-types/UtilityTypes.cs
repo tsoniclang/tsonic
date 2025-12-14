@@ -1,3 +1,7 @@
+// Generated from: UtilityTypes.ts
+// Generated at: 2025-12-13T16:22:31.781Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.types.utilitytypes
 {
     public class Person

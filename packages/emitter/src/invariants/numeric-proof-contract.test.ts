@@ -42,14 +42,14 @@ const createModuleWithAccess = (options: {
     kind: "literal",
     value: options.indexValue ?? 0,
     raw: options.indexRaw ?? "0",
-    // If indexHasProof is true, pre-annotate with Int32 intent
+    // If indexHasProof is true, pre-annotate with int type
     // (simulating what the proof pass would do)
+    // INVARIANT: primitiveType(name="int") is the proven integer type
     ...(options.indexHasProof
       ? {
           inferredType: {
-            kind: "primitiveType",
-            name: "number",
-            numericIntent: "Int32",
+            kind: "primitiveType" as const,
+            name: "int" as const,
           },
         }
       : {}),
@@ -134,13 +134,13 @@ const createModuleWithIdentifierIndex = (options: {
   const indexExpr: IrExpression = {
     kind: "identifier",
     name: options.indexName,
-    // If indexHasInt32Type, give it Int32 intent
+    // If indexHasInt32Type, give it int type
+    // INVARIANT: primitiveType(name="int") is the proven integer type
     ...(options.indexHasInt32Type
       ? {
           inferredType: {
-            kind: "primitiveType",
-            name: "number",
-            numericIntent: "Int32",
+            kind: "primitiveType" as const,
+            name: "int" as const,
           },
         }
       : {
@@ -266,9 +266,10 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       }
       const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
       const indexExpr = access.property as IrExpression;
+      // Index should have primitiveType(name="int") after proof pass
       expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
       if (indexExpr.inferredType?.kind === "primitiveType") {
-        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+        expect(indexExpr.inferredType.name).to.equal("int");
       }
     });
 
@@ -522,16 +523,17 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       // 2. index is literal 0, which is valid Int32
       expect(result.ok).to.be.true;
 
-      // Verify the index got annotated with Int32 marker
+      // Verify the index got annotated with int type
       const varDecl = result.modules[0]?.body[0] as IrStatement;
       if (varDecl?.kind !== "variableDeclaration") {
         throw new Error("Expected variable declaration");
       }
       const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
       const processedIndex = access.property as IrExpression;
+      // Index should have primitiveType(name="int") after proof pass
       expect(processedIndex.inferredType?.kind).to.equal("primitiveType");
       if (processedIndex.inferredType?.kind === "primitiveType") {
-        expect(processedIndex.inferredType.numericIntent).to.equal("Int32");
+        expect(processedIndex.inferredType.name).to.equal("int");
       }
     });
   });
@@ -590,7 +592,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
   // ============================================================================
 
   describe("Proof pass annotation", () => {
-    it("clrIndexer: valid index gets numericIntent:Int32", () => {
+    it("clrIndexer: valid index gets primitiveType(name='int')", () => {
       const module = createModuleWithAccess({
         accessKind: "clrIndexer",
         indexHasProof: false,
@@ -608,13 +610,14 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
       const indexExpr = access.property as IrExpression;
 
+      // Index should have primitiveType(name="int") after proof pass
       expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
       if (indexExpr.inferredType?.kind === "primitiveType") {
-        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+        expect(indexExpr.inferredType.name).to.equal("int");
       }
     });
 
-    it("jsRuntimeArray: valid index gets numericIntent:Int32", () => {
+    it("jsRuntimeArray: valid index gets primitiveType(name='int')", () => {
       const module = createModuleWithAccess({
         accessKind: "jsRuntimeArray",
         indexHasProof: false,
@@ -632,13 +635,14 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
       const indexExpr = access.property as IrExpression;
 
+      // Index should have primitiveType(name="int") after proof pass
       expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
       if (indexExpr.inferredType?.kind === "primitiveType") {
-        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+        expect(indexExpr.inferredType.name).to.equal("int");
       }
     });
 
-    it("stringChar: valid index gets numericIntent:Int32", () => {
+    it("stringChar: valid index gets primitiveType(name='int')", () => {
       const module = createModuleWithAccess({
         accessKind: "stringChar",
         indexHasProof: false,
@@ -656,9 +660,10 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
       const indexExpr = access.property as IrExpression;
 
+      // Index should have primitiveType(name="int") after proof pass
       expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
       if (indexExpr.inferredType?.kind === "primitiveType") {
-        expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+        expect(indexExpr.inferredType.name).to.equal("int");
       }
     });
   });

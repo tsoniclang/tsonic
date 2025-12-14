@@ -1,3 +1,7 @@
+// Generated from: GenericNullDefault.ts
+// Generated at: 2025-12-13T16:22:31.443Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.edgecases.genericnulldefault
 {
     public class Result <T>

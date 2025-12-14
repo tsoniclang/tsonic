@@ -48,10 +48,10 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // TypeScript number type maps to C# double
+    // Explicit Array<number> type annotation → double element type
     // Uses global:: FQN for unambiguous resolution
     expect(code).to.include(
-      "new global::System.Collections.Generic.List<double> { 1.0, 2.0, 3.0 }"
+      "new global::System.Collections.Generic.List<double> { 1, 2, 3 }"
     );
     // No using statements - all types use global:: FQN
     expect(code).not.to.include("using System.Collections.Generic");
@@ -96,9 +96,9 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should handle sparse array with default - TypeScript number maps to double
+    // Explicit Array<number> type annotation → double element type
     expect(code).to.include(
-      "new global::System.Collections.Generic.List<double> { 1.0, default, 3.0 }"
+      "new global::System.Collections.Generic.List<double> { 1, default, 3 }"
     );
   });
 
@@ -236,8 +236,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should call push method on array instance - TypeScript number emits as double
-    expect(code).to.include("arr.push(3.0)");
+    // Should call push method on array instance - integer literal emits as-is
+    expect(code).to.include("arr.push(3)");
   });
 
   it("should handle array element access", () => {

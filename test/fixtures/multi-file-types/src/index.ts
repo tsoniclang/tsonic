@@ -9,7 +9,7 @@ function greetUser(user: User): void {
 
 // Entry point
 export function main(): void {
-  const alice: User = createUser("Alice", 30);
+  const alice: User = createUser("Alice", 30.0);
   greetUser(alice);
   Console.writeLine("Done");
 }

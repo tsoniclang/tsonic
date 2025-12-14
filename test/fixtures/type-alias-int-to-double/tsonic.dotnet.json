@@ -1,0 +1,7 @@
+{
+  "runtime": "dotnet",
+  "entryPoint": "src/index.ts",
+  "outputDir": "generated",
+  "rootNamespace": "TypeAliasIntToDouble",
+  "strictNumerics": true
+}

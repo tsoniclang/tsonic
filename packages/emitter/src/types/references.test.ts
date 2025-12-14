@@ -339,11 +339,10 @@ describe("Reference Type Emission", () => {
                     property: {
                       kind: "literal",
                       value: 0,
-                      // Proof marker: Int32 literal
+                      // Proof marker: int literal
                       inferredType: {
                         kind: "primitiveType",
-                        name: "number",
-                        numericIntent: "Int32",
+                        name: "int",
                       },
                     },
                     isComputed: true,
@@ -413,11 +412,10 @@ describe("Reference Type Emission", () => {
                     property: {
                       kind: "literal",
                       value: 0,
-                      // Proof marker: Int32 literal
+                      // Proof marker: int literal
                       inferredType: {
                         kind: "primitiveType",
-                        name: "number",
-                        numericIntent: "Int32",
+                        name: "int",
                       },
                     },
                     isComputed: true,

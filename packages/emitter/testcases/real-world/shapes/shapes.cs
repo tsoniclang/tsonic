@@ -1,3 +1,7 @@
+// Generated from: shapes.ts
+// Generated at: 2025-12-13T16:22:31.666Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.shapes
 {
     public class Shape
@@ -35,7 +39,7 @@ namespace TestCases.realworld.shapes
 
         public override double perimeter()
             {
-            return 2.0 * global::Tsonic.JSRuntime.Math.PI * this.radius;
+            return 2 * global::Tsonic.JSRuntime.Math.PI * this.radius;
             }
     }
     public class Rectangle : Shape
@@ -57,7 +61,7 @@ namespace TestCases.realworld.shapes
 
         public override double perimeter()
             {
-            return 2.0 * (this.width + this.height);
+            return 2 * (this.width + this.height);
             }
 
         public bool isSquare()
@@ -83,7 +87,7 @@ namespace TestCases.realworld.shapes
 
         public override double area()
             {
-            return this.@base * this.height / 2.0;
+            return this.@base * this.height / 2;
             }
 
         public override double perimeter()
@@ -96,7 +100,7 @@ namespace TestCases.realworld.shapes
             {
                 public static double totalArea(global::System.Collections.Generic.List<Shape> shapes)
                     {
-                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (double sum, Shape shape) => sum + shape.area(), 0.0);
+                    return global::Tsonic.JSRuntime.Array.reduce(shapes, (double sum, Shape shape) => sum + shape.area(), 0);
                     }
 
                 public static Shape? findLargestShape(global::System.Collections.Generic.List<Shape> shapes)

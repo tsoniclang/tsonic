@@ -1,3 +1,7 @@
+// Generated from: TypeGuardsV2.ts
+// Generated at: 2025-12-13T16:22:31.518Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.functions.typeguardsv2
 {
     public class User

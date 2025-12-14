@@ -1,3 +1,7 @@
+// Generated from: TypeGuards.ts
+// Generated at: 2025-12-13T16:22:31.499Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.functions.typeguards
 {
     public class Dog

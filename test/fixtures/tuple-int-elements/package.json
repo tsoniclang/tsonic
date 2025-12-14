@@ -1,0 +1,10 @@
+{
+  "name": "tuple-int-elements",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@tsonic/globals": "latest",
+    "@tsonic/dotnet": "latest"
+  }
+}

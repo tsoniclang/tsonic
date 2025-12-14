@@ -8,7 +8,6 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { compile, buildIr, runNumericProofPass } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
-import { generateFileHeader } from "../constants.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
 
 // Resolve paths to js-globals and types packages for golden tests
@@ -180,23 +179,13 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     );
   }
 
-  // Read expected output (without header) - only needed for non-diagnostic tests
+  // Read expected output (includes header) - only needed for non-diagnostic tests
   if (!scenario.expectedPath) {
     throw new Error(
       `Expected path missing for successful test: ${scenario.inputPath}`
     );
   }
-  const expectedCsBody = fs.readFileSync(scenario.expectedPath, "utf-8");
-
-  // Generate expected header using shared constant (with TIMESTAMP placeholder)
-  // Use just the filename for comparison (actual files may have full paths)
-  const fileName = path.basename(scenario.inputPath);
-  const expectedHeader = generateFileHeader(fileName, {
-    timestamp: "TIMESTAMP",
-  });
-
-  // Combine header with expected body
-  const expectedCs = expectedHeader + expectedCsBody;
+  const expectedCs = fs.readFileSync(scenario.expectedPath, "utf-8");
 
   // Normalize and compare
   const normalizedActual = normalizeCs(actualCs);

@@ -127,3 +127,11 @@ export {
   literalFitsInKind,
   isWideningConversion,
 } from "./numeric-kind.js";
+
+// Numeric helpers (literal type inference)
+export {
+  isValidIntegerLexeme,
+  parseBigIntFromRaw,
+  bigIntFitsInKind,
+  inferNumericKindFromRaw,
+} from "./numeric-helpers.js";

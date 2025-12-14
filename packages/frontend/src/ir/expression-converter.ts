@@ -250,19 +250,47 @@ export const convertExpression = (
     // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)
     const numericKind = getNumericKindFromTypeNode(assertedTypeNode);
     if (numericKind !== undefined) {
+      // Determine the inferredType based on the targetKind
+      // INVARIANT: "Int32" → primitiveType(name="int")
+      // Other numeric kinds remain as referenceType (handled by assertedType)
+      const inferredType =
+        numericKind === "Int32"
+          ? { kind: "primitiveType" as const, name: "int" as const }
+          : assertedType;
+
       // Create a numeric narrowing expression that preserves the inner expression
       const narrowingExpr: IrNumericNarrowingExpression = {
         kind: "numericNarrowing",
         expression: innerExpr,
         targetKind: numericKind,
-        inferredType: {
-          kind: "primitiveType",
-          name: "number",
-          numericIntent: numericKind,
-        },
+        inferredType,
         sourceSpan: getSourceSpan(node),
       };
       return narrowingExpr;
+    }
+
+    // Check if this is `as number` or `as double` - explicit widening intent
+    // This creates a numericNarrowing with targetKind: "Double" to distinguish
+    // from a plain literal (which also has inferredType: number but no assertion)
+    if (
+      assertedType.kind === "primitiveType" &&
+      assertedType.name === "number"
+    ) {
+      // Check if the inner expression is numeric (literal or already classified)
+      const isNumericInner =
+        (innerExpr.kind === "literal" && typeof innerExpr.value === "number") ||
+        innerExpr.kind === "numericNarrowing";
+
+      if (isNumericInner) {
+        const narrowingExpr: IrNumericNarrowingExpression = {
+          kind: "numericNarrowing",
+          expression: innerExpr,
+          targetKind: "Double",
+          inferredType: assertedType,
+          sourceSpan: getSourceSpan(node),
+        };
+        return narrowingExpr;
+      }
     }
 
     // Non-numeric assertion - keep existing behavior (overwrite inferredType)

@@ -3,7 +3,6 @@
  */
 
 import { IrParameter, IrInterfaceMember } from "./helpers.js";
-import { NumericKind } from "./numeric-kind.js";
 
 export type IrType =
   | IrPrimitiveType
@@ -22,18 +21,28 @@ export type IrType =
   | IrVoidType
   | IrNeverType;
 
+/**
+ * Primitive types in IR.
+ *
+ * INVARIANT A: "number" always emits as C# "double". No exceptions.
+ * INVARIANT B: "int" always emits as C# "int". No exceptions.
+ *
+ * These are distinct types, not decorated versions of each other.
+ * - User writes `: number` → primitiveType(name="number") → emits "double"
+ * - User writes `: int` → primitiveType(name="int") → emits "int"
+ *
+ * The numeric classification of LITERALS is separate (see IrLiteralExpression.numericIntent).
+ * Type-level and expression-level concerns are strictly separated.
+ */
 export type IrPrimitiveType = {
   readonly kind: "primitiveType";
-  readonly name: "string" | "number" | "boolean" | "null" | "undefined";
-  /**
-   * For "number" primitives, captures the programmer's declared numeric intent.
-   * This is populated when the TypeScript source uses a type annotation like
-   * `int`, `long`, `byte`, etc. from @tsonic/types.
-   *
-   * undefined means generic number (emits as double).
-   * Only meaningful when name is "number".
-   */
-  readonly numericIntent?: NumericKind;
+  readonly name:
+    | "string"
+    | "number" // Always double in C#
+    | "int" // Always int in C#
+    | "boolean"
+    | "null"
+    | "undefined";
 };
 
 export type IrReferenceType = {
@@ -42,6 +51,12 @@ export type IrReferenceType = {
   readonly typeArguments?: readonly IrType[];
   /** Fully-qualified CLR type for imported types (e.g., "MyApp.models.User") */
   readonly resolvedClrType?: string;
+  /**
+   * Structural members for interfaces and type aliases that resolve to object types.
+   * Populated when the reference resolves to a structural type (interface, type literal, etc.)
+   * Used by TSN5110 to validate object literal properties against expected types.
+   */
+  readonly structuralMembers?: readonly IrInterfaceMember[];
 };
 
 /**

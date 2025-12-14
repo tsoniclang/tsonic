@@ -1,0 +1,10 @@
+{
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "implicit-int-to-double",
+  "rootNamespace": "ImplicitIntToDouble",
+  "dotnet": {
+    "runtime": "dotnet"
+  }
+}

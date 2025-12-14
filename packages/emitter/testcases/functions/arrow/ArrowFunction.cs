@@ -1,3 +1,7 @@
+// Generated from: ArrowFunction.ts
+// Generated at: 2025-12-13T16:22:31.460Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.functions.arrow
 {
         public static class ArrowFunction

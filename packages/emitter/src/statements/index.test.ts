@@ -170,11 +170,10 @@ describe("Statement Emission", () => {
                             property: {
                               kind: "identifier",
                               name: "i",
-                              // Proof marker: loop counter is Int32
+                              // Proof marker: loop counter is int
                               inferredType: {
                                 kind: "primitiveType",
-                                name: "number",
-                                numericIntent: "Int32",
+                                name: "int",
                               },
                             },
                             isComputed: true,

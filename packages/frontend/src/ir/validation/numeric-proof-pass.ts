@@ -31,6 +31,9 @@ import {
   getBinaryResultKind,
   isIntegerKind,
   TSONIC_TO_NUMERIC_KIND,
+  isValidIntegerLexeme,
+  parseBigIntFromRaw,
+  bigIntFitsInKind,
 } from "../types.js";
 
 /**
@@ -65,7 +68,10 @@ const moduleLocation = (ctx: ProofContext): SourceLocation => ({
 });
 
 /**
- * Extract NumericKind from an IrType if it has numericIntent or is a known numeric type name
+ * Extract NumericKind from an IrType if it represents a known numeric type
+ *
+ * INVARIANT: "int" is a distinct primitive type (primitiveType(name="int")),
+ * NOT primitiveType(name="number") with numericIntent.
  */
 const getNumericKindFromType = (
   type: IrType | undefined
@@ -74,108 +80,18 @@ const getNumericKindFromType = (
     return undefined;
   }
 
-  // Check for primitiveType with numericIntent (from as-expressions)
-  if (type.kind === "primitiveType" && type.name === "number") {
-    return type.numericIntent;
+  // Check for primitiveType(name="int") - distinct integer primitive
+  if (type.kind === "primitiveType" && type.name === "int") {
+    return "Int32";
   }
 
-  // Check for referenceType with known numeric type name (e.g., int, long, float)
+  // Check for referenceType with known numeric type name (e.g., long, float, byte)
   // Use the TSONIC_TO_NUMERIC_KIND map from ir/types
   if (type.kind === "referenceType") {
     return TSONIC_TO_NUMERIC_KIND.get(type.name);
   }
 
   return undefined;
-};
-
-/**
- * Check if a raw lexeme represents a valid integer (no decimal point, no exponent).
- * This is critical for correctness - we must validate the SOURCE text, not the JS number.
- * Supports numeric separators (underscores) per JS/TS syntax: 1_000_000, 0xFF_FF, etc.
- *
- * INVARIANT: This function MUST be called before any parsing (BigInt conversion).
- * The order is: validate → normalize → parse. Never parse unvalidated raw strings.
- *
- * Invalid underscore placement (rejected):
- * - Double underscores: 1__2
- * - Leading underscore: _123
- * - Trailing underscore: 123_
- * - Underscore after prefix: 0x_FF, 0b_10, 0o_77
- */
-const isValidIntegerLexeme = (raw: string): boolean => {
-  // Must not contain decimal point or exponent
-  if (raw.includes(".") || raw.includes("e") || raw.includes("E")) {
-    return false;
-  }
-
-  // Explicit early rejection of invalid underscore placement
-  // (also enforced by regex below, but these are clear invariants)
-  if (raw.includes("__")) {
-    return false; // Double underscore: 1__2
-  }
-  if (raw.startsWith("_") || raw.startsWith("-_")) {
-    return false; // Leading underscore: _123 or -_123
-  }
-  if (raw.endsWith("_")) {
-    return false; // Trailing underscore: 123_
-  }
-  // Underscore immediately after prefix: 0x_FF, 0b_10, 0o_77
-  if (/^-?0[xXoObB]_/.test(raw)) {
-    return false;
-  }
-
-  // Must be a valid integer pattern (optional sign, digits with optional underscores)
-  // Handle hex (0x), octal (0o), binary (0b) prefixes
-  // Underscores can appear between digits but not at start/end or adjacent
-  return /^-?(?:0[xX][\da-fA-F]+(?:_[\da-fA-F]+)*|0[oO][0-7]+(?:_[0-7]+)*|0[bB][01]+(?:_[01]+)*|\d+(?:_\d+)*)$/.test(
-    raw
-  );
-};
-
-/**
- * Parse a raw lexeme as a BigInt for precise range checking.
- * Returns undefined if parsing fails.
- * Strips numeric separators (underscores) before parsing.
- *
- * INVARIANT: Only call this AFTER isValidIntegerLexeme(raw) returns true.
- * The order is: validate → normalize → parse. This function does the normalize + parse steps.
- * Calling with unvalidated input may produce incorrect results (e.g., "1__2" → 12).
- */
-const parseBigIntFromRaw = (raw: string): bigint | undefined => {
-  try {
-    // Step 1: Normalize - strip numeric separators (underscores)
-    // This is safe because isValidIntegerLexeme already validated underscore placement
-    const normalized = raw.replace(/_/g, "");
-
-    // Handle different bases
-    if (normalized.startsWith("0x") || normalized.startsWith("0X")) {
-      return BigInt(normalized);
-    }
-    if (normalized.startsWith("0o") || normalized.startsWith("0O")) {
-      return BigInt(normalized);
-    }
-    if (normalized.startsWith("0b") || normalized.startsWith("0B")) {
-      return BigInt(normalized);
-    }
-    // Handle negative numbers
-    if (normalized.startsWith("-")) {
-      return -BigInt(normalized.slice(1));
-    }
-    return BigInt(normalized);
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * Check if a BigInt value fits within the range of a numeric kind.
- */
-const bigIntFitsInKind = (value: bigint, kind: NumericKind): boolean => {
-  const range = NUMERIC_RANGES.get(kind);
-  if (range === undefined) {
-    return false;
-  }
-  return value >= range.min && value <= range.max;
 };
 
 /**
@@ -663,14 +579,15 @@ const processExpression = (
       const numericKind = varKind ?? paramKind;
 
       if (numericKind !== undefined) {
-        // Update inferredType to include numericIntent
+        // Update inferredType to reflect the proven numeric type
+        // INVARIANT: "Int32" → primitiveType(name="int")
+        const inferredType =
+          numericKind === "Int32"
+            ? { kind: "primitiveType" as const, name: "int" as const }
+            : { kind: "referenceType" as const, name: numericKind };
         return {
           ...expr,
-          inferredType: {
-            kind: "primitiveType",
-            name: "number",
-            numericIntent: numericKind,
-          },
+          inferredType,
         };
       }
       return expr;
@@ -716,15 +633,16 @@ const processExpression = (
       // If both operands have numeric kinds, annotate the binary result
       if (leftKind !== undefined && rightKind !== undefined) {
         const resultKind = getBinaryResultKind(leftKind, rightKind);
+        // INVARIANT: "Int32" → primitiveType(name="int")
+        const inferredType =
+          resultKind === "Int32"
+            ? { kind: "primitiveType" as const, name: "int" as const }
+            : { kind: "referenceType" as const, name: resultKind };
         return {
           ...expr,
           left: processedLeft,
           right: processedRight,
-          inferredType: {
-            kind: "primitiveType",
-            name: "number",
-            numericIntent: resultKind,
-          },
+          inferredType,
         };
       }
 
@@ -859,14 +777,14 @@ const processExpression = (
             };
           }
 
-          // Annotate the index expression with numericIntent so emitter can check it
+          // Annotate the index expression with int type so emitter can check it
           // without re-deriving the proof. This is the ONLY place proof markers should be set.
+          // INVARIANT: Array indices must be primitiveType(name="int")
           const annotatedProperty = {
             ...processedProperty,
             inferredType: {
               kind: "primitiveType" as const,
-              name: "number" as const,
-              numericIntent: "Int32" as NumericKind,
+              name: "int" as const,
             },
           };
           return {

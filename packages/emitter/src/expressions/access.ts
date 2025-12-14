@@ -20,8 +20,8 @@ import {
 // CONTRACT: Emitter ONLY consumes proof markers.
 //
 // The emitter MUST NOT re-derive numeric proofs. It only checks IR markers:
-// - primitiveType(number).numericIntent === "Int32"
-// - referenceType(name === "int")
+// - primitiveType(name="int") - Distinct integer primitive type
+// - referenceType(name === "int") - CLR int from .NET interop
 //
 // NO BigInt parsing, NO parseInt, NO lexeme (.raw) inspection, NO literal
 // special-casing, NO loop-var tables. If the proof pass didn't annotate it,
@@ -34,13 +34,14 @@ import {
  * Check if an expression has proven Int32 type from the numeric proof pass.
  * The emitter MUST NOT re-derive proofs - it only checks markers set by the proof pass.
  * This is the SINGLE source of truth for numeric proofs in the emitter.
+ *
+ * INVARIANT: `int` is a distinct primitive type, NOT `number` with numericIntent.
  */
 const hasInt32Proof = (expr: IrExpression): boolean => {
-  // Check numericIntent from proof pass (set on primitiveType)
+  // Check primitiveType(name="int") - distinct integer primitive
   if (
     expr.inferredType?.kind === "primitiveType" &&
-    expr.inferredType.name === "number" &&
-    expr.inferredType.numericIntent === "Int32"
+    expr.inferredType.name === "int"
   ) {
     return true;
   }
@@ -80,13 +81,19 @@ const isStaticTypeReference = (
   //   (or its inferredType would be "typeof Console" not "Console")
   const objectType = expr.object.inferredType;
 
-  // If object has a reference type (or intersection containing reference types) as inferredType,
-  // it's an instance access. Intersection types are common with tsbindgen-generated types
-  // like TypeName$instance & __TypeName$views.
+  // If object has a value type as inferredType, it's an instance access.
+  // This includes:
+  // - referenceType: class/interface instances (e.g., List<T>)
+  // - arrayType: array instances
+  // - intersectionType: tsbindgen-generated types like TypeName$instance & __TypeName$views
+  // - primitiveType: string, number, boolean primitives with BCL methods
+  // - literalType: string/number/boolean literals like "hello".split()
   if (
     objectType?.kind === "referenceType" ||
     objectType?.kind === "arrayType" ||
-    objectType?.kind === "intersectionType"
+    objectType?.kind === "intersectionType" ||
+    objectType?.kind === "primitiveType" ||
+    objectType?.kind === "literalType"
   ) {
     return false;
   }

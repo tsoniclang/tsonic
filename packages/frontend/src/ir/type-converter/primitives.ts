@@ -1,9 +1,23 @@
 /**
  * Primitive type conversion
+ *
+ * INVARIANT A: "number" always emits as C# "double". No exceptions.
+ * INVARIANT B: "int" always emits as C# "int". No exceptions.
+ *
+ * These are distinct types, not decorated versions of each other.
  */
 
 import * as ts from "typescript";
-import { IrType } from "../types.js";
+import { IrType, IrPrimitiveType } from "../types.js";
+
+/**
+ * CLR numeric type names from @tsonic/types.
+ * When user writes `: int`, it becomes primitiveType(name="int"), NOT referenceType.
+ *
+ * Note: Only "int" is currently supported as a distinct primitive.
+ * Other CLR numerics remain as referenceType for now and are handled by the emitter.
+ */
+const CLR_PRIMITIVE_TYPES = new Set(["int"]);
 
 /**
  * Convert TypeScript primitive keyword to IR type
@@ -34,7 +48,7 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
 };
 
 /**
- * Check if a type name is a primitive type
+ * Check if a type name is a TS primitive type (string, number, boolean, null, undefined)
  */
 export const isPrimitiveTypeName = (
   typeName: string
@@ -45,11 +59,29 @@ export const isPrimitiveTypeName = (
 };
 
 /**
- * Get primitive type IR representation for a type name
+ * Check if a type name is a CLR primitive type (int)
+ * These come from @tsonic/types and are compiler-known primitives.
+ */
+export const isClrPrimitiveTypeName = (typeName: string): typeName is "int" => {
+  return CLR_PRIMITIVE_TYPES.has(typeName);
+};
+
+/**
+ * Get primitive type IR representation for a TS primitive type name
  */
 export const getPrimitiveType = (
   typeName: "string" | "number" | "boolean" | "null" | "undefined"
-): IrType => {
+): IrPrimitiveType => {
+  return {
+    kind: "primitiveType",
+    name: typeName,
+  };
+};
+
+/**
+ * Get primitive type IR representation for a CLR primitive type name
+ */
+export const getClrPrimitiveType = (typeName: "int"): IrPrimitiveType => {
   return {
     kind: "primitiveType",
     name: typeName,

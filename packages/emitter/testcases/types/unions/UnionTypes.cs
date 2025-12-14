@@ -1,3 +1,7 @@
+// Generated from: UnionTypes.ts
+// Generated at: 2025-12-13T16:22:31.774Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.types.unions
 {
         public static class UnionTypes
@@ -16,7 +20,7 @@ namespace TestCases.types.unions
 
             public static double maybeString(string? value)
                 {
-                return value?.length ?? 0.0;
+                return value?.length ?? 0;
                 }
         }
 }

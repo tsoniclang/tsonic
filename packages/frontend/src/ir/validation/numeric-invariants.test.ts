@@ -72,6 +72,7 @@ const numLiteral = (value: number, raw?: string): IrExpression => ({
 
 /**
  * Helper to create a numeric narrowing expression
+ * INVARIANT: "Int32" → primitiveType(name="int"), others → referenceType
  */
 const narrowTo = (
   expr: IrExpression,
@@ -80,11 +81,10 @@ const narrowTo = (
   kind: "numericNarrowing",
   expression: expr,
   targetKind,
-  inferredType: {
-    kind: "primitiveType",
-    name: "number",
-    numericIntent: targetKind,
-  },
+  inferredType:
+    targetKind === "Int32"
+      ? { kind: "primitiveType", name: "int" }
+      : { kind: "referenceType", name: targetKind },
 });
 
 /**
@@ -176,9 +176,10 @@ describe("Numeric Proof Invariants", () => {
         const yInit = yDecl.declarations[0]?.initializer;
         expect(yInit?.kind).to.equal("binary");
         if (yInit?.kind === "binary") {
+          // After proof pass, binary with proven Int32 operands should have int type
           expect(yInit.inferredType?.kind).to.equal("primitiveType");
           if (yInit.inferredType?.kind === "primitiveType") {
-            expect(yInit.inferredType.numericIntent).to.equal("Int32");
+            expect(yInit.inferredType.name).to.equal("int");
           }
         }
       }
@@ -533,8 +534,7 @@ describe("Numeric Proof Invariants", () => {
         targetKind: "Int32",
         inferredType: {
           kind: "primitiveType",
-          name: "number",
-          numericIntent: "Int32",
+          name: "int",
         },
         sourceSpan: {
           file: "/src/test.ts",
@@ -621,10 +621,10 @@ describe("Numeric Proof Invariants", () => {
         const indexExpr = access.property;
         expect(typeof indexExpr).to.not.equal("string");
         if (typeof indexExpr !== "string") {
-          // Index should have numericIntent:Int32 after proof pass
+          // Index should have primitiveType(name="int") after proof pass
           expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
           if (indexExpr.inferredType?.kind === "primitiveType") {
-            expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+            expect(indexExpr.inferredType.name).to.equal("int");
           }
         }
       }
@@ -653,7 +653,7 @@ describe("Numeric Proof Invariants", () => {
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
 
-      // Verify the index expression has numericIntent:Int32
+      // Verify the index expression has primitiveType(name="int")
       const varDecl = result.modules[0]?.body[2];
       expect(varDecl?.kind).to.equal("variableDeclaration");
       if (varDecl?.kind === "variableDeclaration") {
@@ -663,7 +663,7 @@ describe("Numeric Proof Invariants", () => {
         if (typeof indexExpr !== "string") {
           expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
           if (indexExpr.inferredType?.kind === "primitiveType") {
-            expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+            expect(indexExpr.inferredType.name).to.equal("int");
           }
         }
       }
@@ -735,7 +735,7 @@ describe("Numeric Proof Invariants", () => {
       const result = runNumericProofPass([module]);
       expect(result.ok).to.be.true;
 
-      // Verify the literal 1 gets numericIntent:Int32
+      // Verify the literal 1 gets primitiveType(name="int")
       const varDecl = result.modules[0]?.body[1];
       if (varDecl?.kind === "variableDeclaration") {
         const access = varDecl.declarations[0]
@@ -744,7 +744,7 @@ describe("Numeric Proof Invariants", () => {
         if (typeof indexExpr !== "string") {
           expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
           if (indexExpr.inferredType?.kind === "primitiveType") {
-            expect(indexExpr.inferredType.numericIntent).to.equal("Int32");
+            expect(indexExpr.inferredType.name).to.equal("int");
           }
         }
       }

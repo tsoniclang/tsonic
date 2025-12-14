@@ -1,3 +1,7 @@
+// Generated from: NullishCoalescing.ts
+// Generated at: 2025-12-13T16:22:31.535Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.operators.nullishcoalescing
 {
         public static class NullishCoalescing
@@ -9,7 +13,7 @@ namespace TestCases.operators.nullishcoalescing
 
             public static double getNumber(double? value)
                 {
-                return value ?? 0.0;
+                return value ?? 0;
                 }
         }
 }

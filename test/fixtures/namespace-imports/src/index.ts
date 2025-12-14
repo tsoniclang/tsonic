@@ -4,8 +4,8 @@ import { Console } from "@tsonic/dotnet/System";
 
 export function main(): void {
   // Use namespace import to access members
-  const sum = MathUtils.add(5, 3);
-  const product = MathUtils.multiply(4, 7);
+  const sum = MathUtils.add(5.0, 3.0);
+  const product = MathUtils.multiply(4.0, 7.0);
 
   Console.writeLine(`Sum: ${sum}`);
   Console.writeLine(`Product: ${product}`);

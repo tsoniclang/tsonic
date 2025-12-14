@@ -2,7 +2,11 @@
  * Variable declaration emission
  */
 
-import { IrStatement, IrArrayPattern } from "@tsonic/frontend";
+import {
+  IrStatement,
+  IrArrayPattern,
+  NUMERIC_KIND_TO_CSHARP,
+} from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
@@ -91,14 +95,20 @@ export const emitVariableDeclaration = (
       varDecl += `${funcType} `;
     } else if (context.isStatic) {
       // Static fields cannot use 'var' - infer type from initializer if possible
-      // For string literals, use 'string'; for number literals, use 'double'
+      // For string literals, use 'string'; for number literals, use int/double based on numericIntent
       // Otherwise fall back to 'object' (not ideal but safe)
       if (decl.initializer?.kind === "literal") {
         const lit = decl.initializer;
         if (typeof lit.value === "string") {
           varDecl += "string ";
         } else if (typeof lit.value === "number") {
-          varDecl += "double ";
+          // Use expression-level numericIntent (from literal lexeme) to determine int vs double
+          // INVARIANT: numericIntent is on the literal expression, NOT on the type
+          const numericIntent = lit.numericIntent;
+          const csharpType = numericIntent
+            ? (NUMERIC_KIND_TO_CSHARP.get(numericIntent) ?? "double")
+            : "double";
+          varDecl += `${csharpType} `;
         } else if (typeof lit.value === "boolean") {
           varDecl += "bool ";
         } else {

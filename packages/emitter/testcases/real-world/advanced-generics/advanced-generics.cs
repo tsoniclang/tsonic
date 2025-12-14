@@ -1,3 +1,7 @@
+// Generated from: advanced-generics.ts
+// Generated at: 2025-12-13T16:22:31.562Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.advancedgenerics
 {
     public class Pair<T, U>
@@ -112,7 +116,7 @@ namespace TestCases.realworld.advancedgenerics
                     var result = global::Tsonic.JSRuntime.Array.get(items, 0);
                     for (int i = 1; i < global::Tsonic.JSRuntime.Array.length(items); i++)
                         {
-                        if (global::Tsonic.JSRuntime.Array.get(items, i).compareTo(result) < 0.0)
+                        if (global::Tsonic.JSRuntime.Array.get(items, i).compareTo(result) < 0)
                             {
                             result = global::Tsonic.JSRuntime.Array.get(items, i);
                             }
@@ -130,7 +134,7 @@ namespace TestCases.realworld.advancedgenerics
                     var result = global::Tsonic.JSRuntime.Array.get(items, 0);
                     for (int i = 1; i < global::Tsonic.JSRuntime.Array.length(items); i++)
                         {
-                        if (global::Tsonic.JSRuntime.Array.get(items, i).compareTo(result) > 0.0)
+                        if (global::Tsonic.JSRuntime.Array.get(items, i).compareTo(result) > 0)
                             {
                             result = global::Tsonic.JSRuntime.Array.get(items, i);
                             }
@@ -140,12 +144,12 @@ namespace TestCases.realworld.advancedgenerics
 
                 public static Pair<double, string> createPair()
                     {
-                    return new Pair(42.0, "hello");
+                    return new Pair(42, "hello");
                     }
 
                 public static string processResult()
                     {
-                    var result = ok<double, string>(100.0);
+                    var result = ok<double, string>(100);
                     if (result.Is1())
                     {
                         var result__1_1 = result.As1();
