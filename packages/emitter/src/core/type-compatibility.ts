@@ -5,13 +5,17 @@
  * - isAssignable: Check if a source type is assignable to a target type
  * - isIntegerType: Check if a type represents an integer
  *
- * Part of Alice's proposal to eliminate cosmetic casts.
+ * INVARIANT A: "number" always means C# "double". No exceptions.
+ * INVARIANT B: "int" always means C# "int". No exceptions.
+ *
+ * These are distinct primitive types in the IR, not decorated versions of each other.
  */
 
 import type { IrType } from "@tsonic/frontend";
 
 /**
  * Integer type names that map to C# integer types
+ * Includes both primitiveType names and referenceType names from .NET interop
  */
 const INTEGER_TYPE_NAMES = new Set([
   "int",
@@ -41,36 +45,21 @@ const INTEGER_TYPE_NAMES = new Set([
 ]);
 
 /**
- * Integer NumericKinds - these are the NumericKind values that represent integer types
- */
-const INTEGER_NUMERIC_KINDS = new Set([
-  "SByte",
-  "Byte",
-  "Int16",
-  "UInt16",
-  "Int32",
-  "UInt32",
-  "Int64",
-  "UInt64",
-]);
-
-/**
  * Check if an IR type represents an integer type
+ *
+ * INVARIANT: `int` is a distinct primitive type, NOT `number` with numericIntent.
  */
 export const isIntegerType = (type: IrType | undefined): boolean => {
   if (!type) return false;
 
-  // Reference type with integer name (e.g., "int" from @tsonic/types)
-  if (type.kind === "referenceType") {
-    return INTEGER_TYPE_NAMES.has(type.name);
+  // primitiveType(name="int") - distinct integer primitive
+  if (type.kind === "primitiveType" && type.name === "int") {
+    return true;
   }
 
-  // Primitive "number" type with integer numericIntent (from numericNarrowing)
-  if (type.kind === "primitiveType" && type.name === "number") {
-    const intent = (type as { numericIntent?: string }).numericIntent;
-    if (intent !== undefined) {
-      return INTEGER_NUMERIC_KINDS.has(intent);
-    }
+  // Reference type with integer name (e.g., "Int32" from .NET interop)
+  if (type.kind === "referenceType") {
+    return INTEGER_TYPE_NAMES.has(type.name);
   }
 
   return false;

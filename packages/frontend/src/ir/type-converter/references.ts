@@ -4,7 +4,12 @@
 
 import * as ts from "typescript";
 import { IrType, IrDictionaryType } from "../types.js";
-import { isPrimitiveTypeName, getPrimitiveType } from "./primitives.js";
+import {
+  isPrimitiveTypeName,
+  getPrimitiveType,
+  isClrPrimitiveTypeName,
+  getClrPrimitiveType,
+} from "./primitives.js";
 import {
   isExpandableUtilityType,
   expandUtilityType,
@@ -29,6 +34,12 @@ export const convertTypeReference = (
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
     return getPrimitiveType(typeName);
+  }
+
+  // Check for CLR primitive type names (e.g., int from @tsonic/types)
+  // These are compiler-known types that map to distinct primitives, not referenceType
+  if (isClrPrimitiveTypeName(typeName)) {
+    return getClrPrimitiveType(typeName);
   }
 
   // Check for Array<T> utility type → convert to arrayType with explicit origin

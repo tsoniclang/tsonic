@@ -1,7 +1,7 @@
 /**
  * Numeric Coercion Pass - STRICT CONTRACT enforcement
  *
- * This pass detects cases where an integer literal is used where a double is expected,
+ * This pass detects cases where an integer expression is used where a double is expected,
  * and requires explicit user intent for the conversion.
  *
  * STRICT RULE: int → double requires explicit user intent
@@ -11,6 +11,10 @@
  * 2. Parameter passing: `foo(42)` where foo expects `number` → ERROR
  * 3. Return statements: `return 42` where function returns `number` → ERROR
  * 4. Array elements: `[1, 2, 3]` in `number[]` context → ERROR (each element)
+ * 5. Object properties: `{ x: 42 }` where type has `x: number` → ERROR
+ * 6. Ternary branches: `cond ? 1 : 2` where expected is `number` → ERROR
+ * 7. Default parameters: `function f(x: number = 42)` → ERROR
+ * 8. Tuple elements: `[1, 2]` in `[number, number]` context → ERROR
  *
  * How to satisfy the contract:
  * - Use double literal: `const x: number = 42.0` ✓
@@ -30,8 +34,173 @@ import {
   IrStatement,
   IrExpression,
   IrType,
-  IrLiteralExpression,
+  getBinaryResultKind,
 } from "../types.js";
+
+/**
+ * Result of numeric expression classification.
+ * - "Int32": Expression definitely produces an Int32 value
+ * - "Double": Expression definitely produces a Double value
+ * - "Unknown": Cannot determine at compile time (e.g., untyped identifier, complex call)
+ */
+export type NumericExprKind = "Int32" | "Double" | "Unknown";
+
+/**
+ * Arithmetic operators that produce numeric results.
+ * Used to classify binary expression results.
+ */
+const ARITHMETIC_OPERATORS = new Set(["+", "-", "*", "/", "%"]);
+
+/**
+ * Classify an expression's numeric kind.
+ *
+ * This function propagates numeric kind through:
+ * - Literals (via numericIntent)
+ * - Identifiers with primitiveType(name="int") or primitiveType(name="number")
+ * - Arithmetic operations (uses C# promotion rules)
+ * - Unary +/- (preserves operand kind)
+ * - Ternary (requires both branches to have same kind)
+ * - Parentheses (pass through)
+ * - numericNarrowing expressions (uses targetKind)
+ *
+ * Returns "Unknown" for expressions that cannot be classified.
+ */
+export const classifyNumericExpr = (expr: IrExpression): NumericExprKind => {
+  switch (expr.kind) {
+    case "literal": {
+      // Check numericIntent on literal expressions
+      if (typeof expr.value === "number" && expr.numericIntent) {
+        return expr.numericIntent === "Int32" ? "Int32" : "Double";
+      }
+      // Non-numeric literals
+      return "Unknown";
+    }
+
+    case "identifier": {
+      // Check inferredType on identifiers
+      if (expr.inferredType?.kind === "primitiveType") {
+        if (expr.inferredType.name === "int") return "Int32";
+        if (expr.inferredType.name === "number") return "Double";
+      }
+      // Also check for CLR numeric reference types
+      if (expr.inferredType?.kind === "referenceType") {
+        const name = expr.inferredType.name;
+        if (name === "Int32" || name === "int") return "Int32";
+        if (name === "Double" || name === "double") return "Double";
+      }
+      return "Unknown";
+    }
+
+    case "unary": {
+      // Unary +/- preserves operand kind
+      if (expr.operator === "+" || expr.operator === "-") {
+        return classifyNumericExpr(expr.expression);
+      }
+      // Bitwise NOT (~) produces Int32
+      if (expr.operator === "~") {
+        return "Int32";
+      }
+      return "Unknown";
+    }
+
+    case "binary": {
+      // Only classify arithmetic operators
+      if (!ARITHMETIC_OPERATORS.has(expr.operator)) {
+        return "Unknown";
+      }
+      const leftKind = classifyNumericExpr(expr.left);
+      const rightKind = classifyNumericExpr(expr.right);
+
+      // If either is Unknown, we can't classify
+      if (leftKind === "Unknown" || rightKind === "Unknown") {
+        return "Unknown";
+      }
+
+      // Use C# binary promotion rules
+      // Note: getBinaryResultKind returns NumericKind, we map to our simplified type
+      const resultKind = getBinaryResultKind(
+        leftKind === "Int32" ? "Int32" : "Double",
+        rightKind === "Int32" ? "Int32" : "Double"
+      );
+
+      // Map back to our simplified kind
+      if (resultKind === "Double" || resultKind === "Single") return "Double";
+      return "Int32"; // All integer promotions end up as at least Int32
+    }
+
+    case "conditional": {
+      // Ternary: both branches must have same kind
+      const trueKind = classifyNumericExpr(expr.whenTrue);
+      const falseKind = classifyNumericExpr(expr.whenFalse);
+
+      if (trueKind === falseKind) return trueKind;
+      // Mismatched branches - use promotion
+      if (trueKind === "Double" || falseKind === "Double") return "Double";
+      return "Unknown";
+    }
+
+    case "numericNarrowing": {
+      // numericNarrowing has explicit targetKind
+      if (expr.targetKind === "Int32") return "Int32";
+      if (expr.targetKind === "Double") return "Double";
+      // Other numeric kinds (Byte, Int64, etc.) - treat as Unknown for this pass
+      return "Unknown";
+    }
+
+    case "call": {
+      // Check return type
+      if (expr.inferredType?.kind === "primitiveType") {
+        if (expr.inferredType.name === "int") return "Int32";
+        if (expr.inferredType.name === "number") return "Double";
+      }
+      return "Unknown";
+    }
+
+    case "memberAccess": {
+      // Check inferredType for member access results
+      if (expr.inferredType?.kind === "primitiveType") {
+        if (expr.inferredType.name === "int") return "Int32";
+        if (expr.inferredType.name === "number") return "Double";
+      }
+      return "Unknown";
+    }
+
+    case "update": {
+      // ++/-- on int produces int
+      const operandKind = classifyNumericExpr(expr.expression);
+      return operandKind;
+    }
+
+    default:
+      return "Unknown";
+  }
+};
+
+/**
+ * Check if an expression has explicit double intent.
+ * This is true when:
+ * - It's a numericNarrowing with targetKind "Double" (i.e., `42 as number`)
+ * - It's a literal with numericIntent "Double" (i.e., `42.0`)
+ *
+ * Used to exempt explicit casts from TSN5110 errors.
+ */
+export const hasExplicitDoubleIntent = (expr: IrExpression): boolean => {
+  // Case 1: numericNarrowing targeting Double (e.g., `42 as number`, `42 as double`)
+  if (expr.kind === "numericNarrowing" && expr.targetKind === "Double") {
+    return true;
+  }
+
+  // Case 2: Literal with double lexeme (e.g., `42.0`)
+  if (
+    expr.kind === "literal" &&
+    typeof expr.value === "number" &&
+    expr.numericIntent === "Double"
+  ) {
+    return true;
+  }
+
+  return false;
+};
 
 /**
  * Result of numeric coercion validation
@@ -61,33 +230,31 @@ const moduleLocation = (ctx: CoercionContext): SourceLocation => ({
 });
 
 /**
- * Check if a type is "number" (which means double semantically)
+ * Check if a type is "number" (which ALWAYS means double)
+ *
+ * INVARIANT A: "number" always means C# "double". No exceptions.
+ * INVARIANT B: "int" is a distinct primitive type, NOT number with numericIntent.
  */
 const isNumberType = (type: IrType | undefined): boolean => {
   if (!type) return false;
-  if (type.kind === "primitiveType" && type.name === "number") {
-    // If numericIntent is set (from explicit annotation like `: int`), it's NOT double
-    return type.numericIntent === undefined;
-  }
-  return false;
+  // primitiveType(name="number") is ALWAYS double
+  return type.kind === "primitiveType" && type.name === "number";
 };
 
 /**
- * Check if an expression is an integer literal (numericIntent: Int32)
+ * Check if an expression is an integer expression (Int32).
+ * Uses the expression classifier to handle composed expressions.
  */
-const isIntegerLiteral = (
-  expr: IrExpression
-): expr is IrLiteralExpression & { numericIntent: "Int32" } => {
-  return (
-    expr.kind === "literal" &&
-    typeof expr.value === "number" &&
-    expr.numericIntent === "Int32"
-  );
+const isIntegerExpression = (expr: IrExpression): boolean => {
+  return classifyNumericExpr(expr) === "Int32";
 };
 
 /**
  * Check if an expression needs coercion to match an expected double type.
- * Returns true if the expression is an integer literal being assigned to a double context.
+ * Returns true if:
+ * - Expected type is "number" (double)
+ * - Expression classifies as Int32
+ * - Expression does NOT have explicit double intent (cast exemption)
  */
 const needsCoercion = (
   expr: IrExpression,
@@ -98,8 +265,40 @@ const needsCoercion = (
     return false;
   }
 
-  // Check if the expression is an integer literal
-  return isIntegerLiteral(expr);
+  // Check for explicit double intent (e.g., `42 as number`, `42.0`)
+  // These are explicitly allowed even though they classify as Int32
+  if (hasExplicitDoubleIntent(expr)) {
+    return false;
+  }
+
+  // Check if the expression classifies as Int32
+  return isIntegerExpression(expr);
+};
+
+/**
+ * Get a human-readable description of an expression for error messages.
+ */
+const describeExpression = (expr: IrExpression): string => {
+  switch (expr.kind) {
+    case "literal":
+      return `literal '${expr.raw ?? String(expr.value)}'`;
+    case "identifier":
+      return `identifier '${expr.name}'`;
+    case "binary":
+      return `arithmetic expression`;
+    case "unary":
+      return `unary expression`;
+    case "conditional":
+      return `ternary expression`;
+    case "call":
+      return `call result`;
+    case "memberAccess":
+      return typeof expr.property === "string"
+        ? `property '${expr.property}'`
+        : `computed property`;
+    default:
+      return `expression`;
+  }
 };
 
 /**
@@ -111,15 +310,17 @@ const emitCoercionError = (
   context: string
 ): void => {
   const location = expr.sourceSpan ?? moduleLocation(ctx);
-  const raw = expr.kind === "literal" ? (expr.raw ?? String(expr.value)) : "?";
+  const description = describeExpression(expr);
 
   ctx.diagnostics.push(
     createDiagnostic(
       "TSN5110",
       "error",
-      `Integer literal '${raw}' cannot be implicitly converted to 'number' (double) ${context}`,
+      `Integer ${description} cannot be implicitly converted to 'number' (double) ${context}`,
       location,
-      `Use a double literal (e.g., '${raw}.0') or explicit cast ('${raw} as number').`
+      expr.kind === "literal"
+        ? `Use a double literal (e.g., '${expr.raw ?? expr.value}.0') or explicit cast ('${expr.raw ?? expr.value} as number').`
+        : `Use an explicit cast (e.g., 'expr as number') to convert to double.`
     )
   );
 };

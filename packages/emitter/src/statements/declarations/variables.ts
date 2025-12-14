@@ -102,11 +102,9 @@ export const emitVariableDeclaration = (
         if (typeof lit.value === "string") {
           varDecl += "string ";
         } else if (typeof lit.value === "number") {
-          // Use numericIntent to determine int vs double
-          const numericIntent =
-            lit.inferredType?.kind === "primitiveType"
-              ? lit.inferredType.numericIntent
-              : undefined;
+          // Use expression-level numericIntent (from literal lexeme) to determine int vs double
+          // INVARIANT: numericIntent is on the literal expression, NOT on the type
+          const numericIntent = lit.numericIntent;
           const csharpType = numericIntent
             ? (NUMERIC_KIND_TO_CSHARP.get(numericIntent) ?? "double")
             : "double";

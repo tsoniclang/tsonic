@@ -68,7 +68,10 @@ const moduleLocation = (ctx: ProofContext): SourceLocation => ({
 });
 
 /**
- * Extract NumericKind from an IrType if it has numericIntent or is a known numeric type name
+ * Extract NumericKind from an IrType if it represents a known numeric type
+ *
+ * INVARIANT: "int" is a distinct primitive type (primitiveType(name="int")),
+ * NOT primitiveType(name="number") with numericIntent.
  */
 const getNumericKindFromType = (
   type: IrType | undefined
@@ -77,12 +80,12 @@ const getNumericKindFromType = (
     return undefined;
   }
 
-  // Check for primitiveType with numericIntent (from as-expressions)
-  if (type.kind === "primitiveType" && type.name === "number") {
-    return type.numericIntent;
+  // Check for primitiveType(name="int") - distinct integer primitive
+  if (type.kind === "primitiveType" && type.name === "int") {
+    return "Int32";
   }
 
-  // Check for referenceType with known numeric type name (e.g., int, long, float)
+  // Check for referenceType with known numeric type name (e.g., long, float, byte)
   // Use the TSONIC_TO_NUMERIC_KIND map from ir/types
   if (type.kind === "referenceType") {
     return TSONIC_TO_NUMERIC_KIND.get(type.name);
@@ -576,14 +579,15 @@ const processExpression = (
       const numericKind = varKind ?? paramKind;
 
       if (numericKind !== undefined) {
-        // Update inferredType to include numericIntent
+        // Update inferredType to reflect the proven numeric type
+        // INVARIANT: "Int32" → primitiveType(name="int")
+        const inferredType =
+          numericKind === "Int32"
+            ? { kind: "primitiveType" as const, name: "int" as const }
+            : { kind: "referenceType" as const, name: numericKind };
         return {
           ...expr,
-          inferredType: {
-            kind: "primitiveType",
-            name: "number",
-            numericIntent: numericKind,
-          },
+          inferredType,
         };
       }
       return expr;
@@ -629,15 +633,16 @@ const processExpression = (
       // If both operands have numeric kinds, annotate the binary result
       if (leftKind !== undefined && rightKind !== undefined) {
         const resultKind = getBinaryResultKind(leftKind, rightKind);
+        // INVARIANT: "Int32" → primitiveType(name="int")
+        const inferredType =
+          resultKind === "Int32"
+            ? { kind: "primitiveType" as const, name: "int" as const }
+            : { kind: "referenceType" as const, name: resultKind };
         return {
           ...expr,
           left: processedLeft,
           right: processedRight,
-          inferredType: {
-            kind: "primitiveType",
-            name: "number",
-            numericIntent: resultKind,
-          },
+          inferredType,
         };
       }
 
@@ -772,14 +777,14 @@ const processExpression = (
             };
           }
 
-          // Annotate the index expression with numericIntent so emitter can check it
+          // Annotate the index expression with int type so emitter can check it
           // without re-deriving the proof. This is the ONLY place proof markers should be set.
+          // INVARIANT: Array indices must be primitiveType(name="int")
           const annotatedProperty = {
             ...processedProperty,
             inferredType: {
               kind: "primitiveType" as const,
-              name: "number" as const,
-              numericIntent: "Int32" as NumericKind,
+              name: "int" as const,
             },
           };
           return {
