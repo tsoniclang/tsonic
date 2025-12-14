@@ -1,3 +1,7 @@
+// Generated from: Dictionaries.ts
+// Generated at: 2025-12-13T16:22:31.728Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.types.dictionaries
 {
     public class __Anon_Dictionaries_3_10

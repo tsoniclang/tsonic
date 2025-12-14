@@ -1,3 +1,7 @@
+// Generated from: type-guards.ts
+// Generated at: 2025-12-13T16:22:31.699Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.typeguards
 {
     public class User
@@ -94,7 +98,7 @@ namespace TestCases.realworld.typeguards
                     else
                         if (global::Tsonic.Runtime.Operators.@typeof(value) == "number")
                             {
-                            return global::Tsonic.JSRuntime.Number.toFixed(value, 2.0);
+                            return global::Tsonic.JSRuntime.Number.toFixed(value, 2);
                             }
                         else
                             {

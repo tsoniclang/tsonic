@@ -52,7 +52,6 @@ const getPrecedence = (operator: string): number => {
   return precedences[operator] ?? 16;
 };
 
-
 /**
  * Emit a binary operator expression
  *

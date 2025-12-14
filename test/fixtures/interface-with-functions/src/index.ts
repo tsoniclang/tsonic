@@ -7,6 +7,6 @@ import { Console } from "@tsonic/dotnet/System";
 import { User, createUser, formatUser } from "./models/User.ts";
 
 export function main(): void {
-  const user: User = createUser(1, "Alice", "alice@example.com");
+  const user: User = createUser(1.0, "Alice", "alice@example.com");
   Console.writeLine(formatUser(user));
 }

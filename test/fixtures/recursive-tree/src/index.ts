@@ -48,14 +48,14 @@ export function main(): void {
   //    /|   |
   //   5 6   7
 
-  const root = new TreeNode(1);
-  const child2 = root.addChild(2);
-  root.addChild(3);
-  const child4 = root.addChild(4);
+  const root = new TreeNode(1.0);
+  const child2 = root.addChild(2.0);
+  root.addChild(3.0);
+  const child4 = root.addChild(4.0);
 
-  child2.addChild(5);
-  child2.addChild(6);
-  child4.addChild(7);
+  child2.addChild(5.0);
+  child2.addChild(6.0);
+  child4.addChild(7.0);
 
   Console.writeLine("Tree structure:");
   printTree(root, "");

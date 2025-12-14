@@ -1,3 +1,7 @@
+// Generated from: data-structures.ts
+// Generated at: 2025-12-13T16:22:31.636Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.datastructures
 {
     public class Stack<T>
@@ -86,7 +90,7 @@ namespace TestCases.realworld.datastructures
 
         private LinkedListNode<T>? tail = null;
 
-        private double length = 0.0;
+        private double length = 0;
 
         public void append(T value)
             {
@@ -141,9 +145,9 @@ namespace TestCases.realworld.datastructures
                 public static void testDataStructures()
                     {
                     var stack = new Stack<double>();
-                    stack.push(1.0);
-                    stack.push(2.0);
-                    stack.push(3.0);
+                    stack.push(1);
+                    stack.push(2);
+                    stack.push(3);
                     global::Tsonic.JSRuntime.console.log("Stack size:", stack.size());
                     global::Tsonic.JSRuntime.console.log("Stack pop:", stack.pop());
                     var queue = new Queue<string>();
@@ -153,9 +157,9 @@ namespace TestCases.realworld.datastructures
                     global::Tsonic.JSRuntime.console.log("Queue size:", queue.size());
                     global::Tsonic.JSRuntime.console.log("Queue dequeue:", queue.dequeue());
                     var list = new LinkedList<double>();
-                    list.append(10.0);
-                    list.append(20.0);
-                    list.prepend(5.0);
+                    list.append(10);
+                    list.append(20);
+                    list.prepend(5);
                     global::Tsonic.JSRuntime.console.log("List as array:", list.toArray());
                     }
             }

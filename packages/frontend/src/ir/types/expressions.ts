@@ -54,6 +54,17 @@ export type IrLiteralExpression = {
   readonly raw?: string;
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
+  /**
+   * For numeric literals, the inferred numeric kind based on lexeme form.
+   * - Integer literals (42, 0xFF) → "Int32"
+   * - Floating literals (42.0, 3.14, 1e3) → "Double"
+   *
+   * This is expression-level information, NOT type-level.
+   * The type system still sees this as "number" (which means double).
+   * This field enables the emitter to emit `42` vs `42.0` appropriately
+   * and the coercion pass to detect int→double conversions.
+   */
+  readonly numericIntent?: NumericKind;
 };
 
 export type IrIdentifierExpression = {

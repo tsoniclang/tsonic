@@ -1,3 +1,7 @@
+// Generated from: BasicTuples.ts
+// Generated at: 2025-12-13T16:22:31.764Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.types.tuplesbasic
 {
     public class Container <T>
@@ -31,7 +35,7 @@ namespace TestCases.types.tuplesbasic
 
                 public static global::System.ValueTuple<string, double, bool> createMixed()
                     {
-                    return ("hello", 42.0, true);
+                    return ("hello", 42, true);
                     }
 
                 public static double distance(global::System.ValueTuple<double, double> point)

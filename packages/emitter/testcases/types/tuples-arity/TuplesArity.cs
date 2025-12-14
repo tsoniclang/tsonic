@@ -1,3 +1,7 @@
+// Generated from: TuplesArity.ts
+// Generated at: 2025-12-13T16:22:31.750Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.types.tuplesarity
 {
         public static class TuplesArity
@@ -6,13 +10,13 @@ namespace TestCases.types.tuplesarity
 
             // type T9 = global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double, double>>
 
-            public static readonly global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double>> t8 = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0);
+            public static readonly global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double>> t8 = (1, 2, 3, 4, 5, 6, 7, 8);
 
-            public static readonly global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double, double>> t9 = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0);
+            public static readonly global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double, double>> t9 = (1, 2, 3, 4, 5, 6, 7, 8, 9);
 
             public static global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double>> makeT8()
                 {
-                return (10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0);
+                return (10, 20, 30, 40, 50, 60, 70, 80);
                 }
 
             public static double sumT8(global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double>> t)

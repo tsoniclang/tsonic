@@ -1,3 +1,7 @@
+// Generated from: string-utils.ts
+// Generated at: 2025-12-13T16:22:31.678Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.stringutils
 {
         public static class stringutils
@@ -8,7 +12,7 @@ namespace TestCases.realworld.stringutils
                     {
                     return str;
                     }
-                return global::Tsonic.JSRuntime.String.toUpperCase(global::Tsonic.JSRuntime.String.charAt(str, 0.0)) + global::Tsonic.JSRuntime.String.toLowerCase(global::Tsonic.JSRuntime.String.slice(str, 1.0));
+                return global::Tsonic.JSRuntime.String.toUpperCase(global::Tsonic.JSRuntime.String.charAt(str, 0)) + global::Tsonic.JSRuntime.String.toLowerCase(global::Tsonic.JSRuntime.String.slice(str, 1));
                 }
 
             public static string reverse(string str)
@@ -22,7 +26,7 @@ namespace TestCases.realworld.stringutils
                     {
                     return str;
                     }
-                return global::Tsonic.JSRuntime.String.slice(str, 0.0, maxLength - 3.0) + "...";
+                return global::Tsonic.JSRuntime.String.slice(str, 0, maxLength - 3) + "...";
                 }
 
             public static double countWords(string str)
@@ -54,7 +58,7 @@ namespace TestCases.realworld.stringutils
             public static global::System.Collections.Generic.List<global::System.Collections.Generic.List<T>> chunk<T>(global::System.Collections.Generic.List<T> arr, double size)
                 {
                 global::System.Collections.Generic.List<global::System.Collections.Generic.List<T>> result = new global::System.Collections.Generic.List<global::System.Collections.Generic.List<T>>();
-                for (var i = 0.0; i < global::Tsonic.JSRuntime.Array.length(arr); i += size)
+                for (var i = 0; i < global::Tsonic.JSRuntime.Array.length(arr); i += size)
                     {
                     global::Tsonic.JSRuntime.Array.push(result, global::Tsonic.JSRuntime.Array.slice(arr, i, i + size));
                     }

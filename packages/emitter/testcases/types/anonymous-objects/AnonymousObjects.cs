@@ -1,3 +1,7 @@
+// Generated from: AnonymousObjects.ts
+// Generated at: 2025-12-13T16:22:31.711Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.types.anonymousobjects
 {
     public class __Anon_AnonymousObjects_2_22
@@ -27,13 +31,13 @@ namespace TestCases.types.anonymousobjects
 
             public static class AnonymousObjects
             {
-                public static readonly object point = new __Anon_AnonymousObjects_2_22 { x = 10.0, y = 20.0 };
+                public static readonly object point = new __Anon_AnonymousObjects_2_22 { x = 10, y = 20 };
 
-                public static readonly object config = new __Anon_AnonymousObjects_5_23 { name = "test", count = 42.0, enabled = true };
+                public static readonly object config = new __Anon_AnonymousObjects_5_23 { name = "test", count = 42, enabled = true };
 
-                public static readonly object handler = new __Anon_AnonymousObjects_12_24 { id = 1.0, process = (double x) => x * 2.0 };
+                public static readonly object handler = new __Anon_AnonymousObjects_12_24 { id = 1, process = (double x) => x * 2 };
 
-                private static readonly double value = 100.0;
+                private static readonly double value = 100;
 
                 public static readonly object shorthand = new __Anon_AnonymousObjects_19_26 { value = value };
             }

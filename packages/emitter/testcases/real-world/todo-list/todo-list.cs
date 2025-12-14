@@ -1,3 +1,7 @@
+// Generated from: todo-list.ts
+// Generated at: 2025-12-13T16:22:31.689Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.realworld.todolist
 {
     public class Todo
@@ -14,7 +18,7 @@ namespace TestCases.realworld.todolist
     {
         private global::System.Collections.Generic.List<Todo> todos = new global::System.Collections.Generic.List<Todo>();
 
-        private double nextId = 1.0;
+        private double nextId = 1;
 
         public Todo addTodo(string title)
             {
@@ -58,7 +62,7 @@ namespace TestCases.realworld.todolist
                     list.addTodo("Buy groceries");
                     list.addTodo("Write code");
                     list.addTodo("Exercise");
-                    list.completeTodo(1.0);
+                    list.completeTodo(1);
                     return list;
                     }
             }

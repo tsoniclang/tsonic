@@ -14,6 +14,7 @@ import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
+import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 
 export type ModuleDependencyGraphResult = {
@@ -315,9 +316,16 @@ export const buildModuleDependencyGraph = (
     return error(numericResult.diagnostics);
   }
 
+  // Run numeric coercion pass - validates no implicit int→double conversions
+  // This enforces the strict contract: integer literals require explicit widening
+  const coercionResult = runNumericCoercionPass(numericResult.modules);
+  if (!coercionResult.ok) {
+    return error(coercionResult.diagnostics);
+  }
+
   // Run yield lowering pass - transforms yield expressions in generators
   // into IrYieldStatement nodes for the emitter
-  const yieldResult = runYieldLoweringPass(numericResult.modules);
+  const yieldResult = runYieldLoweringPass(coercionResult.modules);
   if (!yieldResult.ok) {
     return error(yieldResult.diagnostics);
   }

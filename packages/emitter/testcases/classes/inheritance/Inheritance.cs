@@ -1,3 +1,7 @@
+// Generated from: Inheritance.ts
+// Generated at: 2025-12-13T16:22:31.395Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.classes.inheritance
 {
     public class Animal

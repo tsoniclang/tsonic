@@ -37,7 +37,7 @@ export function main(): void {
   Console.writeLine("Exclude: " + onlyStr);
 
   // Extract<StringOrNumber, number> = number
-  const extractedNum: Extract<StringOrNumber, number> = 42;
+  const extractedNum: Extract<StringOrNumber, number> = 42.0;
   Console.writeLine("Extract: passed");
 
   // Record with string literal keys
@@ -47,7 +47,7 @@ export function main(): void {
   );
 
   // ReturnType tests - use inline to avoid alias emission issue
-  const addResult: ReturnType<typeof add> = add(10, 20);
+  const addResult: ReturnType<typeof add> = add(10.0, 20.0);
   Console.writeLine("ReturnType<add>: " + (addResult as unknown as string));
 
   const greetResult: ReturnType<typeof greet> = greet("World");

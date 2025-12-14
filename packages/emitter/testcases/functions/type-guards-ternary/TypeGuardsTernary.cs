@@ -1,3 +1,7 @@
+// Generated from: TypeGuardsTernary.ts
+// Generated at: 2025-12-13T16:22:31.508Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.functions.typeguardsternary
 {
     public class User

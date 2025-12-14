@@ -9,7 +9,7 @@ import { accumulator } from "./accumulator-gen.ts";
 export function main(): void {
   // Test counter generator (returns string)
   Console.writeLine("=== Counter Generator ===");
-  const cnt = counter(10);
+  const cnt = counter(10.0);
   const c1 = cnt.next();
   Console.writeLine(`c1: ${c1.value}, done: ${c1.done}`);
   const c2 = cnt.next(5);
@@ -22,7 +22,7 @@ export function main(): void {
 
   // Test accumulator generator (returns number)
   Console.writeLine("=== Accumulator Generator ===");
-  const acc = accumulator(100);
+  const acc = accumulator(100.0);
   const a1 = acc.next();
   Console.writeLine(`a1: ${a1.value}, done: ${a1.done}`);
   const a2 = acc.next(50);

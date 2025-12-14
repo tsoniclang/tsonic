@@ -1,3 +1,7 @@
+// Generated from: User.ts
+// Generated at: 2025-12-13T16:22:31.384Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.classes.constructor
 {
     public class User

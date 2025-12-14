@@ -15,7 +15,7 @@ export function* accumulator(start: number): Generator<number, void, number> {
 }
 
 export function main(): void {
-  const gen = accumulator(100);
+  const gen = accumulator(100.0);
 
   // First next() call with value 999 - this value MUST be ignored per JS spec
   // The generator runs to the first yield and outputs 100 (the start value)

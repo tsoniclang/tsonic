@@ -13,7 +13,7 @@ export function* countdown(start: number): Generator<number, string, number> {
 }
 
 export function main(): void {
-  const gen = countdown(5);
+  const gen = countdown(5.0);
 
   // Iterate through yields
   let result = gen.next(0);

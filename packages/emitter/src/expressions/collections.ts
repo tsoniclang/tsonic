@@ -102,13 +102,12 @@ export const emitArray = (
         );
 
         if (allNumbers) {
-          // Infer int vs double from actual literal values
-          // All integers → int, any decimal → double (C# widens automatically)
-          const hasFloat = literals.some((lit) => {
-            const val = lit.value as number;
-            return !Number.isInteger(val);
-          });
-          elementType = hasFloat ? "double" : "int";
+          // Infer int vs double from numericIntent (based on raw lexeme)
+          // All Int32 → int, any Double → double
+          const hasDouble = literals.some(
+            (lit) => lit.numericIntent === "Double"
+          );
+          elementType = hasDouble ? "double" : "int";
         }
         // Check if all are strings
         else if (literals.every((lit) => typeof lit.value === "string")) {

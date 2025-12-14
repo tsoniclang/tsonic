@@ -14,7 +14,7 @@ export async function* asyncAccumulator(
 }
 
 export async function main(): Promise<void> {
-  const gen = asyncAccumulator(10);
+  const gen = asyncAccumulator(10.0);
 
   // First call to next() starts the generator
   const r1 = await gen.next();

@@ -13,6 +13,11 @@ export {
 } from "./numeric-proof-pass.js";
 
 export {
+  runNumericCoercionPass,
+  type NumericCoercionResult,
+} from "./numeric-coercion-pass.js";
+
+export {
   runYieldLoweringPass,
   type YieldLoweringResult,
 } from "./yield-lowering-pass.js";

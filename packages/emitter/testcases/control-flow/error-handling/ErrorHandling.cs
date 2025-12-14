@@ -1,3 +1,7 @@
+// Generated from: ErrorHandling.ts
+// Generated at: 2025-12-13T16:22:31.408Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.controlflow.errorhandling
 {
         public static class ErrorHandling
@@ -6,7 +10,7 @@ namespace TestCases.controlflow.errorhandling
                 {
                 try
                 {
-                if (b == 0.0)
+                if (b == 0)
                     {
                     throw new Error("Division by zero");
                     }
@@ -15,7 +19,7 @@ namespace TestCases.controlflow.errorhandling
                 catch (Exception error)
                 {
                 global::Tsonic.JSRuntime.console.log(error);
-                return 0.0;
+                return 0;
                 }
                 finally
                 {

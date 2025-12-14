@@ -1,3 +1,7 @@
+// Generated from: OptionalChaining.ts
+// Generated at: 2025-12-13T16:22:31.541Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.operators.optionalchaining
 {
     public class User
@@ -21,7 +25,7 @@ namespace TestCases.operators.optionalchaining
 
                 public static double getNameLength(User? user)
                     {
-                    return user?.name?.length ?? 0.0;
+                    return user?.name?.length ?? 0;
                     }
             }
 }

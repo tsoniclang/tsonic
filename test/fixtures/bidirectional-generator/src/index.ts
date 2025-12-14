@@ -12,7 +12,7 @@ export function* accumulator(start: number): Generator<number, number, number> {
 }
 
 export function main(): void {
-  const gen = accumulator(0);
+  const gen = accumulator(0.0);
 
   // First call to next() starts the generator
   const r1 = gen.next();
