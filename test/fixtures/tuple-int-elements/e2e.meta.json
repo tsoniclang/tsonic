@@ -1,0 +1,4 @@
+{
+  "expectFailure": true,
+  "description": "TSN5110: Tuple with int literals where number elements expected"
+}

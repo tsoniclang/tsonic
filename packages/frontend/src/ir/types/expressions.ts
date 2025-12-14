@@ -291,14 +291,25 @@ export type IrYieldExpression = {
 };
 
 /**
- * Represents a numeric type narrowing (e.g., `x as int`, `<int>x`).
+ * Represents an explicit numeric conversion intent (narrowing OR widening).
  *
  * This captures explicit numeric intent from the source code while preserving
- * the inner expression. The proof system validates that the narrowing is sound.
+ * the inner expression. The coercion pass uses this to distinguish explicit
+ * user intent from implicit conversions.
+ *
+ * SEMANTICS:
+ * - This node indicates **explicit user intent** to convert between numeric types
+ * - May be narrowing (e.g., `x as int`) or widening (e.g., `42 as number`)
+ * - Used by TSN5110 to exempt explicit casts from int→double coercion errors
+ * - The proof system validates that narrowing operations are sound
  *
  * Examples:
  * - `10 as int` → IrNumericNarrowingExpression(literal 10, targetKind: "Int32")
  * - `x as byte` → IrNumericNarrowingExpression(identifier x, targetKind: "Byte")
+ * - `42 as number` → IrNumericNarrowingExpression(literal 42, targetKind: "Double")
+ *
+ * NOTE: Despite the name "Narrowing", this node also handles widening conversions.
+ * A future rename to IrNumericConversionExpression may be appropriate.
  */
 export type IrNumericNarrowingExpression = {
   readonly kind: "numericNarrowing";

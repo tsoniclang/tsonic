@@ -34,6 +34,7 @@ import {
   IrStatement,
   IrExpression,
   IrType,
+  IrInterfaceMember,
   getBinaryResultKind,
 } from "../types.js";
 
@@ -242,6 +243,55 @@ const isNumberType = (type: IrType | undefined): boolean => {
 };
 
 /**
+ * Extract the expected type of a property from a structural type.
+ *
+ * Used for validating object literal properties against their expected types.
+ * Returns undefined if the property type cannot be determined (conservative).
+ *
+ * NOTE: Only handles objectType directly. Reference types (interfaces, type aliases)
+ * would need resolution to their structural members, which is not available at this
+ * pass. For TSN5110, this is conservative - we only check when we have full info.
+ */
+const tryGetObjectPropertyType = (
+  expectedType: IrType | undefined,
+  propName: string
+): IrType | undefined => {
+  if (!expectedType) return undefined;
+
+  // Structural object type: objectType has members directly
+  if (expectedType.kind === "objectType") {
+    const member = expectedType.members.find(
+      (m): m is IrInterfaceMember & { kind: "propertySignature" } =>
+        m.kind === "propertySignature" && m.name === propName
+    );
+    return member?.type;
+  }
+
+  // Reference types (interfaces, type aliases) don't carry structural members
+  // in the IR at this point. Conservative: return undefined.
+  return undefined;
+};
+
+/**
+ * Extract the expected type of a tuple element at a given index.
+ *
+ * Used for validating tuple literal elements against their expected types.
+ * Returns undefined if the element type cannot be determined.
+ */
+const tryGetTupleElementType = (
+  expectedType: IrType | undefined,
+  index: number
+): IrType | undefined => {
+  if (!expectedType) return undefined;
+
+  if (expectedType.kind === "tupleType") {
+    return expectedType.elementTypes[index];
+  }
+
+  return undefined;
+};
+
+/**
  * Check if an expression is an integer expression (Int32).
  * Uses the expression classifier to handle composed expressions.
  */
@@ -344,22 +394,66 @@ const validateExpression = (
   // Recursively check sub-expressions based on kind
   switch (expr.kind) {
     case "array": {
-      // For array literals, check each element against expected element type
-      const elementType =
-        expectedType?.kind === "arrayType"
-          ? expectedType.elementType
-          : undefined;
-      expr.elements.forEach((el, i) => {
-        if (el && el.kind !== "spread") {
-          validateExpression(el, elementType, ctx, `in array element ${i}`);
-        }
-      });
+      // For tuple types, validate each element against its specific expected type
+      if (expectedType?.kind === "tupleType") {
+        expr.elements.forEach((el, i) => {
+          if (el && el.kind !== "spread") {
+            const tupleElementType = tryGetTupleElementType(expectedType, i);
+            validateExpression(
+              el,
+              tupleElementType,
+              ctx,
+              `in tuple element ${i}`
+            );
+          }
+        });
+      } else {
+        // For array types, check each element against the element type
+        const elementType =
+          expectedType?.kind === "arrayType"
+            ? expectedType.elementType
+            : undefined;
+        expr.elements.forEach((el, i) => {
+          if (el && el.kind !== "spread") {
+            validateExpression(el, elementType, ctx, `in array element ${i}`);
+          }
+        });
+      }
       break;
     }
 
     case "object": {
-      // For object literals, we'd need to check each property against expected property type
-      // This is more complex and may require type resolution - skip for now
+      // For object literals, check each property against expected property type
+      // Uses contextual expectedType only - no guessing
+      expr.properties.forEach((prop) => {
+        if (prop.kind === "spread") {
+          // For spreads, scan for nested call expressions
+          scanExpressionForCalls(prop.expression, ctx);
+        } else {
+          // Only handle string keys (not computed expressions)
+          if (typeof prop.key === "string") {
+            // Get expected type for this property from contextual type
+            const expectedPropType = tryGetObjectPropertyType(
+              expectedType,
+              prop.key
+            );
+            if (expectedPropType) {
+              validateExpression(
+                prop.value,
+                expectedPropType,
+                ctx,
+                `in property '${prop.key}'`
+              );
+            } else {
+              // Can't determine property type - scan for nested calls
+              scanExpressionForCalls(prop.value, ctx);
+            }
+          } else {
+            // Computed property key - can't resolve type, scan for calls
+            scanExpressionForCalls(prop.value, ctx);
+          }
+        }
+      });
       break;
     }
 
@@ -577,6 +671,17 @@ const processStatement = (stmt: IrStatement, ctx: CoercionContext): void => {
     }
 
     case "functionDeclaration": {
+      // Check default parameters for int→double coercion
+      for (const param of stmt.parameters) {
+        if (param.initializer && param.type) {
+          validateExpression(
+            param.initializer,
+            param.type,
+            ctx,
+            "in default parameter"
+          );
+        }
+      }
       // Process function body with return type context
       processStatementWithReturnType(stmt.body, stmt.returnType, ctx);
       break;
@@ -584,8 +689,21 @@ const processStatement = (stmt: IrStatement, ctx: CoercionContext): void => {
 
     case "classDeclaration": {
       for (const member of stmt.members) {
-        if (member.kind === "methodDeclaration" && member.body) {
-          processStatementWithReturnType(member.body, member.returnType, ctx);
+        if (member.kind === "methodDeclaration") {
+          // Check default parameters for int→double coercion
+          for (const param of member.parameters) {
+            if (param.initializer && param.type) {
+              validateExpression(
+                param.initializer,
+                param.type,
+                ctx,
+                "in default parameter"
+              );
+            }
+          }
+          if (member.body) {
+            processStatementWithReturnType(member.body, member.returnType, ctx);
+          }
         }
         if (member.kind === "propertyDeclaration" && member.initializer) {
           validateExpression(
