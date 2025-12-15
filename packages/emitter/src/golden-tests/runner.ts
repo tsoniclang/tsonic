@@ -36,10 +36,12 @@ export const normalizeCs = (code: string): string => {
   const body =
     bodyStartIndex > 0 ? lines.slice(bodyStartIndex).join("\n") : code;
 
-  return body
-    .trim()
-    // Remove trailing whitespace per line
-    .replace(/\s+$/gm, "");
+  return (
+    body
+      .trim()
+      // Remove trailing whitespace per line
+      .replace(/\s+$/gm, "")
+  );
 };
 
 /**
