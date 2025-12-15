@@ -8,7 +8,7 @@
  */
 
 import { Console } from "@tsonic/dotnet/System";
-import { int } from "@tsonic/core/types.js";
+import { int } from "@tsonic/types";
 
 export function main(): void {
   Console.writeLine("=== Integer Casting E2E Tests ===");
