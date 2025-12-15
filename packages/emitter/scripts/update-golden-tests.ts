@@ -1,6 +1,8 @@
 /**
  * Update golden test expected files
- * Run with: npx tsx scripts/update-golden-tests.ts
+ * Run with: npx tsx scripts/update-golden-tests.ts [dotnet|js]
+ *
+ * If no mode specified, updates both modes.
  */
 
 import * as fs from "fs";
@@ -12,22 +14,34 @@ import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const TESTCASES_DIR = path.join(__dirname, "../testcases");
 
-// Resolve paths to js-globals and types packages
+// Resolve paths to globals packages
 const monorepoRoot = path.resolve(__dirname, "../../..");
+const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
 const jsGlobalsPath = path.join(
   monorepoRoot,
   "node_modules/@tsonic/js-globals"
 );
 const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
+type RuntimeMode = "dotnet" | "js";
+
 interface TestEntry {
   input: string;
   title: string;
+  expectDiagnostics?: readonly string[];
 }
 
-const walkDir = (dir: string, pathParts: string[] = []): void => {
+const getTypeRoots = (mode: RuntimeMode): readonly string[] =>
+  mode === "js"
+    ? [globalsPath, jsGlobalsPath, corePath]
+    : [globalsPath, corePath];
+
+const walkDir = (
+  dir: string,
+  mode: RuntimeMode,
+  pathParts: string[] = []
+): void => {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const hasConfig = entries.some((e) => e.name === "config.yaml");
 
@@ -37,6 +51,14 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
     const testEntries = parseConfigYaml(configContent);
 
     for (const entry of testEntries) {
+      // Skip tests that expect diagnostics (no .cs file needed)
+      if (entry.expectDiagnostics?.length) {
+        console.log(
+          `Skipping (expects diagnostics): ${pathParts.join("/")}/${path.basename(entry.input, ".ts")}`
+        );
+        continue;
+      }
+
       const inputPath = path.join(dir, entry.input);
       const baseName = path.basename(entry.input, ".ts");
       const expectedPath = path.join(dir, `${baseName}.cs`);
@@ -49,16 +71,19 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
         const rootNamespace = ["TestCases", ...namespaceParts].join(".");
         const sourceRoot = path.dirname(inputPath);
 
-        // Compile using js-globals (JS mode types with int type alias for index-space values)
+        // Compile using appropriate typeRoots for the mode
         const compileResult = compile([inputPath], {
           projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
           sourceRoot,
           rootNamespace,
-          typeRoots: [jsGlobalsPath, corePath],
+          typeRoots: getTypeRoots(mode),
         });
 
         if (!compileResult.ok) {
           console.error(`  ERROR: Compilation failed`);
+          for (const d of compileResult.error.diagnostics) {
+            console.error(`    ${d.code}: ${d.message}`);
+          }
           continue;
         }
 
@@ -114,7 +139,7 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
         // Strip the header (Generated from, Generated at, WARNING, blank line)
         // Header is typically 4 lines, but we look for 'namespace' to find body start
         const lines = fullOutput.split("\n");
-        let bodyStartIndex = lines.findIndex(
+        const bodyStartIndex = lines.findIndex(
           (line, i) => i > 0 && line.startsWith("namespace")
         );
 
@@ -129,10 +154,12 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
             );
           }
           // Fallback: skip first 4 lines (header) for larger files
-          bodyStartIndex = 4;
+          console.warn(`  WARN: Using fallback header skip`);
         }
 
-        const body = lines.slice(bodyStartIndex).join("\n");
+        const body = lines
+          .slice(bodyStartIndex === -1 ? 4 : bodyStartIndex)
+          .join("\n");
 
         // Write to expected file
         fs.writeFileSync(expectedPath, body);
@@ -146,11 +173,33 @@ const walkDir = (dir: string, pathParts: string[] = []): void => {
   // Recurse into subdirectories
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      walkDir(path.join(dir, entry.name), [...pathParts, entry.name]);
+      walkDir(path.join(dir, entry.name), mode, [...pathParts, entry.name]);
     }
   }
 };
 
-console.log("Updating golden test expected files...\n");
-walkDir(TESTCASES_DIR);
+const updateMode = (mode: RuntimeMode): void => {
+  const testcasesDir = path.join(__dirname, `../testcases-${mode}`);
+  console.log(`\n=== Updating ${mode} mode golden tests ===\n`);
+  walkDir(testcasesDir, mode);
+};
+
+// Parse command line args
+const args = process.argv.slice(2);
+const requestedMode = args[0] as RuntimeMode | undefined;
+
+if (requestedMode && requestedMode !== "dotnet" && requestedMode !== "js") {
+  console.error(`Invalid mode: ${requestedMode}. Use 'dotnet' or 'js'.`);
+  process.exit(1);
+}
+
+console.log("Updating golden test expected files...");
+
+if (requestedMode) {
+  updateMode(requestedMode);
+} else {
+  updateMode("dotnet");
+  updateMode("js");
+}
+
 console.log("\nDone!");

@@ -19,7 +19,10 @@
     "clean": "rm -rf dist *.tsbuildinfo",
     "pretest": "npm run clean && npm run build",
     "test": "mocha 'dist/**/*.test.js'",
-    "test:watch": "mocha 'dist/**/*.test.js' --watch"
+    "test:watch": "mocha 'dist/**/*.test.js' --watch",
+    "update-golden": "npx tsx scripts/update-golden-tests.ts",
+    "update-golden:dotnet": "npx tsx scripts/update-golden-tests.ts dotnet",
+    "update-golden:js": "npx tsx scripts/update-golden-tests.ts js"
   },
   "dependencies": {
     "@tsonic/frontend": "*"

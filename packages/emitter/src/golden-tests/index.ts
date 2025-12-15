@@ -2,7 +2,12 @@
  * Golden test harness - Public API
  */
 
-export type { TestEntry, Scenario, DescribeNode } from "./types.js";
+export type {
+  TestEntry,
+  Scenario,
+  DescribeNode,
+  RuntimeMode,
+} from "./types.js";
 export { parseConfigYaml } from "./config-parser.js";
 export { discoverScenarios } from "./discovery.js";
 export { buildDescribeTree } from "./tree-builder.js";

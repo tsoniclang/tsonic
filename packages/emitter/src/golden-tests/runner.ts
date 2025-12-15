@@ -10,9 +10,10 @@ import { compile, buildIr, runNumericProofPass } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
 
-// Resolve paths to js-globals and types packages for golden tests
+// Resolve paths to globals packages for golden tests
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(__dirname, "../../../..");
+const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
 const jsGlobalsPath = path.join(
   monorepoRoot,
   "node_modules/@tsonic/js-globals"
@@ -21,20 +22,24 @@ const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 /**
  * Normalize C# output for comparison
+ * Strips the header (Generated from, Generated at, WARNING) and normalizes whitespace
  */
 export const normalizeCs = (code: string): string => {
-  return (
-    code
-      .trim()
-      // Normalize line endings
-      .replace(/\r\n/g, "\n")
-      // Remove trailing whitespace
-      .replace(/\s+$/gm, "")
-      // Normalize timestamp line (make comparison timestamp-agnostic)
-      .replace(/\/\/ Generated at: .+/, "// Generated at: TIMESTAMP")
-      // Normalize file path to just filename (strip directory path)
-      .replace(/\/\/ Generated from: .+\/([^/]+)$/, "// Generated from: $1")
+  const lines = code.trim().replace(/\r\n/g, "\n").split("\n");
+
+  // Find where the body starts (namespace line)
+  const bodyStartIndex = lines.findIndex(
+    (line, i) => i > 0 && line.startsWith("namespace")
   );
+
+  // Strip header if found, otherwise use full code
+  const body =
+    bodyStartIndex > 0 ? lines.slice(bodyStartIndex).join("\n") : code;
+
+  return body
+    .trim()
+    // Remove trailing whitespace per line
+    .replace(/\s+$/gm, "");
 };
 
 /**
@@ -53,12 +58,17 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
-  // Use js-globals for golden tests (JS mode types with int type alias for index-space values)
+  // Use appropriate typeRoots based on runtime mode
+  const typeRoots =
+    scenario.runtimeMode === "js"
+      ? [globalsPath, jsGlobalsPath, corePath]
+      : [globalsPath, corePath];
+
   const compileResult = compile([scenario.inputPath], {
     projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
     sourceRoot,
     rootNamespace,
-    typeRoots: [jsGlobalsPath, corePath],
+    typeRoots,
   });
 
   // Handle expected diagnostics tests

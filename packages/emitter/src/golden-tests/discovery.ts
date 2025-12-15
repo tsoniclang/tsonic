@@ -4,13 +4,16 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { Scenario } from "./types.js";
+import { RuntimeMode, Scenario } from "./types.js";
 import { parseConfigYaml } from "./config-parser.js";
 
 /**
  * Discover all test scenarios by walking the testcases directory (synchronous)
  */
-export const discoverScenarios = (baseDir: string): readonly Scenario[] => {
+export const discoverScenarios = (
+  baseDir: string,
+  runtimeMode: RuntimeMode
+): readonly Scenario[] => {
   const scenarios: Scenario[] = [];
 
   const walk = (dir: string, pathParts: string[]): void => {
@@ -62,6 +65,7 @@ export const discoverScenarios = (baseDir: string): readonly Scenario[] => {
           expectedPath: expectDiagnostics?.length ? undefined : expectedPath,
           expectDiagnostics,
           expectDiagnosticsMode: entry.expectDiagnosticsMode,
+          runtimeMode,
         });
       }
     }
