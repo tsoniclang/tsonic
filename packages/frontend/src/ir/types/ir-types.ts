@@ -155,3 +155,43 @@ export type IrVoidType = {
 export type IrNeverType = {
   readonly kind: "neverType";
 };
+
+/**
+ * C# Attribute attached to a declaration (class, function, method, property, parameter)
+ *
+ * Attributes are collected from marker calls like `A.on(Class).type(Attr)` and
+ * attached to the corresponding IR declaration nodes.
+ *
+ * Example:
+ * ```typescript
+ * A.on(User).type(SerializableAttribute);
+ * A.on(User).type(DataContractAttribute, { Name: "UserDTO" });
+ * ```
+ *
+ * Emits to C#:
+ * ```csharp
+ * [global::System.SerializableAttribute]
+ * [global::System.Runtime.Serialization.DataContractAttribute(Name = "UserDTO")]
+ * public class User { ... }
+ * ```
+ */
+export type IrAttribute = {
+  readonly kind: "attribute";
+  /** The attribute class type (e.g., SerializableAttribute) */
+  readonly attributeType: IrType;
+  /** Positional constructor arguments (string, number, boolean, typeof) */
+  readonly positionalArgs: readonly IrAttributeArg[];
+  /** Named property assignments (e.g., { Name: "UserDTO" }) */
+  readonly namedArgs: ReadonlyMap<string, IrAttributeArg>;
+};
+
+/**
+ * Attribute argument value - must be a constant expression.
+ * C# attributes only accept compile-time constants.
+ */
+export type IrAttributeArg =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "boolean"; readonly value: boolean }
+  | { readonly kind: "typeof"; readonly type: IrType }
+  | { readonly kind: "enum"; readonly type: IrType; readonly member: string };

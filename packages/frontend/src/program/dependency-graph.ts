@@ -16,6 +16,7 @@ import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
+import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -330,8 +331,15 @@ export const buildModuleDependencyGraph = (
     return error(yieldResult.diagnostics);
   }
 
-  // Use the processed modules with proofs and lowered yields
-  const processedModules = [...yieldResult.modules];
+  // Run attribute collection pass - extracts A.on(X).type(Y) marker calls
+  // and attaches them as attributes to declarations
+  const attributeResult = runAttributeCollectionPass(yieldResult.modules);
+  if (!attributeResult.ok) {
+    return error(attributeResult.diagnostics);
+  }
+
+  // Use the processed modules with proofs, lowered yields, and attributes
+  const processedModules = [...attributeResult.modules];
 
   // Sort modules by relative path for deterministic output
   processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));

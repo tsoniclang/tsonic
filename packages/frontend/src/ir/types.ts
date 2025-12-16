@@ -84,6 +84,9 @@ export type {
   IrUnknownType,
   IrVoidType,
   IrNeverType,
+  // Attribute types
+  IrAttribute,
+  IrAttributeArg,
   // Helper types
   IrPattern,
   IrIdentifierPattern,

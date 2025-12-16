@@ -2,7 +2,7 @@
  * Statement types for IR
  */
 
-import { IrType } from "./ir-types.js";
+import { IrType, IrAttribute } from "./ir-types.js";
 import {
   IrPattern,
   IrParameter,
@@ -60,6 +60,8 @@ export type IrFunctionDeclaration = {
   readonly isAsync: boolean;
   readonly isGenerator: boolean;
   readonly isExported: boolean;
+  /** C# attributes to emit before the function declaration */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrClassDeclaration = {
@@ -72,6 +74,8 @@ export type IrClassDeclaration = {
   readonly isExported: boolean;
   /** True if this class should be emitted as a C# struct instead of a class */
   readonly isStruct: boolean;
+  /** C# attributes to emit before the class declaration */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrClassMember =
@@ -94,6 +98,8 @@ export type IrMethodDeclaration = {
   readonly isOverride?: boolean;
   /** True if this method shadows a non-virtual base method (future: emit 'new' keyword) */
   readonly isShadow?: boolean;
+  /** C# attributes to emit before the method declaration */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrPropertyDeclaration = {
@@ -109,6 +115,8 @@ export type IrPropertyDeclaration = {
   readonly isOverride?: boolean;
   /** True if this property shadows a non-virtual base property (future: emit 'new' keyword) */
   readonly isShadow?: boolean;
+  /** C# attributes to emit before the property declaration */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrConstructorDeclaration = {

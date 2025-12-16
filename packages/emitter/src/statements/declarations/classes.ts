@@ -13,6 +13,7 @@ import { emitExpression } from "../../expression-emitter.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { emitAttributes } from "../../core/attributes.js";
 
 /**
  * Emit a class declaration
@@ -99,9 +100,19 @@ export const emitClassDeclaration = (
     currentContext = newContext;
   }
 
+  // Emit attributes before the class declaration
+  const [attributesCode, attrContext] = emitAttributes(
+    stmt.attributes,
+    currentContext
+  );
+  currentContext = attrContext;
+
   const signature = parts.join(" ");
   const memberCode = members.join("\n\n");
-  const code = `${ind}${signature}${typeParamsStr}${heritageStr}${whereClause}\n${ind}{\n${memberCode}\n${ind}}`;
+
+  // Build final code with attributes (if any)
+  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}${heritageStr}${whereClause}\n${ind}{\n${memberCode}\n${ind}}`;
 
   return [code, currentContext];
 };

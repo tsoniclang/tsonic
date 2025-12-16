@@ -21,3 +21,8 @@ export {
   runYieldLoweringPass,
   type YieldLoweringResult,
 } from "./yield-lowering-pass.js";
+
+export {
+  runAttributeCollectionPass,
+  type AttributeCollectionResult,
+} from "./attribute-collection-pass.js";
