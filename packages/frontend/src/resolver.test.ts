@@ -50,7 +50,7 @@ describe("Module Resolver", () => {
       }
     });
 
-    it("should error on local imports without .ts extension", () => {
+    it("should error on local imports without .js or .ts extension", () => {
       const result = resolveImport(
         "./models/User",
         path.join(tempDir, "src", "index.ts"),
@@ -60,7 +60,9 @@ describe("Module Resolver", () => {
       expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error.code).to.equal("TSN1001");
-        expect(result.error.message).to.include("must have .ts extension");
+        expect(result.error.message).to.include(
+          "must have .js or .ts extension"
+        );
       }
     });
 

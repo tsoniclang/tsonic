@@ -1,5 +1,5 @@
 // Test namespace imports (import * as)
-import * as MathUtils from "./utils/math.ts";
+import * as MathUtils from "./utils/math.js";
 import { Console } from "@tsonic/dotnet/System";
 
 export function main(): void {

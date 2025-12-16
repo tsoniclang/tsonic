@@ -21,7 +21,7 @@ Use `Action<T>` for callbacks that don't return a value.
 ```typescript
 import { Console } from "@tsonic/dotnet/System";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function forEach(items: List<int>, callback: (item: int) => void): void {
   const len = items.count;
@@ -58,7 +58,7 @@ public static void forEach(List<int> items, Action<int> callback)
 ### Multiple Parameters
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function forEachWithIndex(
   items: List<int>,
@@ -89,7 +89,7 @@ Use `Func<T, TResult>` for callbacks that return a value.
 ### Transform Functions
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function map(items: List<int>, transform: (item: int) => int): List<int> {
   const result = new List<int>();
@@ -113,7 +113,7 @@ public static List<int> map(List<int> items, Func<int, int> transform)
 ### Predicate Functions
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function filter(
   items: List<int>,
@@ -143,7 +143,7 @@ public static List<int> filter(List<int> items, Func<int, bool> predicate)
 ### Reducer Functions
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function reduce(
   items: List<int>,
@@ -195,7 +195,7 @@ Pass arrow functions directly:
 ```typescript
 import { Console } from "@tsonic/dotnet/System";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 const numbers = new List<int>();
 numbers.add(1 as int);
@@ -216,7 +216,7 @@ const doubled = map(numbers, (n: int) => (n * 2) as int);
 ### Returning Functions
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function createMultiplier(factor: int): (n: int) => int {
   return (n: int) => (n * factor) as int;
@@ -232,7 +232,7 @@ Console.writeLine(`${triple(5 as int)}`); // 15
 ### Function Composition
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function compose(f: (x: int) => int, g: (x: int) => int): (x: int) => int {
   return (x: int) => f(g(x));
@@ -291,7 +291,7 @@ addClickHandler((sender: object, args: EventArgs) => {
 ### Comparison Functions
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 function sort(items: List<int>, compare: (a: int, b: int) => int): void {
   // Use compare function for sorting
@@ -319,7 +319,7 @@ const user = createItem(() => ({
 Callbacks work seamlessly with LINQ:
 
 ```typescript
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 import { Enumerable } from "@tsonic/dotnet/System.Linq";
 

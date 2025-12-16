@@ -118,7 +118,7 @@ export function main(): void {
 3. Install type packages:
 
 ```bash
-npm install --save-dev @tsonic/cli @tsonic/types @tsonic/js-globals
+npm install --save-dev @tsonic/cli @tsonic/core @tsonic/js-globals
 ```
 
 ## Building and Running

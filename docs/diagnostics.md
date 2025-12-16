@@ -26,7 +26,7 @@ Local imports must use the `.ts` extension.
 import { User } from "./models/User";
 
 // Correct
-import { User } from "./models/User.ts";
+import { User } from "./models/User.js";
 ```
 
 ### TSN1002: Circular Dependency
@@ -46,7 +46,7 @@ Import path case doesn't match file on disk.
 
 ```typescript
 // File: ./models/User.ts
-import { User } from "./models/user.ts"; // Wrong case
+import { User } from "./models/user.js"; // Wrong case
 ```
 
 ### TSN1004: Module Not Found

@@ -96,6 +96,7 @@ const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "latest" };
  * packages: All type packages to install (includes explicit import packages)
  *
  * Package structure:
+ * - @tsonic/core: Core types (int, float, etc.) - imported as @tsonic/core/types.js
  * - @tsonic/globals depends on @tsonic/dotnet (camelCase BCL methods)
  * - @tsonic/globals-pure depends on @tsonic/dotnet-pure (PascalCase CLR naming)
  * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (uses whichever globals provides)
@@ -105,14 +106,19 @@ export const getTypePackageInfo = (
   nodejs: boolean = false,
   pure: boolean = false
 ): TypePackageInfo => {
+  // Core package is always included (provides int, float, etc.)
+  const corePackage = { name: "@tsonic/core", version: "latest" };
+
   if (runtime === "js") {
     // JS mode:
     // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
+    // - @tsonic/core: core types (int, float, etc.) - explicit import
     // - @tsonic/globals: base types + BCL methods (transitive @tsonic/dotnet) - needs typeRoots
     // - @tsonic/js-globals: extends base with JS methods (.map, .length, etc.) - needs typeRoots
     // Note: --pure is ignored in JS mode (always uses camelCase)
     const packages = [
       CLI_PACKAGE,
+      corePackage,
       { name: "@tsonic/globals", version: "latest" },
       { name: "@tsonic/js-globals", version: "latest" },
     ];
@@ -129,10 +135,15 @@ export const getTypePackageInfo = (
   }
   // Dotnet mode:
   // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
+  // - @tsonic/core: core types (int, float, etc.) - explicit import
   // - @tsonic/globals[-pure]: base types + BCL methods (transitive @tsonic/dotnet[-pure]) - needs typeRoots
   // - @tsonic/nodejs: Node.js interop (peerDep on @tsonic/dotnet, satisfied by globals)
   const globalsPackage = pure ? "@tsonic/globals-pure" : "@tsonic/globals";
-  const packages = [CLI_PACKAGE, { name: globalsPackage, version: "latest" }];
+  const packages = [
+    CLI_PACKAGE,
+    corePackage,
+    { name: globalsPackage, version: "latest" },
+  ];
   if (nodejs) {
     packages.push({ name: "@tsonic/nodejs", version: "latest" });
   }

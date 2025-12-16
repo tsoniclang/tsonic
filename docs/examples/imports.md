@@ -22,7 +22,7 @@ export class UserService {
 
 ```typescript
 // App.ts
-import { User, UserService } from "./models/User.ts";
+import { User, UserService } from "./models/User.js";
 
 export function main(): void {
   const service = new UserService();
@@ -35,13 +35,13 @@ export function main(): void {
 
 ```typescript
 // Same directory
-import { helper } from "./helper.ts";
+import { helper } from "./helper.js";
 
 // Parent directory
 import { config } from "../config.ts";
 
 // Nested path
-import { utils } from "./lib/utils/index.ts";
+import { utils } from "./lib/utils/index.js";
 ```
 
 ## Named Exports
@@ -66,7 +66,7 @@ export interface Point {
 
 ```typescript
 // App.ts
-import { PI, add, Point } from "./utils.ts";
+import { PI, add, Point } from "./utils.js";
 
 const point: Point = { x: 10, y: 20 };
 console.log(add(1, 2));
@@ -87,7 +87,7 @@ export function add(a: number, b: number): number {
 
 ```typescript
 // App.ts
-import * as utils from "./utils.ts";
+import * as utils from "./utils.js";
 
 console.log(utils.PI);
 console.log(utils.add(1, 2));
@@ -111,13 +111,13 @@ export interface Product {
 }
 
 // models/index.ts
-export { User } from "./User.ts";
-export { Product } from "./Product.ts";
+export { User } from "./User.js";
+export { Product } from "./Product.js";
 ```
 
 ```typescript
 // App.ts
-import { User, Product } from "./models/index.ts";
+import { User, Product } from "./models/index.js";
 ```
 
 ## Type-Only Imports
@@ -134,7 +134,7 @@ export interface Config {
 
 ```typescript
 // App.ts
-import type { Config } from "./types.ts";
+import type { Config } from "./types.js";
 
 function loadConfig(): Config {
   return { host: "localhost", port: 8080 };
@@ -221,8 +221,8 @@ export class UserService {
 }
 
 // src/App.ts
-import { User } from "./models/User.ts";
-import { UserService } from "./services/UserService.ts";
+import { User } from "./models/User.js";
+import { UserService } from "./services/UserService.js";
 
 export function main(): void {
   const service = new UserService();

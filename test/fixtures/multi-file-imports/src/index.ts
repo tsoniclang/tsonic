@@ -1,7 +1,7 @@
 // Test multi-file imports
 import { Console } from "@tsonic/dotnet/System";
 // Named imports from re-export barrel
-import { add, multiply, PI, prefix } from "./utils/index.ts";
+import { add, multiply, PI, prefix } from "./utils/index.js";
 
 export function main(): void {
   // Test math utils

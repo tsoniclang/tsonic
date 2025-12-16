@@ -24,11 +24,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // From dist/ir/converters/expressions/ go up to packages/frontend/, then up 2 more to monorepo root
 const monorepoRoot = path.resolve(__dirname, "../../../../../..");
+const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
 const jsGlobalsPath = path.join(
   monorepoRoot,
   "node_modules/@tsonic/js-globals"
 );
-const typesPath = path.join(monorepoRoot, "node_modules/@tsonic/types");
+const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 /**
  * Helper to compile TypeScript code with js-globals and extract IR
@@ -46,7 +47,7 @@ const compileWithJsGlobals = (
     projectRoot: monorepoRoot,
     sourceRoot: tmpDir,
     rootNamespace: "Test",
-    typeRoots: [jsGlobalsPath, typesPath],
+    typeRoots: [globalsPath, jsGlobalsPath, corePath],
   });
 
   if (!compileResult.ok) {

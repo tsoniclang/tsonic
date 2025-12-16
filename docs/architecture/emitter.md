@@ -617,6 +617,6 @@ type ModuleMap = Map<
 Used to resolve imports:
 
 ```typescript
-// import { foo } from "./utils.ts"
+// import { foo } from "./utils.js"
 // -> MyApp.src.utils.foo
 ```

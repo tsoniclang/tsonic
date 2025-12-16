@@ -104,7 +104,7 @@ const needsIntCast = (
   expr: Extract<IrExpression, { kind: "call" }>,
   calleeName: string
 ): boolean => {
-  // Check if the inferred type is int (a reference type from @tsonic/types)
+  // Check if the inferred type is int (a reference type from @tsonic/core)
   const inferredType = expr.inferredType;
   if (
     !inferredType ||

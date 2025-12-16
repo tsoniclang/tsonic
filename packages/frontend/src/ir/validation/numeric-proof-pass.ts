@@ -825,20 +825,50 @@ const processExpression = (
         expressions: expr.expressions.map((e) => processExpression(e, ctx)),
       };
 
-    case "arrowFunction":
+    case "arrowFunction": {
+      // Create context with arrow function parameters proven
+      const arrowCtx: ProofContext = {
+        ...ctx,
+        provenParameters: new Map(ctx.provenParameters),
+        provenVariables: new Map(ctx.provenVariables),
+      };
+      for (const param of expr.parameters) {
+        if (param.pattern.kind === "identifierPattern") {
+          const numericKind = getNumericKindFromType(param.type);
+          if (numericKind !== undefined) {
+            arrowCtx.provenParameters.set(param.pattern.name, numericKind);
+          }
+        }
+      }
       return {
         ...expr,
         body:
           expr.body.kind === "blockStatement"
-            ? processStatement(expr.body, ctx)
-            : processExpression(expr.body, ctx),
+            ? processStatement(expr.body, arrowCtx)
+            : processExpression(expr.body, arrowCtx),
       };
+    }
 
-    case "functionExpression":
+    case "functionExpression": {
+      // Create context with function expression parameters proven
+      const funcCtx: ProofContext = {
+        ...ctx,
+        provenParameters: new Map(ctx.provenParameters),
+        provenVariables: new Map(ctx.provenVariables),
+      };
+      for (const param of expr.parameters) {
+        if (param.pattern.kind === "identifierPattern") {
+          const numericKind = getNumericKindFromType(param.type);
+          if (numericKind !== undefined) {
+            funcCtx.provenParameters.set(param.pattern.name, numericKind);
+          }
+        }
+      }
       return {
         ...expr,
-        body: processStatement(expr.body, ctx),
+        body: processStatement(expr.body, funcCtx),
       };
+    }
 
     default:
       return expr;
