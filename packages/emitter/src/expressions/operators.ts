@@ -214,11 +214,45 @@ export const emitUpdate = (
  *
  * Passes the LHS type as expected type to RHS, enabling proper integer
  * literal emission for cases like `this.value = this.value + 1`.
+ *
+ * Special handling for JS mode array element assignment:
+ * - In JS mode, array[idx] = value must emit Array.set(array, idx, value)
+ * - NOT Array.get(array, idx) = value (which is invalid C#)
  */
 export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  const runtime = context.options.runtime ?? "js";
+
+  // Special case: JS mode array element assignment
+  // arr[idx] = value → Array.set(arr, idx, value)
+  if (
+    expr.operator === "=" &&
+    runtime === "js" &&
+    "kind" in expr.left &&
+    expr.left.kind === "memberAccess" &&
+    expr.left.isComputed &&
+    expr.left.object.inferredType?.kind === "arrayType"
+  ) {
+    const leftExpr = expr.left as Extract<
+      IrExpression,
+      { kind: "memberAccess" }
+    >;
+    const [objectFrag, objectContext] = emitExpression(
+      leftExpr.object,
+      context
+    );
+    const [indexFrag, indexContext] = emitExpression(
+      leftExpr.property as IrExpression,
+      objectContext
+    );
+    const [rightFrag, rightContext] = emitExpression(expr.right, indexContext);
+
+    const text = `global::Tsonic.JSRuntime.Array.set(${objectFrag.text}, ${indexFrag.text}, ${rightFrag.text})`;
+    return [{ text, precedence: 3 }, rightContext];
+  }
+
   // Left side can be an expression or a pattern (for destructuring)
   let leftText: string;
   let leftContext: EmitterContext;
