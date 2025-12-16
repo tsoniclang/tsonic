@@ -6,10 +6,10 @@ This directory contains **golden tests** for the Tsonic emitter - tests that ver
 
 Tsonic supports two runtime modes with different API availability:
 
-| Mode | Type Roots | APIs Available |
-|------|------------|----------------|
-| **dotnet** | `@tsonic/globals` | Native .NET: `name.Length`, `list.Count` |
-| **js** | `@tsonic/globals` + `@tsonic/js-globals` | JSRuntime: `String.length(name)`, `.map()`, `.filter()` |
+| Mode       | Type Roots                               | APIs Available                                          |
+| ---------- | ---------------------------------------- | ------------------------------------------------------- |
+| **dotnet** | `@tsonic/globals`                        | Native .NET: `name.Length`, `list.Count`                |
+| **js**     | `@tsonic/globals` + `@tsonic/js-globals` | JSRuntime: `String.length(name)`, `.map()`, `.filter()` |
 
 Tests are organized to work with both modes where possible.
 
@@ -39,6 +39,7 @@ testcases/
 The same TypeScript generates different C# depending on the mode:
 
 **TypeScript:**
+
 ```typescript
 export function isValid(name: string): boolean {
   return name.length > 0;
@@ -46,11 +47,13 @@ export function isValid(name: string): boolean {
 ```
 
 **Dotnet mode output:**
+
 ```csharp
 return name.Length > 0;  // Native .NET
 ```
 
 **JS mode output:**
+
 ```csharp
 return global::Tsonic.JSRuntime.String.length(name) > 0;  // JSRuntime wrapper
 ```
@@ -74,6 +77,7 @@ tests:
 ## Test Categories
 
 ### Common Tests (work in both modes)
+
 - **arrays/**: basic, destructuring, multidimensional, spread
 - **async/**: basic (Promise is in both modes)
 - **classes/**: basic, constructor, field-inference, inheritance, static-members
@@ -85,6 +89,7 @@ tests:
 - **types/**: anonymous-objects, conditional, constants, dictionaries, generics, interfaces, mapped, tuples-arity, utility-types
 
 ### JS-Only Tests (require JS APIs)
+
 - **arrays/methods** - `.map()`, `.filter()`, `.reduce()`
 - **classes/abstract** - `Math.PI`, `Math.abs()`
 - **control-flow/error-handling** - `console`, `Error`
@@ -127,11 +132,13 @@ npx tsx scripts/update-golden-tests.ts js
 ### For both modes (common/):
 
 1. Create test directory:
+
    ```bash
    mkdir -p testcases/common/category/subcategory
    ```
 
 2. Add source and config:
+
    ```
    common/category/subcategory/
    ├── MyTest.ts
@@ -139,6 +146,7 @@ npx tsx scripts/update-golden-tests.ts js
    ```
 
 3. Generate expected files:
+
    ```bash
    npx tsx scripts/update-golden-tests.ts
    ```
@@ -150,11 +158,13 @@ npx tsx scripts/update-golden-tests.ts js
 ### For JS mode only (js-only/):
 
 1. Create test directory:
+
    ```bash
    mkdir -p testcases/js-only/category/subcategory
    ```
 
 2. Add source, config, and expected together:
+
    ```
    js-only/category/subcategory/
    ├── MyTest.ts

@@ -43,28 +43,19 @@ describe("Module Map", () => {
   describe("resolveImportPath", () => {
     describe("extension handling", () => {
       it("should strip .ts extension from import source", () => {
-        const result = resolveImportPath(
-          "src/index.ts",
-          "./utils/Math.ts"
-        );
+        const result = resolveImportPath("src/index.ts", "./utils/Math.ts");
         expect(result).to.equal("src/utils/Math");
       });
 
       it("should strip .js extension from import source (ESM style)", () => {
         // REGRESSION TEST: ESM imports use .js extension for TypeScript files
         // This was the root cause of 7 E2E test failures (multi-file, namespace-imports, etc.)
-        const result = resolveImportPath(
-          "src/index.ts",
-          "./utils/Math.js"
-        );
+        const result = resolveImportPath("src/index.ts", "./utils/Math.js");
         expect(result).to.equal("src/utils/Math");
       });
 
       it("should handle import without extension", () => {
-        const result = resolveImportPath(
-          "src/index.ts",
-          "./utils/Math"
-        );
+        const result = resolveImportPath("src/index.ts", "./utils/Math");
         expect(result).to.equal("src/utils/Math");
       });
 
@@ -82,10 +73,7 @@ describe("Module Map", () => {
 
     describe("relative path resolution", () => {
       it("should resolve ./ imports (same directory)", () => {
-        const result = resolveImportPath(
-          "src/services/api.ts",
-          "./auth.js"
-        );
+        const result = resolveImportPath("src/services/api.ts", "./auth.js");
         expect(result).to.equal("src/services/auth");
       });
 
@@ -106,10 +94,7 @@ describe("Module Map", () => {
       });
 
       it("should handle bare imports (no ./ prefix) as same directory", () => {
-        const result = resolveImportPath(
-          "src/index.ts",
-          "utils/Math.js"
-        );
+        const result = resolveImportPath("src/index.ts", "utils/Math.js");
         expect(result).to.equal("src/utils/Math");
       });
     });
@@ -118,26 +103,17 @@ describe("Module Map", () => {
       // These mirror the actual imports from failing E2E tests
 
       it("multi-file: ./utils/Math.js from src/index.ts", () => {
-        const result = resolveImportPath(
-          "src/index.ts",
-          "./utils/Math.js"
-        );
+        const result = resolveImportPath("src/index.ts", "./utils/Math.js");
         expect(result).to.equal("src/utils/Math");
       });
 
       it("namespace-imports: ./utils/math.js from src/index.ts", () => {
-        const result = resolveImportPath(
-          "src/index.ts",
-          "./utils/math.js"
-        );
+        const result = resolveImportPath("src/index.ts", "./utils/math.js");
         expect(result).to.equal("src/utils/math");
       });
 
       it("barrel-reexports: ./User.js from src/models/index.ts", () => {
-        const result = resolveImportPath(
-          "src/models/index.ts",
-          "./User.js"
-        );
+        const result = resolveImportPath("src/models/index.ts", "./User.js");
         expect(result).to.equal("src/models/User");
       });
 
