@@ -194,8 +194,11 @@ export const resolveImportPath = (
   // Normalize import source
   let source = importSource.replace(/\\/g, "/");
 
-  // Remove .ts extension if present
+  // Remove .ts or .js extension if present
+  // ESM imports use .js extension for TypeScript files
   if (source.endsWith(".ts")) {
+    source = source.slice(0, -3);
+  } else if (source.endsWith(".js")) {
     source = source.slice(0, -3);
   }
 
