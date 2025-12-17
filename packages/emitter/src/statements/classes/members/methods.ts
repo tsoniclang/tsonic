@@ -15,6 +15,7 @@ import { emitType, emitTypeParameters } from "../../../type-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { emitParameters } from "../parameters.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
+import { emitAttributes } from "../../../core/attributes.js";
 
 /**
  * Emit a method declaration
@@ -95,9 +96,18 @@ export const emitMethodMember = (
 
   if (!member.body) {
     // Abstract method without body
+    // Emit attributes before the method declaration
+    const [attributesCode, attrContext] = emitAttributes(
+      member.attributes,
+      currentContext
+    );
+
     const signature = parts.join(" ");
-    const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause};`;
-    return [code, currentContext];
+
+    // Build final code with attributes (if any)
+    const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+    const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${params[0]})${whereClause};`;
+    return [code, attrContext];
   }
 
   // Build type parameter names set for this method (includes class type params from context)
@@ -152,8 +162,17 @@ export const emitMethodMember = (
     }
   }
 
-  const signature = parts.join(" ");
-  const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
+  // Emit attributes before the method declaration
+  const [attributesCode, attrContext] = emitAttributes(
+    member.attributes,
+    finalContext
+  );
 
-  return [code, dedent(finalContext)];
+  const signature = parts.join(" ");
+
+  // Build final code with attributes (if any)
+  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
+
+  return [code, dedent(attrContext)];
 };

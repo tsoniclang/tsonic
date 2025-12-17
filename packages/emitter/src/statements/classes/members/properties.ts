@@ -7,6 +7,7 @@ import { EmitterContext, getIndent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitType } from "../../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
+import { emitAttributes } from "../../../core/attributes.js";
 
 /**
  * Emit a property declaration
@@ -49,8 +50,16 @@ export const emitPropertyMember = (
   // Property name (escape C# keywords)
   parts.push(escapeCSharpIdentifier(member.name));
 
+  // Emit attributes before the property declaration
+  const [attributesCode, attrContext] = emitAttributes(
+    member.attributes,
+    currentContext
+  );
+  currentContext = attrContext;
+
   // Emit as field (TypeScript class fields map to C# fields, not properties)
-  let code = `${ind}${parts.join(" ")}`;
+  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  let code = `${attrPrefix}${ind}${parts.join(" ")}`;
   if (member.initializer) {
     const [initFrag, finalContext] = emitExpression(
       member.initializer,

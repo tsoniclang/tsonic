@@ -45,7 +45,6 @@ export type TsonicConfig = {
   readonly optimize?: "size" | "speed";
   readonly runtime?: "js" | "dotnet"; // Runtime mode
   readonly output?: TsonicOutputConfig;
-  readonly packages?: readonly NuGetPackage[]; // Deprecated - use dotnet.packages
   readonly buildOptions?: {
     readonly stripSymbols?: boolean;
     readonly invariantGlobalization?: boolean;

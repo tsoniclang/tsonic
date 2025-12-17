@@ -20,6 +20,7 @@ import {
   hasGeneratorReturnType,
   extractGeneratorTypeArgs,
 } from "../../generator-wrapper.js";
+import { emitAttributes } from "../../core/attributes.js";
 
 /**
  * Emit a function declaration
@@ -241,12 +242,22 @@ export const emitFunctionDeclaration = (
     }
   }
 
+  // Emit attributes before the function declaration
+  const [attributesCode, attrContext] = emitAttributes(
+    stmt.attributes,
+    currentContext
+  );
+  currentContext = attrContext;
+
   const signature = parts.join(" ");
   const whereClause =
     whereClauses.length > 0
       ? `\n${ind}    ${whereClauses.join(`\n${ind}    `)}`
       : "";
-  const code = `${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
+
+  // Build final code with attributes (if any)
+  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
 
   // Return context - no usings tracking needed with global:: FQN approach
   return [code, currentContext];

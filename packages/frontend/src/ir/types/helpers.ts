@@ -2,7 +2,7 @@
  * Supporting types (patterns, parameters, operators, accessibility, etc.)
  */
 
-import { IrType } from "./ir-types.js";
+import { IrType, IrAttribute } from "./ir-types.js";
 import { IrExpression } from "./expressions.js";
 
 // ============================================================================
@@ -62,6 +62,8 @@ export type IrParameter = {
   readonly isOptional: boolean;
   readonly isRest: boolean;
   readonly passing: "value" | "ref" | "out" | "in"; // C# parameter passing mode
+  /** C# attributes to emit before the parameter */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 // ============================================================================

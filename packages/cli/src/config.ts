@@ -193,7 +193,7 @@ export const resolveConfig = (
     runtime: config.runtime ?? "js",
     // Only include user-specified packages
     // Runtime DLLs are bundled with @tsonic/tsonic and added as assembly references
-    packages: config.dotnet?.packages ?? config.packages ?? [],
+    packages: config.dotnet?.packages ?? [],
     outputConfig,
     stripSymbols: cliOptions.noStrip
       ? false

@@ -51,8 +51,11 @@ export const resolveImport = (
     });
   }
 
-  // @tsonic/core/types.js is a type-only package (phantom types) - no runtime code
-  if (importSpecifier === "@tsonic/core/types.js") {
+  // @tsonic/core packages are type-only (phantom types, attributes) - no runtime code
+  if (
+    importSpecifier === "@tsonic/core/types.js" ||
+    importSpecifier === "@tsonic/core/attributes.js"
+  ) {
     return ok({
       resolvedPath: "", // No file path for type-only packages
       isLocal: false,

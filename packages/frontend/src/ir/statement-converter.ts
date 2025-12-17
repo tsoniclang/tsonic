@@ -38,12 +38,26 @@ export type ConvertStatementResult =
   | null;
 
 /**
+ * Check if a node is an ambient (declare) declaration.
+ * Ambient declarations are type-only and should not be emitted.
+ */
+const isAmbientDeclaration = (node: ts.Node): boolean => {
+  const modifierFlags = ts.getCombinedModifierFlags(node as ts.Declaration);
+  return !!(modifierFlags & ts.ModifierFlags.Ambient);
+};
+
+/**
  * Main statement converter dispatcher
  */
 export const convertStatement = (
   node: ts.Node,
   checker: ts.TypeChecker
 ): ConvertStatementResult => {
+  // Skip ambient (declare) declarations - they're type-only
+  if (isAmbientDeclaration(node)) {
+    return null;
+  }
+
   if (ts.isVariableStatement(node)) {
     return convertVariableStatement(node, checker);
   }
