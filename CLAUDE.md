@@ -39,6 +39,36 @@ If you need to switch branches for any reason, **ASK THE USER FIRST**.
 
 This applies to ANY question, even if it seems like part of a larger task or discussion.
 
+### ALWAYS SAVE TEST OUTPUT TO LOG FILE
+
+**🚨 CRITICAL RULE: ALWAYS pipe test output to a log file for later analysis. 🚨**
+
+Tests in this project are slow (30+ seconds) and cannot be quickly re-run. If you lose the output, you lose valuable debugging information.
+
+**ALWAYS do this:**
+
+```bash
+# Run tests and save output to log file
+npm test 2>&1 | tee .tests/test.log
+
+# Then analyze the log in a separate step
+grep -E "(failing|Error|FAIL)" .tests/test.log
+```
+
+**NEVER do this:**
+
+```bash
+# DON'T run tests without saving output
+npm test 2>&1 | tail -10  # Output is LOST if interrupted!
+```
+
+**Why this matters:**
+
+- Tests take 30+ seconds to run
+- If the command is interrupted, ALL output is lost
+- You cannot re-run quickly to see what failed
+- The `.tests/` directory is gitignored, safe for logs
+
 ### FUNCTIONAL PROGRAMMING ONLY
 
 **MANDATORY**: This codebase follows strict functional programming principles:

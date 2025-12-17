@@ -49,8 +49,8 @@ export type FullBindingManifest = {
 };
 
 /**
- * Simple binding entry (legacy format for backwards compatibility)
- * Maps simple global/module identifiers to CLR types
+ * Simple binding entry for global/module identifiers
+ * Maps identifiers like `console`, `Math`, `fs` to CLR types
  */
 export type SimpleBindingDescriptor = {
   readonly kind: "global" | "module";
@@ -60,9 +60,9 @@ export type SimpleBindingDescriptor = {
 };
 
 /**
- * Legacy binding file structure (backwards compatible)
+ * Simple binding file structure for global/module bindings
  */
-export type LegacyBindingFile = {
+export type SimpleBindingFile = {
   readonly bindings: Readonly<Record<string, SimpleBindingDescriptor>>;
 };
 
@@ -110,7 +110,7 @@ export type TsbindgenBindingFile = {
  */
 export type BindingFile =
   | FullBindingManifest
-  | LegacyBindingFile
+  | SimpleBindingFile
   | TsbindgenBindingFile;
 
 /**
@@ -171,33 +171,33 @@ const validateBindingFile = (
     return undefined; // Valid full format
   }
 
-  // Check for legacy format
+  // Check for simple format (global/module bindings)
   if ("bindings" in manifest) {
     if (typeof manifest.bindings !== "object" || manifest.bindings === null) {
       return `${filePath}: 'bindings' must be an object`;
     }
-    return undefined; // Valid legacy format
+    return undefined; // Valid simple format
   }
 
-  return `${filePath}: Unrecognized binding file format. Expected tsbindgen (namespace+types), full (assembly+namespaces), or legacy (bindings) format.`;
+  return `${filePath}: Unrecognized binding file format. Expected tsbindgen (namespace+types), full (assembly+namespaces), or simple (bindings) format.`;
 };
 
 /**
  * Registry of all loaded bindings
- * Supports both legacy (simple global/module) and new (hierarchical namespace/type/member) formats
+ * Supports simple (global/module) and hierarchical (namespace/type/member) formats
  */
 export class BindingRegistry {
-  // Legacy format: simple global/module bindings
+  // Simple format: global/module bindings for identifiers like console, Math, fs
   private readonly simpleBindings = new Map<string, SimpleBindingDescriptor>();
 
-  // New format: hierarchical bindings
+  // Hierarchical format: namespace/type/member bindings
   private readonly namespaces = new Map<string, NamespaceBinding>();
   private readonly types = new Map<string, TypeBinding>(); // Flat lookup by TS name
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
 
   /**
    * Load a binding manifest file and add its bindings to the registry
-   * Supports legacy, full, and tsbindgen formats
+   * Supports simple, full, and tsbindgen formats
    */
   addBindings(_filePath: string, manifest: BindingFile): void {
     if (isFullBindingManifest(manifest)) {
@@ -317,7 +317,7 @@ export class BindingRegistry {
         }
       }
     } else {
-      // Legacy format: simple global/module bindings
+      // Simple format: global/module bindings
       for (const [name, descriptor] of Object.entries(manifest.bindings)) {
         this.simpleBindings.set(name, descriptor);
       }
@@ -325,7 +325,7 @@ export class BindingRegistry {
   }
 
   /**
-   * Look up a simple global/module binding (legacy format)
+   * Look up a simple global/module binding
    */
   getBinding(name: string): SimpleBindingDescriptor | undefined {
     return this.simpleBindings.get(name);
@@ -354,7 +354,7 @@ export class BindingRegistry {
   }
 
   /**
-   * Get all loaded simple bindings (legacy)
+   * Get all loaded simple bindings
    */
   getAllBindings(): readonly [string, SimpleBindingDescriptor][] {
     return Array.from(this.simpleBindings.entries());

@@ -101,11 +101,8 @@ export const emitClassDeclaration = (
   }
 
   // Emit attributes before the class declaration
-  const [attributesCode, attrContext] = emitAttributes(
-    stmt.attributes,
-    currentContext
-  );
-  currentContext = attrContext;
+  // Use original context (not the one after processing members) for correct indentation
+  const [attributesCode] = emitAttributes(stmt.attributes, context);
 
   const signature = parts.join(" ");
   const memberCode = members.join("\n\n");

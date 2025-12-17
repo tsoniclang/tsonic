@@ -194,7 +194,7 @@ Optimization preference.
 
 #### buildOptions
 
-Legacy build options (use `output` for new projects).
+Build-time options for compilation.
 
 ```json
 {

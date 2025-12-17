@@ -1,18 +1,18 @@
 /**
  * Attribute Collection Pass
  *
- * This pass detects marker calls like `A.on(Class).type(Attr)` and transforms
+ * This pass detects marker calls like `A.on(Class).type.add(Attr)` and transforms
  * them into attributes attached to the corresponding IR declarations.
  *
  * Supported patterns:
- * - A.on(Class).type(Attr) - Type-level attribute on class
- * - A.on(Class).type(Attr, arg1, arg2) - With positional arguments
- * - A.on(fn).type(Attr) - Function-level attribute
+ * - A.on(Class).type.add(Attr) - Type-level attribute on class
+ * - A.on(Class).type.add(Attr, arg1, arg2) - With positional arguments
+ * - A.on(fn).type.add(Attr) - Function-level attribute
  *
  * Future patterns (not yet implemented):
  * - A.on(Class).prop(x => x.field).add(Attr) - Property attribute
  * - A.on(Class).method(x => x.fn).add(Attr) - Method attribute
- * - A.on(Class).type(Attr, { Name: "x" }) - Named arguments
+ * - A.on(Class).type.add(Attr, { Name: "x" }) - Named arguments
  */
 
 import {
@@ -81,40 +81,48 @@ const tryExtractAttributeArg = (
 /**
  * Try to detect if a call expression is an attribute marker pattern.
  *
- * Supported pattern: A.on(Target).type(Attr, ...args)
- *
+ * Pattern: A.on(Target).type.add(Attr, ...args)
  * Structure:
- * - CallExpression (outer) - the .type(Attr, ...) call
- *   - callee: MemberAccess with property "type"
- *     - object: CallExpression - the A.on(Target) call
- *       - callee: MemberAccess with property "on"
- *         - object: Identifier "A" or "attributes"
- *       - arguments: [Target identifier]
+ * - CallExpression (outer) - the .add(Attr, ...) call
+ *   - callee: MemberAccess with property "add"
+ *     - object: MemberAccess with property "type"
+ *       - object: CallExpression - the A.on(Target) call
+ *         - callee: MemberAccess with property "on"
+ *           - object: Identifier "A" or "attributes"
+ *         - arguments: [Target identifier]
  *   - arguments: [Attr type, ...positional args]
  */
 const tryDetectAttributeMarker = (
   call: IrCallExpression,
   _module: IrModule
 ): AttributeMarker | undefined => {
-  // Check outer call: must be a member access call like .type(...)
+  // Check outer call: must be a member access call like .add(...)
   if (call.callee.kind !== "memberAccess") return undefined;
 
   const outerMember = call.callee as IrMemberExpression;
 
-  // Check that property is "type" (string, not computed)
+  // Check that property is "add" (string, not computed)
   if (outerMember.isComputed || typeof outerMember.property !== "string") {
     return undefined;
   }
 
-  if (outerMember.property !== "type") {
-    // TODO: Handle .add() for property/method attributes
+  if (outerMember.property !== "add") return undefined;
+
+  // Check that object is .type member access
+  if (outerMember.object.kind !== "memberAccess") return undefined;
+
+  const typeMember = outerMember.object as IrMemberExpression;
+
+  if (typeMember.isComputed || typeof typeMember.property !== "string") {
     return undefined;
   }
 
-  // Check that the object of .type() is a call expression (A.on(Target))
-  if (outerMember.object.kind !== "call") return undefined;
+  if (typeMember.property !== "type") return undefined;
 
-  const onCall = outerMember.object as IrCallExpression;
+  // Check that object of .type is A.on(Target) call
+  if (typeMember.object.kind !== "call") return undefined;
+
+  const onCall = typeMember.object as IrCallExpression;
 
   // Check that onCall.callee is A.on or attributes.on
   if (onCall.callee.kind !== "memberAccess") return undefined;
@@ -131,7 +139,8 @@ const tryDetectAttributeMarker = (
   if (onMember.object.kind !== "identifier") return undefined;
 
   const apiObject = onMember.object as IrIdentifierExpression;
-  if (apiObject.name !== "A" && apiObject.name !== "attributes") return undefined;
+  if (apiObject.name !== "A" && apiObject.name !== "attributes")
+    return undefined;
 
   // Extract target from A.on(Target)
   if (onCall.arguments.length !== 1) return undefined;
@@ -144,45 +153,40 @@ const tryDetectAttributeMarker = (
 
   const targetName = (targetArg as IrIdentifierExpression).name;
 
-  // Extract attribute type from .type(Attr, ...)
+  // Extract attribute type from .add(Attr, ...) arguments
   if (call.arguments.length < 1) return undefined;
 
   const attrTypeArg = call.arguments[0];
   if (!attrTypeArg || attrTypeArg.kind === "spread") return undefined;
 
   // Attribute type should be an identifier referencing the attribute class
-  // Convert the expression to an IrType reference
-  let attributeType: IrType;
-  if (attrTypeArg.kind === "identifier") {
-    const attrIdent = attrTypeArg as IrIdentifierExpression;
-    attributeType = {
-      kind: "referenceType",
-      name: attrIdent.name,
-      resolvedClrType: attrIdent.resolvedClrType,
-    };
-  } else {
+  if (attrTypeArg.kind !== "identifier") {
     // Not a simple identifier - could be a member access like System.SerializableAttribute
     // For now, we don't support this
     return undefined;
   }
 
+  const attrIdent = attrTypeArg as IrIdentifierExpression;
+  // Use resolvedClrType if available, otherwise fall back to the identifier name.
+  // This handles ambient declarations where the name IS the CLR type name.
+  const clrType = attrIdent.resolvedClrType ?? attrIdent.name;
+  const attributeType: IrType = {
+    kind: "referenceType",
+    name: attrIdent.name,
+    resolvedClrType: clrType,
+  };
+
   // Extract positional arguments (skip the first which is the attribute type)
-  const positionalArgs: IrAttributeArg[] = [];
-  for (let i = 1; i < call.arguments.length; i++) {
-    const arg = call.arguments[i];
-    if (!arg || arg.kind === "spread") continue;
-
-    // Check if it's an object literal (named arguments)
-    if (arg.kind === "object") {
-      // TODO: Handle named arguments
-      continue;
-    }
-
-    const attrArg = tryExtractAttributeArg(arg as IrExpression);
-    if (attrArg) {
-      positionalArgs.push(attrArg);
-    }
-  }
+  const positionalArgs: readonly IrAttributeArg[] = call.arguments
+    .slice(1)
+    .filter((arg): arg is IrExpression => {
+      if (!arg || arg.kind === "spread") return false;
+      // Skip object literals (named arguments) for now
+      if (arg.kind === "object") return false;
+      return true;
+    })
+    .map((arg) => tryExtractAttributeArg(arg))
+    .filter((arg): arg is IrAttributeArg => arg !== undefined);
 
   // Determine target kind - we'll resolve this against the module later
   // For now, assume it could be either class or function
@@ -308,7 +312,10 @@ const processModule = (
         ...classStmt,
         attributes: [...existingAttrs, ...newAttrs],
       });
-    } else if (stmt.kind === "functionDeclaration" && functionAttributes.has(i)) {
+    } else if (
+      stmt.kind === "functionDeclaration" &&
+      functionAttributes.has(i)
+    ) {
       // Update function with attributes
       const funcStmt = stmt as IrFunctionDeclaration;
       const existingAttrs = funcStmt.attributes ?? [];
@@ -333,7 +340,7 @@ const processModule = (
  * Run the attribute collection pass on a set of modules.
  *
  * This pass:
- * 1. Detects attribute marker calls (A.on(X).type(Y))
+ * 1. Detects attribute marker calls (A.on(X).type.add(Y))
  * 2. Attaches IrAttribute nodes to the corresponding declarations
  * 3. Removes the marker statements from the module body
  * 4. Emits diagnostics for invalid patterns

@@ -399,11 +399,11 @@ describe("Binding System", () => {
       expect(registry.getAllNamespaces()).to.have.lengthOf(2);
     });
 
-    it("should support both legacy and hierarchical manifests", () => {
+    it("should support both simple and hierarchical manifests", () => {
       const registry = new BindingRegistry();
 
-      // Add legacy manifest
-      registry.addBindings("/test/legacy.json", {
+      // Add simple manifest
+      registry.addBindings("/test/simple.json", {
         bindings: {
           console: {
             kind: "global",

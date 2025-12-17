@@ -21,8 +21,8 @@ import type { LocalTypeInfo, EmitterContext } from "../types.js";
  * Check if a type contains any type parameter.
  *
  * Uses both:
- * 1. New IR kind "typeParameterType" (preferred)
- * 2. Legacy detection via typeParams set (compatibility during migration)
+ * 1. IR kind "typeParameterType" (explicit type parameter node)
+ * 2. Name matching via typeParams set (for referenceType nodes)
  *
  * @param type - The IR type to check
  * @param typeParams - Set of type parameter names in current scope
@@ -38,7 +38,7 @@ export const containsTypeParameter = (
       return true;
 
     case "referenceType":
-      // Legacy compatibility: check if name is in typeParams set
+      // Check if this referenceType is actually a type parameter
       if (typeParams.has(type.name)) {
         return true;
       }
@@ -149,7 +149,7 @@ const substituteType = (
     }
 
     case "referenceType": {
-      // Check if this is a type parameter (legacy representation)
+      // Check if this referenceType is actually a type parameter
       const substitution = mapping.get(type.name);
       if (substitution && !type.typeArguments) {
         return substitution;

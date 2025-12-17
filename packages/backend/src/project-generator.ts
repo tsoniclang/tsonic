@@ -212,34 +212,3 @@ ${propertyGroup}${packageRefs}${assemblyRefs}${runtimeRef}
 </Project>
 `;
 };
-
-/**
- * Legacy function for backward compatibility
- * @deprecated Use generateCsproj with outputConfig instead
- */
-export const generateCsprojLegacy = (
-  config: BuildConfig & {
-    invariantGlobalization?: boolean;
-    stripSymbols?: boolean;
-    optimizationPreference?: "Size" | "Speed";
-  }
-): string => {
-  // Convert legacy config to new format
-  const execConfig: ExecutableConfig = {
-    type: "executable",
-    nativeAot: true,
-    singleFile: true,
-    trimmed: true,
-    stripSymbols: config.stripSymbols ?? true,
-    optimization: config.optimizationPreference ?? "Speed",
-    invariantGlobalization: config.invariantGlobalization ?? true,
-    selfContained: true,
-  };
-
-  const newConfig: BuildConfig = {
-    ...config,
-    outputConfig: execConfig,
-  };
-
-  return generateCsproj(newConfig);
-};

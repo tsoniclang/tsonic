@@ -249,9 +249,7 @@ describe("Attribute Emission", () => {
           name: "DescriptionAttribute",
           resolvedClrType: "System.ComponentModel.DescriptionAttribute",
         },
-        positionalArgs: [
-          { kind: "string", value: 'Say "Hello" and \\escape' },
-        ],
+        positionalArgs: [{ kind: "string", value: 'Say "Hello" and \\escape' }],
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
@@ -291,8 +289,7 @@ describe("Attribute Emission", () => {
           attributeType: {
             kind: "referenceType",
             name: "NotNullAttribute",
-            resolvedClrType:
-              "System.Diagnostics.CodeAnalysis.NotNullAttribute",
+            resolvedClrType: "System.Diagnostics.CodeAnalysis.NotNullAttribute",
           },
           positionalArgs: [],
           namedArgs: new Map(),

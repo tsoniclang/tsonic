@@ -88,10 +88,6 @@ export type BuildConfig = {
   readonly assemblyReferences?: readonly AssemblyReference[];
   readonly packages: readonly NuGetPackage[];
   readonly outputConfig: OutputConfig;
-  // Legacy fields for backward compatibility
-  readonly invariantGlobalization?: boolean;
-  readonly stripSymbols?: boolean;
-  readonly optimizationPreference?: "Size" | "Speed";
 };
 
 /**

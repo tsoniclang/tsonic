@@ -6,10 +6,5 @@ namespace TestCases.common.async.basic
                 {
                 return await getData();
                 }
-
-            private static global::System.Threading.Tasks.Task<string> getData()
-                {
-
-                }
         }
 }
