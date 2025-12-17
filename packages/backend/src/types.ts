@@ -3,14 +3,6 @@
  */
 
 /**
- * NuGet package reference
- */
-export type NuGetPackage = {
-  readonly name: string;
-  readonly version: string;
-};
-
-/**
  * Output type taxonomy
  */
 export type OutputType = "executable" | "library" | "console-app";
@@ -86,7 +78,6 @@ export type BuildConfig = {
   readonly dotnetVersion: string;
   readonly runtimePath?: string;
   readonly assemblyReferences?: readonly AssemblyReference[];
-  readonly packages: readonly NuGetPackage[];
   readonly outputConfig: OutputConfig;
 };
 

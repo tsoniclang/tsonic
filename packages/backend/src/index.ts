@@ -11,7 +11,6 @@ export type {
   BuildResult,
   BuildConfig,
   EntryInfo,
-  NuGetPackage,
   DotnetResult,
   OutputType,
   OutputConfig,

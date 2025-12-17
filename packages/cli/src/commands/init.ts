@@ -258,7 +258,6 @@ const generateConfig = (
     outputName: "app",
     runtime: runtime,
     optimize: "speed",
-    packages: [],
     buildOptions: {
       stripSymbols: true,
       invariantGlobalization: true,

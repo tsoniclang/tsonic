@@ -118,33 +118,6 @@ describe("Config", () => {
       expect(result.optimize).to.equal("speed");
     });
 
-    it("should default packages to empty (runtime DLLs bundled separately)", () => {
-      const config: TsonicConfig = {
-        rootNamespace: "MyApp",
-      };
-
-      const result = resolveConfig(config, {}, "/project");
-      // Runtime DLLs are bundled with @tsonic/tsonic, not NuGet packages
-      expect(result.packages).to.deep.equal([]);
-    });
-
-    it("should include user-specified packages from config", () => {
-      const config: TsonicConfig = {
-        rootNamespace: "MyApp",
-        packages: [
-          { name: "System.Text.Json", version: "8.0.0" },
-          { name: "Newtonsoft.Json", version: "13.0.3" },
-        ],
-      };
-
-      const result = resolveConfig(config, {}, "/project");
-      // Only user-specified packages, no automatic runtime packages
-      expect(result.packages).to.deep.equal([
-        { name: "System.Text.Json", version: "8.0.0" },
-        { name: "Newtonsoft.Json", version: "13.0.3" },
-      ]);
-    });
-
     it("should default stripSymbols to true", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
@@ -291,7 +264,6 @@ describe("Config", () => {
         rid: "linux-x64",
         dotnetVersion: "net9.0",
         optimize: "size",
-        packages: [{ name: "Package.Name", version: "1.0.0" }],
         buildOptions: {
           stripSymbols: false,
           invariantGlobalization: false,
@@ -321,9 +293,6 @@ describe("Config", () => {
       expect(result.rid).to.equal("win-x64");
       expect(result.dotnetVersion).to.equal("net9.0");
       expect(result.optimize).to.equal("speed");
-      expect(result.packages).to.deep.equal([
-        { name: "Package.Name", version: "1.0.0" },
-      ]);
       expect(result.stripSymbols).to.equal(false);
       expect(result.invariantGlobalization).to.equal(false);
       expect(result.keepTemp).to.equal(true);
