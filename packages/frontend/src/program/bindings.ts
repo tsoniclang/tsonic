@@ -7,6 +7,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 /**
+ * Parameter modifier for ref/out/in parameters
+ * Matches the format from tsbindgen: { index: number, modifier: "ref" | "out" | "in" }
+ */
+export type ParameterModifier = {
+  readonly index: number;
+  readonly modifier: "ref" | "out" | "in";
+};
+
+/**
  * Member binding (method/property level)
  */
 export type MemberBinding = {
@@ -19,6 +28,8 @@ export type MemberBinding = {
     readonly type: string; // Full CLR type (e.g., "System.Linq.Enumerable")
     readonly member: string; // CLR member name
   };
+  // Parameter modifiers for ref/out/in parameters (from tsbindgen)
+  readonly parameterModifiers?: readonly ParameterModifier[];
 };
 
 /**
@@ -75,6 +86,8 @@ export type TsbindgenMethod = {
   readonly tsEmitName: string;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
+  // Parameter modifiers for ref/out/in parameters
+  readonly parameterModifiers?: readonly ParameterModifier[];
 };
 
 export type TsbindgenProperty = {
@@ -237,6 +250,8 @@ export class BindingRegistry {
               // member = clrName (what C# emits, e.g., "Add")
               member: method.clrName,
             },
+            // Include parameter modifiers for ref/out/in parameters
+            parameterModifiers: method.parameterModifiers,
           });
         }
 

@@ -198,6 +198,7 @@ const resolveHierarchicalBinding = (
           assembly: member.binding.assembly,
           type: member.binding.type,
           member: member.binding.member,
+          parameterModifiers: member.parameterModifiers,
         };
       }
     }
@@ -220,6 +221,7 @@ const resolveHierarchicalBinding = (
               assembly: member.binding.assembly,
               type: member.binding.type,
               member: member.binding.member,
+              parameterModifiers: member.parameterModifiers,
             };
           }
         }
@@ -239,6 +241,7 @@ const resolveHierarchicalBinding = (
         assembly: member.binding.assembly,
         type: member.binding.type,
         member: member.binding.member,
+        parameterModifiers: member.parameterModifiers,
       };
     }
   }

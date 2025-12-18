@@ -187,6 +187,41 @@ const extractParameterTypes = (
 };
 
 /**
+ * Extract argument passing modes from member binding's parameter modifiers.
+ * Converts parameterModifiers to the argumentPassing array format.
+ * Returns undefined if no modifiers are present.
+ */
+const extractArgumentPassingFromBinding = (
+  callee: ReturnType<typeof convertExpression>,
+  argCount: number
+): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+  // Check if callee is a member access with parameter modifiers
+  if (
+    callee.kind !== "memberAccess" ||
+    !callee.memberBinding?.parameterModifiers
+  ) {
+    return undefined;
+  }
+
+  const modifiers = callee.memberBinding.parameterModifiers;
+  if (modifiers.length === 0) {
+    return undefined;
+  }
+
+  // Build the argumentPassing array
+  // Initialize all as "value", then override based on modifiers
+  const passing: ("value" | "ref" | "out" | "in")[] =
+    Array(argCount).fill("value");
+  for (const mod of modifiers) {
+    if (mod.index >= 0 && mod.index < argCount) {
+      passing[mod.index] = mod.modifier;
+    }
+  }
+
+  return passing;
+};
+
+/**
  * Convert call expression
  */
 export const convertCallExpression = (
@@ -196,13 +231,21 @@ export const convertCallExpression = (
   // Extract type arguments from the call signature
   const typeArguments = extractTypeArguments(node, checker);
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
-  const argumentPassing = extractArgumentPassing(node, checker);
   const narrowing = extractNarrowing(node, checker);
   const parameterTypes = extractParameterTypes(node, checker);
 
+  // Convert callee first so we can access its memberBinding
+  const callee = convertExpression(node.expression, checker);
+
+  // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
+  // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
+  const argumentPassing =
+    extractArgumentPassingFromBinding(callee, node.arguments.length) ??
+    extractArgumentPassing(node, checker);
+
   return {
     kind: "call",
-    callee: convertExpression(node.expression, checker),
+    callee,
     arguments: node.arguments.map((arg) => {
       if (ts.isSpreadElement(arg)) {
         return {

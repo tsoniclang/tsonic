@@ -168,6 +168,11 @@ export type IrMemberExpression = {
     readonly assembly: string; // e.g., "System.Linq"
     readonly type: string; // Full CLR type e.g., "System.Linq.Enumerable"
     readonly member: string; // CLR member name e.g., "SelectMany"
+    // Parameter modifiers for ref/out/in parameters
+    readonly parameterModifiers?: readonly {
+      readonly index: number;
+      readonly modifier: "ref" | "out" | "in";
+    }[];
   };
   // Classification for computed access lowering (set during IR build)
   // Determines whether Int32 proof is required for indices
