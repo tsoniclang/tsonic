@@ -9,12 +9,11 @@ import { BuildConfig } from "./types.js";
 
 describe("Project Generator", () => {
   describe("generateCsproj", () => {
-    it("should generate basic executable .csproj without packages", () => {
+    it("should generate basic executable .csproj", () => {
       const config: BuildConfig = {
         rootNamespace: "TestApp",
         outputName: "test",
         dotnetVersion: "net10.0",
-        packages: [],
         outputConfig: {
           type: "executable",
           nativeAot: true,
@@ -39,14 +38,13 @@ describe("Project Generator", () => {
       );
     });
 
-    it("should include package references when provided", () => {
+    it("should include assembly references when provided", () => {
       const config: BuildConfig = {
         rootNamespace: "TestApp",
         outputName: "test",
         dotnetVersion: "net10.0",
-        packages: [
-          { name: "System.Text.Json", version: "8.0.0" },
-          { name: "Newtonsoft.Json", version: "13.0.3" },
+        assemblyReferences: [
+          { name: "Tsonic.Runtime", hintPath: "lib/Tsonic.Runtime.dll" },
         ],
         outputConfig: {
           type: "executable",
@@ -62,12 +60,8 @@ describe("Project Generator", () => {
 
       const result = generateCsproj(config);
 
-      expect(result).to.include(
-        '<PackageReference Include="System.Text.Json" Version="8.0.0"'
-      );
-      expect(result).to.include(
-        '<PackageReference Include="Newtonsoft.Json" Version="13.0.3"'
-      );
+      expect(result).to.include('<Reference Include="Tsonic.Runtime">');
+      expect(result).to.include("<HintPath>lib/Tsonic.Runtime.dll</HintPath>");
       expect(result).to.include(
         "<OptimizationPreference>Size</OptimizationPreference>"
       );
@@ -78,7 +72,6 @@ describe("Project Generator", () => {
         rootNamespace: "TestApp",
         outputName: "test",
         dotnetVersion: "net10.0",
-        packages: [],
         outputConfig: {
           type: "executable",
           nativeAot: true,
@@ -104,7 +97,6 @@ describe("Project Generator", () => {
         rootNamespace: "TestLib",
         outputName: "testlib",
         dotnetVersion: "net10.0",
-        packages: [],
         outputConfig: {
           type: "library",
           targetFrameworks: ["net8.0", "net9.0"],

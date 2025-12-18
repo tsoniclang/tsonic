@@ -15,6 +15,7 @@ import {
   getPrimitiveType,
   isClrPrimitiveTypeName,
   getClrPrimitiveType,
+  CLR_PRIMITIVE_TYPE_SET,
 } from "./primitives.js";
 import {
   isExpandableUtilityType,
@@ -227,6 +228,62 @@ const extractStructuralMembers = (
         declarations?.some(
           (decl) => ts.isMethodSignature(decl) || ts.isMethodDeclaration(decl)
         ) ?? false;
+
+      // IMPORTANT: Check for CLR primitive type aliases BEFORE calling typeToTypeNode.
+      // TypeScript eagerly resolves type aliases like `int` to their underlying type `number`
+      // when converting to TypeNode. We need to preserve the alias identity for CLR primitives
+      // so that TSN5110 correctly validates `int` properties accept `int` values.
+      //
+      // The propType.aliasSymbol approach doesn't work because getTypeOfSymbolAtLocation
+      // returns the resolved type without alias info. Instead, we look at the property
+      // declaration's type node directly to see the original type reference.
+      //
+      // Only preserve alias identity when:
+      // 1. The type reference name is a known CLR primitive (e.g., "int")
+      // 2. The type reference resolves to @tsonic/core (not a random user alias)
+      const propDecl = declarations?.[0];
+      if (
+        propDecl &&
+        (ts.isPropertySignature(propDecl) || ts.isPropertyDeclaration(propDecl))
+      ) {
+        const declTypeNode = propDecl.type;
+        // Check if the declared type is a type reference to a CLR primitive
+        if (declTypeNode && ts.isTypeReferenceNode(declTypeNode)) {
+          const typeName = ts.isIdentifier(declTypeNode.typeName)
+            ? declTypeNode.typeName.text
+            : undefined;
+          if (typeName && CLR_PRIMITIVE_TYPE_SET.has(typeName)) {
+            // Resolve the type reference to check it comes from @tsonic/core
+            // For type aliases like `int`, we need to get the symbol from the type name identifier
+            // and follow any aliases (imports) to the original declaration
+            const typeNameNode = declTypeNode.typeName;
+            const typeSymbolRaw = ts.isIdentifier(typeNameNode)
+              ? checker.getSymbolAtLocation(typeNameNode)
+              : undefined;
+            // Follow alias chain to get the original symbol (handles re-exports/imports)
+            const typeSymbol = typeSymbolRaw
+              ? checker.getAliasedSymbol(typeSymbolRaw)
+              : undefined;
+            const refDecl = typeSymbol?.declarations?.[0];
+            const refSourceFile = refDecl?.getSourceFile();
+            if (
+              refSourceFile?.fileName.includes("@tsonic/core") ||
+              refSourceFile?.fileName.includes("@tsonic/types")
+            ) {
+              // Directly emit the CLR primitive type, bypassing typeToTypeNode
+              const propSig: IrPropertySignature = {
+                kind: "propertySignature",
+                name: propName,
+                type: getClrPrimitiveType(typeName as "int"),
+                isOptional,
+                isReadonly,
+              };
+              members.push(propSig);
+              continue;
+            }
+          }
+        }
+      }
 
       const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
       const propTypeNode = checker.typeToTypeNode(

@@ -224,7 +224,6 @@ export const generateCommand = (
     rootNamespace,
     projectRoot,
     sourceRoot,
-    packages,
     typeRoots,
   } = config;
 
@@ -433,7 +432,6 @@ export const generateCommand = (
         dotnetVersion: config.dotnetVersion,
         runtimePath,
         assemblyReferences,
-        packages,
         outputConfig,
       };
 

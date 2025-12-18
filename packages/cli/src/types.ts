@@ -2,11 +2,7 @@
  * Type definitions for CLI
  */
 
-import type {
-  NuGetPackage,
-  OutputType,
-  PackageMetadata,
-} from "@tsonic/backend";
+import type { OutputType, PackageMetadata } from "@tsonic/backend";
 
 /**
  * Output configuration in tsonic.json
@@ -51,7 +47,6 @@ export type TsonicConfig = {
   };
   readonly dotnet?: {
     readonly typeRoots?: readonly string[];
-    readonly packages?: readonly NuGetPackage[];
     readonly libraries?: readonly string[]; // External library paths for .NET interop
   };
 };
@@ -71,7 +66,6 @@ export type CliOptions = {
   optimize?: "size" | "speed";
   keepTemp?: boolean;
   noStrip?: boolean;
-  packages?: string;
   lib?: string[]; // External library paths for .NET interop
   // Project init options
   skipTypes?: boolean;
@@ -104,7 +98,6 @@ export type ResolvedConfig = {
   readonly dotnetVersion: string;
   readonly optimize: "size" | "speed";
   readonly runtime: "js" | "dotnet";
-  readonly packages: readonly NuGetPackage[];
   readonly outputConfig: TsonicOutputConfig;
   readonly stripSymbols: boolean;
   readonly invariantGlobalization: boolean;

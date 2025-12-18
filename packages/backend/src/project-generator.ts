@@ -4,7 +4,6 @@
 
 import {
   BuildConfig,
-  NuGetPackage,
   OutputConfig,
   ExecutableConfig,
   LibraryConfig,
@@ -12,27 +11,6 @@ import {
   PackageMetadata,
   AssemblyReference,
 } from "./types.js";
-
-/**
- * Generate package references XML
- */
-const formatPackageReferences = (packages: readonly NuGetPackage[]): string => {
-  if (packages.length === 0) {
-    return "";
-  }
-
-  const refs = packages
-    .map(
-      (pkg) =>
-        `    <PackageReference Include="${pkg.name}" Version="${pkg.version}" />`
-    )
-    .join("\n");
-
-  return `
-  <ItemGroup>
-${refs}
-  </ItemGroup>`;
-};
 
 /**
  * Generate assembly references XML (for DLL files)
@@ -194,7 +172,6 @@ const generatePropertyGroup = (
  * Generate complete .csproj file content
  */
 export const generateCsproj = (config: BuildConfig): string => {
-  const packageRefs = formatPackageReferences(config.packages);
   const assemblyRefs = formatAssemblyReferences(
     config.assemblyReferences ?? []
   );
@@ -208,7 +185,7 @@ export const generateCsproj = (config: BuildConfig): string => {
   const propertyGroup = generatePropertyGroup(config, config.outputConfig);
 
   return `<Project Sdk="Microsoft.NET.Sdk">
-${propertyGroup}${packageRefs}${assemblyRefs}${runtimeRef}
+${propertyGroup}${assemblyRefs}${runtimeRef}
 </Project>
 `;
 };
