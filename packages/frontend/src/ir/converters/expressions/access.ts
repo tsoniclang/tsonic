@@ -186,7 +186,10 @@ const resolveHierarchicalBinding = (
 
     // Case 1b: object is a direct type import (like `Console` imported directly)
     // Check if the identifier is a type alias, and if so, look up the member
-    const directType = registry.getType(object.name);
+    // First try by local name, then by original name (handles aliased imports like `import { String as ClrString }`)
+    const directType =
+      registry.getType(object.name) ??
+      (object.originalName ? registry.getType(object.originalName) : undefined);
     if (directType) {
       const member = directType.members.find((m) => m.alias === propertyName);
       if (member) {

@@ -117,6 +117,17 @@ export const convertExpression = (
     };
   }
   if (ts.isIdentifier(node)) {
+    // Check if this identifier is an aliased import (e.g., import { String as ClrString })
+    // We need the original name for binding lookup
+    let originalName: string | undefined;
+    const symbol = checker.getSymbolAtLocation(node);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+      const aliased = checker.getAliasedSymbol(symbol);
+      if (aliased && aliased !== symbol && aliased.name !== "unknown") {
+        originalName = aliased.name;
+      }
+    }
+
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
     const binding = getBindingRegistry().getBinding(node.text);
     if (binding && binding.kind === "global") {
@@ -128,6 +139,7 @@ export const convertExpression = (
         resolvedClrType: binding.type,
         resolvedAssembly: binding.assembly,
         csharpName: binding.csharpName, // Optional C# name from binding
+        originalName,
       };
     }
     return {
@@ -135,6 +147,7 @@ export const convertExpression = (
       name: node.text,
       inferredType,
       sourceSpan: getSourceSpan(node),
+      originalName,
     };
   }
   if (ts.isArrayLiteralExpression(node)) {

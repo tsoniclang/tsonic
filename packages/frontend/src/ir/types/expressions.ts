@@ -82,6 +82,9 @@ export type IrIdentifierExpression = {
     readonly exportName: string; // e.g., "add" (may differ from local name if aliased)
     readonly namespace: string; // e.g., "MultiFileCheck.utils"
   };
+  // For aliased imports: the original export name before renaming
+  // e.g., for `import { String as ClrString }`, originalName is "String"
+  readonly originalName?: string;
 };
 
 export type IrArrayExpression = {
