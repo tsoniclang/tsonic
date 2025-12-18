@@ -26,3 +26,8 @@ export {
   runAttributeCollectionPass,
   type AttributeCollectionResult,
 } from "./attribute-collection-pass.js";
+
+export {
+  runAnonymousTypeLoweringPass,
+  type AnonymousTypeLoweringResult,
+} from "./anonymous-type-lowering-pass.js";

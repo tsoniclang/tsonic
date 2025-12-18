@@ -1,0 +1,11 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "AnonymousObjectTypeLiteral",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "anonymous-object-type-literal",
+  "dotnet": {
+    "typeRoots": ["node_modules/@tsonic/globals"]
+  }
+}
