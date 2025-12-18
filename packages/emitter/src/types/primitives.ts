@@ -28,6 +28,7 @@ export const emitPrimitiveType = (
     int: "int",
     string: "string",
     boolean: "bool",
+    char: "char",
     null: "object",
     undefined: "object",
   };

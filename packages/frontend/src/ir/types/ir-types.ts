@@ -40,6 +40,7 @@ export type IrPrimitiveType = {
     | "string"
     | "number" // Always double in C#
     | "int" // Always int in C#
+    | "char" // For string indexer access (str[i] returns char in C#)
     | "boolean"
     | "null"
     | "undefined";
