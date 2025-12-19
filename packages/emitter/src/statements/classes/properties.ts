@@ -26,6 +26,11 @@ export const emitInterfaceMemberAsProperty = (
 
       parts.push("public"); // All properties public
 
+      // Required modifier for non-optional properties (C# 11)
+      if (!member.isOptional) {
+        parts.push("required");
+      }
+
       // Property type
       if (member.type) {
         // If this is an inline object type, use the extracted class name
