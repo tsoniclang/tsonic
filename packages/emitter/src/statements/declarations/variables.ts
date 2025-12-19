@@ -95,9 +95,32 @@ export const emitVariableDeclaration = (
       varDecl += `${funcType} `;
     } else if (context.isStatic) {
       // Static fields cannot use 'var' - infer type from initializer if possible
-      // For string literals, use 'string'; for number literals, use int/double based on numericIntent
-      // Otherwise fall back to 'object' (not ideal but safe)
-      if (decl.initializer?.kind === "literal") {
+      // Priority: 1) new expression with type args, 2) literals, 3) fall back to object
+      if (decl.initializer?.kind === "new") {
+        // Construct type from the new expression's callee and type arguments
+        // This preserves explicit type arguments like `int` instead of using
+        // inferredType which TypeScript sees as `number`
+        const newExpr = decl.initializer;
+        const [calleeFrag, calleeContext] = emitExpression(
+          newExpr.callee,
+          currentContext
+        );
+        currentContext = calleeContext;
+
+        if (newExpr.typeArguments && newExpr.typeArguments.length > 0) {
+          // Emit type with explicit type arguments
+          const typeArgs: string[] = [];
+          for (const typeArg of newExpr.typeArguments) {
+            const [typeArgStr, newCtx] = emitType(typeArg, currentContext);
+            typeArgs.push(typeArgStr);
+            currentContext = newCtx;
+          }
+          varDecl += `${calleeFrag.text}<${typeArgs.join(", ")}> `;
+        } else {
+          // Non-generic constructor
+          varDecl += `${calleeFrag.text} `;
+        }
+      } else if (decl.initializer?.kind === "literal") {
         const lit = decl.initializer;
         if (typeof lit.value === "string") {
           varDecl += "string ";

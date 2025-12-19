@@ -16,6 +16,7 @@ import {
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
+  isDefinitelyValueType,
 } from "../../core/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
@@ -97,6 +98,124 @@ const tryResolvePredicateGuard = (
     escapedNarrow,
     narrowedMap,
   };
+};
+
+/**
+ * Check if an expression represents null or undefined.
+ * Handles both literal form (from null/undefined keyword) and identifier form
+ * (when TypeScript parses "undefined" as an identifier rather than keyword).
+ */
+const isNullOrUndefined = (expr: IrExpression): boolean => {
+  // Literal form: null or undefined keyword
+  if (
+    expr.kind === "literal" &&
+    (expr.value === null || expr.value === undefined)
+  ) {
+    return true;
+  }
+
+  // Identifier form: the identifier "undefined"
+  // (TypeScript sometimes parses undefined as identifier)
+  if (expr.kind === "identifier" && expr.name === "undefined") {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Information extracted from a nullable guard condition.
+ * Used to generate .Value access for narrowed nullable value types.
+ */
+type NullableGuardInfo = {
+  readonly identifierName: string;
+  readonly identifierExpr: IrExpression;
+  readonly strippedType: IrType;
+  readonly narrowsInThen: boolean; // true for !== null, false for === null
+  readonly isValueType: boolean;
+};
+
+/**
+ * Try to extract nullable guard info from a simple comparison expression.
+ * This is the core check for patterns like: id !== undefined, id !== null, id != null
+ */
+const tryResolveSimpleNullableGuard = (
+  condition: IrExpression
+): NullableGuardInfo | undefined => {
+  if (condition.kind !== "binary") return undefined;
+
+  const op = condition.operator;
+  const isNotEqual = op === "!==" || op === "!=";
+  const isEqual = op === "===" || op === "==";
+  if (!isNotEqual && !isEqual) return undefined;
+
+  // Find identifier and null/undefined expression
+  let identifier: Extract<IrExpression, { kind: "identifier" }> | undefined;
+
+  if (
+    isNullOrUndefined(condition.right) &&
+    condition.left.kind === "identifier"
+  ) {
+    identifier = condition.left;
+  } else if (
+    isNullOrUndefined(condition.left) &&
+    condition.right.kind === "identifier"
+  ) {
+    identifier = condition.right;
+  }
+
+  if (!identifier) return undefined;
+
+  const idType = identifier.inferredType;
+  if (!idType) return undefined;
+
+  // Check if type is nullable (has null or undefined in union)
+  const stripped = stripNullish(idType);
+  if (stripped === idType) return undefined; // Not a nullable type
+
+  // Check if it's a value type that needs .Value
+  const isValueType = isDefinitelyValueType(stripped);
+
+  return {
+    identifierName: identifier.name,
+    identifierExpr: identifier,
+    strippedType: stripped,
+    narrowsInThen: isNotEqual,
+    isValueType,
+  };
+};
+
+/**
+ * Try to extract nullable guard info from a condition.
+ * Detects patterns like: id !== undefined, id !== null, id != null
+ * Also searches inside && (logical AND) conditions recursively.
+ *
+ * For compound conditions like `method === "GET" && id !== undefined`,
+ * we search both sides of the && for a nullable guard pattern.
+ *
+ * Returns guard info if the condition is a null/undefined check on an identifier
+ * with a nullable type that is a value type (needs .Value in C#).
+ */
+const tryResolveNullableGuard = (
+  condition: IrExpression,
+  _context: EmitterContext
+): NullableGuardInfo | undefined => {
+  // First try the simple case
+  const simple = tryResolveSimpleNullableGuard(condition);
+  if (simple) return simple;
+
+  // If this is a && logical expression, search inside it
+  if (condition.kind === "logical" && condition.operator === "&&") {
+    // Check left side
+    const leftGuard = tryResolveNullableGuard(condition.left, _context);
+    if (leftGuard) return leftGuard;
+
+    // Check right side
+    const rightGuard = tryResolveNullableGuard(condition.right, _context);
+    if (rightGuard) return rightGuard;
+  }
+
+  return undefined;
 };
 
 /**
@@ -395,6 +514,68 @@ export const emitIfStatement = (
         return [code, finalContext];
       }
     }
+  }
+
+  // Case D: Nullable value type narrowing
+  // if (id !== null) { ... } → id becomes id.Value in then-branch
+  const nullableGuard = tryResolveNullableGuard(stmt.condition, context);
+  if (nullableGuard && nullableGuard.isValueType) {
+    const { identifierName, narrowsInThen, strippedType } = nullableGuard;
+    const escapedName = escapeCSharpIdentifier(identifierName);
+
+    // Create narrowed binding: id → id.Value
+    const narrowedMap = new Map(context.narrowedBindings ?? []);
+    narrowedMap.set(identifierName, {
+      kind: "expr",
+      exprText: `${escapedName}.Value`,
+      type: strippedType,
+    });
+
+    // Emit condition
+    const [condFrag, condContext] = emitExpression(stmt.condition, context);
+
+    // Convert to boolean condition if needed
+    const condText = toBooleanCondition(stmt.condition, condFrag.text);
+
+    // Apply narrowing to appropriate branch
+    const thenCtx: EmitterContext = {
+      ...indent(condContext),
+      narrowedBindings: narrowsInThen
+        ? narrowedMap
+        : condContext.narrowedBindings,
+    };
+
+    const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
+
+    let code = `${ind}if (${condText})\n${thenCode}`;
+    let finalContext = dedent(thenCtxAfter);
+
+    // Clear narrowing after branch
+    finalContext = {
+      ...finalContext,
+      narrowedBindings: context.narrowedBindings,
+    };
+
+    if (stmt.elseStatement) {
+      const elseCtx: EmitterContext = {
+        ...indent(finalContext),
+        narrowedBindings: !narrowsInThen
+          ? narrowedMap
+          : context.narrowedBindings,
+      };
+      const [elseCode, elseCtxAfter] = emitStatement(
+        stmt.elseStatement,
+        elseCtx
+      );
+      code += `\n${ind}else\n${elseCode}`;
+      finalContext = dedent(elseCtxAfter);
+      finalContext = {
+        ...finalContext,
+        narrowedBindings: context.narrowedBindings,
+      };
+    }
+
+    return [code, finalContext];
   }
 
   // Standard if-statement emission (no narrowing)

@@ -17,6 +17,7 @@ import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
+import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -303,16 +304,22 @@ export const buildModuleDependencyGraph = (
     return error(diagnostics);
   }
 
+  // Run anonymous type lowering pass - transforms objectType to generated named types
+  // This must run before soundness validation so the emitter never sees objectType
+  const anonTypeResult = runAnonymousTypeLoweringPass(modules);
+  // Note: This pass always succeeds (no diagnostics), but we use the lowered modules
+  const loweredModules = anonTypeResult.modules;
+
   // Run IR soundness gate - validates no anyType leaked through
   // This is the final validation before emitter can run
-  const soundnessResult = validateIrSoundness(modules);
+  const soundnessResult = validateIrSoundness(loweredModules);
   if (!soundnessResult.ok) {
     return error(soundnessResult.diagnostics);
   }
 
   // Run numeric proof pass - validates all numeric narrowings are provable
   // and attaches proofs to expressions for the emitter
-  const numericResult = runNumericProofPass(modules);
+  const numericResult = runNumericProofPass(loweredModules);
   if (!numericResult.ok) {
     return error(numericResult.diagnostics);
   }

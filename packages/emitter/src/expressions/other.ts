@@ -7,11 +7,29 @@ import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 
 /**
+ * Escape a string for use in a C# interpolated string literal.
+ * Handles backslashes, quotes, newlines, carriage returns, tabs,
+ * and curly braces (which are interpolation delimiters in C#).
+ */
+const escapeForInterpolatedString = (str: string): string =>
+  str
+    .replace(/\\/g, "\\\\") // Backslash first to avoid double-escaping
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
+    .replace(/\{/g, "{{") // Escape { for C# interpolated strings
+    .replace(/\}/g, "}}"); // Escape } for C# interpolated strings
+
+/**
  * Emit a template literal as C# interpolated string
  *
  * All interpolation holes are wrapped in parentheses: {(expr)}
  * This prevents C# parsing ambiguity where ':' in expressions like
  * 'global::Namespace.Type' would be interpreted as a format specifier.
+ *
+ * Literal curly braces in template strings are escaped as {{ and }}
+ * since they are interpolation delimiters in C#.
  */
 export const emitTemplateLiteral = (
   expr: Extract<IrExpression, { kind: "templateLiteral" }>,
@@ -23,7 +41,8 @@ export const emitTemplateLiteral = (
   for (let i = 0; i < expr.quasis.length; i++) {
     const quasi = expr.quasis[i];
     if (quasi !== undefined && quasi !== null) {
-      parts.push(quasi);
+      // Escape the quasi for C# interpolated string
+      parts.push(escapeForInterpolatedString(quasi));
     }
 
     const exprAtIndex = expr.expressions[i];

@@ -39,6 +39,24 @@ If you need to switch branches for any reason, **ASK THE USER FIRST**.
 
 This applies to ANY question, even if it seems like part of a larger task or discussion.
 
+### NO WORKAROUNDS - STOP AND FIX
+
+**CRITICAL RULE**: When you encounter a bug or issue, do NOT implement workarounds or temporary fixes.
+
+- **NEVER** say "for now, let's..." and implement a hack
+- **NEVER** work around a problem with a different approach just to make progress
+- **NEVER** use escape hatches like `as unknown as X` to bypass type errors
+- **ALWAYS** stop and report the issue clearly
+- **ALWAYS** wait for direction on whether to fix the root cause or defer
+
+When you hit a blocker:
+
+1. Explain exactly what the issue is
+2. Explain why it's happening (root cause)
+3. Stop and ask for direction
+
+Workarounds hide problems and create technical debt. The correct response to a bug is to fix it or explicitly defer it - never to silently work around it.
+
 ### ALWAYS SAVE TEST OUTPUT TO LOG FILE
 
 **🚨 CRITICAL RULE: ALWAYS pipe test output to a log file for later analysis. 🚨**

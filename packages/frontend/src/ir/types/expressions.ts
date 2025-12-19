@@ -82,6 +82,9 @@ export type IrIdentifierExpression = {
     readonly exportName: string; // e.g., "add" (may differ from local name if aliased)
     readonly namespace: string; // e.g., "MultiFileCheck.utils"
   };
+  // For aliased imports: the original export name before renaming
+  // e.g., for `import { String as ClrString }`, originalName is "String"
+  readonly originalName?: string;
 };
 
 export type IrArrayExpression = {
@@ -165,6 +168,11 @@ export type IrMemberExpression = {
     readonly assembly: string; // e.g., "System.Linq"
     readonly type: string; // Full CLR type e.g., "System.Linq.Enumerable"
     readonly member: string; // CLR member name e.g., "SelectMany"
+    // Parameter modifiers for ref/out/in parameters
+    readonly parameterModifiers?: readonly {
+      readonly index: number;
+      readonly modifier: "ref" | "out" | "in";
+    }[];
   };
   // Classification for computed access lowering (set during IR build)
   // Determines whether Int32 proof is required for indices

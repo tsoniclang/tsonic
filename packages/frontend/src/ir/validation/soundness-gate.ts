@@ -144,6 +144,18 @@ const validateType = (
       break;
 
     case "objectType":
+      // TSN7421: objectType should have been lowered to a generated named type
+      // If it reaches here, the anonymous type lowering pass missed it
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7421",
+          "error",
+          `Anonymous object type in ${typeContext} was not lowered to a named type. This is an internal compiler error.`,
+          moduleLocation(ctx),
+          "Please report this issue with a minimal reproduction."
+        )
+      );
+      // Still validate members to catch any nested issues
       type.members.forEach((m) => validateInterfaceMember(m, ctx));
       break;
 
@@ -514,7 +526,14 @@ const validateStatement = (stmt: IrStatement, ctx: ValidationContext): void => {
 
     case "typeAliasDeclaration":
       stmt.typeParameters?.forEach((tp) => validateTypeParameter(tp, ctx));
-      validateType(stmt.type, ctx, `type alias '${stmt.name}'`);
+      // Special case: objectType as the direct RHS of a type alias is valid
+      // The emitter generates a TypeName__Alias class for these
+      if (stmt.type.kind === "objectType") {
+        // Validate nested types within the objectType members
+        stmt.type.members.forEach((m) => validateInterfaceMember(m, ctx));
+      } else {
+        validateType(stmt.type, ctx, `type alias '${stmt.name}'`);
+      }
       break;
 
     case "expressionStatement":

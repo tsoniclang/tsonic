@@ -205,6 +205,16 @@ export const emitMemberAccess = (
       );
     }
 
+    // String indexer: str[i] returns char in C#, but string in TypeScript.
+    // Emit .ToString() to convert char back to string for TypeScript semantics.
+    const isStringIndexer =
+      objectType?.kind === "primitiveType" && objectType.name === "string";
+
+    if (isStringIndexer) {
+      const text = `${objectFrag.text}${accessor}${propFrag.text}].ToString()`;
+      return [{ text }, finalContext];
+    }
+
     const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
   }

@@ -636,9 +636,9 @@ export const isDefinitelyValueType = (type: IrType): boolean => {
   // Strip nullish first if caller forgot
   const base = stripNullish(type);
 
-  // Primitive value types (number → double, boolean → bool)
+  // Primitive value types (number → double, int → int, boolean → bool, char → char)
   if (base.kind === "primitiveType") {
-    return base.name === "number" || base.name === "boolean";
+    return ["number", "int", "boolean", "char"].includes(base.name);
   }
 
   // Known CLR struct types
