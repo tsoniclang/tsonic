@@ -55,6 +55,8 @@ type LoweringContext = {
   readonly shapeToName: Map<string, string>;
   /** Module file path for unique naming */
   readonly moduleFilePath: string;
+  /** Current function's lowered return type (for propagating to return statements) */
+  readonly currentFunctionReturnType?: IrType;
 };
 
 /**
@@ -156,8 +158,11 @@ const interfaceMembersToClassMembers = (
       (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
         m.kind === "propertySignature"
     )
-    .map(
-      (m): IrPropertyDeclaration => ({
+    .map((m): IrPropertyDeclaration => {
+      // For optional properties (title?: string), make type nullable and don't require
+      // For required properties (title: string), use required modifier
+      const isOptional = m.isOptional ?? false;
+      return {
         kind: "propertyDeclaration",
         name: m.name,
         type: m.type,
@@ -165,8 +170,9 @@ const interfaceMembersToClassMembers = (
         isStatic: false,
         isReadonly: m.isReadonly ?? false,
         accessibility: "public",
-      })
-    );
+        isRequired: !isOptional, // C# 11 required modifier - must be set in object initializer
+      };
+    });
 };
 
 /**
@@ -209,6 +215,42 @@ const getOrCreateTypeName = (
 
   ctx.generatedDeclarations.push(declaration);
   return name;
+};
+
+/**
+ * Extract the non-undefined/null type from a union type.
+ * For `T | undefined` or `T | null | undefined`, returns T.
+ * For non-union types, returns the type as-is.
+ */
+const stripNullishFromType = (type: IrType): IrType => {
+  if (type.kind !== "unionType") {
+    return type;
+  }
+  const nonNullish = type.types.filter(
+    (t) =>
+      !(
+        t.kind === "primitiveType" &&
+        (t.name === "undefined" || t.name === "null")
+      )
+  );
+  if (nonNullish.length === 0) {
+    // All types were nullish, return original
+    return type;
+  }
+  if (nonNullish.length === type.types.length) {
+    // No nullish types were filtered
+    return type;
+  }
+  if (nonNullish.length === 1) {
+    // Safe: we checked length === 1
+    const first = nonNullish[0];
+    if (first !== undefined) {
+      return first;
+    }
+    return type;
+  }
+  // Return a new union with the filtered types
+  return { ...type, types: nonNullish };
 };
 
 /**
@@ -467,28 +509,53 @@ const lowerExpression = (
         }),
       };
 
-    case "functionExpression":
+    case "functionExpression": {
+      const loweredReturnType = expr.returnType
+        ? lowerType(expr.returnType, ctx)
+        : undefined;
+      const bodyCtx: LoweringContext = {
+        ...ctx,
+        currentFunctionReturnType: loweredReturnType,
+      };
       return {
         ...expr,
         parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
-        returnType: expr.returnType
-          ? lowerType(expr.returnType, ctx)
-          : undefined,
-        body: lowerBlockStatement(expr.body, ctx),
+        returnType: loweredReturnType,
+        body: lowerBlockStatement(expr.body, bodyCtx),
       };
+    }
 
-    case "arrowFunction":
-      return {
-        ...expr,
-        parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
-        returnType: expr.returnType
-          ? lowerType(expr.returnType, ctx)
-          : undefined,
-        body:
-          expr.body.kind === "blockStatement"
-            ? lowerBlockStatement(expr.body, ctx)
-            : lowerExpression(expr.body, ctx),
+    case "arrowFunction": {
+      const loweredReturnType = expr.returnType
+        ? lowerType(expr.returnType, ctx)
+        : undefined;
+      const bodyCtx: LoweringContext = {
+        ...ctx,
+        currentFunctionReturnType: loweredReturnType,
       };
+      // For expression body arrow functions, we need to handle inferredType directly
+      if (expr.body.kind === "blockStatement") {
+        return {
+          ...expr,
+          parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+          returnType: loweredReturnType,
+          body: lowerBlockStatement(expr.body, bodyCtx),
+        };
+      } else {
+        const loweredBody = lowerExpression(expr.body, ctx);
+        // If arrow has expression body and return type, propagate to expression's inferredType
+        const bodyWithType =
+          loweredReturnType && loweredBody.inferredType?.kind === "objectType"
+            ? { ...loweredBody, inferredType: loweredReturnType }
+            : loweredBody;
+        return {
+          ...expr,
+          parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+          returnType: loweredReturnType,
+          body: bodyWithType,
+        };
+      }
+    }
 
     case "memberAccess":
       return {
@@ -622,18 +689,26 @@ const lowerClassMember = (
   ctx: LoweringContext
 ): IrClassMember => {
   switch (member.kind) {
-    case "methodDeclaration":
+    case "methodDeclaration": {
+      const loweredReturnType = member.returnType
+        ? lowerType(member.returnType, ctx)
+        : undefined;
+      const bodyCtx: LoweringContext = {
+        ...ctx,
+        currentFunctionReturnType: loweredReturnType,
+      };
       return {
         ...member,
         typeParameters: member.typeParameters?.map((tp) =>
           lowerTypeParameter(tp, ctx)
         ),
         parameters: member.parameters.map((p) => lowerParameter(p, ctx)),
-        returnType: member.returnType
-          ? lowerType(member.returnType, ctx)
+        returnType: loweredReturnType,
+        body: member.body
+          ? lowerBlockStatement(member.body, bodyCtx)
           : undefined,
-        body: member.body ? lowerBlockStatement(member.body, ctx) : undefined,
       };
+    }
     case "propertyDeclaration":
       return {
         ...member,
@@ -672,18 +747,26 @@ const lowerStatement = (
         })),
       };
 
-    case "functionDeclaration":
+    case "functionDeclaration": {
+      // First lower the return type
+      const loweredReturnType = stmt.returnType
+        ? lowerType(stmt.returnType, ctx)
+        : undefined;
+      // Create context with the lowered return type for return statements
+      const bodyCtx: LoweringContext = {
+        ...ctx,
+        currentFunctionReturnType: loweredReturnType,
+      };
       return {
         ...stmt,
         typeParameters: stmt.typeParameters?.map((tp) =>
           lowerTypeParameter(tp, ctx)
         ),
         parameters: stmt.parameters.map((p) => lowerParameter(p, ctx)),
-        returnType: stmt.returnType
-          ? lowerType(stmt.returnType, ctx)
-          : undefined,
-        body: lowerBlockStatement(stmt.body, ctx),
+        returnType: loweredReturnType,
+        body: lowerBlockStatement(stmt.body, bodyCtx),
       };
+    }
 
     case "classDeclaration":
       return {
@@ -772,13 +855,29 @@ const lowerStatement = (
         expression: lowerExpression(stmt.expression, ctx),
       };
 
-    case "returnStatement":
+    case "returnStatement": {
+      if (!stmt.expression) {
+        return stmt;
+      }
+      const loweredExpr = lowerExpression(stmt.expression, ctx);
+      // If we have a function return type and the expression's inferredType is objectType,
+      // replace it with the lowered type (stripping nullish from union if needed)
+      if (
+        ctx.currentFunctionReturnType &&
+        loweredExpr.inferredType?.kind === "objectType"
+      ) {
+        // Extract non-nullish part of return type (e.g., { title: string } from { title: string } | undefined)
+        const targetType = stripNullishFromType(ctx.currentFunctionReturnType);
+        return {
+          ...stmt,
+          expression: { ...loweredExpr, inferredType: targetType },
+        };
+      }
       return {
         ...stmt,
-        expression: stmt.expression
-          ? lowerExpression(stmt.expression, ctx)
-          : undefined,
+        expression: loweredExpr,
       };
+    }
 
     case "ifStatement":
       return {

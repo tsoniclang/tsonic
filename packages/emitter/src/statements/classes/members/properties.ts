@@ -33,6 +33,11 @@ export const emitPropertyMember = (
     parts.push("override");
   }
 
+  // Required modifier (C# 11) - must be set in object initializer
+  if (member.isRequired) {
+    parts.push("required");
+  }
+
   if (member.isReadonly) {
     parts.push("readonly");
   }

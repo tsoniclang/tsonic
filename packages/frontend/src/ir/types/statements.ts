@@ -117,6 +117,8 @@ export type IrPropertyDeclaration = {
   readonly isShadow?: boolean;
   /** C# attributes to emit before the property declaration */
   readonly attributes?: readonly IrAttribute[];
+  /** True if property must be set in object initializer (C# 11 'required' modifier) */
+  readonly isRequired?: boolean;
 };
 
 export type IrConstructorDeclaration = {
