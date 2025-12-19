@@ -136,15 +136,11 @@ type NullableGuardInfo = {
 };
 
 /**
- * Try to extract nullable guard info from a condition.
- * Detects patterns like: id !== undefined, id !== null, id != null
- *
- * Returns guard info if the condition is a null/undefined check on an identifier
- * with a nullable type that is a value type (needs .Value in C#).
+ * Try to extract nullable guard info from a simple comparison expression.
+ * This is the core check for patterns like: id !== undefined, id !== null, id != null
  */
-const tryResolveNullableGuard = (
-  condition: IrExpression,
-  _context: EmitterContext
+const tryResolveSimpleNullableGuard = (
+  condition: IrExpression
 ): NullableGuardInfo | undefined => {
   if (condition.kind !== "binary") return undefined;
 
@@ -187,6 +183,39 @@ const tryResolveNullableGuard = (
     narrowsInThen: isNotEqual,
     isValueType,
   };
+};
+
+/**
+ * Try to extract nullable guard info from a condition.
+ * Detects patterns like: id !== undefined, id !== null, id != null
+ * Also searches inside && (logical AND) conditions recursively.
+ *
+ * For compound conditions like `method === "GET" && id !== undefined`,
+ * we search both sides of the && for a nullable guard pattern.
+ *
+ * Returns guard info if the condition is a null/undefined check on an identifier
+ * with a nullable type that is a value type (needs .Value in C#).
+ */
+const tryResolveNullableGuard = (
+  condition: IrExpression,
+  _context: EmitterContext
+): NullableGuardInfo | undefined => {
+  // First try the simple case
+  const simple = tryResolveSimpleNullableGuard(condition);
+  if (simple) return simple;
+
+  // If this is a && logical expression, search inside it
+  if (condition.kind === "logical" && condition.operator === "&&") {
+    // Check left side
+    const leftGuard = tryResolveNullableGuard(condition.left, _context);
+    if (leftGuard) return leftGuard;
+
+    // Check right side
+    const rightGuard = tryResolveNullableGuard(condition.right, _context);
+    if (rightGuard) return rightGuard;
+  }
+
+  return undefined;
 };
 
 /**
