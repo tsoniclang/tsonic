@@ -10,6 +10,16 @@ import type {
   IrFunctionDeclaration,
 } from "../types.js";
 
+/**
+ * Assert value is not null/undefined and return it typed as non-null.
+ */
+const assertDefined = <T>(value: T | null | undefined, msg?: string): T => {
+  if (value === null || value === undefined) {
+    throw new Error(msg ?? "Expected value to be defined");
+  }
+  return value;
+};
+
 describe("Attribute Collection Pass", () => {
   /**
    * Helper to create a minimal IrModule for testing
@@ -100,16 +110,15 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       expect(result.modules).to.have.length(1);
 
-      const processedModule = result.modules[0]!;
+      const processedModule = assertDefined(result.modules[0]);
       // Marker statement should be removed
       expect(processedModule.body).to.have.length(1);
 
       const classDecl = processedModule.body[0] as IrClassDeclaration;
       expect(classDecl.kind).to.equal("classDeclaration");
       expect(classDecl.attributes).to.have.length(1);
-      expect(classDecl.attributes![0]!.attributeType.kind).to.equal(
-        "referenceType"
-      );
+      const attr0 = assertDefined(classDecl.attributes?.[0]);
+      expect(attr0.attributeType.kind).to.equal("referenceType");
     });
 
     it("should attach attribute with positional arguments", () => {
@@ -134,10 +143,12 @@ describe("Attribute Collection Pass", () => {
 
       expect(result.ok).to.be.true;
 
-      const classDecl = result.modules[0]!.body[0] as IrClassDeclaration;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
       expect(classDecl.attributes).to.have.length(1);
-      expect(classDecl.attributes![0]!.positionalArgs).to.have.length(1);
-      expect(classDecl.attributes![0]!.positionalArgs[0]).to.deep.equal({
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.positionalArgs).to.have.length(1);
+      expect(attr.positionalArgs[0]).to.deep.equal({
         kind: "string",
         value: "Use NewUser instead",
       });
@@ -165,9 +176,10 @@ describe("Attribute Collection Pass", () => {
       const result = runAttributeCollectionPass([module]);
 
       expect(result.ok).to.be.true;
-      expect(result.modules[0]!.body).to.have.length(1);
+      const mod = assertDefined(result.modules[0]);
+      expect(mod.body).to.have.length(1);
 
-      const funcDecl = result.modules[0]!.body[0] as IrFunctionDeclaration;
+      const funcDecl = mod.body[0] as IrFunctionDeclaration;
       expect(funcDecl.kind).to.equal("functionDeclaration");
       expect(funcDecl.attributes).to.have.length(1);
     });
@@ -185,7 +197,8 @@ describe("Attribute Collection Pass", () => {
 
       expect(result.ok).to.be.true; // Diagnostics are warnings, not hard failures
       expect(result.diagnostics).to.have.length(1);
-      expect(result.diagnostics[0]!.message).to.include("NotExist");
+      const diag = assertDefined(result.diagnostics[0]);
+      expect(diag.message).to.include("NotExist");
     });
   });
 
@@ -233,9 +246,10 @@ describe("Attribute Collection Pass", () => {
       const result = runAttributeCollectionPass([module]);
 
       expect(result.ok).to.be.true;
-      expect(result.modules[0]!.body).to.have.length(1);
+      const mod = assertDefined(result.modules[0]);
+      expect(mod.body).to.have.length(1);
 
-      const classDecl = result.modules[0]!.body[0] as IrClassDeclaration;
+      const classDecl = mod.body[0] as IrClassDeclaration;
       expect(classDecl.attributes).to.have.length(2);
     });
   });

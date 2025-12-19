@@ -18,6 +18,17 @@ import {
 import { IrType } from "../types.js";
 
 /**
+ * Assert value is not null/undefined and return it typed as non-null.
+ * Throws if value is null or undefined.
+ */
+const assertDefined = <T>(value: T | null | undefined, msg?: string): T => {
+  if (value === null || value === undefined) {
+    throw new Error(msg ?? "Expected value to be defined");
+  }
+  return value;
+};
+
+/**
  * Helper to create a TypeScript program from source code
  */
 const createTestProgram = (
@@ -71,7 +82,10 @@ const createTestProgram = (
     name === fileName ? source : originalReadFile.call(host, name);
 
   const program = ts.createProgram([fileName], compilerOptions, host);
-  const sourceFile = program.getSourceFile(fileName)!;
+  const sourceFile = assertDefined(
+    program.getSourceFile(fileName),
+    `Source file ${fileName} not found`
+  );
   const checker = program.getTypeChecker();
 
   return { program, checker, sourceFile };
@@ -157,9 +171,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialWithIndex");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -181,9 +194,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ReadonlyWithIndex");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Readonly",
         checker,
         stubConvertType
@@ -205,9 +217,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialPerson");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -269,9 +280,8 @@ describe("Utility Type Expansion Safety", () => {
         "PartialWithUndefined"
       );
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -309,9 +319,8 @@ describe("Utility Type Expansion Safety", () => {
         "PartialWithSynthetic"
       );
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -347,9 +356,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialRequired");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -381,9 +389,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialReadonly");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -415,9 +422,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ReadonlyPartial");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Readonly",
         checker,
         stubConvertType
@@ -451,9 +457,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialWithMethod");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -495,9 +500,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ContactInfo");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Pick",
         checker,
         stubConvertType
@@ -531,9 +535,8 @@ describe("Utility Type Expansion Safety", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "MinimalPerson");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Omit",
         checker,
         stubConvertType
@@ -576,9 +579,8 @@ describe("Utility Type Expansion Safety", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
       const result = expandUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
         checker,
         stubConvertType
@@ -600,9 +602,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
         checker,
         stubConvertType
@@ -623,9 +624,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
         checker,
         stubConvertType
@@ -646,9 +646,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
         checker,
         stubConvertType
@@ -666,9 +665,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
         checker,
         stubConvertType
@@ -686,9 +684,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
         checker,
         stubConvertType
@@ -718,9 +715,8 @@ describe("Conditional Utility Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
         checker,
         stubConvertType
@@ -739,9 +735,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -761,9 +756,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -784,9 +778,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -816,9 +809,8 @@ describe("Conditional Utility Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -837,9 +829,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
         checker,
         stubConvertType
@@ -857,9 +848,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
         checker,
         stubConvertType
@@ -880,9 +870,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
         checker,
         stubConvertType
@@ -902,9 +891,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -922,9 +910,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
         checker,
         stubConvertType
@@ -942,9 +929,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -962,9 +948,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
         checker,
         stubConvertType
@@ -982,9 +967,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -1004,9 +988,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "OnlyNumbers");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -1028,9 +1011,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "OnlyStrings");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
         checker,
         stubConvertType
@@ -1050,9 +1032,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
         checker,
         stubConvertType
@@ -1075,9 +1056,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
         checker,
         stubConvertType
@@ -1098,9 +1078,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
         checker,
         stubConvertType
@@ -1121,9 +1100,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
         checker,
         stubConvertType
@@ -1143,9 +1121,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
         checker,
         stubConvertType
@@ -1178,9 +1155,8 @@ describe("Conditional Utility Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
         checker,
         stubConvertType
@@ -1200,9 +1176,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
         checker,
         stubConvertType
@@ -1225,9 +1200,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
         checker,
         stubConvertType
@@ -1245,12 +1219,11 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       // Empty tuple may return null (falls through to referenceType)
       // or may return an expanded type - both are acceptable behaviors
       // The key is that it doesn't throw an error
       expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
         checker,
         stubConvertType
@@ -1265,9 +1238,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
         checker,
         stubConvertType
@@ -1301,9 +1273,8 @@ describe("Conditional Utility Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
         checker,
         stubConvertType
@@ -1321,9 +1292,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
         checker,
         stubConvertType
@@ -1342,9 +1312,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
         checker,
         stubConvertType
@@ -1365,9 +1334,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
         checker,
         stubConvertType
@@ -1388,9 +1356,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
         checker,
         stubConvertType
@@ -1411,9 +1378,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
         checker,
         stubConvertType
@@ -1446,9 +1412,8 @@ describe("Conditional Utility Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
         checker,
         stubConvertType
@@ -1465,9 +1430,8 @@ describe("Conditional Utility Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
-      expect(typeRef).not.to.equal(null);
       const result = expandConditionalUtilityType(
-        typeRef!,
+        assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
         checker,
         stubConvertType
@@ -1492,8 +1456,11 @@ describe("Record Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Config");
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       expect(result).not.to.equal(null);
       expect(result?.kind).to.equal("objectType");
@@ -1514,8 +1481,11 @@ describe("Record Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "IndexedConfig");
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       expect(result).not.to.equal(null);
       expect(result?.kind).to.equal("objectType");
@@ -1537,8 +1507,11 @@ describe("Record Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "MixedConfig");
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       expect(result).not.to.equal(null);
       expect(result?.kind).to.equal("objectType");
@@ -1555,8 +1528,11 @@ describe("Record Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Dictionary");
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       // Should return null - use IrDictionaryType instead
       expect(result).to.equal(null);
@@ -1570,8 +1546,11 @@ describe("Record Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "NumberDictionary");
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       // Should return null - use IrDictionaryType instead
       expect(result).to.equal(null);
@@ -1600,8 +1579,11 @@ describe("Record Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       // Should return null - type parameter can't be expanded
       expect(result).to.equal(null);
@@ -1617,8 +1599,11 @@ describe("Record Type Expansion", () => {
       const { checker, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "AnyKeyRecord");
 
-      expect(typeRef).not.to.equal(null);
-      const result = expandRecordType(typeRef!, checker, stubConvertType);
+      const result = expandRecordType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        checker,
+        stubConvertType
+      );
 
       // Should return null - PropertyKey is not a finite set of literals
       // and should fall through to referenceType (not dictionaryType)
@@ -1653,13 +1638,17 @@ describe("Record Type Expansion", () => {
       };
       ts.forEachChild(sourceFile, visitor);
 
-      expect(typeRef).not.to.equal(null);
-
       // Get the key type node and check its flags
-      const keyTypeNode = typeRef!.typeArguments?.[0];
-      expect(keyTypeNode).not.to.equal(undefined);
+      const definedTypeRef = assertDefined(
+        typeRef,
+        "typeRef should be defined"
+      );
+      const keyTypeNode = assertDefined(
+        definedTypeRef.typeArguments?.[0],
+        "keyTypeNode should be defined"
+      );
 
-      const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
+      const keyTsType = checker.getTypeAtLocation(keyTypeNode);
 
       // The key type should be a type parameter, not string
       expect(!!(keyTsType.flags & ts.TypeFlags.TypeParameter)).to.equal(true);

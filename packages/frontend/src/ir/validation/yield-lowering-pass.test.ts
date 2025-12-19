@@ -21,6 +21,16 @@ import {
 } from "../types.js";
 
 /**
+ * Assert value is not null/undefined and return it typed as non-null.
+ */
+const assertDefined = <T>(value: T | null | undefined, msg?: string): T => {
+  if (value === null || value === undefined) {
+    throw new Error(msg ?? "Expected value to be defined");
+  }
+  return value;
+};
+
+/**
  * Helper to create a minimal generator function module
  */
 const createGeneratorModule = (
@@ -96,7 +106,7 @@ describe("Yield Lowering Pass", () => {
       expect(result.ok).to.be.true;
       expect(result.diagnostics).to.have.length(0);
 
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       expect(body).to.have.length(1);
       expect(body[0]?.kind).to.equal("yieldStatement");
 
@@ -117,7 +127,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       const yieldStmt = body[0] as IrYieldStatement;
       expect(yieldStmt.kind).to.equal("yieldStatement");
       expect(yieldStmt.output).to.be.undefined;
@@ -137,7 +147,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       const yieldStmt = body[0] as IrYieldStatement;
       expect(yieldStmt.delegate).to.be.true;
       expect(yieldStmt.output?.kind).to.equal("identifier");
@@ -165,7 +175,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       expect(body).to.have.length(1);
 
       const yieldStmt = body[0] as IrYieldStatement;
@@ -203,7 +213,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       // Should produce two yieldStatements
       expect(body).to.have.length(2);
       expect(body[0]?.kind).to.equal("yieldStatement");
@@ -228,7 +238,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       const yieldStmt = body[0] as IrYieldStatement;
       expect(yieldStmt.kind).to.equal("yieldStatement");
       expect(yieldStmt.receiveTarget?.kind).to.equal("identifierPattern");
@@ -282,7 +292,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       const yieldStmt = body[0] as IrYieldStatement;
       expect(yieldStmt.receiveTarget?.kind).to.equal("arrayPattern");
     });
@@ -316,7 +326,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       const yieldStmt = body[0] as IrYieldStatement;
       expect(yieldStmt.receiveTarget?.kind).to.equal("objectPattern");
     });
@@ -451,7 +461,7 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       const ifStmt = body[0] as Extract<IrStatement, { kind: "ifStatement" }>;
       const thenBlock = ifStmt.thenStatement as IrBlockStatement;
       expect(thenBlock.statements[0]?.kind).to.equal("yieldStatement");
@@ -544,7 +554,7 @@ describe("Yield Lowering Pass", () => {
 
       // The pass doesn't transform non-generators
       expect(result.ok).to.be.true;
-      const body = getGeneratorBody(result.modules[0]!);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
       // Should still be expressionStatement with yield, not yieldStatement
       expect(body[0]?.kind).to.equal("expressionStatement");
     });
@@ -634,8 +644,8 @@ describe("Yield Lowering Pass", () => {
       expect(result.ok).to.be.true;
       expect(result.modules).to.have.length(2);
 
-      const body1 = getGeneratorBody(result.modules[0]!);
-      const body2 = getGeneratorBody(result.modules[1]!);
+      const body1 = getGeneratorBody(assertDefined(result.modules[0]));
+      const body2 = getGeneratorBody(assertDefined(result.modules[1]));
 
       expect(body1[0]?.kind).to.equal("yieldStatement");
       expect(body2[0]?.kind).to.equal("yieldStatement");

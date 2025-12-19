@@ -292,9 +292,11 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
 
     case "referenceType": {
       // Lower both typeArguments and structuralMembers
-      const hasTypeArgs = type.typeArguments && type.typeArguments.length > 0;
+      const typeArgs = type.typeArguments;
+      const structuralMembers = type.structuralMembers;
+      const hasTypeArgs = typeArgs !== undefined && typeArgs.length > 0;
       const hasStructuralMembers =
-        type.structuralMembers && type.structuralMembers.length > 0;
+        structuralMembers !== undefined && structuralMembers.length > 0;
 
       if (!hasTypeArgs && !hasStructuralMembers) {
         return type;
@@ -303,10 +305,10 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
       return {
         ...type,
         typeArguments: hasTypeArgs
-          ? type.typeArguments!.map((ta) => lowerType(ta, ctx))
+          ? typeArgs.map((ta) => lowerType(ta, ctx))
           : undefined,
         structuralMembers: hasStructuralMembers
-          ? type.structuralMembers!.map((m) => lowerInterfaceMember(m, ctx))
+          ? structuralMembers.map((m) => lowerInterfaceMember(m, ctx))
           : undefined,
       };
     }
