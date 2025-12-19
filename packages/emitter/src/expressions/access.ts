@@ -256,10 +256,16 @@ export const emitMemberAccess = (
   }
 
   // In JS runtime mode, rewrite array.length → global::Tsonic.JSRuntime.Array.length(array)
-  // In dotnet mode, there is no JS emulation - users access .Count directly on List<T>
-  if (isArrayType && prop === "length" && runtime === "js") {
-    const text = `global::Tsonic.JSRuntime.Array.length(${objectFrag.text})`;
-    return [{ text }, newContext];
+  // In dotnet mode, C# arrays use .Length (capital L)
+  if (isArrayType && prop === "length") {
+    if (runtime === "js") {
+      const text = `global::Tsonic.JSRuntime.Array.length(${objectFrag.text})`;
+      return [{ text }, newContext];
+    } else {
+      // dotnet mode: C# arrays have .Length property
+      const text = `${objectFrag.text}.Length`;
+      return [{ text }, newContext];
+    }
   }
 
   // Check if this is a string type
@@ -267,10 +273,16 @@ export const emitMemberAccess = (
     objectType?.kind === "primitiveType" && objectType.name === "string";
 
   // In JS runtime mode, rewrite string.length → global::Tsonic.JSRuntime.String.length(string)
-  // In dotnet mode, use C#'s native .Length property
-  if (isStringType && prop === "length" && runtime === "js") {
-    const text = `global::Tsonic.JSRuntime.String.length(${objectFrag.text})`;
-    return [{ text }, newContext];
+  // In dotnet mode, C# strings use .Length (capital L)
+  if (isStringType && prop === "length") {
+    if (runtime === "js") {
+      const text = `global::Tsonic.JSRuntime.String.length(${objectFrag.text})`;
+      return [{ text }, newContext];
+    } else {
+      // dotnet mode: C# strings have .Length property
+      const text = `${objectFrag.text}.Length`;
+      return [{ text }, newContext];
+    }
   }
 
   // Handle explicit interface view properties (As_IInterface)

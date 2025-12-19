@@ -21,12 +21,12 @@ import { IrType } from "../types.js";
  * Assert value is not null/undefined and return it typed as non-null.
  * Throws if value is null or undefined.
  */
-const assertDefined = <T>(value: T | null | undefined, msg?: string): T => {
+function assertDefined<T>(value: T, msg?: string): NonNullable<T> {
   if (value === null || value === undefined) {
     throw new Error(msg ?? "Expected value to be defined");
   }
-  return value;
-};
+  return value as NonNullable<T>;
+}
 
 /**
  * Helper to create a TypeScript program from source code
@@ -1639,16 +1639,13 @@ describe("Record Type Expansion", () => {
       ts.forEachChild(sourceFile, visitor);
 
       // Get the key type node and check its flags
-      const definedTypeRef = assertDefined(
-        typeRef,
-        "typeRef should be defined"
-      );
-      const keyTypeNode = assertDefined(
-        definedTypeRef.typeArguments?.[0],
-        "keyTypeNode should be defined"
-      );
-
-      const keyTsType = checker.getTypeAtLocation(keyTypeNode);
+      expect(typeRef).not.to.equal(null);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const foundTypeRef = typeRef!;
+      const keyTypeNode = foundTypeRef.typeArguments?.[0];
+      expect(keyTypeNode).not.to.equal(undefined);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
 
       // The key type should be a type parameter, not string
       expect(!!(keyTsType.flags & ts.TypeFlags.TypeParameter)).to.equal(true);
