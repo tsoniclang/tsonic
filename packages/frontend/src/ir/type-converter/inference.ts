@@ -11,6 +11,7 @@
 import * as ts from "typescript";
 import type { IrType } from "../types.js";
 import { convertType } from "./converter.js";
+import { isClrPrimitiveTypeName, getClrPrimitiveType } from "./primitives.js";
 
 /**
  * Result of inferring lambda parameter types from contextual signature.
@@ -188,6 +189,20 @@ export const convertTsTypeToIr = (
   checker: ts.TypeChecker
 ): IrType | undefined => {
   const flags = type.flags;
+
+  // IMPORTANT: Check for CLR primitive type aliases FIRST, before falling through
+  // to the generic number/string handling. TypeScript resolves `int` to `number`,
+  // but we need to preserve the CLR alias for proper C# emission.
+  //
+  // Example: For `Dictionary<string, int>`, when we call `.add(key, value)`,
+  // TypeScript resolves the `TValue` parameter type to `number`, but we need
+  // to preserve `int` so that integer literals work correctly.
+  if (type.aliasSymbol) {
+    const aliasName = type.aliasSymbol.name;
+    if (isClrPrimitiveTypeName(aliasName)) {
+      return getClrPrimitiveType(aliasName);
+    }
+  }
 
   // Primitives
   if (flags & ts.TypeFlags.Number || flags & ts.TypeFlags.NumberLiteral) {

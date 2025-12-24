@@ -17,6 +17,7 @@ const RUNTIME_FALLBACKS: Record<string, string> = {
   console: "global::Tsonic.JSRuntime.console",
   Math: "global::Tsonic.JSRuntime.Math",
   JSON: "global::Tsonic.JSRuntime.JSON",
+  Number: "global::Tsonic.JSRuntime.Number",
   // Constructors
   Map: "global::Tsonic.JSRuntime.Map",
   Set: "global::Tsonic.JSRuntime.Set",

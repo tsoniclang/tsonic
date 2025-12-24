@@ -137,6 +137,14 @@ const extractNarrowing = (
 /**
  * Extract parameter types from resolved signature.
  * Used for threading expectedType to array literal arguments etc.
+ *
+ * Uses the resolved signature to get INSTANTIATED parameter types.
+ * For example, for `dict.add(key, value)` where `dict: Dictionary<string, int>`,
+ * this returns the instantiated types [string, int], not the formal types [TKey, TValue].
+ *
+ * CLR type aliases (like `int`) are preserved through the aliasSymbol mechanism
+ * in convertTsTypeToIr, which checks type.aliasSymbol before falling through
+ * to the generic number/string handling.
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
@@ -144,40 +152,29 @@ const extractParameterTypes = (
 ): readonly (IrType | undefined)[] | undefined => {
   try {
     const signature = checker.getResolvedSignature(node);
-    if (!signature || !signature.declaration) {
+    if (!signature) {
       return undefined;
     }
 
-    const decl = signature.declaration;
-    let parameters: readonly ts.ParameterDeclaration[] = [];
-
-    // Extract parameters from declaration
-    if (
-      ts.isFunctionDeclaration(decl) ||
-      ts.isMethodDeclaration(decl) ||
-      ts.isMethodSignature(decl) ||
-      ts.isConstructorDeclaration(decl) ||
-      ts.isArrowFunction(decl) ||
-      ts.isFunctionExpression(decl) ||
-      ts.isCallSignatureDeclaration(decl)
-    ) {
-      parameters = decl.parameters;
-    }
-
-    if (parameters.length === 0) {
+    const sigParams = signature.getParameters();
+    if (sigParams.length === 0) {
       return undefined;
     }
 
-    // Build parameter type array
+    // Build parameter type array using instantiated types from signature
     const paramTypes: (IrType | undefined)[] = [];
 
-    for (const param of parameters) {
-      // Get the type node and convert it (this preserves origin: "explicit" for arrays)
-      if (param.type) {
-        paramTypes.push(convertType(param.type, checker));
-      } else {
-        paramTypes.push(undefined);
-      }
+    for (const sigParam of sigParams) {
+      // Get the instantiated type for this parameter at the call site
+      // This gives us the actual type after type parameter substitution
+      const paramType = checker.getTypeOfSymbolAtLocation(
+        sigParam,
+        sigParam.valueDeclaration ?? node
+      );
+
+      // convertTsTypeToIr now preserves CLR aliases via aliasSymbol check
+      const irType = convertTsTypeToIr(paramType, checker);
+      paramTypes.push(irType);
     }
 
     return paramTypes;
