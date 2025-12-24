@@ -7,13 +7,11 @@ namespace TestCases.common.attributes.basic
 
         public double age;
     }
-
     [ObsoleteAttribute("Use NewConfig instead")]
     public class Config
     {
         public string setting;
     }
-
     [SerializableAttribute]
     [ObsoleteAttribute("Deprecated")]
     public class LegacyService

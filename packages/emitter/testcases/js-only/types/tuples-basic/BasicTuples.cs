@@ -2,7 +2,7 @@ namespace TestCases.jsonly.types.tuplesbasic
 {
     public class Container <T>
     {
-        public T value { get; set; }
+        public required T value { get; set; }
     }
 
             public static class BasicTuples

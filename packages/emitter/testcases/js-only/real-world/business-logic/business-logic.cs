@@ -2,45 +2,45 @@ namespace TestCases.jsonly.realworld.businesslogic
 {
     public class __Anon_business_logic_152_61
     {
-        public global::System.Collections.Generic.List<void> cancelled { get; set; }
+        public required global::System.Collections.Generic.List<void> cancelled { get; set; }
 
-        public global::System.Collections.Generic.List<void> delivered { get; set; }
+        public required global::System.Collections.Generic.List<void> delivered { get; set; }
 
-        public global::System.Collections.Generic.List<global::Tsonic.Runtime.Union<string, string>> pending { get; set; }
+        public required global::System.Collections.Generic.List<global::Tsonic.Runtime.Union<string, string>> pending { get; set; }
 
-        public global::System.Collections.Generic.List<global::Tsonic.Runtime.Union<string, string>> processing { get; set; }
+        public required global::System.Collections.Generic.List<global::Tsonic.Runtime.Union<string, string>> processing { get; set; }
 
-        public global::System.Collections.Generic.List<string> shipped { get; set; }
+        public required global::System.Collections.Generic.List<string> shipped { get; set; }
     }
     public class Product
     {
-        public string id { get; set; }
+        public required string id { get; set; }
 
-        public string name { get; set; }
+        public required string name { get; set; }
 
-        public double price { get; set; }
+        public required double price { get; set; }
 
-        public double stock { get; set; }
+        public required double stock { get; set; }
 
-        public string category { get; set; }
+        public required string category { get; set; }
     }
     public class CartItem
     {
-        public Product product { get; set; }
+        public required Product product { get; set; }
 
-        public double quantity { get; set; }
+        public required double quantity { get; set; }
     }
     public class Order
     {
-        public string id { get; set; }
+        public required string id { get; set; }
 
-        public global::System.Collections.Generic.List<CartItem> items { get; set; }
+        public required global::System.Collections.Generic.List<CartItem> items { get; set; }
 
-        public double total { get; set; }
+        public required double total { get; set; }
 
-        public OrderStatus status { get; set; }
+        public required OrderStatus status { get; set; }
 
-        public string createdAt { get; set; }
+        public required string createdAt { get; set; }
     }
     public class ShoppingCart
     {

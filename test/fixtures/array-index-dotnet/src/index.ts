@@ -5,10 +5,11 @@ import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
 export function main(): void {
   // Create a list with values
+  // Using double literals (10.0) because List<number> expects doubles
   const numbers = new List<number>();
-  numbers.add(10);
-  numbers.add(20);
-  numbers.add(30);
+  numbers.add(10.0);
+  numbers.add(20.0);
+  numbers.add(30.0);
 
   // Read via indexer - should work in dotnet mode
   Console.writeLine(numbers[0]);
@@ -16,7 +17,7 @@ export function main(): void {
   Console.writeLine(numbers[2]);
 
   // Modify via indexer
-  numbers[1] = 25;
+  numbers[1] = 25.0;
   Console.writeLine(numbers[1]);
 
   // count property (NOT .length - that's JS)

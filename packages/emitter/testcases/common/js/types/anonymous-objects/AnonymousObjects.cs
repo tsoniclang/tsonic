@@ -2,27 +2,27 @@ namespace TestCases.common.types.anonymousobjects
 {
     public class __Anon_AnonymousObjects_2_22
     {
-        public double x { get; set; }
+        public required double x { get; set; }
 
-        public double y { get; set; }
+        public required double y { get; set; }
     }
     public class __Anon_AnonymousObjects_5_23
     {
-        public double count { get; set; }
+        public required double count { get; set; }
 
-        public bool enabled { get; set; }
+        public required bool enabled { get; set; }
 
-        public string name { get; set; }
+        public required string name { get; set; }
     }
     public class __Anon_AnonymousObjects_12_24
     {
-        public double id { get; set; }
+        public required double id { get; set; }
 
-        public global::System.Func<double, double> process { get; set; }
+        public required global::System.Func<double, double> process { get; set; }
     }
     public class __Anon_AnonymousObjects_19_26
     {
-        public double value { get; set; }
+        public required double value { get; set; }
     }
 
             public static class AnonymousObjects

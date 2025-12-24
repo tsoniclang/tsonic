@@ -2,9 +2,9 @@ namespace TestCases.common.edgecases.genericnulldefault
 {
     public class Result <T>
     {
-        public T? value { get; set; }
+        public required T? value { get; set; }
 
-        public string? error { get; set; }
+        public required string? error { get; set; }
     }
 
             public static class GenericNullDefault

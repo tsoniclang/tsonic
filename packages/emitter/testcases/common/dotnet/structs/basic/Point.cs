@@ -2,8 +2,8 @@ namespace TestCases.common.structs.basic
 {
     public struct Point
     {
-        public double x { get; set; }
+        public required double x { get; set; }
 
-        public double y { get; set; }
+        public required double y { get; set; }
     }
 }

@@ -59,9 +59,9 @@ describe("Interfaces (spec/16 §2)", () => {
     expect(result).to.include("public class User");
     expect(result).not.to.include("interface User");
 
-    // Should have auto-properties
-    expect(result).to.include("public double id { get; set; }");
-    expect(result).to.include("public string name { get; set; }");
+    // Should have auto-properties (required for non-optional)
+    expect(result).to.include("public required double id { get; set; }");
+    expect(result).to.include("public required string name { get; set; }");
 
     // Optional property should be nullable
     expect(result).to.include("public bool? active { get; set; }");
@@ -99,8 +99,8 @@ describe("Interfaces (spec/16 §2)", () => {
 
     const result = emitModule(module);
 
-    // Readonly should use private set
-    expect(result).to.include("public string apiUrl { get; }");
+    // Readonly should use private set (required for non-optional)
+    expect(result).to.include("public required string apiUrl { get; }");
   });
 
   it("should emit generic interface", () => {
@@ -146,6 +146,6 @@ describe("Interfaces (spec/16 §2)", () => {
 
     // Allow for whitespace variations
     expect(result).to.match(/public\s+class\s+Result\s*<T>/);
-    expect(result).to.include("public T data { get; set; }");
+    expect(result).to.include("public required T data { get; set; }");
   });
 });
