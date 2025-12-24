@@ -24,15 +24,15 @@ namespace TestCases.jsonly.realworld.advancedgenerics
     }
     public class ResultOk <T, E>
     {
-        public bool ok { get; set; }
+        public required bool ok { get; set; }
 
-        public T value { get; set; }
+        public required T value { get; set; }
     }
     public class ResultErr <T, E>
     {
-        public bool ok { get; set; }
+        public required bool ok { get; set; }
 
-        public E error { get; set; }
+        public required E error { get; set; }
     }
     public class TreeNode<T>
     {

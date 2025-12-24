@@ -17,7 +17,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { compile, buildIr, runNumericProofPass } from "@tsonic/frontend";
+import {
+  compile,
+  buildIr,
+  runNumericProofPass,
+  runAttributeCollectionPass,
+} from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
 import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
 
@@ -95,8 +100,18 @@ const generateAndWrite = (
       return false;
     }
 
-    // Emit C# using proof-annotated modules
-    const emitResult = emitCSharpFiles(proofResult.modules, {
+    // Run attribute collection pass (extracts A.on(X).type(Y) markers)
+    const attributeResult = runAttributeCollectionPass(proofResult.modules);
+    if (!attributeResult.ok) {
+      console.error(`  ERROR: Attribute collection failed`);
+      for (const d of attributeResult.diagnostics) {
+        console.error(`    ${d.code}: ${d.message}`);
+      }
+      return false;
+    }
+
+    // Emit C# using processed modules from attribute pass
+    const emitResult = emitCSharpFiles(attributeResult.modules, {
       rootNamespace,
     });
 

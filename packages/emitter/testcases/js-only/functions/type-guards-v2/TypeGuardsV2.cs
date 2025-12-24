@@ -2,19 +2,19 @@ namespace TestCases.jsonly.functions.typeguardsv2
 {
     public class User
     {
-        public string kind { get; set; }
+        public required string kind { get; set; }
 
-        public string username { get; set; }
+        public required string username { get; set; }
 
-        public string email { get; set; }
+        public required string email { get; set; }
     }
     public class Admin
     {
-        public string kind { get; set; }
+        public required string kind { get; set; }
 
-        public double adminId { get; set; }
+        public required double adminId { get; set; }
 
-        public global::System.Collections.Generic.List<string> permissions { get; set; }
+        public required global::System.Collections.Generic.List<string> permissions { get; set; }
     }
 
             public static class TypeGuardsV2

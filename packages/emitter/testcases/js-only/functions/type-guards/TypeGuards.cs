@@ -2,13 +2,13 @@ namespace TestCases.jsonly.functions.typeguards
 {
     public class Dog
     {
-        public string type { get; set; }
+        public required string type { get; set; }
 
         public void bark() => throw new NotImplementedException();
     }
     public class Cat
     {
-        public string type { get; set; }
+        public required string type { get; set; }
 
         public void meow() => throw new NotImplementedException();
     }

@@ -24,6 +24,7 @@ describe("Struct Emission", () => {
           accessibility: "public",
           isStatic: false,
           isReadonly: false,
+          isRequired: true,
         },
         {
           kind: "propertyDeclaration",
@@ -32,6 +33,7 @@ describe("Struct Emission", () => {
           accessibility: "public",
           isStatic: false,
           isReadonly: false,
+          isRequired: true,
         },
       ],
       implements: [],
@@ -52,8 +54,8 @@ describe("Struct Emission", () => {
 
     const result = emitCSharpFile(module);
     expect(result).to.include("public struct Point");
-    expect(result).to.include("public double x");
-    expect(result).to.include("public double y");
+    expect(result).to.include("public required double x");
+    expect(result).to.include("public required double y");
     expect(result).not.to.include("class Point");
   });
 
@@ -137,9 +139,9 @@ describe("Struct Emission", () => {
 
     const result = emitCSharpFile(module);
     expect(result).to.include("public struct Vector3D");
-    expect(result).to.include("public double x");
-    expect(result).to.include("public double y");
-    expect(result).to.include("public double z");
+    expect(result).to.include("public required double x");
+    expect(result).to.include("public required double y");
+    expect(result).to.include("public required double z");
     expect(result).not.to.include("class Vector3D");
   });
 

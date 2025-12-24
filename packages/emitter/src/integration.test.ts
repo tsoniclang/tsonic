@@ -116,7 +116,7 @@ describe("End-to-End Integration", () => {
 
       // Should emit type alias as class
       expect(csharp).to.include("class HasId__Alias");
-      expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(/required\s+double\s+id\s*\{\s*get;\s*set;/);
 
       // Should use type alias as constraint
       expect(csharp).to.include("where T : HasId");
@@ -142,9 +142,13 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/public\s+class\s+User/);
       expect(csharp).not.to.include("interface User");
 
-      // Should have auto-properties
-      expect(csharp).to.match(/public\s+double\s+id\s*\{\s*get;\s*set;/);
-      expect(csharp).to.match(/public\s+string\s+name\s*\{\s*get;\s*set;/);
+      // Should have auto-properties (required for non-optional)
+      expect(csharp).to.match(
+        /public\s+required\s+double\s+id\s*\{\s*get;\s*set;/
+      );
+      expect(csharp).to.match(
+        /public\s+required\s+string\s+name\s*\{\s*get;\s*set;/
+      );
 
       // Optional property should be nullable
       expect(csharp).to.match(/public\s+string\?\s+email\s*\{\s*get;\s*set;/);
@@ -162,8 +166,12 @@ describe("End-to-End Integration", () => {
 
       // Should emit sealed class with __Alias suffix
       expect(csharp).to.match(/public\s+sealed\s+class\s+Point__Alias/);
-      expect(csharp).to.match(/public\s+double\s+x\s*\{\s*get;\s*set;/);
-      expect(csharp).to.match(/public\s+double\s+y\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(
+        /public\s+required\s+double\s+x\s*\{\s*get;\s*set;/
+      );
+      expect(csharp).to.match(
+        /public\s+required\s+double\s+y\s*\{\s*get;\s*set;/
+      );
     });
 
     it("should compile generic interface", () => {
@@ -178,8 +186,8 @@ describe("End-to-End Integration", () => {
 
       // Should emit generic class
       expect(csharp).to.match(/public\s+class\s+Result\s*<T>/);
-      expect(csharp).to.match(/public\s+bool\s+ok/);
-      expect(csharp).to.match(/public\s+T\s+value/);
+      expect(csharp).to.match(/public\s+required\s+bool\s+ok/);
+      expect(csharp).to.match(/public\s+required\s+T\s+value/);
     });
   });
 

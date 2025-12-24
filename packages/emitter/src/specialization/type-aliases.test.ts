@@ -51,8 +51,8 @@ describe("Type Aliases (spec/16 §3)", () => {
     const result = emitModule(module);
 
     expect(result).to.include("public sealed class Point__Alias");
-    expect(result).to.include("public double x { get; set; }");
-    expect(result).to.include("public double y { get; set; }");
+    expect(result).to.include("public required double x { get; set; }");
+    expect(result).to.include("public required double y { get; set; }");
   });
 
   it("should emit non-structural type alias as comment", () => {
@@ -127,10 +127,10 @@ describe("Type Aliases (spec/16 §3)", () => {
     const result = emitModule(module);
 
     expect(result).to.include("public sealed class Node__Alias");
-    expect(result).to.include("public string name { get; set; } = default!;");
-    // Self-reference should use __Alias suffix and be nullable
+    expect(result).to.include("public required string name { get; set; }");
+    // Self-reference should use __Alias suffix and be nullable (optional)
     expect(result).to.include(
-      "public Node__Alias? next { get; set; } = default!;"
+      "public Node__Alias? next { get; set; }"
     );
   });
 
@@ -215,10 +215,10 @@ describe("Type Aliases (spec/16 §3)", () => {
     // Container should be emitted with __Alias suffix
     expect(result).to.include("public sealed class Container__Alias");
     // Reference to PersonData inside Container should use __Alias suffix
-    expect(result).to.include("public PersonData__Alias item { get; set; }");
+    expect(result).to.include("public required PersonData__Alias item { get; set; }");
     // Array of PersonData should also use __Alias suffix
     expect(result).to.include(
-      "public global::System.Collections.Generic.List<PersonData__Alias> items { get; set; }"
+      "public required global::System.Collections.Generic.List<PersonData__Alias> items { get; set; }"
     );
   });
 });
