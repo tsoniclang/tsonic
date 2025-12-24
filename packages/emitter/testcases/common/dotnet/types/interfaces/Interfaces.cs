@@ -2,17 +2,17 @@ namespace TestCases.common.types.interfaces
 {
     public class User
     {
-        public string name { get; set; }
+        public required string name { get; set; }
 
-        public string email { get; set; }
+        public required string email { get; set; }
 
-        public double age { get; set; }
+        public required double age { get; set; }
     }
     public class Point
     {
-        public double x { get; }
+        public required double x { get; }
 
-        public double y { get; }
+        public required double y { get; }
     }
 
             public static class Interfaces

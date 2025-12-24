@@ -73,6 +73,11 @@ export const emitTypeAliasDeclaration = (
           const propParts: string[] = [];
           propParts.push("public");
 
+          // Required modifier for non-optional properties (C# 11)
+          if (!member.isOptional) {
+            propParts.push("required");
+          }
+
           // Property type
           if (member.type) {
             const [propType, newContext] = emitType(
@@ -89,16 +94,12 @@ export const emitTypeAliasDeclaration = (
 
           propParts.push(escapeCSharpIdentifier(member.name));
 
-          // Readonly uses private set
-          const accessors = member.isReadonly
-            ? "{ get; private set; }"
-            : "{ get; set; }";
-          propParts.push(accessors);
+          // Readonly uses get-only, writable uses get; set;
+          const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
 
-          // Default initializer
-          propParts.push("= default!;");
-
-          properties.push(`${getIndent(bodyContext)}${propParts.join(" ")}`);
+          properties.push(
+            `${getIndent(bodyContext)}${propParts.join(" ")} ${accessors}`
+          );
         }
       }
     }

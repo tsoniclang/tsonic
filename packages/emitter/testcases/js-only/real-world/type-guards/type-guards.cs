@@ -2,31 +2,31 @@ namespace TestCases.jsonly.realworld.typeguards
 {
     public class User
     {
-        public string type { get; set; }
+        public required string type { get; set; }
 
-        public double id { get; set; }
+        public required double id { get; set; }
 
-        public string username { get; set; }
+        public required string username { get; set; }
 
-        public string email { get; set; }
+        public required string email { get; set; }
     }
     public class Admin
     {
-        public string type { get; set; }
+        public required string type { get; set; }
 
-        public double id { get; set; }
+        public required double id { get; set; }
 
-        public string username { get; set; }
+        public required string username { get; set; }
 
-        public string email { get; set; }
+        public required string email { get; set; }
 
-        public global::System.Collections.Generic.List<string> permissions { get; set; }
+        public required global::System.Collections.Generic.List<string> permissions { get; set; }
     }
     public class Guest
     {
-        public string type { get; set; }
+        public required string type { get; set; }
 
-        public string sessionId { get; set; }
+        public required string sessionId { get; set; }
     }
 
             public static class typeguards

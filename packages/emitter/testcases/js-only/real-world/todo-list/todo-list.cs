@@ -2,13 +2,13 @@ namespace TestCases.jsonly.realworld.todolist
 {
     public class Todo
     {
-        public double id { get; set; }
+        public required double id { get; set; }
 
-        public string title { get; set; }
+        public required string title { get; set; }
 
-        public bool completed { get; set; }
+        public required bool completed { get; set; }
 
-        public string createdAt { get; set; }
+        public required string createdAt { get; set; }
     }
     public class TodoList
     {
