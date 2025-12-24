@@ -142,9 +142,13 @@ const extractNarrowing = (
  * For example, for `dict.add(key, value)` where `dict: Dictionary<string, int>`,
  * this returns the instantiated types [string, int], not the formal types [TKey, TValue].
  *
- * CLR type aliases (like `int`) are preserved through the aliasSymbol mechanism
- * in convertTsTypeToIr, which checks type.aliasSymbol before falling through
- * to the generic number/string handling.
+ * CLR type aliases (like `int`) are preserved by:
+ * 1. First checking the parameter's declaration type node (preserves imported aliases)
+ * 2. Falling back to aliasSymbol mechanism for in-file type aliases
+ *
+ * Note: TypeScript's aliasSymbol is NOT preserved for imported type aliases,
+ * so we must check the declaration's type node directly for imported types like
+ * `int` from @tsonic/core/types.js.
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
@@ -165,14 +169,25 @@ const extractParameterTypes = (
     const paramTypes: (IrType | undefined)[] = [];
 
     for (const sigParam of sigParams) {
-      // Get the instantiated type for this parameter at the call site
-      // This gives us the actual type after type parameter substitution
+      const decl = sigParam.valueDeclaration;
+
+      // Strategy 1: Use the declaration's type node if available
+      // This preserves imported CLR type aliases like `int` that TypeScript
+      // would otherwise resolve to `number` without aliasSymbol
+      if (decl && ts.isParameter(decl) && decl.type) {
+        const irType = convertType(decl.type, checker);
+        if (irType) {
+          paramTypes.push(irType);
+          continue;
+        }
+      }
+
+      // Strategy 2: Fall back to getTypeOfSymbolAtLocation + convertTsTypeToIr
+      // This handles cases where there's no declaration (rare) or type node
       const paramType = checker.getTypeOfSymbolAtLocation(
         sigParam,
-        sigParam.valueDeclaration ?? node
+        decl ?? node
       );
-
-      // convertTsTypeToIr now preserves CLR aliases via aliasSymbol check
       const irType = convertTsTypeToIr(paramType, checker);
       paramTypes.push(irType);
     }
