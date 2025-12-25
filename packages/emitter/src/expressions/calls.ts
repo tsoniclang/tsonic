@@ -45,6 +45,29 @@ const isJsonSerializerCall = (
 };
 
 /**
+ * Check if a call targets global JSON.stringify or JSON.parse
+ * These are JS-mode globals that should compile to JsonSerializer
+ */
+const isGlobalJsonCall = (
+  callee: IrExpression
+): { method: "Serialize" | "Deserialize" } | null => {
+  if (callee.kind !== "memberAccess") return null;
+
+  // Check if object is the global JSON identifier
+  const obj = callee.object;
+  if (obj.kind !== "identifier" || obj.name !== "JSON") return null;
+
+  // Check property name
+  const prop = callee.property;
+  if (typeof prop !== "string") return null;
+
+  if (prop === "stringify") return { method: "Serialize" };
+  if (prop === "parse") return { method: "Deserialize" };
+
+  return null;
+};
+
+/**
  * Ensure a C# type string has global:: prefix for unambiguous resolution
  */
 const ensureGlobalPrefix = (typeStr: string): string => {
@@ -78,7 +101,8 @@ const ensureGlobalPrefix = (typeStr: string): string => {
 };
 
 /**
- * Register a type with the JSON AOT registry
+ * Register a type with the JSON AOT registry.
+ * Ensures types are fully qualified with namespace for the AOT source generator.
  */
 const registerJsonAotType = (
   type: IrType | undefined,
@@ -89,9 +113,23 @@ const registerJsonAotType = (
 
   const registry = context.options.jsonAotRegistry;
   const [typeStr] = emitType(type, context);
-  const globalType = ensureGlobalPrefix(typeStr);
 
-  registry.rootTypes.add(globalType);
+  // If type already has a namespace (contains '.') or is global::, use as-is
+  // Otherwise, qualify with rootNamespace (it's a local type)
+  let qualifiedType: string;
+  if (
+    typeStr.startsWith("global::") ||
+    typeStr.includes(".") ||
+    typeStr.includes("<") // Generic types handle their own qualification
+  ) {
+    qualifiedType = ensureGlobalPrefix(typeStr);
+  } else {
+    // Local type - qualify with rootNamespace
+    const rootNs = context.options.rootNamespace;
+    qualifiedType = `global::${rootNs}.${typeStr}`;
+  }
+
+  registry.rootTypes.add(qualifiedType);
   registry.needsJsonAot = true;
 };
 
@@ -205,6 +243,13 @@ export const emitCall = (
   const jsonCall = isJsonSerializerCall(expr.callee);
   if (jsonCall) {
     return emitJsonSerializerCall(expr, context, jsonCall.method);
+  }
+
+  // Check for global JSON.stringify/parse calls (JS mode)
+  // These compile to JsonSerializer.Serialize/Deserialize for unified behavior
+  const globalJsonCall = isGlobalJsonCall(expr.callee);
+  if (globalJsonCall) {
+    return emitJsonSerializerCall(expr, context, globalJsonCall.method);
   }
 
   // Type-aware method call rewriting

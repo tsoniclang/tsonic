@@ -91,7 +91,7 @@ namespace TestCases.jsonly.realworld.datastructures
         public void append(T value)
             {
             var node = new LinkedListNode(value);
-            if (this.head == null)
+            if (this.head is null)
                 {
                 this.head = node;
                 this.tail = node;
@@ -111,7 +111,7 @@ namespace TestCases.jsonly.realworld.datastructures
             {
             var node = new LinkedListNode(value, this.head);
             this.head = node;
-            if (this.tail == null)
+            if (this.tail is null)
                 {
                 this.tail = node;
                 }
@@ -127,7 +127,7 @@ namespace TestCases.jsonly.realworld.datastructures
             {
             global::System.Collections.Generic.List<T> result = new global::System.Collections.Generic.List<T>();
             var current = this.head;
-            while (current != null)
+            while (current is not null)
                 {
                 global::Tsonic.JSRuntime.Array.push(result, current.Value);
                 current = current.Next;

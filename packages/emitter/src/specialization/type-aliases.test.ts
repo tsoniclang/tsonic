@@ -129,9 +129,7 @@ describe("Type Aliases (spec/16 §3)", () => {
     expect(result).to.include("public sealed class Node__Alias");
     expect(result).to.include("public required string name { get; set; }");
     // Self-reference should use __Alias suffix and be nullable (optional)
-    expect(result).to.include(
-      "public Node__Alias? next { get; set; }"
-    );
+    expect(result).to.include("public Node__Alias? next { get; set; }");
   });
 
   it("should emit __Alias suffix when alias is referenced from another alias", () => {
@@ -215,7 +213,9 @@ describe("Type Aliases (spec/16 §3)", () => {
     // Container should be emitted with __Alias suffix
     expect(result).to.include("public sealed class Container__Alias");
     // Reference to PersonData inside Container should use __Alias suffix
-    expect(result).to.include("public required PersonData__Alias item { get; set; }");
+    expect(result).to.include(
+      "public required PersonData__Alias item { get; set; }"
+    );
     // Array of PersonData should also use __Alias suffix
     expect(result).to.include(
       "public required global::System.Collections.Generic.List<PersonData__Alias> items { get; set; }"
