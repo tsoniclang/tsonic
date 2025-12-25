@@ -43,6 +43,7 @@ export type DiagnosticCode =
   | "TSN7410" // Intersection types not supported
   | "TSN7413" // Dictionary key must be string or number
   | "TSN7414" // Type cannot be represented in compiler subset
+  | "TSN7415" // Nullable union with unconstrained generic type parameter
   | "TSN7420" // ref/out/In are parameter modifiers, not types
   | "TSN7421" // Anonymous object type not lowered (ICE)
   // Metadata loading errors (TSN9001-TSN9018)

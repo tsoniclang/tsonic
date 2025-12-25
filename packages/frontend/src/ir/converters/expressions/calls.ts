@@ -231,6 +231,7 @@ const buildTypeParameterSubstitutionMap = (
           // Check initializer: new Dictionary<int, Todo>()
           // This handles: const todos = new Dictionary<int, Todo>();
           if (ts.isVariableDeclaration(decl) && decl.initializer) {
+            // Handle direct NewExpression
             if (
               ts.isNewExpression(decl.initializer) &&
               decl.initializer.typeArguments
@@ -239,6 +240,16 @@ const buildTypeParameterSubstitutionMap = (
                 decl.initializer.typeArguments
               );
               if (result) return result;
+            }
+
+            // Handle AsExpression (type assertion): new List<int>() as List<int>
+            // The type arguments are in the AsExpression's type, not the NewExpression
+            if (ts.isAsExpression(decl.initializer)) {
+              const asType = decl.initializer.type;
+              if (ts.isTypeReferenceNode(asType) && asType.typeArguments) {
+                const result = buildMapFromTypeArgs(asType.typeArguments);
+                if (result) return result;
+              }
             }
           }
 
@@ -414,21 +425,29 @@ const extractParameterTypes = (
           declType.flags & ts.TypeFlags.TypeParameter
         );
 
-        if (isTypeParameter && substitutionMap) {
-          // Type parameter case: use substitution map to preserve CLR aliases
-          const substituted = substituteTypeNode(
-            decl.type,
-            substitutionMap,
-            checker
-          );
-          if (substituted) {
-            const irType = convertType(substituted, checker);
-            if (irType) {
-              paramTypes.push(irType);
-              continue;
+        if (isTypeParameter) {
+          if (substitutionMap) {
+            // Type parameter case: use substitution map to preserve CLR aliases
+            const substituted = substituteTypeNode(
+              decl.type,
+              substitutionMap,
+              checker
+            );
+            if (substituted) {
+              const irType = convertType(substituted, checker);
+              if (irType) {
+                paramTypes.push(irType);
+                continue;
+              }
             }
           }
-        } else if (!isTypeParameter) {
+          // Type parameter without substitution (e.g., generic function call with inferred types)
+          // The type parameter is INFERRED from the argument, so don't validate against
+          // TypeScript's instantiated type (which loses CLR type aliases like `int`).
+          // Push undefined to skip validation for this parameter.
+          paramTypes.push(undefined);
+          continue;
+        } else {
           // Non-type-parameter: use declaration type node directly
           // This preserves imported CLR type aliases like `int`
           const irType = convertType(decl.type, checker);
@@ -440,7 +459,7 @@ const extractParameterTypes = (
       }
 
       // Fallback: Use instantiated type from getTypeOfSymbolAtLocation
-      // This handles cases where substitution doesn't apply or fails
+      // This handles cases where we couldn't get the declaration type
       const paramType = checker.getTypeOfSymbolAtLocation(
         sigParam,
         decl ?? node
