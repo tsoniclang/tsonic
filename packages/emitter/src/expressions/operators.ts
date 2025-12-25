@@ -180,6 +180,43 @@ export const emitBinary = (
     }
   }
 
+  // MODERN C# NULLABLE CHECK (C# 9+):
+  // Use `is null` / `is not null` pattern matching for nullish comparisons.
+  // This is more idiomatic than `== default` / `!= default` and works correctly
+  // with nullable value types (long?, int?, etc.) without needing .Value access.
+  //
+  // TypeScript:  x === undefined  →  C#: x is null
+  // TypeScript:  x !== undefined  →  C#: x is not null
+  // TypeScript:  x === null       →  C#: x is null
+  // TypeScript:  x !== null       →  C#: x is not null
+  const isNullishLiteral = (e: IrExpression): boolean =>
+    (e.kind === "literal" && (e.value === undefined || e.value === null)) ||
+    (e.kind === "identifier" && (e.name === "undefined" || e.name === "null"));
+
+  const leftIsNullish = isNullishLiteral(expr.left);
+  const rightIsNullish = isNullishLiteral(expr.right);
+  const isNullishComparison =
+    isComparisonOp &&
+    (op === "==" || op === "!=") &&
+    (leftIsNullish || rightIsNullish);
+
+  if (isNullishComparison) {
+    // One side is null/undefined literal, emit the other side with pattern matching
+    // Clear narrowedBindings so we emit the raw identifier (not .Value)
+    const nonNullishExpr = leftIsNullish ? expr.right : expr.left;
+    const nonNullishContext = { ...context, narrowedBindings: undefined };
+    const [nonNullishFrag, resultContext] = emitExpression(
+      nonNullishExpr,
+      nonNullishContext
+    );
+
+    // Use `is null` for == and `is not null` for !=
+    const pattern = op === "==" ? "is null" : "is not null";
+    const text = `${nonNullishFrag.text} ${pattern}`;
+
+    return [{ text, precedence: getPrecedence(expr.operator) }, resultContext];
+  }
+
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)
