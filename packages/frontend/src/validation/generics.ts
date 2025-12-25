@@ -35,10 +35,43 @@ const getTypeParameterReference = (
 };
 
 /**
- * Get the set of type parameter names in scope for a node.
- * Walks up the tree to find enclosing generic declarations.
+ * Check if a type parameter has a constraint that allows nullable representation.
+ * - `extends struct` → C# `where T : struct` allows T? as Nullable<T>
+ * - `extends object` → C# `where T : class` allows T? as nullable reference
+ * - `extends SomeClass` or `extends SomeInterface` → reference type, allows T?
  */
-const getTypeParametersInScope = (node: ts.Node): Set<string> => {
+const hasNullableConstraint = (tp: ts.TypeParameterDeclaration): boolean => {
+  if (!tp.constraint) {
+    return false;
+  }
+
+  // Any type reference constraint (struct, object, class, interface, generic type)
+  // implies the type is constrained and allows proper nullable handling
+  if (ts.isTypeReferenceNode(tp.constraint)) {
+    // This covers:
+    // - T extends struct → value type
+    // - T extends object → reference type
+    // - T extends SomeClass → reference type
+    // - T extends SomeInterface → reference type
+    // - T extends Comparable<T> → reference type (generic constraint)
+    return true;
+  }
+
+  // Intersection type: T extends A & B
+  // Any intersection constraint means T is constrained
+  if (ts.isIntersectionTypeNode(tp.constraint)) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Get the set of UNCONSTRAINED type parameter names in scope for a node.
+ * Walks up the tree to find enclosing generic declarations.
+ * Only returns type parameters that don't have nullable-compatible constraints.
+ */
+const getUnconstrainedTypeParametersInScope = (node: ts.Node): Set<string> => {
   const params = new Set<string>();
   let current: ts.Node | undefined = node;
 
@@ -55,7 +88,10 @@ const getTypeParametersInScope = (node: ts.Node): Set<string> => {
       current.typeParameters
     ) {
       for (const tp of current.typeParameters) {
-        params.add(tp.name.text);
+        // Only add if it's truly unconstrained (no nullable-compatible constraint)
+        if (!hasNullableConstraint(tp)) {
+          params.add(tp.name.text);
+        }
       }
     }
     current = current.parent;
@@ -88,13 +124,13 @@ const checkNullableGenericUnion = (
     return undefined;
   }
 
-  // Check if any non-nullish type is a type parameter reference
-  const typeParamsInScope = getTypeParametersInScope(typeNode);
+  // Check if any non-nullish type is an UNCONSTRAINED type parameter reference
+  const unconstrainedTypeParams = getUnconstrainedTypeParametersInScope(typeNode);
   const nonNullishTypes = typeNode.types.filter((t) => !isNullishType(t));
 
   for (const memberType of nonNullishTypes) {
     const typeParamName = getTypeParameterReference(memberType);
-    if (typeParamName && typeParamsInScope.has(typeParamName)) {
+    if (typeParamName && unconstrainedTypeParams.has(typeParamName)) {
       // Found a nullable union with a type parameter
       const start = typeNode.getStart(sourceFile);
       const end = typeNode.getEnd();

@@ -32,6 +32,36 @@ export const emitTypeParameters = (
       if (tp.isStructuralConstraint) {
         // Structural constraints generate interfaces - reference them
         whereClauses.push(`where ${tp.name} : __Constraint_${tp.name}`);
+      } else if (tp.constraint.kind === "intersectionType") {
+        // Multiple constraints: T extends A & B → where T : A, B
+        const constraintParts: string[] = [];
+        for (const member of tp.constraint.types) {
+          if (member.kind === "referenceType" && member.name === "struct") {
+            constraintParts.push("struct");
+          } else if (
+            member.kind === "referenceType" &&
+            member.name === "object"
+          ) {
+            constraintParts.push("class");
+          } else {
+            const [constraintStr, newContext] = emitType(member, currentContext);
+            currentContext = newContext;
+            constraintParts.push(constraintStr);
+          }
+        }
+        whereClauses.push(`where ${tp.name} : ${constraintParts.join(", ")}`);
+      } else if (
+        tp.constraint.kind === "referenceType" &&
+        tp.constraint.name === "struct"
+      ) {
+        // Special case: T extends struct → where T : struct (C# value type constraint)
+        whereClauses.push(`where ${tp.name} : struct`);
+      } else if (
+        tp.constraint.kind === "referenceType" &&
+        tp.constraint.name === "object"
+      ) {
+        // Special case: T extends object → where T : class (C# reference type constraint)
+        whereClauses.push(`where ${tp.name} : class`);
       } else {
         const [constraintStr, newContext] = emitType(
           tp.constraint,
