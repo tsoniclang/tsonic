@@ -24,6 +24,29 @@ const isLValue = (expr: IrExpression): boolean => {
 };
 
 /**
+ * Check if an expression has an `as out<T>`, `as ref<T>`, or `as inref<T>` cast.
+ * Returns the modifier ("out", "ref", "in") or undefined if not a passing modifier cast.
+ *
+ * When TypeScript code has `value as out<int>`, the frontend converts this to
+ * an expression with `inferredType: { kind: "referenceType", name: "out", ... }`.
+ */
+const getPassingModifierFromCast = (
+  expr: IrExpression
+): "out" | "ref" | "in" | undefined => {
+  const inferredType = expr.inferredType;
+  if (!inferredType || inferredType.kind !== "referenceType") {
+    return undefined;
+  }
+
+  const typeName = inferredType.name;
+  if (typeName === "out") return "out";
+  if (typeName === "ref") return "ref";
+  if (typeName === "inref") return "in"; // inref maps to C# 'in' keyword
+
+  return undefined;
+};
+
+/**
  * Check if a member access expression targets System.Text.Json.JsonSerializer
  */
 const isJsonSerializerCall = (
@@ -376,16 +399,31 @@ export const emitCall = (
       args.push(`params ${spreadFrag.text}`);
       currentContext = ctx;
     } else {
-      const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
-      // Check if this argument needs ref/out/in prefix
-      // Only add prefix if argument is an lvalue (identifier or member access)
-      const passingMode = expr.argumentPassing?.[i];
-      const prefix =
-        passingMode && passingMode !== "value" && isLValue(arg)
-          ? `${passingMode} `
-          : "";
-      args.push(`${prefix}${argFrag.text}`);
-      currentContext = ctx;
+      // Check if this argument has an explicit `as out<T>` / `as ref<T>` / `as inref<T>` cast
+      const castModifier = getPassingModifierFromCast(arg);
+
+      if (castModifier && isLValue(arg)) {
+        // Emit the expression without the cast wrapper, with the modifier prefix
+        // For `value as out<int>`, emit `out value`
+        const [argFrag, ctx] = emitExpression(arg, currentContext);
+        args.push(`${castModifier} ${argFrag.text}`);
+        currentContext = ctx;
+      } else {
+        const [argFrag, ctx] = emitExpression(
+          arg,
+          currentContext,
+          expectedType
+        );
+        // Check if this argument needs ref/out/in prefix from function signature
+        // Only add prefix if argument is an lvalue (identifier or member access)
+        const passingMode = expr.argumentPassing?.[i];
+        const prefix =
+          passingMode && passingMode !== "value" && isLValue(arg)
+            ? `${passingMode} `
+            : "";
+        args.push(`${prefix}${argFrag.text}`);
+        currentContext = ctx;
+      }
     }
   }
 

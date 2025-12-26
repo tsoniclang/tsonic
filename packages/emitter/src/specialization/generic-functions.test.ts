@@ -487,8 +487,16 @@ describe("Generic Functions (spec/15 §3-5)", () => {
               constraint: {
                 kind: "intersectionType",
                 types: [
-                  { kind: "referenceType", name: "IComparable", typeArguments: [] },
-                  { kind: "referenceType", name: "IEquatable", typeArguments: [] },
+                  {
+                    kind: "referenceType",
+                    name: "IComparable",
+                    typeArguments: [],
+                  },
+                  {
+                    kind: "referenceType",
+                    name: "IEquatable",
+                    typeArguments: [],
+                  },
                 ],
               },
               default: undefined,
@@ -562,7 +570,11 @@ describe("Generic Functions (spec/15 §3-5)", () => {
                 kind: "intersectionType",
                 types: [
                   { kind: "referenceType", name: "struct", typeArguments: [] },
-                  { kind: "referenceType", name: "IFormattable", typeArguments: [] },
+                  {
+                    kind: "referenceType",
+                    name: "IFormattable",
+                    typeArguments: [],
+                  },
                 ],
               },
               default: undefined,
@@ -628,7 +640,11 @@ describe("Generic Functions (spec/15 §3-5)", () => {
                 kind: "intersectionType",
                 types: [
                   { kind: "referenceType", name: "object", typeArguments: [] },
-                  { kind: "referenceType", name: "IDisposable", typeArguments: [] },
+                  {
+                    kind: "referenceType",
+                    name: "IDisposable",
+                    typeArguments: [],
+                  },
                 ],
               },
               default: undefined,

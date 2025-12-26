@@ -1,8 +1,8 @@
 {
   "runtime": "dotnet",
-  "rootNamespace": "RefOutAsTypesTest",
+  "rootNamespace": "ParamModifiersTest",
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
-  "outputName": "ref-out-test"
+  "outputName": "param-modifiers-test"
 }

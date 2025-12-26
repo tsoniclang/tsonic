@@ -1,0 +1,4 @@
+{
+  "description": "Test ref/out/inref parameter passing modifiers for C# interop",
+  "notes": "Tests both defining functions with out/ref/inref parameters and calling them with 'as' casts"
+}

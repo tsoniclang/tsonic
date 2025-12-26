@@ -36,14 +36,28 @@ namespace TestCases.jsonly.realworld.stringutils
                 return cleaned == reverse(cleaned);
                 }
 
-            public static T? first<T>(global::System.Collections.Generic.List<T> arr)
+            public static bool tryFirst<T>(global::System.Collections.Generic.List<T> arr, out T result)
                 {
-                return global::Tsonic.JSRuntime.Array.get(arr, 0);
+                result = default;
+
+                if (global::Tsonic.JSRuntime.Array.length(arr) == 0)
+                    {
+                    return false;
+                    }
+                result = global::Tsonic.JSRuntime.Array.get(arr, 0);
+                return true;
                 }
 
-            public static T? last<T>(global::System.Collections.Generic.List<T> arr)
+            public static bool tryLast<T>(global::System.Collections.Generic.List<T> arr, out T result)
                 {
-                return global::Tsonic.JSRuntime.Array.get(arr, global::Tsonic.JSRuntime.Array.length(arr) - 1);
+                result = default;
+
+                if (global::Tsonic.JSRuntime.Array.length(arr) == 0)
+                    {
+                    return false;
+                    }
+                result = global::Tsonic.JSRuntime.Array.get(arr, global::Tsonic.JSRuntime.Array.length(arr) - 1);
+                return true;
                 }
 
             public static global::System.Collections.Generic.List<T> unique<T>(global::System.Collections.Generic.List<T> arr)

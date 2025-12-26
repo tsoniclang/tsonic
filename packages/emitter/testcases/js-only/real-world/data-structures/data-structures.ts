@@ -1,3 +1,5 @@
+import { out } from "@tsonic/core/types.js";
+
 export class Stack<T> {
   private items: T[] = [];
 
@@ -137,8 +139,8 @@ export function testDataStructures(): void {
   stack.push(3);
   console.log("Stack size:", stack.size());
 
-  let poppedValue: number;
-  if (stack.tryPop(poppedValue)) {
+  let poppedValue: number = 0;
+  if (stack.tryPop(poppedValue as out<number>)) {
     console.log("Stack pop:", poppedValue);
   }
 
@@ -148,8 +150,8 @@ export function testDataStructures(): void {
   queue.enqueue("third");
   console.log("Queue size:", queue.size());
 
-  let dequeuedValue: string;
-  if (queue.tryDequeue(dequeuedValue)) {
+  let dequeuedValue: string = "";
+  if (queue.tryDequeue(dequeuedValue as out<string>)) {
     console.log("Queue dequeue:", dequeuedValue);
   }
 

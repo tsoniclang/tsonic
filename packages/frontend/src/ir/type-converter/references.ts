@@ -436,10 +436,22 @@ export const convertTypeReference = (
     // Fall through to referenceType if can't expand (e.g., type parameter)
   }
 
-  // NOTE: ref<T>, out<T>, In<T> are no longer supported as types.
-  // Parameter modifiers will be expressed via syntax in the future.
-  // If someone uses ref<T> etc., it will fall through to referenceType
-  // and the validation pass will reject it with a hard error.
+  // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
+  // These are type aliases that should NOT be resolved - we preserve them
+  // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.
+  if (
+    (typeName === "out" || typeName === "ref" || typeName === "inref") &&
+    node.typeArguments &&
+    node.typeArguments.length === 1
+  ) {
+    // Safe: we checked length === 1 above
+    const innerTypeArg = node.typeArguments[0]!;
+    return {
+      kind: "referenceType",
+      name: typeName,
+      typeArguments: [convertType(innerTypeArg, checker)],
+    };
+  }
 
   // Check if this is a type parameter reference (e.g., T in Container<T>)
   // Use the type checker to determine if the reference resolves to a type parameter

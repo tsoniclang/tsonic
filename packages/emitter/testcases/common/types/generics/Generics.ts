@@ -1,3 +1,5 @@
+import { out } from "@tsonic/core/types.js";
+
 export function identity<T>(value: T): T {
   return value;
 }

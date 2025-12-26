@@ -45,12 +45,17 @@ const hasNullableConstraint = (tp: ts.TypeParameterDeclaration): boolean => {
     return false;
   }
 
-  // Any type reference constraint (struct, object, class, interface, generic type)
+  // `object` keyword type - T extends object
+  // This is a TypeKeyword, not a TypeReference
+  if (tp.constraint.kind === ts.SyntaxKind.ObjectKeyword) {
+    return true;
+  }
+
+  // Any type reference constraint (struct, SomeClass, SomeInterface, generic type)
   // implies the type is constrained and allows proper nullable handling
   if (ts.isTypeReferenceNode(tp.constraint)) {
     // This covers:
-    // - T extends struct → value type
-    // - T extends object → reference type
+    // - T extends struct → value type (struct is a custom type in tsonic)
     // - T extends SomeClass → reference type
     // - T extends SomeInterface → reference type
     // - T extends Comparable<T> → reference type (generic constraint)
@@ -125,7 +130,8 @@ const checkNullableGenericUnion = (
   }
 
   // Check if any non-nullish type is an UNCONSTRAINED type parameter reference
-  const unconstrainedTypeParams = getUnconstrainedTypeParametersInScope(typeNode);
+  const unconstrainedTypeParams =
+    getUnconstrainedTypeParametersInScope(typeNode);
   const nonNullishTypes = typeNode.types.filter((t) => !isNullishType(t));
 
   for (const memberType of nonNullishTypes) {
@@ -134,7 +140,8 @@ const checkNullableGenericUnion = (
       // Found a nullable union with a type parameter
       const start = typeNode.getStart(sourceFile);
       const end = typeNode.getEnd();
-      const { line, character } = sourceFile.getLineAndCharacterOfPosition(start);
+      const { line, character } =
+        sourceFile.getLineAndCharacterOfPosition(start);
 
       return createDiagnostic(
         "TSN7415",

@@ -1,0 +1,4 @@
+21 doubled is: 42
+After increment: 11
+Value: 42
+All tests passed!

@@ -18,8 +18,12 @@ function wrapValue<T extends object>(value: T): Result<T> {
   return { value, error: null };
 }
 
-// Concrete type - strings are reference types
-function getConcreteNull(): Result<string> {
+// String wrapper - strings are primitives in TS, need wrapper for object constraint
+class StringWrapper {
+  constructor(public text: string) {}
+}
+
+function getConcreteNull(): Result<StringWrapper> {
   return { value: null, error: null };
 }
 

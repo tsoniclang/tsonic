@@ -44,7 +44,10 @@ export const emitTypeParameters = (
           ) {
             constraintParts.push("class");
           } else {
-            const [constraintStr, newContext] = emitType(member, currentContext);
+            const [constraintStr, newContext] = emitType(
+              member,
+              currentContext
+            );
             currentContext = newContext;
             constraintParts.push(constraintStr);
           }

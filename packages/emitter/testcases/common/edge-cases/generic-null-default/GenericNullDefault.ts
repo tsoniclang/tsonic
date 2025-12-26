@@ -21,7 +21,12 @@ export function wrapValue<T extends object>(value: T): Result<T> {
   return { value, error: null };
 }
 
-// Concrete string result - strings are reference types
-export function getConcreteNull(): Result<string> {
+// Wrapper class for string (reference type)
+class StringWrapper {
+  constructor(public value: string) {}
+}
+
+// Concrete result with reference type
+export function getConcreteNull(): Result<StringWrapper> {
   return { value: null, error: null };
 }

@@ -68,7 +68,7 @@ export const convertParameters = (
     let passing: "value" | "ref" | "out" | "in" = "value";
     let actualType: ts.TypeNode | undefined = param.type;
 
-    // Detect ref<T>, out<T>, in<T> wrapper types
+    // Detect ref<T>, out<T>, in<T>, inref<T> wrapper types
     if (
       param.type &&
       ts.isTypeReferenceNode(param.type) &&
@@ -76,12 +76,18 @@ export const convertParameters = (
     ) {
       const typeName = param.type.typeName.text;
       if (
-        (typeName === "ref" || typeName === "out" || typeName === "in") &&
+        (typeName === "ref" ||
+          typeName === "out" ||
+          typeName === "in" ||
+          typeName === "inref") &&
         param.type.typeArguments &&
         param.type.typeArguments.length > 0
       ) {
-        // Set passing mode
-        passing = typeName === "in" ? "in" : typeName;
+        // Set passing mode (both "in" and "inref" map to C# "in")
+        passing =
+          typeName === "in" || typeName === "inref"
+            ? "in"
+            : (typeName as "ref" | "out");
         // Extract wrapped type
         actualType = param.type.typeArguments[0];
       }

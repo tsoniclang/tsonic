@@ -179,20 +179,11 @@ const validateType = (
     case "referenceType": {
       const { name, resolvedClrType } = type;
 
-      // TSN7420: ref/out/In are parameter modifiers, not types
-      // These must be expressed via syntax in the future, not type annotations
-      if (name === "ref" || name === "out" || name === "In") {
-        ctx.diagnostics.push(
-          createDiagnostic(
-            "TSN7420",
-            "error",
-            `'${name}' is a parameter modifier, not a type. Parameter modifiers cannot be expressed as type annotations.`,
-            moduleLocation(ctx),
-            "Parameter modifiers (ref/out/in) will be supported via syntax in a future release. Remove the type wrapper."
-          )
-        );
-        return;
-      }
+      // Note: ref<T>, out<T>, inref<T> are valid parameter passing modifiers.
+      // They are handled by:
+      // 1. Frontend: unwraps in function parameters (helpers.ts convertParameters)
+      // 2. Emitter: detects `as out<T>` casts at call sites and emits `out` prefix
+      // No validation error needed - these are legitimate types from @tsonic/core.
 
       // Check if this reference type is resolvable
       const isResolvable =
