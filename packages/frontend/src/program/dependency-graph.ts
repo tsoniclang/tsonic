@@ -18,6 +18,7 @@ import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.j
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
+import { validateProgram } from "../validation/orchestrator.js";
 
 export type ModuleDependencyGraphResult = {
   readonly modules: readonly IrModule[];
@@ -275,6 +276,12 @@ export const buildModuleDependencyGraph = (
   // Load CLR bindings before IR building
   // This scans all imports and loads their bindings upfront
   discoverAndLoadClrBindings(tsonicProgram, options.verbose);
+
+  // Run source-level validation (imports, exports, unsupported features, generics)
+  const validationCollector = validateProgram(tsonicProgram);
+  if (validationCollector.diagnostics.length > 0) {
+    return error(validationCollector.diagnostics);
+  }
 
   // Third pass: Build IR for all discovered modules
   const modules: IrModule[] = [];

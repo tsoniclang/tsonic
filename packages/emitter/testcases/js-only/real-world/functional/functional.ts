@@ -85,8 +85,8 @@ export function debounce<T extends any[]>(
   };
 }
 
-// Lazy evaluation
-export class Lazy<T> {
+// Lazy evaluation (constrained to reference types for nullable field)
+export class Lazy<T extends object> {
   private value: T | undefined;
   private computed: boolean = false;
 
@@ -100,7 +100,7 @@ export class Lazy<T> {
     return this.value!;
   }
 
-  map<U>(mapper: (value: T) => U): Lazy<U> {
+  map<U extends object>(mapper: (value: T) => U): Lazy<U> {
     return new Lazy(() => mapper(this.get()));
   }
 }

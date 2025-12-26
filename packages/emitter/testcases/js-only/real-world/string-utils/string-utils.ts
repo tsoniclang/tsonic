@@ -1,3 +1,5 @@
+import { out } from "@tsonic/core/types.js";
+
 export function capitalize(str: string): string {
   if (str.length === 0) {
     return str;
@@ -25,13 +27,21 @@ export function isPalindrome(str: string): boolean {
   return cleaned === reverse(cleaned);
 }
 
-// Generic array utilities
-export function first<T>(arr: T[]): T | undefined {
-  return arr[0];
+// Generic array utilities using idiomatic C# TryGet pattern
+export function tryFirst<T>(arr: T[], result: out<T>): boolean {
+  if (arr.length === 0) {
+    return false;
+  }
+  result = arr[0];
+  return true;
 }
 
-export function last<T>(arr: T[]): T | undefined {
-  return arr[arr.length - 1];
+export function tryLast<T>(arr: T[], result: out<T>): boolean {
+  if (arr.length === 0) {
+    return false;
+  }
+  result = arr[arr.length - 1];
+  return true;
 }
 
 export function unique<T>(arr: T[]): T[] {

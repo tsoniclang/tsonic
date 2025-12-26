@@ -1,3 +1,5 @@
+import { out } from "@tsonic/core/types.js";
+
 export class Stack<T> {
   private items: T[] = [];
 
@@ -5,12 +7,22 @@ export class Stack<T> {
     this.items.push(item);
   }
 
-  pop(): T | undefined {
-    return this.items.pop();
+  // Idiomatic C# pattern: TryPop with out parameter
+  tryPop(result: out<T>): boolean {
+    if (this.items.length === 0) {
+      return false;
+    }
+    result = this.items.pop()!;
+    return true;
   }
 
-  peek(): T | undefined {
-    return this.items[this.items.length - 1];
+  // Idiomatic C# pattern: TryPeek with out parameter
+  tryPeek(result: out<T>): boolean {
+    if (this.items.length === 0) {
+      return false;
+    }
+    result = this.items[this.items.length - 1];
+    return true;
   }
 
   isEmpty(): boolean {
@@ -33,12 +45,22 @@ export class Queue<T> {
     this.items.push(item);
   }
 
-  dequeue(): T | undefined {
-    return this.items.shift();
+  // Idiomatic C# pattern: TryDequeue with out parameter
+  tryDequeue(result: out<T>): boolean {
+    if (this.items.length === 0) {
+      return false;
+    }
+    result = this.items.shift()!;
+    return true;
   }
 
-  front(): T | undefined {
-    return this.items[0];
+  // Idiomatic C# pattern: TryPeek with out parameter
+  tryPeek(result: out<T>): boolean {
+    if (this.items.length === 0) {
+      return false;
+    }
+    result = this.items[0];
+    return true;
   }
 
   isEmpty(): boolean {
@@ -116,14 +138,22 @@ export function testDataStructures(): void {
   stack.push(2);
   stack.push(3);
   console.log("Stack size:", stack.size());
-  console.log("Stack pop:", stack.pop());
+
+  let poppedValue: number = 0;
+  if (stack.tryPop(poppedValue as out<number>)) {
+    console.log("Stack pop:", poppedValue);
+  }
 
   const queue = new Queue<string>();
   queue.enqueue("first");
   queue.enqueue("second");
   queue.enqueue("third");
   console.log("Queue size:", queue.size());
-  console.log("Queue dequeue:", queue.dequeue());
+
+  let dequeuedValue: string = "";
+  if (queue.tryDequeue(dequeuedValue as out<string>)) {
+    console.log("Queue dequeue:", dequeuedValue);
+  }
 
   const list = new LinkedList<number>();
   list.append(10);

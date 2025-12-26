@@ -42,6 +42,11 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
       return { kind: "unknownType" };
     case ts.SyntaxKind.NeverKeyword:
       return { kind: "neverType" };
+    case ts.SyntaxKind.ObjectKeyword:
+      // TypeScript `object` keyword as a constraint: T extends object
+      // This maps to C# `class` constraint (reference type)
+      // We emit it as a referenceType so the emitter can handle it
+      return { kind: "referenceType", name: "object", typeArguments: [] };
     default:
       return null;
   }

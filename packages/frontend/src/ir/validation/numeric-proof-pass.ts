@@ -572,6 +572,19 @@ const processExpression = (
     }
 
     case "identifier": {
+      // Preserve parameter passing modifiers (out<T>, ref<T>, inref<T>) from `as` casts.
+      // When expression converter processes `value as out<int>`, it creates an identifier
+      // with inferredType: { kind: "referenceType", name: "out", ... }. We must NOT
+      // overwrite this with the numeric proof, as it would lose the cast information.
+      if (
+        expr.inferredType?.kind === "referenceType" &&
+        (expr.inferredType.name === "out" ||
+          expr.inferredType.name === "ref" ||
+          expr.inferredType.name === "inref")
+      ) {
+        return expr;
+      }
+
       // Annotate identifiers with their proven numeric kind
       // This allows the emitter to know that x is Int32 when used in binary expressions
       const varKind = ctx.provenVariables.get(expr.name);

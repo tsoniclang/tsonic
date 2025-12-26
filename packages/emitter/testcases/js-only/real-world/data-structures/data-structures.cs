@@ -9,14 +9,28 @@ namespace TestCases.jsonly.realworld.datastructures
             global::Tsonic.JSRuntime.Array.push(this.items, item);
             }
 
-        public T? pop()
+        public bool tryPop(out T result)
             {
-            return global::Tsonic.JSRuntime.Array.pop(this.items);
+            result = default;
+
+            if (global::Tsonic.JSRuntime.Array.length(this.items) == 0)
+                {
+                return false;
+                }
+            result = this.items.pop()!;
+            return true;
             }
 
-        public T? peek()
+        public bool tryPeek(out T result)
             {
-            return global::Tsonic.JSRuntime.Array.get(this.items, global::Tsonic.JSRuntime.Array.length(this.items) - 1);
+            result = default;
+
+            if (global::Tsonic.JSRuntime.Array.length(this.items) == 0)
+                {
+                return false;
+                }
+            result = global::Tsonic.JSRuntime.Array.get(this.items, global::Tsonic.JSRuntime.Array.length(this.items) - 1);
+            return true;
             }
 
         public bool isEmpty()
@@ -43,14 +57,28 @@ namespace TestCases.jsonly.realworld.datastructures
             global::Tsonic.JSRuntime.Array.push(this.items, item);
             }
 
-        public T? dequeue()
+        public bool tryDequeue(out T result)
             {
-            return global::Tsonic.JSRuntime.Array.shift(this.items);
+            result = default;
+
+            if (global::Tsonic.JSRuntime.Array.length(this.items) == 0)
+                {
+                return false;
+                }
+            result = this.items.shift()!;
+            return true;
             }
 
-        public T? front()
+        public bool tryPeek(out T result)
             {
-            return global::Tsonic.JSRuntime.Array.get(this.items, 0);
+            result = default;
+
+            if (global::Tsonic.JSRuntime.Array.length(this.items) == 0)
+                {
+                return false;
+                }
+            result = global::Tsonic.JSRuntime.Array.get(this.items, 0);
+            return true;
             }
 
         public bool isEmpty()
@@ -145,13 +173,21 @@ namespace TestCases.jsonly.realworld.datastructures
                     stack.Push(2);
                     stack.Push(3);
                     global::Tsonic.JSRuntime.console.log("Stack size:", stack.size());
-                    global::Tsonic.JSRuntime.console.log("Stack pop:", stack.Pop());
+                    double poppedValue = 0;
+                    if (stack.TryPop(out poppedValue))
+                        {
+                        global::Tsonic.JSRuntime.console.log("Stack pop:", poppedValue);
+                        }
                     var queue = new Queue<string>();
                     queue.Enqueue("first");
                     queue.Enqueue("second");
                     queue.Enqueue("third");
                     global::Tsonic.JSRuntime.console.log("Queue size:", queue.size());
-                    global::Tsonic.JSRuntime.console.log("Queue dequeue:", queue.Dequeue());
+                    string dequeuedValue = "";
+                    if (queue.TryDequeue(out dequeuedValue))
+                        {
+                        global::Tsonic.JSRuntime.console.log("Queue dequeue:", dequeuedValue);
+                        }
                     var list = new LinkedList<double>();
                     list.append(10);
                     list.append(20);
