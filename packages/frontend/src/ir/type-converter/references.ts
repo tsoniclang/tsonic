@@ -445,7 +445,10 @@ export const convertTypeReference = (
     node.typeArguments.length === 1
   ) {
     // Safe: we checked length === 1 above
-    const innerTypeArg = node.typeArguments[0]!;
+    const innerTypeArg = node.typeArguments[0];
+    if (!innerTypeArg) {
+      return { kind: "anyType" };
+    }
     return {
       kind: "referenceType",
       name: typeName,
