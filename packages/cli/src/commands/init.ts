@@ -87,7 +87,7 @@ type TypePackageInfo = {
 };
 
 // Unified CLI package version - installed as devDependency for npm run build/dev
-const CLI_PACKAGE = { name: "@tsonic/tsonic", version: "latest" };
+const CLI_PACKAGE = { name: "tsonic", version: "latest" };
 
 /**
  * Get type package info based on runtime mode
@@ -196,7 +196,7 @@ const copyRuntimeDlls = (
     return {
       ok: false,
       error:
-        "Runtime directory not found. Make sure @tsonic/tsonic is installed.",
+        "Runtime directory not found. Make sure tsonic is installed.",
     };
   }
 

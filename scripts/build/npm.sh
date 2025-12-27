@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Build @tsonic/tsonic npm package
+# Build tsonic npm package
 # This script bundles all packages and includes runtime DLLs
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "=== Building @tsonic/tsonic npm package ==="
+echo "=== Building tsonic npm package ==="
 echo ""
 
 # Step 1: Build runtime packages from sibling directories

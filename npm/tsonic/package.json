@@ -1,5 +1,5 @@
 {
-  "name": "@tsonic/tsonic",
+  "name": "tsonic",
   "version": "0.1.19",
   "description": "TypeScript to C# to NativeAOT compiler",
   "type": "module",
