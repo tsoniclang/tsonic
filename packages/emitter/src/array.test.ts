@@ -283,7 +283,12 @@ describe("Array Emission", () => {
                     elementType: { kind: "primitiveType", name: "number" },
                   },
                 },
-                property: { kind: "literal", value: 0 },
+                property: {
+                  kind: "literal",
+                  value: 0,
+                  // Int32 proof marker (set by numeric proof pass)
+                  inferredType: { kind: "primitiveType", name: "int" },
+                },
                 isComputed: true,
                 isOptional: false,
               },

@@ -137,29 +137,15 @@ export const emitMemberAccess = (
     const objectType = expr.object.inferredType;
     const isArrayType = objectType?.kind === "arrayType";
 
-    // In JS mode, use Tsonic.JSRuntime.Array.get() for JS semantics (auto-grow, sparse arrays)
-    // In dotnet mode, use native CLR indexer (no JSRuntime exists)
-    if (isArrayType && runtime === "js") {
-      const indexContext = { ...newContext, isArrayIndex: true };
-      const [propFrag, contextWithIndex] = emitExpression(
-        expr.property as IrExpression,
-        indexContext
-      );
-      const finalContext = { ...contextWithIndex, isArrayIndex: false };
-      const text = `global::Tsonic.JSRuntime.Array.get(${objectFrag.text}, ${propFrag.text})`;
-      return [{ text }, finalContext];
-    }
-
-    // In dotnet mode, arrays use native List<T> indexer
+    // TypeScript array access - unified for both js and dotnet modes
     // HARD GATE: Index must be proven Int32 (validated by proof pass)
-    if (isArrayType && runtime === "dotnet") {
+    if (isArrayType) {
       const indexContext = { ...newContext, isArrayIndex: true };
       const [propFrag, contextWithIndex] = emitExpression(
         expr.property as IrExpression,
         indexContext
       );
       const finalContext = { ...contextWithIndex, isArrayIndex: false };
-      const accessor = expr.isOptional ? "?[" : "[";
       const indexExpr = expr.property as IrExpression;
 
       if (!hasInt32Proof(indexExpr)) {
@@ -171,7 +157,13 @@ export const emitMemberAccess = (
         );
       }
 
-      const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
+      // Emit based on runtime mode:
+      // - js: use Tsonic.JSRuntime.Array.get() for JS semantics (auto-grow, sparse arrays)
+      // - dotnet: use native CLR indexer
+      const text =
+        runtime === "js"
+          ? `global::Tsonic.JSRuntime.Array.get(${objectFrag.text}, ${propFrag.text})`
+          : `${objectFrag.text}${expr.isOptional ? "?[" : "["}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 

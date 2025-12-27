@@ -18,6 +18,26 @@ import {
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
+ * Check if an expression has proven Int32 type from the numeric proof pass.
+ * Mirrors the same check in access.ts for consistency.
+ */
+const hasInt32Proof = (expr: IrExpression): boolean => {
+  if (
+    expr.inferredType?.kind === "primitiveType" &&
+    expr.inferredType.name === "int"
+  ) {
+    return true;
+  }
+  if (
+    expr.inferredType?.kind === "referenceType" &&
+    expr.inferredType.name === "int"
+  ) {
+    return true;
+  }
+  return false;
+};
+
+/**
  * Get operator precedence for proper parenthesization
  */
 const getPrecedence = (operator: string): number => {
@@ -353,11 +373,12 @@ export const emitAssignment = (
 ): [CSharpFragment, EmitterContext] => {
   const runtime = context.options.runtime ?? "js";
 
-  // Special case: JS mode array element assignment
-  // arr[idx] = value → Array.set(arr, idx, value)
+  // Array element assignment - unified for both js and dotnet modes
+  // HARD GATE: Index must be proven Int32 (validated by proof pass)
+  // js mode:     arr[idx] = value → Array.set(arr, idx, value)
+  // dotnet mode: arr[idx] = value → arr[idx] = value (native indexer)
   if (
     expr.operator === "=" &&
-    runtime === "js" &&
     "kind" in expr.left &&
     expr.left.kind === "memberAccess" &&
     expr.left.isComputed &&
@@ -367,17 +388,30 @@ export const emitAssignment = (
       IrExpression,
       { kind: "memberAccess" }
     >;
+    const indexExpr = leftExpr.property as IrExpression;
+
+    if (!hasInt32Proof(indexExpr)) {
+      // ICE: Unproven index should have been caught by proof pass (TSN5107)
+      throw new Error(
+        `Internal Compiler Error: Array index must be proven Int32. ` +
+          `This should have been caught by the numeric proof pass (TSN5107).`
+      );
+    }
+
     const [objectFrag, objectContext] = emitExpression(
       leftExpr.object,
       context
     );
-    const [indexFrag, indexContext] = emitExpression(
-      leftExpr.property as IrExpression,
-      objectContext
-    );
+    const [indexFrag, indexContext] = emitExpression(indexExpr, objectContext);
     const [rightFrag, rightContext] = emitExpression(expr.right, indexContext);
 
-    const text = `global::Tsonic.JSRuntime.Array.set(${objectFrag.text}, ${indexFrag.text}, ${rightFrag.text})`;
+    // Emit based on runtime mode:
+    // - js: use Tsonic.JSRuntime.Array.set() for JS semantics (auto-grow, sparse arrays)
+    // - dotnet: use native CLR indexer
+    const text =
+      runtime === "js"
+        ? `global::Tsonic.JSRuntime.Array.set(${objectFrag.text}, ${indexFrag.text}, ${rightFrag.text})`
+        : `${objectFrag.text}[${indexFrag.text}] = ${rightFrag.text}`;
     return [{ text, precedence: 3 }, rightContext];
   }
 
