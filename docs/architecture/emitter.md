@@ -620,3 +620,84 @@ Used to resolve imports:
 // import { foo } from "./utils.js"
 // -> MyApp.src.utils.foo
 ```
+
+## Golden Tests
+
+The emitter uses golden tests to verify C# output.
+
+### Test Structure
+
+```
+packages/emitter/testcases/
+├── common/                    # Run in both js and dotnet modes
+│   ├── types/
+│   │   ├── generics/
+│   │   ├── type-assertions/
+│   │   └── anonymous-objects/
+│   ├── expressions/
+│   └── attributes/
+└── js-only/                   # Only run in js mode
+    ├── real-world/
+    └── arrays/
+```
+
+### Test Discovery
+
+`golden-tests/discovery.ts`:
+
+- Discovers test cases from `testcases/` directory
+- Filters by mode (`common`, `js-only`, `dotnet-only`)
+- Generates test suites dynamically
+
+```typescript
+const discoverTests = (
+  baseDir: string,
+  mode: "js" | "dotnet"
+): TestCase[] => {
+  const tests: TestCase[] = [];
+
+  // Always include common/
+  tests.push(...findTestsIn(path.join(baseDir, "common")));
+
+  // Include mode-specific tests
+  if (mode === "js") {
+    tests.push(...findTestsIn(path.join(baseDir, "js-only")));
+  } else {
+    tests.push(...findTestsIn(path.join(baseDir, "dotnet-only")));
+  }
+
+  return tests;
+};
+```
+
+### Writing Golden Tests
+
+Each test case has:
+
+1. **Input**: `TestName.ts` - TypeScript source
+2. **Expected**: `TestName.golden.cs` - Expected C# output
+
+```typescript
+// TestName.ts
+export function add(a: number, b: number): number {
+  return a + b;
+}
+```
+
+```csharp
+// TestName.golden.cs
+public static double add(double a, double b)
+{
+    return a + b;
+}
+```
+
+### Updating Golden Files
+
+```bash
+# Update all golden files
+npm run update-golden
+
+# Update specific test
+npm run update-golden -- --filter "TypeAssertions"
+```

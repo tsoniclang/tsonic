@@ -298,6 +298,151 @@ try {
 }
 ```
 
+## C# Attributes
+
+Apply .NET attributes to classes using the marker-call API:
+
+```typescript
+import { attributes as A } from "@tsonic/core/attributes.js";
+
+// Declare attribute types (from @tsonic/dotnet or custom)
+declare class SerializableAttribute {}
+declare class ObsoleteAttribute {
+  constructor(message?: string);
+}
+
+// Apply attributes to classes
+export class User {
+  name!: string;
+  age!: number;
+}
+A.on(User).type.add(SerializableAttribute);
+
+// Attributes with constructor arguments
+export class Config {
+  setting!: string;
+}
+A.on(Config).type.add(ObsoleteAttribute, "Use NewConfig instead");
+
+// Multiple attributes on same class
+export class LegacyService {
+  data!: string;
+}
+A.on(LegacyService).type.add(SerializableAttribute);
+A.on(LegacyService).type.add(ObsoleteAttribute, "Deprecated");
+```
+
+Generates:
+
+```csharp
+[Serializable]
+public class User
+{
+    public string name { get; set; }
+    public double age { get; set; }
+}
+
+[Obsolete("Use NewConfig instead")]
+public class Config
+{
+    public string setting { get; set; }
+}
+
+[Serializable]
+[Obsolete("Deprecated")]
+public class LegacyService
+{
+    public string data { get; set; }
+}
+```
+
+## Parameter Modifiers
+
+.NET methods with `out`, `ref`, or `in` parameters work automatically when using tsbindgen-generated bindings:
+
+```typescript
+import { int } from "@tsonic/core/types.js";
+
+// Dictionary.TryGetValue has an 'out' parameter
+import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
+
+const dict = new Dictionary<string, int>();
+dict.Add("key", 42 as int);
+
+// The 'out' parameter is handled automatically
+let value: int;
+if (dict.TryGetValue("key", value)) {
+  console.log(value); // 42
+}
+```
+
+Generated C#:
+
+```csharp
+int value;
+if (dict.TryGetValue("key", out value))
+{
+    Console.WriteLine(value);
+}
+```
+
+Parameter modifier types:
+
+| Modifier | C# Keyword | Use Case                          |
+| -------- | ---------- | --------------------------------- |
+| `out`    | `out`      | Return additional values          |
+| `ref`    | `ref`      | Pass by reference, may be mutated |
+| `in`     | `in`       | Pass by reference, read-only      |
+
+## Nullable Value Type Narrowing
+
+Tsonic automatically narrows nullable value types in conditional blocks:
+
+```typescript
+import { int } from "@tsonic/core/types.js";
+
+function processValue(value: int | null): int {
+  if (value !== null) {
+    // value is narrowed to 'int' here
+    return value * 2;
+  }
+  return 0 as int;
+}
+
+// Compound conditions also work
+function processMultiple(a: int | null, b: int | null): int {
+  if (a !== null && b !== null) {
+    // Both a and b are narrowed to 'int'
+    return a + b;
+  }
+  return 0 as int;
+}
+```
+
+Generated C#:
+
+```csharp
+public static int processValue(int? value)
+{
+    if (value != null)
+    {
+        return value.Value * 2;  // .Value access for narrowed type
+    }
+    return 0;
+}
+
+public static int processMultiple(int? a, int? b)
+{
+    if (a != null && b != null)
+    {
+        return a.Value + b.Value;
+    }
+    return 0;
+}
+```
+
+This handles C# nullable value types (`int?`, `double?`, etc.) which require `.Value` access after null checks.
+
 ## Best Practices
 
 1. **Use type packages**: Install `@tsonic/dotnet` for type safety

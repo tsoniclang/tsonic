@@ -393,6 +393,179 @@ Explicit types recommended for:
 - Function return types
 - Complex objects
 
+## Type Assertions
+
+Use the `as` keyword to perform type conversions.
+
+### Numeric Type Assertions
+
+Convert between numeric types explicitly:
+
+```typescript
+import { int, byte, short, long, float } from "@tsonic/core/types.js";
+
+// Literal to specific numeric type
+const intValue = 1000 as int;
+const byteValue = 255 as byte;
+const shortValue = 1000 as short;
+const longValue = 1000000 as long;
+const floatValue = 1.5 as float;
+const doubleValue = 1.5 as number;
+```
+
+Generates C# casts:
+
+```csharp
+int intValue = (int)1000;
+byte byteValue = (byte)255;
+short shortValue = (short)1000;
+long longValue = (long)1000000;
+float floatValue = (float)1.5;
+double doubleValue = 1.5;
+```
+
+> **See also:** [Numeric Types Guide](numeric-types.md) for complete coverage of numeric casting and overflow behavior.
+
+### Reference Type Assertions
+
+Downcast reference types:
+
+```typescript
+class Animal {
+  name!: string;
+}
+
+class Dog extends Animal {
+  breed!: string;
+}
+
+function getDog(animal: Animal): Dog {
+  return animal as Dog;
+}
+
+function castFromObject(obj: object): Animal {
+  return obj as Animal;
+}
+```
+
+Generates C# casts:
+
+```csharp
+public static Dog getDog(Animal animal)
+{
+    return (Dog)animal;
+}
+
+public static Animal castFromObject(object obj)
+{
+    return (Animal)obj;
+}
+```
+
+## Anonymous Objects
+
+Tsonic automatically synthesizes nominal classes for anonymous object type literals.
+
+### Inline Object Types
+
+When you use object type literals inline, Tsonic generates named classes:
+
+```typescript
+function createPoint(): { x: number; y: number } {
+  return { x: 10, y: 20 };
+}
+
+function processData(data: { id: number; name: string }): void {
+  console.log(data.name);
+}
+```
+
+Generates synthesized classes:
+
+```csharp
+// Auto-generated record class
+public record createPoint_Return(double x, double y);
+
+public record processData_data(double id, string name);
+
+public static createPoint_Return createPoint()
+{
+    return new createPoint_Return(10, 20);
+}
+
+public static void processData(processData_data data)
+{
+    Console.WriteLine(data.name);
+}
+```
+
+### When to Use Named Interfaces
+
+For reusable types, prefer explicit interfaces:
+
+```typescript
+// ✅ Preferred for reusable types
+interface Point {
+  x: number;
+  y: number;
+}
+
+function distance(a: Point, b: Point): number {
+  return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+}
+```
+
+Use anonymous object types for:
+
+- One-off return types
+- Function-specific parameters
+- Intermediate data shapes
+
+## Nullable Narrowing
+
+TypeScript null checks automatically narrow types in C#.
+
+### Reference Types
+
+```typescript
+function greet(name: string | null): string {
+  if (name !== null) {
+    return `Hello, ${name}`;
+  }
+  return "Hello, stranger";
+}
+```
+
+### Value Types
+
+Nullable value types require `.Value` access after null checks in C#. Tsonic handles this automatically:
+
+```typescript
+import { int } from "@tsonic/core/types.js";
+
+function processValue(value: int | null): int {
+  if (value !== null) {
+    return value * 2; // Narrowed to int
+  }
+  return 0 as int;
+}
+```
+
+Generates:
+
+```csharp
+public static int processValue(int? value)
+{
+    if (value != null)
+    {
+        return value.Value * 2;  // .Value access
+    }
+    return 0;
+}
+```
+
+> **See also:** [.NET Interop Guide](dotnet-interop.md#nullable-value-type-narrowing) for compound conditions and advanced nullable patterns.
+
 ## Unsupported Types
 
 | Type               | Reason            | Alternative                    |
