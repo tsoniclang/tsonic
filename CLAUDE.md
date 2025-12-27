@@ -111,6 +111,40 @@ If you write mutable code, you MUST immediately rewrite it functionally.
 
 Automated scripts break syntax in unpredictable ways and destroy codebases.
 
+### NEVER USE NPX FOR TESTING COMPILER BEHAVIOR
+
+**🚨 CRITICAL RULE: NEVER use `npx` to run the Tsonic CLI. 🚨**
+
+- **NEVER** use `npx @tsonic/tsonic` or `npx tsonic`
+- **NEVER** use `npx` for any Tsonic-related commands
+- **ALWAYS** use the local CLI directly: `/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js`
+
+**Why this matters:**
+
+- `npx` fetches the published npm package, which may be weeks or months old
+- Local changes to the compiler will NOT be reflected when using `npx`
+- You cannot test compiler fixes or new features with `npx`
+- Using `npx` gives you stale, outdated behavior
+
+**Correct usage:**
+
+```bash
+# ALWAYS use the local CLI
+/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js generate src/App.ts
+/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js build src/App.ts
+
+# Or from proof-is-in-the-pudding projects:
+../../../../tsonic/packages/cli/dist/index.js build src/App.ts
+```
+
+**NEVER do this:**
+
+```bash
+# DON'T use npx - it fetches old published version!
+npx @tsonic/tsonic build src/App.ts  # WRONG!
+npx tsonic generate src/App.ts        # WRONG!
+```
+
 ### USE DEDICATED TOOLS FOR FILE OPERATIONS
 
 **IMPORTANT**: Always use the dedicated tools instead of bash commands for file operations:
