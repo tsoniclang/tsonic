@@ -46,7 +46,9 @@ export type IrExpression =
   | IrSpreadExpression
   | IrAwaitExpression
   | IrYieldExpression
-  | IrNumericNarrowingExpression;
+  | IrNumericNarrowingExpression
+  | IrTypeAssertionExpression
+  | IrTryCastExpression;
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
@@ -371,3 +373,51 @@ export type ProofSource =
     }
   | { readonly type: "narrowing"; readonly from: NumericKind }
   | { readonly type: "variable"; readonly name: string };
+
+/**
+ * Represents a non-numeric type assertion (x as T).
+ *
+ * This captures the explicit user intent to cast between types.
+ * Emits as C# throwing cast: (T)x
+ *
+ * For safe (nullable) casts, use tryCast<T>(x) which creates IrTryCastExpression.
+ *
+ * Examples:
+ * - `obj as Person` → IrTypeAssertionExpression(obj, referenceType(Person))
+ * - `value as string` → IrTypeAssertionExpression(value, primitiveType(string))
+ *
+ * NOTE: Numeric type assertions (`as int`, `as byte`) use IrNumericNarrowingExpression instead.
+ */
+export type IrTypeAssertionExpression = {
+  readonly kind: "typeAssertion";
+  /** The expression being cast */
+  readonly expression: IrExpression;
+  /** The target type for the cast */
+  readonly targetType: IrType;
+  /** Inferred type (same as targetType) */
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
+/**
+ * Represents a safe cast operation (tryCast<T>(x)).
+ *
+ * Emits as C# safe cast: x as T
+ * Returns T | null (null if cast fails).
+ *
+ * This is the C# "as" keyword behavior - returns null on failure instead of throwing.
+ *
+ * Examples:
+ * - `tryCast<Person>(obj)` → `obj as Person` in C#
+ * - `tryCast<string>(value)` → `value as string` in C#
+ */
+export type IrTryCastExpression = {
+  readonly kind: "tryCast";
+  /** The expression being cast */
+  readonly expression: IrExpression;
+  /** The target type for the cast */
+  readonly targetType: IrType;
+  /** Inferred type is T | null */
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};

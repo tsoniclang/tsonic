@@ -3,7 +3,11 @@
  */
 
 import * as ts from "typescript";
-import { IrCallExpression, IrNewExpression } from "../../types.js";
+import {
+  IrCallExpression,
+  IrNewExpression,
+  IrTryCastExpression,
+} from "../../types.js";
 import {
   getInferredType,
   getSourceSpan,
@@ -515,7 +519,37 @@ const extractArgumentPassingFromBinding = (
 export const convertCallExpression = (
   node: ts.CallExpression,
   checker: ts.TypeChecker
-): IrCallExpression => {
+): IrCallExpression | IrTryCastExpression => {
+  // Check for tryCast<T>(x) - special intrinsic for safe casting
+  // tryCast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
+  if (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "tryCast" &&
+    node.typeArguments &&
+    node.typeArguments.length === 1 &&
+    node.arguments.length === 1
+  ) {
+    // We've verified length === 1 above, so these are guaranteed to exist
+    const targetTypeNode = node.typeArguments[0]!;
+    const targetType = convertType(targetTypeNode, checker);
+    const argExpr = convertExpression(node.arguments[0]!, checker);
+
+    // Build union type T | null for inferredType
+    const nullType: IrType = { kind: "primitiveType", name: "null" };
+    const unionType: IrType = {
+      kind: "unionType",
+      types: [targetType, nullType],
+    };
+
+    return {
+      kind: "tryCast",
+      expression: argExpr,
+      targetType,
+      inferredType: unionType,
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
   // Extract type arguments from the call signature
   const typeArguments = extractTypeArguments(node, checker);
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);

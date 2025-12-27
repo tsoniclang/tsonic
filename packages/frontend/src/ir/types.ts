@@ -65,6 +65,8 @@ export type {
   IrAwaitExpression,
   IrYieldExpression,
   IrNumericNarrowingExpression,
+  IrTypeAssertionExpression,
+  IrTryCastExpression,
   NumericProof,
   ProofSource,
   ComputedAccessKind,

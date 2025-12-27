@@ -7,8 +7,11 @@ import {
   IrExpression,
   IrType,
   IrNumericNarrowingExpression,
+  IrTypeAssertionExpression,
+  IrTryCastExpression,
 } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
+import { emitType } from "./type-emitter.js";
 
 // Import expression emitters from specialized modules
 import { emitLiteral } from "./expressions/literals.js";
@@ -97,6 +100,36 @@ const emitNumericNarrowing = (
 };
 
 /**
+ * Emit a type assertion expression.
+ *
+ * TypeScript `x as T` becomes C# `(T)x` (throwing cast).
+ * This is a checked cast that throws InvalidCastException on failure.
+ */
+const emitTypeAssertion = (
+  expr: IrTypeAssertionExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const [innerCode, ctx1] = emitExpression(expr.expression, context);
+  const [typeName, ctx2] = emitType(expr.targetType, ctx1);
+  return [{ text: `(${typeName})${innerCode.text}` }, ctx2];
+};
+
+/**
+ * Emit a tryCast expression.
+ *
+ * TypeScript `tryCast<T>(x)` becomes C# `x as T` (safe cast).
+ * This returns null if the cast fails instead of throwing.
+ */
+const emitTryCast = (
+  expr: IrTryCastExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const [innerCode, ctx1] = emitExpression(expr.expression, context);
+  const [typeName, ctx2] = emitType(expr.targetType, ctx1);
+  return [{ text: `${innerCode.text} as ${typeName}` }, ctx2];
+};
+
+/**
  * Emit a C# expression from an IR expression
  * @param expr The IR expression to emit
  * @param context The emitter context
@@ -169,6 +202,12 @@ export const emitExpression = (
 
     case "numericNarrowing":
       return emitNumericNarrowing(expr, context);
+
+    case "typeAssertion":
+      return emitTypeAssertion(expr, context);
+
+    case "tryCast":
+      return emitTryCast(expr, context);
 
     default:
       // Fallback for unhandled expressions

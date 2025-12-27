@@ -645,6 +645,22 @@ const lowerExpression = (
         expression: lowerExpression(expr.expression, ctx),
         inferredType: lowerType(expr.inferredType, ctx),
       };
+
+    case "typeAssertion":
+      return {
+        ...expr,
+        expression: lowerExpression(expr.expression, ctx),
+        targetType: lowerType(expr.targetType, ctx),
+        inferredType: lowerType(expr.inferredType, ctx),
+      };
+
+    case "tryCast":
+      return {
+        ...expr,
+        expression: lowerExpression(expr.expression, ctx),
+        targetType: lowerType(expr.targetType, ctx),
+        inferredType: lowerType(expr.inferredType, ctx),
+      };
   }
 };
 
