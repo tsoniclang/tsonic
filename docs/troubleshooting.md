@@ -213,6 +213,71 @@ const data = await response.json();
 console.log(data);
 ```
 
+### Nullable Generics
+
+```
+Error TSN7415: Nullable union 'T | null' with unconstrained generic type
+parameter 'T' cannot be represented in C#.
+```
+
+**Cause**: C# cannot represent nullable unconstrained generics properly for value types.
+
+**Why this happens**:
+
+In C#, `T?` behaves differently based on constraints:
+
+- `where T : struct` → `T?` becomes `Nullable<T>` (works)
+- `where T : class` → `T?` becomes nullable reference (works)
+- No constraint → `T?` is just `T` for value types (broken!)
+
+**Solutions**:
+
+1. **Use `object | null`** to box the value:
+
+```typescript
+// ❌ Error
+function getValue<T>(value: T | null): T {
+  return value ?? getDefault();
+}
+
+// ✅ Works - uses boxing
+function getValue<T>(value: object | null): T {
+  return (value ?? getDefault()) as T;
+}
+```
+
+2. **Add a reference type constraint**:
+
+```typescript
+// ✅ Works - T is always a reference type
+function getValue<T extends object>(value: T | null): T {
+  return value ?? getDefault();
+}
+```
+
+3. **Add a value type constraint**:
+
+```typescript
+// ✅ Works - T is always a value type
+function getValue<T extends struct>(value: T | null): T {
+  return value ?? getDefault();
+}
+```
+
+4. **Avoid nullable generic parameters** when possible:
+
+```typescript
+// ✅ Works - nullable handling at call site
+function getValue<T>(value: T, fallback: T): T {
+  return value ?? fallback;
+}
+
+// Caller handles nullable
+const result = item !== null ? getValue(item, defaultItem) : defaultItem;
+```
+
+> **See also:** [Diagnostics TSN7415](diagnostics.md#tsn7415-nullable-union-with-unconstrained-generic)
+
 ## Performance Issues
 
 ### Large binary size

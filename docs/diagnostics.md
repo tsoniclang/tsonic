@@ -388,6 +388,57 @@ type Complex = { [K in keyof T]: T[K] };
 // Fix: Use simpler, explicit type definitions
 ```
 
+### TSN7415: Nullable Union with Unconstrained Generic
+
+Nullable unions with unconstrained generic type parameters cannot be represented in C#.
+
+```typescript
+// Error
+function getValue<T>(value: T | null): T {
+  return value ?? getDefault();
+}
+
+// The problem: In C#, T? for an unconstrained type parameter T
+// does not provide nullability for value types.
+// If T is int, then T? is still int (not Nullable<int>)
+```
+
+**Why this happens:**
+
+In C#, nullable generics work differently based on constraints:
+
+- `T? where T : struct` → `Nullable<T>` (works for value types)
+- `T? where T : class` → nullable reference (works for reference types)
+- `T?` with no constraint → just `T` for value types (no nullability!)
+
+**Fix options:**
+
+1. **Use `object | null`** to box the value:
+
+```typescript
+function getValue<T>(value: object | null): T {
+  return (value ?? getDefault()) as T;
+}
+```
+
+2. **Add a constraint** if T is always a reference type:
+
+```typescript
+function getValue<T extends object>(value: T | null): T {
+  return value ?? getDefault();
+}
+```
+
+3. **Use `struct` constraint** if T is always a value type:
+
+```typescript
+function getValue<T extends struct>(value: T | null): T {
+  return value ?? getDefault();
+}
+```
+
+> **See also:** [Troubleshooting Guide](troubleshooting.md#nullable-generics) for more patterns.
+
 ### TSN7420: ref/out/In Are Parameter Modifiers
 
 `ref`, `out`, and `In` are parameter passing modifiers, not types.

@@ -31,6 +31,41 @@ Import from `@tsonic/core`:
 | `ulong`    | `ulong`  | 0 to 18Q          | Large unsigned integers   |
 | `float`    | `float`  | ±3.4e38           | Single precision floats   |
 
+## Type Assertions for All Numeric Types
+
+The `as` keyword works with all numeric types, not just `int`:
+
+```typescript
+import { int, byte, short, long, float } from "@tsonic/core/types.js";
+
+// Integer types
+const intValue = 1000 as int;      // C#: int intValue = 1000;
+const byteValue = 255 as byte;     // C#: byte byteValue = 255;
+const shortValue = 1000 as short;  // C#: short shortValue = 1000;
+const longValue = 1000000 as long; // C#: long longValue = 1000000L;
+
+// Floating point
+const floatValue = 1.5 as float;   // C#: float floatValue = 1.5f;
+const doubleValue = 1.5 as number; // C#: double doubleValue = 1.5;
+```
+
+### Expression Casting
+
+Cast expressions to specific types:
+
+```typescript
+import { int, byte } from "@tsonic/core/types.js";
+
+const x = 100;
+const y = 50;
+
+// Cast result to specific type
+const intSum = (x + y) as int;     // C#: (int)(x + y)
+const byteVal = (x - y) as byte;   // C#: (byte)(x - y)
+```
+
+> **See also:** [Type Assertions in Type System](type-system.md#type-assertions) for reference type casting.
+
 ## Basic Usage
 
 ### Declaring Integer Variables

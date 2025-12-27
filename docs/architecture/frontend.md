@@ -156,6 +156,56 @@ Recovers numeric intent from declarations:
 // Proof: x has numeric kind 'int32'
 ```
 
+### Anonymous Type Lowering Pass
+
+`ir/validation/anonymous-type-lowering-pass.ts`:
+
+Transforms anonymous object type literals into synthesized nominal classes:
+
+- Scans function signatures, variables, and class members for inline `{ x: T }` types
+- Generates unique class names: `funcName_Return`, `funcName_paramName`
+- Replaces inline types with references to synthesized classes
+- Hoists synthesized classes to module level
+
+```typescript
+// Before: function getPoint(): { x: number; y: number }
+// After:  function getPoint(): getPoint_Return
+//         class getPoint_Return { x: number; y: number }
+```
+
+### Attribute Collection Pass
+
+`ir/validation/attribute-collection-pass.ts`:
+
+Collects C# attribute declarations from marker-call API:
+
+- Scans for `A.on(Class).type.add(AttrType, ...args)` patterns
+- Extracts attribute type and constructor arguments
+- Attaches attribute metadata to IR class declarations
+- Enables C# `[Attribute]` generation
+
+```typescript
+// Input:  A.on(User).type.add(SerializableAttribute)
+// Result: User class marked with [Serializable] in emitted C#
+```
+
+### Generic Validation
+
+`validation/generics.ts`:
+
+Validates generic type usage for C# compatibility:
+
+- **TSN7203**: Symbol keys in index signatures
+- **TSN7415**: Nullable unions with unconstrained generics
+
+```typescript
+// TSN7415: T | null where T is unconstrained
+function getValue<T>(value: T | null): T  // Error
+
+// Fix: Add constraint
+function getValue<T extends object>(value: T | null): T  // OK
+```
+
 ## IR Building
 
 ### Statement Conversion
