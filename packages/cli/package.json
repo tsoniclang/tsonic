@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Command-line interface for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,9 +25,9 @@
     "test:watch": "mocha 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/backend": "0.0.13",
-    "@tsonic/emitter": "0.0.13",
-    "@tsonic/frontend": "0.0.13"
+    "@tsonic/backend": "0.0.14",
+    "@tsonic/emitter": "0.0.14",
+    "@tsonic/frontend": "0.0.14"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
