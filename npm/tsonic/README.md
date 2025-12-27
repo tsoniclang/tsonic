@@ -1,11 +1,11 @@
-# @tsonic/tsonic
+# tsonic
 
 TypeScript to C# to NativeAOT compiler.
 
 ## Installation
 
 ```bash
-npm install -D @tsonic/tsonic
+npm install -D tsonic
 ```
 
 ## Usage

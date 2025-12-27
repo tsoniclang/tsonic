@@ -115,7 +115,7 @@ Automated scripts break syntax in unpredictable ways and destroy codebases.
 
 **🚨 CRITICAL RULE: NEVER use `npx` to run the Tsonic CLI. 🚨**
 
-- **NEVER** use `npx @tsonic/tsonic` or `npx tsonic`
+- **NEVER** use `npx tsonic`
 - **NEVER** use `npx` for any Tsonic-related commands
 - **ALWAYS** use the local CLI directly: `/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js`
 
@@ -141,7 +141,7 @@ Automated scripts break syntax in unpredictable ways and destroy codebases.
 
 ```bash
 # DON'T use npx - it fetches old published version!
-npx @tsonic/tsonic build src/App.ts  # WRONG!
+npx tsonic build src/App.ts           # WRONG!
 npx tsonic generate src/App.ts        # WRONG!
 ```
 
