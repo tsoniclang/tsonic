@@ -306,9 +306,34 @@ export const convertExpression = (
       }
     }
 
-    // Non-numeric assertion - keep existing behavior (overwrite inferredType)
+    // Check if this is a type erasure (unknown/any) - NOT a runtime cast
+    // `x as unknown` or `x as any` just tells TS to forget the type
+    if (
+      assertedType.kind === "unknownType" ||
+      assertedType.kind === "anyType"
+    ) {
+      return innerExpr;
+    }
+
+    // Check if this is a parameter modifier type (out<T>, ref<T>, in<T>)
+    // These are not real type casts - they're parameter passing annotations
+    const isParameterModifierType =
+      assertedType.kind === "referenceType" &&
+      (assertedType.name === "out" ||
+        assertedType.name === "ref" ||
+        assertedType.name === "in" ||
+        assertedType.name === "inref");
+
+    if (isParameterModifierType) {
+      // Just return the inner expression - the parameter modifier is handled elsewhere
+      return innerExpr;
+    }
+
+    // Non-numeric assertion - create type assertion node for C# cast
     return {
-      ...innerExpr,
+      kind: "typeAssertion",
+      expression: innerExpr,
+      targetType: assertedType,
       inferredType: assertedType,
       sourceSpan: getSourceSpan(node),
     };

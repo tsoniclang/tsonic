@@ -48,7 +48,7 @@ export function main(): void {
 
   // ReturnType tests - use inline to avoid alias emission issue
   const addResult: ReturnType<typeof add> = add(10.0, 20.0);
-  Console.writeLine("ReturnType<add>: " + (addResult as unknown as string));
+  Console.writeLine("ReturnType<add>: " + addResult);
 
   const greetResult: ReturnType<typeof greet> = greet("World");
   Console.writeLine("ReturnType<greet>: " + greetResult);

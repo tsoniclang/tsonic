@@ -36,8 +36,28 @@ export const emitVariableDeclaration = (
     }
 
     // Determine the C# type
-    // Priority: 1) Explicit/inferred IR type, 2) Arrow function inference, 3) var
-    if (
+    // Priority:
+    // 1) numericNarrowing initializer (e.g., `1000 as int`) - use CLR type
+    // 2) typeAssertion initializer (e.g., `obj as Person`) - use target type
+    // 3) Explicit/inferred IR type
+    // 4) Arrow function inference
+    // 5) var
+    if (context.isStatic && decl.initializer?.kind === "numericNarrowing") {
+      // Numeric narrowing: `1000 as int` -> emit the target CLR type
+      const narrowingExpr = decl.initializer;
+      const csharpType =
+        NUMERIC_KIND_TO_CSHARP.get(narrowingExpr.targetKind) ?? "double";
+      varDecl += `${csharpType} `;
+    } else if (context.isStatic && decl.initializer?.kind === "typeAssertion") {
+      // Type assertion: `obj as Person` -> emit the target type
+      const assertExpr = decl.initializer;
+      const [typeName, newContext] = emitType(
+        assertExpr.targetType,
+        currentContext
+      );
+      currentContext = newContext;
+      varDecl += `${typeName} `;
+    } else if (
       decl.type &&
       !(decl.type.kind === "functionType" && !context.isStatic)
     ) {
