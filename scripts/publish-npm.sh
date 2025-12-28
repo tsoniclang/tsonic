@@ -12,7 +12,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER_DIR="$(cd "$ROOT_DIR/../tsonic-wrapper" && pwd)"
 RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
-JSRUNTIME_DIR="$(cd "$ROOT_DIR/../js-runtime" && pwd)"
 NODEJS_CLR_DIR="$(cd "$ROOT_DIR/../nodejs-clr" && pwd)"
 
 # Parse arguments
@@ -118,7 +117,6 @@ fi
 echo "=== Checking runtime dependencies ==="
 RUNTIME_PROJECTS=(
     "$RUNTIME_DIR:runtime"
-    "$JSRUNTIME_DIR:js-runtime"
     "$NODEJS_CLR_DIR:nodejs-clr"
 )
 
@@ -141,10 +139,6 @@ echo "  Building runtime..."
 cd "$RUNTIME_DIR"
 dotnet build -c Release --verbosity quiet
 
-echo "  Building js-runtime..."
-cd "$JSRUNTIME_DIR"
-dotnet build -c Release --verbosity quiet
-
 echo "  Building nodejs-clr..."
 cd "$NODEJS_CLR_DIR"
 dotnet build -c Release --verbosity quiet
@@ -153,7 +147,6 @@ cd "$ROOT_DIR"
 
 echo "=== Copying runtime DLLs ==="
 cp "$RUNTIME_DIR/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll" "$ROOT_DIR/packages/cli/runtime/"
-cp "$JSRUNTIME_DIR/artifacts/bin/Tsonic.JSRuntime/Release/net10.0/Tsonic.JSRuntime.dll" "$ROOT_DIR/packages/cli/runtime/"
 cp "$NODEJS_CLR_DIR/artifacts/bin/nodejs/Release/net10.0/nodejs.dll" "$ROOT_DIR/packages/cli/runtime/"
 echo "  Copied all runtime DLLs ✓"
 
