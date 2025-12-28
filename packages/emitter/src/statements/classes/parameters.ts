@@ -36,9 +36,7 @@ export const emitParameters = (
       );
       currentContext = newContext;
       paramType = typeName;
-      // TODO: Rest parameters currently map to Tsonic.JSRuntime.Array<T> to preserve
-      // JavaScript semantics (reduce, join, etc.). In future, could optimize to
-      // params T[] and wrap with Array.from() at call sites.
+      // Rest parameters use native T[] arrays with params modifier
     }
 
     // Parameter name (escape C# keywords)

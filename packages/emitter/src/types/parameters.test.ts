@@ -13,7 +13,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
     indentLevel: 0,
     isStatic: false,
     isAsync: false,
-    options: { runtime: "dotnet", rootNamespace: "Test" },
+    options: { rootNamespace: "Test" },
   };
 
   it("should emit out parameter with out modifier", () => {

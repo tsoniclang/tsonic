@@ -39,13 +39,13 @@ The `as` keyword works with all numeric types, not just `int`:
 import { int, byte, short, long, float } from "@tsonic/core/types.js";
 
 // Integer types
-const intValue = 1000 as int;      // C#: int intValue = 1000;
-const byteValue = 255 as byte;     // C#: byte byteValue = 255;
-const shortValue = 1000 as short;  // C#: short shortValue = 1000;
+const intValue = 1000 as int; // C#: int intValue = 1000;
+const byteValue = 255 as byte; // C#: byte byteValue = 255;
+const shortValue = 1000 as short; // C#: short shortValue = 1000;
 const longValue = 1000000 as long; // C#: long longValue = 1000000L;
 
 // Floating point
-const floatValue = 1.5 as float;   // C#: float floatValue = 1.5f;
+const floatValue = 1.5 as float; // C#: float floatValue = 1.5f;
 const doubleValue = 1.5 as number; // C#: double doubleValue = 1.5;
 ```
 
@@ -60,8 +60,8 @@ const x = 100;
 const y = 50;
 
 // Cast result to specific type
-const intSum = (x + y) as int;     // C#: (int)(x + y)
-const byteVal = (x - y) as byte;   // C#: (byte)(x - y)
+const intSum = (x + y) as int; // C#: (int)(x + y)
+const byteVal = (x - y) as byte; // C#: (byte)(x - y)
 ```
 
 > **See also:** [Type Assertions in Type System](type-system.md#type-assertions) for reference type casting.

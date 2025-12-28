@@ -175,17 +175,9 @@ export const emitArray = (
       }
     }
 
-    // Determine whether to emit native CLR array or List
-    const runtime = currentContext.options.runtime ?? "js";
-    const shouldEmitNativeArray =
-      runtime === "dotnet" &&
-      expectedType?.kind === "arrayType" &&
-      expectedType.origin === "explicit";
-
-    // Wrap in ToArray() or ToList() depending on expected type
-    const wrapperMethod = shouldEmitNativeArray ? "ToArray" : "ToList";
+    // Always emit native array via ToArray()
     return [
-      { text: `global::System.Linq.Enumerable.${wrapperMethod}(${result})` },
+      { text: `global::System.Linq.Enumerable.ToArray(${result})` },
       currentContext,
     ];
   }
@@ -205,28 +197,13 @@ export const emitArray = (
     }
   }
 
-  // Determine whether to emit native CLR array or List
-  const runtime = currentContext.options.runtime ?? "js";
-  const shouldEmitNativeArray =
-    runtime === "dotnet" &&
-    expectedType?.kind === "arrayType" &&
-    expectedType.origin === "explicit";
-
-  // In dotnet mode, use new[] { } syntax to let C# infer array type
-  // This works for non-empty arrays with literal values
-  const useInferredArraySyntax =
-    runtime === "dotnet" && elements.length > 0 && !shouldEmitNativeArray;
-
-  // Use constructor syntax for empty arrays, initializer syntax for non-empty
-  const text = useInferredArraySyntax
-    ? `new[] { ${elements.join(", ")} }`
-    : shouldEmitNativeArray
-      ? elements.length === 0
-        ? `new ${elementType}[0]`
-        : `new ${elementType}[] { ${elements.join(", ")} }`
-      : elements.length === 0
-        ? `new global::System.Collections.Generic.List<${elementType}>()`
-        : `new global::System.Collections.Generic.List<${elementType}> { ${elements.join(", ")} }`;
+  // Always emit native CLR array
+  // Use new[] { } syntax for non-empty arrays (C# infers type)
+  // Use new T[0] for empty arrays
+  const text =
+    elements.length === 0
+      ? `new ${elementType}[0]`
+      : `new[] { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

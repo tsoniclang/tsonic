@@ -65,15 +65,6 @@ export const FQN = {
     Union: (types: string) => `global::Tsonic.Runtime.Union<${types}>`,
   },
 
-  // Tsonic.JSRuntime
-  TsonicJSRuntime: {
-    Array: "global::Tsonic.JSRuntime.Array",
-    String: "global::Tsonic.JSRuntime.String",
-    Number: "global::Tsonic.JSRuntime.Number",
-    Math: "global::Tsonic.JSRuntime.Math",
-    Console: "global::Tsonic.JSRuntime.Console",
-  },
-
   // System.Func delegates
   Func: (typeArgs: string) => `global::System.Func<${typeArgs}>`,
   Action: "global::System.Action",

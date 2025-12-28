@@ -67,8 +67,6 @@ export type EmitterOptions = {
   readonly entryPointPath?: string;
   /** External library paths (contain .metadata and .bindings directories) */
   readonly libraries?: readonly string[];
-  /** Runtime mode: "js" uses Tsonic.JSRuntime extensions, "dotnet" uses pure .NET */
-  readonly runtime?: "js" | "dotnet";
   /** Module map for resolving cross-file imports (populated during batch emission) */
   readonly moduleMap?: ModuleMap;
   /** Export map for resolving re-exports to actual source (populated during batch emission) */

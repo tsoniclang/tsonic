@@ -35,7 +35,6 @@ export const runCli = async (args: string[]): Promise<number> => {
   // Handle project init (doesn't need config)
   if (parsed.command === "project:init") {
     const result = initProject(process.cwd(), {
-      runtime: parsed.options.runtime,
       skipTypes: parsed.options.skipTypes,
       typesVersion: parsed.options.typesVersion,
       nodejs: parsed.options.nodejs,

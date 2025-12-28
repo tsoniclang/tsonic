@@ -1,6 +1,6 @@
 /**
  * Tests for array emission
- * Verifies Tsonic.JSRuntime extension methods usage and JavaScript semantics
+ * Verifies native CLR array emission
  */
 
 import { describe, it } from "mocha";
@@ -48,13 +48,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Explicit Array<number> type annotation → double element type
-    // Uses global:: FQN for unambiguous resolution
-    expect(code).to.include(
-      "new global::System.Collections.Generic.List<double> { 1, 2, 3 }"
-    );
-    // No using statements - all types use global:: FQN
-    expect(code).not.to.include("using System.Collections.Generic");
+    // Native array syntax - inferred element type
+    expect(code).to.include("new[] { 1, 2, 3 }");
   });
 
   it("should emit sparse array with holes", () => {
@@ -96,10 +91,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Explicit Array<number> type annotation → double element type
-    expect(code).to.include(
-      "new global::System.Collections.Generic.List<double> { 1, default, 3 }"
-    );
+    // Native array syntax with default for holes
+    expect(code).to.include("new[] { 1, default, 3 }");
   });
 
   it("should emit array with string elements", () => {
@@ -140,11 +133,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use string type parameter
-    expect(code).to.include(
-      "new global::System.Collections.Generic.List<string>"
-    );
-    expect(code).to.include('"hello", "world"');
+    // Native array with string elements
+    expect(code).to.include('new[] { "hello", "world" }');
   });
 
   it("should emit empty array", () => {
@@ -182,10 +172,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should create empty array
-    expect(code).to.include(
-      "new global::System.Collections.Generic.List<double>()"
-    );
+    // Empty array uses Array.Empty<T>()
+    expect(code).to.include("global::System.Array.Empty<double>()");
   });
 
   it("should emit array method calls correctly", () => {
@@ -300,7 +288,7 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Should use static helper for array access with global:: prefix
-    expect(code).to.include("global::Tsonic.JSRuntime.Array.get(arr, 0)");
+    // Should use native indexer for array access
+    expect(code).to.include("arr[0]");
   });
 });

@@ -1,1 +1,0 @@
-- UnionTypes.ts: should emit union types as Union<T1, T2> or nullable

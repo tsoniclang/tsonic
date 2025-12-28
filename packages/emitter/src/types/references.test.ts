@@ -137,37 +137,14 @@ describe("Reference Type Emission", () => {
       expect(result).to.include("global::System.Threading.Tasks.Task<string>");
     });
 
-    it("should emit Error as System.Exception in js mode (default)", () => {
+    it("should fail for Error type (not supported)", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Error",
       });
 
-      // Default runtime is "js"
-      const result = emitModule(module);
-
-      expect(result).to.include("global::System.Exception");
-    });
-
-    it("should emit Error as System.Exception in js mode (explicit)", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "Error",
-      });
-
-      const result = emitModule(module, { runtime: "js" });
-
-      expect(result).to.include("global::System.Exception");
-    });
-
-    it("should fail for Error in dotnet mode (not in base globals)", () => {
-      const module = createModuleWithType({
-        kind: "referenceType",
-        name: "Error",
-      });
-
-      // Error is not in base globals, so it should fail as unresolved
-      expect(() => emitModule(module, { runtime: "dotnet" })).to.throw(
+      // Error is not in globals, so it should fail as unresolved
+      expect(() => emitModule(module)).to.throw(
         "ICE: Unresolved reference type 'Error'"
       );
     });
@@ -289,10 +266,10 @@ describe("Reference Type Emission", () => {
     });
   });
 
-  describe("Runtime Mode Guards", () => {
-    it("should NOT emit JSRuntime in dotnet mode for array indexing", () => {
+  describe("Array Indexing", () => {
+    it("should use native indexer for array indexing", () => {
       // This test creates a module with array index access
-      // In dotnet mode, it should use native indexer, not JSRuntime.Array.get()
+      // Should use native indexer, not JSRuntime.Array.get()
       const module: IrModule = {
         kind: "module",
         filePath: "/src/test.ts",
@@ -356,83 +333,12 @@ describe("Reference Type Emission", () => {
         exports: [],
       };
 
-      const result = emitModule(module, { runtime: "dotnet" });
+      const result = emitModule(module);
 
-      // In dotnet mode, output should NOT contain JSRuntime
+      // Output should NOT contain JSRuntime
       expect(result).to.not.include("Tsonic.JSRuntime");
       // Should use native indexer (no cast needed with proof marker)
       expect(result).to.include("arr[0]");
-    });
-
-    it("should emit JSRuntime in js mode for array indexing", () => {
-      // Same module as above but in js mode
-      const module: IrModule = {
-        kind: "module",
-        filePath: "/src/test.ts",
-        namespace: "Test",
-        className: "test",
-        isStaticContainer: true,
-        imports: [],
-        body: [
-          {
-            kind: "functionDeclaration",
-            name: "getFirst",
-            isExported: true,
-            isAsync: false,
-            isGenerator: false,
-            parameters: [
-              {
-                kind: "parameter",
-                pattern: { kind: "identifierPattern", name: "arr" },
-                type: {
-                  kind: "arrayType",
-                  elementType: { kind: "primitiveType", name: "number" },
-                },
-                isOptional: false,
-                isRest: false,
-                passing: "value",
-              },
-            ],
-            returnType: { kind: "primitiveType", name: "number" },
-            body: {
-              kind: "blockStatement",
-              statements: [
-                {
-                  kind: "returnStatement",
-                  expression: {
-                    kind: "memberAccess",
-                    object: {
-                      kind: "identifier",
-                      name: "arr",
-                      inferredType: {
-                        kind: "arrayType",
-                        elementType: { kind: "primitiveType", name: "number" },
-                      },
-                    },
-                    property: {
-                      kind: "literal",
-                      value: 0,
-                      // Proof marker: int literal
-                      inferredType: {
-                        kind: "primitiveType",
-                        name: "int",
-                      },
-                    },
-                    isComputed: true,
-                    isOptional: false,
-                  },
-                },
-              ],
-            },
-          },
-        ],
-        exports: [],
-      };
-
-      const result = emitModule(module, { runtime: "js" });
-
-      // In js mode, output should use JSRuntime.Array.get()
-      expect(result).to.include("global::Tsonic.JSRuntime.Array.get");
     });
   });
 });

@@ -91,30 +91,18 @@ const findDll = (dllName: string): string | null => {
  * Returns assembly references for the csproj file
  */
 const findRuntimeDlls = (
-  runtime: "js" | "dotnet",
   outputDir: string,
   usedAssemblies: Set<string> = new Set()
 ): readonly AssemblyReference[] => {
   const refs: AssemblyReference[] = [];
 
-  // Always include Tsonic.Runtime (required for both js and dotnet modes)
+  // Always include Tsonic.Runtime
   const runtimeDll = findDll("Tsonic.Runtime.dll");
   if (runtimeDll) {
     refs.push({
       name: "Tsonic.Runtime",
       hintPath: relative(outputDir, runtimeDll),
     });
-  }
-
-  // Include Tsonic.JSRuntime for js mode only
-  if (runtime === "js") {
-    const jsRuntimeDll = findDll("Tsonic.JSRuntime.dll");
-    if (jsRuntimeDll) {
-      refs.push({
-        name: "Tsonic.JSRuntime",
-        hintPath: relative(outputDir, jsRuntimeDll),
-      });
-    }
   }
 
   // Include nodejs.dll if nodejs assembly is used
@@ -172,10 +160,7 @@ const collectProjectLibraries = (
 /**
  * Extract entry point information from IR module
  */
-const extractEntryInfo = (
-  entryModule: IrModule,
-  runtime?: "js" | "dotnet"
-): EntryInfo | null => {
+const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
   // Look for exported 'main' function
   for (const exp of entryModule.exports) {
     if (exp.kind === "declaration") {
@@ -187,7 +172,6 @@ const extractEntryInfo = (
           methodName: "main",
           isAsync: decl.isAsync,
           needsProgram: true,
-          runtime,
         };
       }
     } else if (exp.kind === "named" && exp.name === "main") {
@@ -201,7 +185,6 @@ const extractEntryInfo = (
             methodName: "main",
             isAsync: stmt.isAsync,
             needsProgram: true,
-            runtime,
           };
         }
       }
@@ -289,7 +272,6 @@ export const generateCommand = (
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)
-      runtime: config.runtime,
       clrBindings: bindings, // Pass bindings from frontend for Action/Func resolution
     });
 
@@ -331,7 +313,7 @@ export const generateCommand = (
         entryModule;
 
       if (foundEntryModule) {
-        const entryInfo = extractEntryInfo(foundEntryModule, config.runtime);
+        const entryInfo = extractEntryInfo(foundEntryModule);
         if (entryInfo) {
           const programCs = generateProgramCs(entryInfo);
           const programPath = join(outputDir, "Program.cs");
@@ -380,11 +362,7 @@ export const generateCommand = (
           runtimePath = installedPath;
         } else {
           // 3. Try to find runtime DLLs from npm package
-          const runtimeRefs = findRuntimeDlls(
-            config.runtime ?? "js",
-            outputDir,
-            usedAssemblies
-          );
+          const runtimeRefs = findRuntimeDlls(outputDir, usedAssemblies);
 
           // 4. Add project libraries (from dotnet.libraries in tsonic.json)
           const projectRefs = collectProjectLibraries(

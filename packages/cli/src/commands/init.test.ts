@@ -8,85 +8,41 @@ import { getTypePackageInfo } from "./init.js";
 
 describe("Init Command", () => {
   describe("getTypePackageInfo", () => {
-    describe("js runtime", () => {
-      it("should return cli, core, globals, and js-globals packages", () => {
-        const result = getTypePackageInfo("js");
+    describe("default (no options)", () => {
+      it("should return cli, core, and globals packages", () => {
+        const result = getTypePackageInfo();
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
-        expect(packageNames).to.include("@tsonic/core");
-        expect(packageNames).to.include("@tsonic/globals");
-        expect(packageNames).to.include("@tsonic/js-globals");
-        // dotnet is transitive dep of globals, not installed separately
-        expect(packageNames).to.not.include("@tsonic/dotnet");
-        expect(packageNames).to.not.include("@tsonic/nodejs");
-      });
-
-      it("should set typeRoots to globals and js-globals", () => {
-        const result = getTypePackageInfo("js");
-        expect(result.typeRoots).to.deep.equal([
-          "node_modules/@tsonic/globals",
-          "node_modules/@tsonic/js-globals",
-        ]);
-      });
-
-      it("should include nodejs package when nodejs flag is true", () => {
-        const result = getTypePackageInfo("js", true);
-        const packageNames = result.packages.map((p) => p.name);
-
-        expect(packageNames).to.include("tsonic");
-        expect(packageNames).to.include("@tsonic/core");
-        expect(packageNames).to.include("@tsonic/globals");
-        expect(packageNames).to.include("@tsonic/js-globals");
-        expect(packageNames).to.include("@tsonic/nodejs");
-      });
-
-      it("should ignore pure flag in js mode", () => {
-        const result = getTypePackageInfo("js", false, true);
-        const packageNames = result.packages.map((p) => p.name);
-
-        // JS mode always uses camelCase globals, not globals-pure
         expect(packageNames).to.include("@tsonic/core");
         expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.not.include("@tsonic/globals-pure");
-      });
-    });
-
-    describe("dotnet runtime", () => {
-      it("should return cli, core, and globals packages (dotnet is transitive)", () => {
-        const result = getTypePackageInfo("dotnet");
-        const packageNames = result.packages.map((p) => p.name);
-
-        expect(packageNames).to.include("tsonic");
-        expect(packageNames).to.include("@tsonic/core");
-        expect(packageNames).to.include("@tsonic/globals");
-        // dotnet is transitive dep of globals, not installed separately
-        expect(packageNames).to.not.include("@tsonic/dotnet");
-        expect(packageNames).to.not.include("@tsonic/js-globals");
         expect(packageNames).to.not.include("@tsonic/nodejs");
       });
 
       it("should set typeRoots to globals", () => {
-        const result = getTypePackageInfo("dotnet");
+        const result = getTypePackageInfo();
         expect(result.typeRoots).to.deep.equal([
           "node_modules/@tsonic/globals",
         ]);
       });
+    });
 
+    describe("nodejs flag", () => {
       it("should include nodejs package when nodejs flag is true", () => {
-        const result = getTypePackageInfo("dotnet", true);
+        const result = getTypePackageInfo(true);
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
         expect(packageNames).to.include("@tsonic/core");
         expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.include("@tsonic/nodejs");
-        // dotnet is transitive dep of globals, not installed separately
-        expect(packageNames).to.not.include("@tsonic/dotnet");
       });
+    });
 
+    describe("pure flag", () => {
       it("should use globals-pure when pure flag is true", () => {
-        const result = getTypePackageInfo("dotnet", false, true);
+        const result = getTypePackageInfo(false, true);
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
@@ -99,7 +55,7 @@ describe("Init Command", () => {
       });
 
       it("should use globals-pure with nodejs when both flags are true", () => {
-        const result = getTypePackageInfo("dotnet", true, true);
+        const result = getTypePackageInfo(true, true);
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
@@ -112,19 +68,15 @@ describe("Init Command", () => {
 
     describe("package versions", () => {
       it("should use latest version for all packages", () => {
-        const jsResult = getTypePackageInfo("js");
-        const dotnetResult = getTypePackageInfo("dotnet");
+        const result = getTypePackageInfo();
 
-        for (const pkg of jsResult.packages) {
-          expect(pkg.version).to.equal("latest");
-        }
-        for (const pkg of dotnetResult.packages) {
+        for (const pkg of result.packages) {
           expect(pkg.version).to.equal("latest");
         }
       });
 
       it("should use latest version for nodejs package", () => {
-        const result = getTypePackageInfo("js", true);
+        const result = getTypePackageInfo(true);
         const nodejsPkg = result.packages.find(
           (p) => p.name === "@tsonic/nodejs"
         );

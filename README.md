@@ -164,7 +164,7 @@ my-app/
 | -------------------- | ---------------------------------------------- |
 | `@tsonic/globals`    | Base types (Array, String, iterators, Promise) |
 | `@tsonic/js-globals` | JS mode extensions (.map, .length, console)    |
-| `@tsonic/types`      | Core types (int, float, etc.)                  |
+| `@tsonic/core`       | Core types (int, float, etc.)                  |
 | `@tsonic/dotnet`     | .NET BCL type declarations                     |
 
 ## License

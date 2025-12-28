@@ -16,9 +16,8 @@ import type { Result } from "../types.js";
 type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
-  readonly runtime?: "js" | "dotnet";
   readonly nodejs?: boolean; // Enable Node.js interop
-  readonly pure?: boolean; // Use PascalCase CLR naming (dotnet mode only)
+  readonly pure?: boolean; // Use PascalCase CLR naming
 };
 
 const DEFAULT_GITIGNORE = `# .NET build artifacts
@@ -36,16 +35,7 @@ app
 node_modules/
 `;
 
-const SAMPLE_MAIN_TS_JS = `export function main(): void {
-  console.log("Hello from Tsonic!");
-
-  const numbers = [1, 2, 3, 4, 5];
-  const doubled = numbers.map((n) => n * 2);
-  console.log("Doubled:", doubled.join(", "));
-}
-`;
-
-const SAMPLE_MAIN_TS_DOTNET = `import { Console } from "@tsonic/dotnet/System";
+const SAMPLE_MAIN_TS = `import { Console } from "@tsonic/dotnet/System";
 import { File } from "@tsonic/dotnet/System.IO";
 
 export function main(): void {
@@ -90,7 +80,7 @@ type TypePackageInfo = {
 const CLI_PACKAGE = { name: "tsonic", version: "latest" };
 
 /**
- * Get type package info based on runtime mode
+ * Get type package info
  *
  * typeRoots: Only ambient globals packages (provide global types without imports)
  * packages: All type packages to install (includes explicit import packages)
@@ -102,38 +92,12 @@ const CLI_PACKAGE = { name: "tsonic", version: "latest" };
  * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (uses whichever globals provides)
  */
 export const getTypePackageInfo = (
-  runtime: "js" | "dotnet",
   nodejs: boolean = false,
   pure: boolean = false
 ): TypePackageInfo => {
   // Core package is always included (provides int, float, etc.)
   const corePackage = { name: "@tsonic/core", version: "latest" };
 
-  if (runtime === "js") {
-    // JS mode:
-    // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
-    // - @tsonic/core: core types (int, float, etc.) - explicit import
-    // - @tsonic/globals: base types + BCL methods (transitive @tsonic/dotnet) - needs typeRoots
-    // - @tsonic/js-globals: extends base with JS methods (.map, .length, etc.) - needs typeRoots
-    // Note: --pure is ignored in JS mode (always uses camelCase)
-    const packages = [
-      CLI_PACKAGE,
-      corePackage,
-      { name: "@tsonic/globals", version: "latest" },
-      { name: "@tsonic/js-globals", version: "latest" },
-    ];
-    if (nodejs) {
-      packages.push({ name: "@tsonic/nodejs", version: "latest" });
-    }
-    return {
-      packages,
-      typeRoots: [
-        "node_modules/@tsonic/globals",
-        "node_modules/@tsonic/js-globals",
-      ],
-    };
-  }
-  // Dotnet mode:
   // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
   // - @tsonic/core: core types (int, float, etc.) - explicit import
   // - @tsonic/globals[-pure]: base types + BCL methods (transitive @tsonic/dotnet[-pure]) - needs typeRoots
@@ -183,20 +147,17 @@ const findRuntimeDir = (): string | null => {
 /**
  * Copy runtime DLLs to project's lib/ directory
  * - Tsonic.Runtime.dll: Always copied (core runtime)
- * - Tsonic.JSRuntime.dll: Copied for js mode
  * - nodejs.dll: Copied if --nodejs flag is used
  */
 const copyRuntimeDlls = (
   cwd: string,
-  runtime: "js" | "dotnet",
   includeNodejs: boolean
 ): Result<readonly string[], string> => {
   const runtimeDir = findRuntimeDir();
   if (!runtimeDir) {
     return {
       ok: false,
-      error:
-        "Runtime directory not found. Make sure tsonic is installed.",
+      error: "Runtime directory not found. Make sure tsonic is installed.",
     };
   }
 
@@ -215,15 +176,6 @@ const copyRuntimeDlls = (
       ok: false,
       error: "Tsonic.Runtime.dll not found in runtime directory.",
     };
-  }
-
-  // Copy Tsonic.JSRuntime.dll for js mode
-  if (runtime === "js") {
-    const jsRuntimeDll = join(runtimeDir, "Tsonic.JSRuntime.dll");
-    if (existsSync(jsRuntimeDll)) {
-      copyFileSync(jsRuntimeDll, join(libDir, "Tsonic.JSRuntime.dll"));
-      copiedPaths.push("lib/Tsonic.JSRuntime.dll");
-    }
   }
 
   // Copy nodejs.dll if requested
@@ -245,7 +197,6 @@ const copyRuntimeDlls = (
  */
 const generateConfig = (
   includeTypeRoots: boolean,
-  runtime: "js" | "dotnet",
   libraryPaths: readonly string[] = [],
   pure: boolean = false
 ): string => {
@@ -256,7 +207,6 @@ const generateConfig = (
     sourceRoot: "src",
     outputDirectory: "generated",
     outputName: "app",
-    runtime: runtime,
     optimize: "speed",
     buildOptions: {
       stripSymbols: true,
@@ -265,7 +215,7 @@ const generateConfig = (
   };
 
   if (includeTypeRoots || libraryPaths.length > 0) {
-    const typeInfo = getTypePackageInfo(runtime, false, pure);
+    const typeInfo = getTypePackageInfo(false, pure);
     const dotnet: Record<string, unknown> = {};
 
     if (includeTypeRoots) {
@@ -371,7 +321,6 @@ export const initProject = (
   cwd: string,
   options: InitOptions = {}
 ): Result<void, string> => {
-  const runtime = options.runtime ?? "js";
   const tsonicJsonPath = join(cwd, "tsonic.json");
   const gitignorePath = join(cwd, ".gitignore");
   const srcDir = join(cwd, "src");
@@ -395,11 +344,11 @@ export const initProject = (
       packageJsonExists ? "✓ Updated package.json" : "✓ Created package.json"
     );
 
-    // Install type declarations based on runtime mode
+    // Install type declarations
     const shouldInstallTypes = !options.skipTypes;
     const nodejs = options.nodejs ?? false;
     const pure = options.pure ?? false;
-    const typeInfo = getTypePackageInfo(runtime, nodejs, pure);
+    const typeInfo = getTypePackageInfo(nodejs, pure);
 
     if (shouldInstallTypes) {
       for (const pkg of typeInfo.packages) {
@@ -414,10 +363,10 @@ export const initProject = (
     }
 
     // Copy runtime DLLs to lib/ directory
-    // This includes Tsonic.Runtime.dll (always), Tsonic.JSRuntime.dll (js mode), nodejs.dll (if --nodejs)
+    // This includes Tsonic.Runtime.dll (always), nodejs.dll (if --nodejs)
     // Note: These are NOT added to dotnet.libraries - findRuntimeDlls in generate.ts looks in lib/ first
     console.log("Copying runtime DLLs to lib/...");
-    const copyResult = copyRuntimeDlls(cwd, runtime, nodejs);
+    const copyResult = copyRuntimeDlls(cwd, nodejs);
     if (!copyResult.ok) {
       // Log warning but continue - user can add manually later
       console.log(`⚠ Warning: ${copyResult.error}`);
@@ -429,7 +378,7 @@ export const initProject = (
 
     // Create tsonic.json
     // Note: Runtime DLLs in lib/ are found automatically by generate command
-    const config = generateConfig(shouldInstallTypes, runtime, [], pure);
+    const config = generateConfig(shouldInstallTypes, [], pure);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 
@@ -449,14 +398,12 @@ export const initProject = (
       console.log("✓ Created .gitignore");
     }
 
-    // Create src directory and App.ts with runtime-appropriate code
+    // Create src directory and App.ts
     if (!existsSync(srcDir)) {
       mkdirSync(srcDir, { recursive: true });
     }
     if (!existsSync(appTsPath)) {
-      const sampleCode =
-        runtime === "js" ? SAMPLE_MAIN_TS_JS : SAMPLE_MAIN_TS_DOTNET;
-      writeFileSync(appTsPath, sampleCode, "utf-8");
+      writeFileSync(appTsPath, SAMPLE_MAIN_TS, "utf-8");
       console.log("✓ Created src/App.ts");
     }
 

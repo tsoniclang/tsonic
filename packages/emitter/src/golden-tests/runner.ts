@@ -19,10 +19,6 @@ import { DiagnosticsMode, Scenario } from "./types.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(__dirname, "../../../..");
 const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
-const jsGlobalsPath = path.join(
-  monorepoRoot,
-  "node_modules/@tsonic/js-globals"
-);
 const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 /**
@@ -65,11 +61,7 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
-  // Use appropriate typeRoots based on runtime mode
-  const typeRoots =
-    scenario.runtimeMode === "js"
-      ? [globalsPath, jsGlobalsPath, corePath]
-      : [globalsPath, corePath];
+  const typeRoots = [globalsPath, corePath];
 
   const compileResult = compile([scenario.inputPath], {
     projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution

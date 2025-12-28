@@ -330,6 +330,27 @@ export const validateStaticSafety = (
       );
     }
 
+    // TSN7416: Check for new Array() without explicit type argument
+    // new Array<T>(n) is valid, new Array() or new Array(n) without type arg is not
+    if (ts.isNewExpression(node)) {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee) && callee.text === "Array") {
+        const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
+        if (!hasTypeArgs) {
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7416",
+              "error",
+              "'new Array()' requires an explicit type argument. Use 'new Array<T>(size)' instead.",
+              getNodeLocation(sourceFile, node),
+              "Add a type argument: new Array<int>(10), new Array<string>(5), etc."
+            )
+          );
+        }
+      }
+    }
+
     // Continue visiting children
     ts.forEachChild(node, (child) => {
       currentCollector = visitor(child, currentCollector);

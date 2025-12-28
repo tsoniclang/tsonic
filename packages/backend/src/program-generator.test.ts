@@ -56,8 +56,9 @@ describe("Program Generator", () => {
       const result = generateProgramCs(entryInfo);
 
       expect(result).to.include("using System;");
-      expect(result).to.include("using Tsonic.Runtime;");
       expect(result).to.include("using Test;");
+      // No Tsonic.Runtime using - we use native CLR types only
+      expect(result).not.to.include("using Tsonic.Runtime;");
     });
   });
 });

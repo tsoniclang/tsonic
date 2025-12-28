@@ -218,21 +218,9 @@ export const emitReferenceType = (
     return ["global::System.Threading.Tasks.Task", context];
   }
 
-  // NOTE: Map and Set are in js-globals but not in base globals.
-  // They must be explicitly imported in dotnet mode or will fail as unresolved types.
-  // Per Alice's decision: no ambient Map/Set handling in dotnet mode.
+  // NOTE: Map and Set must be explicitly imported (not ambient)
 
-  // Get runtime mode for conditional mappings
-  const runtime = context.options.runtime ?? "js";
-
-  // Map common JS types to .NET equivalents
-  // Only types actually defined in the globals packages
-  // Error: only in js-globals (not in base globals)
-  // PromiseLike: in base globals (available in both modes)
-  if (name === "Error" && runtime === "js") {
-    return ["global::System.Exception", context];
-  }
-
+  // Map PromiseLike to Task
   if (name === "PromiseLike") {
     // PromiseLike is in both globals packages - safe to map unconditionally
     return ["global::System.Threading.Tasks.Task", context];

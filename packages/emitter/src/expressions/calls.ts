@@ -185,9 +185,6 @@ const needsIntCast = (
     "Math.sqrt",
     "Math.min",
     "Math.max",
-    "Tsonic.JSRuntime.Math.floor",
-    "Tsonic.JSRuntime.Math.ceil",
-    "Tsonic.JSRuntime.Math.round",
   ];
 
   return mathMethodsReturningDouble.some(
@@ -268,87 +265,11 @@ export const emitCall = (
     return emitJsonSerializerCall(expr, context, jsonCall.method);
   }
 
-  // Check for global JSON.stringify/parse calls (JS mode)
-  // These compile to JsonSerializer.Serialize/Deserialize for unified behavior
+  // Check for global JSON.stringify/parse calls
+  // These compile to JsonSerializer.Serialize/Deserialize
   const globalJsonCall = isGlobalJsonCall(expr.callee);
   if (globalJsonCall) {
     return emitJsonSerializerCall(expr, context, globalJsonCall.method);
-  }
-
-  // Type-aware method call rewriting
-  // Use inferredType to determine if we need to rewrite as static helper
-  if (
-    expr.callee.kind === "memberAccess" &&
-    typeof expr.callee.property === "string"
-  ) {
-    const methodName = expr.callee.property;
-    const objectType = expr.callee.object.inferredType;
-
-    // Rewrite based on type:
-    // - string → Tsonic.JSRuntime.String.method()
-    // - number → Tsonic.JSRuntime.Number.method()
-    // - Array<T> → Tsonic.JSRuntime.Array.method() (extension methods on List<T>)
-    // - Other custom types → Keep as instance method
-
-    const isStringType =
-      objectType?.kind === "primitiveType" && objectType.name === "string";
-    const isNumberType =
-      objectType?.kind === "primitiveType" && objectType.name === "number";
-    const isArrayType = objectType?.kind === "arrayType";
-
-    const shouldRewriteAsStatic = isStringType || isNumberType || isArrayType;
-
-    // Only rewrite to JSRuntime in "js" mode
-    // In "dotnet" mode, there is no JS emulation - use .NET APIs directly
-    const runtime = context.options.runtime ?? "js";
-    if (shouldRewriteAsStatic && runtime === "js") {
-      // Runtime mode "js": Use Tsonic.JSRuntime
-      // Determine which runtime class based on type
-      let runtimeClass: string;
-      if (isStringType) {
-        runtimeClass = "String";
-      } else if (isNumberType) {
-        runtimeClass = "Number";
-      } else {
-        runtimeClass = "Array";
-      }
-
-      // Rewrite: obj.method(args) → global::Tsonic.JSRuntime.{Class}.method(obj, args)
-      const [objectFrag, objContext] = emitExpression(
-        expr.callee.object,
-        context
-      );
-      let currentContext = objContext;
-
-      const args: string[] = [objectFrag.text]; // Object becomes first argument
-      for (let i = 0; i < expr.arguments.length; i++) {
-        const arg = expr.arguments[i];
-        if (!arg) continue; // Skip undefined (shouldn't happen in valid IR)
-        if (arg.kind === "spread") {
-          const [spreadFrag, ctx] = emitExpression(
-            arg.expression,
-            currentContext
-          );
-          args.push(`params ${spreadFrag.text}`);
-          currentContext = ctx;
-        } else {
-          const [argFrag, ctx] = emitExpression(arg, currentContext);
-          // Check if this argument needs ref/out/in prefix
-          // Note: argumentPassing[i] corresponds to method parameter i+1 (first param is the object)
-          // Only add prefix if argument is an lvalue (identifier or member access)
-          const passingMode = expr.argumentPassing?.[i + 1];
-          const prefix =
-            passingMode && passingMode !== "value" && isLValue(arg)
-              ? `${passingMode} `
-              : "";
-          args.push(`${prefix}${argFrag.text}`);
-          currentContext = ctx;
-        }
-      }
-
-      const text = `global::Tsonic.JSRuntime.${runtimeClass}.${methodName}(${args.join(", ")})`;
-      return [{ text }, currentContext];
-    }
   }
 
   // Regular function call
@@ -439,12 +360,72 @@ export const emitCall = (
 };
 
 /**
+ * Check if a new expression is new Array<T>(size)
+ * Returns the element type if it is, undefined otherwise
+ */
+const isArrayConstructorCall = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  // Check if callee is identifier "Array"
+  if (expr.callee.kind !== "identifier" || expr.callee.name !== "Array") {
+    return false;
+  }
+
+  // Must have exactly one type argument
+  if (!expr.typeArguments || expr.typeArguments.length !== 1) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Emit new Array<T>(size) as new T[size]
+ *
+ * Examples:
+ *   new Array<int>(10)     → new int[10]
+ *   new Array<string>(5)   → new string[5]
+ *   new Array<User>(count) → new User[count]
+ *   new Array<int>()       → new int[0]
+ */
+const emitArrayConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  let currentContext = context;
+
+  // Get the element type (we know typeArguments[0] exists from isArrayConstructorCall)
+  const elementType = expr.typeArguments![0]!;
+  const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
+  currentContext = typeContext;
+
+  // Get the size argument (if any)
+  let sizeStr = "0"; // Default to empty array if no size argument
+  if (expr.arguments.length > 0) {
+    const sizeArg = expr.arguments[0];
+    if (sizeArg && sizeArg.kind !== "spread") {
+      const [sizeFrag, sizeContext] = emitExpression(sizeArg, currentContext);
+      sizeStr = sizeFrag.text;
+      currentContext = sizeContext;
+    }
+  }
+
+  const text = `new ${elementTypeStr}[${sizeStr}]`;
+  return [{ text }, currentContext];
+};
+
+/**
  * Emit a new expression
  */
 export const emitNew = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Special case: new Array<T>(size) → new T[size]
+  if (isArrayConstructorCall(expr)) {
+    return emitArrayConstructor(expr, context);
+  }
+
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
   let currentContext = newContext;
 

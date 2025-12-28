@@ -236,8 +236,12 @@ describe("Statement Emission", () => {
                         kind: "call",
                         callee: {
                           kind: "memberAccess",
-                          object: { kind: "identifier", name: "console" },
-                          property: "log",
+                          object: {
+                            kind: "identifier",
+                            name: "Console",
+                            resolvedClrType: "System.Console",
+                          },
+                          property: "WriteLine",
                           isComputed: false,
                           isOptional: false,
                         },
@@ -263,9 +267,7 @@ describe("Statement Emission", () => {
 
     expect(result).to.include("foreach (var item in items)");
     // Uses fully-qualified name with global:: prefix
-    expect(result).to.include("global::Tsonic.JSRuntime.console.log(item)");
-    // Should NOT include using directives - uses global:: FQN
-    expect(result).to.not.include("using Tsonic.JSRuntime");
+    expect(result).to.include("global::System.Console.WriteLine(item)");
   });
 
   it("should emit 'await foreach' when isAwait=true", () => {
