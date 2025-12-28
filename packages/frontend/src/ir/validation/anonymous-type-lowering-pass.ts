@@ -665,7 +665,7 @@ const lowerExpression = (
         inferredType: lowerType(expr.inferredType, ctx),
       };
 
-    case "tryCast":
+    case "trycast":
       return {
         ...expr,
         expression: lowerExpression(expr.expression, ctx),

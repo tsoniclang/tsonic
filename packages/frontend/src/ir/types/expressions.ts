@@ -380,7 +380,7 @@ export type ProofSource =
  * This captures the explicit user intent to cast between types.
  * Emits as C# throwing cast: (T)x
  *
- * For safe (nullable) casts, use tryCast<T>(x) which creates IrTryCastExpression.
+ * For safe (nullable) casts, use trycast<T>(x) which creates IrTryCastExpression.
  *
  * Examples:
  * - `obj as Person` → IrTypeAssertionExpression(obj, referenceType(Person))
@@ -400,7 +400,7 @@ export type IrTypeAssertionExpression = {
 };
 
 /**
- * Represents a safe cast operation (tryCast<T>(x)).
+ * Represents a safe cast operation (trycast<T>(x)).
  *
  * Emits as C# safe cast: x as T
  * Returns T | null (null if cast fails).
@@ -408,11 +408,11 @@ export type IrTypeAssertionExpression = {
  * This is the C# "as" keyword behavior - returns null on failure instead of throwing.
  *
  * Examples:
- * - `tryCast<Person>(obj)` → `obj as Person` in C#
- * - `tryCast<string>(value)` → `value as string` in C#
+ * - `trycast<Person>(obj)` → `obj as Person` in C#
+ * - `trycast<string>(value)` → `value as string` in C#
  */
 export type IrTryCastExpression = {
-  readonly kind: "tryCast";
+  readonly kind: "trycast";
   /** The expression being cast */
   readonly expression: IrExpression;
   /** The target type for the cast */
