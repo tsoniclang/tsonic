@@ -69,7 +69,7 @@ const isJsonSerializerCall = (
 
 /**
  * Check if a call targets global JSON.stringify or JSON.parse
- * These are JS-mode globals that should compile to JsonSerializer
+ * These global JSON methods compile to JsonSerializer
  */
 const isGlobalJsonCall = (
   callee: IrExpression
@@ -404,8 +404,12 @@ const emitListCollectionInitializer = (
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
 
-  // Get the element type
-  const elementType = expr.typeArguments![0]!;
+  // Get the element type (verified by isListConstructorWithArrayLiteral)
+  const typeArgs = expr.typeArguments;
+  const elementType = typeArgs?.[0];
+  if (!elementType) {
+    return [{ text: "new List<object>()" }, currentContext];
+  }
   const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
   currentContext = typeContext;
 
@@ -481,8 +485,12 @@ const emitArrayConstructor = (
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
 
-  // Get the element type (we know typeArguments[0] exists from isArrayConstructorCall)
-  const elementType = expr.typeArguments![0]!;
+  // Get the element type (verified by isArrayConstructorCall)
+  const typeArgs = expr.typeArguments;
+  const elementType = typeArgs?.[0];
+  if (!elementType) {
+    return [{ text: "new object[0]" }, currentContext];
+  }
   const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
   currentContext = typeContext;
 

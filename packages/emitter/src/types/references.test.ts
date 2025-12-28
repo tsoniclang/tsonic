@@ -111,7 +111,7 @@ describe("Reference Type Emission", () => {
   });
 
   describe("Known Builtin Types", () => {
-    it("should emit Array<T> as List<T>", () => {
+    it("should emit Array<T> as native T[] array", () => {
       const module = createModuleWithType({
         kind: "referenceType",
         name: "Array",
@@ -120,9 +120,8 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include(
-        "global::System.Collections.Generic.List<double>"
-      );
+      expect(result).to.include("double[]");
+      expect(result).not.to.include("List");
     });
 
     it("should emit Promise<T> as Task<T>", () => {

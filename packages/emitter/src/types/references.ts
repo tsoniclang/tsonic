@@ -189,16 +189,15 @@ export const emitReferenceType = (
   }
 
   // Handle built-in types
+  // Array<T> emits as native T[] array, same as T[] syntax
+  // Users must explicitly use List<T> to get a List
   if (name === "Array" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
-      return [`global::System.Collections.Generic.List<object>`, context];
+      return [`object[]`, context];
     }
     const [elementType, newContext] = emitType(firstArg, context);
-    return [
-      `global::System.Collections.Generic.List<${elementType}>`,
-      newContext,
-    ];
+    return [`${elementType}[]`, newContext];
   }
 
   if (name === "Promise" && typeArguments && typeArguments.length > 0) {

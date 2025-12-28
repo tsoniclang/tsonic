@@ -218,7 +218,7 @@ describe("Type Aliases (spec/16 §3)", () => {
     );
     // Array of PersonData should also use __Alias suffix
     expect(result).to.include(
-      "public required global::System.Collections.Generic.List<PersonData__Alias> items { get; set; }"
+      "public required PersonData__Alias[] items { get; set; }"
     );
   });
 });

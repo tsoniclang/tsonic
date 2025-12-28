@@ -157,10 +157,7 @@ export const emitArray = (
     const firstSpread = spreadElements[0];
     if (!firstSpread) {
       // Should never happen due to allSpreads check, but satisfy TypeScript
-      return [
-        { text: "new global::System.Collections.Generic.List<object>()" },
-        currentContext,
-      ];
+      return [{ text: "new object[0]" }, currentContext];
     }
 
     const [firstFrag, firstContext] = emitExpression(
