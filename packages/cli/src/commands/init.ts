@@ -17,6 +17,7 @@ type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
   readonly nodejs?: boolean; // Enable Node.js interop
+  readonly js?: boolean; // Enable JS stdlib
   readonly pure?: boolean; // Use PascalCase CLR naming
 };
 
@@ -90,9 +91,11 @@ const CLI_PACKAGE = { name: "tsonic", version: "latest" };
  * - @tsonic/globals depends on @tsonic/dotnet (camelCase BCL methods)
  * - @tsonic/globals-pure depends on @tsonic/dotnet-pure (PascalCase CLR naming)
  * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (uses whichever globals provides)
+ * - @tsonic/js: JS stdlib (setTimeout, Date, Map, etc.) - imported as @tsonic/js/index.js
  */
 export const getTypePackageInfo = (
   nodejs: boolean = false,
+  js: boolean = false,
   pure: boolean = false
 ): TypePackageInfo => {
   // Core package is always included (provides int, float, etc.)
@@ -102,6 +105,7 @@ export const getTypePackageInfo = (
   // - @tsonic/core: core types (int, float, etc.) - explicit import
   // - @tsonic/globals[-pure]: base types + BCL methods (transitive @tsonic/dotnet[-pure]) - needs typeRoots
   // - @tsonic/nodejs: Node.js interop (peerDep on @tsonic/dotnet, satisfied by globals)
+  // - @tsonic/js: JS stdlib (setTimeout, Date, Map, etc.) - explicit import
   const globalsPackage = pure ? "@tsonic/globals-pure" : "@tsonic/globals";
   const packages = [
     CLI_PACKAGE,
@@ -110,6 +114,9 @@ export const getTypePackageInfo = (
   ];
   if (nodejs) {
     packages.push({ name: "@tsonic/nodejs", version: "latest" });
+  }
+  if (js) {
+    packages.push({ name: "@tsonic/js", version: "latest" });
   }
   return {
     packages,
@@ -148,10 +155,12 @@ const findRuntimeDir = (): string | null => {
  * Copy runtime DLLs to project's lib/ directory
  * - Tsonic.Runtime.dll: Always copied (core runtime)
  * - nodejs.dll: Copied if --nodejs flag is used
+ * - Tsonic.JSRuntime.dll: Copied if --js flag is used
  */
 const copyRuntimeDlls = (
   cwd: string,
-  includeNodejs: boolean
+  includeNodejs: boolean,
+  includeJs: boolean
 ): Result<readonly string[], string> => {
   const runtimeDir = findRuntimeDir();
   if (!runtimeDir) {
@@ -189,6 +198,19 @@ const copyRuntimeDlls = (
     }
   }
 
+  // Copy Tsonic.JSRuntime.dll if requested
+  if (includeJs) {
+    const jsRuntimeDll = join(runtimeDir, "Tsonic.JSRuntime.dll");
+    if (existsSync(jsRuntimeDll)) {
+      copyFileSync(jsRuntimeDll, join(libDir, "Tsonic.JSRuntime.dll"));
+      copiedPaths.push("lib/Tsonic.JSRuntime.dll");
+    } else {
+      console.log(
+        "⚠ Warning: Tsonic.JSRuntime.dll not found in runtime directory."
+      );
+    }
+  }
+
   return { ok: true, value: copiedPaths };
 };
 
@@ -215,7 +237,7 @@ const generateConfig = (
   };
 
   if (includeTypeRoots || libraryPaths.length > 0) {
-    const typeInfo = getTypePackageInfo(false, pure);
+    const typeInfo = getTypePackageInfo(false, false, pure);
     const dotnet: Record<string, unknown> = {};
 
     if (includeTypeRoots) {
@@ -347,8 +369,9 @@ export const initProject = (
     // Install type declarations
     const shouldInstallTypes = !options.skipTypes;
     const nodejs = options.nodejs ?? false;
+    const js = options.js ?? false;
     const pure = options.pure ?? false;
-    const typeInfo = getTypePackageInfo(nodejs, pure);
+    const typeInfo = getTypePackageInfo(nodejs, js, pure);
 
     if (shouldInstallTypes) {
       for (const pkg of typeInfo.packages) {
@@ -363,10 +386,10 @@ export const initProject = (
     }
 
     // Copy runtime DLLs to lib/ directory
-    // This includes Tsonic.Runtime.dll (always), nodejs.dll (if --nodejs)
+    // This includes Tsonic.Runtime.dll (always), nodejs.dll (if --nodejs), Tsonic.JSRuntime.dll (if --js)
     // Note: These are NOT added to dotnet.libraries - findRuntimeDlls in generate.ts looks in lib/ first
     console.log("Copying runtime DLLs to lib/...");
-    const copyResult = copyRuntimeDlls(cwd, nodejs);
+    const copyResult = copyRuntimeDlls(cwd, nodejs, js);
     if (!copyResult.ok) {
       // Log warning but continue - user can add manually later
       console.log(`⚠ Warning: ${copyResult.error}`);

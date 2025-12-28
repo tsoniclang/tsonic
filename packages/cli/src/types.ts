@@ -69,6 +69,7 @@ export type CliOptions = {
   skipTypes?: boolean;
   typesVersion?: string;
   nodejs?: boolean; // Enable Node.js interop (installs @tsonic/nodejs)
+  js?: boolean; // Enable JS stdlib (installs @tsonic/js)
   pure?: boolean; // Use PascalCase CLR naming (installs @tsonic/globals-pure)
   // Output type options
   type?: OutputType;

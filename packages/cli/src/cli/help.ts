@@ -39,6 +39,7 @@ GENERATE/BUILD/RUN OPTIONS:
 
 PROJECT INIT OPTIONS:
   --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
+  --js                      Enable JS stdlib (installs @tsonic/js)
   --pure                    Use PascalCase CLR naming
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
@@ -46,6 +47,7 @@ PROJECT INIT OPTIONS:
 EXAMPLES:
   tsonic project init
   tsonic project init --nodejs
+  tsonic project init --js
   tsonic project init --pure
   tsonic add package ./lib/MyLib.dll @company/mylib-types
   tsonic generate src/App.ts
