@@ -78,9 +78,8 @@ export type IrArrayType = {
    * Set to "explicit" when the array type came from an explicit T[] annotation.
    * Undefined when the type was inferred.
    *
-   * In dotnet mode:
-   * - origin: "explicit" → emit native CLR array (T[])
-   * - origin: undefined → emit List<T>
+   * All array types emit as native CLR arrays (T[]).
+   * Users must explicitly use List<T> to get a List.
    */
   readonly origin?: "explicit";
 };

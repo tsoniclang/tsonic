@@ -13,8 +13,7 @@ import { getBindingRegistry } from "../statements/declarations/registry.js";
  * This determines whether Int32 proof is required for the index.
  *
  * Classification is based on IR type kinds, NOT string matching.
- * Both jsRuntimeArray (JS mode) and clrIndexer (dotnet mode) require Int32 proof,
- * so we use clrIndexer as the default for TypeScript arrays.
+ * CLR indexers (arrays, List<T>, etc.) require Int32 proof for indices.
  *
  * IMPORTANT: If classification cannot be determined reliably, returns "unknown"
  * which causes a compile-time error (TSN5109). This is safer than misclassifying.

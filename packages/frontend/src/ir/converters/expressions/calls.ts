@@ -530,9 +530,15 @@ export const convertCallExpression = (
     node.arguments.length === 1
   ) {
     // We've verified length === 1 above, so these are guaranteed to exist
-    const targetTypeNode = node.typeArguments[0]!;
+    const targetTypeNode = node.typeArguments[0];
+    const argNode = node.arguments[0];
+    if (!targetTypeNode || !argNode) {
+      throw new Error(
+        "ICE: tryCast requires exactly 1 type argument and 1 argument"
+      );
+    }
     const targetType = convertType(targetTypeNode, checker);
-    const argExpr = convertExpression(node.arguments[0]!, checker);
+    const argExpr = convertExpression(argNode, checker);
 
     // Build union type T | null for inferredType
     const nullType: IrType = { kind: "primitiveType", name: "null" };
