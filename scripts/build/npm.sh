@@ -19,7 +19,6 @@ echo ""
 
 # Step 1: Build runtime packages from sibling directories
 RUNTIME_DIR="$ROOT_DIR/../runtime"
-JSRUNTIME_DIR="$ROOT_DIR/../js-runtime"
 NODEJS_DIR="$ROOT_DIR/../nodejs-clr"
 
 echo -e "${YELLOW}Building Tsonic.Runtime...${NC}"
@@ -30,17 +29,6 @@ if [[ -d "$RUNTIME_DIR" ]]; then
   echo -e "${GREEN}  Tsonic.Runtime built${NC}"
 else
   echo -e "${RED}  Error: runtime repo not found at $RUNTIME_DIR${NC}"
-  exit 1
-fi
-
-echo -e "${YELLOW}Building Tsonic.JSRuntime...${NC}"
-if [[ -d "$JSRUNTIME_DIR" ]]; then
-  cd "$JSRUNTIME_DIR"
-  git pull
-  dotnet build -c Release
-  echo -e "${GREEN}  Tsonic.JSRuntime built${NC}"
-else
-  echo -e "${RED}  Error: js-runtime repo not found at $JSRUNTIME_DIR${NC}"
   exit 1
 fi
 
@@ -89,20 +77,6 @@ if [[ -f "$RUNTIME_SRC/Tsonic.Runtime.dll" ]]; then
 else
   echo -e "${RED}  Warning: Tsonic.Runtime.dll not found at $RUNTIME_SRC${NC}"
   echo -e "${YELLOW}  Build it with: cd ../runtime && dotnet build -c Release${NC}"
-fi
-
-# Tsonic.JSRuntime (for js mode)
-JSRUNTIME_SRC="$ROOT_DIR/../js-runtime/artifacts/bin/Tsonic.JSRuntime/Release/net10.0"
-if [[ -f "$JSRUNTIME_SRC/Tsonic.JSRuntime.dll" ]]; then
-  cp "$JSRUNTIME_SRC/Tsonic.JSRuntime.dll" "$NPM_DIR/runtime/"
-  # JSRuntime also needs its dependency on Tsonic.Runtime
-  if [[ -f "$JSRUNTIME_SRC/Tsonic.Runtime.dll" ]]; then
-    cp "$JSRUNTIME_SRC/Tsonic.Runtime.dll" "$NPM_DIR/runtime/Tsonic.Runtime.JSRuntime.dll"
-  fi
-  echo -e "${GREEN}  Copied Tsonic.JSRuntime.dll${NC}"
-else
-  echo -e "${RED}  Warning: Tsonic.JSRuntime.dll not found at $JSRUNTIME_SRC${NC}"
-  echo -e "${YELLOW}  Build it with: cd ../js-runtime && dotnet build -c Release${NC}"
 fi
 
 # nodejs-clr (for --nodejs flag)
