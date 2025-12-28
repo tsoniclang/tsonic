@@ -27,7 +27,6 @@ GLOBAL OPTIONS:
   -V, --verbose             Verbose output
   -q, --quiet               Suppress output
   -c, --config <file>       Config file path (default: tsonic.json)
-  --runtime <mode>          Runtime mode: js (default) or dotnet
 
 GENERATE/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory
@@ -39,17 +38,15 @@ GENERATE/BUILD/RUN OPTIONS:
   --no-strip                Keep debug symbols
 
 PROJECT INIT OPTIONS:
-  --runtime <mode>          Runtime mode: js (default) or dotnet
   --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
-  --pure                    Use PascalCase CLR naming (dotnet mode only)
+  --pure                    Use PascalCase CLR naming
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
 
 EXAMPLES:
   tsonic project init
-  tsonic project init --runtime dotnet
-  tsonic project init --runtime dotnet --nodejs
-  tsonic project init --runtime dotnet --pure
+  tsonic project init --nodejs
+  tsonic project init --pure
   tsonic add package ./lib/MyLib.dll @company/mylib-types
   tsonic generate src/App.ts
   tsonic build src/App.ts --rid linux-x64

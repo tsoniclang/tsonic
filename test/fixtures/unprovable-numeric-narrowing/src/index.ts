@@ -3,7 +3,7 @@
 // that cannot be proven sound at compile time.
 
 import { Console } from "@tsonic/dotnet/System";
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 export function main(): void {
   // ERROR: Cannot prove narrowing of a floating-point literal to Int32

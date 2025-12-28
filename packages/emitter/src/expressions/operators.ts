@@ -362,21 +362,13 @@ export const emitUpdate = (
  *
  * Passes the LHS type as expected type to RHS, enabling proper integer
  * literal emission for cases like `this.value = this.value + 1`.
- *
- * Special handling for JS mode array element assignment:
- * - In JS mode, array[idx] = value must emit Array.set(array, idx, value)
- * - NOT Array.get(array, idx) = value (which is invalid C#)
  */
 export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  const runtime = context.options.runtime ?? "js";
-
-  // Array element assignment - unified for both js and dotnet modes
+  // Array element assignment uses native CLR indexer
   // HARD GATE: Index must be proven Int32 (validated by proof pass)
-  // js mode:     arr[idx] = value → Array.set(arr, idx, value)
-  // dotnet mode: arr[idx] = value → arr[idx] = value (native indexer)
   if (
     expr.operator === "=" &&
     "kind" in expr.left &&
@@ -405,13 +397,8 @@ export const emitAssignment = (
     const [indexFrag, indexContext] = emitExpression(indexExpr, objectContext);
     const [rightFrag, rightContext] = emitExpression(expr.right, indexContext);
 
-    // Emit based on runtime mode:
-    // - js: use Tsonic.JSRuntime.Array.set() for JS semantics (auto-grow, sparse arrays)
-    // - dotnet: use native CLR indexer
-    const text =
-      runtime === "js"
-        ? `global::Tsonic.JSRuntime.Array.set(${objectFrag.text}, ${indexFrag.text}, ${rightFrag.text})`
-        : `${objectFrag.text}[${indexFrag.text}] = ${rightFrag.text}`;
+    // Use native CLR indexer
+    const text = `${objectFrag.text}[${indexFrag.text}] = ${rightFrag.text}`;
     return [{ text, precedence: 3 }, rightContext];
   }
 

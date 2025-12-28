@@ -200,10 +200,10 @@ Validates generic type usage for C# compatibility:
 
 ```typescript
 // TSN7415: T | null where T is unconstrained
-function getValue<T>(value: T | null): T  // Error
+function getValue<T>(value: T | null): T; // Error
 
 // Fix: Add constraint
-function getValue<T extends object>(value: T | null): T  // OK
+function getValue<T extends object>(value: T | null): T; // OK
 ```
 
 ## IR Building

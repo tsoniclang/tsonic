@@ -266,10 +266,7 @@ const extractStructuralMembers = (
               : undefined;
             const refDecl = typeSymbol?.declarations?.[0];
             const refSourceFile = refDecl?.getSourceFile();
-            if (
-              refSourceFile?.fileName.includes("@tsonic/core") ||
-              refSourceFile?.fileName.includes("@tsonic/types")
-            ) {
+            if (refSourceFile?.fileName.includes("@tsonic/core")) {
               // Directly emit the CLR primitive type, bypassing typeToTypeNode
               const propSig: IrPropertySignature = {
                 kind: "propertySignature",

@@ -6,6 +6,6 @@
   "dependencies": {
     "@tsonic/dotnet": "^0.7.4",
     "@tsonic/globals": "^0.1.0",
-    "@tsonic/types": "^0.3.1"
+    "@tsonic/core": "*"
   }
 }

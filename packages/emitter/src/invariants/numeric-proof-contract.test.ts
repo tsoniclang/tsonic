@@ -552,7 +552,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       });
 
       // Should not throw - proof marker is present
-      expect(() => emitModule(module, { runtime: "dotnet" })).to.not.throw();
+      expect(() => emitModule(module)).to.not.throw();
     });
 
     it("ICE when proof marker missing - even for literal 0", () => {
@@ -567,7 +567,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
       });
 
       // Emitter should ICE because proof marker is missing
-      expect(() => emitModule(module, { runtime: "dotnet" })).to.throw(
+      expect(() => emitModule(module)).to.throw(
         /Internal Compiler Error.*Int32 proof/
       );
     });
@@ -581,7 +581,7 @@ describe("Numeric Proof Contract (Behavioral)", () => {
         indexRaw: "1",
       });
 
-      expect(() => emitModule(module, { runtime: "dotnet" })).to.throw(
+      expect(() => emitModule(module)).to.throw(
         /Internal Compiler Error.*Int32 proof/
       );
     });

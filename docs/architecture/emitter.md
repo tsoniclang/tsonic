@@ -650,10 +650,7 @@ packages/emitter/testcases/
 - Generates test suites dynamically
 
 ```typescript
-const discoverTests = (
-  baseDir: string,
-  mode: "js" | "dotnet"
-): TestCase[] => {
+const discoverTests = (baseDir: string, mode: "js" | "dotnet"): TestCase[] => {
   const tests: TestCase[] = [];
 
   // Always include common/

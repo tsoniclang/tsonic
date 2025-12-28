@@ -359,10 +359,8 @@ describe("End-to-End Integration", () => {
       // Should have the repository class
       expect(csharp).to.include("class UserRepository");
 
-      // Should have the generic function with global:: FQN
-      expect(csharp).to.match(
-        /public\s+static\s+global::System\.Collections\.Generic\.List<U>\s+map\s*<T,\s*U>/
-      );
+      // Should have the generic function with native array return type
+      expect(csharp).to.match(/public\s+static\s+U\[\]\s+map\s*<T,\s*U>/);
 
       // Should have proper namespace structure
       expect(csharp).to.include("namespace Test");

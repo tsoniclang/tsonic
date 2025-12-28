@@ -187,34 +187,8 @@ describe("CLI Parser", () => {
         expect(result.options.nodejs).to.equal(true);
       });
 
-      it("should parse --nodejs with --runtime dotnet", () => {
-        const result = parseArgs([
-          "project",
-          "init",
-          "--runtime",
-          "dotnet",
-          "--nodejs",
-        ]);
-        expect(result.command).to.equal("project:init");
-        expect(result.options.runtime).to.equal("dotnet");
-        expect(result.options.nodejs).to.equal(true);
-      });
-
       it("should parse --pure option", () => {
         const result = parseArgs(["project", "init", "--pure"]);
-        expect(result.options.pure).to.equal(true);
-      });
-
-      it("should parse --pure with --runtime dotnet", () => {
-        const result = parseArgs([
-          "project",
-          "init",
-          "--runtime",
-          "dotnet",
-          "--pure",
-        ]);
-        expect(result.command).to.equal("project:init");
-        expect(result.options.runtime).to.equal("dotnet");
         expect(result.options.pure).to.equal(true);
       });
     });

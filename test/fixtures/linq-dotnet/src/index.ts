@@ -2,7 +2,7 @@
 import { Console } from "@tsonic/dotnet/System";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 import { Enumerable } from "@tsonic/dotnet/System.Linq";
-import { int } from "@tsonic/types";
+import { int } from "@tsonic/core/types.js";
 
 export function main(): void {
   Console.writeLine("=== LINQ Operations Test ===");

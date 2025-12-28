@@ -199,13 +199,13 @@ export const emitVariableDeclaration = (
       currentContext = newContext;
 
       const arrayPattern = decl.name as IrArrayPattern;
-      // Use global:: prefix for Tsonic.JSRuntime.Array static helpers
+      // Use native array indexer for destructuring
       for (let i = 0; i < arrayPattern.elements.length; i++) {
         const element = arrayPattern.elements[i];
         if (element && element.kind === "identifierPattern") {
           // Escape C# keywords and use integer index
           const escapedName = escapeCSharpIdentifier(element.name);
-          const elementVarDecl = `${varDecl}${escapedName} = global::Tsonic.JSRuntime.Array.get(${initFrag.text}, ${i});`;
+          const elementVarDecl = `${varDecl}${escapedName} = ${initFrag.text}[${i}];`;
           declarations.push(`${ind}${elementVarDecl}`);
         }
         // Skip undefined elements (holes in array pattern)

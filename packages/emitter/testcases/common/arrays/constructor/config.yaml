@@ -1,0 +1,1 @@
+- ArrayConstructor.ts: should emit new Array<T>(size) as new T[size]

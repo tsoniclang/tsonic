@@ -226,17 +226,13 @@ describe("Config", () => {
       expect(result.quiet).to.equal(true);
     });
 
-    it("should default typeRoots to globals and js-globals for js runtime", () => {
+    it("should default typeRoots to globals only", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
-        // runtime defaults to "js"
       };
 
       const result = resolveConfig(config, {}, "/project");
-      expect(result.typeRoots).to.deep.equal([
-        "node_modules/@tsonic/globals",
-        "node_modules/@tsonic/js-globals",
-      ]);
+      expect(result.typeRoots).to.deep.equal(["node_modules/@tsonic/globals"]);
     });
 
     it("should use typeRoots from config.dotnet.typeRoots", () => {

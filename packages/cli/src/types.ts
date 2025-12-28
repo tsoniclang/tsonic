@@ -39,7 +39,6 @@ export type TsonicConfig = {
   readonly rid?: string;
   readonly dotnetVersion?: string;
   readonly optimize?: "size" | "speed";
-  readonly runtime?: "js" | "dotnet"; // Runtime mode
   readonly output?: TsonicOutputConfig;
   readonly buildOptions?: {
     readonly stripSymbols?: boolean;
@@ -62,7 +61,6 @@ export type CliOptions = {
   out?: string;
   namespace?: string;
   rid?: string;
-  runtime?: "js" | "dotnet"; // Runtime mode
   optimize?: "size" | "speed";
   keepTemp?: boolean;
   noStrip?: boolean;
@@ -97,7 +95,6 @@ export type ResolvedConfig = {
   readonly rid: string;
   readonly dotnetVersion: string;
   readonly optimize: "size" | "speed";
-  readonly runtime: "js" | "dotnet";
   readonly outputConfig: TsonicOutputConfig;
   readonly stripSymbols: boolean;
   readonly invariantGlobalization: boolean;

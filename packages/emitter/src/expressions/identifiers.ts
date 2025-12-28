@@ -8,27 +8,6 @@ import { emitType } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 /**
- * Fallback mappings for well-known runtime globals.
- * ONLY includes globals actually declared in @tsonic/js-globals.
- * Per Alice's decision: no ambient knowledge of undeclared types.
- */
-const RUNTIME_FALLBACKS: Record<string, string> = {
-  // Objects with methods
-  console: "global::Tsonic.JSRuntime.console",
-  Math: "global::Tsonic.JSRuntime.Math",
-  JSON: "global::Tsonic.JSRuntime.JSON",
-  Number: "global::Tsonic.JSRuntime.Number",
-  // Constructors
-  Map: "global::Tsonic.JSRuntime.Map",
-  Set: "global::Tsonic.JSRuntime.Set",
-  // Timer functions (static methods on Timers class)
-  setTimeout: "global::Tsonic.JSRuntime.Timers.setTimeout",
-  clearTimeout: "global::Tsonic.JSRuntime.Timers.clearTimeout",
-  setInterval: "global::Tsonic.JSRuntime.Timers.setInterval",
-  clearInterval: "global::Tsonic.JSRuntime.Timers.clearInterval",
-};
-
-/**
  * Emit an identifier, using resolved binding info if available
  */
 export const emitIdentifier = (
@@ -81,17 +60,6 @@ export const emitIdentifier = (
   if (expr.resolvedClrType) {
     const fqn = `global::${expr.resolvedClrType}`;
     return [{ text: fqn }, context];
-  }
-
-  // Fallback for well-known runtime globals (only in js mode)
-  // In dotnet mode, there is no JS emulation - these globals don't exist
-  const runtime = context.options.runtime ?? "js";
-  if (runtime === "js") {
-    const fallback = RUNTIME_FALLBACKS[expr.name];
-    if (fallback) {
-      // RUNTIME_FALLBACKS already have global:: prefix
-      return [{ text: fallback }, context];
-    }
   }
 
   // Fallback: use identifier as-is (escape C# keywords)

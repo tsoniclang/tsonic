@@ -129,9 +129,6 @@ export const emitMemberAccess = (
 
   const [objectFrag, newContext] = emitExpression(expr.object, context);
 
-  // Default runtime to "js" when not specified
-  const runtime = context.options.runtime ?? "js";
-
   if (expr.isComputed) {
     // Check if this is array index access
     const objectType = expr.object.inferredType;
@@ -157,13 +154,8 @@ export const emitMemberAccess = (
         );
       }
 
-      // Emit based on runtime mode:
-      // - js: use Tsonic.JSRuntime.Array.get() for JS semantics (auto-grow, sparse arrays)
-      // - dotnet: use native CLR indexer
-      const text =
-        runtime === "js"
-          ? `global::Tsonic.JSRuntime.Array.get(${objectFrag.text}, ${propFrag.text})`
-          : `${objectFrag.text}${expr.isOptional ? "?[" : "["}${propFrag.text}]`;
+      // Use native CLR indexer
+      const text = `${objectFrag.text}${expr.isOptional ? "?[" : "["}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 
@@ -247,34 +239,20 @@ export const emitMemberAccess = (
     }
   }
 
-  // In JS runtime mode, rewrite array.length → global::Tsonic.JSRuntime.Array.length(array)
-  // In dotnet mode, C# arrays use .Length (capital L)
+  // Array.length → .Length (C# arrays use .Length property)
   if (isArrayType && prop === "length") {
-    if (runtime === "js") {
-      const text = `global::Tsonic.JSRuntime.Array.length(${objectFrag.text})`;
-      return [{ text }, newContext];
-    } else {
-      // dotnet mode: C# arrays have .Length property
-      const text = `${objectFrag.text}.Length`;
-      return [{ text }, newContext];
-    }
+    const text = `${objectFrag.text}.Length`;
+    return [{ text }, newContext];
   }
 
   // Check if this is a string type
   const isStringType =
     objectType?.kind === "primitiveType" && objectType.name === "string";
 
-  // In JS runtime mode, rewrite string.length → global::Tsonic.JSRuntime.String.length(string)
-  // In dotnet mode, C# strings use .Length (capital L)
+  // String.length → .Length (C# strings use .Length property)
   if (isStringType && prop === "length") {
-    if (runtime === "js") {
-      const text = `global::Tsonic.JSRuntime.String.length(${objectFrag.text})`;
-      return [{ text }, newContext];
-    } else {
-      // dotnet mode: C# strings have .Length property
-      const text = `${objectFrag.text}.Length`;
-      return [{ text }, newContext];
-    }
+    const text = `${objectFrag.text}.Length`;
+    return [{ text }, newContext];
   }
 
   // Handle explicit interface view properties (As_IInterface)

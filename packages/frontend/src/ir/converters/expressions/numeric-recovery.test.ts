@@ -25,16 +25,12 @@ const __dirname = path.dirname(__filename);
 // From dist/ir/converters/expressions/ go up to packages/frontend/, then up 2 more to monorepo root
 const monorepoRoot = path.resolve(__dirname, "../../../../../..");
 const globalsPath = path.join(monorepoRoot, "node_modules/@tsonic/globals");
-const jsGlobalsPath = path.join(
-  monorepoRoot,
-  "node_modules/@tsonic/js-globals"
-);
 const corePath = path.join(monorepoRoot, "node_modules/@tsonic/core");
 
 /**
- * Helper to compile TypeScript code with js-globals and extract IR
+ * Helper to compile TypeScript code with globals and extract IR
  */
-const compileWithJsGlobals = (
+const compileWithGlobals = (
   code: string
 ): { modules: readonly IrModule[]; ok: boolean; error?: string } => {
   const tmpDir = `/tmp/numeric-recovery-test-${Date.now()}`;
@@ -47,7 +43,7 @@ const compileWithJsGlobals = (
     projectRoot: monorepoRoot,
     sourceRoot: tmpDir,
     rootNamespace: "Test",
-    typeRoots: [globalsPath, jsGlobalsPath, corePath],
+    typeRoots: [globalsPath, corePath],
   });
 
   if (!compileResult.ok) {
@@ -152,7 +148,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok } = compileWithJsGlobals(code);
+      const { modules, ok } = compileWithGlobals(code);
       expect(ok).to.be.true;
 
       // Find arr.length member expression
@@ -176,7 +172,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok } = compileWithJsGlobals(code);
+      const { modules, ok } = compileWithGlobals(code);
       expect(ok).to.be.true;
 
       // Find s.length member expression
@@ -202,7 +198,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok } = compileWithJsGlobals(code);
+      const { modules, ok } = compileWithGlobals(code);
       expect(ok).to.be.true;
 
       // Find arr.indexOf() call expression
@@ -218,30 +214,6 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         name: "int",
       });
     });
-
-    it("should recover 'int' from arr.lastIndexOf() return type", () => {
-      const code = `
-        export function findLast(arr: string[], item: string): number {
-          return arr.lastIndexOf(item);
-        }
-      `;
-
-      const { modules, ok } = compileWithJsGlobals(code);
-      expect(ok).to.be.true;
-
-      // Find arr.lastIndexOf() call expression
-      const lastIndexOfCall = findExpression(modules, (expr) => {
-        if (expr.kind !== "call") return false;
-        if (expr.callee.kind !== "memberAccess") return false;
-        return expr.callee.property === "lastIndexOf";
-      });
-
-      expect(lastIndexOfCall).to.not.be.undefined;
-      expect(lastIndexOfCall?.inferredType).to.deep.equal({
-        kind: "referenceType",
-        name: "int",
-      });
-    });
   });
 
   describe("Intent Honored at Source Site", () => {
@@ -252,7 +224,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok } = compileWithJsGlobals(code);
+      const { modules, ok } = compileWithGlobals(code);
       expect(ok).to.be.true;
 
       // Find arr.length member expression
@@ -284,7 +256,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok, error } = compileWithJsGlobals(code);
+      const { modules, ok, error } = compileWithGlobals(code);
       expect(ok, `Compile failed: ${error}`).to.be.true;
       expect(modules.length).to.be.greaterThan(0);
 
@@ -317,7 +289,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok, error } = compileWithJsGlobals(code);
+      const { modules, ok, error } = compileWithGlobals(code);
       expect(ok, `Compile failed: ${error}`).to.be.true;
 
       const proofResult = runNumericProofPass(modules);
@@ -342,7 +314,7 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
         }
       `;
 
-      const { modules, ok, error } = compileWithJsGlobals(code);
+      const { modules, ok, error } = compileWithGlobals(code);
       expect(ok, `Compile failed: ${error}`).to.be.true;
 
       const proofResult = runNumericProofPass(modules);
