@@ -351,6 +351,33 @@ export const validateStaticSafety = (
       }
     }
 
+    // TSN7417: Check for empty array literal without type annotation
+    // const x = [] is invalid, const x: T[] = [] is valid
+    if (ts.isArrayLiteralExpression(node) && node.elements.length === 0) {
+      // Check if parent provides type context
+      const parent = node.parent;
+      const hasTypeAnnotation =
+        (ts.isVariableDeclaration(parent) && parent.type !== undefined) ||
+        (ts.isPropertyDeclaration(parent) && parent.type !== undefined) ||
+        (ts.isParameter(parent) && parent.type !== undefined) ||
+        ts.isReturnStatement(parent) || // return type from function
+        ts.isCallExpression(parent) || // passed as argument (has contextual type)
+        ts.isPropertyAssignment(parent); // object property (has contextual type)
+
+      if (!hasTypeAnnotation) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7417",
+            "error",
+            "Empty array literal requires a type annotation. Use 'const x: T[] = []' instead.",
+            getNodeLocation(sourceFile, node),
+            "Add a type annotation: const x: number[] = []; or const x: string[] = [];"
+          )
+        );
+      }
+    }
+
     // Continue visiting children
     ts.forEachChild(node, (child) => {
       currentCollector = visitor(child, currentCollector);

@@ -116,12 +116,17 @@ const inferNumericKind = (
         }
 
         // For bare literals, follow C# semantics:
-        // Integer-looking literals (no decimal, no exponent) are Int32 if in range
+        // Integer-looking literals (no decimal, no exponent) are Int32/Int64 if in range
         // Otherwise, they're Double
         if (expr.raw !== undefined && isValidIntegerLexeme(expr.raw)) {
           const bigValue = parseBigIntFromRaw(expr.raw);
-          if (bigValue !== undefined && bigIntFitsInKind(bigValue, "Int32")) {
-            return "Int32";
+          if (bigValue !== undefined) {
+            if (bigIntFitsInKind(bigValue, "Int32")) {
+              return "Int32";
+            }
+            if (bigIntFitsInKind(bigValue, "Int64")) {
+              return "Int64";
+            }
           }
         }
 
