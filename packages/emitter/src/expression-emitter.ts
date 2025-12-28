@@ -115,9 +115,9 @@ const emitTypeAssertion = (
 };
 
 /**
- * Emit a tryCast expression.
+ * Emit a trycast expression.
  *
- * TypeScript `tryCast<T>(x)` becomes C# `x as T` (safe cast).
+ * TypeScript `trycast<T>(x)` becomes C# `x as T` (safe cast).
  * This returns null if the cast fails instead of throwing.
  */
 const emitTryCast = (
@@ -206,7 +206,7 @@ export const emitExpression = (
     case "typeAssertion":
       return emitTypeAssertion(expr, context);
 
-    case "tryCast":
+    case "trycast":
       return emitTryCast(expr, context);
 
     default:

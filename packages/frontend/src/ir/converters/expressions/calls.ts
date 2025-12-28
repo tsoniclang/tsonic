@@ -520,11 +520,11 @@ export const convertCallExpression = (
   node: ts.CallExpression,
   checker: ts.TypeChecker
 ): IrCallExpression | IrTryCastExpression => {
-  // Check for tryCast<T>(x) - special intrinsic for safe casting
-  // tryCast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
+  // Check for trycast<T>(x) - special intrinsic for safe casting
+  // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
   if (
     ts.isIdentifier(node.expression) &&
-    node.expression.text === "tryCast" &&
+    node.expression.text === "trycast" &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1
@@ -534,7 +534,7 @@ export const convertCallExpression = (
     const argNode = node.arguments[0];
     if (!targetTypeNode || !argNode) {
       throw new Error(
-        "ICE: tryCast requires exactly 1 type argument and 1 argument"
+        "ICE: trycast requires exactly 1 type argument and 1 argument"
       );
     }
     const targetType = convertType(targetTypeNode, checker);
@@ -548,7 +548,7 @@ export const convertCallExpression = (
     };
 
     return {
-      kind: "tryCast",
+      kind: "trycast",
       expression: argExpr,
       targetType,
       inferredType: unionType,
