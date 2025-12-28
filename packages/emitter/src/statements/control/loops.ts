@@ -7,6 +7,7 @@ import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { lowerPattern } from "../../patterns.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -247,14 +248,52 @@ export const emitForOfStatement = (
   const ind = getIndent(context);
   const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
 
-  const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(exprContext));
-
   // Use foreach in C#, with await prefix for async iteration
-  const varName =
-    stmt.variable.kind === "identifierPattern"
-      ? escapeCSharpIdentifier(stmt.variable.name)
-      : "item";
   const foreachKeyword = stmt.isAwait ? "await foreach" : "foreach";
-  const code = `${ind}${foreachKeyword} (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
+
+  if (stmt.variable.kind === "identifierPattern") {
+    // Simple identifier: for (const x of items) -> foreach (var x in items)
+    const varName = escapeCSharpIdentifier(stmt.variable.name);
+    const [bodyCode, bodyContext] = emitStatement(
+      stmt.body,
+      indent(exprContext)
+    );
+    const code = `${ind}${foreachKeyword} (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
+    return [code, dedent(bodyContext)];
+  }
+
+  // Complex pattern: for (const [a, b] of items) or for (const {x, y} of items)
+  // Generate: foreach (var __item in items) { var a = __item[0]; var b = __item[1]; ...body... }
+  const tempVar = "__item";
+  const bodyIndent = getIndent(indent(exprContext));
+
+  // Get element type from the expression's inferred type
+  const elementType =
+    stmt.expression.inferredType?.kind === "arrayType"
+      ? stmt.expression.inferredType.elementType
+      : undefined;
+
+  // Lower the pattern to destructuring statements
+  const lowerResult = lowerPattern(
+    stmt.variable,
+    tempVar,
+    elementType,
+    bodyIndent,
+    exprContext
+  );
+
+  // Emit the original loop body
+  const [bodyCode, bodyContext] = emitStatement(
+    stmt.body,
+    indent(lowerResult.context)
+  );
+
+  // Combine: pattern lowering + original body
+  const combinedBody =
+    lowerResult.statements.length > 0
+      ? `${ind}{\n${lowerResult.statements.join("\n")}\n${bodyCode}\n${ind}}`
+      : bodyCode;
+
+  const code = `${ind}${foreachKeyword} (var ${tempVar} in ${exprFrag.text})\n${combinedBody}`;
   return [code, dedent(bodyContext)];
 };

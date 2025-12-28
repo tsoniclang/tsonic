@@ -13,7 +13,10 @@ import {
 } from "../../../types.js";
 import { emitType, emitTypeParameters } from "../../../type-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
-import { emitParameters } from "../parameters.js";
+import {
+  emitParametersWithDestructuring,
+  generateParameterDestructuring,
+} from "../parameters.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
 
@@ -81,9 +84,12 @@ export const emitMethodMember = (
   );
   currentContext = typeParamContext;
 
-  // Parameters
-  const params = emitParameters(member.parameters, currentContext);
-  currentContext = params[1];
+  // Parameters (with destructuring support)
+  const paramsResult = emitParametersWithDestructuring(
+    member.parameters,
+    currentContext
+  );
+  currentContext = paramsResult.context;
 
   const whereClause =
     whereClauses.length > 0
@@ -106,7 +112,7 @@ export const emitMethodMember = (
 
     // Build final code with attributes (if any)
     const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-    const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${params[0]})${whereClause};`;
+    const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause};`;
     return [code, attrContext];
   }
 
@@ -146,15 +152,28 @@ export const emitMethodMember = (
     }
   }
 
-  // Inject out parameter initializations
+  // Inject destructuring and out parameter initializations
   let finalBodyCode = bodyCode;
-  if (outParams.length > 0) {
-    const bodyInd = getIndent(baseBodyContext);
-    const injectLines: string[] = [];
-    for (const outParam of outParams) {
-      injectLines.push(`${bodyInd}${outParam.name} = default;`);
-    }
+  const bodyInd = getIndent(baseBodyContext);
+  const injectLines: string[] = [];
 
+  // Generate parameter destructuring statements
+  if (paramsResult.destructuringParams.length > 0) {
+    const [destructuringStmts] = generateParameterDestructuring(
+      paramsResult.destructuringParams,
+      bodyInd,
+      finalContext
+    );
+    injectLines.push(...destructuringStmts);
+  }
+
+  // Add out parameter initializations
+  for (const outParam of outParams) {
+    injectLines.push(`${bodyInd}${outParam.name} = default;`);
+  }
+
+  // Inject lines after opening brace
+  if (injectLines.length > 0) {
     const lines = bodyCode.split("\n");
     if (lines.length > 1) {
       lines.splice(1, 0, ...injectLines, "");
@@ -172,7 +191,7 @@ export const emitMethodMember = (
 
   // Build final code with attributes (if any)
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
 
   return [code, dedent(attrContext)];
 };

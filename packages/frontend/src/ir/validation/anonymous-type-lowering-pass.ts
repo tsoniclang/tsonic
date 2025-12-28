@@ -442,7 +442,15 @@ const lowerPattern = (pattern: IrPattern, ctx: LoweringContext): IrPattern => {
       return {
         ...pattern,
         elements: pattern.elements.map((e) =>
-          e ? lowerPattern(e, ctx) : undefined
+          e
+            ? {
+                ...e,
+                pattern: lowerPattern(e.pattern, ctx),
+                defaultExpr: e.defaultExpr
+                  ? lowerExpression(e.defaultExpr, ctx)
+                  : undefined,
+              }
+            : undefined
         ),
       };
     case "objectPattern":
@@ -453,6 +461,9 @@ const lowerPattern = (pattern: IrPattern, ctx: LoweringContext): IrPattern => {
             return {
               ...p,
               value: lowerPattern(p.value, ctx),
+              defaultExpr: p.defaultExpr
+                ? lowerExpression(p.defaultExpr, ctx)
+                : undefined,
             };
           } else {
             return {

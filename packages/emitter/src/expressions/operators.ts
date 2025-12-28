@@ -7,7 +7,7 @@
  * - Binary ops: int op int = int, double op anything = double (C# semantics)
  */
 
-import { IrExpression, IrType } from "@tsonic/frontend";
+import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment, NarrowedBinding } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import {
@@ -16,6 +16,7 @@ import {
   findUnionMemberIndex,
 } from "../core/type-resolution.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { lowerAssignmentPattern } from "../patterns.js";
 
 /**
  * Check if an expression has proven Int32 type from the numeric proof pass.
@@ -403,23 +404,45 @@ export const emitAssignment = (
   }
 
   // Left side can be an expression or a pattern (for destructuring)
+  const isPattern =
+    "kind" in expr.left &&
+    (expr.left.kind === "identifierPattern" ||
+      expr.left.kind === "arrayPattern" ||
+      expr.left.kind === "objectPattern");
+
+  // Handle destructuring assignment patterns
+  if (isPattern && expr.operator === "=") {
+    const pattern = expr.left as IrPattern;
+
+    // Emit the RHS first
+    const [rightFrag, rightContext] = emitExpression(expr.right, context);
+
+    // Use lowerAssignmentPattern to generate the destructuring expression
+    const result = lowerAssignmentPattern(
+      pattern,
+      rightFrag.text,
+      expr.right.inferredType,
+      rightContext
+    );
+
+    return [{ text: result.expression, precedence: 3 }, result.context];
+  }
+
+  // Standard assignment (expression on left side)
   let leftText: string;
   let leftContext: EmitterContext;
   let leftType: IrType | undefined;
 
-  if (
-    "kind" in expr.left &&
-    (expr.left.kind === "identifierPattern" ||
-      expr.left.kind === "arrayPattern" ||
-      expr.left.kind === "objectPattern")
-  ) {
-    // It's a pattern - for now emit a comment for destructuring
-    if (expr.left.kind === "identifierPattern") {
-      leftText = expr.left.name;
+  if (isPattern) {
+    // Identifier pattern with compound assignment (+=, etc.)
+    const pattern = expr.left as IrPattern;
+    if (pattern.kind === "identifierPattern") {
+      leftText = escapeCSharpIdentifier(pattern.name);
       leftContext = context;
-      leftType = expr.left.type; // Patterns use `type`, not `inferredType`
+      leftType = pattern.type;
     } else {
-      leftText = "/* destructuring */";
+      // Compound assignment to array/object pattern - not valid in JS
+      leftText = "/* invalid compound destructuring */";
       leftContext = context;
     }
   } else {

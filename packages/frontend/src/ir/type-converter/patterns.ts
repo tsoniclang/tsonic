@@ -3,12 +3,21 @@
  */
 
 import * as ts from "typescript";
-import { IrPattern, IrObjectPatternProperty } from "../types.js";
+import {
+  IrPattern,
+  IrObjectPatternProperty,
+  IrArrayPatternElement,
+} from "../types/helpers.js";
+import { convertExpression } from "../expression-converter.js";
 
 /**
- * Convert TypeScript binding name to IR pattern
+ * Convert TypeScript binding name to IR pattern.
+ * Optionally accepts a TypeChecker for expression conversion (defaults, etc.)
  */
-export const convertBindingName = (name: ts.BindingName): IrPattern => {
+export const convertBindingName = (
+  name: ts.BindingName,
+  checker?: ts.TypeChecker
+): IrPattern => {
   if (ts.isIdentifier(name)) {
     return {
       kind: "identifierPattern",
@@ -19,12 +28,22 @@ export const convertBindingName = (name: ts.BindingName): IrPattern => {
   if (ts.isArrayBindingPattern(name)) {
     return {
       kind: "arrayPattern",
-      elements: name.elements.map((elem) => {
+      elements: name.elements.map((elem): IrArrayPatternElement | undefined => {
         if (ts.isOmittedExpression(elem)) {
           return undefined; // Hole in array pattern
         }
         if (ts.isBindingElement(elem)) {
-          return convertBindingName(elem.name);
+          const isRest = !!elem.dotDotDotToken;
+          const defaultExpr =
+            elem.initializer && checker
+              ? convertExpression(elem.initializer, checker)
+              : undefined;
+
+          return {
+            pattern: convertBindingName(elem.name, checker),
+            defaultExpr,
+            isRest: isRest || undefined,
+          };
         }
         return undefined;
       }),
@@ -36,10 +55,12 @@ export const convertBindingName = (name: ts.BindingName): IrPattern => {
 
     name.elements.forEach((elem) => {
       if (elem.dotDotDotToken) {
-        // Rest property
+        // Rest property: { ...rest }
+        // Note: restShapeMembers and restSynthTypeName are computed later
+        // during rest type synthesis pass
         properties.push({
           kind: "rest",
-          pattern: convertBindingName(elem.name),
+          pattern: convertBindingName(elem.name, checker),
         });
       } else {
         const key = elem.propertyName
@@ -50,11 +71,17 @@ export const convertBindingName = (name: ts.BindingName): IrPattern => {
             ? elem.name.text
             : "[computed]";
 
+        const defaultExpr =
+          elem.initializer && checker
+            ? convertExpression(elem.initializer, checker)
+            : undefined;
+
         properties.push({
           kind: "property",
           key,
-          value: convertBindingName(elem.name),
+          value: convertBindingName(elem.name, checker),
           shorthand: !elem.propertyName,
+          defaultExpr,
         });
       }
     });

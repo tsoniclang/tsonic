@@ -48,6 +48,9 @@ export type DiagnosticCode =
   | "TSN7417" // Empty array literal requires type annotation
   | "TSN7420" // ref/out/In are parameter modifiers, not types
   | "TSN7421" // Anonymous object type not lowered (ICE)
+  // Destructuring validation (TSN7422-TSN7429)
+  | "TSN7422" // Object rest requires finite object shape
+  | "TSN7423" // Unsupported destructuring pattern
   // Metadata loading errors (TSN9001-TSN9018)
   | "TSN9001" // Metadata file not found
   | "TSN9002" // Failed to read metadata file

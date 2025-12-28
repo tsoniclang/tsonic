@@ -279,8 +279,8 @@ describe("Yield Lowering Pass", () => {
               name: {
                 kind: "arrayPattern",
                 elements: [
-                  { kind: "identifierPattern", name: "a" },
-                  { kind: "identifierPattern", name: "b" },
+                  { pattern: { kind: "identifierPattern", name: "a" } },
+                  { pattern: { kind: "identifierPattern", name: "b" } },
                 ],
               },
               initializer: createYield({ kind: "literal", value: null }),

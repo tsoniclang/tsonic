@@ -618,8 +618,8 @@ describe("Generator Emission", () => {
                     receiveTarget: {
                       kind: "arrayPattern",
                       elements: [
-                        { kind: "identifierPattern", name: "a" },
-                        { kind: "identifierPattern", name: "b" },
+                        { pattern: { kind: "identifierPattern", name: "a" } },
+                        { pattern: { kind: "identifierPattern", name: "b" } },
                       ],
                     },
                   },

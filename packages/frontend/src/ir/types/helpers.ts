@@ -3,7 +3,7 @@
  */
 
 import { IrType, IrAttribute } from "./ir-types.js";
-import { IrExpression } from "./expressions.js";
+import type { IrExpression } from "./expressions.js";
 
 // ============================================================================
 // Patterns (for destructuring)
@@ -17,9 +17,22 @@ export type IrIdentifierPattern = {
   readonly type?: IrType;
 };
 
+/**
+ * Element in an array destructuring pattern.
+ * Can contain a pattern, optional default expression, and rest marker.
+ */
+export type IrArrayPatternElement = {
+  readonly pattern: IrPattern;
+  /** Default value expression if element is missing/undefined */
+  readonly defaultExpr?: IrExpression;
+  /** True if this is a rest element: [...rest] */
+  readonly isRest?: boolean;
+};
+
 export type IrArrayPattern = {
   readonly kind: "arrayPattern";
-  readonly elements: readonly (IrPattern | undefined)[]; // undefined for holes
+  /** Elements in the pattern. undefined represents holes (elisions). */
+  readonly elements: readonly (IrArrayPatternElement | undefined)[];
 };
 
 export type IrObjectPattern = {
@@ -33,8 +46,17 @@ export type IrObjectPatternProperty =
       readonly key: string;
       readonly value: IrPattern;
       readonly shorthand: boolean;
+      /** Default value expression if property is missing/undefined */
+      readonly defaultExpr?: IrExpression;
     }
-  | { readonly kind: "rest"; readonly pattern: IrPattern };
+  | {
+      readonly kind: "rest";
+      readonly pattern: IrPattern;
+      /** Computed remaining members from RHS type (for rest type synthesis) */
+      readonly restShapeMembers?: readonly IrInterfaceMember[];
+      /** Name of synthesized type for rest object */
+      readonly restSynthTypeName?: string;
+    };
 
 // ============================================================================
 // Type Parameters

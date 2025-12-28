@@ -31,3 +31,8 @@ export {
   runAnonymousTypeLoweringPass,
   type AnonymousTypeLoweringResult,
 } from "./anonymous-type-lowering-pass.js";
+
+export {
+  runRestTypeSynthesisPass,
+  type RestTypeSynthesisResult,
+} from "./rest-type-synthesis-pass.js";
