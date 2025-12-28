@@ -82,9 +82,6 @@ my-app/
 ### Project Init Options
 
 ```bash
-# Initialize with dotnet runtime mode
-tsonic project init --runtime dotnet
-
 # Skip installing type packages
 tsonic project init --skip-types
 
@@ -102,23 +99,24 @@ If you prefer manual setup:
 {
   "rootNamespace": "MyApp",
   "entryPoint": "src/App.ts",
-  "sourceRoot": "src",
-  "runtime": "js"
+  "sourceRoot": "src"
 }
 ```
 
 2. Create `src/App.ts`:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
+
 export function main(): void {
-  console.log("Hello!");
+  Console.WriteLine("Hello!");
 }
 ```
 
 3. Install type packages:
 
 ```bash
-npm install --save-dev @tsonic/cli @tsonic/core @tsonic/js-globals
+npm install --save-dev @tsonic/cli @tsonic/core @tsonic/globals @tsonic/dotnet
 ```
 
 ## Building and Running
@@ -170,8 +168,10 @@ my-app/
 Your TypeScript:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
+
 export function main(): void {
-  console.log("Hello!");
+  Console.WriteLine("Hello!");
 }
 ```
 
@@ -195,7 +195,7 @@ namespace MyApp.src
 - [CLI Reference](cli.md) - All commands and options
 - [Configuration](configuration.md) - tsonic.json in detail
 - [Language Guide](language.md) - TypeScript features supported
-- [Runtime Modes](runtime-modes.md) - JS vs Dotnet mode
+- [.NET Interop](dotnet-interop.md) - Using .NET libraries
 
 ### Specialized Guides
 

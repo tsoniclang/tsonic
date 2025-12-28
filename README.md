@@ -5,9 +5,7 @@ Tsonic is a TypeScript to C# compiler that produces native executables via .NET 
 ## Key Features
 
 - **TypeScript to Native**: Compile TypeScript directly to native executables
-- **Two Runtime Modes**:
-  - `js` mode: JavaScript semantics via Tsonic.JSRuntime
-  - `dotnet` mode: Direct .NET BCL access with C# semantics
+- **Direct .NET Access**: Full access to .NET BCL with native performance
 - **NativeAOT Compilation**: Single-file, self-contained executables
 - **Full .NET Interop**: Import and use any .NET library
 - **ESM Module System**: Standard ES modules with `.ts` extensions
@@ -52,36 +50,18 @@ npm run dev
 
 ```typescript
 // src/App.ts
+import { Console } from "@tsonic/dotnet/System";
+
 export function main(): void {
   const message = "Hello from Tsonic!";
-  console.log(message);
+  Console.WriteLine(message);
 
   const numbers = [1, 2, 3, 4, 5];
-  const doubled = numbers.map((n) => n * 2);
-  console.log("Doubled:", doubled.join(", "));
+  Console.WriteLine(`Numbers: ${numbers.length}`);
 }
 ```
 
-## Runtime Modes
-
-### JS Mode (Default)
-
-Uses Tsonic.JSRuntime for JavaScript-compatible semantics:
-
-```typescript
-// Arrays behave like JavaScript
-const arr: number[] = [];
-arr[10] = 42;
-console.log(arr.length); // 11 (sparse array)
-```
-
-### Dotnet Mode
-
-Direct .NET BCL access with C# semantics:
-
-```bash
-tsonic project init --runtime dotnet
-```
+### Using .NET APIs
 
 ```typescript
 import { Console } from "@tsonic/dotnet/System";
@@ -89,14 +69,12 @@ import { File } from "@tsonic/dotnet/System.IO";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
 export function main(): void {
-  // Use .NET APIs directly
+  // File I/O
   const content = File.ReadAllText("./README.md");
   Console.WriteLine(content);
 
   // .NET collections
-  const list = new List<number>();
-  list.Add(1);
-  list.Add(2);
+  const list = new List<number>([1, 2, 3]);
   Console.WriteLine(`Count: ${list.Count}`);
 }
 ```
@@ -132,7 +110,6 @@ export function main(): void {
   "sourceRoot": "src",
   "outputDirectory": "generated",
   "outputName": "app",
-  "runtime": "js",
   "optimize": "speed",
   "buildOptions": {
     "stripSymbols": true,
@@ -160,12 +137,11 @@ my-app/
 
 ## Type Packages
 
-| Package              | Description                                    |
-| -------------------- | ---------------------------------------------- |
-| `@tsonic/globals`    | Base types (Array, String, iterators, Promise) |
-| `@tsonic/js-globals` | JS mode extensions (.map, .length, console)    |
-| `@tsonic/core`       | Core types (int, float, etc.)                  |
-| `@tsonic/dotnet`     | .NET BCL type declarations                     |
+| Package           | Description                                    |
+| ----------------- | ---------------------------------------------- |
+| `@tsonic/globals` | Base types (Array, String, iterators, Promise) |
+| `@tsonic/core`    | Core types (int, float, etc.)                  |
+| `@tsonic/dotnet`  | .NET BCL type declarations                     |
 
 ## License
 

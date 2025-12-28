@@ -168,10 +168,11 @@ throw new Error("Something went wrong");
 const numbers: number[] = [1, 2, 3];
 const mixed: Array<number | string> = [1, "two", 3];
 
-// Array methods (JS mode)
-const doubled = numbers.map((n) => n * 2);
-const filtered = numbers.filter((n) => n > 1);
-const sum = numbers.reduce((a, b) => a + b, 0);
+// Arrays emit as native C# arrays (T[])
+// Use LINQ for functional-style operations
+import { Enumerable } from "@tsonic/dotnet/System.Linq";
+const doubled = Enumerable.Select(numbers, (n: number): number => n * 2);
+const filtered = Enumerable.Where(numbers, (n: number): boolean => n > 1);
 ```
 
 ### Tuples

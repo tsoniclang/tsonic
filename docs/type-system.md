@@ -51,23 +51,32 @@ const c = a / b; // Integer division in C#
 
 ## Arrays
 
-### JS Mode
+### Native Arrays
+
+Arrays emit as C# native arrays (`T[]`):
 
 ```typescript
-// Array<T> or T[]
+// Array<T> or T[] syntax both emit as native arrays
 const numbers: number[] = [1, 2, 3];
 const strings: Array<string> = ["a", "b"];
 
-// Generated: Tsonic.Runtime.Array<double>
+// Generated: double[] numbers = [1, 2, 3];
+// Generated: string[] strings = ["a", "b"];
 ```
 
-### Dotnet Mode
+### List<T> for Dynamic Collections
+
+For collections that need add/remove operations, use `List<T>`:
 
 ```typescript
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
-const list = new List<number>();
-// Generated: System.Collections.Generic.List<double>
+const list = new List<number>([1, 2, 3]);
+// Generated: new List<double>([1, 2, 3])
+
+// Or create empty and add items
+const names = new List<string>();
+names.Add("Alice");
 ```
 
 ## Tuples

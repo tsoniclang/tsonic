@@ -256,10 +256,11 @@ export declare class MyService {
 
 | TypeScript        | C#                                           |
 | ----------------- | -------------------------------------------- |
+| `T[]`             | Native array (`T[]`)                         |
+| `Array<T>`        | Native array (`T[]`)                         |
 | `List<T>`         | `System.Collections.Generic.List<T>`         |
 | `Dictionary<K,V>` | `System.Collections.Generic.Dictionary<K,V>` |
 | `HashSet<T>`      | `System.Collections.Generic.HashSet<T>`      |
-| `T[]`             | Native array or List depending on context    |
 
 ### Special Types
 

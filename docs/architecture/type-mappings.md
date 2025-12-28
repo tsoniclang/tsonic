@@ -33,32 +33,29 @@ From `@tsonic/core`:
 
 ## Array Types
 
-### JS Mode
+Arrays emit as native C# arrays:
 
 ```typescript
 // TypeScript
 const arr: number[] = [1, 2, 3];
+const strings: Array<string> = ["a", "b"];
 
 // C#
-var arr = new Tsonic.Runtime.Array<double>(1, 2, 3);
+double[] arr = [1, 2, 3];
+string[] strings = ["a", "b"];
 ```
 
-`Array<T>` in JS mode:
+Both `T[]` and `Array<T>` syntax emit as native arrays.
 
-- Supports sparse arrays
-- Has `.length` property
-- Supports `.map()`, `.filter()`, `.reduce()`, etc.
+### List<T> for Dynamic Collections
 
-### Dotnet Mode
+Use `List<T>` when you need add/remove operations:
 
 ```typescript
-// TypeScript
-const arr: number[] = [1, 2, 3];
+import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
-// C# (depending on context)
-var arr = new double[] { 1, 2, 3 };
-// or
-var arr = new System.Collections.Generic.List<double> { 1, 2, 3 };
+const list = new List<number>([1, 2, 3]);
+list.Add(4);
 ```
 
 ## Tuple Types
@@ -78,14 +75,16 @@ Tuples with 8+ elements use nested ValueTuple with TRest.
 ## Map and Set Types
 
 ```typescript
-// TypeScript (JS mode)
+// TypeScript
 const map = new Map<string, number>();
 const set = new Set<number>();
 
 // C#
-var map = new Tsonic.JSRuntime.Map<string, double>();
-var set = new Tsonic.JSRuntime.Set<double>();
+var map = new Dictionary<string, double>();
+var set = new HashSet<double>();
 ```
+
+Map generates `Dictionary<TKey, TValue>`, Set generates `HashSet<T>`.
 
 ## Generic Types
 

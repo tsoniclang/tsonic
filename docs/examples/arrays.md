@@ -5,91 +5,84 @@ Working with arrays in Tsonic.
 ## Creating Arrays
 
 ```typescript
-// Array literal
-const numbers: number[] = [1, 2, 3, 4, 5];
+// Array literal - infers type from elements
+const numbers = [1, 2, 3, 4, 5]; // int[]
+const floats = [1.5, 2.5, 3.5]; // double[]
 
-// Generic syntax
-const strings: Array<string> = ["a", "b", "c"];
+// Generic syntax (also emits as native array)
+const strings: Array<string> = ["a", "b", "c"]; // string[]
 
-// Empty array with type
+// Empty array requires type annotation
 const empty: number[] = [];
+
+// Explicit element type
+import { int } from "@tsonic/core/types.js";
+const counts: int[] = [1, 2, 3];
 ```
 
-## Array Operations (JS Mode)
+## Native Array Operations
 
-When using `runtime: "js"`, JavaScript array methods are available:
+Arrays emit as C# native arrays (`T[]`):
 
 ```typescript
-const numbers = [1, 2, 3, 4, 5];
+const items = ["a", "b", "c"];
 
-// map - transform each element (types inferred from context)
-const doubled = numbers.map((n) => n * 2);
-// [2, 4, 6, 8, 10]
+// Length property
+const len = items.length;
 
-// filter - keep matching elements (types inferred)
-const evens = numbers.filter((n) => n % 2 === 0);
-// [2, 4]
-
-// reduce - accumulate to single value (types inferred)
-const sum = numbers.reduce((acc, n) => acc + n, 0);
-// 15
-
-// forEach - iterate without return (types inferred)
-numbers.forEach((n) => {
-  console.log(n);
-});
+// Index access
+const first = items[0];
+const last = items[items.length - 1];
 ```
 
-Lambda parameter types are contextually inferred from the array element type.
+## Using List for Dynamic Collections
 
-## Mutating Methods (JS Mode)
+For dynamic collections with add/remove operations, use `List<T>`:
 
 ```typescript
-const arr = [1, 2, 3];
+import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { Console } from "@tsonic/dotnet/System";
 
-// push - add to end
-arr.push(4);
-// [1, 2, 3, 4]
+// Create list with collection initializer
+const numbers = new List<number>([1, 2, 3]);
 
-// pop - remove from end
-const last = arr.pop();
-// last = 4, arr = [1, 2, 3]
+// Or create empty and add items
+const names = new List<string>();
+names.Add("Alice");
+names.Add("Bob");
 
-// shift - remove from beginning
-const first = arr.shift();
-// first = 1, arr = [2, 3]
+// List properties and methods
+Console.WriteLine(names.Count); // 2
+const hasAlice = names.Contains("Alice"); // true
 
-// unshift - add to beginning
-arr.unshift(0);
-// [0, 2, 3]
+// Remove items
+names.Remove("Alice");
+
+// Clear all
+names.Clear();
 ```
 
-## Array Operations (dotnet Mode)
+### Collection Initializer Syntax
 
-When using `runtime: "dotnet"`, arrays use .NET methods:
+Use `new List<T>([...])` to initialize with values:
 
 ```typescript
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
-const numbers = new List<number>();
-numbers.Add(1);
-numbers.Add(2);
-numbers.Add(3);
+// Initialize with array literal
+const numbers = new List<number>([1, 2, 3, 4, 5]);
 
-// Count instead of length
-console.log(numbers.Count);
+// Initialize with variables
+const items = ["a", "b", "c"];
+const list = new List<string>(items);
 
-// Contains check
-const hasTwo = numbers.Contains(2);
-
-// Remove item
-numbers.Remove(2);
-
-// Clear all
-numbers.Clear();
+// Empty list (no initializer needed)
+const empty = new List<string>();
 ```
 
-## LINQ Operations (dotnet Mode)
+## LINQ Operations
+
+Use LINQ for functional-style array processing:
 
 ```typescript
 import { Enumerable } from "@tsonic/dotnet/System.Linq";
@@ -121,22 +114,19 @@ const allPositive = Enumerable.All(numbers, (n: number): boolean => n > 0);
 ## Iterating Arrays
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
+
 const items = ["a", "b", "c"];
 
 // For-of loop (preferred)
 for (const item of items) {
-  console.log(item);
+  Console.WriteLine(item);
 }
 
 // Index-based for loop
 for (let i = 0; i < items.length; i++) {
-  console.log(items[i]);
+  Console.WriteLine(items[i]);
 }
-
-// forEach method (JS mode)
-items.forEach((item: string): void => {
-  console.log(item);
-});
 ```
 
 ## Array Destructuring
@@ -160,6 +150,8 @@ const [head, ...tail] = numbers;
 ## Multi-dimensional Arrays
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System";
+
 const matrix: number[][] = [
   [1, 2, 3],
   [4, 5, 6],
@@ -172,7 +164,7 @@ const value = matrix[1][2]; // 6
 // Iterate
 for (const row of matrix) {
   for (const cell of row) {
-    console.log(cell);
+    Console.WriteLine(cell.toString());
   }
 }
 ```
@@ -180,6 +172,8 @@ for (const row of matrix) {
 ## Type-safe Arrays
 
 ```typescript
+import { Enumerable } from "@tsonic/dotnet/System.Linq";
+
 interface User {
   id: number;
   name: string;
@@ -190,11 +184,14 @@ const users: User[] = [
   { id: 2, name: "Bob" },
 ];
 
-// Find user by id (JS mode)
-const found = users.find((u: User): boolean => u.id === 1);
+// Find user by id
+const found = Enumerable.FirstOrDefault(
+  users,
+  (u: User): boolean => u.id === 1
+);
 
 // Map to names
-const names = users.map((u: User): string => u.name);
+const names = Enumerable.Select(users, (u: User): string => u.name);
 ```
 
 ## Spread Operator
@@ -209,10 +206,6 @@ const combined = [...arr1, ...arr2];
 
 // Copy
 const copy = [...arr1];
-
-// Insert element
-const withNew = [...arr1.slice(0, 1), 99, ...arr1.slice(1)];
-// [1, 99, 2, 3]
 ```
 
 ## Integer Arrays
@@ -223,7 +216,7 @@ Use `int` from `@tsonic/core` for integer arrays:
 import { int } from "@tsonic/core/types.js";
 
 // Integer array
-const counts: int[] = [1 as int, 2 as int, 3 as int];
+const counts: int[] = [1, 2, 3];
 
 // Array indexing with integers
 const items = ["a", "b", "c"];
@@ -237,11 +230,24 @@ const numbers = [10, 20, 30];
 const first = Enumerable.ElementAt(numbers, 0 as int);
 ```
 
+### Long Arrays
+
+Large integers automatically infer to `long[]`:
+
+```typescript
+// Large numbers cause long[] inference
+const bigNumbers = [1, 2, 2147483648];
+// Emits: long[] bigNumbers = [1L, 2L, 2147483648L];
+
+const timestamps = [1609459200000, 1609545600000];
+// Emits: long[] (JS millisecond timestamps)
+```
+
 > **See also:** [Numeric Types Guide](../numeric-types.md) for complete integer type coverage.
 
 ## Tuples
 
-Tuples are fixed-length arrays with specific element types (different from regular arrays):
+Tuples are fixed-length arrays with specific element types:
 
 ```typescript
 // Tuple - fixed length, specific types per position
@@ -259,4 +265,4 @@ const [name, age] = record;
 // point[2] = 30; // Error - tuple only has 2 elements
 ```
 
-Tuples generate `ValueTuple<T1, T2, ...>` in C#, while arrays generate `Array<T>` or `List<T>`.
+Tuples generate `ValueTuple<T1, T2, ...>` in C#.

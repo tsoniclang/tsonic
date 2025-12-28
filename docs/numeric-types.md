@@ -335,6 +335,75 @@ const left = a << 2; // 40
 const right = a >> 1; // 5
 ```
 
+## Array Type Inference
+
+Tsonic infers numeric array types based on the values in the array literal:
+
+### Integer Arrays
+
+```typescript
+// Integer literals infer to int[]
+const numbers = [1, 2, 3]; // Emits: int[] numbers = [1, 2, 3];
+
+// Floating-point values infer to double[]
+const floats = [1.5, 2.5, 3.5]; // Emits: double[] floats = [1.5, 2.5, 3.5];
+
+// Mixed int and float → double[]
+const mixed = [1, 2.5, 3]; // Emits: double[] mixed = [1, 2.5, 3];
+```
+
+### Long Arrays (Large Integers)
+
+When an integer literal exceeds the 32-bit int range (-2,147,483,648 to 2,147,483,647), the entire array is inferred as `long[]`:
+
+```typescript
+// Large number causes long[] inference
+const bigNumbers = [1, 2, 2147483648]; // Emits: long[] bigNumbers = [1L, 2L, 2147483648L];
+
+const timestamps = [1609459200000, 1609545600000]; // Emits: long[] (JS millisecond timestamps)
+```
+
+### Inference Rules
+
+| Array Contents                | Inferred Type |
+| ----------------------------- | ------------- |
+| All integers within int range | `int[]`       |
+| Any integer > int max         | `long[]`      |
+| Any floating-point value      | `double[]`    |
+| Mixed int and float           | `double[]`    |
+
+### Explicit Type Annotations
+
+Override inference with explicit type annotations:
+
+```typescript
+import { long, float } from "@tsonic/core/types.js";
+
+// Force long[] even with small values
+const smallLongs: long[] = [1, 2, 3];
+
+// Force float[] instead of double[]
+const floatArray: float[] = [1.0, 2.0, 3.0];
+
+// Force int[] (error if value exceeds range)
+const ints: int[] = [1, 2, 3];
+```
+
+### Empty Arrays
+
+Empty array literals require explicit type annotation:
+
+```typescript
+// Error: Cannot infer element type
+const arr = [];
+
+// Correct
+const numbers: int[] = [];
+const strings: string[] = [];
+```
+
+> **See also:** [TSN7417: Empty Array Literal Requires Type](diagnostics.md#tsn7417-empty-array-literal-requires-type)
+
 ## Comparison with JavaScript
 
 | Aspect      | JavaScript | Tsonic (int)        |

@@ -18,8 +18,7 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 7. [Generators](generators.md) - Sync, async, and bidirectional generators
 8. [Callbacks](callbacks.md) - Action and Func patterns
 9. [Async Patterns](async-patterns.md) - Async/await and for-await
-10. [Runtime Modes](runtime-modes.md) - JS vs dotnet mode
-11. [.NET Interop](dotnet-interop.md) - Using .NET BCL
+10. [.NET Interop](dotnet-interop.md) - Using .NET BCL
 
 ### Build
 
@@ -54,16 +53,12 @@ TypeScript → IR → C# → NativeAOT → Native Binary
 - **Full .NET Access**: Call any .NET library
 - **No Runtime Required**: Self-contained binaries
 
-### Two Runtime Modes
+### Direct .NET Access
 
-1. **JS Mode** (`runtime: "js"`): JavaScript-compatible semantics
-   - Arrays, objects, and primitives behave like JavaScript
-   - Uses Tsonic.JSRuntime for JS semantics in C#
-
-2. **Dotnet Mode** (`runtime: "dotnet"`): Direct .NET access
-   - C# semantics for .NET types
-   - Import from System.\*, System.IO, etc.
-   - Full BCL access
+- C# semantics for all types
+- Import from System.\*, System.IO, System.Linq, etc.
+- Full BCL access
+- Native arrays (`T[]`) and .NET collections
 
 ## Prerequisites
 

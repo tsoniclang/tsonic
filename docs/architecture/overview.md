@@ -100,8 +100,7 @@ IR to C# code generation:
 
 C# runtime libraries:
 
-- `Tsonic.Runtime`: Core types and utilities
-- `Tsonic.JSRuntime`: JavaScript-compatible collections
+- `Tsonic.Runtime`: Core types and utilities (IteratorResult, etc.)
 
 ## Data Flow
 
@@ -156,7 +155,6 @@ type ResolvedConfig = {
   entryPoint: string;
   sourceRoot: string;
   outputDirectory: string;
-  runtime: "js" | "dotnet";
   // ...
 };
 ```
