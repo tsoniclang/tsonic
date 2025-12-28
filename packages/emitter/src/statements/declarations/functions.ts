@@ -13,7 +13,10 @@ import {
 } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
-import { emitParameters } from "../classes.js";
+import {
+  emitParametersWithDestructuring,
+  generateParameterDestructuring,
+} from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import {
   needsBidirectionalSupport,
@@ -111,9 +114,12 @@ export const emitFunctionDeclaration = (
   );
   currentContext = typeParamContext;
 
-  // Parameters
-  const params = emitParameters(stmt.parameters, currentContext);
-  currentContext = params[1];
+  // Parameters (with destructuring support)
+  const paramsResult = emitParametersWithDestructuring(
+    stmt.parameters,
+    currentContext
+  );
+  currentContext = paramsResult.context;
 
   // Function body (not a static context - local variables)
   // Use withScoped to set typeParameters and returnType for nested expressions
@@ -151,10 +157,21 @@ export const emitFunctionDeclaration = (
     }
   }
 
-  // Inject initialization code for generators and out parameters
+  // Inject initialization code for generators, out parameters, and destructuring
   let finalBodyCode = bodyCode;
   const bodyInd = getIndent(baseBodyContext);
   const injectLines: string[] = [];
+
+  // Generate parameter destructuring statements
+  if (paramsResult.destructuringParams.length > 0) {
+    const [destructuringStmts, newCtx] = generateParameterDestructuring(
+      paramsResult.destructuringParams,
+      bodyInd,
+      currentContext
+    );
+    currentContext = newCtx;
+    injectLines.push(...destructuringStmts);
+  }
 
   // Handle bidirectional generators specially
   if (stmt.isGenerator && isBidirectional) {
@@ -257,7 +274,7 @@ export const emitFunctionDeclaration = (
 
   // Build final code with attributes (if any)
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${params[0]})${whereClause}\n${finalBodyCode}`;
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
 
   // Return context - no usings tracking needed with global:: FQN approach
   return [code, currentContext];

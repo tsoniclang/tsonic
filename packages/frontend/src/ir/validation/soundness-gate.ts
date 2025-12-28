@@ -290,13 +290,21 @@ const validatePattern = (pattern: IrPattern, ctx: ValidationContext): void => {
       break;
     case "arrayPattern":
       pattern.elements.forEach((e) => {
-        if (e) validatePattern(e, ctx);
+        if (e) {
+          validatePattern(e.pattern, ctx);
+          if (e.defaultExpr) {
+            validateExpression(e.defaultExpr, ctx);
+          }
+        }
       });
       break;
     case "objectPattern":
       pattern.properties.forEach((p) => {
         if (p.kind === "property") {
           validatePattern(p.value, ctx);
+          if (p.defaultExpr) {
+            validateExpression(p.defaultExpr, ctx);
+          }
         } else {
           validatePattern(p.pattern, ctx);
         }

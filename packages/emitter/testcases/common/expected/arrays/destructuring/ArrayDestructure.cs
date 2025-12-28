@@ -4,8 +4,9 @@ namespace TestCases.common.arrays.destructuring
         {
             public static double destructure(double[] arr)
                 {
-                var first = arr[0];
-                var second = arr[1];
+                var __arr0 = arr;
+                var first = __arr0[0];
+                var second = __arr0[1];
                 return first + second;
                 }
         }

@@ -6,7 +6,10 @@ import { IrClassMember, IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
-import { emitParameters } from "../parameters.js";
+import {
+  emitParametersWithDestructuring,
+  generateParameterDestructuring,
+} from "../parameters.js";
 
 /**
  * Emit a constructor declaration
@@ -27,15 +30,18 @@ export const emitConstructorMember = (
   const constructorName = context.className ?? "UnknownClass";
   parts.push(constructorName);
 
-  // Parameters
-  const params = emitParameters(member.parameters, currentContext);
-  currentContext = params[1];
+  // Parameters (with destructuring support)
+  const paramsResult = emitParametersWithDestructuring(
+    member.parameters,
+    currentContext
+  );
+  currentContext = paramsResult.context;
 
   // Constructor body
   if (!member.body) {
     // Abstract or interface constructor without body
     const signature = parts.join(" ");
-    const code = `${ind}${signature}(${params[0]});`;
+    const code = `${ind}${signature}(${paramsResult.parameterList});`;
     return [code, currentContext];
   }
 
@@ -62,7 +68,7 @@ export const emitConstructorMember = (
     // For now, emit a comment noting the issue
     const signature = parts.join(" ");
     const errorComment = `${ind}// ERROR: super() must be the first statement in constructor`;
-    const code = `${errorComment}\n${ind}${signature}(${params[0]})\n${ind}{\n${ind}    // Constructor body omitted due to error\n${ind}}`;
+    const code = `${errorComment}\n${ind}${signature}(${paramsResult.parameterList})\n${ind}{\n${ind}    // Constructor body omitted due to error\n${ind}}`;
     return [code, currentContext];
   }
 
@@ -77,8 +83,26 @@ export const emitConstructorMember = (
     bodyContext
   );
 
+  // Inject parameter destructuring statements at the start of the body
+  let finalBodyCode = bodyCode;
+  if (paramsResult.destructuringParams.length > 0) {
+    const bodyInd = getIndent(bodyContext);
+    const [destructuringStmts] = generateParameterDestructuring(
+      paramsResult.destructuringParams,
+      bodyInd,
+      finalContext
+    );
+
+    // Inject lines after opening brace
+    const lines = bodyCode.split("\n");
+    if (lines.length > 1) {
+      lines.splice(1, 0, ...destructuringStmts, "");
+      finalBodyCode = lines.join("\n");
+    }
+  }
+
   const signature = parts.join(" ");
-  const code = `${ind}${signature}(${params[0]})${baseCall}\n${bodyCode}`;
+  const code = `${ind}${signature}(${paramsResult.parameterList})${baseCall}\n${finalBodyCode}`;
 
   return [code, dedent(finalContext)];
 };

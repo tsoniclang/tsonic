@@ -3,7 +3,12 @@
  */
 
 export { capitalize } from "./helpers.js";
-export { emitParameters } from "./parameters.js";
+export {
+  emitParameters,
+  emitParametersWithDestructuring,
+  generateParameterDestructuring,
+  type ParameterEmissionResult,
+} from "./parameters.js";
 export { emitClassMember } from "./members.js";
 export { emitInterfaceMemberAsProperty } from "./properties.js";
 export {

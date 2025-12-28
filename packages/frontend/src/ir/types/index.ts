@@ -105,6 +105,7 @@ export type {
   IrPattern,
   IrIdentifierPattern,
   IrArrayPattern,
+  IrArrayPatternElement,
   IrObjectPattern,
   IrObjectPatternProperty,
   IrTypeParameter,

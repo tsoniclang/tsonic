@@ -3,7 +3,7 @@
  */
 
 import { IrType } from "./ir-types.js";
-import {
+import type {
   IrParameter,
   IrPattern,
   IrBinaryOperator,

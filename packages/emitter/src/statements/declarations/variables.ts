@@ -2,15 +2,12 @@
  * Variable declaration emission
  */
 
-import {
-  IrStatement,
-  IrArrayPattern,
-  NUMERIC_KIND_TO_CSHARP,
-} from "@tsonic/frontend";
+import { IrStatement, NUMERIC_KIND_TO_CSHARP } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { lowerPattern } from "../../patterns.js";
 
 /**
  * Emit a variable declaration
@@ -181,16 +178,20 @@ export const emitVariableDeclaration = (
       }
 
       declarations.push(`${ind}${varDecl};`);
-    } else if (decl.name.kind === "arrayPattern") {
-      // Array destructuring: const [a, b] = arr; -> var a = arr[0]; var b = arr[1];
+    } else if (
+      decl.name.kind === "arrayPattern" ||
+      decl.name.kind === "objectPattern"
+    ) {
+      // Destructuring patterns: use lowerPattern for full support
       if (!decl.initializer) {
-        // Array destructuring requires an initializer
+        // Destructuring requires an initializer
         declarations.push(
-          `${ind}${varDecl}/* array destructuring without initializer */;`
+          `${ind}/* destructuring without initializer - error */`
         );
         continue;
       }
 
+      // Emit the RHS expression
       const [initFrag, newContext] = emitExpression(
         decl.initializer,
         currentContext,
@@ -198,33 +199,21 @@ export const emitVariableDeclaration = (
       );
       currentContext = newContext;
 
-      const arrayPattern = decl.name as IrArrayPattern;
-      // Use native array indexer for destructuring
-      for (let i = 0; i < arrayPattern.elements.length; i++) {
-        const element = arrayPattern.elements[i];
-        if (element && element.kind === "identifierPattern") {
-          // Escape C# keywords and use integer index
-          const escapedName = escapeCSharpIdentifier(element.name);
-          const elementVarDecl = `${varDecl}${escapedName} = ${initFrag.text}[${i}];`;
-          declarations.push(`${ind}${elementVarDecl}`);
-        }
-        // Skip undefined elements (holes in array pattern)
-      }
+      // Lower the pattern to C# statements
+      const result = lowerPattern(
+        decl.name,
+        initFrag.text,
+        decl.type,
+        ind,
+        currentContext
+      );
+
+      // Add all generated statements
+      declarations.push(...result.statements);
+      currentContext = result.context;
     } else {
-      // Object destructuring or other patterns - not yet supported
-      varDecl += "/* destructuring */";
-
-      // Add initializer if present
-      if (decl.initializer) {
-        const [initFrag, newContext] = emitExpression(
-          decl.initializer,
-          currentContext,
-          decl.type
-        );
-        currentContext = newContext;
-        varDecl += ` = ${initFrag.text}`;
-      }
-
+      // Unknown pattern kind - emit placeholder
+      varDecl += "/* unsupported pattern */";
       declarations.push(`${ind}${varDecl};`);
     }
   }

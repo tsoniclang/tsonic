@@ -195,8 +195,8 @@ const emitPattern = (
       const parts: string[] = [];
       parts.push(`${indent}var __input = ${inputExpr};`);
       pattern.elements.forEach((elem, i) => {
-        if (elem && elem.kind === "identifierPattern") {
-          parts.push(`${indent}var ${elem.name} = __input[${i}];`);
+        if (elem && elem.pattern.kind === "identifierPattern") {
+          parts.push(`${indent}var ${elem.pattern.name} = __input[${i}];`);
         }
         // TODO: Handle nested patterns
       });

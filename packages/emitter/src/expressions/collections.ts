@@ -204,10 +204,10 @@ export const emitArray = (
 
   // Always emit native CLR array
   // Use new[] { } syntax for non-empty arrays (C# infers type)
-  // Use new T[0] for empty arrays
+  // Use Array.Empty<T>() for empty arrays (cached singleton, no allocation)
   const text =
     elements.length === 0
-      ? `new ${elementType}[0]`
+      ? `global::System.Array.Empty<${elementType}>()`
       : `new[] { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
