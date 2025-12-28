@@ -27,7 +27,6 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
   "outputName": "app",
   "rid": "linux-x64",
   "dotnetVersion": "net10.0",
-  "runtime": "js",
   "optimize": "speed",
   "output": {
     "type": "executable",
@@ -120,23 +119,6 @@ Name of the output executable or library.
 **Default:** `"app"`
 
 ### Runtime Configuration
-
-#### runtime
-
-Runtime mode: `"js"` or `"dotnet"`.
-
-```json
-{
-  "runtime": "js"
-}
-```
-
-| Mode     | Description                               |
-| -------- | ----------------------------------------- |
-| `js`     | JavaScript semantics via Tsonic.JSRuntime |
-| `dotnet` | Direct .NET BCL access with C# semantics  |
-
-**Default:** `"js"`
 
 #### rid
 
@@ -290,10 +272,7 @@ Paths to type declaration directories.
 }
 ```
 
-**Default:** Based on `runtime`:
-
-- JS mode: `["node_modules/@tsonic/globals", "node_modules/@tsonic/js-globals"]`
-- Dotnet mode: `["node_modules/@tsonic/globals"]`
+**Default:** `["node_modules/@tsonic/globals"]`
 
 #### dotnet.packages
 
@@ -333,15 +312,14 @@ Paths to external .NET library bindings.
 }
 ```
 
-### .NET BCL Application
+### With .NET Libraries
 
 ```json
 {
   "rootNamespace": "FileProcessor",
   "entryPoint": "src/App.ts",
-  "runtime": "dotnet",
   "dotnet": {
-    "typeRoots": ["node_modules/@tsonic/globals"]
+    "libraries": ["./libs/custom-lib"]
   }
 }
 ```
@@ -389,7 +367,6 @@ Paths to external .NET library bindings.
 {
   "rootNamespace": "WebClient",
   "entryPoint": "src/App.ts",
-  "runtime": "dotnet",
   "dotnet": {
     "packages": [
       { "name": "System.Net.Http.Json", "version": "8.0.0" },

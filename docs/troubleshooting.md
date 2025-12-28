@@ -113,7 +113,7 @@ import { User } from "./User";
 1. Check TypeScript errors in output
 2. Ensure type packages are installed:
    ```bash
-   npm install --save-dev @tsonic/core @tsonic/js-globals
+   npm install --save-dev @tsonic/cli @tsonic/core @tsonic/globals @tsonic/dotnet
    ```
 3. Run emit only to see generated C#:
    ```bash

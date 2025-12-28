@@ -171,7 +171,7 @@ NativeAOT provides:
 ### Reference
 
 - [Type Mappings](type-mappings.md) - TypeScript to C# conversion
-- [Runtime](runtime.md) - Tsonic.Runtime and JSRuntime libraries
+- [Runtime](runtime.md) - Tsonic.Runtime library
 
 ## Development
 

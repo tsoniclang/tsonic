@@ -439,6 +439,38 @@ function getValue<T extends struct>(value: T | null): T {
 
 > **See also:** [Troubleshooting Guide](troubleshooting.md#nullable-generics) for more patterns.
 
+### TSN7417: Empty Array Literal Requires Type
+
+Empty array literals must have a type annotation. Tsonic cannot infer the element type of an empty array.
+
+```typescript
+// Error
+const arr = []; // What type are the elements?
+
+// Correct
+const arr: number[] = [];
+const strings: string[] = [];
+const items: Array<User> = [];
+```
+
+**Why this is required:**
+
+In TypeScript, `[]` is inferred as `any[]` or contextually typed. In Tsonic, we compile to C# where arrays have fixed element types at compile time. Without a type annotation, we cannot determine what C# type to generate.
+
+**Patterns that work without annotation:**
+
+```typescript
+// Non-empty arrays infer the type from elements
+const numbers = [1, 2, 3]; // Inferred as int[]
+const mixed = [1, 2.5, 3]; // Inferred as double[]
+const largeNumbers = [1, 2147483648]; // Inferred as long[] (element exceeds int range)
+
+// Function return types provide context
+function getNumbers(): number[] {
+  return []; // OK - contextual type from return type
+}
+```
+
 ### TSN7420: ref/out/In Are Parameter Modifiers
 
 `ref`, `out`, and `In` are parameter passing modifiers, not types.

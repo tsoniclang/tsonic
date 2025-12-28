@@ -181,7 +181,6 @@ Generates C# code from IR:
 const { files } = emitCSharpFiles(modules, {
   rootNamespace,
   entryPointPath,
-  runtime,
 });
 ```
 
@@ -201,12 +200,12 @@ C# File:
 
 ### Type Emission
 
-| IR Type                      | C# Type                                          |
-| ---------------------------- | ------------------------------------------------ |
-| `primitiveType("number")`    | `double`                                         |
-| `primitiveType("string")`    | `string`                                         |
-| `arrayType(T)`               | `Tsonic.Runtime.Array<T>` (js) or `T[]` (dotnet) |
-| `referenceType("List", [T])` | `System.Collections.Generic.List<T>`             |
+| IR Type                      | C# Type                              |
+| ---------------------------- | ------------------------------------ |
+| `primitiveType("number")`    | `double`                             |
+| `primitiveType("string")`    | `string`                             |
+| `arrayType(T)`               | `T[]` (native array)                 |
+| `referenceType("List", [T])` | `System.Collections.Generic.List<T>` |
 
 ### Expression Emission
 

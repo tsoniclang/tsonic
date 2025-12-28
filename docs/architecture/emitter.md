@@ -12,7 +12,6 @@ Batch emit multiple modules:
 const result = emitCSharpFiles(modules, {
   rootNamespace: "MyApp",
   entryPointPath: "/path/to/src/App.ts",
-  runtime: "js",
 });
 
 if (result.ok) {
@@ -30,7 +29,6 @@ Single module emission:
 ```typescript
 const code = emitModule(module, {
   rootNamespace: "MyApp",
-  runtime: "js",
 });
 ```
 
@@ -41,7 +39,6 @@ The emitter maintains context during generation:
 ```typescript
 type EmitterContext = {
   readonly indent: number;
-  readonly runtime: "js" | "dotnet";
   readonly rootNamespace: string;
   readonly currentModule?: IrModule;
   readonly moduleMap?: ModuleMap;
@@ -147,12 +144,11 @@ const emitReferenceType = (
 
 ### Array Types
 
+Arrays always emit as native C# arrays:
+
 ```typescript
 const emitArrayType = (type: IrArrayType, ctx: EmitterContext): string => {
   const elementType = emitType(type.elementType, ctx);
-  if (ctx.runtime === "js") {
-    return `Tsonic.Runtime.Array<${elementType}>`;
-  }
   return `${elementType}[]`;
 };
 ```
@@ -629,16 +625,14 @@ The emitter uses golden tests to verify C# output.
 
 ```
 packages/emitter/testcases/
-├── common/                    # Run in both js and dotnet modes
-│   ├── types/
-│   │   ├── generics/
-│   │   ├── type-assertions/
-│   │   └── anonymous-objects/
-│   ├── expressions/
-│   └── attributes/
-└── js-only/                   # Only run in js mode
-    ├── real-world/
-    └── arrays/
+└── common/                    # All test cases
+    ├── types/
+    │   ├── generics/
+    │   ├── type-assertions/
+    │   └── anonymous-objects/
+    ├── expressions/
+    ├── arrays/
+    └── attributes/
 ```
 
 ### Test Discovery
@@ -646,23 +640,12 @@ packages/emitter/testcases/
 `golden-tests/discovery.ts`:
 
 - Discovers test cases from `testcases/` directory
-- Filters by mode (`common`, `js-only`, `dotnet-only`)
 - Generates test suites dynamically
 
 ```typescript
-const discoverTests = (baseDir: string, mode: "js" | "dotnet"): TestCase[] => {
+const discoverTests = (baseDir: string): TestCase[] => {
   const tests: TestCase[] = [];
-
-  // Always include common/
   tests.push(...findTestsIn(path.join(baseDir, "common")));
-
-  // Include mode-specific tests
-  if (mode === "js") {
-    tests.push(...findTestsIn(path.join(baseDir, "js-only")));
-  } else {
-    tests.push(...findTestsIn(path.join(baseDir, "dotnet-only")));
-  }
-
   return tests;
 };
 ```

@@ -22,21 +22,20 @@ tsonic project init [options]
 
 | Option                  | Description                       | Default |
 | ----------------------- | --------------------------------- | ------- |
-| `--runtime <mode>`      | Runtime mode: `js` or `dotnet`    | `js`    |
 | `--skip-types`          | Skip installing type declarations | `false` |
 | `--types-version <ver>` | Version of type declarations      | Latest  |
 
 **Examples:**
 
 ```bash
-# Initialize with defaults (JS mode)
+# Initialize a new project
 tsonic project init
-
-# Initialize with dotnet mode
-tsonic project init --runtime dotnet
 
 # Skip type package installation
 tsonic project init --skip-types
+
+# Use specific type package version
+tsonic project init --types-version 0.2.0
 ```
 
 **Created Files:**
@@ -278,14 +277,13 @@ dotnet nuget push generated/bin/Release/MyLib.1.0.0.nupkg \
 
 These options work with all commands:
 
-| Option             | Short | Description      |
-| ------------------ | ----- | ---------------- |
-| `--help`           | `-h`  | Show help        |
-| `--version`        | `-v`  | Show version     |
-| `--verbose`        | `-V`  | Verbose output   |
-| `--quiet`          | `-q`  | Suppress output  |
-| `--config <file>`  | `-c`  | Config file path |
-| `--runtime <mode>` |       | Runtime mode     |
+| Option            | Short | Description      |
+| ----------------- | ----- | ---------------- |
+| `--help`          | `-h`  | Show help        |
+| `--version`       | `-v`  | Show version     |
+| `--verbose`       | `-V`  | Verbose output   |
+| `--quiet`         | `-q`  | Suppress output  |
+| `--config <file>` | `-c`  | Config file path |
 
 ## Exit Codes
 
@@ -318,7 +316,7 @@ Tsonic looks for configuration in this order:
 ```bash
 # Create project
 mkdir my-cli && cd my-cli
-tsonic project init --runtime dotnet
+tsonic project init
 
 # Edit src/App.ts
 # ...

@@ -13,7 +13,7 @@ const result = buildModuleDependencyGraph(entryPoint, {
   projectRoot: "/path/to/project",
   sourceRoot: "src",
   rootNamespace: "MyApp",
-  typeRoots: ["node_modules/@tsonic/js-globals"],
+  typeRoots: ["node_modules/@tsonic/globals"],
 });
 
 if (result.ok) {

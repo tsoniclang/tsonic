@@ -1,13 +1,12 @@
 # Runtime Libraries
 
-Tsonic uses two .NET runtime libraries to support TypeScript semantics.
+Tsonic uses a .NET runtime library to support TypeScript semantics.
 
 ## Overview
 
-| Package            | Purpose                        | Required          |
-| ------------------ | ------------------------------ | ----------------- |
-| `Tsonic.Runtime`   | TypeScript language primitives | Always            |
-| `Tsonic.JSRuntime` | JavaScript built-in semantics  | Only in `js` mode |
+| Package          | Purpose                        | Required |
+| ---------------- | ------------------------------ | -------- |
+| `Tsonic.Runtime` | TypeScript language primitives | Always   |
 
 ## Tsonic.Runtime
 
@@ -237,359 +236,37 @@ namespace Tsonic.Runtime
 }
 ```
 
-## Tsonic.JSRuntime
+## Runtime Dependency
 
-JavaScript semantics for built-in types. Only used in `js` mode.
-
-### Design: Extension Methods
-
-JSRuntime uses extension methods on native .NET types, not wrapper classes:
-
-```csharp
-// Extension method approach (used)
-using Tsonic.JSRuntime;
-List<string> names = new() { "Alice", "Bob" };
-var upper = names.map(name => name.toUpperCase());
-
-// NOT wrapper approach
-// JSArray<string> names = new() { ... };
-```
-
-Benefits:
-
-- Full .NET interop without conversions
-- Better performance (no wrapper overhead)
-- AOT-friendly (no dynamic dispatch)
-
-### Array Extensions
-
-Functional methods:
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class Array
-    {
-        public static List<TResult> map<T, TResult>(
-            this List<T> arr,
-            Func<T, TResult> mapper
-        )
-        {
-            var result = new List<TResult>(arr.Count);
-            for (int i = 0; i < arr.Count; i++)
-            {
-                result.Add(mapper(arr[i]));
-            }
-            return result;
-        }
-
-        public static List<T> filter<T>(
-            this List<T> arr,
-            Func<T, bool> predicate
-        )
-        {
-            var result = new List<T>();
-            foreach (var item in arr)
-            {
-                if (predicate(item)) result.Add(item);
-            }
-            return result;
-        }
-
-        public static TResult reduce<T, TResult>(
-            this List<T> arr,
-            Func<TResult, T, TResult> reducer,
-            TResult initial
-        )
-        {
-            var accumulator = initial;
-            foreach (var item in arr)
-            {
-                accumulator = reducer(accumulator, item);
-            }
-            return accumulator;
-        }
-    }
-}
-```
-
-Mutating methods:
-
-```csharp
-public static void push<T>(this List<T> arr, params T[] items)
-{
-    arr.AddRange(items);
-}
-
-public static T? pop<T>(this List<T> arr)
-{
-    if (arr.Count == 0) return default;
-    var index = arr.Count - 1;
-    var value = arr[index];
-    arr.RemoveAt(index);
-    return value;
-}
-
-public static T? shift<T>(this List<T> arr)
-{
-    if (arr.Count == 0) return default;
-    var value = arr[0];
-    arr.RemoveAt(0);
-    return value;
-}
-
-public static void unshift<T>(this List<T> arr, params T[] items)
-{
-    arr.InsertRange(0, items);
-}
-```
-
-### String Extensions
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class String
-    {
-        public static string slice(this string str, int start, int? end = null)
-        {
-            var length = str.Length;
-            var actualStart = start < 0 ? Math.Max(0, length + start) : Math.Min(start, length);
-            var actualEnd = end.HasValue
-                ? (end.Value < 0 ? Math.Max(0, length + end.Value) : Math.Min(end.Value, length))
-                : length;
-
-            if (actualStart >= actualEnd) return "";
-            return str.Substring(actualStart, actualEnd - actualStart);
-        }
-
-        public static string charAt(this string str, int index)
-        {
-            if (index < 0 || index >= str.Length) return "";
-            return str[index].ToString();
-        }
-
-        public static string toUpperCase(this string str) => str.ToUpper();
-        public static string toLowerCase(this string str) => str.ToLower();
-        public static bool includes(this string str, string searchString) =>
-            str.Contains(searchString);
-    }
-}
-```
-
-### Math Class
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class Math
-    {
-        private static readonly Random _random = new();
-
-        public static double floor(double value) => System.Math.Floor(value);
-        public static double ceil(double value) => System.Math.Ceiling(value);
-        public static double abs(double value) => System.Math.Abs(value);
-
-        // JavaScript half-up rounding (0.5 -> 1)
-        public static double round(double value) => System.Math.Floor(value + 0.5);
-
-        public static double random() => _random.NextDouble();
-
-        public static double max(params double[] values)
-        {
-            if (values.Length == 0) return double.NegativeInfinity;
-            return values.Max();
-        }
-
-        public static double min(params double[] values)
-        {
-            if (values.Length == 0) return double.PositiveInfinity;
-            return values.Min();
-        }
-
-        public static double sqrt(double value) => System.Math.Sqrt(value);
-        public static double pow(double x, double y) => System.Math.Pow(x, y);
-    }
-}
-```
-
-### console Class
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class console
-    {
-        public static void log(params object?[] args)
-        {
-            Console.WriteLine(string.Join(" ", args.Select(Stringify)));
-        }
-
-        public static void error(params object?[] args)
-        {
-            Console.Error.WriteLine(string.Join(" ", args.Select(Stringify)));
-        }
-
-        public static void warn(params object?[] args)
-        {
-            Console.WriteLine($"Warning: {string.Join(" ", args.Select(Stringify))}");
-        }
-
-        private static string Stringify(object? value)
-        {
-            if (value == null) return "null";
-            if (value is string s) return s;
-            if (value is double d) return d.ToString("G");
-            if (value is bool b) return b ? "true" : "false";
-            return value.ToString() ?? "";
-        }
-    }
-}
-```
-
-### JSON Class
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class JSON
-    {
-        public static string stringify(object? value)
-        {
-            return System.Text.Json.JsonSerializer.Serialize(value);
-        }
-
-        public static T? parse<T>(string json)
-        {
-            return System.Text.Json.JsonSerializer.Deserialize<T>(json);
-        }
-    }
-}
-```
-
-### Map Class
-
-TypeScript `Map<K, V>` maps to `Tsonic.JSRuntime.Map<K, V>`:
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public class Map<TKey, TValue> where TKey : notnull
-    {
-        private readonly Dictionary<TKey, TValue> _dict = new();
-
-        public void set(TKey key, TValue value) => _dict[key] = value;
-        public TValue? get(TKey key) => _dict.TryGetValue(key, out var v) ? v : default;
-        public bool has(TKey key) => _dict.ContainsKey(key);
-        public bool delete(TKey key) => _dict.Remove(key);
-        public void clear() => _dict.Clear();
-        public int size => _dict.Count;
-    }
-}
-```
-
-### Set Class
-
-TypeScript `Set<T>` maps to `HashSet<T>` with extension methods:
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class SetExtensions
-    {
-        public static void add<T>(this HashSet<T> set, T item) => set.Add(item);
-        public static bool has<T>(this HashSet<T> set, T item) => set.Contains(item);
-        public static bool delete<T>(this HashSet<T> set, T item) => set.Remove(item);
-        public static int size<T>(this HashSet<T> set) => set.Count;
-    }
-}
-```
-
-### Global Functions
-
-```csharp
-namespace Tsonic.JSRuntime
-{
-    public static class Globals
-    {
-        public static double parseInt(string str, int radix = 10)
-        {
-            try
-            {
-                return Convert.ToInt32(str.Trim(), radix);
-            }
-            catch
-            {
-                return double.NaN;
-            }
-        }
-
-        public static double parseFloat(string str)
-        {
-            if (double.TryParse(str.Trim(), out var result))
-                return result;
-            return double.NaN;
-        }
-
-        public static bool isNaN(double value) => double.IsNaN(value);
-        public static bool isFinite(double value) => !double.IsInfinity(value) && !double.IsNaN(value);
-    }
-}
-```
-
-## Mode Behavior
-
-### dotnet Mode (Default)
-
-No JSRuntime dependency:
+Projects include only Tsonic.Runtime:
 
 ```xml
 <PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
-<!-- NO Tsonic.JSRuntime reference -->
 ```
 
-Direct BCL calls:
+Arrays compile to native C# arrays:
 
 ```typescript
 // TypeScript
 const arr = [1, 2, 3];
-arr.push(4);
 ```
 
 ```csharp
-// Generated C# (mode: dotnet)
-var arr = new List<double> { 1.0, 2.0, 3.0 };
-arr.Add(4.0);  // Direct BCL method
+// Generated C#
+int[] arr = [1, 2, 3];
 ```
 
-### js Mode
-
-Both dependencies:
-
-```xml
-<PackageReference Include="Tsonic.Runtime" Version="1.0.0" />
-<PackageReference Include="Tsonic.JSRuntime" Version="1.0.0" />
-```
-
-JS semantics via extension methods:
+For dynamic collections, use List<T> explicitly:
 
 ```typescript
-// TypeScript
-const arr = [1, 2, 3];
-arr.push(4);
-```
-
-```csharp
-// Generated C# (mode: js)
-using Tsonic.JSRuntime;
-
-var arr = new List<double> { 1.0, 2.0, 3.0 };
-arr.push(4.0);  // Extension method from JSRuntime
+import { List } from "@tsonic/dotnet/System.Collections.Generic";
+const list = new List<number>([1, 2, 3]);
+list.Add(4);
 ```
 
 ## NativeAOT Compatibility
 
-Both runtime packages are fully NativeAOT compatible:
+Tsonic.Runtime is fully NativeAOT compatible:
 
 - Minimal reflection (only for structural cloning with proper annotations)
 - No dynamic dispatch
@@ -618,24 +295,9 @@ tsonic-runtime/
     Structural.cs
     DictionaryAdapter.cs
     Operators.cs
-    DynamicObject.cs
+    IteratorResult.cs
     Tsonic.Runtime.csproj
   tests/Tsonic.Runtime.Tests/
 ```
 
-### Tsonic.JSRuntime
-
-```
-js-runtime/
-  src/Tsonic.JSRuntime/
-    Array.cs
-    String.cs
-    Math.cs
-    console.cs
-    JSON.cs
-    Globals.cs
-    Tsonic.JSRuntime.csproj
-  tests/Tsonic.JSRuntime.Tests/
-```
-
-Both are separate repositories published as NuGet packages.
+Tsonic.Runtime is published as a NuGet package.
