@@ -98,15 +98,21 @@ export const bigIntFitsInKind = (value: bigint, kind: NumericKind): boolean => {
  *
  * Rules:
  * - Integer literals (no decimal, no exponent, fits in Int32) → Int32
- * - Everything else (floating point, large integers) → Double
+ * - Integer literals (fits in Int64 but not Int32) → Int64
+ * - Everything else (floating point, very large integers) → Double
  *
  * This function is used at IR build time to attach numericIntent to literals.
  */
 export const inferNumericKindFromRaw = (raw: string): NumericKind => {
   if (isValidIntegerLexeme(raw)) {
     const bigValue = parseBigIntFromRaw(raw);
-    if (bigValue !== undefined && bigIntFitsInKind(bigValue, "Int32")) {
-      return "Int32";
+    if (bigValue !== undefined) {
+      if (bigIntFitsInKind(bigValue, "Int32")) {
+        return "Int32";
+      }
+      if (bigIntFitsInKind(bigValue, "Int64")) {
+        return "Int64";
+      }
     }
   }
   return "Double";

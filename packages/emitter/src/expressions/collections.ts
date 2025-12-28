@@ -102,12 +102,20 @@ export const emitArray = (
         );
 
         if (allNumbers) {
-          // Infer int vs double from numericIntent (based on raw lexeme)
-          // All Int32 → int, any Double → double
+          // Infer int vs long vs double from numericIntent (based on raw lexeme)
+          // Any Double → double, any Int64 → long, otherwise → int
           const hasDouble = literals.some(
             (lit) => lit.numericIntent === "Double"
           );
-          elementType = hasDouble ? "double" : "int";
+          const hasLong = literals.some((lit) => lit.numericIntent === "Int64");
+
+          if (hasDouble) {
+            elementType = "double";
+          } else if (hasLong) {
+            elementType = "long";
+          } else {
+            elementType = "int";
+          }
         }
         // Check if all are strings
         else if (literals.every((lit) => typeof lit.value === "string")) {

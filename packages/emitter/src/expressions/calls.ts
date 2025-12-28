@@ -360,6 +360,93 @@ export const emitCall = (
 };
 
 /**
+ * Check if a new expression is new List<T>([...]) with an array literal argument
+ * This pattern should be emitted as collection initializer: new List<T> { ... }
+ */
+const isListConstructorWithArrayLiteral = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  // Check if callee is identifier "List"
+  if (expr.callee.kind !== "identifier" || expr.callee.name !== "List") {
+    return false;
+  }
+
+  // Must have exactly one type argument
+  if (!expr.typeArguments || expr.typeArguments.length !== 1) {
+    return false;
+  }
+
+  // Must have exactly one argument that is an array literal
+  if (expr.arguments.length !== 1) {
+    return false;
+  }
+
+  const arg = expr.arguments[0];
+  if (!arg || arg.kind === "spread") {
+    return false;
+  }
+
+  // The argument must be an array literal
+  return arg.kind === "array";
+};
+
+/**
+ * Emit new List<T>([...]) as collection initializer: new List<T> { ... }
+ *
+ * Examples:
+ *   new List<int>([1, 2, 3])      → new List<int> { 1, 2, 3 }
+ *   new List<string>(["a", "b"]) → new List<string> { "a", "b" }
+ *   new List<User>([u1, u2])     → new List<User> { u1, u2 }
+ */
+const emitListCollectionInitializer = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  let currentContext = context;
+
+  // Get the element type
+  const elementType = expr.typeArguments![0]!;
+  const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
+  currentContext = typeContext;
+
+  // Get the array literal argument
+  const arrayLiteral = expr.arguments[0] as Extract<
+    IrExpression,
+    { kind: "array" }
+  >;
+
+  // Emit each element
+  const elements: string[] = [];
+  for (const element of arrayLiteral.elements) {
+    if (element === undefined) {
+      continue; // Skip undefined slots (sparse arrays)
+    }
+    if (element.kind === "spread") {
+      // Spread in collection initializer - not supported, fall back to constructor
+      // This shouldn't happen in well-formed code, but handle gracefully
+      const [spreadFrag, ctx] = emitExpression(
+        element.expression,
+        currentContext
+      );
+      elements.push(`..${spreadFrag.text}`);
+      currentContext = ctx;
+    } else {
+      const [elemFrag, ctx] = emitExpression(element, currentContext);
+      elements.push(elemFrag.text);
+      currentContext = ctx;
+    }
+  }
+
+  // Use collection initializer syntax
+  const text =
+    elements.length === 0
+      ? `new List<${elementTypeStr}>()`
+      : `new List<${elementTypeStr}> { ${elements.join(", ")} }`;
+
+  return [{ text }, currentContext];
+};
+
+/**
  * Check if a new expression is new Array<T>(size)
  * Returns the element type if it is, undefined otherwise
  */
@@ -424,6 +511,11 @@ export const emitNew = (
   // Special case: new Array<T>(size) → new T[size]
   if (isArrayConstructorCall(expr)) {
     return emitArrayConstructor(expr, context);
+  }
+
+  // Special case: new List<T>([...]) → new List<T> { ... }
+  if (isListConstructorWithArrayLiteral(expr)) {
+    return emitListCollectionInitializer(expr, context);
   }
 
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
