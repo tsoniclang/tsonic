@@ -1,6 +1,6 @@
-# Tsonic E2E Test Infrastructure
+# Tsonic Test Infrastructure
 
-This directory contains end-to-end test scripts for the Tsonic compiler, testing the complete pipeline from TypeScript source to NativeAOT executable.
+This directory contains end-to-end test fixtures for the Tsonic compiler, testing the complete pipeline from TypeScript source to NativeAOT executable.
 
 ## Structure
 
@@ -13,34 +13,34 @@ test/
 │   ├── linq-dotnet/             # LINQ operations test
 │   └── ...                      # More test fixtures
 ├── scripts/
-│   ├── run-all.sh               # Run all E2E tests
-│   ├── run-dotnet.sh            # Run dotnet mode tests
-│   ├── run-negative.sh          # Run negative tests (expect failures)
-│   └── run-single.sh            # Run a single test fixture
+│   └── run-all.sh               # Unified test runner
 └── README.md
 ```
 
 ## Running Tests
 
 ```bash
-# Run all E2E tests
+# Run all tests (unit, golden, E2E dotnet, negative)
 ./test/scripts/run-all.sh
 
-# Run dotnet mode tests only
-./test/scripts/run-dotnet.sh
-
-# Run negative tests (expected failures)
-./test/scripts/run-negative.sh
+# Quick mode - unit and golden tests only (skip E2E)
+./test/scripts/run-all.sh --quick
 ```
+
+The unified test runner:
+1. Runs `npm test` (unit tests + golden tests across all packages)
+2. Runs E2E dotnet tests (compile and execute each fixture)
+3. Runs negative tests (verify expected compilation failures)
+4. Prints a summary report with pass/fail counts
 
 ## Test Fixtures
 
 Each fixture is a complete Tsonic project with:
 
 - `src/index.ts` - TypeScript source code
-- `tsonic.json` or `tsonic.dotnet.json` - Project configuration
+- `tsonic.dotnet.json` - Project configuration
 - `expected-output.txt` - Expected console output (optional)
-- `package.json` - NPM dependencies (optional, for @tsonic/core)
+- `package.json` - NPM dependencies (optional, for @tsonic packages)
 
 ## How It Works
 
@@ -48,7 +48,7 @@ Each fixture is a complete Tsonic project with:
    - Installs NPM dependencies if needed
    - Builds the project with `tsonic build`
    - Runs the generated executable
-   - Validates output against expected output
+   - Validates output against expected output (if provided)
 2. **Reporting**: Shows pass/fail status and summary
 
 ## Adding New Tests
@@ -58,7 +58,7 @@ Each fixture is a complete Tsonic project with:
 3. Create `tsonic.dotnet.json` configuration
 4. Optionally add:
    - `expected-output.txt` for output validation
-   - `package.json` if using @tsonic/core
+   - `package.json` if using @tsonic packages
    - `e2e.meta.json` with `{"expectFailure": true}` for negative tests
 
 ## Negative Tests
@@ -66,4 +66,4 @@ Each fixture is a complete Tsonic project with:
 Negative tests verify that certain invalid constructs are rejected. They have:
 
 - `e2e.meta.json` with `{"expectFailure": true}`
-- The test passes if the build fails with expected errors
+- The test passes if the build fails (compilation error expected)
