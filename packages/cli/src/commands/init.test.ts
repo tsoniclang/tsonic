@@ -18,6 +18,7 @@ describe("Init Command", () => {
         expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.not.include("@tsonic/globals-pure");
         expect(packageNames).to.not.include("@tsonic/nodejs");
+        expect(packageNames).to.not.include("@tsonic/js");
       });
 
       it("should set typeRoots to globals", () => {
@@ -37,12 +38,45 @@ describe("Init Command", () => {
         expect(packageNames).to.include("@tsonic/core");
         expect(packageNames).to.include("@tsonic/globals");
         expect(packageNames).to.include("@tsonic/nodejs");
+        expect(packageNames).to.not.include("@tsonic/js");
+      });
+    });
+
+    describe("js flag", () => {
+      it("should include js package when js flag is true", () => {
+        const result = getTypePackageInfo(false, true);
+        const packageNames = result.packages.map((p) => p.name);
+
+        expect(packageNames).to.include("tsonic");
+        expect(packageNames).to.include("@tsonic/core");
+        expect(packageNames).to.include("@tsonic/globals");
+        expect(packageNames).to.include("@tsonic/js");
+        expect(packageNames).to.not.include("@tsonic/nodejs");
+      });
+
+      it("should not add js to typeRoots (js uses explicit imports)", () => {
+        const result = getTypePackageInfo(false, true);
+        // typeRoots should remain unchanged - only globals provides ambient types
+        expect(result.typeRoots).to.deep.equal([
+          "node_modules/@tsonic/globals",
+        ]);
+      });
+
+      it("should include both nodejs and js packages when both flags are true", () => {
+        const result = getTypePackageInfo(true, true);
+        const packageNames = result.packages.map((p) => p.name);
+
+        expect(packageNames).to.include("tsonic");
+        expect(packageNames).to.include("@tsonic/core");
+        expect(packageNames).to.include("@tsonic/globals");
+        expect(packageNames).to.include("@tsonic/nodejs");
+        expect(packageNames).to.include("@tsonic/js");
       });
     });
 
     describe("pure flag", () => {
       it("should use globals-pure when pure flag is true", () => {
-        const result = getTypePackageInfo(false, true);
+        const result = getTypePackageInfo(false, false, true);
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
@@ -55,13 +89,24 @@ describe("Init Command", () => {
       });
 
       it("should use globals-pure with nodejs when both flags are true", () => {
-        const result = getTypePackageInfo(true, true);
+        const result = getTypePackageInfo(true, false, true);
         const packageNames = result.packages.map((p) => p.name);
 
         expect(packageNames).to.include("tsonic");
         expect(packageNames).to.include("@tsonic/core");
         expect(packageNames).to.include("@tsonic/globals-pure");
         expect(packageNames).to.include("@tsonic/nodejs");
+        expect(packageNames).to.not.include("@tsonic/globals");
+      });
+
+      it("should use globals-pure with js when both flags are true", () => {
+        const result = getTypePackageInfo(false, true, true);
+        const packageNames = result.packages.map((p) => p.name);
+
+        expect(packageNames).to.include("tsonic");
+        expect(packageNames).to.include("@tsonic/core");
+        expect(packageNames).to.include("@tsonic/globals-pure");
+        expect(packageNames).to.include("@tsonic/js");
         expect(packageNames).to.not.include("@tsonic/globals");
       });
     });
@@ -85,6 +130,16 @@ describe("Init Command", () => {
           throw new Error("@tsonic/nodejs package not found");
         }
         expect(nodejsPkg.version).to.equal("latest");
+      });
+
+      it("should use latest version for js package", () => {
+        const result = getTypePackageInfo(false, true);
+        const jsPkg = result.packages.find((p) => p.name === "@tsonic/js");
+
+        if (jsPkg === undefined) {
+          throw new Error("@tsonic/js package not found");
+        }
+        expect(jsPkg.version).to.equal("latest");
       });
     });
   });

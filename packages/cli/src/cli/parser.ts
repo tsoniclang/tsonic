@@ -113,6 +113,9 @@ export const parseArgs = (
       case "--nodejs":
         options.nodejs = true;
         break;
+      case "--js":
+        options.js = true;
+        break;
       case "--pure":
         options.pure = true;
         break;
