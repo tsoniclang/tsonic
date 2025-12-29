@@ -5,10 +5,13 @@
  * we recover the original numeric intent from the declaration AST.
  *
  * These tests verify:
- * - Property access recovery (arr.length → int)
- * - Call return type recovery (arr.indexOf() → int)
+ * - Property access recovery (arr.length, string.length → int)
+ * - Call return type recovery (string.indexOf() → int)
  * - Negative cases (plain number stays number)
  * - Guardrails (unions, complex types are NOT recovered)
+ *
+ * Note: .NET arrays don't have indexOf method (use Array.IndexOf or LINQ).
+ * String has indexOf from System.String.
  */
 
 import { describe, it } from "mocha";
@@ -191,17 +194,19 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
   });
 
   describe("Call Return Type Recovery", () => {
-    it("should recover 'int' from arr.indexOf() return type", () => {
+    it("should recover 'int' from string.indexOf() return type", () => {
+      // Note: Using string.indexOf() because .NET arrays don't have indexOf method
+      // (use Array.IndexOf static method or LINQ instead)
       const code = `
-        export function findIndex(arr: string[], item: string): number {
-          return arr.indexOf(item);
+        export function findIndex(str: string, search: string): number {
+          return str.indexOf(search);
         }
       `;
 
       const { modules, ok } = compileWithGlobals(code);
       expect(ok).to.be.true;
 
-      // Find arr.indexOf() call expression
+      // Find str.indexOf() call expression
       const indexOfCall = findExpression(modules, (expr) => {
         if (expr.kind !== "call") return false;
         if (expr.callee.kind !== "memberAccess") return false;
@@ -280,12 +285,13 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
       ).to.be.true;
     });
 
-    it("should pass numeric proof for arr.indexOf() as index", () => {
-      // Another common pattern: using indexOf result as array index
+    it("should pass numeric proof for string.indexOf() as index", () => {
+      // Using string.indexOf() result as string char index
+      // Note: .NET arrays don't have indexOf method, use string instead
       const code = `
-        export function getAtIndex(arr: string[], search: string): string {
-          const idx = arr.indexOf(search);
-          return arr[idx];
+        export function getCharAtIndex(str: string, search: string): string {
+          const idx = str.indexOf(search);
+          return str[idx];
         }
       `;
 
