@@ -317,6 +317,32 @@ const emitVariableDeclaration = (
 };
 ```
 
+### Pattern Lowering
+
+`patterns.ts`:
+
+Lowers destructuring patterns to C# statements:
+
+- **Array patterns**: Generates indexed access with temporary variables
+- **Object patterns**: Generates property access with temporary variables
+- **Rest patterns**: Uses `ArrayHelpers.Slice` for arrays, synthesized types for objects
+- **Default values**: Uses null-coalescing operator (`??`)
+- **Nested patterns**: Recursively lowers nested structures
+
+```typescript
+// Input: const [first, ...rest] = arr;
+// Output:
+//   var __arr0 = arr;
+//   var first = __arr0[0];
+//   var rest = Tsonic.Runtime.ArrayHelpers.Slice(__arr0, 1);
+```
+
+Lowering functions:
+- `lowerPattern()` - General pattern lowering for declarations
+- `lowerForOfPattern()` - Pattern lowering in for-of loops
+- `lowerParameterPattern()` - Parameter destructuring in functions
+- `lowerAssignmentPattern()` - Assignment expression destructuring
+
 ### Function Declarations
 
 `statements/declarations/functions.ts`:

@@ -471,6 +471,61 @@ public static Animal castFromObject(object obj)
 }
 ```
 
+### Safe Casting with trycast
+
+Use `trycast<T>(value)` for safe type casting that returns `null` on failure instead of throwing:
+
+```typescript
+class Animal {
+  name!: string;
+}
+
+class Dog extends Animal {
+  breed!: string;
+}
+
+function tryGetDog(animal: Animal): Dog | null {
+  return trycast<Dog>(animal);
+}
+
+function process(animal: Animal): void {
+  const dog = trycast<Dog>(animal);
+  if (dog !== null) {
+    console.log(dog.breed);
+  }
+}
+```
+
+Generates C# `as` operator:
+
+```csharp
+public static Dog? tryGetDog(Animal animal)
+{
+    return animal as Dog;
+}
+
+public static void process(Animal animal)
+{
+    var dog = animal as Dog;
+    if (dog != null)
+    {
+        Console.WriteLine(dog.breed);
+    }
+}
+```
+
+**Difference from type assertions:**
+
+| Syntax | C# Code | On Failure |
+|--------|---------|------------|
+| `value as T` | `(T)value` | Throws `InvalidCastException` |
+| `trycast<T>(value)` | `value as T` | Returns `null` |
+
+Use `trycast` when:
+- The cast might fail at runtime
+- You want to check before using the result
+- You're implementing type guards or polymorphic patterns
+
 ## Anonymous Objects
 
 Tsonic automatically synthesizes nominal classes for anonymous object type literals.

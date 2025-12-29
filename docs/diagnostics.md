@@ -483,34 +483,70 @@ function foo(x: ref<number>) {} // Wrong - ref is not a type
 // These are handled via metadata, not TypeScript syntax
 ```
 
+### TSN7421: Anonymous Object Type Not Lowered
+
+Internal compiler error indicating an anonymous object type was not properly lowered to a synthesized class. This is a compiler bug - please report it.
+
+### TSN7422: Object Rest Requires Finite Object Shape
+
+Object rest patterns (`...rest`) require a known, finite set of properties to determine what goes in the rest object.
+
+```typescript
+// Error: Cannot determine rest shape
+function process(obj: Record<string, unknown>): void {
+  const { id, ...rest } = obj; // Error - infinite keys possible
+}
+
+// OK: Finite shape known
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+function process(user: User): void {
+  const { id, ...rest } = user; // OK - rest is { name, email }
+}
+```
+
+### TSN7423: Unsupported Destructuring Pattern
+
+The destructuring pattern is not supported. This may include:
+- Computed property keys in destructuring
+- Patterns that cannot be lowered to C#
+
 ## TSN5xxx: Numeric Proof Errors
 
-### TSN5101-TSN5109: Numeric Type Errors
+### TSN5101-TSN5110: Numeric Type Errors
 
 Errors related to numeric type narrowing and proof:
 
-| Code    | Error                                  |
-| ------- | -------------------------------------- |
-| TSN5101 | Cannot prove numeric narrowing is safe |
-| TSN5102 | Numeric literal out of range           |
-| TSN5103 | Mixed numeric types in expression      |
-| TSN5104 | Cannot infer numeric type              |
-| TSN5105 | Numeric operation requires same types  |
-| TSN5106 | Integer division by zero               |
-| TSN5107 | Numeric overflow possible              |
-| TSN5108 | Cannot narrow to target numeric type   |
-| TSN5109 | Numeric type mismatch                  |
+| Code    | Error                                          |
+| ------- | ---------------------------------------------- |
+| TSN5101 | Cannot prove numeric narrowing is safe         |
+| TSN5102 | Numeric literal out of range                   |
+| TSN5103 | Binary operation produces wrong numeric type   |
+| TSN5104 | Cannot narrow from source to target type       |
+| TSN5105 | Unproven numeric type at parameter boundary    |
+| TSN5106 | Unproven numeric type at return boundary       |
+| TSN5107 | Array index must be Int32                      |
+| TSN5108 | Value exceeds JS safe integer range            |
+| TSN5109 | Computed access kind not classified (ICE)      |
+| TSN5110 | Integer literal cannot be implicitly converted |
 
-## TSN6xxx: Generic Specialization Errors
+## TSN6xxx: Yield Lowering Errors
 
-### TSN6101: Specialization Error
+### TSN6101: Yield Expression in Unsupported Position
 
-Errors during generic type specialization:
+The yield expression is in a position that cannot be lowered to C# iterators.
 
-| Code    | Error                                 |
-| ------- | ------------------------------------- |
-| TSN6101 | Cannot specialize generic type        |
-| TSN6199 | Generic specialization internal error |
+```typescript
+// Error: yield in expression position
+const x = (yield 1) + 2; // Not supported
+
+// OK: yield as statement
+yield 1;
+const x = yield; // Bidirectional yield
+```
 
 ## TSN9xxx: Metadata Loading
 

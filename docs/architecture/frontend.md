@@ -173,6 +173,23 @@ Transforms anonymous object type literals into synthesized nominal classes:
 //         class getPoint_Return { x: number; y: number }
 ```
 
+### Rest Type Synthesis Pass
+
+`ir/validation/rest-type-synthesis-pass.ts`:
+
+Handles object rest patterns (`{ a, ...rest }`) by synthesizing types for rest properties:
+
+- Identifies all object destructuring patterns with rest properties
+- Computes remaining members by excluding picked keys from source type
+- Generates unique synthetic class names via content hashing
+- Creates synthetic class declarations with computed properties
+- Attaches shape info to rest properties for emitter use
+
+```typescript
+// Before: const { id, ...rest } = { id: 1, name: "Alice", age: 30 }
+// Synthesizes: class __Rest_xyz with { name: string; age: number }
+```
+
 ### Attribute Collection Pass
 
 `ir/validation/attribute-collection-pass.ts`:
