@@ -16,9 +16,9 @@ namespace TestCases.common.types.variabledecls
 
             public static readonly short explicitShort = 1000;
 
-            public static readonly long explicitLong = 1000000;
+            public static readonly long explicitLong = 1000000L;
 
-            public static readonly float explicitFloat = 1.5;
+            public static readonly float explicitFloat = 1.5f;
 
             public static readonly double explicitDouble = 1.5;
 
@@ -32,9 +32,9 @@ namespace TestCases.common.types.variabledecls
 
             public static readonly short assertedShort = 1000;
 
-            public static readonly long assertedLong = 1000000;
+            public static readonly long assertedLong = 1000000L;
 
-            public static readonly float assertedFloat = 1.5;
+            public static readonly float assertedFloat = 1.5f;
 
             public static readonly double assertedDouble = 42;
 
@@ -44,12 +44,12 @@ namespace TestCases.common.types.variabledecls
                 var localInferredInt = 42;
                 var localInferredString = "local";
                 var localInferredBool = true;
-                int localExplicitInt = 100;
+                var localExplicitInt = 100;
                 byte localExplicitByte = 200;
-                float localExplicitFloat = 3.14;
-                string localExplicitString = "explicit";
+                var localExplicitFloat = 3.14f;
+                var localExplicitString = "explicit";
                 var localAssertedInt = 200;
-                var localAssertedFloat = 3.14;
+                var localAssertedFloat = 3.14f;
                 var localAssertedDouble = 100;
                 }
 

@@ -1,0 +1,1 @@
+- DoubleArray.ts: should emit number[] as double[] with integer literals

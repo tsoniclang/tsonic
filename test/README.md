@@ -28,6 +28,7 @@ test/
 ```
 
 The unified test runner:
+
 1. Runs `npm test` (unit tests + golden tests across all packages)
 2. Runs E2E dotnet tests (compile and execute each fixture)
 3. Runs negative tests (verify expected compilation failures)

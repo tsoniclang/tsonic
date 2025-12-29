@@ -2,12 +2,53 @@
  * Variable declaration emission
  */
 
-import { IrStatement, NUMERIC_KIND_TO_CSHARP } from "@tsonic/frontend";
+import { IrStatement, IrType, NUMERIC_KIND_TO_CSHARP } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/type-resolution.js";
+
+/**
+ * Types that require explicit LHS type because C# has no literal suffix for them.
+ * For these types, `var x = 200;` would infer `int`, not the intended type.
+ */
+const TYPES_NEEDING_EXPLICIT_DECL = new Set([
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+]);
+
+/**
+ * Check if a type requires explicit local variable declaration.
+ * Returns true for types like byte, sbyte, short, ushort that have no C# suffix.
+ * Resolves type aliases to get the underlying type.
+ */
+const needsExplicitLocalType = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  // Resolve aliases (e.g., local type aliases)
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  // Check primitive types
+  if (resolved.kind === "primitiveType") {
+    return TYPES_NEEDING_EXPLICIT_DECL.has(resolved.name);
+  }
+
+  // Check reference types - these may be CLR types from @tsonic/core
+  // (byte, sbyte, short, ushort are imported as reference types, not primitives)
+  if (resolved.kind === "referenceType") {
+    return TYPES_NEEDING_EXPLICIT_DECL.has(resolved.name);
+  }
+
+  return false;
+};
 
 /**
  * Emit a variable declaration
@@ -54,13 +95,8 @@ export const emitVariableDeclaration = (
       );
       currentContext = newContext;
       varDecl += `${typeName} `;
-    } else if (
-      decl.type &&
-      !(decl.type.kind === "functionType" && !context.isStatic)
-    ) {
-      // Emit explicit type UNLESS it's a function type in a non-static context
-      // (let C# infer lambda types in local contexts)
-      // Note: For module-level exports, type is always set (from annotation or inference)
+    } else if (context.isStatic && decl.type) {
+      // Static fields: emit explicit type (required - can't use 'var' for fields)
       const [typeName, newContext] = emitType(decl.type, currentContext);
       currentContext = newContext;
       varDecl += `${typeName} `;
@@ -157,7 +193,18 @@ export const emitVariableDeclaration = (
       } else {
         varDecl += "object ";
       }
+    } else if (
+      !context.isStatic &&
+      decl.type &&
+      needsExplicitLocalType(decl.type, currentContext)
+    ) {
+      // Local variable with type that has no C# literal suffix (byte, sbyte, short, ushort)
+      // Must emit explicit type since `var x = 200;` would infer `int`
+      const [typeName, newContext] = emitType(decl.type, currentContext);
+      currentContext = newContext;
+      varDecl += `${typeName} `;
     } else {
+      // Local variables use `var` - idiomatic C# when RHS is self-documenting
       varDecl += "var ";
     }
 

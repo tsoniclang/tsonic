@@ -644,7 +644,28 @@ const processExpression = (
       const processedLeft = processExpression(expr.left, ctx);
       const processedRight = processExpression(expr.right, ctx);
 
-      // Infer numeric kind from processed operands
+      // Comparison operators return boolean, not numeric - skip numeric annotation
+      const comparisonOperators = new Set([
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "==",
+        "!=",
+        "===",
+        "!==",
+      ]);
+
+      if (comparisonOperators.has(expr.operator)) {
+        // Comparison operators produce boolean, NOT numeric types
+        return {
+          ...expr,
+          left: processedLeft,
+          right: processedRight,
+        };
+      }
+
+      // Infer numeric kind from processed operands (only for arithmetic/bitwise ops)
       const leftKind = inferNumericKind(processedLeft, ctx);
       const rightKind = inferNumericKind(processedRight, ctx);
 

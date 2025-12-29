@@ -48,8 +48,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Native array syntax - inferred element type
-    expect(code).to.include("new[] { 1, 2, 3 }");
+    // Native array syntax with explicit type - number maps to double
+    expect(code).to.include("new double[] { 1, 2, 3 }");
   });
 
   it("should emit sparse array with holes", () => {
@@ -91,8 +91,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Native array syntax with default for holes
-    expect(code).to.include("new[] { 1, default, 3 }");
+    // Native array syntax with explicit type and default for holes
+    expect(code).to.include("new double[] { 1, default, 3 }");
   });
 
   it("should emit array with string elements", () => {
@@ -133,8 +133,8 @@ describe("Array Emission", () => {
 
     const code = emitModule(module);
 
-    // Native array with string elements
-    expect(code).to.include('new[] { "hello", "world" }');
+    // Native array with explicit string type
+    expect(code).to.include('new string[] { "hello", "world" }');
   });
 
   it("should emit empty array", () => {

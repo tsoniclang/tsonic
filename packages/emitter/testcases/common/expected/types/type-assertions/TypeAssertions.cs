@@ -17,9 +17,9 @@ namespace TestCases.common.types.typeassertions
 
                 public static readonly short shortFromLiteral = 1000;
 
-                public static readonly long longFromLiteral = 1000000;
+                public static readonly long longFromLiteral = 1000000L;
 
-                public static readonly float floatFromLiteral = 1.5;
+                public static readonly float floatFromLiteral = 1.5f;
 
                 public static readonly double doubleFromLiteral = 1.5;
 
