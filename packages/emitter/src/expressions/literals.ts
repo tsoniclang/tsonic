@@ -1,11 +1,10 @@
 /**
  * Literal expression emitters
  *
- * NEW NUMERIC SPEC:
- * - Integer literals (42) have type int
- * - Floating literals (42.0, 3.14, 1e3) have type double
- * - The raw lexeme determines the C# type, NOT contextual typing
- * - No automatic widening from int to double based on expected type
+ * EXPLICIT TYPE EMISSION:
+ * - All numeric literals get explicit type suffixes based on expected type
+ * - long → L, uint → U, ulong → UL, float → f, decimal → m
+ * - int, byte, sbyte, short, ushort, double → no suffix needed
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
@@ -13,7 +12,34 @@ import { EmitterContext, CSharpFragment } from "../types.js";
 import {
   containsTypeParameter,
   isDefinitelyValueType,
+  stripNullish,
+  resolveTypeAlias,
 } from "../core/type-resolution.js";
+
+/**
+ * Get the C# literal suffix for a numeric type.
+ * Returns the suffix to append to numeric literals for explicit typing.
+ *
+ * @param typeName - The primitive type name (e.g., "long", "float")
+ * @returns The suffix string (e.g., "L", "f") or empty string if no suffix needed
+ */
+const getNumericSuffix = (typeName: string): string => {
+  switch (typeName) {
+    case "long":
+      return "L";
+    case "uint":
+      return "U";
+    case "ulong":
+      return "UL";
+    case "float":
+      return "f";
+    case "decimal":
+      return "m";
+    // int, byte, sbyte, short, ushort, double - no suffix needed
+    default:
+      return "";
+  }
+};
 
 /**
  * Emit a literal value (string, number, boolean, null, undefined)
@@ -63,17 +89,50 @@ export const emitLiteral = (
   }
 
   if (typeof value === "number") {
-    // NEW NUMERIC SPEC: Use raw lexeme to preserve user's literal form.
-    // - Integer literals (42) → type int in C#
-    // - Floating literals (42.0, 3.14, 1e3) → type double in C#
-    // The raw lexeme determines the C# type, NOT contextual typing.
-    if (expr.raw !== undefined) {
-      return [{ text: expr.raw }, context];
+    // Get the base literal text from raw lexeme or fallback to String(value)
+    const baseLiteral = expr.raw ?? String(value);
+
+    // Add type suffix based on expected type for explicit typing
+    // This ensures literals match the declared type (e.g., long[] gets 1L, 2L, 3L)
+    if (expectedType) {
+      // Resolve aliases and strip nullish to get the effective type
+      const effectiveType = resolveTypeAlias(
+        stripNullish(expectedType),
+        context
+      );
+
+      // Extract type name from primitiveType or referenceType
+      const typeName =
+        effectiveType.kind === "primitiveType"
+          ? effectiveType.name
+          : effectiveType.kind === "referenceType"
+            ? effectiveType.name
+            : undefined;
+
+      if (typeName) {
+        const suffix = getNumericSuffix(typeName);
+        if (suffix) {
+          // Validate decimal literals - reject exponent/hex/binary forms
+          // C# decimal literals do not support these notations
+          if (typeName === "decimal") {
+            const hasExponent = /[eE]/.test(baseLiteral);
+            const hasHex = /^0[xX]/.test(baseLiteral);
+            const hasBinary = /^0[bB]/.test(baseLiteral);
+            if (hasExponent || hasHex || hasBinary) {
+              // ICE: Frontend should have rejected this with a diagnostic
+              throw new Error(
+                `ICE: Invalid decimal literal '${baseLiteral}' - ` +
+                  `decimal does not support ${hasExponent ? "exponent" : hasHex ? "hex" : "binary"} notation. ` +
+                  `Frontend validation should have caught this.`
+              );
+            }
+          }
+          return [{ text: baseLiteral + suffix }, context];
+        }
+      }
     }
 
-    // Fallback if raw is not available (shouldn't happen for source literals)
-    // Use String(value) which will produce integer form for whole numbers
-    return [{ text: String(value) }, context];
+    return [{ text: baseLiteral }, context];
   }
 
   if (typeof value === "boolean") {

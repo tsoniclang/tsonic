@@ -295,20 +295,30 @@ const { host = "localhost", port = 8080 } = config;
 
 ```typescript
 // Nested object destructuring
-const { address: { city, zip } } = user;
+const {
+  address: { city, zip },
+} = user;
 
 // Nested array destructuring
-const [[a, b], [c, d]] = [[1, 2], [3, 4]];
+const [[a, b], [c, d]] = [
+  [1, 2],
+  [3, 4],
+];
 
 // Mixed nesting
-const { items: [first, second] } = order;
+const {
+  items: [first, second],
+} = order;
 ```
 
 #### For-of Destructuring
 
 ```typescript
 // Destructure in for-of loops
-const entries = [["a", 1], ["b", 2]];
+const entries = [
+  ["a", 1],
+  ["b", 2],
+];
 for (const [key, value] of entries) {
   console.log(`${key}: ${value}`);
 }
@@ -345,7 +355,7 @@ function connect({ host = "localhost", port = 80 }: Config): void {
 let a: number, b: number;
 
 // Assign via destructuring (parentheses required)
-([a, b] = [1, 2]);
+[a, b] = [1, 2];
 ({ x: a, y: b } = point);
 ```
 

@@ -516,12 +516,13 @@ public static void process(Animal animal)
 
 **Difference from type assertions:**
 
-| Syntax | C# Code | On Failure |
-|--------|---------|------------|
-| `value as T` | `(T)value` | Throws `InvalidCastException` |
-| `trycast<T>(value)` | `value as T` | Returns `null` |
+| Syntax              | C# Code      | On Failure                    |
+| ------------------- | ------------ | ----------------------------- |
+| `value as T`        | `(T)value`   | Throws `InvalidCastException` |
+| `trycast<T>(value)` | `value as T` | Returns `null`                |
 
 Use `trycast` when:
+
 - The cast might fail at runtime
 - You want to check before using the result
 - You're implementing type guards or polymorphic patterns

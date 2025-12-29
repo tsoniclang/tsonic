@@ -338,6 +338,7 @@ Lowers destructuring patterns to C# statements:
 ```
 
 Lowering functions:
+
 - `lowerPattern()` - General pattern lowering for declarations
 - `lowerForOfPattern()` - Pattern lowering in for-of loops
 - `lowerParameterPattern()` - Parameter destructuring in functions

@@ -53,26 +53,36 @@ export const emitArray = (
   const elements: string[] = [];
 
   // Determine element type from expected type or inferred type
+  // We track both the IR type (for threading to elements) and C# string (for emission)
   let elementType = "object";
+  let expectedElementType: IrType | undefined = undefined;
 
   // Priority 1: Use explicit type annotation if provided (e.g., const arr: number[] = [1, 2, 3])
   // This ensures the array type matches the declared variable type
+  // IMPORTANT: Resolve aliases and strip nullish to handle type Longs = long[] etc.
   if (expectedType) {
-    if (expectedType.kind === "arrayType") {
+    const resolvedExpected = resolveTypeAlias(
+      stripNullish(expectedType),
+      context
+    );
+
+    if (resolvedExpected.kind === "arrayType") {
+      expectedElementType = resolvedExpected.elementType;
       const [elemTypeStr, newContext] = emitType(
-        expectedType.elementType,
+        resolvedExpected.elementType,
         currentContext
       );
       elementType = elemTypeStr;
       currentContext = newContext;
     } else if (
-      expectedType.kind === "referenceType" &&
-      expectedType.name === "Array" &&
-      expectedType.typeArguments &&
-      expectedType.typeArguments.length > 0
+      resolvedExpected.kind === "referenceType" &&
+      resolvedExpected.name === "Array" &&
+      resolvedExpected.typeArguments &&
+      resolvedExpected.typeArguments.length > 0
     ) {
-      const firstArg = expectedType.typeArguments[0];
+      const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
+        expectedElementType = firstArg;
         const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
         elementType = elemTypeStr;
         currentContext = newContext;
@@ -130,8 +140,10 @@ export const emitArray = (
   }
 
   // Priority 3: Fall back to inferred type from expression
+  // IMPORTANT: Also set expectedElementType so literals get proper suffixes
   if (elementType === "object") {
     if (expr.inferredType && expr.inferredType.kind === "arrayType") {
+      expectedElementType = expr.inferredType.elementType;
       const [elemTypeStr, newContext] = emitType(
         expr.inferredType.elementType,
         currentContext
@@ -196,19 +208,23 @@ export const emitArray = (
       // Spread mixed with other elements - not yet supported
       elements.push("/* ...spread */");
     } else {
-      const [elemFrag, newContext] = emitExpression(element, currentContext);
+      const [elemFrag, newContext] = emitExpression(
+        element,
+        currentContext,
+        expectedElementType
+      );
       elements.push(elemFrag.text);
       currentContext = newContext;
     }
   }
 
   // Always emit native CLR array
-  // Use new[] { } syntax for non-empty arrays (C# infers type)
+  // Use new T[] { } syntax for non-empty arrays (explicit type for correct suffix handling)
   // Use Array.Empty<T>() for empty arrays (cached singleton, no allocation)
   const text =
     elements.length === 0
       ? `global::System.Array.Empty<${elementType}>()`
-      : `new[] { ${elements.join(", ")} }`;
+      : `new ${elementType}[] { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

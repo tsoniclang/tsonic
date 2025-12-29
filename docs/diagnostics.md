@@ -511,6 +511,7 @@ function process(user: User): void {
 ### TSN7423: Unsupported Destructuring Pattern
 
 The destructuring pattern is not supported. This may include:
+
 - Computed property keys in destructuring
 - Patterns that cannot be lowered to C#
 

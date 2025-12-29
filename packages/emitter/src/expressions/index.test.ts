@@ -85,8 +85,8 @@ describe("Expression Emission", () => {
 
     const result = emitModule(module);
 
-    // Native array syntax
-    expect(result).to.include("new[] { 1, 2, 3 }");
+    // Native array syntax with explicit type
+    expect(result).to.include("new int[] { 1, 2, 3 }");
   });
 
   it("should emit template literals", () => {

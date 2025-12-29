@@ -9,7 +9,7 @@ namespace TestCases.common.arrays.multidimensional
 
             public static double[][] createMatrix()
                 {
-                return new[] { new[] { 1, 2 }, new[] { 3, 4 } };
+                return new double[][] { new double[] { 1, 2 }, new double[] { 3, 4 } };
                 }
         }
 }

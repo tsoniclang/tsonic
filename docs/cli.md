@@ -20,13 +20,13 @@ tsonic project init [options]
 
 **Options:**
 
-| Option                  | Description                                   | Default |
-| ----------------------- | --------------------------------------------- | ------- |
-| `--js`                  | Enable JS stdlib (installs @tsonic/js)        | `false` |
-| `--nodejs`              | Enable Node.js interop (installs @tsonic/nodejs) | `false` |
+| Option                  | Description                                               | Default |
+| ----------------------- | --------------------------------------------------------- | ------- |
+| `--js`                  | Enable JS stdlib (installs @tsonic/js)                    | `false` |
+| `--nodejs`              | Enable Node.js interop (installs @tsonic/nodejs)          | `false` |
 | `--pure`                | Use PascalCase CLR naming (installs @tsonic/globals-pure) | `false` |
-| `--skip-types`          | Skip installing type declarations             | `false` |
-| `--types-version <ver>` | Version of type declarations                  | Latest  |
+| `--skip-types`          | Skip installing type declarations                         | `false` |
+| `--types-version <ver>` | Version of type declarations                              | Latest  |
 
 **Examples:**
 
@@ -300,17 +300,17 @@ These options work with all commands:
 
 ## Exit Codes
 
-| Code | Meaning                  |
-| ---- | ------------------------ |
-| 0    | Success                  |
-| 1    | Generic error            |
-| 2    | Unknown command          |
-| 3    | No tsonic.json found     |
-| 5    | Generate/emit failed     |
-| 6    | Build failed             |
-| 7    | Run failed               |
-| 8    | .NET SDK not found       |
-| 9    | Pack failed              |
+| Code | Meaning              |
+| ---- | -------------------- |
+| 0    | Success              |
+| 1    | Generic error        |
+| 2    | Unknown command      |
+| 3    | No tsonic.json found |
+| 5    | Generate/emit failed |
+| 6    | Build failed         |
+| 7    | Run failed           |
+| 8    | .NET SDK not found   |
+| 9    | Pack failed          |
 
 ## Environment Variables
 

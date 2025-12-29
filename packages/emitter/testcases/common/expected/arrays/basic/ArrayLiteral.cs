@@ -2,9 +2,9 @@ namespace TestCases.common.arrays.basic
 {
         public static class ArrayLiteral
         {
-            public static double[] createArray()
+            public static int[] createArray()
                 {
-                var arr = new[] { 1, 2, 3 };
+                var arr = new int[] { 1, 2, 3 };
                 return arr;
                 }
         }
