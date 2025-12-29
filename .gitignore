@@ -165,4 +165,7 @@ vite.config.ts.timestamp-*
 
 # Tsonic build output
 **/out/
-**/generated/
+# Test fixture build artifacts
+test/fixtures/**/generated/
+test/fixtures/**/out/
+test/fixtures/**/package-lock.json
