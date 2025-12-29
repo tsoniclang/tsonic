@@ -20,16 +20,28 @@ tsonic project init [options]
 
 **Options:**
 
-| Option                  | Description                       | Default |
-| ----------------------- | --------------------------------- | ------- |
-| `--skip-types`          | Skip installing type declarations | `false` |
-| `--types-version <ver>` | Version of type declarations      | Latest  |
+| Option                  | Description                                   | Default |
+| ----------------------- | --------------------------------------------- | ------- |
+| `--js`                  | Enable JS stdlib (installs @tsonic/js)        | `false` |
+| `--nodejs`              | Enable Node.js interop (installs @tsonic/nodejs) | `false` |
+| `--pure`                | Use PascalCase CLR naming (installs @tsonic/globals-pure) | `false` |
+| `--skip-types`          | Skip installing type declarations             | `false` |
+| `--types-version <ver>` | Version of type declarations                  | Latest  |
 
 **Examples:**
 
 ```bash
 # Initialize a new project
 tsonic project init
+
+# Enable JS stdlib (setTimeout, Date, etc.)
+tsonic project init --js
+
+# Enable Node.js interop (fs, path, etc.)
+tsonic project init --nodejs
+
+# Use PascalCase for BCL methods (WriteLine instead of writeLine)
+tsonic project init --pure
 
 # Skip type package installation
 tsonic project init --skip-types
@@ -46,12 +58,13 @@ tsonic project init --types-version 0.2.0
 - `.gitignore` - Ignores build artifacts
 - `README.md` - Project readme
 
-### emit
+### emit / generate
 
-Generate C# code from TypeScript without compiling.
+Generate C# code from TypeScript without compiling. Both `emit` and `generate` are aliases for the same command.
 
 ```bash
 tsonic emit <entry> [options]
+tsonic generate <entry> [options]
 ```
 
 **Arguments:**
@@ -287,12 +300,17 @@ These options work with all commands:
 
 ## Exit Codes
 
-| Code | Meaning                 |
-| ---- | ----------------------- |
-| 0    | Success                 |
-| 1    | Build/compilation error |
-| 2    | Configuration error     |
-| 3    | Runtime error           |
+| Code | Meaning                  |
+| ---- | ------------------------ |
+| 0    | Success                  |
+| 1    | Generic error            |
+| 2    | Unknown command          |
+| 3    | No tsonic.json found     |
+| 5    | Generate/emit failed     |
+| 6    | Build failed             |
+| 7    | Run failed               |
+| 8    | .NET SDK not found       |
+| 9    | Pack failed              |
 
 ## Environment Variables
 

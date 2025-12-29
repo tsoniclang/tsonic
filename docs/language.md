@@ -253,13 +253,100 @@ const multiline = `
 
 ### Destructuring
 
-```typescript
-// Array destructuring
-const [first, second, ...rest] = [1, 2, 3, 4, 5];
+Tsonic supports full JavaScript destructuring patterns with array and object destructuring.
 
-// Object destructuring
+#### Array Destructuring
+
+```typescript
+// Basic array destructuring
+const [first, second] = [1, 2];
+
+// Rest patterns
+const [head, ...tail] = [1, 2, 3, 4, 5];
+// head = 1, tail = [2, 3, 4, 5]
+
+// Holes (skip elements)
+const [a, , c] = [1, 2, 3];
+// a = 1, c = 3 (second element skipped)
+
+// Default values
+const [x = 10, y = 20] = [5];
+// x = 5, y = 20 (default used for missing element)
+```
+
+#### Object Destructuring
+
+```typescript
+// Basic object destructuring
 const { name, age } = person;
-const { x: posX, y: posY } = point;
+
+// Property renaming
+const { firstName: name, lastName: surname } = user;
+
+// Rest properties
+const { id, ...rest } = { id: 1, name: "Alice", age: 30 };
+// id = 1, rest = { name: "Alice", age: 30 }
+
+// Default values
+const { host = "localhost", port = 8080 } = config;
+```
+
+#### Nested Patterns
+
+```typescript
+// Nested object destructuring
+const { address: { city, zip } } = user;
+
+// Nested array destructuring
+const [[a, b], [c, d]] = [[1, 2], [3, 4]];
+
+// Mixed nesting
+const { items: [first, second] } = order;
+```
+
+#### For-of Destructuring
+
+```typescript
+// Destructure in for-of loops
+const entries = [["a", 1], ["b", 2]];
+for (const [key, value] of entries) {
+  console.log(`${key}: ${value}`);
+}
+
+// Object destructuring in for-of
+const users = [{ name: "Alice" }, { name: "Bob" }];
+for (const { name } of users) {
+  console.log(name);
+}
+```
+
+#### Parameter Destructuring
+
+```typescript
+// Function parameter destructuring
+function greet({ name, age }: Person): void {
+  console.log(`Hello ${name}, you are ${age}`);
+}
+
+// Array parameter destructuring
+function swap([a, b]: [number, number]): [number, number] {
+  return [b, a];
+}
+
+// With defaults
+function connect({ host = "localhost", port = 80 }: Config): void {
+  // ...
+}
+```
+
+#### Assignment Destructuring
+
+```typescript
+let a: number, b: number;
+
+// Assign via destructuring (parentheses required)
+([a, b] = [1, 2]);
+({ x: a, y: b } = point);
 ```
 
 ### Optional Chaining and Nullish Coalescing

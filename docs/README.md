@@ -34,7 +34,7 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 
 - [Architecture Documentation](architecture/README.md) - For contributors and advanced users
 - [GitHub Repository](https://github.com/tsoniclang/tsonic)
-- [npm Package](https://www.npmjs.com/package/@tsonic/cli)
+- [npm Package](https://www.npmjs.com/package/tsonic)
 
 ## Overview
 
@@ -76,7 +76,7 @@ dotnet --version # 10.0.x
 ## Installation
 
 ```bash
-npm install -g @tsonic/cli
+npm install -g tsonic
 tsonic --version
 ```
 
