@@ -143,10 +143,16 @@ export {
 } from "./numeric-helpers.js";
 
 // IR type substitution (deterministic type parameter substitution)
-export type { TypeSubstitutionMap } from "./ir-substitution.js";
+export type {
+  TypeSubstitutionMap,
+  SubstitutionResult,
+  CompleteSubstitution,
+  CompleteSubstitutionResult,
+} from "./ir-substitution.js";
 export {
   containsTypeParameter,
   unify,
+  typesEqual,
   substituteIrType,
   buildIrSubstitutionMap,
   buildSubstitutionFromExplicitTypeArgs,

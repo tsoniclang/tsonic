@@ -473,21 +473,19 @@ export const convertMemberExpression = (
     // Try to resolve hierarchical binding
     const memberBinding = resolveHierarchicalBinding(object, propertyName);
 
-    // Property type resolution priority:
-    // 1. Declared property type from AST (preserves CLR aliases)
-    // 2. For built-in types (string, number, etc.), use TS inference as acceptable fallback
-    //    because these have stable semantics and don't involve CLR aliases
-    // 3. For generic receivers, use receiver's IR type to instantiate
+    // DETERMINISTIC TYPING: Property type comes ONLY from declared TypeNodes.
+    // NO fallback to TS inference (getInferredType) - that loses CLR type aliases.
     //
-    // Note: We allow TS inference fallback for primitives (string.length, etc.)
-    // because those are built-in and don't have user-defined CLR type aliases.
-    // For user-defined generics, getDeclaredPropertyType handles substitution.
+    // Built-ins like string.length work because globals declare them with proper types.
+    // If getDeclaredPropertyType returns undefined, it means the property declaration
+    // is missing - use unknownType as poison so validation can emit TSN5203.
     const declaredType = getDeclaredPropertyType(node, checker);
 
-    // Use declared type if available, otherwise fall back to TS inference
-    // The fallback is acceptable for built-in types; for user-defined generics
-    // getDeclaredPropertyType handles the substitution properly
-    const propertyInferredType = declaredType ?? inferredType;
+    // NO TS FALLBACK. Use unknownType poison if declared type not available.
+    // This ensures we never use TS computed types for C# emission.
+    const propertyInferredType = declaredType ?? {
+      kind: "unknownType" as const,
+    };
 
     return {
       kind: "memberAccess",

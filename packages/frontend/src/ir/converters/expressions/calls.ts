@@ -648,11 +648,12 @@ export const convertCallExpression = (
     extractArgumentPassingFromBinding(callee, node.arguments.length) ??
     extractArgumentPassing(node, checker);
 
-  // Use declared return type from signature.
-  // IMPORTANT: We do NOT fall back to TS inference (getInferredType) because
-  // TS loses CLR type aliases. If getDeclaredReturnType returns undefined,
-  // the inferredType will be undefined and downstream validation can flag it.
-  const inferredType = getDeclaredReturnType(node, checker);
+  // DETERMINISTIC TYPING: Return type comes ONLY from declared TypeNodes.
+  // NO fallback to TS inference - that loses CLR type aliases.
+  // If getDeclaredReturnType returns undefined, use unknownType as poison
+  // so validation can emit TSN5201.
+  const declaredReturnType = getDeclaredReturnType(node, checker);
+  const inferredType = declaredReturnType ?? { kind: "unknownType" as const };
 
   return {
     kind: "call",
@@ -688,6 +689,34 @@ export const convertCallExpression = (
  * Constructors don't have return type annotations - the constructed type IS
  * the class/type being instantiated.
  */
+/**
+ * Walk a property access chain and build a qualified name.
+ * For `Foo.Bar.Baz`, returns "Foo.Bar.Baz" by walking the AST identifiers.
+ * This avoids getText() which bakes source formatting into type identity.
+ */
+const buildQualifiedName = (expr: ts.Expression): string | undefined => {
+  if (ts.isIdentifier(expr)) {
+    return expr.text;
+  }
+
+  if (ts.isPropertyAccessExpression(expr)) {
+    const parts: string[] = [];
+    let current: ts.Expression = expr;
+
+    while (ts.isPropertyAccessExpression(current)) {
+      parts.unshift(current.name.text);
+      current = current.expression;
+    }
+
+    if (ts.isIdentifier(current)) {
+      parts.unshift(current.text);
+      return parts.join(".");
+    }
+  }
+
+  return undefined;
+};
+
 const getConstructedType = (
   node: ts.NewExpression,
   checker: ts.TypeChecker
@@ -695,14 +724,8 @@ const getConstructedType = (
   // The expression in `new Foo<T>()` is the type reference
   // If type arguments are explicit, use them to build the type
   if (node.typeArguments && node.typeArguments.length > 0) {
-    // Get the constructor name from the expression
-    let typeName: string | undefined;
-    if (ts.isIdentifier(node.expression)) {
-      typeName = node.expression.text;
-    } else if (ts.isPropertyAccessExpression(node.expression)) {
-      // For namespace.Type pattern, get the full name
-      typeName = node.expression.getText();
-    }
+    // Get the constructor name by walking the AST (not getText())
+    const typeName = buildQualifiedName(node.expression);
 
     if (typeName) {
       return {
@@ -714,19 +737,11 @@ const getConstructedType = (
   }
 
   // No explicit type arguments - get the type from the expression
-  // The callee expression should give us the constructor type
-  if (ts.isIdentifier(node.expression)) {
+  const typeName = buildQualifiedName(node.expression);
+  if (typeName) {
     return {
       kind: "referenceType",
-      name: node.expression.text,
-    };
-  }
-
-  // For property access (namespace.Type), build reference type
-  if (ts.isPropertyAccessExpression(node.expression)) {
-    return {
-      kind: "referenceType",
-      name: node.expression.getText(),
+      name: typeName,
     };
   }
 

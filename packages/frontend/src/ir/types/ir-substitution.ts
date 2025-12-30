@@ -88,6 +88,21 @@ export const containsTypeParameter = (type: IrType): boolean => {
 export type TypeSubstitutionMap = ReadonlyMap<string, IrType>;
 
 /**
+ * Result of substitution building - either success with map, or conflict error.
+ * Conflicts occur when the same type parameter binds to different types.
+ */
+export type SubstitutionResult =
+  | { readonly ok: true; readonly map: TypeSubstitutionMap }
+  | {
+      readonly ok: false;
+      readonly conflict: {
+        readonly param: string;
+        readonly type1: IrType;
+        readonly type2: IrType;
+      };
+    };
+
+/**
  * Unify a formal type (with type parameters) against an actual type (instantiated).
  *
  * Returns a substitution map if unification succeeds, undefined if it fails.
@@ -165,8 +180,14 @@ export const unify = (
 
       case "unionType":
       case "intersectionType": {
+        // DETERMINISTIC TYPING: Cannot infer type parameters through unions/intersections.
+        // This makes inference non-deterministic (TS-like complexity).
+        // If formal contains type parameters in a union/intersection, fail inference.
+        if (containsTypeParameter(f)) {
+          return false; // Caller should emit TSN5202
+        }
+        // If no type parameters in formal, just check equality
         if (a.kind !== f.kind) return false;
-        // For unions/intersections, require exact match of types count
         if (f.types.length !== a.types.length) return false;
         for (let i = 0; i < f.types.length; i++) {
           const fType = f.types[i];
@@ -222,7 +243,7 @@ export const unify = (
 /**
  * Check if two IrTypes are structurally equal.
  */
-const typesEqual = (a: IrType, b: IrType): boolean => {
+export const typesEqual = (a: IrType, b: IrType): boolean => {
   if (a.kind !== b.kind) return false;
 
   switch (a.kind) {
@@ -531,11 +552,14 @@ export const buildSubstitutionFromExplicitTypeArgs = (
  *
  * This is binding source #3: argument-driven unification.
  * No body analysis - just matches argument types against parameter types.
+ *
+ * Returns SubstitutionResult to detect conflicts (TSN5202):
+ * - If T binds to `int` from arg0 and `long` from arg1, returns conflict error
  */
 export const buildSubstitutionFromArguments = (
   argTypes: readonly (IrType | undefined)[],
   formalParamTypes: readonly (IrType | undefined)[]
-): TypeSubstitutionMap | undefined => {
+): SubstitutionResult => {
   const map = new Map<string, IrType>();
 
   for (let i = 0; i < Math.min(argTypes.length, formalParamTypes.length); i++) {
@@ -548,9 +572,19 @@ export const buildSubstitutionFromArguments = (
     if (containsTypeParameter(paramType)) {
       const bindings = unify(paramType, argType);
       if (bindings) {
-        // Merge bindings into map (first binding wins for consistency)
+        // Merge bindings into map WITH CONFLICT DETECTION
         for (const [name, type] of bindings) {
-          if (!map.has(name)) {
+          const existing = map.get(name);
+          if (existing) {
+            // Check for conflict: same type param bound to different types
+            if (!typesEqual(existing, type)) {
+              return {
+                ok: false,
+                conflict: { param: name, type1: existing, type2: type },
+              };
+            }
+            // Same type - no conflict, skip
+          } else {
             map.set(name, type);
           }
         }
@@ -558,21 +592,43 @@ export const buildSubstitutionFromArguments = (
     }
   }
 
-  return map.size > 0 ? map : undefined;
+  return { ok: true, map };
 };
+
+/**
+ * Complete substitution with separate maps for receiver and call type params.
+ * This avoids name collisions between class type params (T in List<T>)
+ * and method type params (T in Select<T>).
+ */
+export type CompleteSubstitution = {
+  readonly receiverSubst: TypeSubstitutionMap;
+  readonly callSubst: TypeSubstitutionMap;
+};
+
+/**
+ * Result of building complete substitution - success or conflict error.
+ */
+export type CompleteSubstitutionResult =
+  | { readonly ok: true; readonly substitution: CompleteSubstitution }
+  | {
+      readonly ok: false;
+      readonly conflict: {
+        readonly param: string;
+        readonly type1: IrType;
+        readonly type2: IrType;
+      };
+    };
 
 /**
  * Build complete substitution map from all 3 binding sources.
  *
- * Priority order (earlier sources override later):
- * 1. Receiver generic arguments (e.g., `list: List<int>` → T=int)
- * 2. Explicit call type arguments (e.g., `identity<int>(x)` → T=int)
- * 3. Argument-driven unification (e.g., `identity(a:int)` → T=int)
+ * Keeps receiver and call substitutions SEPARATE to avoid name collisions.
  *
- * This ordering ensures:
- * - Explicit annotations always win
- * - Receiver type binds method generics
- * - Argument inference fills in remaining gaps (for ergonomics)
+ * Priority order for call substitutions:
+ * 1. Explicit call type arguments (e.g., `identity<int>(x)` → T=int)
+ * 2. Argument-driven unification (e.g., `identity(a:int)` → T=int)
+ *
+ * Receiver substitutions are separate and used for instantiating member signatures.
  */
 export const buildCompleteSubstitutionMap = (
   receiverType: IrType | undefined,
@@ -581,44 +637,50 @@ export const buildCompleteSubstitutionMap = (
   callFormalTypeParams: readonly string[],
   argTypes: readonly (IrType | undefined)[],
   formalParamTypes: readonly (IrType | undefined)[]
-): TypeSubstitutionMap => {
-  const map = new Map<string, IrType>();
+): CompleteSubstitutionResult => {
+  // Receiver substitution - for instantiating member signatures of the receiver type
+  const receiverSubst: TypeSubstitutionMap = receiverType
+    ? (buildIrSubstitutionMap(receiverType, receiverFormalTypeParams) ??
+      new Map())
+    : new Map();
 
-  // Source 1: Receiver generic arguments (highest priority)
-  if (receiverType) {
-    const receiverSubs = buildIrSubstitutionMap(
-      receiverType,
-      receiverFormalTypeParams
-    );
-    if (receiverSubs) {
-      for (const [name, type] of receiverSubs) {
-        map.set(name, type);
-      }
-    }
-  }
+  // Call substitution - for method type params
+  const callSubst = new Map<string, IrType>();
 
-  // Source 2: Explicit call type arguments
+  // Source 1: Explicit call type arguments (highest priority for call)
   const explicitSubs = buildSubstitutionFromExplicitTypeArgs(
     explicitTypeArgs,
     callFormalTypeParams
   );
   if (explicitSubs) {
     for (const [name, type] of explicitSubs) {
-      if (!map.has(name)) {
-        map.set(name, type);
-      }
+      callSubst.set(name, type);
     }
   }
 
-  // Source 3: Argument-driven unification (lowest priority, for ergonomics)
-  const argSubs = buildSubstitutionFromArguments(argTypes, formalParamTypes);
-  if (argSubs) {
-    for (const [name, type] of argSubs) {
-      if (!map.has(name)) {
-        map.set(name, type);
-      }
+  // Source 2: Argument-driven unification (lowest priority, for ergonomics)
+  const argSubsResult = buildSubstitutionFromArguments(
+    argTypes,
+    formalParamTypes
+  );
+
+  // Check for conflicts in argument-driven unification
+  if (!argSubsResult.ok) {
+    return {
+      ok: false,
+      conflict: argSubsResult.conflict,
+    };
+  }
+
+  // Merge argument subs (only for type params not already bound)
+  for (const [name, type] of argSubsResult.map) {
+    if (!callSubst.has(name)) {
+      callSubst.set(name, type);
     }
   }
 
-  return map;
+  return {
+    ok: true,
+    substitution: { receiverSubst, callSubst },
+  };
 };

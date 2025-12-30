@@ -29,7 +29,9 @@ function testChainedProperty(): void {
   Console.writeLine("=== Test 1: Chained property ===");
 
   const greeting = getGreeting();
-  const n: int = greeting.length as int;
+  // DETERMINISTIC TYPING: string.length should be declared as int in globals
+  // so no cast should be needed here.
+  const n: int = greeting.length;
 
   Console.writeLine(`greeting.length = ${n}`);
   Console.writeLine(`doubled = ${doubleInt(n)}`);
