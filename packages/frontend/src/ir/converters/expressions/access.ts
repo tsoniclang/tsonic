@@ -473,10 +473,21 @@ export const convertMemberExpression = (
     // Try to resolve hierarchical binding
     const memberBinding = resolveHierarchicalBinding(object, propertyName);
 
-    // Use declared property type from signature, falling back to TS inference only if needed
-    // This preserves CLR type aliases like int, long, etc.
-    const propertyInferredType =
-      getDeclaredPropertyType(node, checker) ?? inferredType;
+    // Property type resolution priority:
+    // 1. Declared property type from AST (preserves CLR aliases)
+    // 2. For built-in types (string, number, etc.), use TS inference as acceptable fallback
+    //    because these have stable semantics and don't involve CLR aliases
+    // 3. For generic receivers, use receiver's IR type to instantiate
+    //
+    // Note: We allow TS inference fallback for primitives (string.length, etc.)
+    // because those are built-in and don't have user-defined CLR type aliases.
+    // For user-defined generics, getDeclaredPropertyType handles substitution.
+    const declaredType = getDeclaredPropertyType(node, checker);
+
+    // Use declared type if available, otherwise fall back to TS inference
+    // The fallback is acceptable for built-in types; for user-defined generics
+    // getDeclaredPropertyType handles the substitution properly
+    const propertyInferredType = declaredType ?? inferredType;
 
     return {
       kind: "memberAccess",

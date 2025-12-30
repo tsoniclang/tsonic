@@ -1,0 +1,27 @@
+=== Deterministic Typing Tests ===
+
+=== Test 1: Chained property ===
+greeting.length = 13
+doubled = 26
+
+=== Test 2: Generic inference ===
+a = 42
+identity(a) = 42
+doubled = 84
+
+=== Test 3: Generic long ===
+a = 1000000000
+identity(a) = 1000000000
+doubled = 2000000000
+
+=== Test 4: Generic container ===
+intBox.value = 100
+doubled = 200
+longBox.value = 9999999999
+doubled = 19999999998
+
+=== Test 5: Nested generic ===
+getBoxValue(box) = 42
+doubled = 84
+
+=== All tests completed ===

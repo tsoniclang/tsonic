@@ -99,6 +99,10 @@ export type DiagnosticCode =
   | "TSN5108" // Value exceeds JS safe integer range
   | "TSN5109" // Computed access kind not classified (compiler bug)
   | "TSN5110" // Integer literal cannot be implicitly converted to double
+  // Deterministic IR typing errors (TSN5201-TSN5299)
+  | "TSN5201" // Missing declared type annotation on target declaration required for deterministic typing
+  | "TSN5202" // Cannot infer required type arguments deterministically; user must supply explicit type arguments
+  | "TSN5203" // Member/property type cannot be recovered deterministically; user must add explicit type annotation
   // Yield lowering errors (TSN6101-TSN6199)
   | "TSN6101"; // Yield expression in unsupported position
 

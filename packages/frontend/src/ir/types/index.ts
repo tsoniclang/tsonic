@@ -141,3 +141,15 @@ export {
   bigIntFitsInKind,
   inferNumericKindFromRaw,
 } from "./numeric-helpers.js";
+
+// IR type substitution (deterministic type parameter substitution)
+export type { TypeSubstitutionMap } from "./ir-substitution.js";
+export {
+  containsTypeParameter,
+  unify,
+  substituteIrType,
+  buildIrSubstitutionMap,
+  buildSubstitutionFromExplicitTypeArgs,
+  buildSubstitutionFromArguments,
+  buildCompleteSubstitutionMap,
+} from "./ir-substitution.js";

@@ -9,7 +9,6 @@ import {
   IrTryCastExpression,
 } from "../../types.js";
 import {
-  getInferredType,
   getSourceSpan,
   extractTypeArguments,
   checkIfRequiresSpecialization,
@@ -649,10 +648,11 @@ export const convertCallExpression = (
     extractArgumentPassingFromBinding(callee, node.arguments.length) ??
     extractArgumentPassing(node, checker);
 
-  // Use declared return type from signature, falling back to TS inference only if needed
-  // This preserves CLR type aliases like int, long, etc.
-  const inferredType =
-    getDeclaredReturnType(node, checker) ?? getInferredType(node, checker);
+  // Use declared return type from signature.
+  // IMPORTANT: We do NOT fall back to TS inference (getInferredType) because
+  // TS loses CLR type aliases. If getDeclaredReturnType returns undefined,
+  // the inferredType will be undefined and downstream validation can flag it.
+  const inferredType = getDeclaredReturnType(node, checker);
 
   return {
     kind: "call",
@@ -679,6 +679,61 @@ export const convertCallExpression = (
 };
 
 /**
+ * Get the constructed type from a new expression.
+ *
+ * For `new Foo<int>()`, the type is `Foo<int>` - derived from the type reference
+ * in the expression itself, NOT from any "return type" annotation.
+ *
+ * This is different from call expressions where we need declared return types.
+ * Constructors don't have return type annotations - the constructed type IS
+ * the class/type being instantiated.
+ */
+const getConstructedType = (
+  node: ts.NewExpression,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  // The expression in `new Foo<T>()` is the type reference
+  // If type arguments are explicit, use them to build the type
+  if (node.typeArguments && node.typeArguments.length > 0) {
+    // Get the constructor name from the expression
+    let typeName: string | undefined;
+    if (ts.isIdentifier(node.expression)) {
+      typeName = node.expression.text;
+    } else if (ts.isPropertyAccessExpression(node.expression)) {
+      // For namespace.Type pattern, get the full name
+      typeName = node.expression.getText();
+    }
+
+    if (typeName) {
+      return {
+        kind: "referenceType",
+        name: typeName,
+        typeArguments: node.typeArguments.map((ta) => convertType(ta, checker)),
+      };
+    }
+  }
+
+  // No explicit type arguments - get the type from the expression
+  // The callee expression should give us the constructor type
+  if (ts.isIdentifier(node.expression)) {
+    return {
+      kind: "referenceType",
+      name: node.expression.text,
+    };
+  }
+
+  // For property access (namespace.Type), build reference type
+  if (ts.isPropertyAccessExpression(node.expression)) {
+    return {
+      kind: "referenceType",
+      name: node.expression.getText(),
+    };
+  }
+
+  return undefined;
+};
+
+/**
  * Convert new expression
  */
 export const convertNewExpression = (
@@ -689,10 +744,10 @@ export const convertNewExpression = (
   const typeArguments = extractTypeArguments(node, checker);
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
 
-  // Use declared return type from signature, falling back to TS inference only if needed
-  // This preserves CLR type aliases like int, long, etc.
-  const inferredType =
-    getDeclaredReturnType(node, checker) ?? getInferredType(node, checker);
+  // For new expressions, the type is the constructed type from the type reference.
+  // Unlike function calls, constructors don't need "return type" annotations.
+  // The type is simply what we're instantiating: `new Foo<int>()` → `Foo<int>`.
+  const inferredType = getConstructedType(node, checker);
 
   return {
     kind: "new",
