@@ -9,6 +9,7 @@ import { convertExpression } from "../../expression-converter.js";
 import { getBindingRegistry } from "../statements/declarations/registry.js";
 import { convertType } from "../../type-converter.js";
 import { substituteTypeNode } from "./calls.js";
+import { convertParameters } from "../statements/helpers.js";
 
 /**
  * Build a substitution map from type parameter names to their instantiated TypeNodes
@@ -162,13 +163,75 @@ const buildPropertySubstitutionMap = (
  * - No declaration on property
  * - No type annotation on declaration
  */
+/**
+ * Build a function type from a method declaration or signature.
+ * For `greet(): string`, returns the function type `(): string`.
+ */
+const buildFunctionTypeFromMethod = (
+  decl: ts.MethodDeclaration | ts.MethodSignature,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  // Get return type - required for methods
+  const returnTypeNode = decl.type;
+  if (!returnTypeNode) return undefined;
+
+  const returnType = convertType(returnTypeNode, checker);
+
+  // Convert parameters using the standard helper
+  const parameters = convertParameters(decl.parameters, checker);
+
+  // Build function type
+  return {
+    kind: "functionType",
+    parameters,
+    returnType,
+  };
+};
+
+/**
+ * Get non-nullable type from a type that may include null/undefined.
+ * For `User | null` returns `User`, for `Address | undefined` returns `Address`.
+ * This is needed because getPropertyOfType may fail on union types that include null/undefined.
+ */
+const getNonNullableType = (
+  type: ts.Type,
+  _checker: ts.TypeChecker
+): ts.Type => {
+  // Check if this is a union type
+  if (type.isUnion()) {
+    // Filter out null and undefined types
+    const nonNullTypes = type.types.filter(
+      (t) =>
+        !(t.flags & ts.TypeFlags.Null) &&
+        !(t.flags & ts.TypeFlags.Undefined) &&
+        !(t.flags & ts.TypeFlags.Void)
+    );
+
+    // If we filtered something out and have remaining types, use the first one
+    // (for simple cases like `User | null`, there's only one non-null type)
+    if (nonNullTypes.length > 0 && nonNullTypes.length < type.types.length) {
+      if (nonNullTypes.length === 1 && nonNullTypes[0]) {
+        return nonNullTypes[0];
+      }
+      // Multiple non-null types - create a new union
+      // TypeScript doesn't have a direct API for this, so we'll use the first one
+      // This is a simplification that works for common cases
+      const first = nonNullTypes[0];
+      if (first) return first;
+    }
+  }
+  return type;
+};
+
 const getDeclaredPropertyType = (
   node: ts.PropertyAccessExpression,
   checker: ts.TypeChecker
 ): IrType | undefined => {
   try {
     // 1. Get the object's type and find the property symbol
-    const objectType = checker.getTypeAtLocation(node.expression);
+    // For union types like `User | null`, we need to strip null/undefined first
+    const rawObjectType = checker.getTypeAtLocation(node.expression);
+    const objectType = getNonNullableType(rawObjectType, checker);
     const propertyName = node.name.text;
     const propSymbol = checker.getPropertyOfType(objectType, propertyName);
 
@@ -180,6 +243,8 @@ const getDeclaredPropertyType = (
 
     // Find a declaration with a type annotation
     let propertyTypeNode: ts.TypeNode | undefined;
+    let methodType: IrType | undefined;
+
     for (const decl of declarations) {
       if (ts.isPropertySignature(decl) && decl.type) {
         propertyTypeNode = decl.type;
@@ -189,12 +254,31 @@ const getDeclaredPropertyType = (
         propertyTypeNode = decl.type;
         break;
       }
+      // Handle constructor parameter properties (public name: string)
+      // These are ParameterDeclarations with public/private/protected modifiers
+      if (ts.isParameter(decl) && decl.type) {
+        propertyTypeNode = decl.type;
+        break;
+      }
       // Also handle get accessor declarations (readonly properties)
       if (ts.isGetAccessorDeclaration(decl) && decl.type) {
         propertyTypeNode = decl.type;
         break;
       }
+      // Handle method declarations (class methods)
+      if (ts.isMethodDeclaration(decl)) {
+        methodType = buildFunctionTypeFromMethod(decl, checker);
+        if (methodType) break;
+      }
+      // Handle method signatures (interface methods)
+      if (ts.isMethodSignature(decl)) {
+        methodType = buildFunctionTypeFromMethod(decl, checker);
+        if (methodType) break;
+      }
     }
+
+    // If we found a method, return its function type directly
+    if (methodType) return methodType;
 
     if (!propertyTypeNode) return undefined;
 
@@ -479,13 +563,31 @@ export const convertMemberExpression = (
     // Built-ins like string.length work because globals declare them with proper types.
     // If getDeclaredPropertyType returns undefined, it means the property declaration
     // is missing - use unknownType as poison so validation can emit TSN5203.
+    //
+    // EXCEPTION: If memberBinding exists AND declaredType is undefined, return undefined.
+    // This handles pure CLR-bound methods like Console.WriteLine that have no TS declaration.
+    // But if declaredType IS available (like string.length from globals), use it.
     const declaredType = getDeclaredPropertyType(node, checker);
 
-    // NO TS FALLBACK. Use unknownType poison if declared type not available.
-    // This ensures we never use TS computed types for C# emission.
-    const propertyInferredType = declaredType ?? {
-      kind: "unknownType" as const,
-    };
+    // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
+    // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).
+    //
+    // Priority order for inferredType:
+    // 1. If declaredType exists, use it (covers built-ins like string.length -> int)
+    // 2. If memberBinding exists but no declaredType, use undefined (pure CLR-bound)
+    // 3. Otherwise, poison with unknownType for validation (TSN5203)
+    //
+    // Note: Both memberBinding AND inferredType can be set - they serve different purposes:
+    // - memberBinding: used by emitter for C# member names
+    // - inferredType: used by validation passes for type checking
+    //
+    // Class fields without explicit type annotations will emit TSN5203.
+    // Users must add explicit types like `count: int = 0` instead of `count = 0`.
+    const propertyInferredType = declaredType
+      ? declaredType
+      : memberBinding
+        ? undefined
+        : { kind: "unknownType" as const };
 
     return {
       kind: "memberAccess",

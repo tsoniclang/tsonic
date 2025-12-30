@@ -3,11 +3,17 @@
 #
 # Usage: ./test/scripts/run-all.sh [--quick]
 #   --quick: Skip E2E tests, only run unit/golden tests
+#
+# Environment variables:
+#   TEST_CONCURRENCY: Number of parallel E2E tests (default: 4)
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Parallelism (default to 4)
+TEST_CONCURRENCY="${TEST_CONCURRENCY:-4}"
 
 # Colors
 RED='\033[0;31m'
@@ -69,29 +75,25 @@ if [ "$QUICK_MODE" = true ]; then
     echo -e "${YELLOW}--- Skipping E2E Tests (--quick mode) ---${NC}" | tee -a "$LOG_FILE"
 else
     # ============================================================
-    # 2. E2E Dotnet Tests
+    # 2. E2E Dotnet Tests (Parallel)
     # ============================================================
-    echo -e "${BLUE}--- Running E2E Dotnet Tests ---${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}--- Running E2E Dotnet Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
 
     FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
     CLI_PATH="$ROOT_DIR/packages/cli/dist/index.js"
 
-    for fixture_dir in "$FIXTURES_DIR"/*/; do
-        fixture_name=$(basename "$fixture_dir")
-        config_file="$fixture_dir/tsonic.dotnet.json"
+    # Temp directory for parallel results
+    RESULTS_DIR=$(mktemp -d)
+    trap "rm -rf $RESULTS_DIR" EXIT
 
-        # Skip if no dotnet config
-        if [ ! -f "$config_file" ]; then
-            continue
-        fi
-
-        # Skip negative tests
-        meta_file="$fixture_dir/e2e.meta.json"
-        if [ -f "$meta_file" ] && grep -q '"expectFailure": true' "$meta_file"; then
-            continue
-        fi
-
-        echo -n "  $fixture_name: " | tee -a "$LOG_FILE"
+    # Function to run a single E2E dotnet test (prints result immediately)
+    run_dotnet_test() {
+        local fixture_dir="$1"
+        local cli_path="$2"
+        local results_dir="$3"
+        local fixture_name=$(basename "$fixture_dir")
+        local result_file="$results_dir/$fixture_name"
+        local result=""
 
         cd "$fixture_dir"
 
@@ -101,7 +103,7 @@ else
         fi
 
         # Build and run
-        if node "$CLI_PATH" build src/index.ts --config tsonic.dotnet.json >/dev/null 2>&1; then
+        if node "$cli_path" build src/index.ts --config tsonic.dotnet.json >/dev/null 2>&1; then
             # Find executable
             exe_path=$(find out -type f -executable 2>/dev/null | head -1 || true)
             if [ -z "$exe_path" ]; then
@@ -114,74 +116,173 @@ else
                     actual=$("$exe_path" 2>&1 || true)
                     expected=$(cat expected-output.txt)
                     if [ "$actual" = "$expected" ]; then
-                        echo -e "${GREEN}PASS${NC}" | tee -a "$LOG_FILE"
-                        E2E_DOTNET_PASSED=$((E2E_DOTNET_PASSED + 1))
+                        result="PASS"
                     else
-                        echo -e "${RED}FAIL (output mismatch)${NC}" | tee -a "$LOG_FILE"
-                        E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+                        result="FAIL (output mismatch)"
                     fi
                 elif "$exe_path" >/dev/null 2>&1; then
-                    echo -e "${GREEN}PASS${NC}" | tee -a "$LOG_FILE"
-                    E2E_DOTNET_PASSED=$((E2E_DOTNET_PASSED + 1))
+                    result="PASS"
                 else
-                    echo -e "${RED}FAIL (runtime error)${NC}" | tee -a "$LOG_FILE"
-                    E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+                    result="FAIL (runtime error)"
                 fi
             else
-                echo -e "${GREEN}PASS (build only)${NC}" | tee -a "$LOG_FILE"
-                E2E_DOTNET_PASSED=$((E2E_DOTNET_PASSED + 1))
+                result="PASS (build only)"
             fi
         else
-            echo -e "${RED}FAIL (build error)${NC}" | tee -a "$LOG_FILE"
-            E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+            result="FAIL (build error)"
         fi
 
-        cd "$ROOT_DIR"
+        # Save result to file
+        echo "$result" > "$result_file"
+
+        # Print result immediately (with colors)
+        if [[ "$result" == PASS* ]]; then
+            echo -e "  $fixture_name: \033[0;32m$result\033[0m"
+        else
+            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+        fi
+    }
+
+    # Collect fixture directories for dotnet tests
+    DOTNET_FIXTURES=()
+    for fixture_dir in "$FIXTURES_DIR"/*/; do
+        config_file="$fixture_dir/tsonic.dotnet.json"
+        # Skip if no dotnet config
+        if [ ! -f "$config_file" ]; then
+            continue
+        fi
+        # Skip negative tests
+        meta_file="$fixture_dir/e2e.meta.json"
+        if [ -f "$meta_file" ] && grep -q '"expectFailure": true' "$meta_file"; then
+            continue
+        fi
+        DOTNET_FIXTURES+=("$fixture_dir")
+    done
+
+    # Run tests in parallel using background jobs
+    for fixture_dir in "${DOTNET_FIXTURES[@]}"; do
+        # Wait if we have too many background jobs
+        while [ $(jobs -r | wc -l) -ge "$TEST_CONCURRENCY" ]; do
+            sleep 0.1
+        done
+
+        # Run test in background
+        (run_dotnet_test "$fixture_dir" "$CLI_PATH" "$RESULTS_DIR") &
+    done
+
+    # Wait for all to complete
+    wait
+
+    # Count results (for summary)
+    for fixture_dir in "${DOTNET_FIXTURES[@]}"; do
+        fixture_name=$(basename "$fixture_dir")
+        result_file="$RESULTS_DIR/$fixture_name"
+        if [ -f "$result_file" ]; then
+            result=$(cat "$result_file")
+            echo "  $fixture_name: $result" >> "$LOG_FILE"
+            if [[ "$result" == PASS* ]]; then
+                E2E_DOTNET_PASSED=$((E2E_DOTNET_PASSED + 1))
+            else
+                E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+            fi
+        else
+            echo "  $fixture_name: FAIL (no result)" >> "$LOG_FILE"
+            E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+        fi
     done
 
     echo "" | tee -a "$LOG_FILE"
 
     # ============================================================
-    # 3. Negative Tests (expected failures)
+    # 3. Negative Tests (expected failures) - Parallel
     # ============================================================
-    echo -e "${BLUE}--- Running Negative Tests ---${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}--- Running Negative Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
 
+    # Function to run a single negative test (prints result immediately)
+    run_negative_test() {
+        local fixture_dir="$1"
+        local cli_path="$2"
+        local results_dir="$3"
+        local fixture_name=$(basename "$fixture_dir")
+        local result_file="$results_dir/neg_$fixture_name"
+        local result=""
+
+        # Find config
+        if [ -f "$fixture_dir/tsonic.dotnet.json" ]; then
+            config_file="tsonic.dotnet.json"
+        elif [ -f "$fixture_dir/tsonic.js.json" ]; then
+            config_file="tsonic.js.json"
+        else
+            result="FAIL (no config)"
+            echo "$result" > "$result_file"
+            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+            return
+        fi
+
+        cd "$fixture_dir"
+
+        if [ -f "package.json" ]; then
+            npm install --silent 2>/dev/null || true
+        fi
+
+        # Build should FAIL
+        if node "$cli_path" build src/index.ts --config "$config_file" >/dev/null 2>&1; then
+            result="FAIL (expected error but succeeded)"
+        else
+            result="PASS (failed as expected)"
+        fi
+
+        # Save result to file
+        echo "$result" > "$result_file"
+
+        # Print result immediately (with colors)
+        if [[ "$result" == PASS* ]]; then
+            echo -e "  $fixture_name: \033[0;32m$result\033[0m"
+        else
+            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+        fi
+    }
+
+    # Collect negative test fixtures
+    NEGATIVE_FIXTURES=()
     for fixture_dir in "$FIXTURES_DIR"/*; do
         meta_file="$fixture_dir/e2e.meta.json"
-
         if [ -f "$meta_file" ] && grep -q '"expectFailure": true' "$meta_file"; then
-            fixture_name=$(basename "$fixture_dir")
-            echo -n "  $fixture_name: " | tee -a "$LOG_FILE"
-
-            # Find config
-            if [ -f "$fixture_dir/tsonic.dotnet.json" ]; then
-                config_file="$fixture_dir/tsonic.dotnet.json"
-            elif [ -f "$fixture_dir/tsonic.js.json" ]; then
-                config_file="$fixture_dir/tsonic.js.json"
-            else
-                echo -e "${RED}FAIL (no config)${NC}" | tee -a "$LOG_FILE"
-                E2E_NEGATIVE_FAILED=$((E2E_NEGATIVE_FAILED + 1))
-                continue
-            fi
-
-            cd "$fixture_dir"
-
-            if [ -f "package.json" ]; then
-                npm install --silent 2>/dev/null || true
-            fi
-
-            # Build should FAIL
-            if node "$CLI_PATH" build src/index.ts --config "$(basename "$config_file")" >/dev/null 2>&1; then
-                echo -e "${RED}FAIL (expected error but succeeded)${NC}" | tee -a "$LOG_FILE"
-                E2E_NEGATIVE_FAILED=$((E2E_NEGATIVE_FAILED + 1))
-            else
-                echo -e "${GREEN}PASS (failed as expected)${NC}" | tee -a "$LOG_FILE"
-                E2E_NEGATIVE_PASSED=$((E2E_NEGATIVE_PASSED + 1))
-            fi
-
-            cd "$ROOT_DIR"
+            NEGATIVE_FIXTURES+=("$fixture_dir")
         fi
     done
+
+    # Run negative tests in parallel
+    if [ ${#NEGATIVE_FIXTURES[@]} -gt 0 ]; then
+        # Run all negative tests in parallel with limited concurrency
+        for fixture_dir in "${NEGATIVE_FIXTURES[@]}"; do
+            while [ $(jobs -r | wc -l) -ge "$TEST_CONCURRENCY" ]; do
+                sleep 0.1
+            done
+            (run_negative_test "$fixture_dir" "$CLI_PATH" "$RESULTS_DIR") &
+        done
+
+        # Wait for all to complete
+        wait
+
+        # Count results (for summary)
+        for fixture_dir in "${NEGATIVE_FIXTURES[@]}"; do
+            fixture_name=$(basename "$fixture_dir")
+            result_file="$RESULTS_DIR/neg_$fixture_name"
+            if [ -f "$result_file" ]; then
+                result=$(cat "$result_file")
+                echo "  $fixture_name: $result" >> "$LOG_FILE"
+                if [[ "$result" == PASS* ]]; then
+                    E2E_NEGATIVE_PASSED=$((E2E_NEGATIVE_PASSED + 1))
+                else
+                    E2E_NEGATIVE_FAILED=$((E2E_NEGATIVE_FAILED + 1))
+                fi
+            else
+                echo "  $fixture_name: FAIL (no result)" >> "$LOG_FILE"
+                E2E_NEGATIVE_FAILED=$((E2E_NEGATIVE_FAILED + 1))
+            fi
+        done
+    fi
 
     echo "" | tee -a "$LOG_FILE"
 fi

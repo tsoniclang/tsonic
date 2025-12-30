@@ -1,10 +1,11 @@
 import { Console } from "@tsonic/dotnet/System";
+import { int } from "@tsonic/dotnet/System";
 
-// Class fields without explicit type annotations
+// Class fields with explicit type annotations (required for deterministic typing)
 class Counter {
-  count = 0;
-  name = "default";
-  active = true;
+  count: int = 0;
+  name: string = "default";
+  active: boolean = true;
 
   increment(): void {
     this.count++;

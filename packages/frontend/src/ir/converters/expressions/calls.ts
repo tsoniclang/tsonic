@@ -492,6 +492,84 @@ const extractParameterTypes = (
  * - No declaration on signature
  * - No return type annotation on declaration
  */
+/**
+ * Extract return type from a FunctionTypeNode.
+ * For `() => number`, returns the `number` TypeNode.
+ */
+const getReturnTypeFromFunctionType = (
+  typeNode: ts.TypeNode
+): ts.TypeNode | undefined => {
+  if (ts.isFunctionTypeNode(typeNode)) {
+    return typeNode.type;
+  }
+  return undefined;
+};
+
+/**
+ * Get the declared type of a callee from its variable/parameter declaration.
+ * For function-typed identifiers, returns the function type.
+ */
+const getCalleesDeclaredType = (
+  node: ts.CallExpression,
+  checker: ts.TypeChecker
+): ts.TypeNode | undefined => {
+  const callee = node.expression;
+
+  // Only handle identifiers for now
+  if (!ts.isIdentifier(callee)) return undefined;
+
+  const symbol = checker.getSymbolAtLocation(callee);
+  if (!symbol) return undefined;
+
+  const decls = symbol.getDeclarations();
+  if (!decls || decls.length === 0) return undefined;
+
+  for (const decl of decls) {
+    // Check variable declaration with explicit type
+    if (ts.isVariableDeclaration(decl) && decl.type) {
+      return decl.type;
+    }
+
+    // Check parameter with explicit type
+    if (ts.isParameter(decl) && decl.type) {
+      return decl.type;
+    }
+
+    // Check variable declaration with initializer that's a call
+    // e.g., const counter = makeCounter(); where makeCounter(): () => number
+    if (ts.isVariableDeclaration(decl) && decl.initializer) {
+      if (ts.isCallExpression(decl.initializer)) {
+        // Recursively get the return type of the initializer call
+        const initReturnType = getDeclaredReturnType(decl.initializer, checker);
+        if (initReturnType) {
+          // Convert back to a synthetic type node (we can work with IrType)
+          // Actually, we need the TypeNode, not IrType
+          // Let's try a different approach: look at the function declaration
+          const initSig = checker.getResolvedSignature(decl.initializer);
+          if (initSig?.declaration) {
+            // Get the declared return type of the function being called
+            let returnTypeNode: ts.TypeNode | undefined;
+            const initDecl = initSig.declaration;
+            if (
+              ts.isFunctionDeclaration(initDecl) ||
+              ts.isMethodDeclaration(initDecl) ||
+              ts.isArrowFunction(initDecl) ||
+              ts.isFunctionExpression(initDecl)
+            ) {
+              returnTypeNode = initDecl.type;
+            }
+            if (returnTypeNode) {
+              return returnTypeNode;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+};
+
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
   checker: ts.TypeChecker
@@ -499,56 +577,67 @@ export const getDeclaredReturnType = (
   try {
     // 1. Get resolved signature
     const signature = checker.getResolvedSignature(node);
-    if (!signature?.declaration) return undefined;
 
-    // 2. Extract return TypeNode from declaration
-    const decl = signature.declaration;
+    // 2. Try to extract return TypeNode from declaration
+    const decl = signature?.declaration;
     let returnTypeNode: ts.TypeNode | undefined;
 
-    if (
-      ts.isMethodSignature(decl) ||
-      ts.isMethodDeclaration(decl) ||
-      ts.isFunctionDeclaration(decl) ||
-      ts.isCallSignatureDeclaration(decl)
-    ) {
-      returnTypeNode = decl.type;
-    } else if (ts.isArrowFunction(decl) || ts.isFunctionExpression(decl)) {
-      returnTypeNode = decl.type;
-    } else if (ts.isConstructorDeclaration(decl)) {
-      // For constructors, the return type is the class type
-      // Get it from the parent class declaration
-      const classDecl = decl.parent;
-      if (ts.isClassDeclaration(classDecl) && classDecl.name) {
-        // For new expressions, use the callee's type with type arguments
-        if (ts.isNewExpression(node) && node.typeArguments) {
-          // Return a reference type with explicit type arguments
-          return {
-            kind: "referenceType",
-            name: classDecl.name.text,
-            typeArguments: node.typeArguments.map((ta) =>
-              convertType(ta, checker)
-            ),
-          };
+    if (decl) {
+      if (
+        ts.isMethodSignature(decl) ||
+        ts.isMethodDeclaration(decl) ||
+        ts.isFunctionDeclaration(decl) ||
+        ts.isCallSignatureDeclaration(decl)
+      ) {
+        returnTypeNode = decl.type;
+      } else if (ts.isArrowFunction(decl) || ts.isFunctionExpression(decl)) {
+        returnTypeNode = decl.type;
+      } else if (ts.isConstructorDeclaration(decl)) {
+        // For constructors, the return type is the class type
+        // Get it from the parent class declaration
+        const classDecl = decl.parent;
+        if (ts.isClassDeclaration(classDecl) && classDecl.name) {
+          // For new expressions, use the callee's type with type arguments
+          if (ts.isNewExpression(node) && node.typeArguments) {
+            // Return a reference type with explicit type arguments
+            return {
+              kind: "referenceType",
+              name: classDecl.name.text,
+              typeArguments: node.typeArguments.map((ta) =>
+                convertType(ta, checker)
+              ),
+            };
+          }
+          // No explicit type args - return simple reference
+          return { kind: "referenceType", name: classDecl.name.text };
         }
-        // No explicit type args - return simple reference
-        return { kind: "referenceType", name: classDecl.name.text };
+        return undefined;
       }
-      return undefined;
+    }
+
+    // 3. Fallback for function-typed variables
+    // For calls like `counter()` where `counter: () => number` or `counter = makeCounter()`
+    // Try to get the return type from the callee's declared type
+    if (!returnTypeNode && ts.isCallExpression(node)) {
+      const calleeDeclaredType = getCalleesDeclaredType(node, checker);
+      if (calleeDeclaredType) {
+        returnTypeNode = getReturnTypeFromFunctionType(calleeDeclaredType);
+      }
     }
 
     if (!returnTypeNode) return undefined;
 
-    // 3. Build substitution map from receiver type arguments
+    // 4. Build substitution map from receiver type arguments
     const substitutionMap = buildTypeParameterSubstitutionMap(node, checker);
 
-    // 4. Apply substitution to return TypeNode
+    // 5. Apply substitution to return TypeNode
     const substitutedTypeNode = substitutionMap
       ? substituteTypeNode(returnTypeNode, substitutionMap, checker)
       : undefined;
 
     const finalTypeNode = substitutedTypeNode ?? returnTypeNode;
 
-    // 5. Convert to IrType
+    // 6. Convert to IrType
     return convertType(finalTypeNode, checker);
   } catch {
     return undefined;
@@ -736,7 +825,23 @@ const getConstructedType = (
     }
   }
 
-  // No explicit type arguments - get the type from the expression
+  // No explicit type arguments - check if the target is generic
+  // DETERMINISTIC TYPING: If the type is generic and type args are missing,
+  // we cannot infer them deterministically. Return unknownType to trigger TSN5202.
+  const symbol = checker.getSymbolAtLocation(node.expression);
+  if (symbol) {
+    // Get the declared type of the symbol
+    const declaredType = checker.getDeclaredTypeOfSymbol(symbol);
+    // Check if it has type parameters (is generic)
+    const typeParams = (declaredType as ts.InterfaceType).typeParameters;
+    if (typeParams && typeParams.length > 0) {
+      // Generic type without explicit type arguments - poison with unknownType
+      // Validation will emit TSN5202
+      return { kind: "unknownType" as const };
+    }
+  }
+
+  // Non-generic type - get the type from the expression
   const typeName = buildQualifiedName(node.expression);
   if (typeName) {
     return {
