@@ -8,10 +8,7 @@ import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
-import {
-  resolveTypeAlias,
-  stripNullish,
-} from "../../core/type-resolution.js";
+import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 
 /**
  * Types that require explicit LHS type because C# has no literal suffix for them.

@@ -85,7 +85,7 @@ export function main(): void {
 
   // Test Action<int>
   Console.writeLine("forEach:");
-  forEach(numbers, (n: int) => {
+  forEach(numbers, (n: int): void => {
     Console.writeLine(`  ${n}`);
   });
 
@@ -99,7 +99,7 @@ export function main(): void {
 
   // Test Action<int, int>
   Console.writeLine("forEachWithIndex:");
-  forEachWithIndex(numbers, (item: int, index: int) => {
+  forEachWithIndex(numbers, (item: int, index: int): void => {
     Console.writeLine(`  [${index}] = ${item}`);
   });
 

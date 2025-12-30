@@ -515,6 +515,87 @@ The destructuring pattern is not supported. This may include:
 - Computed property keys in destructuring
 - Patterns that cannot be lowered to C#
 
+### TSN7430: Arrow Function Requires Explicit Types (Escape Hatch)
+
+Arrow functions can only infer parameter and return types from context when they meet the "simple arrow" criteria:
+
+1. Not async
+2. Expression body (not block body)
+3. All parameters are simple identifiers (no destructuring)
+4. No default parameter values
+5. No rest parameters
+
+**Contextual inference works (no error):**
+
+```typescript
+const numbers = [1, 2, 3];
+const doubled = numbers.map((x) => x * 2); // OK - simple arrow with context
+const filtered = items.filter((item) => item.active); // OK
+
+const callback: (n: number) => number = (x) => x * 2; // OK - typed variable
+```
+
+**Requires explicit types (error):**
+
+```typescript
+// No contextual type
+const fn = (x) => x * 2; // Error - no context for inference
+
+// Block body (not expression body)
+items.map((x) => {
+  const y = x + 1;
+  return y;
+}); // Error - block body requires explicit return type
+
+// Async arrow
+items.map(async (x) => await fetch(x)); // Error - async requires explicit types
+
+// Destructuring pattern
+items.map(({ id, name }) => id + name); // Error - destructuring requires explicit types
+
+// Default parameter
+items.map((x = 0) => x * 2); // Error - defaults require explicit types
+
+// Rest parameter
+items.map((...args) => args.length); // Error - rest requires explicit types
+```
+
+**Fix: Add explicit type annotations:**
+
+```typescript
+// For block bodies, add return type
+items.map((x): number => {
+  const y = x + 1;
+  return y;
+});
+
+// For complex arrows, fully annotate
+const fn = (x: number): number => x * 2;
+```
+
+### TSN7431: Cannot Infer Arrow Return Type
+
+The arrow function's return type cannot be inferred safely. This occurs when the body expression produces an unsafe type (any, unknown, or anonymous structural type).
+
+```typescript
+// Error: Return type is 'any' or 'unknown'
+items.map((x) => someAnyFunction(x)); // Cannot infer return type
+
+// Error: Return type is anonymous object type
+items.map((x) => ({ id: x, name: "test" })); // Anonymous type needs nominal type
+```
+
+**Fix: Provide explicit return type annotation:**
+
+```typescript
+interface Result {
+  id: number;
+  name: string;
+}
+
+items.map((x): Result => ({ id: x, name: "test" }));
+```
+
 ## TSN5xxx: Numeric Proof Errors
 
 ### TSN5101-TSN5110: Numeric Type Errors

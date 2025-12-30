@@ -1,6 +1,6 @@
 export function makeCounter(): () => number {
   let count = 0;
-  return () => {
+  return (): number => {
     count++;
     return count;
   };
