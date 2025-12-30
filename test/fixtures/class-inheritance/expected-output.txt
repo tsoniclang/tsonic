@@ -1,0 +1,2 @@
+Animal: Generic, Sound: Some sound
+Dog: Buddy, Breed: Golden Retriever, Sound: Woof!

@@ -1,0 +1,5 @@
+User1 city: NYC
+User2 city: undefined
+User3 city: undefined
+User1 name length: 5
+User3 name length: 0

@@ -1,0 +1,8 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "ClassInheritance",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "class-inheritance"
+}

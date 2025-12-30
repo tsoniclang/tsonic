@@ -1,0 +1,5 @@
+Sum: 15
+Diff: 5
+Product: 50
+Double 5: 10
+Triple 5: 15

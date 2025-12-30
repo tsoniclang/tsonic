@@ -1,0 +1,3 @@
+String processed: 5
+Number processed: 42
+Hello World

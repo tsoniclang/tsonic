@@ -1,0 +1,8 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "OptionalChaining",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "optional-chaining"
+}

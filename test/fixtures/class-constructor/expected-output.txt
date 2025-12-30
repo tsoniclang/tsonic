@@ -1,0 +1,4 @@
+Name: Alice
+Email: alice@example.com
+Auth correct: True
+Auth wrong: False

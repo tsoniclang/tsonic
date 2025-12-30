@@ -1,0 +1,3 @@
+Int array length: 3
+String array length: 4
+Fixed array length: 5

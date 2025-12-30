@@ -1,0 +1,14 @@
+int[]: 1, 2, 3
+long[]: 1, 2, 3
+byte[]: 1, 2, 3
+short[]: 1, 2, 3
+float[]: 1.5, 2.5, 3.5
+double[]: 1.5, 2.5, 3.5
+decimal[]: 1.5, 2.5, 3.5
+uint[]: 1, 2, 3
+ulong[]: 1, 2, 3
+long[0][0]: 1
+long[1][1]: 4
+float[0][0]: 1.5
+float[1][1]: 4.5
+All array types compiled successfully!

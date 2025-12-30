@@ -1,0 +1,2 @@
+User: Alice, 30
+Attributes applied successfully

@@ -1,0 +1,5 @@
+With value: hello
+With null: default
+With undefined: default
+Number with value: 42
+Number with null: 0
