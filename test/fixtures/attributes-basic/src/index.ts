@@ -1,5 +1,9 @@
 import { attributes as A } from "@tsonic/core/attributes.js";
-import { Console, ObsoleteAttribute, SerializableAttribute } from "@tsonic/dotnet/System";
+import {
+  Console,
+  ObsoleteAttribute,
+  SerializableAttribute,
+} from "@tsonic/dotnet/System";
 
 // Class with Serializable attribute
 export class User {

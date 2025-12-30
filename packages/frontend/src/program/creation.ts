@@ -74,15 +74,13 @@ export const createProgram = (
   const absolutePaths = filePaths.map((fp) => path.resolve(fp));
 
   // Mandatory, compiler-owned type root (never optional)
-  // Resolved from installed @tsonic/dotnet-types package
+  // Resolved from installed @tsonic/globals package
   const require = createRequire(import.meta.url);
   const mandatoryTypeRoot = ((): string | undefined => {
     try {
-      const dotnetTypesPkgJson = require.resolve(
-        "@tsonic/dotnet-types/package.json"
-      );
-      const dotnetTypesDir = path.dirname(dotnetTypesPkgJson);
-      return path.join(dotnetTypesDir, "types");
+      const globalsPkgJson = require.resolve("@tsonic/globals/package.json");
+      // Globals are in the package root directory (index.d.ts)
+      return path.dirname(globalsPkgJson);
     } catch {
       // Package not found - will use user-provided typeRoots only
       return undefined;
@@ -96,7 +94,7 @@ export const createProgram = (
     ? Array.from(new Set([mandatoryTypeRoot, ...userTypeRoots]))
     : userTypeRoots.length > 0
       ? userTypeRoots
-      : ["node_modules/@tsonic/dotnet-types/types"];
+      : ["node_modules/@tsonic/globals"];
 
   // Debug log typeRoots
   if (options.verbose && typeRoots.length > 0) {

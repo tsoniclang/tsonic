@@ -1,7 +1,11 @@
 import { Console } from "@tsonic/dotnet/System";
 
 // Test arrow function contextual type inference
-function applyOperation(x: number, y: number, op: (a: number, b: number) => number): number {
+function applyOperation(
+  x: number,
+  y: number,
+  op: (a: number, b: number) => number
+): number {
   return op(x, y);
 }
 

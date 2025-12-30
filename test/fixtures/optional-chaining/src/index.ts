@@ -18,7 +18,10 @@ function getNameLength(user: User | null): number {
   return user?.name?.length ?? 0;
 }
 
-const user1: User = { name: "Alice", address: { city: "NYC", street: "123 Main" } };
+const user1: User = {
+  name: "Alice",
+  address: { city: "NYC", street: "123 Main" },
+};
 const user2: User = { name: "Bob" };
 const user3: User | null = null;
 

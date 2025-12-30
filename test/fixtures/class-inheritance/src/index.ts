@@ -29,4 +29,6 @@ const animal = new Animal("Generic");
 const dog = new Dog("Buddy", "Golden Retriever");
 
 Console.writeLine(`Animal: ${animal.name}, Sound: ${animal.makeSound()}`);
-Console.writeLine(`Dog: ${dog.name}, Breed: ${dog.breed}, Sound: ${dog.makeSound()}`);
+Console.writeLine(
+  `Dog: ${dog.name}, Breed: ${dog.breed}, Sound: ${dog.makeSound()}`
+);
