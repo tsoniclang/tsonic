@@ -637,14 +637,18 @@ export const emitSwitchStatement = (
       currentContext = newContext;
     }
 
-    // Add break if not already present
-    const lastStmt = switchCase.statements[switchCase.statements.length - 1];
-    if (
-      !lastStmt ||
-      (lastStmt.kind !== "breakStatement" &&
-        lastStmt.kind !== "returnStatement")
-    ) {
-      cases.push(`${getIndent(stmtContext)}break;`);
+    // Emit break only when case has non-empty body that doesn't terminate.
+    // Empty bodies represent intentional fall-through labels (TypeScript semantics).
+    const hasBody = switchCase.statements.length > 0;
+    if (hasBody) {
+      const lastStmt = switchCase.statements[switchCase.statements.length - 1];
+      const terminates =
+        lastStmt?.kind === "breakStatement" ||
+        lastStmt?.kind === "returnStatement" ||
+        lastStmt?.kind === "throwStatement";
+      if (!terminates) {
+        cases.push(`${getIndent(stmtContext)}break;`);
+      }
     }
   }
 

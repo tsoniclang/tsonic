@@ -47,7 +47,14 @@ import {
   NumericKind,
   isWideningConversion,
   TSONIC_TO_NUMERIC_KIND,
+  literalFitsInKind,
 } from "../types/numeric-kind.js";
+
+/**
+ * Maximum absolute value for a 32-bit float (Single).
+ * Used for validating literal narrowing to float.
+ */
+const MAX_FLOAT_ABS = 3.4028235e38;
 
 /**
  * Result of numeric expression classification.
@@ -392,6 +399,38 @@ const needsCoercion = (
   // numericNarrowing expressions represent explicit user intent (e.g., `x as int`)
   if (expr.kind === "numericNarrowing") {
     return false;
+  }
+
+  // Allow constant-literal narrowing when the literal fits the target type.
+  // This mirrors C#'s constant expression conversion rules and is ONLY allowed for literals.
+  if (expr.kind === "literal" && typeof expr.value === "number") {
+    const v = expr.value;
+
+    // Integer target kinds: require safe integer, integral value, and in-range.
+    if (
+      expectedKind === "SByte" ||
+      expectedKind === "Byte" ||
+      expectedKind === "Int16" ||
+      expectedKind === "UInt16" ||
+      expectedKind === "UInt32" ||
+      expectedKind === "UInt64" ||
+      expectedKind === "Int64"
+    ) {
+      if (
+        Number.isSafeInteger(v) &&
+        Number.isInteger(v) &&
+        literalFitsInKind(v, expectedKind)
+      ) {
+        return false;
+      }
+    }
+
+    // Float target kind: allow finite values in float range.
+    if (expectedKind === "Single") {
+      if (Number.isFinite(v) && Math.abs(v) <= MAX_FLOAT_ABS) {
+        return false;
+      }
+    }
   }
 
   // Narrowing without explicit intent → error

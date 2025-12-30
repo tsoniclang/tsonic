@@ -19,6 +19,7 @@ import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.j
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
+import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js";
 import { validateProgram } from "../validation/orchestrator.js";
 
 export type ModuleDependencyGraphResult = {
@@ -357,8 +358,12 @@ export const buildModuleDependencyGraph = (
     return error(attributeResult.diagnostics);
   }
 
-  // Use the processed modules with proofs, lowered yields, and attributes
-  const processedModules = [...attributeResult.modules];
+  // Run virtual marking pass - marks base class methods as virtual when overridden
+  const virtualResult = runVirtualMarkingPass(attributeResult.modules);
+  // Note: This pass always succeeds
+
+  // Use the processed modules with proofs, lowered yields, attributes, and virtual marks
+  const processedModules = [...virtualResult.modules];
 
   // Sort modules by relative path for deterministic output
   processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));

@@ -22,6 +22,44 @@ const TYPES_NEEDING_EXPLICIT_DECL = new Set([
 ]);
 
 /**
+ * Check if a type can be explicitly emitted as a C# type.
+ * Returns false for types that cannot be named in C# (any, unknown, anonymous).
+ */
+const canEmitTypeExplicitly = (type: IrType): boolean => {
+  // Reject any/unknown (these are separate type kinds, not primitive names)
+  if (type.kind === "anyType" || type.kind === "unknownType") {
+    return false;
+  }
+
+  // Accept primitives
+  if (type.kind === "primitiveType") {
+    return true;
+  }
+
+  // Accept arrays, functions, references, tuples
+  if (
+    type.kind === "arrayType" ||
+    type.kind === "functionType" ||
+    type.kind === "referenceType" ||
+    type.kind === "tupleType"
+  ) {
+    return true;
+  }
+
+  // Reject anonymous object types (no CLR backing)
+  if (type.kind === "objectType") {
+    return false;
+  }
+
+  // Reject unions containing any/unknown
+  if (type.kind === "unionType") {
+    return type.types.every(canEmitTypeExplicitly);
+  }
+
+  return false;
+};
+
+/**
  * Check if a type requires explicit local variable declaration.
  * Returns true for types like byte, sbyte, short, ushort that have no C# suffix.
  * Resolves type aliases to get the underlying type.
@@ -187,6 +225,17 @@ export const emitVariableDeclaration = (
         } else {
           varDecl += "object ";
         }
+      } else if (
+        decl.initializer?.inferredType &&
+        canEmitTypeExplicitly(decl.initializer.inferredType)
+      ) {
+        // Use initializer's inferred type (function return types, etc.)
+        const [typeName, newContext] = emitType(
+          decl.initializer.inferredType,
+          currentContext
+        );
+        currentContext = newContext;
+        varDecl += `${typeName} `;
       } else {
         varDecl += "object ";
       }

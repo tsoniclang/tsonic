@@ -41,3 +41,8 @@ export {
   runArrowReturnFinalizationPass,
   type ArrowReturnFinalizationResult,
 } from "./arrow-return-finalization-pass.js";
+
+export {
+  runVirtualMarkingPass,
+  type VirtualMarkingResult,
+} from "./virtual-marking-pass.js";

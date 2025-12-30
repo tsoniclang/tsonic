@@ -5,6 +5,7 @@
 import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import { Result, ok, error } from "../types/result.js";
 import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
@@ -72,10 +73,30 @@ export const createProgram = (
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const absolutePaths = filePaths.map((fp) => path.resolve(fp));
 
+  // Mandatory, compiler-owned type root (never optional)
+  // Resolved from installed @tsonic/dotnet-types package
+  const require = createRequire(import.meta.url);
+  const mandatoryTypeRoot = ((): string | undefined => {
+    try {
+      const dotnetTypesPkgJson = require.resolve(
+        "@tsonic/dotnet-types/package.json"
+      );
+      const dotnetTypesDir = path.dirname(dotnetTypesPkgJson);
+      return path.join(dotnetTypesDir, "types");
+    } catch {
+      // Package not found - will use user-provided typeRoots only
+      return undefined;
+    }
+  })();
+
   // Get declaration files from type roots
-  const typeRoots = options.typeRoots ?? [
-    "node_modules/@tsonic/dotnet-types/types",
-  ];
+  // Inject mandatory type root first, then user-provided roots
+  const userTypeRoots = options.typeRoots ?? [];
+  const typeRoots = mandatoryTypeRoot
+    ? Array.from(new Set([mandatoryTypeRoot, ...userTypeRoots]))
+    : userTypeRoots.length > 0
+      ? userTypeRoots
+      : ["node_modules/@tsonic/dotnet-types/types"];
 
   // Debug log typeRoots
   if (options.verbose && typeRoots.length > 0) {
