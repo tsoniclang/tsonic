@@ -1,0 +1,27 @@
+=== Nested Generic Brand Preservation Tests ===
+
+--- Test 1: Box<int>[] array ---
+firstBox.value = 1
+doubled = 2
+
+--- Test 2: Box<long>[] array ---
+firstLongBox.value = 1000000000
+doubled = 2000000000
+
+--- Test 3: Extract function ---
+extracted = 42
+doubled = 84
+
+--- Test 4: Chained call ---
+chained = 100
+doubled = 200
+
+--- Test 5: Array arithmetic ---
+sum = 6
+sum doubled = 12
+
+--- Test 6: Long extraction ---
+longVal = 9999999999
+doubled = 19999999998
+
+=== All tests completed ===
