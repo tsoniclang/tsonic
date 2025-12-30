@@ -1,4 +1,0 @@
-{
-  "expectFailure": true,
-  "description": "TSN5110: Integer literals cannot be implicitly converted to number (double)"
-}
