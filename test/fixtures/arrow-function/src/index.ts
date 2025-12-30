@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 const add = (a: number, b: number): number => a + b;
 

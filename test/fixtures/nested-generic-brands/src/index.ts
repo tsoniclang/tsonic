@@ -7,7 +7,7 @@
  * - Multiple levels of generic nesting in return types
  */
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { int, long } from "@tsonic/core/types.js";
 
 // Simple generic container

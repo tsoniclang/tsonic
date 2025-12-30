@@ -1,7 +1,7 @@
 // Test BCL collections and LINQ
-import { Console, String } from "@tsonic/dotnet/System";
-import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Console, String } from "@tsonic/dotnet/System.js";
+import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 import { int } from "@tsonic/core/types.js";
 
 export function main(): void {

@@ -1,7 +1,7 @@
 // Test recursive tree-like structures
 // Verifies self-referential types compile and execute correctly
-import { Console } from "@tsonic/dotnet/System";
-import { List, IList } from "@tsonic/dotnet/System.Collections.Generic";
+import { Console } from "@tsonic/dotnet/System.js";
+import { List, IList } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 // Recursive tree node with self-reference
 // Use IList interface to avoid tsbindgen's instance vs full type distinction

@@ -1,5 +1,5 @@
-import { Console } from "@tsonic/dotnet/System";
-import { int } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
+import { int } from "@tsonic/core/types.js";
 
 // Class fields with explicit type annotations (required for deterministic typing)
 class Counter {

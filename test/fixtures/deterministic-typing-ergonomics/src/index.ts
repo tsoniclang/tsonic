@@ -5,7 +5,7 @@
  * good ergonomics for common patterns while preserving CLR type brands.
  */
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { int, long } from "@tsonic/core/types.js";
 
 // Helper functions to "prove" types by requiring specific CLR types

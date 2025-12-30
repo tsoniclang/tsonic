@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function spreadArray(arr1: number[], arr2: number[]): number[] {
   return [...arr1, ...arr2];

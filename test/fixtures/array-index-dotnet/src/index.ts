@@ -1,7 +1,7 @@
 // Test array/list indexing in dotnet mode
 // Demonstrates that indexed access works with CLR List<T>
-import { Console } from "@tsonic/dotnet/System";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { Console } from "@tsonic/dotnet/System.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 export function main(): void {
   // Create a list with values

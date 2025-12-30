@@ -2,7 +2,7 @@
 // When checking `id !== undefined`, the identifier should emit as `id.Value` in C#
 
 import { int } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Test Case 1: Basic nullable narrowing with int
 function handleInt(id: int | undefined): int {

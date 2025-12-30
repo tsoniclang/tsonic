@@ -1,5 +1,5 @@
 // Multi-file import test
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { add, multiply } from "./utils/Math.js";
 
 export function main(): void {

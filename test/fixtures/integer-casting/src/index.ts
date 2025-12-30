@@ -7,7 +7,7 @@
  * 3. Assertions don't force casts - `as int` on int expression is a no-op
  */
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { int } from "@tsonic/core/types.js";
 
 export function main(): void {

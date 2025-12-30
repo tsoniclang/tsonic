@@ -1,6 +1,6 @@
 // Test: First next(arg) invariant - the value passed to the first next() call must be ignored
 // This is a critical JavaScript generator semantics requirement
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Simple accumulator generator that receives values via next()
 // This test verifies that the first next(999) value is NOT used

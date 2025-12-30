@@ -3,7 +3,7 @@ import {
   Console,
   ObsoleteAttribute,
   SerializableAttribute,
-} from "@tsonic/dotnet/System";
+} from "@tsonic/dotnet/System.js";
 
 // Class with Serializable attribute
 export class User {

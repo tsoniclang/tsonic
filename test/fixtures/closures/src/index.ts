@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function makeCounter(): () => number {
   let count = 0;

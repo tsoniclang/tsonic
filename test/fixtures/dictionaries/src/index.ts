@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Dictionary with string keys
 function createStringDict(): Record<string, number> {

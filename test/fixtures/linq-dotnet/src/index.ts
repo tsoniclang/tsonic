@@ -1,7 +1,7 @@
 // Test LINQ operations in dotnet runtime mode
-import { Console } from "@tsonic/dotnet/System";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Console } from "@tsonic/dotnet/System.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 import { int } from "@tsonic/core/types.js";
 
 export function main(): void {

@@ -6,8 +6,8 @@
  * - Func<T, TResult> for (x: T) => TResult
  */
 
-import { Console } from "@tsonic/dotnet/System";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { Console } from "@tsonic/dotnet/System.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import { int } from "@tsonic/core/types.js";
 
 // Action<T> - callback with no return value

@@ -9,7 +9,7 @@
 // calling typeToTypeNode and preserves CLR primitive aliases from @tsonic/core.
 
 import { int } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Interface with int-typed property
 interface Todo {

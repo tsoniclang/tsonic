@@ -2,7 +2,7 @@
 // This tests that the numeric proof pass correctly rejects narrowings
 // that cannot be proven sound at compile time.
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { int } from "@tsonic/core/types.js";
 
 export function main(): void {

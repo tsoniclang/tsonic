@@ -7,7 +7,7 @@
  * Box<int>.value should return `int`, not `number`
  */
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { int, long } from "@tsonic/core/types.js";
 
 // Generic container interface

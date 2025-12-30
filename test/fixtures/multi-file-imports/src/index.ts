@@ -1,5 +1,5 @@
 // Test multi-file imports
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 // Named imports from re-export barrel
 import { add, multiply, PI, prefix } from "./utils/index.js";
 

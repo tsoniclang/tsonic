@@ -6,7 +6,7 @@
  * 2. Calling functions with `as out<T>`, `as ref<T>`, `as inref<T>` casts
  */
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { int } from "@tsonic/core/types.js";
 
 // Parameter passing modifiers

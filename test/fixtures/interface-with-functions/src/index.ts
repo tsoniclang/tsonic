@@ -3,7 +3,7 @@
  * where filename matches interface name (causes __Module suffix)
  */
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { User, createUser, formatUser } from "./models/User.js";
 
 export function main(): void {

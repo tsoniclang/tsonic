@@ -1,6 +1,6 @@
 // Test namespace imports (import * as)
 import * as MathUtils from "./utils/math.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
   // Use namespace import to access members

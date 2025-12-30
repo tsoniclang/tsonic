@@ -1,6 +1,6 @@
 // Test Generator<TYield, TReturn, TNext> where TYield != TReturn
 // This verifies @return takes TReturn (string), not TYield (number)
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Generator yields numbers, accepts numbers, but returns a string
 // Note: Use 0.0 for sum since it participates in double arithmetic (value is double)

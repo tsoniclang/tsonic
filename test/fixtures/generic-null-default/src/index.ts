@@ -1,6 +1,6 @@
 // Test null in generic type contexts with proper constraints
 // Nullable generic types require T extends struct or T extends object
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Result type constrained to reference types (T extends object → where T : class)
 interface Result<T extends object> {
