@@ -1,0 +1,4 @@
+Day 0: weekend
+Day 3: weekday
+Day 6: weekend
+Day 7: invalid

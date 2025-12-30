@@ -11,6 +11,7 @@
  * - TSN7409: 'infer' keyword not supported
  * - TSN7410: Intersection types not supported
  * - TSN7413: Dictionary key must be string or number
+ * - TSN7430: Arrow function requires explicit types (escape hatch)
  *
  * This ensures NativeAOT-compatible, predictable-performance output.
  *
@@ -378,6 +379,17 @@ export const validateStaticSafety = (
       }
     }
 
+    // TSN7430: Arrow function escape hatch validation
+    // Non-simple arrows must have explicit type annotations
+    if (ts.isArrowFunction(node)) {
+      currentCollector = validateArrowEscapeHatch(
+        node,
+        sourceFile,
+        checker,
+        currentCollector
+      );
+    }
+
     // Continue visiting children
     ts.forEachChild(node, (child) => {
       currentCollector = visitor(child, currentCollector);
@@ -528,4 +540,175 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
   }
 
   return false;
+};
+
+/**
+ * TSN7430: Arrow function escape hatch validation.
+ *
+ * Arrow functions can only infer types from context if they meet the
+ * "simple arrow" criteria. Non-simple arrows must have explicit annotations.
+ *
+ * Simple Arrow Definition (per spec):
+ * 1. isAsync === false
+ * 2. Body is an expression (not a block) - block bodies ALWAYS require explicit return type
+ * 3. Every parameter pattern is a simple identifier (no destructuring)
+ * 4. No default initializers
+ * 5. No rest parameters
+ *
+ * If an arrow fails ANY of these criteria AND doesn't have explicit types,
+ * emit TSN7430.
+ */
+const validateArrowEscapeHatch = (
+  node: ts.ArrowFunction,
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  collector: DiagnosticsCollector
+): DiagnosticsCollector => {
+  // Check if arrow has explicit parameter types and return type
+  const hasExplicitReturnType = node.type !== undefined;
+  const allParamsExplicitlyTyped = node.parameters.every(
+    (param) => param.type !== undefined
+  );
+
+  // If fully typed, no escape hatch validation needed
+  if (hasExplicitReturnType && allParamsExplicitlyTyped) {
+    return collector;
+  }
+
+  // Determine if this is a "simple arrow"
+  const simpleArrowResult = isSimpleArrow(node);
+
+  // If it's a simple arrow shape, check for contextual type
+  if (simpleArrowResult.isSimple) {
+    // Try to get contextual type for parameter inference
+    const contextualType = checker.getContextualType(node);
+
+    if (contextualType) {
+      // Has contextual type - check if it's a function type
+      const signatures = contextualType.getCallSignatures();
+      if (signatures.length > 0) {
+        const sig = signatures[0];
+        const contextParams = sig?.getParameters() ?? [];
+
+        // Check parameter count matches
+        if (contextParams.length >= node.parameters.length) {
+          // Contextual type available and valid - inference can proceed
+          return collector;
+        } else {
+          // Parameter count mismatch
+          return addDiagnostic(
+            collector,
+            createDiagnostic(
+              "TSN7430",
+              "error",
+              `Arrow function requires explicit types. Parameter count mismatch with contextual type (expected ${node.parameters.length}, contextual type has ${contextParams.length}).`,
+              getNodeLocation(sourceFile, node),
+              "Add explicit type annotations to the arrow function parameters and return type."
+            )
+          );
+        }
+      } else {
+        // Contextual type is not a function type
+        return addDiagnostic(
+          collector,
+          createDiagnostic(
+            "TSN7430",
+            "error",
+            "Arrow function requires explicit types. Contextual type is not a function type.",
+            getNodeLocation(sourceFile, node),
+            "Add explicit type annotations to the arrow function parameters and return type."
+          )
+        );
+      }
+    } else {
+      // No contextual type available
+      return addDiagnostic(
+        collector,
+        createDiagnostic(
+          "TSN7430",
+          "error",
+          "Arrow function requires explicit types. No contextual type available for inference.",
+          getNodeLocation(sourceFile, node),
+          "Add explicit type annotations: (x: Type, y: Type): ReturnType => expression"
+        )
+      );
+    }
+  }
+
+  // Not a simple arrow - emit escape hatch error with specific reason
+  return addDiagnostic(
+    collector,
+    createDiagnostic(
+      "TSN7430",
+      "error",
+      `Arrow function requires explicit types. ${simpleArrowResult.reason}`,
+      getNodeLocation(sourceFile, node),
+      "Only expression-bodied arrows with simple identifier parameters can infer types from context. Add explicit parameter and return type annotations."
+    )
+  );
+};
+
+/**
+ * Check if an arrow function meets the "simple arrow" criteria for type inference.
+ *
+ * Returns { isSimple: true } if all criteria are met, or
+ * { isSimple: false, reason: string } explaining why it's not simple.
+ */
+const isSimpleArrow = (
+  node: ts.ArrowFunction
+):
+  | { readonly isSimple: true }
+  | { readonly isSimple: false; readonly reason: string } => {
+  // 1. Not async
+  if (node.modifiers?.some((mod) => mod.kind === ts.SyntaxKind.AsyncKeyword)) {
+    return {
+      isSimple: false,
+      reason: "Async arrow functions require explicit type annotations.",
+    };
+  }
+
+  // 2. Body must be an expression (not a block)
+  // Block bodies ALWAYS require explicit return type annotation
+  if (ts.isBlock(node.body)) {
+    return {
+      isSimple: false,
+      reason:
+        "Block-bodied arrow functions require explicit return type annotation.",
+    };
+  }
+
+  // 3. All parameter patterns must be simple identifiers (no destructuring)
+  for (const param of node.parameters) {
+    if (!ts.isIdentifier(param.name)) {
+      return {
+        isSimple: false,
+        reason:
+          "Arrow functions with destructuring patterns require explicit type annotations.",
+      };
+    }
+  }
+
+  // 4. No default initializers
+  for (const param of node.parameters) {
+    if (param.initializer !== undefined) {
+      return {
+        isSimple: false,
+        reason:
+          "Arrow functions with default parameter values require explicit type annotations.",
+      };
+    }
+  }
+
+  // 5. No rest parameters
+  for (const param of node.parameters) {
+    if (param.dotDotDotToken !== undefined) {
+      return {
+        isSimple: false,
+        reason:
+          "Arrow functions with rest parameters require explicit type annotations.",
+      };
+    }
+  }
+
+  return { isSimple: true };
 };

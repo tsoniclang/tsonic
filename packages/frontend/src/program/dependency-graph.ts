@@ -14,10 +14,12 @@ import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
+import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-finalization-pass.js";
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
+import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js";
 import { validateProgram } from "../validation/orchestrator.js";
 
 export type ModuleDependencyGraphResult = {
@@ -331,9 +333,13 @@ export const buildModuleDependencyGraph = (
     return error(numericResult.diagnostics);
   }
 
+  // Run arrow return finalization pass - infers return types for expression-bodied
+  // arrows from their body's inferredType (after numeric proof has run)
+  const arrowResult = runArrowReturnFinalizationPass(numericResult.modules);
+
   // Run numeric coercion pass - validates no implicit int→double conversions
   // This enforces the strict contract: integer literals require explicit widening
-  const coercionResult = runNumericCoercionPass(numericResult.modules);
+  const coercionResult = runNumericCoercionPass(arrowResult.modules);
   if (!coercionResult.ok) {
     return error(coercionResult.diagnostics);
   }
@@ -352,8 +358,12 @@ export const buildModuleDependencyGraph = (
     return error(attributeResult.diagnostics);
   }
 
-  // Use the processed modules with proofs, lowered yields, and attributes
-  const processedModules = [...attributeResult.modules];
+  // Run virtual marking pass - marks base class methods as virtual when overridden
+  const virtualResult = runVirtualMarkingPass(attributeResult.modules);
+  // Note: This pass always succeeds
+
+  // Use the processed modules with proofs, lowered yields, attributes, and virtual marks
+  const processedModules = [...virtualResult.modules];
 
   // Sort modules by relative path for deterministic output
   processedModules.sort((a, b) => a.filePath.localeCompare(b.filePath));

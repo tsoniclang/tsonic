@@ -1,0 +1,11 @@
+{
+  "name": "array-type-emission-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/dotnet": "*",
+    "@tsonic/globals": "*",
+    "@tsonic/core": "*"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "Mapped types ({ [P in keyof T]: ... }) are not supported in Tsonic. Write explicit interface or class definitions instead.",
+  "expectedErrors": ["TSN7406"],
+  "diagnosticCodes": ["TSN7406"],
+  "notes": "Mapped types like Partial<T>, Required<T>, or custom mapped types cannot be directly translated to C#. Use explicit interface definitions for each specific case."
+}

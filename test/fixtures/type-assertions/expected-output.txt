@@ -1,0 +1,7 @@
+int: 1000
+byte: 255
+short: 1000
+long: 1000000
+float: 1.5
+Dog name: Buddy
+Dog breed: Golden

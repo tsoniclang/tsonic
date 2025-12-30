@@ -1,0 +1,10 @@
+Inferred double: 42.5
+Inferred string: hello
+Inferred bool: True
+Explicit int: 42
+Explicit byte: 255
+Explicit long: 1000000
+Explicit float: 1.5
+Explicit string: world
+Mutable int: 100
+Mutable string: updated

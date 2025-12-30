@@ -1,0 +1,2 @@
+Nested scopes result: 65
+Nested scopes result: 60

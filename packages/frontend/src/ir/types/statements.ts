@@ -98,6 +98,8 @@ export type IrMethodDeclaration = {
   readonly isOverride?: boolean;
   /** True if this method shadows a non-virtual base method (future: emit 'new' keyword) */
   readonly isShadow?: boolean;
+  /** True if this method should be emitted as virtual (overridden in derived class) */
+  readonly isVirtual?: boolean;
   /** C# attributes to emit before the method declaration */
   readonly attributes?: readonly IrAttribute[];
 };

@@ -116,6 +116,9 @@ const tryRecoverNumericReferenceFromPropertyDecl = (
  * For calls like arr.indexOf("x"), if the declaration says `indexOf(...): int`,
  * we recover "int" even if checker normalizes to "number".
  *
+ * Also handles array types: if declaration says `createArray(): int[]`,
+ * we recover int[] even if checker normalizes to number[].
+ *
  * STRICT: Only handles common declaration types, not arrow functions or function types.
  * CONSERVATIVE: If signature has multiple declarations with conflicting return types,
  * returns undefined to avoid incorrect recovery.
@@ -150,6 +153,23 @@ const tryRecoverNumericReferenceFromSignatureReturnDecl = (
 
     if (TSONIC_TO_NUMERIC_KIND.has(name)) {
       return { kind: "referenceType", name };
+    }
+  }
+
+  // Handle array types: int[] -> arrayType with referenceType("int") element
+  if (ts.isArrayTypeNode(returnTypeNode)) {
+    const elementType = returnTypeNode.elementType;
+    if (
+      ts.isTypeReferenceNode(elementType) &&
+      ts.isIdentifier(elementType.typeName)
+    ) {
+      const name = elementType.typeName.text;
+      if (TSONIC_TO_NUMERIC_KIND.has(name)) {
+        return {
+          kind: "arrayType",
+          elementType: { kind: "referenceType", name },
+        };
+      }
     }
   }
 
@@ -226,6 +246,26 @@ export const getInferredType = (
       }
 
       // For call expressions like arr.indexOf("x"), check the signature return type
+      if (ts.isCallExpression(node)) {
+        const signature = checker.getResolvedSignature(node);
+        if (signature) {
+          const recovered =
+            tryRecoverNumericReferenceFromSignatureReturnDecl(signature);
+          if (recovered) {
+            return recovered;
+          }
+        }
+      }
+    }
+
+    // ARRAY RECOVERY: If checker returned array of "number", try to recover
+    // numeric intent from the declaration AST. E.g., int[] -> number[] in TS.
+    if (
+      result?.kind === "arrayType" &&
+      result.elementType?.kind === "primitiveType" &&
+      result.elementType.name === "number"
+    ) {
+      // For call expressions like createArray(): int[], check the signature return type
       if (ts.isCallExpression(node)) {
         const signature = checker.getResolvedSignature(node);
         if (signature) {

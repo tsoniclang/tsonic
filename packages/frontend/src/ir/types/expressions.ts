@@ -135,6 +135,8 @@ export type IrArrowFunctionExpression = {
   readonly body: IrBlockStatement | IrExpression;
   readonly isAsync: boolean;
   readonly inferredType?: IrType;
+  /** Contextual type from call site (e.g., array.map callback signature) */
+  readonly contextualType?: IrType;
   readonly sourceSpan?: SourceLocation;
 };
 

@@ -1,0 +1,4 @@
+String dict 'one': 1
+String dict 'two': 2
+Number dict 1: one
+Number dict 2: two

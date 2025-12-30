@@ -1,0 +1,5 @@
+Count 1: 1
+Count 2: 2
+Count 3: 3
+Add5(3): 8
+Add10(3): 13

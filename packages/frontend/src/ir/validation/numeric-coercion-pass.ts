@@ -1,24 +1,30 @@
 /**
- * Numeric Coercion Pass - STRICT CONTRACT enforcement
+ * Numeric Coercion Pass - Widening/Narrowing Validation
  *
- * This pass detects cases where an integer expression is used where a double is expected,
- * and requires explicit user intent for the conversion.
+ * This pass validates numeric conversions between different numeric kinds.
  *
- * STRICT RULE: int → double requires explicit user intent
+ * RULE: Implicit WIDENING is allowed, implicit NARROWING is rejected.
  *
- * Intent sites (where widening is checked):
- * 1. Variable initialization with explicit type: `const x: number = 42` → ERROR
- * 2. Parameter passing: `foo(42)` where foo expects `number` → ERROR
- * 3. Return statements: `return 42` where function returns `number` → ERROR
- * 4. Array elements: `[1, 2, 3]` in `number[]` context → ERROR (each element)
- * 5. Object properties: `{ x: 42 }` where type has `x: number` → ERROR
- * 6. Ternary branches: `cond ? 1 : 2` where expected is `number` → ERROR
- * 7. Default parameters: `function f(x: number = 42)` → ERROR
- * 8. Tuple elements: `[1, 2]` in `[number, number]` context → ERROR
+ * Widening (allowed implicitly):
+ * - Int32 → Double (int → number)
+ * - Int32 → Int64 (int → long)
+ * - Single → Double (float → number)
+ * - etc. (see isWideningConversion in numeric-kind.ts)
  *
- * How to satisfy the contract:
- * - Use double literal: `const x: number = 42.0` ✓
- * - Use explicit cast: `const x: number = 42 as number` ✓
+ * Narrowing (requires explicit cast):
+ * - Double → Int32 (number → int) requires `as int`
+ * - Int64 → Int32 (long → int) requires `as int`
+ * - etc.
+ *
+ * Examples that now PASS:
+ * - `const x: number = 42` ✓ (Int32 → Double is widening)
+ * - `foo(42)` where foo expects `number` ✓
+ * - `return 42` where function returns `number` ✓
+ * - `[1, 2, 3]` in `number[]` context ✓
+ *
+ * Examples that still FAIL (narrowing):
+ * - `const x: int = 1.5` ✗ (Double → Int32 is narrowing)
+ * - Must use: `const x: int = 1.5 as int` ✓
  *
  * This pass runs AFTER the IR is built, BEFORE emission.
  * It is a HARD GATE - any errors prevent emission.
@@ -37,6 +43,18 @@ import {
   IrInterfaceMember,
   getBinaryResultKind,
 } from "../types.js";
+import {
+  NumericKind,
+  isWideningConversion,
+  TSONIC_TO_NUMERIC_KIND,
+  literalFitsInKind,
+} from "../types/numeric-kind.js";
+
+/**
+ * Maximum absolute value for a 32-bit float (Single).
+ * Used for validating literal narrowing to float.
+ */
+const MAX_FLOAT_ABS = 3.4028235e38;
 
 /**
  * Result of numeric expression classification.
@@ -231,15 +249,56 @@ const moduleLocation = (ctx: CoercionContext): SourceLocation => ({
 });
 
 /**
- * Check if a type is "number" (which ALWAYS means double)
+ * Get the expected numeric kind from a type.
+ * Returns undefined if the type is not a numeric type.
  *
- * INVARIANT A: "number" always means C# "double". No exceptions.
- * INVARIANT B: "int" is a distinct primitive type, NOT number with numericIntent.
+ * Maps:
+ * - primitiveType("number") → "Double"
+ * - primitiveType("int") → "Int32"
+ * - referenceType with name in TSONIC_TO_NUMERIC_KIND → corresponding kind
  */
-const isNumberType = (type: IrType | undefined): boolean => {
-  if (!type) return false;
-  // primitiveType(name="number") is ALWAYS double
-  return type.kind === "primitiveType" && type.name === "number";
+const getExpectedNumericKind = (
+  type: IrType | undefined
+): NumericKind | undefined => {
+  if (!type) return undefined;
+
+  // Strip nullish wrapper if present (T | null | undefined → T)
+  const baseType =
+    type.kind === "unionType"
+      ? type.types.find(
+          (t) =>
+            !(
+              t.kind === "primitiveType" &&
+              (t.name === "null" || t.name === "undefined")
+            )
+        )
+      : type;
+
+  if (!baseType) return undefined;
+
+  // primitiveType mapping
+  if (baseType.kind === "primitiveType") {
+    if (baseType.name === "number") return "Double";
+    if (baseType.name === "int") return "Int32";
+    // Check if it's a known numeric type alias
+    const kind = TSONIC_TO_NUMERIC_KIND.get(baseType.name);
+    if (kind) return kind;
+  }
+
+  // referenceType mapping (CLR types like Int32, Double, etc.)
+  if (baseType.kind === "referenceType") {
+    const name = baseType.name;
+    // Direct CLR type names
+    if (name === "Int32" || name === "int") return "Int32";
+    if (name === "Double" || name === "double") return "Double";
+    if (name === "Int64" || name === "long") return "Int64";
+    if (name === "Single" || name === "float") return "Single";
+    // Check the mapping table
+    const kind = TSONIC_TO_NUMERIC_KIND.get(name.toLowerCase());
+    if (kind) return kind;
+  }
+
+  return undefined;
 };
 
 /**
@@ -299,37 +358,83 @@ const tryGetTupleElementType = (
 };
 
 /**
- * Check if an expression is an integer expression (Int32).
- * Uses the expression classifier to handle composed expressions.
- */
-const isIntegerExpression = (expr: IrExpression): boolean => {
-  return classifyNumericExpr(expr) === "Int32";
-};
-
-/**
- * Check if an expression needs coercion to match an expected double type.
- * Returns true if:
- * - Expected type is "number" (double)
- * - Expression classifies as Int32
- * - Expression does NOT have explicit double intent (cast exemption)
+ * Check if an expression needs coercion to match an expected numeric type.
+ *
+ * Returns true (error) only for NARROWING conversions.
+ * Widening conversions (e.g., Int32 → Double) are implicitly allowed.
+ *
+ * Rules:
+ * - Same kind → OK
+ * - Widening (isWideningConversion returns true) → OK
+ * - Narrowing → requires explicit intent (numericNarrowing node)
  */
 const needsCoercion = (
   expr: IrExpression,
   expectedType: IrType | undefined
 ): boolean => {
-  // Only check if expected type is unadorned "number" (meaning double)
-  if (!isNumberType(expectedType)) {
+  // Get numeric kinds
+  const expectedKind = getExpectedNumericKind(expectedType);
+  const actualKind = classifyNumericExpr(expr);
+
+  // If either is not a numeric type, no coercion check needed
+  if (expectedKind === undefined || actualKind === "Unknown") {
     return false;
   }
 
-  // Check for explicit double intent (e.g., `42 as number`, `42.0`)
-  // These are explicitly allowed even though they classify as Int32
-  if (hasExplicitDoubleIntent(expr)) {
+  // Map actualKind to NumericKind (classifyNumericExpr returns "Int32" | "Double" | "Unknown")
+  const actualNumericKind: NumericKind =
+    actualKind === "Int32" ? "Int32" : "Double";
+
+  // Same kind → OK
+  if (actualNumericKind === expectedKind) {
     return false;
   }
 
-  // Check if the expression classifies as Int32
-  return isIntegerExpression(expr);
+  // Widening conversion → OK (e.g., Int32 → Double)
+  if (isWideningConversion(actualNumericKind, expectedKind)) {
+    return false;
+  }
+
+  // Narrowing conversion → check for explicit intent
+  // numericNarrowing expressions represent explicit user intent (e.g., `x as int`)
+  if (expr.kind === "numericNarrowing") {
+    return false;
+  }
+
+  // Allow constant-literal narrowing when the literal fits the target type.
+  // This mirrors C#'s constant expression conversion rules and is ONLY allowed for literals.
+  if (expr.kind === "literal" && typeof expr.value === "number") {
+    const v = expr.value;
+
+    // Integer target kinds: require safe integer, integral value, and in-range.
+    if (
+      expectedKind === "SByte" ||
+      expectedKind === "Byte" ||
+      expectedKind === "Int16" ||
+      expectedKind === "UInt16" ||
+      expectedKind === "UInt32" ||
+      expectedKind === "UInt64" ||
+      expectedKind === "Int64"
+    ) {
+      if (
+        Number.isSafeInteger(v) &&
+        Number.isInteger(v) &&
+        literalFitsInKind(v, expectedKind)
+      ) {
+        return false;
+      }
+    }
+
+    // Float target kind: allow finite values in float range.
+    if (expectedKind === "Single") {
+      if (Number.isFinite(v) && Math.abs(v) <= MAX_FLOAT_ABS) {
+        return false;
+      }
+    }
+  }
+
+  // Narrowing without explicit intent → error
+  return true;
 };
 
 /**
@@ -359,25 +464,36 @@ const describeExpression = (expr: IrExpression): string => {
 };
 
 /**
- * Emit an error diagnostic for int→double coercion
+ * Emit an error diagnostic for implicit narrowing conversion.
+ * Only called when a narrowing conversion is attempted without explicit intent.
  */
 const emitCoercionError = (
   expr: IrExpression,
+  expectedType: IrType | undefined,
   ctx: CoercionContext,
   context: string
 ): void => {
   const location = expr.sourceSpan ?? moduleLocation(ctx);
   const description = describeExpression(expr);
+  const actualKind = classifyNumericExpr(expr);
+  const expectedKind = getExpectedNumericKind(expectedType);
+
+  // Build descriptive type names
+  const actualName = actualKind === "Int32" ? "int" : "double";
+  const expectedName =
+    expectedKind === "Double"
+      ? "number"
+      : expectedKind === "Int32"
+        ? "int"
+        : String(expectedKind).toLowerCase();
 
   ctx.diagnostics.push(
     createDiagnostic(
       "TSN5110",
       "error",
-      `Integer ${description} cannot be implicitly converted to 'number' (double) ${context}`,
+      `Implicit narrowing not allowed: ${description} (${actualName}) cannot be converted to '${expectedName}' ${context}`,
       location,
-      expr.kind === "literal"
-        ? `Use a double literal (e.g., '${expr.raw ?? expr.value}.0') or explicit cast ('${expr.raw ?? expr.value} as number').`
-        : `Use an explicit cast (e.g., 'expr as number') to convert to double.`
+      `Add an explicit cast ('as ${expectedName}') to indicate intent.`
     )
   );
 };
@@ -392,9 +508,9 @@ const validateExpression = (
   ctx: CoercionContext,
   context: string
 ): void => {
-  // Check for direct int→double coercion
+  // Check for narrowing conversion (widening is allowed)
   if (needsCoercion(expr, expectedType)) {
-    emitCoercionError(expr, ctx, context);
+    emitCoercionError(expr, expectedType, ctx, context);
     return;
   }
 

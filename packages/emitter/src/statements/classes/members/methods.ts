@@ -44,6 +44,11 @@ export const emitMethodMember = (
     parts.push("override");
   }
 
+  // Base method virtual (required when overridden in derived types)
+  if (!member.isStatic && !member.isOverride && member.isVirtual) {
+    parts.push("virtual");
+  }
+
   if (member.isAsync) {
     parts.push("async");
   }

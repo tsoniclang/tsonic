@@ -1,4 +1,0 @@
-{
-  "expectFailure": true,
-  "description": "TSN5110: Ternary branch with int literal where number expected"
-}
