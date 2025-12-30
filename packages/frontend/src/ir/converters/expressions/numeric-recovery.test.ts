@@ -343,4 +343,36 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
       expect(proofResult.ok).to.be.true;
     });
   });
+
+  // Note: User-defined function return type recovery is tested through E2E tests
+  // (test/fixtures/*) which have proper node_modules setup for @tsonic/core imports.
+  // The unit tests here focus on built-in globals (arr.length, string.indexOf, etc.)
+
+  describe("Chained Call Type Recovery", () => {
+    it("should recover correct type through method chain", () => {
+      // str.substring() returns string, then .length returns int
+      // Note: .length is declared as int in globals, no import needed
+      const code = `
+        export function getSubLength(s: string): number {
+          return s.substring(0, 5).length;
+        }
+      `;
+
+      const { modules, ok, error } = compileWithGlobals(code);
+      expect(ok, `Compile failed: ${error}`).to.be.true;
+
+      // Find .length member expression at end of chain
+      const lengthExpr = findExpression(
+        modules,
+        (expr): expr is IrMemberExpression =>
+          expr.kind === "memberAccess" && expr.property === "length"
+      );
+
+      expect(lengthExpr).to.not.be.undefined;
+      expect(lengthExpr?.inferredType).to.deep.equal({
+        kind: "primitiveType",
+        name: "int",
+      });
+    });
+  });
 });

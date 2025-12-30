@@ -36,12 +36,13 @@ const canEmitTypeExplicitly = (type: IrType): boolean => {
     return true;
   }
 
-  // Accept arrays, functions, references, tuples
+  // Accept arrays, functions, references, tuples, dictionaries
   if (
     type.kind === "arrayType" ||
     type.kind === "functionType" ||
     type.kind === "referenceType" ||
-    type.kind === "tupleType"
+    type.kind === "tupleType" ||
+    type.kind === "dictionaryType"
   ) {
     return true;
   }
