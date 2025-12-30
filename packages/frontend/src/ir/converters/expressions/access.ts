@@ -7,6 +7,213 @@ import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getInferredType, getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { getBindingRegistry } from "../statements/declarations/registry.js";
+import { convertType } from "../../type-converter.js";
+import { substituteTypeNode } from "./calls.js";
+
+/**
+ * Build a substitution map from type parameter names to their instantiated TypeNodes
+ * for a property access expression.
+ *
+ * For a property access like `list.count` where `list: List<int>`,
+ * this returns a map: { "T" -> int TypeNode }
+ *
+ * Similar to buildTypeParameterSubstitutionMap in calls.ts, but works for
+ * PropertyAccessExpression instead of CallExpression.
+ */
+const buildPropertySubstitutionMap = (
+  node: ts.PropertyAccessExpression,
+  checker: ts.TypeChecker
+): ReadonlyMap<string, ts.TypeNode> | undefined => {
+  // Get the object's type and find its type parameters
+  const objectType = checker.getTypeAtLocation(node.expression);
+
+  // Get the class/interface/type alias declaration that defines the type parameters
+  const symbol = objectType.aliasSymbol ?? objectType.getSymbol();
+  if (!symbol) return undefined;
+
+  const declarations = symbol.getDeclarations();
+  if (!declarations || declarations.length === 0) return undefined;
+
+  // Find the class/interface/type alias declaration with type parameters
+  let typeParamDecls: readonly ts.TypeParameterDeclaration[] | undefined;
+  for (const decl of declarations) {
+    if (ts.isClassDeclaration(decl) && decl.typeParameters) {
+      typeParamDecls = decl.typeParameters;
+      break;
+    }
+    if (ts.isInterfaceDeclaration(decl) && decl.typeParameters) {
+      typeParamDecls = decl.typeParameters;
+      break;
+    }
+    if (ts.isTypeAliasDeclaration(decl) && decl.typeParameters) {
+      typeParamDecls = decl.typeParameters;
+      break;
+    }
+  }
+
+  if (!typeParamDecls || typeParamDecls.length === 0) return undefined;
+
+  // Get the type arguments from the object's declaration
+  // IMPORTANT: We must trace back to the ORIGINAL source code AST to preserve
+  // CLR type aliases like `int`. TypeScript's typeToTypeNode() does NOT preserve
+  // type aliases - it synthesizes primitive keywords like NumberKeyword instead.
+  const receiverSymbol = checker.getSymbolAtLocation(node.expression);
+  if (!receiverSymbol) return undefined;
+
+  const receiverDecls = receiverSymbol.getDeclarations();
+  if (!receiverDecls) return undefined;
+
+  for (const decl of receiverDecls) {
+    // Helper to build substitution map from type argument nodes
+    const buildMapFromTypeArgs = (
+      typeArgNodes: ts.NodeArray<ts.TypeNode>
+    ): Map<string, ts.TypeNode> | undefined => {
+      if (typeParamDecls && typeArgNodes.length === typeParamDecls.length) {
+        const substitutionMap = new Map<string, ts.TypeNode>();
+        for (let i = 0; i < typeParamDecls.length; i++) {
+          const paramDecl = typeParamDecls[i];
+          const argNode = typeArgNodes[i];
+          if (paramDecl && argNode) {
+            substitutionMap.set(paramDecl.name.text, argNode);
+          }
+        }
+        return substitutionMap;
+      }
+      return undefined;
+    };
+
+    // Check explicit type annotation first
+    if (ts.isVariableDeclaration(decl) && decl.type) {
+      if (ts.isTypeReferenceNode(decl.type) && decl.type.typeArguments) {
+        const result = buildMapFromTypeArgs(decl.type.typeArguments);
+        if (result) return result;
+      }
+    }
+
+    // Check initializer: new List<int>()
+    if (ts.isVariableDeclaration(decl) && decl.initializer) {
+      // Handle direct NewExpression
+      if (
+        ts.isNewExpression(decl.initializer) &&
+        decl.initializer.typeArguments
+      ) {
+        const result = buildMapFromTypeArgs(decl.initializer.typeArguments);
+        if (result) return result;
+      }
+
+      // Handle AsExpression (type assertion): new List<int>() as List<int>
+      if (ts.isAsExpression(decl.initializer)) {
+        const asType = decl.initializer.type;
+        if (ts.isTypeReferenceNode(asType) && asType.typeArguments) {
+          const result = buildMapFromTypeArgs(asType.typeArguments);
+          if (result) return result;
+        }
+      }
+    }
+
+    // Check property declarations with type annotation
+    if (
+      ts.isPropertyDeclaration(decl) &&
+      decl.type &&
+      ts.isTypeReferenceNode(decl.type) &&
+      decl.type.typeArguments
+    ) {
+      const result = buildMapFromTypeArgs(decl.type.typeArguments);
+      if (result) return result;
+    }
+
+    // Check property declaration initializer
+    if (ts.isPropertyDeclaration(decl) && decl.initializer) {
+      if (
+        ts.isNewExpression(decl.initializer) &&
+        decl.initializer.typeArguments
+      ) {
+        const result = buildMapFromTypeArgs(decl.initializer.typeArguments);
+        if (result) return result;
+      }
+    }
+
+    // Check parameter declarations
+    if (
+      ts.isParameter(decl) &&
+      decl.type &&
+      ts.isTypeReferenceNode(decl.type) &&
+      decl.type.typeArguments
+    ) {
+      const result = buildMapFromTypeArgs(decl.type.typeArguments);
+      if (result) return result;
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Get the declared property type from a property access expression.
+ *
+ * This function extracts the property type from the **property declaration's TypeNode**,
+ * NOT from TypeScript's inferred type. This is critical for preserving CLR type aliases.
+ *
+ * For generic types, type parameters are substituted using the object's type arguments.
+ * For example: `list.count` where `list: List<int>` returns `int`, not `T`.
+ *
+ * Returns undefined if:
+ * - No property symbol found
+ * - No declaration on property
+ * - No type annotation on declaration
+ */
+const getDeclaredPropertyType = (
+  node: ts.PropertyAccessExpression,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  try {
+    // 1. Get the object's type and find the property symbol
+    const objectType = checker.getTypeAtLocation(node.expression);
+    const propertyName = node.name.text;
+    const propSymbol = checker.getPropertyOfType(objectType, propertyName);
+
+    if (!propSymbol) return undefined;
+
+    // 2. Get the property's declaration
+    const declarations = propSymbol.getDeclarations();
+    if (!declarations || declarations.length === 0) return undefined;
+
+    // Find a declaration with a type annotation
+    let propertyTypeNode: ts.TypeNode | undefined;
+    for (const decl of declarations) {
+      if (ts.isPropertySignature(decl) && decl.type) {
+        propertyTypeNode = decl.type;
+        break;
+      }
+      if (ts.isPropertyDeclaration(decl) && decl.type) {
+        propertyTypeNode = decl.type;
+        break;
+      }
+      // Also handle get accessor declarations (readonly properties)
+      if (ts.isGetAccessorDeclaration(decl) && decl.type) {
+        propertyTypeNode = decl.type;
+        break;
+      }
+    }
+
+    if (!propertyTypeNode) return undefined;
+
+    // 3. Build substitution map from object's type arguments
+    const substitutionMap = buildPropertySubstitutionMap(node, checker);
+
+    // 4. Apply substitution to property TypeNode
+    const substitutedTypeNode = substitutionMap
+      ? substituteTypeNode(propertyTypeNode, substitutionMap, checker)
+      : undefined;
+
+    const finalTypeNode = substitutedTypeNode ?? propertyTypeNode;
+
+    // 5. Convert to IrType
+    return convertType(finalTypeNode, checker);
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * Classify computed member access for proof pass.
@@ -266,13 +473,18 @@ export const convertMemberExpression = (
     // Try to resolve hierarchical binding
     const memberBinding = resolveHierarchicalBinding(object, propertyName);
 
+    // Use declared property type from signature, falling back to TS inference only if needed
+    // This preserves CLR type aliases like int, long, etc.
+    const propertyInferredType =
+      getDeclaredPropertyType(node, checker) ?? inferredType;
+
     return {
       kind: "memberAccess",
       object,
       property: propertyName,
       isComputed: false,
       isOptional,
-      inferredType,
+      inferredType: propertyInferredType,
       sourceSpan,
       memberBinding,
     };

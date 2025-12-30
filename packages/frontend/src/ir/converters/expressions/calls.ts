@@ -148,7 +148,7 @@ const extractNarrowing = (
  * the type arguments as TypeNodes, which in turn preserve CLR type aliases.
  * TypeScript's type instantiation mechanism loses aliasSymbol, but TypeNodes don't.
  */
-const buildTypeParameterSubstitutionMap = (
+export const buildTypeParameterSubstitutionMap = (
   node: ts.CallExpression | ts.NewExpression,
   checker: ts.TypeChecker
 ): ReadonlyMap<string, ts.TypeNode> | undefined => {
@@ -306,7 +306,7 @@ const buildTypeParameterSubstitutionMap = (
  *
  * Returns the substituted TypeNode, or undefined if no substitution needed.
  */
-const substituteTypeNode = (
+export const substituteTypeNode = (
   typeNode: ts.TypeNode,
   substitutionMap: ReadonlyMap<string, ts.TypeNode>,
   checker: ts.TypeChecker
@@ -479,6 +479,84 @@ const extractParameterTypes = (
 };
 
 /**
+ * Get the declared return type from a call or new expression's signature.
+ *
+ * This function extracts the return type from the **signature declaration's TypeNode**,
+ * NOT from TypeScript's inferred type. This is critical for preserving CLR type aliases.
+ *
+ * For generic methods, type parameters are substituted using the receiver's type arguments.
+ * For example: `dict.get(key)` where `dict: Dictionary<int, Todo>` returns `Todo | undefined`,
+ * not `TValue | undefined`.
+ *
+ * Returns undefined if:
+ * - No signature found
+ * - No declaration on signature
+ * - No return type annotation on declaration
+ */
+export const getDeclaredReturnType = (
+  node: ts.CallExpression | ts.NewExpression,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  try {
+    // 1. Get resolved signature
+    const signature = checker.getResolvedSignature(node);
+    if (!signature?.declaration) return undefined;
+
+    // 2. Extract return TypeNode from declaration
+    const decl = signature.declaration;
+    let returnTypeNode: ts.TypeNode | undefined;
+
+    if (
+      ts.isMethodSignature(decl) ||
+      ts.isMethodDeclaration(decl) ||
+      ts.isFunctionDeclaration(decl) ||
+      ts.isCallSignatureDeclaration(decl)
+    ) {
+      returnTypeNode = decl.type;
+    } else if (ts.isArrowFunction(decl) || ts.isFunctionExpression(decl)) {
+      returnTypeNode = decl.type;
+    } else if (ts.isConstructorDeclaration(decl)) {
+      // For constructors, the return type is the class type
+      // Get it from the parent class declaration
+      const classDecl = decl.parent;
+      if (ts.isClassDeclaration(classDecl) && classDecl.name) {
+        // For new expressions, use the callee's type with type arguments
+        if (ts.isNewExpression(node) && node.typeArguments) {
+          // Return a reference type with explicit type arguments
+          return {
+            kind: "referenceType",
+            name: classDecl.name.text,
+            typeArguments: node.typeArguments.map((ta) =>
+              convertType(ta, checker)
+            ),
+          };
+        }
+        // No explicit type args - return simple reference
+        return { kind: "referenceType", name: classDecl.name.text };
+      }
+      return undefined;
+    }
+
+    if (!returnTypeNode) return undefined;
+
+    // 3. Build substitution map from receiver type arguments
+    const substitutionMap = buildTypeParameterSubstitutionMap(node, checker);
+
+    // 4. Apply substitution to return TypeNode
+    const substitutedTypeNode = substitutionMap
+      ? substituteTypeNode(returnTypeNode, substitutionMap, checker)
+      : undefined;
+
+    const finalTypeNode = substitutedTypeNode ?? returnTypeNode;
+
+    // 5. Convert to IrType
+    return convertType(finalTypeNode, checker);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
  * Extract argument passing modes from member binding's parameter modifiers.
  * Converts parameterModifiers to the argumentPassing array format.
  * Returns undefined if no modifiers are present.
@@ -571,6 +649,11 @@ export const convertCallExpression = (
     extractArgumentPassingFromBinding(callee, node.arguments.length) ??
     extractArgumentPassing(node, checker);
 
+  // Use declared return type from signature, falling back to TS inference only if needed
+  // This preserves CLR type aliases like int, long, etc.
+  const inferredType =
+    getDeclaredReturnType(node, checker) ?? getInferredType(node, checker);
+
   return {
     kind: "call",
     callee,
@@ -585,7 +668,7 @@ export const convertCallExpression = (
       return convertExpression(arg, checker);
     }),
     isOptional: node.questionDotToken !== undefined,
-    inferredType: getInferredType(node, checker),
+    inferredType,
     sourceSpan: getSourceSpan(node),
     typeArguments,
     requiresSpecialization,
@@ -606,6 +689,11 @@ export const convertNewExpression = (
   const typeArguments = extractTypeArguments(node, checker);
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
 
+  // Use declared return type from signature, falling back to TS inference only if needed
+  // This preserves CLR type aliases like int, long, etc.
+  const inferredType =
+    getDeclaredReturnType(node, checker) ?? getInferredType(node, checker);
+
   return {
     kind: "new",
     callee: convertExpression(node.expression, checker),
@@ -620,7 +708,7 @@ export const convertNewExpression = (
         }
         return convertExpression(arg, checker);
       }) ?? [],
-    inferredType: getInferredType(node, checker),
+    inferredType,
     sourceSpan: getSourceSpan(node),
     typeArguments,
     requiresSpecialization,

@@ -162,8 +162,10 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
       );
 
       expect(lengthExpr).to.not.be.undefined;
+      // CLR numeric types are represented as primitiveType in IR
+      // (see primitives.ts: "When user writes `: int`, it becomes primitiveType(name='int')")
       expect(lengthExpr?.inferredType).to.deep.equal({
-        kind: "referenceType",
+        kind: "primitiveType",
         name: "int",
       });
     });
@@ -186,8 +188,9 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
       );
 
       expect(lengthExpr).to.not.be.undefined;
+      // CLR numeric types are represented as primitiveType in IR
       expect(lengthExpr?.inferredType).to.deep.equal({
-        kind: "referenceType",
+        kind: "primitiveType",
         name: "int",
       });
     });
@@ -214,8 +217,10 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
       });
 
       expect(indexOfCall).to.not.be.undefined;
+      // CLR numeric types are represented as primitiveType in IR
+      // (see primitives.ts: "When user writes `: int`, it becomes primitiveType(name='int')")
       expect(indexOfCall?.inferredType).to.deep.equal({
-        kind: "referenceType",
+        kind: "primitiveType",
         name: "int",
       });
     });
@@ -241,8 +246,9 @@ describe("Declaration-Based Numeric Intent Recovery", () => {
 
       expect(lengthExpr).to.not.be.undefined;
       // The arr.length expression itself should have int, regardless of target
+      // CLR numeric types are represented as primitiveType in IR
       expect(lengthExpr?.inferredType).to.deep.equal({
-        kind: "referenceType",
+        kind: "primitiveType",
         name: "int",
       });
     });
