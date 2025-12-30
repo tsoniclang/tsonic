@@ -15,6 +15,7 @@ import {
   convertType,
   convertBindingName,
   inferLambdaParamTypes,
+  convertTsTypeToIr,
 } from "../../type-converter.js";
 
 /**
@@ -108,6 +109,13 @@ export const convertArrowFunction = (
     ? convertBlockStatement(node.body, checker)
     : convertExpression(node.body, checker);
 
+  // Get contextual type from call site (e.g., array.map callback signature)
+  // This is used by later passes to infer parameter/return types
+  const tsContextualType = checker.getContextualType(node);
+  const contextualType = tsContextualType
+    ? convertTsTypeToIr(tsContextualType, checker)
+    : undefined;
+
   return {
     kind: "arrowFunction",
     parameters: convertLambdaParameters(node, checker),
@@ -117,6 +125,7 @@ export const convertArrowFunction = (
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
     inferredType: getInferredType(node, checker),
+    contextualType,
     sourceSpan: getSourceSpan(node),
   };
 };
