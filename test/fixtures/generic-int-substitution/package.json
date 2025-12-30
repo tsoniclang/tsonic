@@ -1,0 +1,11 @@
+{
+  "name": "generic-int-substitution",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/dotnet": "^0.7.4",
+    "@tsonic/globals": "^0.1.0",
+    "@tsonic/core": "*"
+  }
+}
