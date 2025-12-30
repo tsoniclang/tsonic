@@ -14,6 +14,7 @@ import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
+import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-finalization-pass.js";
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
@@ -331,9 +332,13 @@ export const buildModuleDependencyGraph = (
     return error(numericResult.diagnostics);
   }
 
+  // Run arrow return finalization pass - infers return types for expression-bodied
+  // arrows from their body's inferredType (after numeric proof has run)
+  const arrowResult = runArrowReturnFinalizationPass(numericResult.modules);
+
   // Run numeric coercion pass - validates no implicit int→double conversions
   // This enforces the strict contract: integer literals require explicit widening
-  const coercionResult = runNumericCoercionPass(numericResult.modules);
+  const coercionResult = runNumericCoercionPass(arrowResult.modules);
   if (!coercionResult.ok) {
     return error(coercionResult.diagnostics);
   }
