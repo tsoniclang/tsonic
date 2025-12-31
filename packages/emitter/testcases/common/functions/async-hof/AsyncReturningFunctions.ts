@@ -2,14 +2,14 @@ import { int } from "@tsonic/core/types.js";
 
 // Async function returning sync function
 export async function createMultiplier(factor: int): Promise<(x: int) => int> {
-  return x => x * factor;
+  return (x: int): int => x * factor;
 }
 
 // Async function returning async function
 export async function createAsyncAdder(
   base: int
 ): Promise<(x: int) => Promise<int>> {
-  return async x => base + x;
+  return async (x: int): Promise<int> => base + x;
 }
 
 // Function taking async callback

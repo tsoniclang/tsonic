@@ -18,14 +18,14 @@ namespace TestCases.common.classes.genericinheritance
     {
         public int @double()
             {
-            return (int)(this.getValue() * 2);
+            return this.getValue() * 2;
             }
     }
     public class StringContainer : Container<string>
     {
         public int getLength()
             {
-            return (int)this.getValue().Length;
+            return this.getValue().length;
             }
     }
 }

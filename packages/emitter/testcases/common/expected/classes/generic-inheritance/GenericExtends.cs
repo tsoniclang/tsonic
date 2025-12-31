@@ -27,7 +27,7 @@ namespace TestCases.common.classes.genericinheritance
     {
         public Box<U> wrap()
             {
-            return new Box<U>(this.value);
+            return new Box(this.value);
             }
     }
 }
