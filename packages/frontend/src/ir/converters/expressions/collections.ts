@@ -162,21 +162,25 @@ export const convertArrayLiteral = (
   // 1. Expected type from context (e.g., LHS annotation, parameter type)
   // 2. Literal-form inference (derive from element types)
   // 3. Default: number[] (double[]) for ergonomics
-  const inferredType: IrType | undefined = expectedType?.kind === "arrayType"
-    ? expectedType
-    : (() => {
-        // No expected type - derive from element types
-        const elementType = computeArrayElementType(elements, undefined);
-        if (elementType) {
-          return { kind: "arrayType" as const, elementType };
-        }
-        // Default to number[] (double[]) for ergonomics
-        // This matches Alice's guidance: untyped arrays default to double[]
-        return {
-          kind: "arrayType" as const,
-          elementType: { kind: "primitiveType" as const, name: "number" as const },
-        };
-      })();
+  const inferredType: IrType | undefined =
+    expectedType?.kind === "arrayType"
+      ? expectedType
+      : (() => {
+          // No expected type - derive from element types
+          const elementType = computeArrayElementType(elements, undefined);
+          if (elementType) {
+            return { kind: "arrayType" as const, elementType };
+          }
+          // Default to number[] (double[]) for ergonomics
+          // This matches Alice's guidance: untyped arrays default to double[]
+          return {
+            kind: "arrayType" as const,
+            elementType: {
+              kind: "primitiveType" as const,
+              name: "number" as const,
+            },
+          };
+        })();
 
   return {
     kind: "array",

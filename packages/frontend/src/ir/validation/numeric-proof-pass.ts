@@ -34,6 +34,7 @@ import {
   isValidIntegerLexeme,
   parseBigIntFromRaw,
   bigIntFitsInKind,
+  isWideningConversion,
 } from "../types.js";
 
 /**
@@ -366,7 +367,14 @@ const proveNarrowing = (
           source: { type: "variable", name: innerExpr.name },
         };
       }
-      // Different kind - this is an error, not a cast
+      // Check if this is a widening conversion (e.g., int → long)
+      if (isWideningConversion(sourceKind, targetKind)) {
+        return {
+          kind: targetKind,
+          source: { type: "variable", name: innerExpr.name },
+        };
+      }
+      // Narrowing conversion - this is an error
       ctx.diagnostics.push(
         createDiagnostic(
           "TSN5104",
@@ -374,7 +382,7 @@ const proveNarrowing = (
           `Cannot narrow '${innerExpr.name}' from ${sourceKind} to ${targetKind}`,
           innerExpr.sourceSpan ?? location,
           `Variable '${innerExpr.name}' is proven as ${sourceKind}. ` +
-            `Cast operands to ${targetKind} first if needed.`
+            `Narrowing conversions require explicit handling.`
         )
       );
       return undefined;
@@ -382,11 +390,16 @@ const proveNarrowing = (
 
     // Identifier not in proven scope - check if it has numeric intent from CLR
     const identKind = getNumericKindFromType(innerExpr.inferredType);
-    if (identKind !== undefined && identKind === targetKind) {
-      return {
-        kind: targetKind,
-        source: { type: "variable", name: innerExpr.name },
-      };
+    if (identKind !== undefined) {
+      if (
+        identKind === targetKind ||
+        isWideningConversion(identKind, targetKind)
+      ) {
+        return {
+          kind: targetKind,
+          source: { type: "variable", name: innerExpr.name },
+        };
+      }
     }
 
     // Cannot prove this identifier

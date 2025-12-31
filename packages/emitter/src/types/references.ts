@@ -225,30 +225,6 @@ export const emitReferenceType = (
     return ["global::System.Threading.Tasks.Task", context];
   }
 
-  // Resolve external types via binding registry (must be fully qualified)
-  // This handles types from contextual inference (e.g., Action from Parallel.invoke)
-  const regBinding = context.bindingsRegistry?.get(name);
-  if (regBinding) {
-    const clr = getBindingClrName(regBinding);
-    if (!clr) {
-      throw new Error(`ICE: Binding for '${name}' has no CLR name`);
-    }
-    const qualified = toGlobalClr(clr);
-
-    if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
-        currentContext = newContext;
-      }
-      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
-    }
-
-    return [qualified, context];
-  }
-
   // C# primitive types can be emitted directly
   if (CSHARP_PRIMITIVES.has(name)) {
     return [name, context];
@@ -259,8 +235,10 @@ export const emitReferenceType = (
     return [name, context];
   }
 
-  // FALLTHROUGH is only permitted for local types.
-  // Emitting a bare external name is unsound and forbidden.
+  // IMPORTANT: Check local types BEFORE binding registry.
+  // Local types take precedence over .NET types with the same name.
+  // This ensures that a locally defined `Container<T>` is not resolved
+  // to `System.ComponentModel.Container` from the binding registry.
   const localTypeInfo = context.localTypes?.get(name);
   if (localTypeInfo) {
     // Convert nested type names (Outer$Inner → Outer.Inner)
@@ -289,6 +267,31 @@ export const emitReferenceType = (
     }
 
     return [csharpName, context];
+  }
+
+  // Resolve external types via binding registry (must be fully qualified)
+  // This handles types from contextual inference (e.g., Action from Parallel.invoke)
+  // IMPORTANT: This is checked AFTER localTypes to ensure local types take precedence
+  const regBinding = context.bindingsRegistry?.get(name);
+  if (regBinding) {
+    const clr = getBindingClrName(regBinding);
+    if (!clr) {
+      throw new Error(`ICE: Binding for '${name}' has no CLR name`);
+    }
+    const qualified = toGlobalClr(clr);
+
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+    }
+
+    return [qualified, context];
   }
 
   // Hard failure: unresolved external reference type

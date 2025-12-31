@@ -51,7 +51,10 @@ export const convertTemplateLiteral = (
   checker: ts.TypeChecker
 ): IrTemplateLiteralExpression => {
   // DETERMINISTIC: Template literals always produce string
-  const stringType = { kind: "primitiveType" as const, name: "string" as const };
+  const stringType = {
+    kind: "primitiveType" as const,
+    name: "string" as const,
+  };
 
   if (ts.isNoSubstitutionTemplateLiteral(node)) {
     return {

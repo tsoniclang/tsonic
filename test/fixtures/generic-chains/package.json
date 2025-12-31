@@ -1,0 +1,10 @@
+{
+  "name": "generic-chains",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "*",
+    "@tsonic/dotnet": "*",
+    "@tsonic/globals": "*"
+  }
+}

@@ -1,0 +1,51 @@
+=== Generic Chains E2E Tests ===
+
+--- Test 1: Basic Generic Chain ---
+original: 42
+wrapped.value: 42
+unwrapped: 42
+final: 42
+
+--- Test 2: Pair Chain ---
+pair.first: 100
+pair.second: hello
+key: 100
+value: hello
+
+--- Test 3: Triple Chain ---
+triple.a (int): 10
+triple.b (long): 9999999999
+triple.c (string): test
+
+--- Test 4: Nested Containers ---
+nested.value.value: 50
+inner.value: 50
+value: 50
+
+--- Test 5: Deep Container ---
+deep.level1.value.value: 77
+level2.value: 77
+value: 77
+
+--- Test 6: Map Container ---
+intContainer.value: 25
+longContainer.value: 25000000
+
+--- Test 7: Box Class ---
+intBox.get(): 30
+stringBox.get(): Value: 30
+
+--- Test 8: FlatMap Box ---
+intBox.get(): 5
+longBox.get(): 10000000000
+
+--- Test 9: Array of Generics ---
+containers[0].value: 1
+containers[1].value: 2
+containers[2].value: 3
+values: [1, 2, 3]
+
+--- Test 10: Chained Method Calls ---
+chained result: Result: 1000
+
+=== All Generic Chain Tests Completed ===

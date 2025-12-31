@@ -11,7 +11,6 @@
 import * as ts from "typescript";
 import type { IrType } from "../types.js";
 import { convertType } from "./converter.js";
-import { isClrPrimitiveTypeName, getClrPrimitiveType } from "./primitives.js";
 
 /**
  * Result of inferring lambda parameter types from contextual signature.
@@ -137,7 +136,6 @@ export const inferLambdaParamTypes = (
     }
 
     // A2: Prefer typeToTypeNode → convertType (handles function types)
-    // convertTsTypeToIr returns undefined for callable signatures
     const typeNode = checker.typeToTypeNode(
       tsType,
       param ?? node,
@@ -157,8 +155,9 @@ export const inferLambdaParamTypes = (
         }
       }
     } else {
-      // Fallback to convertTsTypeToIr for cases TS can't produce a node
-      irType = convertTsTypeToIr(tsType, checker);
+      // DETERMINISTIC: If TS can't produce a TypeNode, use unknownType
+      // We don't fall back to type inference
+      irType = { kind: "unknownType" };
     }
 
     // Final fallback: use unknownType rather than failing inference
@@ -166,198 +165,4 @@ export const inferLambdaParamTypes = (
   }
 
   return { paramTypes, allInferred };
-};
-
-/**
- * Infer IR type from a declaration node using the TypeChecker.
- * Returns undefined for complex types that cannot be easily represented.
- */
-export const inferType = (
-  node: ts.VariableDeclaration | ts.PropertyDeclaration,
-  checker: ts.TypeChecker
-): IrType | undefined => {
-  const type = checker.getTypeAtLocation(node);
-  return convertTsTypeToIr(type, checker);
-};
-
-/**
- * Convert a TypeScript Type (from checker) to IR type.
- * This is different from convertType which takes a TypeNode (syntax).
- */
-export const convertTsTypeToIr = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): IrType | undefined => {
-  const flags = type.flags;
-
-  // IMPORTANT: Check for CLR primitive type aliases FIRST, before falling through
-  // to the generic number/string handling. TypeScript resolves `int` to `number`,
-  // but we need to preserve the CLR alias for proper C# emission.
-  //
-  // Example: For `Dictionary<string, int>`, when we call `.add(key, value)`,
-  // TypeScript resolves the `TValue` parameter type to `number`, but we need
-  // to preserve `int` so that integer literals work correctly.
-  if (type.aliasSymbol) {
-    const aliasName = type.aliasSymbol.name;
-    if (isClrPrimitiveTypeName(aliasName)) {
-      return getClrPrimitiveType(aliasName);
-    }
-  }
-
-  // Primitives
-  if (flags & ts.TypeFlags.Number || flags & ts.TypeFlags.NumberLiteral) {
-    return { kind: "primitiveType", name: "number" };
-  }
-  if (flags & ts.TypeFlags.String || flags & ts.TypeFlags.StringLiteral) {
-    return { kind: "primitiveType", name: "string" };
-  }
-  if (flags & ts.TypeFlags.Boolean || flags & ts.TypeFlags.BooleanLiteral) {
-    return { kind: "primitiveType", name: "boolean" };
-  }
-  if (flags & ts.TypeFlags.Void) {
-    return { kind: "voidType" };
-  }
-  if (flags & ts.TypeFlags.Null) {
-    return { kind: "primitiveType", name: "null" };
-  }
-  if (flags & ts.TypeFlags.Undefined) {
-    return { kind: "primitiveType", name: "undefined" };
-  }
-
-  // Object type - check if it's an array
-  if (flags & ts.TypeFlags.Object) {
-    // Check for array type
-    if (checker.isArrayType(type)) {
-      const typeArgs = checker.getTypeArguments(type as ts.TypeReference);
-      const firstArg = typeArgs[0];
-      if (firstArg !== undefined) {
-        const elementType = convertTsTypeToIr(firstArg, checker);
-        if (elementType) {
-          return { kind: "arrayType", elementType };
-        }
-      }
-      // Cannot convert element type - use anyType as marker
-      // The IR soundness gate will catch this and emit TSN7414
-      return { kind: "arrayType", elementType: { kind: "anyType" } };
-    }
-
-    // Check for symbol with name FIRST (class, interface, delegate types like Action)
-    // This must come before callable check because delegates like Action have call signatures
-    // but should be returned as named reference types
-    const objectType = type as ts.ObjectType;
-
-    // First check aliasSymbol (for type aliases like Action = () => void)
-    // Then check symbol (for interfaces/classes)
-    const typeSymbol = type.aliasSymbol ?? objectType.symbol;
-
-    if (typeSymbol) {
-      const name = typeSymbol.name;
-      // Skip:
-      // - TypeScript internal symbols (from typescript.d.ts InternalSymbolName enum)
-      // - tsbindgen $views interfaces: __TypeName$views (used for explicit interface casts)
-      // - Generic built-ins we handle specially: Object, Array
-      const TS_INTERNAL_SYMBOLS = new Set([
-        "__call",
-        "__class",
-        "__computed",
-        "__constructor",
-        "__export",
-        "__function",
-        "__global",
-        "__importAttributes",
-        "__index",
-        "__instantiationExpression",
-        "__jsxAttributes",
-        "__missing",
-        "__new",
-        "__object",
-        "__resolving__",
-        "__type",
-      ]);
-      const isInternalTsSymbol = TS_INTERNAL_SYMBOLS.has(name);
-      const isTsbindgenViews = name.startsWith("__") && name.endsWith("$views");
-      if (
-        !isInternalTsSymbol &&
-        !isTsbindgenViews &&
-        name &&
-        name !== "Object" &&
-        name !== "Array"
-      ) {
-        // For named types, return as reference type with type arguments if generic
-        // Use aliasTypeArguments for type aliases, getTypeArguments for others
-        const typeArgs =
-          type.aliasTypeArguments ??
-          checker.getTypeArguments(type as ts.TypeReference);
-        if (typeArgs && typeArgs.length > 0) {
-          const irTypeArgs = Array.from(typeArgs)
-            .map((arg) => convertTsTypeToIr(arg, checker))
-            .filter((t): t is IrType => t !== undefined);
-          if (irTypeArgs.length === typeArgs.length) {
-            return { kind: "referenceType", name, typeArguments: irTypeArgs };
-          }
-        }
-        return { kind: "referenceType", name };
-      }
-    }
-
-    // Check for callable signatures (anonymous function types)
-    const callSignatures = type.getCallSignatures();
-    if (callSignatures.length > 0) {
-      // Anonymous function types need complex handling - return undefined for now
-      return undefined;
-    }
-
-    // Anonymous object type
-    return undefined;
-  }
-
-  // Type parameters (e.g., T in Container<T>)
-  if (flags & ts.TypeFlags.TypeParameter) {
-    const typeParam = type as ts.TypeParameter;
-    const name = typeParam.symbol?.name ?? "T";
-    return { kind: "typeParameterType", name };
-  }
-
-  // Any type - keep as anyType so validation can catch it (TSN7401)
-  if (flags & ts.TypeFlags.Any) {
-    return { kind: "anyType" };
-  }
-
-  // Unknown type - this is legitimate, user explicitly wrote 'unknown'
-  if (flags & ts.TypeFlags.Unknown) {
-    return { kind: "unknownType" };
-  }
-
-  // Union types - convert each member, require all to succeed
-  if (flags & ts.TypeFlags.Union) {
-    const unionType = type as ts.UnionType;
-    const memberTypes = unionType.types
-      .map((t) => convertTsTypeToIr(t, checker))
-      .filter((t): t is IrType => t !== undefined);
-    // If any member failed conversion, return undefined (keep TSN7405 strict)
-    if (memberTypes.length !== unionType.types.length) {
-      return undefined;
-    }
-    return { kind: "unionType", types: memberTypes };
-  }
-
-  // Intersection types - convert each member
-  // For tsbindgen-generated types like TypeName$instance & __TypeName$views,
-  // the $views type starts with __ and will fail conversion. We still want to
-  // return the intersection if at least one member succeeds (for binding lookup).
-  if (flags & ts.TypeFlags.Intersection) {
-    const intersectionType = type as ts.IntersectionType;
-    const memberTypes = intersectionType.types
-      .map((t) => convertTsTypeToIr(t, checker))
-      .filter((t): t is IrType => t !== undefined);
-    // Return the intersection with successfully converted members
-    // This allows binding lookup to work with partial intersection types
-    if (memberTypes.length > 0) {
-      return { kind: "intersectionType", types: memberTypes };
-    }
-    // If ALL members failed, return undefined
-    return undefined;
-  }
-
-  return undefined;
 };

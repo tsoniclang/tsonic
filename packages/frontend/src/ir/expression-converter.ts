@@ -249,7 +249,11 @@ export const convertExpression = (
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
     // 'this' type depends on context - undefined for now
-    return { kind: "this", inferredType: undefined, sourceSpan: getSourceSpan(node) };
+    return {
+      kind: "this",
+      inferredType: undefined,
+      sourceSpan: getSourceSpan(node),
+    };
   }
   if (ts.isAwaitExpression(node)) {
     // await unwraps Promise - for now pass through the expression's type

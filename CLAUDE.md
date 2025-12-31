@@ -16,6 +16,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 **ONLY make changes AFTER the user explicitly approves.** When you identify issues or potential improvements, explain them clearly and wait for the user's decision. Do NOT assume what the user wants or make "helpful" changes without permission.
 
+### NEVER SIMPLIFY OR MODIFY TESTS TO MAKE THEM PASS
+
+**🚨 CRITICAL RULE: NEVER modify test code to work around compiler limitations. 🚨**
+
+- **NEVER** simplify test cases to avoid compiler errors
+- **NEVER** change test expectations to match incorrect behavior
+- **NEVER** remove test cases that expose bugs
+- **NEVER** weaken test assertions
+- **ALWAYS** fix the compiler/validator when tests fail
+- **ALWAYS** ask for permission before changing any test code
+
+When a test fails due to a compiler limitation:
+
+1. Report the limitation clearly
+2. Ask whether to fix the compiler or defer
+3. **DO NOT** modify the test without explicit permission
+
+Tests exist to validate compiler correctness. Modifying tests to pass defeats their purpose.
+
 ### NEVER SWITCH BRANCHES WITHOUT PERMISSION
 
 **🚨 CRITICAL RULE: NEVER switch git branches unless the user explicitly tells you to. 🚨**

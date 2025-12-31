@@ -243,7 +243,10 @@ export const convertUnaryExpression = (
       operator: updateOperator,
       prefix: true,
       expression: operandExpr,
-      inferredType: deriveUnaryResultType(updateOperator, operandExpr.inferredType),
+      inferredType: deriveUnaryResultType(
+        updateOperator,
+        operandExpr.inferredType
+      ),
       sourceSpan,
     };
   }
@@ -301,7 +304,10 @@ export const convertUpdateExpression = (
         operator: updateOperator,
         prefix: true,
         expression: operandExpr,
-        inferredType: deriveUnaryResultType(updateOperator, operandExpr.inferredType),
+        inferredType: deriveUnaryResultType(
+          updateOperator,
+          operandExpr.inferredType
+        ),
         sourceSpan,
       };
     }
@@ -317,7 +323,10 @@ export const convertUpdateExpression = (
     operator: updateOperator,
     prefix: false,
     expression: operandExpr,
-    inferredType: deriveUnaryResultType(updateOperator, operandExpr.inferredType),
+    inferredType: deriveUnaryResultType(
+      updateOperator,
+      operandExpr.inferredType
+    ),
     sourceSpan,
   };
 };

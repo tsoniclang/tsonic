@@ -8,8 +8,6 @@ export {
   convertFunctionType,
   convertObjectType,
   convertBindingName,
-  inferType,
-  convertTsTypeToIr,
   inferLambdaParamTypes,
   type LambdaParamInferenceResult,
 } from "./type-converter/index.js";

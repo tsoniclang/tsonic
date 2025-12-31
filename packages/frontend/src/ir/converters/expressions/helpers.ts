@@ -125,7 +125,6 @@ export const deriveIdentifierType = (
   return undefined;
 };
 
-
 /**
  * Extract type arguments from a call or new expression
  * This captures both explicit type arguments and inferred ones

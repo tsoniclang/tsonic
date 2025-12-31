@@ -14,7 +14,7 @@ import {
   checkIfRequiresSpecialization,
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import { convertType, convertTsTypeToIr } from "../../type-converter.js";
+import { convertType } from "../../type-converter.js";
 import { IrType } from "../../types.js";
 
 /**
@@ -81,30 +81,10 @@ const extractArgumentPassing = (
 };
 
 /**
- * Safely convert a ts.Type to IrType
- */
-const convertTsTypeToIrSafe = (
-  tsType: ts.Type,
-  node: ts.Node,
-  checker: ts.TypeChecker
-): IrType | undefined => {
-  try {
-    const typeNode = checker.typeToTypeNode(
-      tsType,
-      node,
-      ts.NodeBuilderFlags.None
-    );
-    return typeNode
-      ? convertType(typeNode, checker)
-      : convertTsTypeToIr(tsType, checker);
-  } catch {
-    return undefined;
-  }
-};
-
-/**
  * Extract type predicate narrowing metadata from a call expression.
  * Returns narrowing info if the callee is a type predicate function (x is T).
+ *
+ * DETERMINISTIC: Gets the target type from the predicate's declaration TypeNode.
  */
 const extractNarrowing = (
   node: ts.CallExpression,
@@ -112,23 +92,35 @@ const extractNarrowing = (
 ): IrCallExpression["narrowing"] => {
   try {
     const sig = checker.getResolvedSignature(node);
-    if (!sig) return undefined;
+    if (!sig || !sig.declaration) return undefined;
 
     const pred = checker.getTypePredicateOfSignature(sig);
     // We only handle "param is T" predicates (not "this is T")
     if (
       pred &&
       pred.kind === ts.TypePredicateKind.Identifier &&
-      pred.parameterIndex !== undefined &&
-      pred.type
+      pred.parameterIndex !== undefined
     ) {
-      const targetType = convertTsTypeToIrSafe(pred.type, node, checker);
-      if (targetType) {
-        return {
-          kind: "typePredicate",
-          argIndex: pred.parameterIndex,
-          targetType,
-        };
+      // DETERMINISTIC: Get target type from declaration's type predicate TypeNode
+      const decl = sig.declaration;
+      if (
+        (ts.isFunctionDeclaration(decl) ||
+          ts.isMethodDeclaration(decl) ||
+          ts.isArrowFunction(decl)) &&
+        decl.type &&
+        ts.isTypePredicateNode(decl.type)
+      ) {
+        const targetTypeNode = decl.type.type;
+        if (targetTypeNode) {
+          const targetType = convertType(targetTypeNode, checker);
+          if (targetType) {
+            return {
+              kind: "typePredicate",
+              argIndex: pred.parameterIndex,
+              targetType,
+            };
+          }
+        }
       }
     }
     return undefined;
@@ -461,14 +453,9 @@ const extractParameterTypes = (
         }
       }
 
-      // Fallback: Use instantiated type from getTypeOfSymbolAtLocation
-      // This handles cases where we couldn't get the declaration type
-      const paramType = checker.getTypeOfSymbolAtLocation(
-        sigParam,
-        decl ?? node
-      );
-      const irType = convertTsTypeToIr(paramType, checker);
-      paramTypes.push(irType);
+      // DETERMINISTIC: If we couldn't get type from declaration, push undefined
+      // Validation will catch missing parameter types
+      paramTypes.push(undefined);
     }
 
     return paramTypes;
@@ -755,7 +742,11 @@ export const convertCallExpression = (
 
       if (ts.isSpreadElement(arg)) {
         // DETERMINISTIC: Use expression's inferredType directly
-        const spreadExpr = convertExpression(arg.expression, checker, undefined);
+        const spreadExpr = convertExpression(
+          arg.expression,
+          checker,
+          undefined
+        );
         return {
           kind: "spread" as const,
           expression: spreadExpr,
@@ -887,7 +878,11 @@ export const convertNewExpression = (
         const expectedType = parameterTypes?.[index];
         if (ts.isSpreadElement(arg)) {
           // DETERMINISTIC: Use expression's inferredType directly
-          const spreadExpr = convertExpression(arg.expression, checker, undefined);
+          const spreadExpr = convertExpression(
+            arg.expression,
+            checker,
+            undefined
+          );
           return {
             kind: "spread" as const,
             expression: spreadExpr,
