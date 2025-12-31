@@ -20,9 +20,9 @@ export function main(): void {
   // ============================================================
   Console.writeLine("--- Section 1: Basic int declarations ---");
 
-  const x = 10 as int;
-  const y = 20 as int;
-  const z = 30 as int;
+  const x = 10;
+  const y = 20;
+  const z = 30;
 
   Console.writeLine(`x = ${x}`); // 10
   Console.writeLine(`y = ${y}`); // 20
@@ -65,9 +65,9 @@ export function main(): void {
   Console.writeLine("");
   Console.writeLine("--- Section 4: Declared type int ---");
 
-  const g: int = (x + y) as int;
-  const h: int = (a + b) as int;
-  const i: int = (x + 1) as int;
+  const g: int = x + y;
+  const h: int = a + b;
+  const i: int = x + 1;
 
   Console.writeLine(`g (int) = ${g}`); // 30
   Console.writeLine(`h (int) = ${h}`); // 33
@@ -80,9 +80,9 @@ export function main(): void {
   Console.writeLine("");
   Console.writeLine("--- Section 5: Redundant as int ---");
 
-  const j: int = ((x as int) + (y as int)) as int;
-  const k = (x as int) + (y as int);
-  const l: int = (((x + y) as int) + z) as int;
+  const j: int = x + y;
+  const k = x + y;
+  const l: int = (x + y) + z;
 
   Console.writeLine(`(x as int) + (y as int) = ${j}`); // 30
   Console.writeLine(`(x as int) + (y as int) (inferred) = ${k}`); // 30
@@ -97,7 +97,7 @@ export function main(): void {
 
   const m = x - 5;
   const n = y - x;
-  const o: int = (z - 10) as int;
+  const o: int = z - 10;
 
   Console.writeLine(`x - 5 = ${m}`); // 5
   Console.writeLine(`y - x = ${n}`); // 10
@@ -112,7 +112,7 @@ export function main(): void {
 
   const p = x * 2;
   const q = x * y;
-  const r: int = (y * 3) as int;
+  const r: int = y * 3;
 
   Console.writeLine(`x * 2 = ${p}`); // 20
   Console.writeLine(`x * y = ${q}`); // 200
@@ -127,7 +127,7 @@ export function main(): void {
 
   const s = y / x;
   const t = z / 10;
-  const u: int = ((100 as int) / (3 as int)) as int;
+  const u: int = 100 / 3;
 
   Console.writeLine(`y / x = ${s}`); // 2
   Console.writeLine(`z / 10 = ${t}`); // 3
@@ -141,7 +141,7 @@ export function main(): void {
   Console.writeLine("--- Section 9: Modulo ---");
 
   const v = z % x;
-  const w = (25 as int) % (7 as int);
+  const w = 25 % 7;
 
   Console.writeLine(`z % x = ${v}`); // 0
   Console.writeLine(`25 % 7 = ${w}`); // 4
@@ -154,7 +154,7 @@ export function main(): void {
   Console.writeLine("--- Section 10: Unary minus ---");
 
   const negX = -x;
-  const negLiteral = -(5 as int);
+  const negLiteral = -5;
 
   Console.writeLine(`-x = ${negX}`); // -10
   Console.writeLine(`-(5 as int) = ${negLiteral}`); // -5
@@ -168,8 +168,8 @@ export function main(): void {
 
   const complex1 = (x + y) * z;
   const complex2 = x + y * z;
-  const complex3: int = ((x + 1) * (y + 2)) as int;
-  const complex4 = ((x + y) as int) * ((y + z) as int);
+  const complex3: int = (x + 1) * (y + 2);
+  const complex4 = (x + y) * (y + z);
 
   Console.writeLine(`(x + y) * z = ${complex1}`); // 900
   Console.writeLine(`x + y * z = ${complex2}`); // 610
@@ -185,7 +185,7 @@ export function main(): void {
 
   const chain1 = x + 1 + 2 + 3;
   const chain2 = x * 2 + y * 3;
-  const chain3: int = (x + y + z + 100) as int;
+  const chain3: int = x + y + z + 100;
 
   Console.writeLine(`x + 1 + 2 + 3 = ${chain1}`); // 16
   Console.writeLine(`x * 2 + y * 3 = ${chain2}`); // 80
@@ -219,14 +219,14 @@ export function main(): void {
   Console.writeLine("");
   Console.writeLine("--- Section 14: Assignment operators ---");
 
-  let counter = 0 as int;
-  counter = (counter + 1) as int;
+  let counter = 0;
+  counter = counter + 1;
   Console.writeLine(`counter after +1 = ${counter}`); // 1
 
-  counter = (counter + 10) as int;
+  counter = counter + 10;
   Console.writeLine(`counter after +10 = ${counter}`); // 11
 
-  counter = (counter * 2) as int;
+  counter = counter * 2;
   Console.writeLine(`counter after *2 = ${counter}`); // 22
 
   // ============================================================
@@ -252,7 +252,7 @@ export function main(): void {
   Console.writeLine("--- Section 16: Array indexing ---");
 
   const arr: string[] = ["zero", "one", "two", "three", "four"];
-  const idx = 2 as int;
+  const idx = 2;
   const nextIdx = idx + 1;
 
   Console.writeLine(`arr[idx] = ${arr[idx]}`); // two
@@ -267,13 +267,13 @@ export function main(): void {
 
 // Helper functions
 function addInts(a: int, b: int): int {
-  return (a + b) as int;
+  return a + b;
 }
 
 function multiplyByTwo(n: int): int {
-  return (n * 2) as int;
+  return n * 2;
 }
 
 function increment(n: int): int {
-  return (n + 1) as int;
+  return n + 1;
 }

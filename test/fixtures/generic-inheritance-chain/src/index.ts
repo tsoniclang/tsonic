@@ -38,9 +38,9 @@ class GenericUser<T> extends NamedEntity<T> {
 
 // Test 3-level chain
 export function main(): void {
-  const user = new User(1 as int, "Alice", "alice@example.com");
+  const user = new User(1, "Alice", "alice@example.com");
   Console.writeLine(`User ${user.id}: ${user.name} (${user.email})`);
 
-  const admin = new GenericUser<string>("admin-001", "Bob", "admin");
+  const admin = new GenericUser("admin-001", "Bob", "admin");
   Console.writeLine(`Admin ${admin.id}: ${admin.name} [${admin.role}]`);
 }

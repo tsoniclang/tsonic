@@ -5,9 +5,9 @@ type Operation = (a: int, b: int) => int;
 
 // Array of functions
 const operations: Operation[] = [
-  (a: int, b: int): int => (a + b) as int,
-  (a: int, b: int): int => (a - b) as int,
-  (a: int, b: int): int => (a * b) as int,
+  (a, b) => a + b,
+  (a, b) => a - b,
+  (a, b) => a * b,
 ];
 
 // Interface with function properties
@@ -18,14 +18,14 @@ interface OperationMap {
 }
 
 const opMap: OperationMap = {
-  add: (a: int, b: int): int => (a + b) as int,
-  subtract: (a: int, b: int): int => (a - b) as int,
-  multiply: (a: int, b: int): int => (a * b) as int,
+  add: (a, b) => a + b,
+  subtract: (a, b) => a - b,
+  multiply: (a, b) => a * b,
 };
 
 export function main(): void {
-  const a: int = 10 as int;
-  const b: int = 5 as int;
+  const a: int = 10;
+  const b: int = 5;
 
   // Test array of functions
   for (let i = 0; i < operations.length; i++) {

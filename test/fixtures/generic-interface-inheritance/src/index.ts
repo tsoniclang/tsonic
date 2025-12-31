@@ -32,9 +32,9 @@ class Item<T> implements Named<T> {
 }
 
 export function main(): void {
-  const person = new Person(1 as int, "Charlie");
+  const person = new Person(1, "Charlie");
   Console.writeLine(`Person: ${person.id} - ${person.name}`);
 
-  const item = new Item<string>("SKU-001", "Widget");
+  const item = new Item("SKU-001", "Widget");
   Console.writeLine(`Item: ${item.id} - ${item.name}`);
 }

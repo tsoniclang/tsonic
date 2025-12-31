@@ -1,11 +1,14 @@
-export interface Functor<T> {
-  map<U>(fn: (x: T) => U): Functor<U>;
+export class Functor<T> {
+  map<U>(fn: (x: T) => U): Functor<U> {
+    throw new Error("Not implemented");
+  }
 }
 
-export class Maybe<T> implements Functor<T> {
+export class Maybe<T> extends Functor<T> {
   private value: T | null;
 
   constructor(value: T | null) {
+    super();
     this.value = value;
   }
 

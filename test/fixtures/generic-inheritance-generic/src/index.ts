@@ -30,9 +30,9 @@ class WrappedBox<U> extends Box<U> {
 
 // Test
 export function main(): void {
-  const labeled = new LabeledBox<int>(100 as int, "count");
+  const labeled = new LabeledBox(100, "count");
   Console.writeLine(labeled.describe());
 
-  const wrapped = new WrappedBox<string>("inner");
+  const wrapped = new WrappedBox("inner");
   Console.writeLine(`Wrapped: ${wrapped.wrap().value}`);
 }

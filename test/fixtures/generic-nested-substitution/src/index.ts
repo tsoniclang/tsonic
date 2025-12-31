@@ -11,7 +11,7 @@ class Wrapper<T> {
 class Container<T> {
   wrapped: Wrapper<T>;
   constructor(value: T) {
-    this.wrapped = new Wrapper<T>(value);
+    this.wrapped = new Wrapper(value);
   }
   getInner(): T {
     return this.wrapped.inner;
@@ -25,12 +25,12 @@ class IntContainer extends Container<int> {
   }
   addOne(): int {
     const inner: int = this.getInner();
-    return (inner + 1) as int;
+    return inner + 1;
   }
 }
 
 export function main(): void {
-  const c = new IntContainer(10 as int);
+  const c = new IntContainer(10);
   Console.writeLine(`Inner: ${c.getInner()}`);
   Console.writeLine(`Plus one: ${c.addOne()}`);
 }

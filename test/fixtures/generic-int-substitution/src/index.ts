@@ -33,11 +33,11 @@ function getBoxValue<T>(box: Box<T>): T {
 
 // Function that uses the value (proves type is correct)
 function doubleInt(n: int): int {
-  return (n * 2) as int;
+  return n * 2;
 }
 
 function doubleLong(n: long): long {
-  return (n * 2) as long;
+  return n * 2;
 }
 
 export function main(): void {
@@ -46,7 +46,7 @@ export function main(): void {
 
   // Test 1: Box<int>.value should be int
   Console.writeLine("--- Test 1: Box<int>.value ---");
-  const intBox = createIntBox(42 as int, "int box");
+  const intBox = createIntBox(42, "int box");
   const intValue = intBox.value; // Should be int, not number
   Console.writeLine(`intBox.label = ${intBox.label}`);
   Console.writeLine(`intBox.value = ${intValue}`);
@@ -71,15 +71,15 @@ export function main(): void {
 
   // Test 4: Arithmetic on extracted value
   Console.writeLine("--- Test 4: Arithmetic on generic value ---");
-  const sum = intValue + (10 as int);
-  const product = intValue * (3 as int);
+  const sum = intValue + 10;
+  const product = intValue * 3;
   Console.writeLine(`intValue + 10 = ${sum}`);
   Console.writeLine(`intValue * 3 = ${product}`);
   Console.writeLine("");
 
   // Test 5: Nested generic access
   Console.writeLine("--- Test 5: Direct property access ---");
-  const directValue = createIntBox(100 as int, "direct").value;
+  const directValue = createIntBox(100, "direct").value;
   Console.writeLine(`createIntBox(100, 'direct').value = ${directValue}`);
   Console.writeLine(`doubled = ${doubleInt(directValue)}`);
 

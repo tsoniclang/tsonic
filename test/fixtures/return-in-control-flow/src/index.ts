@@ -39,7 +39,7 @@ function getInWhile(count: int): int {
 
 // Return in for loop
 function getInFor(): int {
-  for (let i = 0 as int; i < 10; i++) {
+  for (let i = 0; i < 10; i++) {
     return 11 / 3; // Should be 3 (int division)
   }
   return 0;
@@ -48,9 +48,9 @@ function getInFor(): int {
 // Return in switch case
 function getInSwitch(key: int): int {
   switch (key) {
-    case 1 as int:
+    case 1:
       return 13 / 4; // Should be 3 (int division)
-    case 2 as int:
+    case 2:
       return 17 / 5; // Should be 3 (int division)
     default:
       return 19 / 6; // Should be 3 (int division)
@@ -86,7 +86,7 @@ export function main(): void {
   Console.writeLine(`getInElse(false) = ${r2}`); // 4
 
   // Test while - 15/4 = 3 (int division)
-  const r3 = getInWhile(1 as int);
+  const r3 = getInWhile(1);
   Console.writeLine(`getInWhile(1) = ${r3}`); // 3
 
   // Test for - 11/3 = 3 (int division)
@@ -94,15 +94,15 @@ export function main(): void {
   Console.writeLine(`getInFor() = ${r4}`); // 3
 
   // Test switch case 1 - 13/4 = 3 (int division)
-  const r5 = getInSwitch(1 as int);
+  const r5 = getInSwitch(1);
   Console.writeLine(`getInSwitch(1) = ${r5}`); // 3
 
   // Test switch case 2 - 17/5 = 3 (int division)
-  const r6 = getInSwitch(2 as int);
+  const r6 = getInSwitch(2);
   Console.writeLine(`getInSwitch(2) = ${r6}`); // 3
 
   // Test switch default - 19/6 = 3 (int division)
-  const r7 = getInSwitch(99 as int);
+  const r7 = getInSwitch(99);
   Console.writeLine(`getInSwitch(99) = ${r7}`); // 3
 
   // Test nested if - 21/7 = 3 (int division)

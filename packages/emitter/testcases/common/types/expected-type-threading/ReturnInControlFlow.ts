@@ -28,9 +28,9 @@ export function getInWhile(count: int): int {
 // Return in switch case
 export function getInSwitch(key: int): int {
   switch (key) {
-    case 1 as int:
+    case 1:
       return 100;
-    case 2 as int:
+    case 2:
       return 200;
     default:
       return 0;

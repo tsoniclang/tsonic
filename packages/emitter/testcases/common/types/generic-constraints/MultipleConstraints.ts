@@ -1,15 +1,17 @@
 import { int } from "@tsonic/core/types.js";
 
-export interface Comparable<T> {
-  compareTo(other: T): int;
+// Base class for comparable + showable
+export class ComparableShowable<T> {
+  compareTo(other: T): int {
+    return 0;
+  }
+  show(): string {
+    return "";
+  }
 }
 
-export interface Showable {
-  show(): string;
-}
-
-// Function with multiple constrained type params
-export function maxAndShow<T extends Comparable<T> & Showable>(
+// Function with single constraint (combined base class)
+export function maxAndShow<T extends ComparableShowable<T>>(
   a: T,
   b: T
 ): string {
@@ -20,8 +22,17 @@ export function maxAndShow<T extends Comparable<T> & Showable>(
   return b.show();
 }
 
-// Simple max function with single constraint
-export function max<T extends Comparable<T>>(a: T, b: T): T {
-  const comparison = a.compareTo(b);
-  return comparison >= 0 ? a : b;
+// Concrete example
+export class NumberValue extends ComparableShowable<NumberValue> {
+  value: int;
+  constructor(value: int) {
+    super();
+    this.value = value;
+  }
+  compareTo(other: NumberValue): int {
+    return this.value - other.value;
+  }
+  show(): string {
+    return `Value: ${this.value}`;
+  }
 }

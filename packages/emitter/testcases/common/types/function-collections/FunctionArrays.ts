@@ -4,9 +4,9 @@ export type Operation = (a: int, b: int) => int;
 
 // Array of functions
 export const operations: Operation[] = [
-  (a: int, b: int): int => (a + b) as int,
-  (a: int, b: int): int => (a - b) as int,
-  (a: int, b: int): int => (a * b) as int,
+  (a, b) => a + b,
+  (a, b) => a - b,
+  (a, b) => a * b,
 ];
 
 // Interface with function properties

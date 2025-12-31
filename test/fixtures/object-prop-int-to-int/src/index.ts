@@ -28,6 +28,6 @@ function createTodo(id: int, title: string): Todo {
 }
 
 export function main(): void {
-  const todo = createTodo(1 as int, "Test todo");
+  const todo = createTodo(1, "Test todo");
   Console.writeLine("Created todo: " + todo.title);
 }

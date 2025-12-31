@@ -104,10 +104,10 @@ function testBasicGenericChain(): void {
   Console.writeLine("--- Test 1: Basic Generic Chain ---");
 
   // Chain: wrap → unwrap → identity
-  const original: int = 42 as int;
-  const wrapped: Container<int> = wrap<int>(original);
-  const unwrapped: int = unwrap<int>(wrapped);
-  const final: int = identity<int>(unwrapped);
+  const original: int = 42;
+  const wrapped = wrap(original);
+  const unwrapped = unwrap(wrapped);
+  const final = identity(unwrapped);
 
   Console.writeLine(`original: ${original}`);
   Console.writeLine(`wrapped.value: ${wrapped.value}`);
@@ -120,9 +120,9 @@ function testPairChain(): void {
   Console.writeLine("--- Test 2: Pair Chain ---");
 
   // Create Pair<int, string>
-  const pair: Pair<int, string> = makePair<int, string>(100 as int, "hello");
-  const key: int = first<int, string>(pair);
-  const value: string = second<int, string>(pair);
+  const pair = makePair(100, "hello");
+  const key = first(pair);
+  const value = second(pair);
 
   Console.writeLine(`pair.first: ${pair.first}`);
   Console.writeLine(`pair.second: ${pair.second}`);
@@ -135,11 +135,7 @@ function testTripleChain(): void {
   Console.writeLine("--- Test 3: Triple Chain ---");
 
   // Create Triple<int, long, string>
-  const triple: Triple<int, long, string> = makeTriple<int, long, string>(
-    10 as int,
-    9999999999 as long,
-    "test"
-  );
+  const triple = makeTriple(10, 9999999999 as long, "test");
 
   Console.writeLine(`triple.a (int): ${triple.a}`);
   Console.writeLine(`triple.b (long): ${triple.b}`);
@@ -151,11 +147,9 @@ function testNestedContainers(): void {
   Console.writeLine("--- Test 4: Nested Containers ---");
 
   // Create Container<Container<int>>
-  const nested: Container<Container<int>> = wrap<Container<int>>(
-    wrap<int>(50 as int)
-  );
-  const inner: Container<int> = unwrap<Container<int>>(nested);
-  const value: int = unwrap<int>(inner);
+  const nested = wrap(wrap(50));
+  const inner = unwrap(nested);
+  const value = unwrap(inner);
 
   Console.writeLine(`nested.value.value: ${nested.value.value}`);
   Console.writeLine(`inner.value: ${inner.value}`);
@@ -167,10 +161,10 @@ function testDeepContainer(): void {
   Console.writeLine("--- Test 5: Deep Container ---");
 
   // Create DeepContainer<int>
-  const deep: DeepContainer<int> = deepWrap<int>(77 as int);
-  const level1: Container<Container<int>> = deep.level1;
-  const level2: Container<int> = level1.value;
-  const value: int = level2.value;
+  const deep = deepWrap(77);
+  const level1 = deep.level1;
+  const level2 = level1.value;
+  const value = level2.value;
 
   Console.writeLine(`deep.level1.value.value: ${deep.level1.value.value}`);
   Console.writeLine(`level2.value: ${level2.value}`);
@@ -182,11 +176,8 @@ function testMapContainer(): void {
   Console.writeLine("--- Test 6: Map Container ---");
 
   // Map Container<int> to Container<long>
-  const intContainer: Container<int> = wrap<int>(25 as int);
-  const longContainer: Container<long> = mapContainer<int, long>(
-    intContainer,
-    (x: int): long => (x as long) * (1000000 as long)
-  );
+  const intContainer = wrap(25);
+  const longContainer = mapContainer<int, long>(intContainer, x => x as long * 1000000);
 
   Console.writeLine(`intContainer.value: ${intContainer.value}`);
   Console.writeLine(`longContainer.value: ${longContainer.value}`);
@@ -197,16 +188,14 @@ function testBoxClass(): void {
   Console.writeLine("--- Test 7: Box Class ---");
 
   // Create Box<int>
-  const intBox: Box<int> = new Box<int>(30 as int);
-  const intValue: int = intBox.get();
+  const intBox = new Box(30);
+  const intValue = intBox.get();
 
   Console.writeLine(`intBox.get(): ${intValue}`);
 
   // Map Box<int> to Box<string>
-  const stringBox: Box<string> = intBox.map<string>(
-    (x: int): string => `Value: ${x}`
-  );
-  const stringValue: string = stringBox.get();
+  const stringBox = intBox.map(x => `Value: ${x}`);
+  const stringValue = stringBox.get();
 
   Console.writeLine(`stringBox.get(): ${stringValue}`);
   Console.writeLine("");
@@ -216,10 +205,8 @@ function testFlatMapBox(): void {
   Console.writeLine("--- Test 8: FlatMap Box ---");
 
   // Create Box<int> and flatMap to Box<long>
-  const intBox: Box<int> = new Box<int>(5 as int);
-  const longBox: Box<long> = intBox.flatMap<long>(
-    (x: int): Box<long> => new Box<long>((x as long) * (2000000000 as long))
-  );
+  const intBox = new Box(5);
+  const longBox = intBox.flatMap(x => new Box(x as long * 2000000000));
 
   Console.writeLine(`intBox.get(): ${intBox.get()}`);
   Console.writeLine(`longBox.get(): ${longBox.get()}`);
@@ -230,14 +217,10 @@ function testArrayOfGenerics(): void {
   Console.writeLine("--- Test 9: Array of Generics ---");
 
   // Create array of Container<int>
-  const containers: Container<int>[] = [
-    wrap<int>(1 as int),
-    wrap<int>(2 as int),
-    wrap<int>(3 as int),
-  ];
+  const containers = [wrap(1), wrap(2), wrap(3)];
 
   // Extract values manually (no .map on .NET arrays)
-  const values: int[] = [
+  const values = [
     containers[0].value,
     containers[1].value,
     containers[2].value,
@@ -254,9 +237,9 @@ function testChainedMethodCalls(): void {
   Console.writeLine("--- Test 10: Chained Method Calls ---");
 
   // Chain: Box<int> → map → map → get
-  const result: string = new Box<int>(100 as int)
-    .map<long>((x: int): long => (x as long) * (10 as long))
-    .map<string>((x: long): string => `Result: ${x}`)
+  const result = new Box(100)
+    .map(x => x as long * 10)
+    .map(x => `Result: ${x}`)
     .get();
 
   Console.writeLine(`chained result: ${result}`);

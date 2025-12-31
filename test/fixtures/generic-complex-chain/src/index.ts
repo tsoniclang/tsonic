@@ -1,14 +1,17 @@
 import { Console } from "@tsonic/dotnet/System.js";
 import { int } from "@tsonic/core/types.js";
 
-interface Functor<T> {
-  map<U>(fn: (x: T) => U): Functor<U>;
+class Functor<T> {
+  map<U>(fn: (x: T) => U): Functor<U> {
+    throw new Error("Not implemented");
+  }
 }
 
-class Maybe<T> implements Functor<T> {
+class Maybe<T> extends Functor<T> {
   private value: T | null;
 
   constructor(value: T | null) {
+    super();
     this.value = value;
   }
 
@@ -41,24 +44,24 @@ class Maybe<T> implements Functor<T> {
 
 export function main(): void {
   // Test chained generics with type changes
-  const result = Maybe.just<int>(5 as int)
-    .map((x: int): int => (x * 2) as int)
-    .map((x: int): string => `Value: ${x}`)
+  const result = Maybe.just(5)
+    .map(x => x * 2)
+    .map(x => `Value: ${x}`)
     .getOrElse("Nothing");
 
   Console.writeLine(result);
 
-  // Test nothing case
+  // Test nothing case - need explicit type param since no argument to infer from
   const nothing = Maybe.nothing<int>()
-    .map((x: int): int => (x * 2) as int)
-    .getOrElse(0 as int);
+    .map(x => x * 2)
+    .getOrElse(0);
 
   Console.writeLine(`Nothing default: ${nothing}`);
 
   // Test flatMap
-  const flatMapped = Maybe.just<int>(10 as int)
-    .flatMap((x: int): Maybe<int> => Maybe.just((x + 5) as int))
-    .getOrElse(0 as int);
+  const flatMapped = Maybe.just(10)
+    .flatMap(x => Maybe.just(x + 5))
+    .getOrElse(0);
 
   Console.writeLine(`FlatMapped: ${flatMapped}`);
 }

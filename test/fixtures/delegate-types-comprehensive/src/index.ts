@@ -25,23 +25,19 @@ function compose<A, B, C>(f: (a: A) => B, g: (b: B) => C): (a: A) => C {
 }
 
 export function main(): void {
-  runAction((): void => Console.writeLine("Action ran"));
+  runAction(() => Console.writeLine("Action ran"));
 
-  runActionWithArg((x: int): void => Console.writeLine(`Got: ${x}`), 42 as int);
+  runActionWithArg(x => Console.writeLine(`Got: ${x}`), 42);
 
-  const result = applyFunc((x: int): int => (x * 2) as int, 21 as int);
+  const result = applyFunc(x => x * 2, 21);
   Console.writeLine(`Result: ${result}`);
 
-  const sum = applyFunc2(
-    (a: int, b: int): int => (a + b) as int,
-    10 as int,
-    20 as int
-  );
+  const sum = applyFunc2((a, b) => a + b, 10, 20);
   Console.writeLine(`Sum: ${sum}`);
 
   const addThenDouble = compose(
-    (x: int): int => (x + 10) as int,
-    (x: int): int => (x * 2) as int
+    (x: int) => x + 10,
+    x => x * 2
   );
-  Console.writeLine(`Composed: ${addThenDouble(5 as int)}`);
+  Console.writeLine(`Composed: ${addThenDouble(5)}`);
 }

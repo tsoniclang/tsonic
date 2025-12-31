@@ -19,11 +19,11 @@ class Transformer<T> {
 }
 
 export function main(): void {
-  const t1 = new Transformer<int>(5 as int);
-  const t2 = t1.map((x: int): string => `Value: ${x}`);
+  const t1 = new Transformer(5);
+  const t2 = t1.map(x => `Value: ${x}`);
   Console.writeLine(t2.value);
 
-  const t3 = new Transformer<int>(10 as int);
-  const combined = t1.combine(t3, (a: int, b: int): int => (a + b) as int);
+  const t3 = new Transformer(10);
+  const combined = t1.combine(t3, (a, b) => a + b);
   Console.writeLine(`Combined: ${combined.value}`);
 }

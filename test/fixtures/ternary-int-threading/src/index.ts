@@ -32,9 +32,9 @@ export function main(): void {
   Console.writeLine("");
   Console.writeLine("--- Section 2: Ternary int division (critical test) ---");
 
-  const a = 7 as int;
-  const b = 2 as int;
-  const divResult: int = true ? ((a / b) as int) : 0;
+  const a = 7;
+  const b = 2;
+  const divResult: int = true ? a / b : 0;
   Console.writeLine(`7/2 via ternary = ${divResult}`); // 3 (not 3.5!)
 
   // ============================================================
@@ -66,9 +66,9 @@ export function main(): void {
   Console.writeLine("");
   Console.writeLine("--- Section 5: Ternary with arithmetic ---");
 
-  const x = 10 as int;
-  const y = 20 as int;
-  const withArith: int = true ? ((x + 5) as int) : ((y - 5) as int);
+  const x = 10;
+  const y = 20;
+  const withArith: int = true ? x + 5 : y - 5;
   Console.writeLine(`withArith = ${withArith}`); // 15
 
   // ============================================================
@@ -78,7 +78,7 @@ export function main(): void {
   Console.writeLine("");
   Console.writeLine("--- Section 6: Assignment with ternary ---");
 
-  let mutableInt: int = 0 as int;
+  let mutableInt: int = 0;
   mutableInt = true ? 42 : 0;
   Console.writeLine(`mutableInt after assignment = ${mutableInt}`); // 42
 

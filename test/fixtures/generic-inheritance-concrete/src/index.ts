@@ -18,8 +18,7 @@ class IntContainer extends Container<int> {
     super(value);
   }
   double(): int {
-    const val: int = this.value;
-    return (val * 2) as int;
+    return this.value * 2;
   }
 }
 
@@ -28,14 +27,13 @@ class StringContainer extends Container<string> {
     super(value);
   }
   getLength(): int {
-    const s: string = this.value;
-    return s.length as int;
+    return this.value.length;
   }
 }
 
 // Test usage
 export function main(): void {
-  const intBox = new IntContainer(42 as int);
+  const intBox = new IntContainer(42);
   Console.writeLine(`Value: ${intBox.getValue()}`);
   Console.writeLine(`Doubled: ${intBox.double()}`);
 

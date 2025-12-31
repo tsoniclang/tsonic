@@ -14,12 +14,12 @@ export class Container<T> {
 // Non-generic extending generic with concrete type
 export class IntContainer extends Container<int> {
   double(): int {
-    return (this.getValue() * 2) as int;
+    return this.getValue() * 2;
   }
 }
 
 export class StringContainer extends Container<string> {
   getLength(): int {
-    return this.getValue().length as int;
+    return this.getValue().length;
   }
 }

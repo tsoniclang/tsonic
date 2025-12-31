@@ -15,7 +15,7 @@ class NumberValue implements Comparable<NumberValue>, Showable {
     this.value = value;
   }
   compareTo(other: NumberValue): int {
-    return (this.value - other.value) as int;
+    return this.value - other.value;
   }
   show(): string {
     return `Number(${this.value})`;
@@ -38,8 +38,8 @@ function max<T extends Comparable<T>>(a: T, b: T): T {
 }
 
 export function main(): void {
-  const a = new NumberValue(10 as int);
-  const b = new NumberValue(20 as int);
+  const a = new NumberValue(10);
+  const b = new NumberValue(20);
 
   Console.writeLine(`Max: ${maxAndShow(a, b)}`);
 

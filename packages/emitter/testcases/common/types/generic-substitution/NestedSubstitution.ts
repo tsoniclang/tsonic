@@ -20,6 +20,6 @@ export class Container<T> {
 // Concrete instantiation - should substitute T=int through Wrapper<T>
 export class IntContainer extends Container<int> {
   addOne(): int {
-    return (this.getInner() + 1) as int;
+    return this.getInner() + 1;
   }
 }

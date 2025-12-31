@@ -1,11 +1,11 @@
 export function makeCounter(): () => number {
   let count = 0;
-  return (): number => {
+  return () => {
     count++;
     return count;
   };
 }
 
 export function makeAdder(x: number): (y: number) => number {
-  return (y: number): number => x + y;
+  return y => x + y;
 }

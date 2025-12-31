@@ -4,7 +4,7 @@ export type Callback = (result: int) => void;
 
 // Optional callback parameter
 export function compute(value: int, callback?: Callback): int {
-  const result = (value * 2) as int;
+  const result = value * 2;
   if (callback !== undefined) {
     callback(result);
   }

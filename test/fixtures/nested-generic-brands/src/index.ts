@@ -19,9 +19,9 @@ interface Box<T> {
 // Function returning array of Box<int>
 function createIntBoxArray(): Box<int>[] {
   return [
-    { value: 1 as int, label: "first" },
-    { value: 2 as int, label: "second" },
-    { value: 3 as int, label: "third" },
+    { value: 1, label: "first" },
+    { value: 2, label: "second" },
+    { value: 3, label: "third" },
   ];
 }
 
@@ -55,12 +55,12 @@ function extractLong(box: Box<long>): long {
 
 // Helper to double an int (proves type is int)
 function doubleInt(n: int): int {
-  return (n * 2) as int;
+  return n * 2;
 }
 
 // Helper to double a long (proves type is long)
 function doubleLong(n: long): long {
-  return (n * 2) as long;
+  return n * 2;
 }
 
 export function main(): void {
@@ -87,7 +87,7 @@ export function main(): void {
 
   // Test 3: Extract function preserves type
   Console.writeLine("--- Test 3: Extract function ---");
-  const box = createIntBox(42 as int);
+  const box = createIntBox(42);
   const extracted = extractInt(box); // Should be int
   Console.writeLine(`extracted = ${extracted}`);
   Console.writeLine(`doubled = ${doubleInt(extracted)}`);
@@ -95,7 +95,7 @@ export function main(): void {
 
   // Test 4: Chained call preserves type
   Console.writeLine("--- Test 4: Chained call ---");
-  const chained = createIntBox(100 as int).value; // Should be int
+  const chained = createIntBox(100).value; // Should be int
   Console.writeLine(`chained = ${chained}`);
   Console.writeLine(`doubled = ${doubleInt(chained)}`);
   Console.writeLine("");

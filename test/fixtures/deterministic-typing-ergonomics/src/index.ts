@@ -10,11 +10,11 @@ import { int, long } from "@tsonic/core/types.js";
 
 // Helper functions to "prove" types by requiring specific CLR types
 function doubleInt(n: int): int {
-  return (n * 2) as int;
+  return n * 2;
 }
 
 function doubleLong(n: long): long {
-  return (n * 2) as long;
+  return n * 2;
 }
 
 // =============================================================================
@@ -49,7 +49,7 @@ function identity<T>(x: T): T {
 function testGenericInference(): void {
   Console.writeLine("=== Test 2: Generic inference ===");
 
-  const a: int = 42 as int;
+  const a: int = 42;
   const b: int = identity(a);
 
   Console.writeLine(`a = ${a}`);
@@ -93,7 +93,7 @@ function createLongBox(value: long): Box<long> {
 function testGenericContainer(): void {
   Console.writeLine("=== Test 4: Generic container ===");
 
-  const intBox = createIntBox(100 as int);
+  const intBox = createIntBox(100);
   const intVal: int = intBox.value;
 
   Console.writeLine(`intBox.value = ${intVal}`);
@@ -118,7 +118,7 @@ function getBoxValue<T>(box: Box<T>): T {
 function testNestedGeneric(): void {
   Console.writeLine("=== Test 5: Nested generic ===");
 
-  const box = createIntBox(42 as int);
+  const box = createIntBox(42);
   const val: int = getBoxValue(box);
 
   Console.writeLine(`getBoxValue(box) = ${val}`);

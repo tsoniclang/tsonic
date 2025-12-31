@@ -5,7 +5,7 @@ type Callback = (result: int) => void;
 
 // Optional callback parameter
 function compute(value: int, callback?: Callback): int {
-  const result = (value * 2) as int;
+  const result = value * 2;
   if (callback !== undefined) {
     callback(result);
   }
@@ -21,16 +21,16 @@ function maybeTransform(value: int, transform: ((x: int) => int) | null): int {
 }
 
 export function main(): void {
-  const r1 = compute(5 as int);
+  const r1 = compute(5);
   Console.writeLine(`Without callback: ${r1}`);
 
-  compute(10 as int, (result: int): void => {
+  compute(10, result => {
     Console.writeLine(`Callback received: ${result}`);
   });
 
-  const r2 = maybeTransform(7 as int, (x: int): int => (x + 3) as int);
+  const r2 = maybeTransform(7, x => x + 3);
   Console.writeLine(`Transformed: ${r2}`);
 
-  const r3 = maybeTransform(7 as int, null);
+  const r3 = maybeTransform(7, null);
   Console.writeLine(`Not transformed: ${r3}`);
 }

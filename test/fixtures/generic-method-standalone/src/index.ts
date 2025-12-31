@@ -20,17 +20,17 @@ class Utils {
 
 export function main(): void {
   // Static calls
-  const num = Utils.identity<int>(42 as int);
+  const num = Utils.identity(42);
   Console.writeLine(`Identity int: ${num}`);
 
-  const str = Utils.identity<string>("hello");
+  const str = Utils.identity("hello");
   Console.writeLine(`Identity string: ${str}`);
 
   // Instance calls
   const utils = new Utils();
-  const wrapped = utils.wrap<int>(100 as int);
+  const wrapped = utils.wrap(100);
   Console.writeLine(`Wrapped: ${wrapped.value}`);
 
-  const p = utils.pair<string, int>("count", 5 as int);
+  const p = utils.pair("count", 5);
   Console.writeLine(`Pair: ${p.key}=${p.value}`);
 }

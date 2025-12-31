@@ -1,31 +1,32 @@
 import { int } from "@tsonic/core/types.js";
 
-// Base interface
-export interface Identifiable<T> {
+// Base class
+export class Identifiable<T> {
   id: T;
-}
-
-// Extending interface
-export interface Named<T> extends Identifiable<T> {
-  name: string;
-}
-
-// Concrete implementation
-export class Person implements Named<int> {
-  id: int;
-  name: string;
-  constructor(id: int, name: string) {
+  constructor(id: T) {
     this.id = id;
+  }
+}
+
+// Extending class
+export class Named<T> extends Identifiable<T> {
+  name: string;
+  constructor(id: T, name: string) {
+    super(id);
     this.name = name;
   }
 }
 
-// Generic implementation
-export class Item<T> implements Named<T> {
-  id: T;
-  name: string;
+// Concrete subclass
+export class Person extends Named<int> {
+  constructor(id: int, name: string) {
+    super(id, name);
+  }
+}
+
+// Generic subclass
+export class Item<T> extends Named<T> {
   constructor(id: T, name: string) {
-    this.id = id;
-    this.name = name;
+    super(id, name);
   }
 }
