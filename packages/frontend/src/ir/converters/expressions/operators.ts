@@ -30,7 +30,9 @@ export const convertBinaryExpression = (
   const sourceSpan = getSourceSpan(node);
 
   // Handle assignment separately
+  // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)
   if (isAssignmentOperator(node.operatorToken)) {
+    const lhsType = getInferredType(node.left, checker);
     return {
       kind: "assignment",
       operator: operator as IrAssignmentOperator,
@@ -38,11 +40,11 @@ export const convertBinaryExpression = (
         ? {
             kind: "identifier",
             name: node.left.text,
-            inferredType: getInferredType(node.left, checker),
+            inferredType: lhsType,
             sourceSpan: getSourceSpan(node.left),
           }
         : convertExpression(node.left, checker, undefined),
-      right: convertExpression(node.right, checker, undefined),
+      right: convertExpression(node.right, checker, lhsType),
       inferredType,
       sourceSpan,
     };

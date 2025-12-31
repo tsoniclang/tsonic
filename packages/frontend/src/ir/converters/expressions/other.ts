@@ -7,22 +7,27 @@ import {
   IrConditionalExpression,
   IrTemplateLiteralExpression,
   IrExpression,
+  IrType,
 } from "../../types.js";
 import { getInferredType, getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 
 /**
  * Convert conditional (ternary) expression
+ *
+ * Threads expectedType to both branches to ensure deterministic typing.
+ * Example: `const x: int = cond ? 5 : 10` → both 5 and 10 get expectedType `int`
  */
 export const convertConditionalExpression = (
   node: ts.ConditionalExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType: IrType | undefined
 ): IrConditionalExpression => {
   return {
     kind: "conditional",
     condition: convertExpression(node.condition, checker, undefined),
-    whenTrue: convertExpression(node.whenTrue, checker, undefined),
-    whenFalse: convertExpression(node.whenFalse, checker, undefined),
+    whenTrue: convertExpression(node.whenTrue, checker, expectedType),
+    whenFalse: convertExpression(node.whenFalse, checker, expectedType),
     inferredType: getInferredType(node, checker),
     sourceSpan: getSourceSpan(node),
   };

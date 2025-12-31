@@ -213,7 +213,7 @@ export const convertExpression = (
     };
   }
   if (ts.isConditionalExpression(node)) {
-    return convertConditionalExpression(node, checker);
+    return convertConditionalExpression(node, checker, expectedType);
   }
   if (ts.isFunctionExpression(node)) {
     return convertFunctionExpression(node, checker);

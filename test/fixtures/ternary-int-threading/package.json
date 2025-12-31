@@ -1,0 +1,11 @@
+{
+  "name": "ternary-int-threading-test",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "latest",
+    "@tsonic/dotnet": "latest",
+    "@tsonic/globals": "latest"
+  }
+}
