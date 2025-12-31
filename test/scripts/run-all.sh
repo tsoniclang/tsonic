@@ -93,6 +93,7 @@ else
         local results_dir="$3"
         local fixture_name=$(basename "$fixture_dir")
         local result_file="$results_dir/$fixture_name"
+        local error_file="$results_dir/${fixture_name}.error"
         local result=""
 
         cd "$fixture_dir"
@@ -102,8 +103,8 @@ else
             npm install --silent 2>/dev/null || true
         fi
 
-        # Build and run
-        if node "$cli_path" build src/index.ts --config tsonic.dotnet.json >/dev/null 2>&1; then
+        # Build and run - capture errors to file
+        if node "$cli_path" build src/index.ts --config tsonic.dotnet.json 2>"$error_file"; then
             # Find executable
             exe_path=$(find out -type f -executable 2>/dev/null | head -1 || true)
             if [ -z "$exe_path" ]; then
@@ -177,9 +178,16 @@ else
     for fixture_dir in "${DOTNET_FIXTURES[@]}"; do
         fixture_name=$(basename "$fixture_dir")
         result_file="$RESULTS_DIR/$fixture_name"
+        error_file="$RESULTS_DIR/${fixture_name}.error"
         if [ -f "$result_file" ]; then
             result=$(cat "$result_file")
             echo "  $fixture_name: $result" >> "$LOG_FILE"
+            # Include error details if build failed
+            if [[ "$result" == *"build error"* ]] && [ -f "$error_file" ] && [ -s "$error_file" ]; then
+                echo "    --- Error details ---" >> "$LOG_FILE"
+                cat "$error_file" >> "$LOG_FILE"
+                echo "    --- End error ---" >> "$LOG_FILE"
+            fi
             if [[ "$result" == PASS* ]]; then
                 E2E_DOTNET_PASSED=$((E2E_DOTNET_PASSED + 1))
             else

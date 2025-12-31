@@ -21,7 +21,8 @@ import { hasExportModifier } from "../helpers.js";
  * - Floating literals (numericIntent: "Double") → double (as number)
  * - String literals → string
  * - Boolean literals → boolean
- * - Other expressions → fallback to TypeScript inference
+ * - Call expressions → use inferredType (which has numeric recovery)
+ * - Other expressions → use inferredType, fallback to TypeScript inference
  */
 const deriveTypeFromExpression = (
   expr: IrExpression,
@@ -66,6 +67,19 @@ const deriveTypeFromExpression = (
         }
       }
     }
+  }
+
+  // For call expressions and other complex expressions, use inferredType
+  // The inferredType should have numeric recovery from function return types
+  if (expr.kind === "call" || expr.kind === "new") {
+    if (expr.inferredType) {
+      return expr.inferredType;
+    }
+  }
+
+  // For identifiers (variable references), use inferredType
+  if (expr.kind === "identifier" && expr.inferredType) {
+    return expr.inferredType;
   }
 
   // For other expressions, fallback to TypeScript inference
