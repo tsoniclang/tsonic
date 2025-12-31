@@ -6,167 +6,16 @@ import * as ts from "typescript";
 import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import { getBindingRegistry } from "../statements/declarations/registry.js";
+import {
+  getBindingRegistry,
+  getTypeRegistry,
+  getNominalEnv,
+} from "../statements/declarations/registry.js";
 import { convertType } from "../../type-converter.js";
-import { substituteTypeNode } from "./calls.js";
+import { substituteIrType } from "../../nominal-env.js";
 import { convertParameters } from "../statements/helpers.js";
+// Note: substituteTypeNode from calls.js is no longer needed - we use substituteIrType instead
 
-/**
- * Build a substitution map from type parameter names to their instantiated TypeNodes
- * for a property access expression.
- *
- * For a property access like `list.count` where `list: List<int>`,
- * this returns a map: { "T" -> int TypeNode }
- *
- * DETERMINISTIC TYPING: Uses property symbol and receiver declaration AST,
- * NOT getTypeAtLocation. Type parameters are extracted from the property's
- * parent declaration (class/interface/type alias).
- */
-const buildPropertySubstitutionMap = (
-  node: ts.PropertyAccessExpression,
-  propSymbol: ts.Symbol | undefined,
-  checker: ts.TypeChecker
-): ReadonlyMap<string, ts.TypeNode> | undefined => {
-  if (!propSymbol) return undefined;
-
-  // Get the property's declaration to find its parent (the declaring type)
-  const propDecls = propSymbol.getDeclarations();
-  if (!propDecls || propDecls.length === 0) return undefined;
-
-  // Find the type parameters from the property's parent declaration
-  let typeParamDecls: readonly ts.TypeParameterDeclaration[] | undefined;
-  for (const propDecl of propDecls) {
-    const parent = propDecl.parent;
-    if (ts.isClassDeclaration(parent) && parent.typeParameters) {
-      typeParamDecls = parent.typeParameters;
-      break;
-    }
-    if (ts.isInterfaceDeclaration(parent) && parent.typeParameters) {
-      typeParamDecls = parent.typeParameters;
-      break;
-    }
-    if (ts.isTypeAliasDeclaration(parent) && parent.typeParameters) {
-      typeParamDecls = parent.typeParameters;
-      break;
-    }
-    // Handle TypeLiteral parents (for object type literals)
-    if (ts.isTypeLiteralNode(parent)) {
-      // TypeLiterals don't have type parameters directly
-      continue;
-    }
-  }
-
-  if (!typeParamDecls || typeParamDecls.length === 0) return undefined;
-
-  // Get the type arguments from the object's declaration
-  // IMPORTANT: We must trace back to the ORIGINAL source code AST to preserve
-  // CLR type aliases like `int`. TypeScript's typeToTypeNode() does NOT preserve
-  // type aliases - it synthesizes primitive keywords like NumberKeyword instead.
-  const receiverSymbol = checker.getSymbolAtLocation(node.expression);
-  if (!receiverSymbol) return undefined;
-
-  const receiverDecls = receiverSymbol.getDeclarations();
-  if (!receiverDecls) return undefined;
-
-  for (const decl of receiverDecls) {
-    // Helper to build substitution map from type argument nodes
-    const buildMapFromTypeArgs = (
-      typeArgNodes: ts.NodeArray<ts.TypeNode>
-    ): Map<string, ts.TypeNode> | undefined => {
-      if (typeParamDecls && typeArgNodes.length === typeParamDecls.length) {
-        const substitutionMap = new Map<string, ts.TypeNode>();
-        for (let i = 0; i < typeParamDecls.length; i++) {
-          const paramDecl = typeParamDecls[i];
-          const argNode = typeArgNodes[i];
-          if (paramDecl && argNode) {
-            substitutionMap.set(paramDecl.name.text, argNode);
-          }
-        }
-        return substitutionMap;
-      }
-      return undefined;
-    };
-
-    // Check explicit type annotation first
-    if (ts.isVariableDeclaration(decl) && decl.type) {
-      if (ts.isTypeReferenceNode(decl.type) && decl.type.typeArguments) {
-        const result = buildMapFromTypeArgs(decl.type.typeArguments);
-        if (result) return result;
-      }
-    }
-
-    // Check initializer: new List<int>()
-    if (ts.isVariableDeclaration(decl) && decl.initializer) {
-      // Handle direct NewExpression
-      if (
-        ts.isNewExpression(decl.initializer) &&
-        decl.initializer.typeArguments
-      ) {
-        const result = buildMapFromTypeArgs(decl.initializer.typeArguments);
-        if (result) return result;
-      }
-
-      // Handle AsExpression (type assertion): new List<int>() as List<int>
-      if (ts.isAsExpression(decl.initializer)) {
-        const asType = decl.initializer.type;
-        if (ts.isTypeReferenceNode(asType) && asType.typeArguments) {
-          const result = buildMapFromTypeArgs(asType.typeArguments);
-          if (result) return result;
-        }
-      }
-    }
-
-    // Check property declarations with type annotation
-    if (
-      ts.isPropertyDeclaration(decl) &&
-      decl.type &&
-      ts.isTypeReferenceNode(decl.type) &&
-      decl.type.typeArguments
-    ) {
-      const result = buildMapFromTypeArgs(decl.type.typeArguments);
-      if (result) return result;
-    }
-
-    // Check property declaration initializer
-    if (ts.isPropertyDeclaration(decl) && decl.initializer) {
-      if (
-        ts.isNewExpression(decl.initializer) &&
-        decl.initializer.typeArguments
-      ) {
-        const result = buildMapFromTypeArgs(decl.initializer.typeArguments);
-        if (result) return result;
-      }
-    }
-
-    // Check parameter declarations
-    if (
-      ts.isParameter(decl) &&
-      decl.type &&
-      ts.isTypeReferenceNode(decl.type) &&
-      decl.type.typeArguments
-    ) {
-      const result = buildMapFromTypeArgs(decl.type.typeArguments);
-      if (result) return result;
-    }
-  }
-
-  return undefined;
-};
-
-/**
- * Get the declared property type from a property access expression.
- *
- * This function extracts the property type from the **property declaration's TypeNode**,
- * NOT from TypeScript's inferred type. This is critical for preserving CLR type aliases.
- *
- * For generic types, type parameters are substituted using the object's type arguments.
- * For example: `list.count` where `list: List<int>` returns `int`, not `T`.
- *
- * Returns undefined if:
- * - No property symbol found
- * - No declaration on property
- * - No type annotation on declaration
- */
 /**
  * Build a function type from a method declaration or signature.
  * For `greet(): string`, returns the function type `(): string`.
@@ -192,79 +41,196 @@ const buildFunctionTypeFromMethod = (
   };
 };
 
+/**
+ * Normalize receiver IR type to a fully-qualified nominal type name and type arguments.
+ *
+ * Handles:
+ * - referenceType: Use name (resolved to FQ) and typeArguments directly
+ * - arrayType: Treat as "Array" (resolved to FQ) with [elementType]
+ * - primitiveType: Map to "String", "Number", "Boolean" surfaces (resolved to FQ)
+ *
+ * Returns undefined for types that can't be normalized to nominals.
+ */
+const normalizeReceiverToNominal = (
+  receiverIrType: IrType
+): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
+  const registry = getTypeRegistry();
+
+  // Helper to resolve simple name to FQ name
+  const toFQName = (simpleName: string): string => {
+    if (!registry) return simpleName;
+    // Try to get FQ name from registry
+    const fqName = registry.getFQName(simpleName);
+    // If name already contains ".", it might already be FQ
+    if (!fqName && simpleName.includes(".")) return simpleName;
+    return fqName ?? simpleName;
+  };
+
+  if (receiverIrType.kind === "referenceType") {
+    return {
+      nominal: toFQName(receiverIrType.name),
+      typeArgs: receiverIrType.typeArguments ?? [],
+    };
+  }
+
+  if (receiverIrType.kind === "arrayType") {
+    return {
+      nominal: toFQName("Array"),
+      typeArgs: [receiverIrType.elementType],
+    };
+  }
+
+  if (receiverIrType.kind === "primitiveType") {
+    const nominalMap: Record<string, string | undefined> = {
+      string: "String",
+      number: "Number",
+      boolean: "Boolean",
+      int: "Int32",
+    };
+    const simpleName = nominalMap[receiverIrType.name];
+    if (simpleName) {
+      return { nominal: toFQName(simpleName), typeArgs: [] };
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Get the declared property type from a property access expression.
+ *
+ * DETERMINISTIC TYPING: Uses NominalEnv + TypeRegistry to walk inheritance chains
+ * and substitute type parameters. Never uses TypeScript's type inference APIs.
+ *
+ * Flow:
+ * 1. Normalize receiver IR type to nominal + type args
+ * 2. Use NominalEnv.findMemberDeclaringType() to find which type declares the member
+ * 3. Get declared member TypeNode from TypeRegistry
+ * 4. Convert to IR pattern (may contain type parameters)
+ * 5. Apply substituteIrType() to replace type parameters with concrete types
+ *
+ * @param node - Property access expression node
+ * @param receiverIrType - Already-computed IR type of the receiver (object) expression
+ * @param checker - TypeChecker for symbol resolution only (NOT for type inference)
+ * @returns The deterministically computed property type, or undefined if not found
+ */
 const getDeclaredPropertyType = (
+  node: ts.PropertyAccessExpression,
+  receiverIrType: IrType | undefined,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  try {
+    const propertyName = node.name.text;
+    const registry = getTypeRegistry();
+    const nominalEnv = getNominalEnv();
+
+    // If no receiver type or infrastructure not available, fall back to TS symbol lookup
+    if (
+      !receiverIrType ||
+      receiverIrType.kind === "unknownType" ||
+      !registry ||
+      !nominalEnv
+    ) {
+      // Fall back to direct symbol lookup (for built-ins and CLR types)
+      return getDeclaredPropertyTypeFallback(node, checker);
+    }
+
+    // 1. Normalize receiver to nominal + type args
+    const normalized = normalizeReceiverToNominal(receiverIrType);
+    if (!normalized) {
+      // Can't normalize - fall back to symbol lookup
+      return getDeclaredPropertyTypeFallback(node, checker);
+    }
+
+    const { nominal, typeArgs } = normalized;
+
+    // 2. Find declaring type + substitution using NominalEnv
+    const result = nominalEnv.findMemberDeclaringType(
+      nominal,
+      typeArgs,
+      propertyName
+    );
+
+    if (!result) {
+      // Member not found in inheritance chain - fall back to symbol lookup
+      // This handles CLR-bound members and built-ins from globals
+      return getDeclaredPropertyTypeFallback(node, checker);
+    }
+
+    const { targetNominal, substitution } = result;
+
+    // 3. Get declared member TypeNode from registry
+    const memberTypeNode = registry.getMemberTypeNode(
+      targetNominal,
+      propertyName
+    );
+
+    if (!memberTypeNode) {
+      // TypeNode not found in registry - fall back to symbol lookup
+      return getDeclaredPropertyTypeFallback(node, checker);
+    }
+
+    // 4. Convert TypeNode to IR pattern (may contain type parameters)
+    const memberTypePattern = convertType(memberTypeNode, checker);
+
+    // 5. Apply substitution to replace type parameters with concrete types
+    const finalType = substituteIrType(memberTypePattern, substitution);
+
+    return finalType;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Fallback for getDeclaredPropertyType when NominalEnv can't resolve the member.
+ * Uses direct TS symbol lookup for:
+ * - Built-in types from globals (string.length, Array.push, etc.)
+ * - CLR-bound types from tsbindgen
+ * - Types not registered in TypeRegistry
+ */
+const getDeclaredPropertyTypeFallback = (
   node: ts.PropertyAccessExpression,
   checker: ts.TypeChecker
 ): IrType | undefined => {
   try {
-    // DETERMINISTIC TYPING: Get property symbol directly from the property name node.
-    // This uses getSymbolAtLocation (allowed) instead of getTypeAtLocation (banned).
-    // TypeScript resolves the property through the receiver type automatically.
+    // Get property symbol directly from the property name node
     const propSymbol = checker.getSymbolAtLocation(node.name);
-
     if (!propSymbol) return undefined;
 
-    // 2. Get the property's declaration
+    // Get the property's declaration
     const declarations = propSymbol.getDeclarations();
     if (!declarations || declarations.length === 0) return undefined;
 
     // Find a declaration with a type annotation
-    let propertyTypeNode: ts.TypeNode | undefined;
-    let methodType: IrType | undefined;
-
     for (const decl of declarations) {
       if (ts.isPropertySignature(decl) && decl.type) {
-        propertyTypeNode = decl.type;
-        break;
+        return convertType(decl.type, checker);
       }
       if (ts.isPropertyDeclaration(decl) && decl.type) {
-        propertyTypeNode = decl.type;
-        break;
+        return convertType(decl.type, checker);
       }
       // Handle constructor parameter properties (public name: string)
-      // These are ParameterDeclarations with public/private/protected modifiers
       if (ts.isParameter(decl) && decl.type) {
-        propertyTypeNode = decl.type;
-        break;
+        return convertType(decl.type, checker);
       }
-      // Also handle get accessor declarations (readonly properties)
+      // Handle get accessor declarations (readonly properties)
       if (ts.isGetAccessorDeclaration(decl) && decl.type) {
-        propertyTypeNode = decl.type;
-        break;
+        return convertType(decl.type, checker);
       }
       // Handle method declarations (class methods)
       if (ts.isMethodDeclaration(decl)) {
-        methodType = buildFunctionTypeFromMethod(decl, checker);
-        if (methodType) break;
+        const methodType = buildFunctionTypeFromMethod(decl, checker);
+        if (methodType) return methodType;
       }
       // Handle method signatures (interface methods)
       if (ts.isMethodSignature(decl)) {
-        methodType = buildFunctionTypeFromMethod(decl, checker);
-        if (methodType) break;
+        const methodType = buildFunctionTypeFromMethod(decl, checker);
+        if (methodType) return methodType;
       }
     }
 
-    // If we found a method, return its function type directly
-    if (methodType) return methodType;
-
-    if (!propertyTypeNode) return undefined;
-
-    // 3. Build substitution map from object's type arguments
-    const substitutionMap = buildPropertySubstitutionMap(
-      node,
-      propSymbol,
-      checker
-    );
-
-    // 4. Apply substitution to property TypeNode
-    const substitutedTypeNode = substitutionMap
-      ? substituteTypeNode(propertyTypeNode, substitutionMap, checker)
-      : undefined;
-
-    const finalTypeNode = substitutedTypeNode ?? propertyTypeNode;
-
-    // 5. Convert to IrType
-    return convertType(finalTypeNode, checker);
+    return undefined;
   } catch {
     return undefined;
   }
@@ -555,8 +521,12 @@ export const convertMemberExpression = (
     // Try to resolve hierarchical binding
     const memberBinding = resolveHierarchicalBinding(object, propertyName);
 
-    // DETERMINISTIC TYPING: Property type comes ONLY from declared TypeNodes.
-    // NO fallback to TS inference (getInferredType) - that loses CLR type aliases.
+    // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
+    // user-defined types (including inherited members), with fallback to TS symbol
+    // lookup for built-ins and CLR types.
+    //
+    // The receiver's inferredType enables NominalEnv to walk inheritance chains
+    // and substitute type parameters correctly for inherited generic members.
     //
     // Built-ins like string.length work because globals declare them with proper types.
     // If getDeclaredPropertyType returns undefined, it means the property declaration
@@ -564,8 +534,11 @@ export const convertMemberExpression = (
     //
     // EXCEPTION: If memberBinding exists AND declaredType is undefined, return undefined.
     // This handles pure CLR-bound methods like Console.WriteLine that have no TS declaration.
-    // But if declaredType IS available (like string.length from globals), use it.
-    const declaredType = getDeclaredPropertyType(node, checker);
+    const declaredType = getDeclaredPropertyType(
+      node,
+      object.inferredType,
+      checker
+    );
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
     // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).

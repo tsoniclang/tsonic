@@ -91,13 +91,38 @@ export const substituteIrType = (
       const replacement = subst.get(type.name);
       if (replacement) return replacement;
 
-      // Substitute in type arguments
-      if (type.typeArguments && type.typeArguments.length > 0) {
+      // Substitute in type arguments and structural members
+      const hasTypeArgs = type.typeArguments && type.typeArguments.length > 0;
+      const hasStructural =
+        type.structuralMembers && type.structuralMembers.length > 0;
+
+      if (hasTypeArgs || hasStructural) {
         return {
           ...type,
-          typeArguments: type.typeArguments.map((arg) =>
-            substituteIrType(arg, subst)
-          ),
+          typeArguments: hasTypeArgs
+            ? type.typeArguments!.map((arg) => substituteIrType(arg, subst))
+            : type.typeArguments,
+          structuralMembers: hasStructural
+            ? type.structuralMembers!.map((m) => {
+                if (m.kind === "propertySignature") {
+                  return {
+                    ...m,
+                    type: substituteIrType(m.type, subst),
+                  };
+                }
+                // methodSignature
+                return {
+                  ...m,
+                  returnType: m.returnType
+                    ? substituteIrType(m.returnType, subst)
+                    : m.returnType,
+                  parameters: m.parameters.map((p) => ({
+                    ...p,
+                    type: p.type ? substituteIrType(p.type, subst) : p.type,
+                  })),
+                };
+              })
+            : type.structuralMembers,
         };
       }
       return type;
@@ -134,6 +159,21 @@ export const substituteIrType = (
       return {
         ...type,
         elementTypes: type.elementTypes.map((t) => substituteIrType(t, subst)),
+      };
+    }
+
+    case "dictionaryType": {
+      return {
+        ...type,
+        keyType: substituteIrType(type.keyType, subst),
+        valueType: substituteIrType(type.valueType, subst),
+      };
+    }
+
+    case "intersectionType": {
+      return {
+        ...type,
+        types: type.types.map((t) => substituteIrType(t, subst)),
       };
     }
 

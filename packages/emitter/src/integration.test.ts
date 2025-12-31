@@ -34,6 +34,8 @@ const compileToCSharp = (
     module: ts.ModuleKind.NodeNext,
     strict: true,
     noEmit: true,
+    noLib: true,
+    skipLibCheck: true,
   };
 
   const host = ts.createCompilerHost(compilerOptions);
@@ -260,6 +262,12 @@ describe("End-to-End Integration", () => {
   describe("Lambda Parameter Type Inference", () => {
     it("should infer types for Promise executor callback parameters", () => {
       const source = `
+        // Inline minimal types for this test
+        declare function setTimeout(fn: () => void, ms: number): void;
+        declare class Promise<T> {
+          constructor(executor: (resolve: () => void) => void);
+        }
+
         export function delay(ms: number): Promise<void> {
           return new Promise((resolve) => {
             setTimeout(resolve, ms);
@@ -276,6 +284,11 @@ describe("End-to-End Integration", () => {
 
     it("should infer types for array method callbacks", () => {
       const source = `
+        // Inline minimal types for this test
+        interface Array<T> {
+          map<U>(fn: (item: T) => U): U[];
+        }
+
         export function doubleAll(nums: number[]): number[] {
           return nums.map((n) => n * 2);
         }

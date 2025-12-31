@@ -6,6 +6,11 @@
 export {
   setMetadataRegistry,
   setBindingRegistry,
+  setTypeRegistry,
+  setNominalEnv,
+  getTypeRegistry,
+  getNominalEnv,
+  clearTypeRegistries,
   convertVariableStatement,
   convertFunctionDeclaration,
   convertClassDeclaration,

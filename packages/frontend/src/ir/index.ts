@@ -9,3 +9,4 @@ export {
   isExecutableStatement,
   type IrBuildOptions,
 } from "./builder.js";
+export { getTypeRegistry, getNominalEnv } from "./statement-converter.js";

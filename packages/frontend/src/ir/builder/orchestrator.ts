@@ -12,7 +12,14 @@ import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
 import {
   setMetadataRegistry,
   setBindingRegistry,
+  setTypeRegistry,
+  getTypeRegistry,
+  setNominalEnv,
+  clearTypeRegistries,
 } from "../statement-converter.js";
+import { buildTypeRegistry } from "../type-registry.js";
+import { buildNominalEnv } from "../nominal-env.js";
+import { convertType } from "../type-converter.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
@@ -33,6 +40,25 @@ export const buildIrModule = (
 
     // Set the binding registry for this compilation
     setBindingRegistry(program.bindings);
+
+    // Initialize TypeRegistry/NominalEnv if not already set (e.g., when called directly by tests)
+    // When called via buildIr, these are already initialized for all source files
+    if (!getTypeRegistry()) {
+      const typeRegistry = buildTypeRegistry(
+        program.sourceFiles,
+        program.checker,
+        options.sourceRoot,
+        options.rootNamespace
+      );
+      setTypeRegistry(typeRegistry);
+
+      const nominalEnv = buildNominalEnv(
+        typeRegistry,
+        convertType,
+        program.checker
+      );
+      setNominalEnv(nominalEnv);
+    }
 
     const namespace = getNamespaceFromPath(
       sourceFile.fileName,
@@ -158,6 +184,28 @@ export const buildIr = (
   program: TsonicProgram,
   options: IrBuildOptions
 ): Result<readonly IrModule[], readonly Diagnostic[]> => {
+  // Clear any stale type registries from previous compilations
+  clearTypeRegistries();
+
+  // Build TypeRegistry from all source files
+  // This enables deterministic typing for inherited generic members
+  const typeRegistry = buildTypeRegistry(
+    program.sourceFiles,
+    program.checker,
+    options.sourceRoot,
+    options.rootNamespace
+  );
+  setTypeRegistry(typeRegistry);
+
+  // Build NominalEnv from TypeRegistry
+  // This enables inheritance chain substitution for member access
+  const nominalEnv = buildNominalEnv(
+    typeRegistry,
+    convertType,
+    program.checker
+  );
+  setNominalEnv(nominalEnv);
+
   const modules: IrModule[] = [];
   const diagnostics: Diagnostic[] = [];
 

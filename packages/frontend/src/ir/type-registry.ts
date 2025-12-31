@@ -9,6 +9,7 @@
  */
 
 import * as ts from "typescript";
+import { getNamespaceFromPath } from "../resolver/namespace.js";
 
 /**
  * Information about a type member (property or method)
@@ -37,7 +38,8 @@ export type HeritageInfo = {
  */
 export type TypeRegistryEntry = {
   readonly kind: "class" | "interface" | "typeAlias";
-  readonly name: string;
+  readonly name: string; // Simple name (e.g., "User")
+  readonly fullyQualifiedName: string; // FQ name (e.g., "MyApp.Models.User")
   readonly typeParameters: readonly string[];
   readonly declaration:
     | ts.ClassDeclaration
@@ -53,33 +55,47 @@ export type TypeRegistryEntry = {
  */
 export type TypeRegistry = {
   /**
-   * Resolve a type by name. Returns undefined if not found.
+   * Resolve a type by fully-qualified name. Returns undefined if not found.
    */
-  readonly resolveNominal: (name: string) => TypeRegistryEntry | undefined;
+  readonly resolveNominal: (fqName: string) => TypeRegistryEntry | undefined;
 
   /**
-   * Get a member's TypeNode from a nominal type.
+   * Resolve a type by simple name (for backwards compatibility).
+   * Returns first match if multiple types have the same simple name.
+   */
+  readonly resolveBySimpleName: (
+    simpleName: string
+  ) => TypeRegistryEntry | undefined;
+
+  /**
+   * Get the fully-qualified name for a simple name.
+   * Returns undefined if not found.
+   */
+  readonly getFQName: (simpleName: string) => string | undefined;
+
+  /**
+   * Get a member's TypeNode from a nominal type (by FQ name).
    * Returns undefined if member not found.
    */
   readonly getMemberTypeNode: (
-    nominal: string,
+    fqNominal: string,
     memberName: string
   ) => ts.TypeNode | undefined;
 
   /**
-   * Get all heritage clauses for a nominal type.
+   * Get all heritage clauses for a nominal type (by FQ name).
    */
-  readonly getHeritageTypeNodes: (nominal: string) => readonly HeritageInfo[];
+  readonly getHeritageTypeNodes: (fqNominal: string) => readonly HeritageInfo[];
 
   /**
-   * Get all registered type names.
+   * Get all registered type names (fully-qualified).
    */
   readonly getAllTypeNames: () => readonly string[];
 
   /**
-   * Check if a type name is registered.
+   * Check if a type name is registered (by FQ name).
    */
-  readonly hasType: (name: string) => boolean;
+  readonly hasType: (fqName: string) => boolean;
 };
 
 /**
@@ -251,42 +267,60 @@ const extractHeritage = (
  *
  * @param sourceFiles Source files to scan for declarations
  * @param checker TypeChecker for symbol resolution only (NOT for type inference)
+ * @param sourceRoot Absolute path to source root directory
+ * @param rootNamespace Root namespace for the project
  */
 export const buildTypeRegistry = (
   sourceFiles: readonly ts.SourceFile[],
-  _checker: ts.TypeChecker // Only for symbol resolution, not used yet
+  _checker: ts.TypeChecker, // Only for symbol resolution, not used yet
+  sourceRoot: string,
+  rootNamespace: string
 ): TypeRegistry => {
+  // Map from FQ name to entry
   const entries = new Map<string, TypeRegistryEntry>();
+  // Map from simple name to FQ name (for reverse lookup)
+  const simpleNameToFQ = new Map<string, string>();
 
   for (const sourceFile of sourceFiles) {
+    // Compute namespace for this file
+    const namespace = getNamespaceFromPath(
+      sourceFile.fileName,
+      sourceRoot,
+      rootNamespace
+    );
+
     // Walk the source file for declarations
     ts.forEachChild(sourceFile, (node) => {
       // Class declarations
       if (ts.isClassDeclaration(node) && node.name) {
-        const name = node.name.text;
-        entries.set(name, {
+        const simpleName = node.name.text;
+        const fqName = `${namespace}.${simpleName}`;
+        entries.set(fqName, {
           kind: "class",
-          name,
+          name: simpleName,
+          fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters),
           declaration: node,
           members: extractMembers(node.members),
           heritage: extractHeritage(node.heritageClauses),
           sourceFile,
         });
+        simpleNameToFQ.set(simpleName, fqName);
       }
 
       // Interface declarations
       if (ts.isInterfaceDeclaration(node)) {
-        const name = node.name.text;
+        const simpleName = node.name.text;
+        const fqName = `${namespace}.${simpleName}`;
         // Merge with existing interface (for module augmentation)
-        const existing = entries.get(name);
+        const existing = entries.get(fqName);
         if (existing && existing.kind === "interface") {
           // Merge members
           const mergedMembers = new Map(existing.members);
           for (const [memberName, memberInfo] of extractMembers(node.members)) {
             mergedMembers.set(memberName, memberInfo);
           }
-          entries.set(name, {
+          entries.set(fqName, {
             ...existing,
             members: mergedMembers,
             heritage: [
@@ -295,44 +329,63 @@ export const buildTypeRegistry = (
             ],
           });
         } else {
-          entries.set(name, {
+          entries.set(fqName, {
             kind: "interface",
-            name,
+            name: simpleName,
+            fullyQualifiedName: fqName,
             typeParameters: extractTypeParameters(node.typeParameters),
             declaration: node,
             members: extractMembers(node.members),
             heritage: extractHeritage(node.heritageClauses),
             sourceFile,
           });
+          simpleNameToFQ.set(simpleName, fqName);
         }
       }
 
       // Type alias declarations
       if (ts.isTypeAliasDeclaration(node)) {
-        const name = node.name.text;
-        entries.set(name, {
+        const simpleName = node.name.text;
+        const fqName = `${namespace}.${simpleName}`;
+        entries.set(fqName, {
           kind: "typeAlias",
-          name,
+          name: simpleName,
+          fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters),
           declaration: node,
           members: new Map(), // Type aliases don't have members directly
           heritage: [], // Type aliases don't have heritage clauses
           sourceFile,
         });
+        simpleNameToFQ.set(simpleName, fqName);
       }
     });
   }
 
   return {
-    resolveNominal: (name: string): TypeRegistryEntry | undefined => {
-      return entries.get(name);
+    // Resolve by FQ name (preferred)
+    resolveNominal: (fqName: string): TypeRegistryEntry | undefined => {
+      return entries.get(fqName);
+    },
+
+    // Resolve by simple name (for backwards compatibility, returns first match)
+    resolveBySimpleName: (
+      simpleName: string
+    ): TypeRegistryEntry | undefined => {
+      const fqName = simpleNameToFQ.get(simpleName);
+      return fqName ? entries.get(fqName) : undefined;
+    },
+
+    // Get FQ name from simple name
+    getFQName: (simpleName: string): string | undefined => {
+      return simpleNameToFQ.get(simpleName);
     },
 
     getMemberTypeNode: (
-      nominal: string,
+      fqNominal: string,
       memberName: string
     ): ts.TypeNode | undefined => {
-      const entry = entries.get(nominal);
+      const entry = entries.get(fqNominal);
       if (!entry) return undefined;
 
       // Direct lookup
@@ -344,8 +397,8 @@ export const buildTypeRegistry = (
       return undefined;
     },
 
-    getHeritageTypeNodes: (nominal: string): readonly HeritageInfo[] => {
-      const entry = entries.get(nominal);
+    getHeritageTypeNodes: (fqNominal: string): readonly HeritageInfo[] => {
+      const entry = entries.get(fqNominal);
       return entry?.heritage ?? [];
     },
 
@@ -353,8 +406,8 @@ export const buildTypeRegistry = (
       return [...entries.keys()];
     },
 
-    hasType: (name: string): boolean => {
-      return entries.has(name);
+    hasType: (fqName: string): boolean => {
+      return entries.has(fqName);
     },
   };
 };

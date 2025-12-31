@@ -196,4 +196,9 @@ export { convertParameters } from "./converters/statements/helpers.js";
 export {
   setMetadataRegistry,
   setBindingRegistry,
+  setTypeRegistry,
+  setNominalEnv,
+  getTypeRegistry,
+  getNominalEnv,
+  clearTypeRegistries,
 } from "./converters/statements/declarations.js";

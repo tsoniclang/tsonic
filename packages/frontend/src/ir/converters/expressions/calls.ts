@@ -16,6 +16,11 @@ import {
 import { convertExpression } from "../../expression-converter.js";
 import { convertType } from "../../type-converter.js";
 import { IrType } from "../../types.js";
+import {
+  getTypeRegistry,
+  getNominalEnv,
+} from "../statements/declarations/registry.js";
+import { substituteIrType } from "../../nominal-env.js";
 
 /**
  * Extract argument passing modes from resolved signature
@@ -130,361 +135,52 @@ const extractNarrowing = (
 };
 
 /**
- * Build a substitution map from type parameter names to their instantiated TypeNodes.
+ * Normalize receiver IR type to a fully-qualified nominal type name and type arguments.
+ * Used for NominalEnv-based member type resolution.
  *
- * For a call like `dict.add(key, value)` where `dict: Dictionary<int, Todo>`,
- * this returns a map: { "TKey" -> int TypeNode, "TValue" -> Todo TypeNode }
- *
- * DETERMINISTIC TYPING: This function uses only AST-based lookups:
- * - getSymbolAtLocation for symbol resolution
- * - symbol.getDeclarations() for declaration lookup
- * - TypeNode traversal for type arguments
- *
- * NO banned APIs: getTypeAtLocation, getTypeOfSymbolAtLocation, typeToTypeNode
+ * The nominal name is resolved to FQ using TypeRegistry when available.
  */
-export const buildTypeParameterSubstitutionMap = (
-  node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
-): ReadonlyMap<string, ts.TypeNode> | undefined => {
-  // For method calls, get the receiver's type arguments
-  // e.g., for dict.add(...), get Dictionary<int, Todo>'s type arguments
-  if (
-    !(
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression)
-    )
-  ) {
-    return undefined;
-  }
+const normalizeReceiverToNominal = (
+  receiverIrType: IrType
+): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
+  const registry = getTypeRegistry();
 
-  const receiver = node.expression.expression;
-
-  // DETERMINISTIC: Get receiver's symbol and declarations from AST
-  const receiverSymbol = checker.getSymbolAtLocation(receiver);
-  if (!receiverSymbol) return undefined;
-
-  const receiverDecls = receiverSymbol.getDeclarations();
-  if (!receiverDecls) return undefined;
-
-  /**
-   * Build substitution map from a TypeReferenceNode.
-   * Gets type parameter declarations from the type's symbol, then maps
-   * them to the type arguments in the TypeReferenceNode.
-   */
-  const buildMapFromTypeRef = (
-    typeRefNode: ts.TypeReferenceNode
-  ): Map<string, ts.TypeNode> | undefined => {
-    if (!typeRefNode.typeArguments || typeRefNode.typeArguments.length === 0) {
-      return undefined;
-    }
-
-    // DETERMINISTIC: Get the type's symbol from the TypeReferenceNode's typeName
-    const typeSymbol = checker.getSymbolAtLocation(typeRefNode.typeName);
-    if (!typeSymbol) return undefined;
-
-    const typeDecls = typeSymbol.getDeclarations();
-    if (!typeDecls) return undefined;
-
-    // Find type parameter declarations from the type's declaration
-    let typeParamDecls: readonly ts.TypeParameterDeclaration[] | undefined;
-    for (const typeDecl of typeDecls) {
-      if (ts.isClassDeclaration(typeDecl) && typeDecl.typeParameters) {
-        typeParamDecls = typeDecl.typeParameters;
-        break;
-      }
-      if (ts.isInterfaceDeclaration(typeDecl) && typeDecl.typeParameters) {
-        typeParamDecls = typeDecl.typeParameters;
-        break;
-      }
-      if (ts.isTypeAliasDeclaration(typeDecl) && typeDecl.typeParameters) {
-        typeParamDecls = typeDecl.typeParameters;
-        break;
-      }
-    }
-
-    if (
-      !typeParamDecls ||
-      typeParamDecls.length !== typeRefNode.typeArguments.length
-    ) {
-      return undefined;
-    }
-
-    // Build the substitution map: type param name → type argument TypeNode
-    const substitutionMap = new Map<string, ts.TypeNode>();
-    for (let i = 0; i < typeParamDecls.length; i++) {
-      const paramDecl = typeParamDecls[i];
-      const argNode = typeRefNode.typeArguments[i];
-      if (paramDecl && argNode) {
-        substitutionMap.set(paramDecl.name.text, argNode);
-      }
-    }
-    return substitutionMap;
+  // Helper to resolve simple name to FQ name
+  const toFQName = (simpleName: string): string => {
+    if (!registry) return simpleName;
+    // Try to get FQ name from registry
+    const fqName = registry.getFQName(simpleName);
+    // If name already contains ".", it might already be FQ
+    if (!fqName && simpleName.includes(".")) return simpleName;
+    return fqName ?? simpleName;
   };
 
-  /**
-   * Build substitution map from a NewExpression's type arguments.
-   * Gets type parameters from the constructor's class declaration.
-   */
-  const buildMapFromNewExpr = (
-    newExpr: ts.NewExpression
-  ): Map<string, ts.TypeNode> | undefined => {
-    if (!newExpr.typeArguments || newExpr.typeArguments.length === 0) {
-      return undefined;
-    }
-
-    // DETERMINISTIC: Get the class symbol from the new expression's expression
-    const classSymbol = checker.getSymbolAtLocation(newExpr.expression);
-    if (!classSymbol) return undefined;
-
-    const classDecls = classSymbol.getDeclarations();
-    if (!classDecls) return undefined;
-
-    for (const classDecl of classDecls) {
-      if (ts.isClassDeclaration(classDecl) && classDecl.typeParameters) {
-        if (classDecl.typeParameters.length === newExpr.typeArguments.length) {
-          const substitutionMap = new Map<string, ts.TypeNode>();
-          for (let i = 0; i < classDecl.typeParameters.length; i++) {
-            const paramDecl = classDecl.typeParameters[i];
-            const argNode = newExpr.typeArguments[i];
-            if (paramDecl && argNode) {
-              substitutionMap.set(paramDecl.name.text, argNode);
-            }
-          }
-          return substitutionMap;
-        }
-      }
-    }
-    return undefined;
-  };
-
-  /**
-   * Build substitution map from an ArrayTypeNode.
-   * For `T[]`, maps the Array type parameter T to the element type.
-   * This enables contextual typing for array method callbacks like `nums.map((n) => ...)`.
-   */
-  const buildMapFromArrayType = (
-    arrayTypeNode: ts.ArrayTypeNode
-  ): Map<string, ts.TypeNode> => {
-    // JavaScript's Array<T> uses "T" for the element type parameter
-    // Map T to the element type
-    const substitutionMap = new Map<string, ts.TypeNode>();
-    substitutionMap.set("T", arrayTypeNode.elementType);
-    return substitutionMap;
-  };
-
-  // Check various declaration forms for type arguments
-  for (const decl of receiverDecls) {
-    // Variable declaration with explicit type: const dict: Dictionary<int, Todo>
-    if (
-      ts.isVariableDeclaration(decl) &&
-      decl.type &&
-      ts.isTypeReferenceNode(decl.type)
-    ) {
-      const result = buildMapFromTypeRef(decl.type);
-      if (result) return result;
-    }
-
-    // Variable declaration with array type: const nums: number[]
-    // Maps T -> number for array method callbacks like map, filter, etc.
-    if (
-      ts.isVariableDeclaration(decl) &&
-      decl.type &&
-      ts.isArrayTypeNode(decl.type)
-    ) {
-      return buildMapFromArrayType(decl.type);
-    }
-
-    // Variable declaration with new expression: const dict = new Dictionary<int, Todo>()
-    if (ts.isVariableDeclaration(decl) && decl.initializer) {
-      if (ts.isNewExpression(decl.initializer)) {
-        const result = buildMapFromNewExpr(decl.initializer);
-        if (result) return result;
-      }
-
-      // Handle AsExpression (type assertion): new List<int>() as List<int>
-      if (
-        ts.isAsExpression(decl.initializer) &&
-        ts.isTypeReferenceNode(decl.initializer.type)
-      ) {
-        const result = buildMapFromTypeRef(decl.initializer.type);
-        if (result) return result;
-      }
-    }
-
-    // Property declaration with type annotation
-    if (
-      ts.isPropertyDeclaration(decl) &&
-      decl.type &&
-      ts.isTypeReferenceNode(decl.type)
-    ) {
-      const result = buildMapFromTypeRef(decl.type);
-      if (result) return result;
-    }
-
-    // Property declaration with array type
-    if (
-      ts.isPropertyDeclaration(decl) &&
-      decl.type &&
-      ts.isArrayTypeNode(decl.type)
-    ) {
-      return buildMapFromArrayType(decl.type);
-    }
-
-    // Property declaration with new expression initializer
-    if (ts.isPropertyDeclaration(decl) && decl.initializer) {
-      if (ts.isNewExpression(decl.initializer)) {
-        const result = buildMapFromNewExpr(decl.initializer);
-        if (result) return result;
-      }
-    }
-
-    // Parameter declaration with type annotation
-    if (
-      ts.isParameter(decl) &&
-      decl.type &&
-      ts.isTypeReferenceNode(decl.type)
-    ) {
-      const result = buildMapFromTypeRef(decl.type);
-      if (result) return result;
-    }
-
-    // Parameter declaration with array type
-    if (ts.isParameter(decl) && decl.type && ts.isArrayTypeNode(decl.type)) {
-      return buildMapFromArrayType(decl.type);
-    }
+  if (receiverIrType.kind === "referenceType") {
+    return {
+      nominal: toFQName(receiverIrType.name),
+      typeArgs: receiverIrType.typeArguments ?? [],
+    };
   }
 
-  return undefined;
-};
-
-/**
- * Substitute type parameters in a TypeNode using the substitution map.
- * For a type like `TKey`, returns the substituted TypeNode (e.g., `int`).
- * For complex types like `List<TKey>`, recursively substitutes.
- *
- * Returns the substituted TypeNode, or undefined if no substitution needed.
- */
-export const substituteTypeNode = (
-  typeNode: ts.TypeNode,
-  substitutionMap: ReadonlyMap<string, ts.TypeNode>,
-  checker: ts.TypeChecker
-): ts.TypeNode | undefined => {
-  // Handle type reference nodes (most common case)
-  if (ts.isTypeReferenceNode(typeNode)) {
-    const typeName = ts.isIdentifier(typeNode.typeName)
-      ? typeNode.typeName.text
-      : typeNode.typeName.getText();
-
-    // Direct substitution: if this is a type parameter, substitute it
-    const substitution = substitutionMap.get(typeName);
-    if (substitution) {
-      return substitution;
-    }
-
-    // Recursive substitution: if this is a generic type, substitute its type arguments
-    if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
-      let anySubstituted = false;
-      const newTypeArgs: ts.TypeNode[] = [];
-      for (const arg of typeNode.typeArguments) {
-        const substituted = substituteTypeNode(arg, substitutionMap, checker);
-        if (substituted) {
-          newTypeArgs.push(substituted);
-          anySubstituted = true;
-        } else {
-          newTypeArgs.push(arg);
-        }
-      }
-      if (anySubstituted) {
-        // Create a new type reference with substituted type arguments
-        // We use the factory to create a new node
-        return ts.factory.createTypeReferenceNode(
-          typeNode.typeName,
-          newTypeArgs
-        );
-      }
-    }
+  if (receiverIrType.kind === "arrayType") {
+    // Array is a built-in type - resolve to FQ name
+    return {
+      nominal: toFQName("Array"),
+      typeArgs: [receiverIrType.elementType],
+    };
   }
 
-  // Handle array types: T[] -> int[]
-  if (ts.isArrayTypeNode(typeNode)) {
-    const substituted = substituteTypeNode(
-      typeNode.elementType,
-      substitutionMap,
-      checker
-    );
-    if (substituted) {
-      return ts.factory.createArrayTypeNode(substituted);
-    }
-  }
-
-  // Handle union types: T | null -> int | null
-  if (ts.isUnionTypeNode(typeNode)) {
-    let anySubstituted = false;
-    const newTypes: ts.TypeNode[] = [];
-    for (const member of typeNode.types) {
-      const substituted = substituteTypeNode(member, substitutionMap, checker);
-      if (substituted) {
-        newTypes.push(substituted);
-        anySubstituted = true;
-      } else {
-        newTypes.push(member);
-      }
-    }
-    if (anySubstituted) {
-      return ts.factory.createUnionTypeNode(newTypes);
-    }
-  }
-
-  // Handle function types: (x: T) => T -> (x: int) => int
-  // This is critical for callback parameter contextual typing
-  if (ts.isFunctionTypeNode(typeNode)) {
-    let anySubstituted = false;
-
-    // Substitute parameter types
-    const newParams: ts.ParameterDeclaration[] = [];
-    for (const param of typeNode.parameters) {
-      if (param.type) {
-        const substituted = substituteTypeNode(
-          param.type,
-          substitutionMap,
-          checker
-        );
-        if (substituted) {
-          newParams.push(
-            ts.factory.createParameterDeclaration(
-              param.modifiers,
-              param.dotDotDotToken,
-              param.name,
-              param.questionToken,
-              substituted,
-              param.initializer
-            )
-          );
-          anySubstituted = true;
-          continue;
-        }
-      }
-      newParams.push(param);
-    }
-
-    // Substitute return type
-    let newReturnType = typeNode.type;
-    const substitutedReturn = substituteTypeNode(
-      typeNode.type,
-      substitutionMap,
-      checker
-    );
-    if (substitutedReturn) {
-      newReturnType = substitutedReturn;
-      anySubstituted = true;
-    }
-
-    if (anySubstituted) {
-      return ts.factory.createFunctionTypeNode(
-        typeNode.typeParameters, // Don't substitute type params in the function's own scope
-        newParams,
-        newReturnType
-      );
+  if (receiverIrType.kind === "primitiveType") {
+    // Primitive types map to their wrapper types
+    const nominalMap: Record<string, string | undefined> = {
+      string: "String",
+      number: "Number",
+      boolean: "Boolean",
+      int: "Int32",
+    };
+    const simpleName = nominalMap[receiverIrType.name];
+    if (simpleName) {
+      return { nominal: toFQName(simpleName), typeArgs: [] };
     }
   }
 
@@ -495,21 +191,18 @@ export const substituteTypeNode = (
  * Extract parameter types from resolved signature.
  * Used for threading expectedType to array literal arguments etc.
  *
- * Uses the resolved signature to get INSTANTIATED parameter types.
- * For example, for `dict.add(key, value)` where `dict: Dictionary<int, Todo>`,
- * this returns the instantiated types [int, Todo], not the formal types [TKey, TValue].
+ * DETERMINISTIC TYPING: Uses NominalEnv to walk inheritance chains and substitute
+ * type parameters. For `dict.add(key, value)` where `dict: Dictionary<int, Todo>`,
+ * returns the substituted types [int, Todo] with CLR aliases preserved.
  *
- * CLR type aliases (like `int`) are preserved by:
- * 1. For non-type-parameter declarations: use the declaration's type node directly
- * 2. For type parameters: use TypeNode substitution to preserve CLR aliases
- *
- * The key insight is that TypeScript's type instantiation mechanism loses
- * aliasSymbol, but the original TypeNodes in variable declarations preserve
- * the type aliases. We trace back to those TypeNodes and substitute.
+ * @param node - Call or new expression
+ * @param checker - TypeChecker for symbol resolution
+ * @param receiverIrType - IR type of the receiver (for member method calls)
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  receiverIrType?: IrType
 ): readonly (IrType | undefined)[] | undefined => {
   try {
     const signature = checker.getResolvedSignature(node);
@@ -518,19 +211,107 @@ const extractParameterTypes = (
     }
 
     const sigParams = signature.getParameters();
+
+    // Get NominalEnv substitution for member method calls
+    const registry = getTypeRegistry();
+    const nominalEnv = getNominalEnv();
+    let inheritanceSubst: ReadonlyMap<string, IrType> | undefined;
+    let memberDeclaringType: string | undefined;
+
+    // For member method calls, get substitution from inheritance chain
+    if (
+      receiverIrType &&
+      receiverIrType.kind !== "unknownType" &&
+      registry &&
+      nominalEnv &&
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression)
+    ) {
+      const methodName = node.expression.name.text;
+      const normalized = normalizeReceiverToNominal(receiverIrType);
+      if (normalized) {
+        const result = nominalEnv.findMemberDeclaringType(
+          normalized.nominal,
+          normalized.typeArgs,
+          methodName
+        );
+        if (result) {
+          inheritanceSubst = result.substitution;
+          memberDeclaringType = result.targetNominal;
+        }
+      }
+    }
+
+    // If TS signature has no declaration (e.g., noLib mode with intrinsic array type),
+    // fall back to TypeRegistry lookup for member method parameters
+    if (sigParams.length === 0 && memberDeclaringType && registry) {
+      const entry = registry.resolveNominal(memberDeclaringType);
+      if (
+        entry &&
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression)
+      ) {
+        const methodName = node.expression.name.text;
+        const member = entry.members.get(methodName);
+        if (
+          member?.kind === "method" &&
+          member.signatures &&
+          member.signatures.length > 0
+        ) {
+          const methodSig = member.signatures[0]!;
+
+          // Get method-level type parameters
+          const methodTypeParams = new Set<string>();
+          if (methodSig.typeParameters) {
+            for (const tp of methodSig.typeParameters) {
+              methodTypeParams.add(tp.name.text);
+            }
+          }
+
+          const paramTypes: (IrType | undefined)[] = [];
+          for (const param of methodSig.parameters) {
+            if (param.type) {
+              // Check if this is a method-level type parameter
+              const isMethodTypeParam =
+                ts.isTypeReferenceNode(param.type) &&
+                ts.isIdentifier(param.type.typeName) &&
+                methodTypeParams.has(param.type.typeName.text);
+
+              if (
+                isMethodTypeParam &&
+                !inheritanceSubst?.has(param.type.typeName.text)
+              ) {
+                // Method type parameter without substitution - inferred from argument
+                paramTypes.push(undefined);
+                continue;
+              }
+
+              const irType = convertType(param.type, checker);
+              if (irType && inheritanceSubst) {
+                paramTypes.push(substituteIrType(irType, inheritanceSubst));
+              } else if (irType) {
+                paramTypes.push(irType);
+              } else {
+                paramTypes.push(undefined);
+              }
+            } else {
+              paramTypes.push(undefined);
+            }
+          }
+          return paramTypes;
+        }
+      }
+      return undefined;
+    }
+
     if (sigParams.length === 0) {
       return undefined;
     }
 
-    // Build type parameter substitution map from receiver's type arguments
-    // This preserves CLR type aliases through generic instantiation
-    const substitutionMap = buildTypeParameterSubstitutionMap(node, checker);
-
-    // Build parameter type array using instantiated types from signature
+    // Build parameter type array
     const paramTypes: (IrType | undefined)[] = [];
 
     // Get the type parameter names from the enclosing function's signature
-    // to detect if a parameter type is a type parameter (deterministically)
     const funcTypeParams = new Set<string>();
     const sigDecl = signature.getDeclaration();
     if (sigDecl && sigDecl.typeParameters) {
@@ -542,47 +323,34 @@ const extractParameterTypes = (
     for (const sigParam of sigParams) {
       const decl = sigParam.valueDeclaration;
 
-      // Get the declaration's type node if available
       if (decl && ts.isParameter(decl) && decl.type) {
-        // DETERMINISTIC: ALWAYS try to substitute type parameters in the parameter type.
-        // This handles both direct type parameters (T) and complex types containing them
-        // like function types ((x: T) => T) which need substitution for lambda contextual typing.
-        let typeToConvert = decl.type;
-        if (substitutionMap) {
-          const substituted = substituteTypeNode(
-            decl.type,
-            substitutionMap,
-            checker
-          );
-          if (substituted) {
-            typeToConvert = substituted;
-          }
-        }
-
-        // Check if the original type is a type parameter without substitution
-        // (e.g., generic function call where type param is inferred from args)
-        const isUnsubstitutedTypeParam =
+        // Check if this is a method-level type parameter (unsubstituted)
+        const isMethodTypeParam =
           ts.isTypeReferenceNode(decl.type) &&
           ts.isIdentifier(decl.type.typeName) &&
-          funcTypeParams.has(decl.type.typeName.text) &&
-          typeToConvert === decl.type; // No substitution happened
+          funcTypeParams.has(decl.type.typeName.text);
 
-        if (isUnsubstitutedTypeParam) {
-          // Type parameter without substitution - the type is INFERRED from the argument,
-          // so don't validate against it (would lose CLR type aliases like `int`).
+        if (
+          isMethodTypeParam &&
+          !inheritanceSubst?.has(decl.type.typeName.text)
+        ) {
+          // Method type parameter without substitution - inferred from argument
           paramTypes.push(undefined);
           continue;
         }
 
-        const irType = convertType(typeToConvert, checker);
-        if (irType) {
+        // Convert to IR and apply inheritance substitution
+        const irType = convertType(decl.type, checker);
+        if (irType && inheritanceSubst) {
+          paramTypes.push(substituteIrType(irType, inheritanceSubst));
+        } else if (irType) {
           paramTypes.push(irType);
-          continue;
+        } else {
+          paramTypes.push(undefined);
         }
+        continue;
       }
 
-      // DETERMINISTIC: If we couldn't get type from declaration, push undefined
-      // Validation will catch missing parameter types
       paramTypes.push(undefined);
     }
 
@@ -687,7 +455,8 @@ const getCalleesDeclaredType = (
 
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  receiverIrType?: IrType
 ): IrType | undefined => {
   try {
     // 1. Get resolved signature
@@ -742,18 +511,38 @@ export const getDeclaredReturnType = (
 
     if (!returnTypeNode) return undefined;
 
-    // 4. Build substitution map from receiver type arguments
-    const substitutionMap = buildTypeParameterSubstitutionMap(node, checker);
+    // 4. Convert to IrType first (DETERMINISTIC: from TypeNode, not TS inference)
+    const baseReturnType = convertType(returnTypeNode, checker);
+    if (!baseReturnType) return undefined;
 
-    // 5. Apply substitution to return TypeNode
-    const substitutedTypeNode = substitutionMap
-      ? substituteTypeNode(returnTypeNode, substitutionMap, checker)
-      : undefined;
+    // 5. Apply inheritance substitution via NominalEnv for member method calls
+    const registry = getTypeRegistry();
+    const nominalEnv = getNominalEnv();
 
-    const finalTypeNode = substitutedTypeNode ?? returnTypeNode;
+    if (
+      receiverIrType &&
+      receiverIrType.kind !== "unknownType" &&
+      registry &&
+      nominalEnv &&
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression)
+    ) {
+      const methodName = node.expression.name.text;
+      const normalized = normalizeReceiverToNominal(receiverIrType);
+      if (normalized) {
+        const result = nominalEnv.findMemberDeclaringType(
+          normalized.nominal,
+          normalized.typeArgs,
+          methodName
+        );
+        if (result) {
+          return substituteIrType(baseReturnType, result.substitution);
+        }
+      }
+    }
 
-    // 6. Convert to IrType
-    return convertType(finalTypeNode, checker);
+    // 6. No inheritance substitution needed - return base type
+    return baseReturnType;
   } catch {
     return undefined;
   }
@@ -841,10 +630,16 @@ export const convertCallExpression = (
   const typeArguments = extractTypeArguments(node, checker);
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
   const narrowing = extractNarrowing(node, checker);
-  const parameterTypes = extractParameterTypes(node, checker);
 
-  // Convert callee first so we can access its memberBinding
+  // Convert callee first so we can access memberBinding and receiver type
   const callee = convertExpression(node.expression, checker, undefined);
+
+  // Extract receiver type for member method calls (e.g., dict.get() → dict's type)
+  const receiverIrType =
+    callee.kind === "memberAccess" ? callee.object.inferredType : undefined;
+
+  // Extract parameter types with receiver type for inheritance substitution
+  const parameterTypes = extractParameterTypes(node, checker, receiverIrType);
 
   // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
   // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
@@ -856,7 +651,11 @@ export const convertCallExpression = (
   // NO fallback to TS inference - that loses CLR type aliases.
   // If getDeclaredReturnType returns undefined, use unknownType as poison
   // so validation can emit TSN5201.
-  const declaredReturnType = getDeclaredReturnType(node, checker);
+  const declaredReturnType = getDeclaredReturnType(
+    node,
+    checker,
+    receiverIrType
+  );
   const inferredType = declaredReturnType ?? { kind: "unknownType" as const };
 
   return {

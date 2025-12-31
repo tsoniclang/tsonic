@@ -16,6 +16,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 **ONLY make changes AFTER the user explicitly approves.** When you identify issues or potential improvements, explain them clearly and wait for the user's decision. Do NOT assume what the user wants or make "helpful" changes without permission.
 
+### TSONIC ALWAYS USES noLib: true
+
+**🚨 CRITICAL ARCHITECTURAL FACT: Tsonic ALWAYS compiles with `noLib: true`. 🚨**
+
+Tsonic targets .NET, NOT Node.js or browser JavaScript. TypeScript's standard library (`lib.d.ts`, `lib.es5.d.ts`, etc.) defines types for JavaScript runtimes - these are **completely irrelevant** for Tsonic.
+
+**Implications:**
+
+- **NEVER** rely on `checker.getResolvedSignature()` finding declarations from lib.d.ts
+- **NEVER** assume TypeScript knows about Array, Promise, Map, etc. from its built-in libs
+- **ALWAYS** use the TypeRegistry to look up type declarations
+- **ALWAYS** define Tsonic's own type declarations for built-in types (Array, Promise, etc.)
+
+**How type resolution works in Tsonic:**
+
+1. TypeRegistry stores all type declarations from source files (classes, interfaces, type aliases)
+2. NominalEnv computes type parameter substitutions through inheritance chains
+3. When resolving method signatures (like `Array.map`), use TypeRegistry - NOT TypeScript's type checker
+4. TypeScript's checker is only used for:
+   - Parsing and AST generation
+   - Basic symbol resolution within the same file
+   - NOT for cross-file type inference or built-in type lookups
+
+**Example:** For `nums.map((n) => n * 2)` where `nums: number[]`:
+
+- TypeScript with `noLib: true` sees `number[]` but has NO built-in Array definition
+- Tsonic's TypeRegistry has the Array interface with map method
+- Use TypeRegistry.resolveNominal("Array") to get the map signature
+- Apply NominalEnv substitution (T → number) to get parameter types
+
 ### NEVER SIMPLIFY OR MODIFY TESTS TO MAKE THEM PASS
 
 **🚨 CRITICAL RULE: NEVER modify test code to work around compiler limitations. 🚨**
