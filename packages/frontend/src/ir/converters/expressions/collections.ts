@@ -13,7 +13,7 @@ import {
   IrExpression,
 } from "../../types.js";
 import {
-  getInferredType,
+  deriveIdentifierType,
   getSourceSpan,
   getContextualType,
 } from "./helpers.js";
@@ -117,6 +117,11 @@ const computeArrayElementType = (
 /**
  * Convert array literal expression
  *
+ * DETERMINISTIC TYPING:
+ * - If expectedType is provided (from LHS annotation), use it
+ * - Otherwise, derive from element types using literal form analysis
+ * - Default to number[] (double[]) for ergonomics when type cannot be determined
+ *
  * @param node - The TypeScript array literal expression
  * @param checker - The TypeScript type checker
  * @param expectedType - Expected type from context (e.g., `const a: number[] = [1,2,3]`).
@@ -137,52 +142,41 @@ export const convertArrayLiteral = (
       return undefined; // Hole in sparse array
     }
     if (ts.isSpreadElement(elem)) {
-      // Spread element gets array type as expectedType (for nested array typing)
+      // Spread element - convert and derive type from expression
+      const spreadExpr = convertExpression(
+        elem.expression,
+        checker,
+        expectedType
+      );
       return {
         kind: "spread" as const,
-        expression: convertExpression(elem.expression, checker, expectedType),
-        inferredType: getInferredType(elem.expression, checker),
+        expression: spreadExpr,
+        inferredType: spreadExpr.inferredType,
         sourceSpan: getSourceSpan(elem),
       };
     }
     return convertExpression(elem, checker, expectedElementType);
   });
 
-  // Determine the inferred type using priority:
+  // DETERMINISTIC TYPING: Determine inferredType using priority:
   // 1. Expected type from context (e.g., LHS annotation, parameter type)
-  // 2. Literal-form inference (if TS inference has 'any')
-  // 3. TS inference as fallback
-  let inferredType: IrType | undefined;
-
-  if (expectedType?.kind === "arrayType") {
-    // Use expected type - deterministic contextual typing from declared TypeNode
-    inferredType = expectedType;
-  } else {
-    // No expected type - fall back to literal-form or TS inference
-    const tsInferredType = getInferredType(node, checker);
-
-    // Check if TS inference contains 'any' types that need to be replaced
-    const hasAnyInInference = (type: IrType | undefined): boolean => {
-      if (!type) return true;
-      if (type.kind === "anyType") return true;
-      if (type.kind === "arrayType") return hasAnyInInference(type.elementType);
-      if (type.kind === "tupleType") {
-        return type.elementTypes.some((et) => hasAnyInInference(et));
-      }
-      return false;
-    };
-
-    if (hasAnyInInference(tsInferredType)) {
-      // TS inference has 'any' - use literal form
-      const elementType = computeArrayElementType(elements, undefined);
-      inferredType = elementType
-        ? { kind: "arrayType", elementType }
-        : undefined;
-    } else {
-      // TS inference is valid - use it
-      inferredType = tsInferredType;
-    }
-  }
+  // 2. Literal-form inference (derive from element types)
+  // 3. Default: number[] (double[]) for ergonomics
+  const inferredType: IrType | undefined = expectedType?.kind === "arrayType"
+    ? expectedType
+    : (() => {
+        // No expected type - derive from element types
+        const elementType = computeArrayElementType(elements, undefined);
+        if (elementType) {
+          return { kind: "arrayType" as const, elementType };
+        }
+        // Default to number[] (double[]) for ergonomics
+        // This matches Alice's guidance: untyped arrays default to double[]
+        return {
+          kind: "arrayType" as const,
+          elementType: { kind: "primitiveType" as const, name: "number" as const },
+        };
+      })();
 
   return {
     kind: "array",
@@ -261,13 +255,14 @@ export const convertObjectLiteral = (
         shorthand: false,
       });
     } else if (ts.isShorthandPropertyAssignment(prop)) {
+      // DETERMINISTIC: Derive identifier type from declaration
       properties.push({
         kind: "property",
         key: prop.name.text,
         value: {
           kind: "identifier",
           name: prop.name.text,
-          inferredType: getInferredType(prop.name, checker),
+          inferredType: deriveIdentifierType(prop.name, checker),
           sourceSpan: getSourceSpan(prop.name),
         },
         shorthand: true,
@@ -333,10 +328,13 @@ export const convertObjectLiteral = (
     }
   }
 
+  // DETERMINISTIC TYPING: Object's inferredType comes from contextualType
+  // (which may be from LHS annotation or synthesized type).
+  // We don't derive from properties because that would require TS inference.
   return {
     kind: "object",
     properties,
-    inferredType: getInferredType(node, checker),
+    inferredType: contextualType, // Use contextual type if available
     sourceSpan: getSourceSpan(node),
     contextualType,
     hasSpreads, // Add flag for emitter to know about spreads

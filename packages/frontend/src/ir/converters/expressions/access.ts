@@ -4,7 +4,7 @@
 
 import * as ts from "typescript";
 import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
-import { getInferredType, getSourceSpan } from "./helpers.js";
+import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { getBindingRegistry } from "../statements/declarations/registry.js";
 import { convertType } from "../../type-converter.js";
@@ -372,7 +372,7 @@ const classifyComputedAccess = (
  * the $instance member and extract the type name from it.
  */
 const extractTypeName = (
-  inferredType: ReturnType<typeof getInferredType>
+  inferredType: IrType | undefined
 ): string | undefined => {
   if (!inferredType) return undefined;
 
@@ -540,6 +540,34 @@ const resolveHierarchicalBinding = (
 };
 
 /**
+ * Derive element type from object type for element access.
+ * - Array type → element type
+ * - Dictionary type → value type
+ * - String → string (single character)
+ * - Other → undefined
+ */
+const deriveElementType = (
+  objectType: IrType | undefined
+): IrType | undefined => {
+  if (!objectType) return undefined;
+
+  if (objectType.kind === "arrayType") {
+    return objectType.elementType;
+  }
+
+  if (objectType.kind === "dictionaryType") {
+    return objectType.valueType;
+  }
+
+  if (objectType.kind === "primitiveType" && objectType.name === "string") {
+    // string[n] returns a single character (string in TS, char in C#)
+    return { kind: "primitiveType", name: "string" };
+  }
+
+  return undefined;
+};
+
+/**
  * Convert property access or element access expression
  */
 export const convertMemberExpression = (
@@ -547,7 +575,6 @@ export const convertMemberExpression = (
   checker: ts.TypeChecker
 ): IrMemberExpression => {
   const isOptional = node.questionDotToken !== undefined;
-  const inferredType = getInferredType(node, checker);
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
@@ -602,11 +629,16 @@ export const convertMemberExpression = (
   } else {
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, checker, undefined);
-    const objectType = getInferredType(node.expression, checker);
+
+    // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
+    const objectType = object.inferredType;
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
     const accessKind = classifyComputedAccess(objectType);
+
+    // Derive element type from object type
+    const elementType = deriveElementType(objectType);
 
     return {
       kind: "memberAccess",
@@ -614,7 +646,7 @@ export const convertMemberExpression = (
       property: convertExpression(node.argumentExpression, checker, undefined),
       isComputed: true,
       isOptional,
-      inferredType,
+      inferredType: elementType,
       sourceSpan,
       accessKind,
     };

@@ -5,85 +5,52 @@
 import * as ts from "typescript";
 import { IrVariableDeclaration, IrExpression, IrType } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
-import {
-  convertType,
-  convertBindingName,
-  inferType,
-} from "../../../type-converter.js";
+import { convertType, convertBindingName } from "../../../type-converter.js";
 import { hasExportModifier } from "../helpers.js";
 
 /**
  * Derive the type from a converted IR expression using deterministic rules.
- * This replaces TypeScript type inference for unannotated variables.
+ * NO TYPESCRIPT FALLBACK - types must be derivable from IR or undefined.
  *
  * DETERMINISTIC TYPING RULES:
- * - Integer literals (numericIntent: "Int32") → int
- * - Floating literals (numericIntent: "Double") → double (as number)
- * - String literals → string
- * - Boolean literals → boolean
- * - Call expressions → use inferredType (which has numeric recovery)
- * - Other expressions → use inferredType, fallback to TypeScript inference
+ * - Literals → use inferredType (already set deterministically in literals.ts)
+ * - Arrays → derive from element inferredType
+ * - Call/New expressions → use inferredType (has numeric recovery)
+ * - Identifiers → use inferredType
+ * - Other → use inferredType if available, otherwise undefined
  */
-const deriveTypeFromExpression = (
-  expr: IrExpression,
-  decl: ts.VariableDeclaration,
-  checker: ts.TypeChecker
-): IrType | undefined => {
-  // For literals with numericIntent, use the intent to determine type
+const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
+  // For literals, the inferredType is already set deterministically
   if (expr.kind === "literal") {
-    if (typeof expr.value === "number" && expr.numericIntent) {
-      if (expr.numericIntent === "Int32") {
-        return { kind: "referenceType", name: "int" };
-      } else if (expr.numericIntent === "Double") {
-        return { kind: "primitiveType", name: "number" };
-      }
-    }
-    if (typeof expr.value === "string") {
-      return { kind: "primitiveType", name: "string" };
-    }
-    if (typeof expr.value === "boolean") {
-      return { kind: "primitiveType", name: "boolean" };
-    }
-  }
-
-  // For arrays, derive element type from first element if it's a literal
-  if (expr.kind === "array" && expr.elements.length > 0) {
-    const firstElement = expr.elements[0];
-    if (firstElement && firstElement.kind === "literal") {
-      if (
-        typeof firstElement.value === "number" &&
-        firstElement.numericIntent
-      ) {
-        if (firstElement.numericIntent === "Int32") {
-          return {
-            kind: "arrayType",
-            elementType: { kind: "referenceType", name: "int" },
-          };
-        } else if (firstElement.numericIntent === "Double") {
-          return {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          };
-        }
-      }
-    }
-  }
-
-  // For call expressions and other complex expressions, use inferredType
-  // The inferredType should have numeric recovery from function return types
-  if (expr.kind === "call" || expr.kind === "new") {
-    if (expr.inferredType) {
-      return expr.inferredType;
-    }
-  }
-
-  // For identifiers (variable references), use inferredType
-  if (expr.kind === "identifier" && expr.inferredType) {
     return expr.inferredType;
   }
 
-  // For other expressions, fallback to TypeScript inference
-  return inferType(decl, checker);
+  // For arrays, derive from first element's type or array's inferredType
+  if (expr.kind === "array") {
+    if (expr.inferredType) {
+      return expr.inferredType;
+    }
+    // Try to derive from first element
+    if (expr.elements.length > 0) {
+      const firstElement = expr.elements[0];
+      if (firstElement) {
+        const elementType = deriveTypeFromExpression(firstElement);
+        if (elementType) {
+          return { kind: "arrayType", elementType };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  // For all other expressions, use their inferredType if available
+  // This includes call, new, identifier, member access, etc.
+  if ("inferredType" in expr && expr.inferredType) {
+    return expr.inferredType;
+  }
+
+  // Cannot determine type - return undefined (no TypeScript fallback)
+  return undefined;
 };
 
 /**
@@ -184,12 +151,12 @@ export const convertVariableStatement = (
       // Determine the variable type:
       // 1. If there's an explicit annotation, use it
       // 2. If we need an explicit type (module-level) and have an initializer,
-      //    derive it from the converted expression using deterministic rules
-      // 3. Otherwise, use TypeScript inference
+      //    derive it from the converted expression (NO TypeScript fallback)
+      // 3. Otherwise, undefined (let emitter use var or report error)
       const declaredType = decl.type
         ? convertType(decl.type, checker)
         : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
-          ? deriveTypeFromExpression(convertedInitializer, decl, checker)
+          ? deriveTypeFromExpression(convertedInitializer)
           : undefined;
 
       return {

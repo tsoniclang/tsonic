@@ -4,12 +4,12 @@
 
 // Helpers
 export {
-  getInferredType,
   getSourceSpan,
   extractTypeArguments,
   checkIfRequiresSpecialization,
   convertBinaryOperator,
   isAssignmentOperator,
+  deriveIdentifierType,
 } from "./helpers.js";
 
 // Literals

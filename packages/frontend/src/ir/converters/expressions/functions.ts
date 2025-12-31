@@ -8,7 +8,7 @@ import {
   IrArrowFunctionExpression,
   IrParameter,
 } from "../../types.js";
-import { getInferredType, getSourceSpan } from "./helpers.js";
+import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
 import {
@@ -77,6 +77,8 @@ const convertLambdaParameters = (
 
 /**
  * Convert function expression
+ *
+ * DETERMINISTIC TYPING: Build function type from declared parameters and return type.
  */
 export const convertFunctionExpression = (
   node: ts.FunctionExpression,
@@ -84,11 +86,19 @@ export const convertFunctionExpression = (
 ): IrFunctionExpression => {
   // Get return type from declared annotation for contextual typing
   const returnType = node.type ? convertType(node.type, checker) : undefined;
+  const parameters = convertLambdaParameters(node, checker);
+
+  // DETERMINISTIC: Build function type from declared parameters and return type
+  const inferredType = {
+    kind: "functionType" as const,
+    parameters,
+    returnType: returnType ?? { kind: "voidType" as const },
+  };
 
   return {
     kind: "functionExpression",
     name: node.name?.text,
-    parameters: convertLambdaParameters(node, checker),
+    parameters,
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
@@ -98,13 +108,15 @@ export const convertFunctionExpression = (
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
     isGenerator: !!node.asteriskToken,
-    inferredType: getInferredType(node, checker),
+    inferredType,
     sourceSpan: getSourceSpan(node),
   };
 };
 
 /**
  * Convert arrow function expression
+ *
+ * DETERMINISTIC TYPING: Build function type from declared parameters and return type.
  */
 export const convertArrowFunction = (
   node: ts.ArrowFunction,
@@ -112,6 +124,7 @@ export const convertArrowFunction = (
 ): IrArrowFunctionExpression => {
   // Get return type from declared annotation for contextual typing
   const returnType = node.type ? convertType(node.type, checker) : undefined;
+  const parameters = convertLambdaParameters(node, checker);
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type
@@ -127,15 +140,22 @@ export const convertArrowFunction = (
     ? convertTsTypeToIr(tsContextualType, checker)
     : undefined;
 
+  // DETERMINISTIC: Build function type from declared parameters and return type
+  const inferredType = {
+    kind: "functionType" as const,
+    parameters,
+    returnType: returnType ?? { kind: "voidType" as const },
+  };
+
   return {
     kind: "arrowFunction",
-    parameters: convertLambdaParameters(node, checker),
+    parameters,
     returnType,
     body,
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
-    inferredType: getInferredType(node, checker),
+    inferredType,
     contextualType,
     sourceSpan: getSourceSpan(node),
   };

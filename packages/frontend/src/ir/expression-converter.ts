@@ -39,7 +39,7 @@ import {
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
 import {
-  getInferredType,
+  deriveIdentifierType,
   getSourceSpan,
 } from "./converters/expressions/helpers.js";
 
@@ -86,7 +86,8 @@ export const convertExpression = (
   checker: ts.TypeChecker,
   expectedType: IrType | undefined
 ): IrExpression => {
-  const inferredType = getInferredType(node, checker);
+  // DETERMINISTIC TYPING: No top-level getInferredType() call.
+  // Each expression type derives its inferredType from the appropriate source.
 
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
     return convertLiteral(node, checker);
@@ -95,20 +96,22 @@ export const convertExpression = (
     node.kind === ts.SyntaxKind.TrueKeyword ||
     node.kind === ts.SyntaxKind.FalseKeyword
   ) {
+    // Boolean literals have deterministic type
     return {
       kind: "literal",
       value: node.kind === ts.SyntaxKind.TrueKeyword,
       raw: node.getText(),
-      inferredType,
+      inferredType: { kind: "primitiveType", name: "boolean" },
       sourceSpan: getSourceSpan(node),
     };
   }
   if (node.kind === ts.SyntaxKind.NullKeyword) {
+    // Null literal - type is context-dependent, undefined for now
     return {
       kind: "literal",
       value: null,
       raw: "null",
-      inferredType,
+      inferredType: undefined,
       sourceSpan: getSourceSpan(node),
     };
   }
@@ -116,15 +119,19 @@ export const convertExpression = (
     node.kind === ts.SyntaxKind.UndefinedKeyword ||
     ts.isVoidExpression(node)
   ) {
+    // Undefined literal - type is void
     return {
       kind: "literal",
       value: undefined,
       raw: "undefined",
-      inferredType,
+      inferredType: { kind: "voidType" },
       sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isIdentifier(node)) {
+    // DETERMINISTIC: Derive type from declaration TypeNode
+    const identifierType = deriveIdentifierType(node, checker);
+
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
     // We need the original name for binding lookup
     let originalName: string | undefined;
@@ -142,7 +149,7 @@ export const convertExpression = (
       return {
         kind: "identifier",
         name: node.text,
-        inferredType,
+        inferredType: identifierType,
         sourceSpan: getSourceSpan(node),
         resolvedClrType: binding.type,
         resolvedAssembly: binding.assembly,
@@ -153,7 +160,7 @@ export const convertExpression = (
     return {
       kind: "identifier",
       name: node.text,
-      inferredType,
+      inferredType: identifierType,
       sourceSpan: getSourceSpan(node),
       originalName,
     };
@@ -186,29 +193,32 @@ export const convertExpression = (
     return convertUpdateExpression(node, checker);
   }
   if (ts.isTypeOfExpression(node)) {
+    // typeof always returns string
     return {
       kind: "unary",
       operator: "typeof",
       expression: convertExpression(node.expression, checker, undefined),
-      inferredType,
+      inferredType: { kind: "primitiveType", name: "string" },
       sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isVoidExpression(node)) {
+    // void always returns undefined (void type)
     return {
       kind: "unary",
       operator: "void",
       expression: convertExpression(node.expression, checker, undefined),
-      inferredType,
+      inferredType: { kind: "voidType" },
       sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isDeleteExpression(node)) {
+    // delete always returns boolean
     return {
       kind: "unary",
       operator: "delete",
       expression: convertExpression(node.expression, checker, undefined),
-      inferredType,
+      inferredType: { kind: "primitiveType", name: "boolean" },
       sourceSpan: getSourceSpan(node),
     };
   }
@@ -228,32 +238,39 @@ export const convertExpression = (
     return convertTemplateLiteral(node, checker);
   }
   if (ts.isSpreadElement(node)) {
+    // Spread inherits type from expression (the array being spread)
+    const spreadExpr = convertExpression(node.expression, checker, undefined);
     return {
       kind: "spread",
-      expression: convertExpression(node.expression, checker, undefined),
-      inferredType,
+      expression: spreadExpr,
+      inferredType: spreadExpr.inferredType,
       sourceSpan: getSourceSpan(node),
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
-    return { kind: "this", inferredType, sourceSpan: getSourceSpan(node) };
+    // 'this' type depends on context - undefined for now
+    return { kind: "this", inferredType: undefined, sourceSpan: getSourceSpan(node) };
   }
   if (ts.isAwaitExpression(node)) {
+    // await unwraps Promise - for now pass through the expression's type
+    // (full unwrapping would require detecting Promise<T> and returning T)
+    const awaitedExpr = convertExpression(node.expression, checker, undefined);
     return {
       kind: "await",
-      expression: convertExpression(node.expression, checker, undefined),
-      inferredType,
+      expression: awaitedExpr,
+      inferredType: undefined, // Would need Promise unwrapping
       sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isYieldExpression(node)) {
+    // yield type depends on generator context - undefined for now
     return {
       kind: "yield",
       expression: node.expression
         ? convertExpression(node.expression, checker, undefined)
         : undefined,
       delegate: !!node.asteriskToken,
-      inferredType,
+      inferredType: undefined,
       sourceSpan: getSourceSpan(node),
     };
   }
@@ -347,18 +364,18 @@ export const convertExpression = (
     };
   }
 
-  // Fallback - treat as identifier
+  // Fallback - treat as identifier with unknown type
   return {
     kind: "identifier",
     name: node.getText(),
-    inferredType,
+    inferredType: undefined,
     sourceSpan: getSourceSpan(node),
   };
 };
 
 // Re-export commonly used functions for backward compatibility
 export {
-  getInferredType,
+  deriveIdentifierType,
   extractTypeArguments,
   checkIfRequiresSpecialization,
 } from "./converters/expressions/helpers.js";

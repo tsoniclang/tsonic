@@ -1,11 +1,14 @@
 /**
  * Property member conversion
+ *
+ * DETERMINISTIC TYPING: Property types are derived from initializers when
+ * no explicit annotation is present, not from TypeScript inference.
  */
 
 import * as ts from "typescript";
-import { IrClassMember } from "../../../../types.js";
+import { IrClassMember, IrExpression, IrType } from "../../../../types.js";
 import { convertExpression } from "../../../../expression-converter.js";
-import { convertType, inferType } from "../../../../type-converter.js";
+import { convertType } from "../../../../type-converter.js";
 import {
   hasStaticModifier,
   hasReadonlyModifier,
@@ -14,24 +17,47 @@ import {
 import { detectOverride } from "./override-detection.js";
 
 /**
- * Get the IR type for a property declaration.
- * Uses explicit annotation if present, otherwise infers from TypeChecker.
- * C# requires explicit types for class fields (no 'var').
+ * Derive type from a converted IR expression (deterministic).
+ * NO TYPESCRIPT FALLBACK - types must be derivable from IR or undefined.
  */
-const getPropertyType = (
-  node: ts.PropertyDeclaration,
-  checker: ts.TypeChecker
-) => {
-  // If there's an explicit type annotation, use it
-  if (node.type) {
-    return convertType(node.type, checker);
+const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
+  // For literals, the inferredType is already set deterministically
+  if (expr.kind === "literal") {
+    return expr.inferredType;
   }
-  // Infer type from checker (always needed for class fields)
-  return inferType(node, checker);
+
+  // For arrays, derive from first element's type or array's inferredType
+  if (expr.kind === "array") {
+    if (expr.inferredType) {
+      return expr.inferredType;
+    }
+    // Try to derive from first element
+    if (expr.elements.length > 0) {
+      const firstElement = expr.elements[0];
+      if (firstElement) {
+        const elementType = deriveTypeFromExpression(firstElement);
+        if (elementType) {
+          return { kind: "arrayType", elementType };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  // For all other expressions, use their inferredType if available
+  if ("inferredType" in expr && expr.inferredType) {
+    return expr.inferredType;
+  }
+
+  // Cannot determine type - return undefined (no TypeScript fallback)
+  return undefined;
 };
 
 /**
  * Convert property declaration to IR
+ *
+ * DETERMINISTIC TYPING: For properties without explicit annotations,
+ * the type is derived from the converted initializer expression.
  */
 export const convertProperty = (
   node: ts.PropertyDeclaration,
@@ -47,17 +73,29 @@ export const convertProperty = (
     checker
   );
 
-  // Get property type for contextual typing of initializer
-  const propertyType = getPropertyType(node, checker);
+  // Get explicit type annotation (if present) for contextual typing
+  const explicitType = node.type ? convertType(node.type, checker) : undefined;
+
+  // Convert initializer FIRST (with explicit type as expectedType if present)
+  const convertedInitializer = node.initializer
+    ? convertExpression(node.initializer, checker, explicitType)
+    : undefined;
+
+  // Derive property type:
+  // 1. Use explicit annotation if present
+  // 2. Otherwise derive from converted initializer (NO TypeScript fallback)
+  // 3. If no initializer and no annotation, undefined (error at emit time)
+  const propertyType = explicitType
+    ? explicitType
+    : convertedInitializer
+      ? deriveTypeFromExpression(convertedInitializer)
+      : undefined;
 
   return {
     kind: "propertyDeclaration",
     name: memberName,
     type: propertyType,
-    // Pass property type for contextual typing of initializer
-    initializer: node.initializer
-      ? convertExpression(node.initializer, checker, propertyType)
-      : undefined,
+    initializer: convertedInitializer,
     isStatic: hasStaticModifier(node),
     isReadonly: hasReadonlyModifier(node),
     accessibility: getAccessibility(node),

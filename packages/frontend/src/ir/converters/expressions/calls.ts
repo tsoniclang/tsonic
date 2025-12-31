@@ -10,7 +10,6 @@ import {
 } from "../../types.js";
 import {
   getSourceSpan,
-  getInferredType,
   extractTypeArguments,
   checkIfRequiresSpecialization,
 } from "./helpers.js";
@@ -755,10 +754,12 @@ export const convertCallExpression = (
       const expectedType = parameterTypes?.[index];
 
       if (ts.isSpreadElement(arg)) {
+        // DETERMINISTIC: Use expression's inferredType directly
+        const spreadExpr = convertExpression(arg.expression, checker, undefined);
         return {
           kind: "spread" as const,
-          expression: convertExpression(arg.expression, checker, undefined),
-          inferredType: getInferredType(arg.expression, checker),
+          expression: spreadExpr,
+          inferredType: spreadExpr.inferredType,
           sourceSpan: getSourceSpan(arg),
         };
       }
@@ -885,10 +886,12 @@ export const convertNewExpression = (
       node.arguments?.map((arg, index) => {
         const expectedType = parameterTypes?.[index];
         if (ts.isSpreadElement(arg)) {
+          // DETERMINISTIC: Use expression's inferredType directly
+          const spreadExpr = convertExpression(arg.expression, checker, undefined);
           return {
             kind: "spread" as const,
-            expression: convertExpression(arg.expression, checker, undefined),
-            inferredType: getInferredType(arg.expression, checker),
+            expression: spreadExpr,
+            inferredType: spreadExpr.inferredType,
             sourceSpan: getSourceSpan(arg),
           };
         }

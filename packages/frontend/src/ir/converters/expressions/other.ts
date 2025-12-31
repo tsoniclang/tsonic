@@ -9,13 +9,15 @@ import {
   IrExpression,
   IrType,
 } from "../../types.js";
-import { getInferredType, getSourceSpan } from "./helpers.js";
+import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 
 /**
  * Convert conditional (ternary) expression
  *
- * Threads expectedType to both branches to ensure deterministic typing.
+ * DETERMINISTIC TYPING:
+ * - Threads expectedType to both branches for consistent typing
+ * - Result type is expectedType if available, otherwise derives from whenTrue branch
  * Example: `const x: int = cond ? 5 : 10` → both 5 and 10 get expectedType `int`
  */
 export const convertConditionalExpression = (
@@ -23,29 +25,40 @@ export const convertConditionalExpression = (
   checker: ts.TypeChecker,
   expectedType: IrType | undefined
 ): IrConditionalExpression => {
+  const whenTrue = convertExpression(node.whenTrue, checker, expectedType);
+  const whenFalse = convertExpression(node.whenFalse, checker, expectedType);
+
+  // DETERMINISTIC: Use expectedType if available, otherwise derive from whenTrue
+  const inferredType = expectedType ?? whenTrue.inferredType;
+
   return {
     kind: "conditional",
     condition: convertExpression(node.condition, checker, undefined),
-    whenTrue: convertExpression(node.whenTrue, checker, expectedType),
-    whenFalse: convertExpression(node.whenFalse, checker, expectedType),
-    inferredType: getInferredType(node, checker),
+    whenTrue,
+    whenFalse,
+    inferredType,
     sourceSpan: getSourceSpan(node),
   };
 };
 
 /**
  * Convert template literal expression
+ *
+ * DETERMINISTIC TYPING: Template literals always produce string type.
  */
 export const convertTemplateLiteral = (
   node: ts.TemplateExpression | ts.NoSubstitutionTemplateLiteral,
   checker: ts.TypeChecker
 ): IrTemplateLiteralExpression => {
+  // DETERMINISTIC: Template literals always produce string
+  const stringType = { kind: "primitiveType" as const, name: "string" as const };
+
   if (ts.isNoSubstitutionTemplateLiteral(node)) {
     return {
       kind: "templateLiteral",
       quasis: [node.text],
       expressions: [],
-      inferredType: getInferredType(node, checker),
+      inferredType: stringType,
       sourceSpan: getSourceSpan(node),
     };
   }
@@ -62,7 +75,7 @@ export const convertTemplateLiteral = (
     kind: "templateLiteral",
     quasis,
     expressions,
-    inferredType: getInferredType(node, checker),
+    inferredType: stringType,
     sourceSpan: getSourceSpan(node),
   };
 };

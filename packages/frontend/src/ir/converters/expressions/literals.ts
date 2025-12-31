@@ -1,45 +1,86 @@
 /**
  * Literal expression converters
  *
- * Numeric literals get numericIntent attached based on their lexeme:
- * - Integer literals (42, 0xFF) → Int32
- * - Floating literals (42.0, 3.14, 1e3) → Double
+ * DETERMINISTIC TYPING: Literal types are derived from lexeme form, NOT TypeScript.
  *
- * IMPORTANT: numericIntent is expression-level, NOT type-level.
- * The inferredType remains unchanged (number → double semantically).
- * The numericIntent field on the expression enables:
- * 1. Emitter to emit `42` vs `42.0` appropriately
- * 2. Coercion pass to detect int→double conversions
+ * Numeric literals:
+ * - Integer literals (42, 0xFF) → Int32 → inferredType: int
+ * - Floating literals (42.0, 3.14, 1e3) → Double → inferredType: double
+ *
+ * String literals → inferredType: string
+ * Boolean literals → inferredType: boolean (handled elsewhere)
  */
 
 import * as ts from "typescript";
-import { IrLiteralExpression } from "../../types.js";
-import { getInferredType, getSourceSpan } from "./helpers.js";
+import { IrLiteralExpression, IrType } from "../../types.js";
+import { getSourceSpan } from "./helpers.js";
 import { inferNumericKindFromRaw } from "../../types/numeric-helpers.js";
+import { NumericKind } from "../../types/numeric-kind.js";
+
+/**
+ * Derive inferredType from numericIntent (deterministic, no TypeScript).
+ */
+const deriveTypeFromNumericIntent = (numericIntent: NumericKind): IrType => {
+  if (numericIntent === "Int32") {
+    return { kind: "referenceType", name: "int" };
+  } else if (numericIntent === "Double") {
+    return { kind: "primitiveType", name: "number" };
+  } else if (numericIntent === "Int64") {
+    return { kind: "referenceType", name: "long" };
+  } else if (numericIntent === "Single") {
+    return { kind: "referenceType", name: "float" };
+  } else if (numericIntent === "Byte") {
+    return { kind: "referenceType", name: "byte" };
+  } else if (numericIntent === "Int16") {
+    return { kind: "referenceType", name: "short" };
+  } else if (numericIntent === "UInt32") {
+    return { kind: "referenceType", name: "uint" };
+  } else if (numericIntent === "UInt64") {
+    return { kind: "referenceType", name: "ulong" };
+  } else if (numericIntent === "UInt16") {
+    return { kind: "referenceType", name: "ushort" };
+  } else if (numericIntent === "SByte") {
+    return { kind: "referenceType", name: "sbyte" };
+  }
+  // Default to double for unknown
+  return { kind: "primitiveType", name: "number" };
+};
 
 /**
  * Convert string or numeric literal
  *
- * For numeric literals, attaches numericIntent directly on the expression
- * based on the raw lexeme. This is expression-level information that does
- * NOT modify the inferredType (which remains "number" = double semantically).
+ * DETERMINISTIC TYPING: inferredType is derived from the literal value itself,
+ * NOT from TypeScript's type checker. This ensures consistent typing regardless
+ * of contextual type.
  */
 export const convertLiteral = (
   node: ts.StringLiteral | ts.NumericLiteral,
-  checker: ts.TypeChecker
+  _checker: ts.TypeChecker
 ): IrLiteralExpression => {
   const raw = node.getText();
   const value = ts.isStringLiteral(node) ? node.text : Number(node.text);
+
+  // For numeric literals, derive type from lexeme form
+  const numericIntent =
+    typeof value === "number" ? inferNumericKindFromRaw(raw) : undefined;
+
+  // Derive inferredType deterministically (no TypeScript)
+  // - String literals → string
+  // - Numeric literals with numericIntent → derived from intent
+  // - Unknown → undefined (let caller handle)
+  const inferredType: IrType | undefined =
+    typeof value === "string"
+      ? { kind: "primitiveType", name: "string" }
+      : numericIntent
+        ? deriveTypeFromNumericIntent(numericIntent)
+        : undefined;
 
   return {
     kind: "literal",
     value,
     raw,
-    inferredType: getInferredType(node, checker),
+    inferredType,
     sourceSpan: getSourceSpan(node),
-    // For numeric literals, infer numeric kind from lexeme form
-    // This is expression-level, not type-level
-    numericIntent:
-      typeof value === "number" ? inferNumericKindFromRaw(raw) : undefined,
+    numericIntent,
   };
 };

@@ -12,12 +12,131 @@ import {
   IrType,
 } from "../../types.js";
 import {
-  getInferredType,
+  deriveIdentifierType,
   getSourceSpan,
   convertBinaryOperator,
   isAssignmentOperator,
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
+
+/**
+ * Derive result type from binary operator and operand types.
+ *
+ * DETERMINISTIC TYPING:
+ * - Arithmetic: both int → int, otherwise double
+ * - Comparison: always boolean
+ * - Bitwise: int
+ * - Logical: derives from operands
+ */
+const deriveBinaryResultType = (
+  operator: string,
+  leftType: IrType | undefined,
+  rightType: IrType | undefined
+): IrType | undefined => {
+  // Comparison operators always return boolean
+  if (["==", "!=", "===", "!==", "<", ">", "<=", ">="].includes(operator)) {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // Bitwise operators return int
+  if (["&", "|", "^", "<<", ">>", ">>>"].includes(operator)) {
+    return { kind: "primitiveType", name: "int" };
+  }
+
+  // instanceof returns boolean
+  if (operator === "instanceof") {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // in operator returns boolean
+  if (operator === "in") {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // String concatenation: if either is string, result is string
+  if (operator === "+") {
+    if (
+      (leftType?.kind === "primitiveType" && leftType.name === "string") ||
+      (rightType?.kind === "primitiveType" && rightType.name === "string")
+    ) {
+      return { kind: "primitiveType", name: "string" };
+    }
+  }
+
+  // Arithmetic operators: both int → int, otherwise double
+  if (["+", "-", "*", "/", "%", "**"].includes(operator)) {
+    const leftIsInt =
+      leftType?.kind === "primitiveType" && leftType.name === "int";
+    const rightIsInt =
+      rightType?.kind === "primitiveType" && rightType.name === "int";
+
+    if (leftIsInt && rightIsInt) {
+      return { kind: "primitiveType", name: "int" };
+    }
+    // If either is numeric, result is double
+    if (
+      (leftType?.kind === "primitiveType" &&
+        (leftType.name === "number" || leftType.name === "int")) ||
+      (rightType?.kind === "primitiveType" &&
+        (rightType.name === "number" || rightType.name === "int"))
+    ) {
+      return { kind: "primitiveType", name: "number" };
+    }
+  }
+
+  // Logical operators: result type is one of the operand types
+  // For &&, ||, ?? the result depends on which branch is taken
+  if (["&&", "||", "??"].includes(operator)) {
+    return leftType ?? rightType;
+  }
+
+  return undefined;
+};
+
+/**
+ * Derive result type from unary operator and operand type.
+ */
+const deriveUnaryResultType = (
+  operator: string,
+  operandType: IrType | undefined
+): IrType | undefined => {
+  // Logical not always returns boolean
+  if (operator === "!") {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // Bitwise not returns int
+  if (operator === "~") {
+    return { kind: "primitiveType", name: "int" };
+  }
+
+  // Numeric + and - return same type as operand
+  if (operator === "+" || operator === "-") {
+    return operandType;
+  }
+
+  // typeof always returns string
+  if (operator === "typeof") {
+    return { kind: "primitiveType", name: "string" };
+  }
+
+  // void always returns undefined (void type)
+  if (operator === "void") {
+    return { kind: "voidType" };
+  }
+
+  // delete returns boolean
+  if (operator === "delete") {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // ++/-- return same type as operand
+  if (operator === "++" || operator === "--") {
+    return operandType;
+  }
+
+  return operandType;
+};
 
 /**
  * Convert binary expression (including logical and assignment)
@@ -33,26 +152,30 @@ export const convertBinaryExpression = (
   expectedType?: IrType
 ): IrExpression => {
   const operator = convertBinaryOperator(node.operatorToken);
-  const inferredType = getInferredType(node, checker);
   const sourceSpan = getSourceSpan(node);
 
   // Handle assignment separately
   // Thread LHS type to RHS for deterministic typing (e.g., x = 10 where x: int)
   if (isAssignmentOperator(node.operatorToken)) {
-    const lhsType = getInferredType(node.left, checker);
+    // DETERMINISTIC: Derive LHS type from declaration (for identifiers)
+    const leftExpr = ts.isIdentifier(node.left)
+      ? {
+          kind: "identifier" as const,
+          name: node.left.text,
+          inferredType: deriveIdentifierType(node.left, checker),
+          sourceSpan: getSourceSpan(node.left),
+        }
+      : convertExpression(node.left, checker, undefined);
+
+    const lhsType = leftExpr.inferredType;
+    const rightExpr = convertExpression(node.right, checker, lhsType);
+
     return {
       kind: "assignment",
       operator: operator as IrAssignmentOperator,
-      left: ts.isIdentifier(node.left)
-        ? {
-            kind: "identifier",
-            name: node.left.text,
-            inferredType: lhsType,
-            sourceSpan: getSourceSpan(node.left),
-          }
-        : convertExpression(node.left, checker, undefined),
-      right: convertExpression(node.right, checker, lhsType),
-      inferredType,
+      left: leftExpr,
+      right: rightExpr,
+      inferredType: lhsType, // Assignment result is LHS type
       sourceSpan,
     };
   }
@@ -63,23 +186,37 @@ export const convertBinaryExpression = (
   if (operator === "&&" || operator === "||" || operator === "??") {
     const rhsExpectedType =
       operator === "??" || operator === "||" ? expectedType : undefined;
+    const leftExpr = convertExpression(node.left, checker, undefined);
+    const rightExpr = convertExpression(node.right, checker, rhsExpectedType);
+
     return {
       kind: "logical",
       operator,
-      left: convertExpression(node.left, checker, undefined),
-      right: convertExpression(node.right, checker, rhsExpectedType),
-      inferredType,
+      left: leftExpr,
+      right: rightExpr,
+      inferredType: deriveBinaryResultType(
+        operator,
+        leftExpr.inferredType,
+        rightExpr.inferredType
+      ),
       sourceSpan,
     };
   }
 
   // Regular binary expression
+  const leftExpr = convertExpression(node.left, checker, undefined);
+  const rightExpr = convertExpression(node.right, checker, undefined);
+
   return {
     kind: "binary",
     operator: operator as IrBinaryOperator,
-    left: convertExpression(node.left, checker, undefined),
-    right: convertExpression(node.right, checker, undefined),
-    inferredType,
+    left: leftExpr,
+    right: rightExpr,
+    inferredType: deriveBinaryResultType(
+      operator,
+      leftExpr.inferredType,
+      rightExpr.inferredType
+    ),
     sourceSpan,
   };
 };
@@ -91,20 +228,22 @@ export const convertUnaryExpression = (
   node: ts.PrefixUnaryExpression,
   checker: ts.TypeChecker
 ): IrUnaryExpression | IrUpdateExpression => {
-  const inferredType = getInferredType(node, checker);
   const sourceSpan = getSourceSpan(node);
+  const operandExpr = convertExpression(node.operand, checker, undefined);
 
   // Check if it's an increment/decrement (++ or --)
   if (
     node.operator === ts.SyntaxKind.PlusPlusToken ||
     node.operator === ts.SyntaxKind.MinusMinusToken
   ) {
+    const updateOperator =
+      node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
     return {
       kind: "update",
-      operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
+      operator: updateOperator,
       prefix: true,
-      expression: convertExpression(node.operand, checker, undefined),
-      inferredType,
+      expression: operandExpr,
+      inferredType: deriveUnaryResultType(updateOperator, operandExpr.inferredType),
       sourceSpan,
     };
   }
@@ -130,20 +269,22 @@ export const convertUnaryExpression = (
   return {
     kind: "unary",
     operator,
-    expression: convertExpression(node.operand, checker, undefined),
-    inferredType,
+    expression: operandExpr,
+    inferredType: deriveUnaryResultType(operator, operandExpr.inferredType),
     sourceSpan,
   };
 };
 
 /**
  * Convert postfix unary expression (++ or --)
+ *
+ * DETERMINISTIC TYPING: Result type derived from operand type.
+ * ++/-- return same type as operand (int → int, number → number)
  */
 export const convertUpdateExpression = (
   node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression,
   checker: ts.TypeChecker
 ): IrUpdateExpression => {
-  const inferredType = getInferredType(node, checker);
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPrefixUnaryExpression(node)) {
@@ -152,12 +293,15 @@ export const convertUpdateExpression = (
       node.operator === ts.SyntaxKind.PlusPlusToken ||
       node.operator === ts.SyntaxKind.MinusMinusToken
     ) {
+      const operandExpr = convertExpression(node.operand, checker, undefined);
+      const updateOperator =
+        node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
       return {
         kind: "update",
-        operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
+        operator: updateOperator,
         prefix: true,
-        expression: convertExpression(node.operand, checker, undefined),
-        inferredType,
+        expression: operandExpr,
+        inferredType: deriveUnaryResultType(updateOperator, operandExpr.inferredType),
         sourceSpan,
       };
     }
@@ -165,12 +309,15 @@ export const convertUpdateExpression = (
 
   // Handle postfix unary expression
   const postfix = node as ts.PostfixUnaryExpression;
+  const operandExpr = convertExpression(postfix.operand, checker, undefined);
+  const updateOperator =
+    postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
   return {
     kind: "update",
-    operator: postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
+    operator: updateOperator,
     prefix: false,
-    expression: convertExpression(postfix.operand, checker, undefined),
-    inferredType,
+    expression: operandExpr,
+    inferredType: deriveUnaryResultType(updateOperator, operandExpr.inferredType),
     sourceSpan,
   };
 };
