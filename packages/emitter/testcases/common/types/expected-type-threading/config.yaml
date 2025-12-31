@@ -1,1 +1,3 @@
 - TernaryTyping.ts: should thread expectedType through ternary branches
+- NullishCoalescing.ts: should thread expectedType through nullish coalescing fallback
+- ArraySpread.ts: should thread expectedType through array spread elements

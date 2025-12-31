@@ -588,9 +588,15 @@ const validateExpression = (
     }
 
     case "logical": {
-      // For ?? and ||, the result could be either operand
+      // For ?? and ||, only the RHS (fallback value) needs coercion checking.
+      // The LHS is already typed and doesn't need to match expectedType.
+      // Example: `const x: int = maybeNull ?? 100`
+      //   - maybeNull has type `int | null` - already correct, no coercion needed
+      //   - 100 needs to be int (not double) - this is what we check
       if (expr.operator === "??" || expr.operator === "||") {
-        validateExpression(expr.left, expectedType, ctx, context);
+        // Scan LHS for nested calls (don't validate against expectedType)
+        scanExpressionForCalls(expr.left, ctx);
+        // Only validate RHS against expectedType (the fallback value)
         validateExpression(expr.right, expectedType, ctx, context);
       }
       break;

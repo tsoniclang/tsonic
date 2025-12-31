@@ -89,10 +89,9 @@ describe("Attribute Collection Pass", () => {
     expression: makeCall(
       makeMemberAccess(
         makeMemberAccess(
-          makeCall(
-            makeMemberAccess(makeIdentifier("A"), "on"),
-            [makeIdentifier(targetName)]
-          ),
+          makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+            makeIdentifier(targetName),
+          ]),
           "type"
         ),
         "add"

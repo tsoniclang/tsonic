@@ -162,7 +162,7 @@ export const convertExpression = (
     return convertArrayLiteral(node, checker, expectedType);
   }
   if (ts.isObjectLiteralExpression(node)) {
-    return convertObjectLiteral(node, checker);
+    return convertObjectLiteral(node, checker, expectedType);
   }
   if (
     ts.isPropertyAccessExpression(node) ||
@@ -177,7 +177,7 @@ export const convertExpression = (
     return convertNewExpression(node, checker);
   }
   if (ts.isBinaryExpression(node)) {
-    return convertBinaryExpression(node, checker);
+    return convertBinaryExpression(node, checker, expectedType);
   }
   if (ts.isPrefixUnaryExpression(node)) {
     return convertUnaryExpression(node, checker);

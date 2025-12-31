@@ -9,6 +9,7 @@ import {
   IrUpdateExpression,
   IrBinaryOperator,
   IrAssignmentOperator,
+  IrType,
 } from "../../types.js";
 import {
   getInferredType,
@@ -20,10 +21,16 @@ import { convertExpression } from "../../expression-converter.js";
 
 /**
  * Convert binary expression (including logical and assignment)
+ *
+ * Threads expectedType through:
+ * - Assignment RHS: gets LHS type
+ * - Nullish coalescing (??): RHS gets expectedType (fallback value)
+ * - Logical OR (||): RHS gets expectedType (fallback value)
  */
 export const convertBinaryExpression = (
   node: ts.BinaryExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType?: IrType
 ): IrExpression => {
   const operator = convertBinaryOperator(node.operatorToken);
   const inferredType = getInferredType(node, checker);
@@ -51,12 +58,16 @@ export const convertBinaryExpression = (
   }
 
   // Handle logical operators
+  // For ?? and ||, the RHS is the fallback value, so it gets expectedType
+  // For &&, the RHS is only reached if LHS is truthy, no type coercion needed
   if (operator === "&&" || operator === "||" || operator === "??") {
+    const rhsExpectedType =
+      operator === "??" || operator === "||" ? expectedType : undefined;
     return {
       kind: "logical",
       operator,
       left: convertExpression(node.left, checker, undefined),
-      right: convertExpression(node.right, checker, undefined),
+      right: convertExpression(node.right, checker, rhsExpectedType),
       inferredType,
       sourceSpan,
     };

@@ -227,7 +227,10 @@ describe("Numeric Proof Invariants", () => {
       // const idx = 1 as int;
       // const x = arr[idx];
       const module = createModule([
-        createVarDecl("arr", arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("idx", narrowTo(numLiteral(1), "Int32")),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("idx"))),
       ]);
@@ -242,7 +245,10 @@ describe("Numeric Proof Invariants", () => {
       // const arr = [1, 2, 3];
       // const x = arr[1];  // 1 is valid Int32 literal
       const module = createModule([
-        createVarDecl("arr", arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), numLiteral(1))),
       ]);
 
@@ -257,7 +263,10 @@ describe("Numeric Proof Invariants", () => {
       // const idx = 1.5;
       // const x = arr[idx];  // ERROR: Double is not Int32
       const module = createModule([
-        createVarDecl("arr", arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("idx", numLiteral(1.5, "1.5")),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("idx"))),
       ]);
@@ -280,7 +289,10 @@ describe("Numeric Proof Invariants", () => {
       };
 
       const module = createModule([
-        createVarDecl("arr", arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), unknownIdent)),
       ]);
 

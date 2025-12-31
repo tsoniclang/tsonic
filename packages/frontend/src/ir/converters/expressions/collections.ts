@@ -86,7 +86,10 @@ const computeArrayElementType = (
   // All numeric literals - determine widest type
   if (allNumericLiterals && numericIntents.length > 0) {
     // Any Double → number (emits as "double" in C#)
-    if (numericIntents.includes("Double") || numericIntents.includes("Single")) {
+    if (
+      numericIntents.includes("Double") ||
+      numericIntents.includes("Single")
+    ) {
       return { kind: "primitiveType", name: "number" };
     }
     // Any Int64/UInt64 → fall back to TS inference (no primitive for long)
@@ -134,9 +137,10 @@ export const convertArrayLiteral = (
       return undefined; // Hole in sparse array
     }
     if (ts.isSpreadElement(elem)) {
+      // Spread element gets array type as expectedType (for nested array typing)
       return {
         kind: "spread" as const,
-        expression: convertExpression(elem.expression, checker, undefined),
+        expression: convertExpression(elem.expression, checker, expectedType),
         inferredType: getInferredType(elem.expression, checker),
         sourceSpan: getSourceSpan(elem),
       };
@@ -189,14 +193,42 @@ export const convertArrayLiteral = (
 };
 
 /**
+ * Get the expected type for an object property from the parent expected type.
+ *
+ * If expectedType is an objectType, looks up the property member directly.
+ * If expectedType is a referenceType, we can't resolve it here (would need symbol table).
+ */
+const getPropertyExpectedType = (
+  propName: string,
+  expectedType: IrType | undefined
+): IrType | undefined => {
+  if (!expectedType) return undefined;
+
+  if (expectedType.kind === "objectType") {
+    // Direct member lookup - only check property signatures (not methods)
+    const member = expectedType.members.find(
+      (m) => m.kind === "propertySignature" && m.name === propName
+    );
+    return member?.kind === "propertySignature" ? member.type : undefined;
+  }
+
+  // For referenceType, we'd need to resolve the interface/class
+  // This is complex and deferred for now - let TS inference handle it
+  return undefined;
+};
+
+/**
  * Convert object literal expression
  *
  * If no contextual nominal type exists and the literal is eligible for synthesis,
  * a synthetic type is generated and used as the contextual type.
+ *
+ * Threads expectedType to property values when the expected type is an objectType.
  */
 export const convertObjectLiteral = (
   node: ts.ObjectLiteralExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType?: IrType
 ): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
 
@@ -205,16 +237,27 @@ export const convertObjectLiteral = (
 
   node.properties.forEach((prop) => {
     if (ts.isPropertyAssignment(prop)) {
+      const keyName = ts.isIdentifier(prop.name)
+        ? prop.name.text
+        : ts.isStringLiteral(prop.name)
+          ? prop.name.text
+          : undefined;
+
       const key = ts.isComputedPropertyName(prop.name)
         ? convertExpression(prop.name.expression, checker, undefined)
         : ts.isIdentifier(prop.name)
           ? prop.name.text
           : String(prop.name.text);
 
+      // Look up property expected type from parent expected type
+      const propExpectedType = keyName
+        ? getPropertyExpectedType(keyName, expectedType)
+        : undefined;
+
       properties.push({
         kind: "property",
         key,
-        value: convertExpression(prop.initializer, checker, undefined),
+        value: convertExpression(prop.initializer, checker, propExpectedType),
         shorthand: false,
       });
     } else if (ts.isShorthandPropertyAssignment(prop)) {

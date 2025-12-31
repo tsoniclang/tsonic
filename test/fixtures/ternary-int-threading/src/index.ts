@@ -34,7 +34,7 @@ export function main(): void {
 
   const a = 7 as int;
   const b = 2 as int;
-  const divResult: int = true ? (a / b) as int : 0;
+  const divResult: int = true ? ((a / b) as int) : 0;
   Console.writeLine(`7/2 via ternary = ${divResult}`); // 3 (not 3.5!)
 
   // ============================================================
@@ -68,7 +68,7 @@ export function main(): void {
 
   const x = 10 as int;
   const y = 20 as int;
-  const withArith: int = true ? (x + 5) as int : (y - 5) as int;
+  const withArith: int = true ? ((x + 5) as int) : ((y - 5) as int);
   Console.writeLine(`withArith = ${withArith}`); // 15
 
   // ============================================================

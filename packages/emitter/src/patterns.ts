@@ -117,10 +117,14 @@ const lowerArrayPattern = (
   if (ctx.isStatic && arrayType) {
     const [typeStr, ctx2] = emitType(arrayType, currentCtx);
     currentCtx = ctx2;
-    statements.push(`${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`);
+    statements.push(
+      `${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`
+    );
   } else if (ctx.isStatic) {
     // Static without type - use object as fallback
-    statements.push(`${indent}private static readonly object ${tempName} = ${inputExpr};`);
+    statements.push(
+      `${indent}private static readonly object ${tempName} = ${inputExpr};`
+    );
   } else {
     statements.push(`${indent}var ${tempName} = ${inputExpr};`);
   }
@@ -197,10 +201,14 @@ const lowerObjectPattern = (
   if (ctx.isStatic && inputType) {
     const [typeStr, ctx2] = emitType(inputType, currentCtx);
     currentCtx = ctx2;
-    statements.push(`${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`);
+    statements.push(
+      `${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`
+    );
   } else if (ctx.isStatic) {
     // Static without type - use object as fallback
-    statements.push(`${indent}private static readonly object ${tempName} = ${inputExpr};`);
+    statements.push(
+      `${indent}private static readonly object ${tempName} = ${inputExpr};`
+    );
   } else {
     statements.push(`${indent}var ${tempName} = ${inputExpr};`);
   }
@@ -346,7 +354,14 @@ export const lowerPattern = (
       // Get element type from array type, and pass full array type for static context
       const elementType =
         type?.kind === "arrayType" ? type.elementType : undefined;
-      return lowerArrayPattern(pattern, inputExpr, elementType, indent, ctx, type);
+      return lowerArrayPattern(
+        pattern,
+        inputExpr,
+        elementType,
+        indent,
+        ctx,
+        type
+      );
     }
 
     case "objectPattern":
