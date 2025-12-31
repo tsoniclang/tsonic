@@ -402,15 +402,11 @@ export const convertTypeReference = (
     // Only create dictionary if K is exactly 'string' or 'number'
     // Type parameters should fall through to referenceType
     //
-    // NOTE: We check SyntaxKind FIRST because getTypeAtLocation fails on synthesized nodes
-    // (from typeToTypeNode). For synthesized nodes like NumberKeyword, getTypeAtLocation
-    // returns `any` instead of the correct type. Checking SyntaxKind handles both cases.
-    const isStringKey =
-      keyTypeNode.kind === ts.SyntaxKind.StringKeyword ||
-      !!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.String);
-    const isNumberKey =
-      keyTypeNode.kind === ts.SyntaxKind.NumberKeyword ||
-      !!(checker.getTypeAtLocation(keyTypeNode).flags & ts.TypeFlags.Number);
+    // DETERMINISTIC: Only check SyntaxKind - no getTypeAtLocation.
+    // If the key is a type alias that resolves to string/number, it falls through
+    // to referenceType (the user should use `string` or `number` directly).
+    const isStringKey = keyTypeNode.kind === ts.SyntaxKind.StringKeyword;
+    const isNumberKey = keyTypeNode.kind === ts.SyntaxKind.NumberKeyword;
 
     if (isStringKey || isNumberKey) {
       const keyType = convertType(keyTypeNode, checker);

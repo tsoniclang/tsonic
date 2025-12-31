@@ -18,37 +18,41 @@ import { convertParameters } from "../statements/helpers.js";
  * For a property access like `list.count` where `list: List<int>`,
  * this returns a map: { "T" -> int TypeNode }
  *
- * Similar to buildTypeParameterSubstitutionMap in calls.ts, but works for
- * PropertyAccessExpression instead of CallExpression.
+ * DETERMINISTIC TYPING: Uses property symbol and receiver declaration AST,
+ * NOT getTypeAtLocation. Type parameters are extracted from the property's
+ * parent declaration (class/interface/type alias).
  */
 const buildPropertySubstitutionMap = (
   node: ts.PropertyAccessExpression,
+  propSymbol: ts.Symbol | undefined,
   checker: ts.TypeChecker
 ): ReadonlyMap<string, ts.TypeNode> | undefined => {
-  // Get the object's type and find its type parameters
-  const objectType = checker.getTypeAtLocation(node.expression);
+  if (!propSymbol) return undefined;
 
-  // Get the class/interface/type alias declaration that defines the type parameters
-  const symbol = objectType.aliasSymbol ?? objectType.getSymbol();
-  if (!symbol) return undefined;
+  // Get the property's declaration to find its parent (the declaring type)
+  const propDecls = propSymbol.getDeclarations();
+  if (!propDecls || propDecls.length === 0) return undefined;
 
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return undefined;
-
-  // Find the class/interface/type alias declaration with type parameters
+  // Find the type parameters from the property's parent declaration
   let typeParamDecls: readonly ts.TypeParameterDeclaration[] | undefined;
-  for (const decl of declarations) {
-    if (ts.isClassDeclaration(decl) && decl.typeParameters) {
-      typeParamDecls = decl.typeParameters;
+  for (const propDecl of propDecls) {
+    const parent = propDecl.parent;
+    if (ts.isClassDeclaration(parent) && parent.typeParameters) {
+      typeParamDecls = parent.typeParameters;
       break;
     }
-    if (ts.isInterfaceDeclaration(decl) && decl.typeParameters) {
-      typeParamDecls = decl.typeParameters;
+    if (ts.isInterfaceDeclaration(parent) && parent.typeParameters) {
+      typeParamDecls = parent.typeParameters;
       break;
     }
-    if (ts.isTypeAliasDeclaration(decl) && decl.typeParameters) {
-      typeParamDecls = decl.typeParameters;
+    if (ts.isTypeAliasDeclaration(parent) && parent.typeParameters) {
+      typeParamDecls = parent.typeParameters;
       break;
+    }
+    // Handle TypeLiteral parents (for object type literals)
+    if (ts.isTypeLiteralNode(parent)) {
+      // TypeLiterals don't have type parameters directly
+      continue;
     }
   }
 
@@ -188,52 +192,15 @@ const buildFunctionTypeFromMethod = (
   };
 };
 
-/**
- * Get non-nullable type from a type that may include null/undefined.
- * For `User | null` returns `User`, for `Address | undefined` returns `Address`.
- * This is needed because getPropertyOfType may fail on union types that include null/undefined.
- */
-const getNonNullableType = (
-  type: ts.Type,
-  _checker: ts.TypeChecker
-): ts.Type => {
-  // Check if this is a union type
-  if (type.isUnion()) {
-    // Filter out null and undefined types
-    const nonNullTypes = type.types.filter(
-      (t) =>
-        !(t.flags & ts.TypeFlags.Null) &&
-        !(t.flags & ts.TypeFlags.Undefined) &&
-        !(t.flags & ts.TypeFlags.Void)
-    );
-
-    // If we filtered something out and have remaining types, use the first one
-    // (for simple cases like `User | null`, there's only one non-null type)
-    if (nonNullTypes.length > 0 && nonNullTypes.length < type.types.length) {
-      if (nonNullTypes.length === 1 && nonNullTypes[0]) {
-        return nonNullTypes[0];
-      }
-      // Multiple non-null types - create a new union
-      // TypeScript doesn't have a direct API for this, so we'll use the first one
-      // This is a simplification that works for common cases
-      const first = nonNullTypes[0];
-      if (first) return first;
-    }
-  }
-  return type;
-};
-
 const getDeclaredPropertyType = (
   node: ts.PropertyAccessExpression,
   checker: ts.TypeChecker
 ): IrType | undefined => {
   try {
-    // 1. Get the object's type and find the property symbol
-    // For union types like `User | null`, we need to strip null/undefined first
-    const rawObjectType = checker.getTypeAtLocation(node.expression);
-    const objectType = getNonNullableType(rawObjectType, checker);
-    const propertyName = node.name.text;
-    const propSymbol = checker.getPropertyOfType(objectType, propertyName);
+    // DETERMINISTIC TYPING: Get property symbol directly from the property name node.
+    // This uses getSymbolAtLocation (allowed) instead of getTypeAtLocation (banned).
+    // TypeScript resolves the property through the receiver type automatically.
+    const propSymbol = checker.getSymbolAtLocation(node.name);
 
     if (!propSymbol) return undefined;
 
@@ -283,7 +250,11 @@ const getDeclaredPropertyType = (
     if (!propertyTypeNode) return undefined;
 
     // 3. Build substitution map from object's type arguments
-    const substitutionMap = buildPropertySubstitutionMap(node, checker);
+    const substitutionMap = buildPropertySubstitutionMap(
+      node,
+      propSymbol,
+      checker
+    );
 
     // 4. Apply substitution to property TypeNode
     const substitutedTypeNode = substitutionMap

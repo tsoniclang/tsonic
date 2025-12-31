@@ -119,19 +119,58 @@ export const convertType = (
   }
 
   // TypeQuery: typeof X - resolve to the type of the referenced value
+  // DETERMINISTIC: Get type from declaration's TypeNode, not TS inference
   if (ts.isTypeQueryNode(typeNode)) {
-    // Get the type of the referenced expression
     const symbol = checker.getSymbolAtLocation(typeNode.exprName);
     if (symbol) {
-      const type = checker.getTypeOfSymbolAtLocation(symbol, typeNode.exprName);
-      // Convert the resolved type
-      const typeNodeResolved = checker.typeToTypeNode(
-        type,
-        typeNode,
-        ts.NodeBuilderFlags.None
-      );
-      if (typeNodeResolved && !ts.isTypeQueryNode(typeNodeResolved)) {
-        return convertType(typeNodeResolved, checker);
+      const declarations = symbol.getDeclarations();
+      if (declarations && declarations.length > 0) {
+        for (const decl of declarations) {
+          // Variable declaration with explicit type: const x: Foo = ...
+          if (ts.isVariableDeclaration(decl) && decl.type) {
+            return convertType(decl.type, checker);
+          }
+          // Variable declaration with new expression: const x = new Foo()
+          if (ts.isVariableDeclaration(decl) && decl.initializer) {
+            if (
+              ts.isNewExpression(decl.initializer) &&
+              ts.isIdentifier(decl.initializer.expression)
+            ) {
+              // typeof x where x = new Foo() → Foo
+              const className = decl.initializer.expression.text;
+              if (decl.initializer.typeArguments) {
+                return {
+                  kind: "referenceType",
+                  name: className,
+                  typeArguments: decl.initializer.typeArguments.map((ta) =>
+                    convertType(ta, checker)
+                  ),
+                };
+              }
+              return { kind: "referenceType", name: className };
+            }
+          }
+          // Class declaration: typeof SomeClass → SomeClass type
+          if (ts.isClassDeclaration(decl) && decl.name) {
+            return { kind: "referenceType", name: decl.name.text };
+          }
+          // Function declaration: typeof someFunc → function type
+          if (ts.isFunctionDeclaration(decl)) {
+            return convertFunctionType(
+              ts.factory.createFunctionTypeNode(
+                decl.typeParameters,
+                decl.parameters,
+                decl.type ?? ts.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword)
+              ),
+              checker,
+              convertType
+            );
+          }
+          // Parameter with explicit type
+          if (ts.isParameter(decl) && decl.type) {
+            return convertType(decl.type, checker);
+          }
+        }
       }
     }
     // Fallback: use anyType as marker - IR soundness gate will emit TSN7414

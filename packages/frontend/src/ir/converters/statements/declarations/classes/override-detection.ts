@@ -24,9 +24,9 @@ export const detectOverride = (
     return { isOverride: false, isShadow: false };
   }
 
-  // Resolve the base class type
-  const baseType = checker.getTypeAtLocation(superClass.expression);
-  const baseSymbol = baseType.getSymbol();
+  // DETERMINISTIC: Get base class symbol directly from AST
+  // Uses getSymbolAtLocation (allowed) instead of getTypeAtLocation (banned)
+  const baseSymbol = checker.getSymbolAtLocation(superClass.expression);
 
   if (!baseSymbol) {
     return { isOverride: false, isShadow: false };

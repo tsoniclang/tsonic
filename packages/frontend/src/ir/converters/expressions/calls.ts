@@ -135,9 +135,12 @@ const extractNarrowing = (
  * For a call like `dict.add(key, value)` where `dict: Dictionary<int, Todo>`,
  * this returns a map: { "TKey" -> int TypeNode, "TValue" -> Todo TypeNode }
  *
- * The key insight is that the RECEIVER's type (Dictionary<int, Todo>) preserves
- * the type arguments as TypeNodes, which in turn preserve CLR type aliases.
- * TypeScript's type instantiation mechanism loses aliasSymbol, but TypeNodes don't.
+ * DETERMINISTIC TYPING: This function uses only AST-based lookups:
+ * - getSymbolAtLocation for symbol resolution
+ * - symbol.getDeclarations() for declaration lookup
+ * - TypeNode traversal for type arguments
+ *
+ * NO banned APIs: getTypeAtLocation, getTypeOfSymbolAtLocation, typeToTypeNode
  */
 export const buildTypeParameterSubstitutionMap = (
   node: ts.CallExpression | ts.NewExpression,
@@ -146,144 +149,169 @@ export const buildTypeParameterSubstitutionMap = (
   // For method calls, get the receiver's type arguments
   // e.g., for dict.add(...), get Dictionary<int, Todo>'s type arguments
   if (
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression)
+    !(
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression)
+    )
   ) {
-    const receiver = node.expression.expression;
-    const receiverType = checker.getTypeAtLocation(receiver);
+    return undefined;
+  }
 
-    // Get the class/interface/type alias declaration that defines the type parameters
-    // For type aliases like Dictionary_2<TKey, TValue>, use aliasSymbol
-    // For classes/interfaces, use getSymbol()
-    const symbol = receiverType.aliasSymbol ?? receiverType.getSymbol();
-    if (!symbol) return undefined;
+  const receiver = node.expression.expression;
 
-    const declarations = symbol.getDeclarations();
-    if (!declarations || declarations.length === 0) return undefined;
+  // DETERMINISTIC: Get receiver's symbol and declarations from AST
+  const receiverSymbol = checker.getSymbolAtLocation(receiver);
+  if (!receiverSymbol) return undefined;
 
-    // Find the class/interface/type alias declaration with type parameters
+  const receiverDecls = receiverSymbol.getDeclarations();
+  if (!receiverDecls) return undefined;
+
+  /**
+   * Build substitution map from a TypeReferenceNode.
+   * Gets type parameter declarations from the type's symbol, then maps
+   * them to the type arguments in the TypeReferenceNode.
+   */
+  const buildMapFromTypeRef = (
+    typeRefNode: ts.TypeReferenceNode
+  ): Map<string, ts.TypeNode> | undefined => {
+    if (!typeRefNode.typeArguments || typeRefNode.typeArguments.length === 0) {
+      return undefined;
+    }
+
+    // DETERMINISTIC: Get the type's symbol from the TypeReferenceNode's typeName
+    const typeSymbol = checker.getSymbolAtLocation(typeRefNode.typeName);
+    if (!typeSymbol) return undefined;
+
+    const typeDecls = typeSymbol.getDeclarations();
+    if (!typeDecls) return undefined;
+
+    // Find type parameter declarations from the type's declaration
     let typeParamDecls: readonly ts.TypeParameterDeclaration[] | undefined;
-    for (const decl of declarations) {
-      if (ts.isClassDeclaration(decl) && decl.typeParameters) {
-        typeParamDecls = decl.typeParameters;
+    for (const typeDecl of typeDecls) {
+      if (ts.isClassDeclaration(typeDecl) && typeDecl.typeParameters) {
+        typeParamDecls = typeDecl.typeParameters;
         break;
       }
-      if (ts.isInterfaceDeclaration(decl) && decl.typeParameters) {
-        typeParamDecls = decl.typeParameters;
+      if (ts.isInterfaceDeclaration(typeDecl) && typeDecl.typeParameters) {
+        typeParamDecls = typeDecl.typeParameters;
         break;
       }
-      if (ts.isTypeAliasDeclaration(decl) && decl.typeParameters) {
-        typeParamDecls = decl.typeParameters;
+      if (ts.isTypeAliasDeclaration(typeDecl) && typeDecl.typeParameters) {
+        typeParamDecls = typeDecl.typeParameters;
         break;
       }
     }
 
-    if (!typeParamDecls || typeParamDecls.length === 0) return undefined;
+    if (
+      !typeParamDecls ||
+      typeParamDecls.length !== typeRefNode.typeArguments.length
+    ) {
+      return undefined;
+    }
 
-    // Get the type arguments from the receiver's type
-    // IMPORTANT: We must trace back to the ORIGINAL source code AST to preserve
-    // CLR type aliases like `int`. TypeScript's typeToTypeNode() does NOT preserve
-    // type aliases - it synthesizes primitive keywords like NumberKeyword instead.
-    //
-    // Look for the variable declaration that has type arguments in:
-    // 1. Explicit type annotation: const dict: Dictionary<int, Todo> = ...
-    // 2. NewExpression initializer: const dict = new Dictionary<int, Todo>()
-    // 3. Other declaration forms (property, parameter)
-    const receiverSymbol = checker.getSymbolAtLocation(receiver);
-    if (receiverSymbol) {
-      const receiverDecls = receiverSymbol.getDeclarations();
-      if (receiverDecls) {
-        for (const decl of receiverDecls) {
-          // Helper to build substitution map from type argument nodes
-          const buildMapFromTypeArgs = (
-            typeArgNodes: ts.NodeArray<ts.TypeNode>
-          ): Map<string, ts.TypeNode> | undefined => {
-            if (
-              typeParamDecls &&
-              typeArgNodes.length === typeParamDecls.length
-            ) {
-              const substitutionMap = new Map<string, ts.TypeNode>();
-              for (let i = 0; i < typeParamDecls.length; i++) {
-                const paramDecl = typeParamDecls[i];
-                const argNode = typeArgNodes[i];
-                if (paramDecl && argNode) {
-                  substitutionMap.set(paramDecl.name.text, argNode);
-                }
-              }
-              return substitutionMap;
-            }
-            return undefined;
-          };
+    // Build the substitution map: type param name → type argument TypeNode
+    const substitutionMap = new Map<string, ts.TypeNode>();
+    for (let i = 0; i < typeParamDecls.length; i++) {
+      const paramDecl = typeParamDecls[i];
+      const argNode = typeRefNode.typeArguments[i];
+      if (paramDecl && argNode) {
+        substitutionMap.set(paramDecl.name.text, argNode);
+      }
+    }
+    return substitutionMap;
+  };
 
-          // Check explicit type annotation first
-          if (ts.isVariableDeclaration(decl) && decl.type) {
-            if (ts.isTypeReferenceNode(decl.type) && decl.type.typeArguments) {
-              const result = buildMapFromTypeArgs(decl.type.typeArguments);
-              if (result) return result;
-            }
-          }
+  /**
+   * Build substitution map from a NewExpression's type arguments.
+   * Gets type parameters from the constructor's class declaration.
+   */
+  const buildMapFromNewExpr = (
+    newExpr: ts.NewExpression
+  ): Map<string, ts.TypeNode> | undefined => {
+    if (!newExpr.typeArguments || newExpr.typeArguments.length === 0) {
+      return undefined;
+    }
 
-          // Check initializer: new Dictionary<int, Todo>()
-          // This handles: const todos = new Dictionary<int, Todo>();
-          if (ts.isVariableDeclaration(decl) && decl.initializer) {
-            // Handle direct NewExpression
-            if (
-              ts.isNewExpression(decl.initializer) &&
-              decl.initializer.typeArguments
-            ) {
-              const result = buildMapFromTypeArgs(
-                decl.initializer.typeArguments
-              );
-              if (result) return result;
-            }
+    // DETERMINISTIC: Get the class symbol from the new expression's expression
+    const classSymbol = checker.getSymbolAtLocation(newExpr.expression);
+    if (!classSymbol) return undefined;
 
-            // Handle AsExpression (type assertion): new List<int>() as List<int>
-            // The type arguments are in the AsExpression's type, not the NewExpression
-            if (ts.isAsExpression(decl.initializer)) {
-              const asType = decl.initializer.type;
-              if (ts.isTypeReferenceNode(asType) && asType.typeArguments) {
-                const result = buildMapFromTypeArgs(asType.typeArguments);
-                if (result) return result;
-              }
+    const classDecls = classSymbol.getDeclarations();
+    if (!classDecls) return undefined;
+
+    for (const classDecl of classDecls) {
+      if (ts.isClassDeclaration(classDecl) && classDecl.typeParameters) {
+        if (classDecl.typeParameters.length === newExpr.typeArguments.length) {
+          const substitutionMap = new Map<string, ts.TypeNode>();
+          for (let i = 0; i < classDecl.typeParameters.length; i++) {
+            const paramDecl = classDecl.typeParameters[i];
+            const argNode = newExpr.typeArguments[i];
+            if (paramDecl && argNode) {
+              substitutionMap.set(paramDecl.name.text, argNode);
             }
           }
-
-          // Also check property declarations with type annotation
-          if (
-            ts.isPropertyDeclaration(decl) &&
-            decl.type &&
-            ts.isTypeReferenceNode(decl.type) &&
-            decl.type.typeArguments
-          ) {
-            const result = buildMapFromTypeArgs(decl.type.typeArguments);
-            if (result) return result;
-          }
-
-          // Check property declaration initializer
-          if (ts.isPropertyDeclaration(decl) && decl.initializer) {
-            if (
-              ts.isNewExpression(decl.initializer) &&
-              decl.initializer.typeArguments
-            ) {
-              const result = buildMapFromTypeArgs(
-                decl.initializer.typeArguments
-              );
-              if (result) return result;
-            }
-          }
-
-          // Check parameter declarations
-          if (
-            ts.isParameter(decl) &&
-            decl.type &&
-            ts.isTypeReferenceNode(decl.type) &&
-            decl.type.typeArguments
-          ) {
-            const result = buildMapFromTypeArgs(decl.type.typeArguments);
-            if (result) return result;
-          }
+          return substitutionMap;
         }
       }
+    }
+    return undefined;
+  };
+
+  // Check various declaration forms for type arguments
+  for (const decl of receiverDecls) {
+    // Variable declaration with explicit type: const dict: Dictionary<int, Todo>
+    if (
+      ts.isVariableDeclaration(decl) &&
+      decl.type &&
+      ts.isTypeReferenceNode(decl.type)
+    ) {
+      const result = buildMapFromTypeRef(decl.type);
+      if (result) return result;
+    }
+
+    // Variable declaration with new expression: const dict = new Dictionary<int, Todo>()
+    if (ts.isVariableDeclaration(decl) && decl.initializer) {
+      if (ts.isNewExpression(decl.initializer)) {
+        const result = buildMapFromNewExpr(decl.initializer);
+        if (result) return result;
+      }
+
+      // Handle AsExpression (type assertion): new List<int>() as List<int>
+      if (
+        ts.isAsExpression(decl.initializer) &&
+        ts.isTypeReferenceNode(decl.initializer.type)
+      ) {
+        const result = buildMapFromTypeRef(decl.initializer.type);
+        if (result) return result;
+      }
+    }
+
+    // Property declaration with type annotation
+    if (
+      ts.isPropertyDeclaration(decl) &&
+      decl.type &&
+      ts.isTypeReferenceNode(decl.type)
+    ) {
+      const result = buildMapFromTypeRef(decl.type);
+      if (result) return result;
+    }
+
+    // Property declaration with new expression initializer
+    if (ts.isPropertyDeclaration(decl) && decl.initializer) {
+      if (ts.isNewExpression(decl.initializer)) {
+        const result = buildMapFromNewExpr(decl.initializer);
+        if (result) return result;
+      }
+    }
+
+    // Parameter declaration with type annotation
+    if (
+      ts.isParameter(decl) &&
+      decl.type &&
+      ts.isTypeReferenceNode(decl.type)
+    ) {
+      const result = buildMapFromTypeRef(decl.type);
+      if (result) return result;
     }
   }
 
@@ -409,16 +437,27 @@ const extractParameterTypes = (
     // Build parameter type array using instantiated types from signature
     const paramTypes: (IrType | undefined)[] = [];
 
+    // Get the type parameter names from the enclosing function's signature
+    // to detect if a parameter type is a type parameter (deterministically)
+    const funcTypeParams = new Set<string>();
+    const sigDecl = signature.getDeclaration();
+    if (sigDecl && sigDecl.typeParameters) {
+      for (const tp of sigDecl.typeParameters) {
+        funcTypeParams.add(tp.name.text);
+      }
+    }
+
     for (const sigParam of sigParams) {
       const decl = sigParam.valueDeclaration;
 
       // Get the declaration's type node if available
       if (decl && ts.isParameter(decl) && decl.type) {
-        // Check if the declaration type is a type parameter
-        const declType = checker.getTypeAtLocation(decl.type);
-        const isTypeParameter = Boolean(
-          declType.flags & ts.TypeFlags.TypeParameter
-        );
+        // DETERMINISTIC: Check if the declaration type is a type parameter
+        // by examining the TypeNode syntax, not using getTypeAtLocation
+        const isTypeParameter =
+          ts.isTypeReferenceNode(decl.type) &&
+          ts.isIdentifier(decl.type.typeName) &&
+          funcTypeParams.has(decl.type.typeName.text);
 
         if (isTypeParameter) {
           if (substitutionMap) {

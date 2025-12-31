@@ -126,45 +126,27 @@ export const deriveIdentifierType = (
 };
 
 /**
- * Extract type arguments from a call or new expression
- * This captures both explicit type arguments and inferred ones
+ * Extract explicit type arguments from a call or new expression.
+ *
+ * DETERMINISTIC TYPING: Only returns type arguments that are explicitly
+ * specified in the source code. Does NOT use TypeScript's type inference
+ * to infer type arguments. For inferred type arguments, use expectedType
+ * threading in the caller (Step 6 of deterministic typing).
  */
 export const extractTypeArguments = (
   node: ts.CallExpression | ts.NewExpression,
   checker: ts.TypeChecker
 ): readonly IrType[] | undefined => {
   try {
-    // First check for explicit type arguments
+    // Only return explicitly specified type arguments
+    // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
       return node.typeArguments.map((typeArg) => convertType(typeArg, checker));
     }
 
-    // Try to get inferred type arguments from resolved signature
-    const signature = checker.getResolvedSignature(node);
-    if (!signature) {
-      return undefined;
-    }
-
-    const typeParameters = signature.typeParameters;
-    if (!typeParameters || typeParameters.length === 0) {
-      return undefined;
-    }
-
-    // Get the type arguments inferred by the checker
-    const typeArgs: IrType[] = [];
-    for (const typeParam of typeParameters) {
-      // Try to resolve the instantiated type for this parameter
-      const typeNode = checker.typeToTypeNode(
-        typeParam as ts.Type,
-        node,
-        ts.NodeBuilderFlags.None
-      );
-      if (typeNode) {
-        typeArgs.push(convertType(typeNode, checker));
-      }
-    }
-
-    return typeArgs.length > 0 ? typeArgs : undefined;
+    // No explicit type arguments - return undefined
+    // The caller should use expectedType threading if type args are needed
+    return undefined;
   } catch {
     return undefined;
   }
@@ -287,20 +269,20 @@ export const isAssignmentOperator = (
 };
 
 /**
- * Get the contextual type for an expression (for object literals).
- * Returns an IrType with type arguments if the contextual type is a named type
- * (interface, class, generic), or undefined if it's an anonymous/primitive type.
+ * Get the contextual type for an expression from explicit TypeNodes.
  *
- * DETERMINISTIC TYPING: This returns a referenceType with the type name.
- * Type arguments come from the parent context's explicit TypeNode, not from
- * TypeScript's computed types.
+ * DETERMINISTIC TYPING: Only extracts types from explicit TypeNodes in the
+ * source code. Does NOT use TypeScript's getContextualType (banned API).
+ * Returns undefined if no explicit type annotation is found.
+ *
+ * For complete expectedType threading (covering all contexts), see Step 6
+ * of deterministic typing implementation.
  */
 export const getContextualType = (
   node: ts.Expression,
   checker: ts.TypeChecker
 ): IrType | undefined => {
   try {
-    // First try to get type from parent's explicit TypeNode (deterministic)
     const parent = node.parent;
 
     // Variable declaration: const x: Foo = { ... }
@@ -308,10 +290,20 @@ export const getContextualType = (
       return convertType(parent.type, checker);
     }
 
+    // Return statement: function f(): Foo { return { ... } }
+    if (ts.isReturnStatement(parent)) {
+      // Walk up to find enclosing function
+      let current: ts.Node = parent;
+      while (current && !ts.isFunctionLike(current)) {
+        current = current.parent;
+      }
+      if (current && ts.isFunctionLike(current) && current.type) {
+        return convertType(current.type, checker);
+      }
+    }
+
     // Property assignment in object literal: { prop: { ... } }
-    // The parent object's contextual type determines this property's type
     if (ts.isPropertyAssignment(parent)) {
-      // Get the property name
       const propName = ts.isIdentifier(parent.name)
         ? parent.name.text
         : ts.isStringLiteral(parent.name)
@@ -319,7 +311,6 @@ export const getContextualType = (
           : undefined;
 
       if (propName && ts.isObjectLiteralExpression(parent.parent)) {
-        // Recursively get the parent object's contextual type
         const parentType = getContextualType(parent.parent, checker);
         if (parentType?.kind === "objectType") {
           const member = parentType.members.find(
@@ -329,46 +320,41 @@ export const getContextualType = (
             return member.type;
           }
         }
+        // For referenceType, we would need TypeRegistry to find member type
+        // This will be handled in Step 6 with full expectedType threading
       }
     }
 
-    // Parameter: function f(x: Foo) { ... } - called with { ... }
-    // For this we check TypeScript's contextual type symbol
-    const contextualType = checker.getContextualType(node);
-    if (!contextualType) {
-      return undefined;
-    }
-
-    // Check if it's an object type with a symbol (named type)
-    const symbol = contextualType.getSymbol();
-    if (!symbol) {
-      return undefined;
-    }
-
-    // Get the symbol name
-    const name = symbol.getName();
-
-    // Skip anonymous types and built-in types
-    if (name === "__type" || name === "__object" || name === "Object") {
-      return undefined;
-    }
-
-    // Check that it's actually a class or interface declaration
-    const declarations = symbol.getDeclarations();
-    if (declarations && declarations.length > 0) {
-      const firstDecl = declarations[0];
-      if (
-        firstDecl &&
-        (ts.isInterfaceDeclaration(firstDecl) ||
-          ts.isClassDeclaration(firstDecl) ||
-          ts.isTypeAliasDeclaration(firstDecl))
-      ) {
-        // DETERMINISTIC: Return referenceType with just the name
-        // Type arguments would need to come from explicit TypeNodes in context
-        return { kind: "referenceType", name };
+    // Array element: const arr: Foo[] = [{ ... }]
+    if (ts.isArrayLiteralExpression(parent)) {
+      const arrayType = getContextualType(parent, checker);
+      if (arrayType?.kind === "arrayType") {
+        return arrayType.elementType;
       }
     }
 
+    // Call argument: f({ ... }) where f(x: Foo)
+    // This requires finding the parameter type from the resolved signature
+    // For now, use getResolvedSignature (allowed) to get the declaration
+    if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
+      const argIndex = parent.arguments
+        ? parent.arguments.indexOf(node as ts.Expression)
+        : -1;
+      if (argIndex >= 0) {
+        const sig = checker.getResolvedSignature(parent);
+        const decl = sig?.declaration;
+        if (decl && decl.parameters && decl.parameters[argIndex]) {
+          const paramDecl = decl.parameters[argIndex];
+          // Check it's a ParameterDeclaration (not JSDocParameterTag)
+          if (paramDecl && ts.isParameter(paramDecl) && paramDecl.type) {
+            return convertType(paramDecl.type, checker);
+          }
+        }
+      }
+    }
+
+    // DETERMINISTIC: No fallback to checker.getContextualType
+    // Return undefined if we can't find an explicit type annotation
     return undefined;
   } catch {
     return undefined;
