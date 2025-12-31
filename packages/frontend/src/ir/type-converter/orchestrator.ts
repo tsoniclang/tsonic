@@ -160,7 +160,8 @@ export const convertType = (
               ts.factory.createFunctionTypeNode(
                 decl.typeParameters,
                 decl.parameters,
-                decl.type ?? ts.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword)
+                decl.type ??
+                  ts.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword)
               ),
               checker,
               convertType

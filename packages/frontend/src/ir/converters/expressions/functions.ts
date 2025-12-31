@@ -7,26 +7,42 @@ import {
   IrFunctionExpression,
   IrArrowFunctionExpression,
   IrParameter,
+  IrType,
 } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
-import {
-  convertType,
-  convertBindingName,
-  inferLambdaParamTypes,
-} from "../../type-converter.js";
+import { convertType, convertBindingName } from "../../type-converter.js";
+
+/**
+ * Extract parameter types from an expected function type.
+ * DETERMINISTIC: Uses only the IR type structure, not TS type inference.
+ */
+const extractParamTypesFromExpectedType = (
+  expectedType: IrType | undefined
+): readonly (IrType | undefined)[] | undefined => {
+  if (!expectedType) return undefined;
+  if (expectedType.kind !== "functionType") return undefined;
+  return expectedType.parameters.map((p) => p.type);
+};
 
 /**
  * Convert parameters for lambda expressions (arrow functions and function expressions).
- * Uses contextual signature inference for parameters without explicit type annotations.
+ *
+ * DETERMINISTIC TYPING: Parameter types come from:
+ * 1. Explicit type annotations on the parameter
+ * 2. expectedType (function type passed from call site via extractParameterTypes)
+ *
+ * If no type is available, parameter type is undefined (unknownType poison).
+ * Validation will emit TSN5202 for untyped lambda parameters.
  */
 const convertLambdaParameters = (
   node: ts.ArrowFunction | ts.FunctionExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType: IrType | undefined
 ): readonly IrParameter[] => {
-  // Get inferred types from contextual signature
-  const inference = inferLambdaParamTypes(node, checker);
+  // DETERMINISTIC: Extract parameter types from expectedType (the ONLY source for unannotated params)
+  const expectedParamTypes = extractParamTypesFromExpectedType(expectedType);
 
   return node.parameters.map((param, index) => {
     let passing: "value" | "ref" | "out" | "in" = "value";
@@ -50,14 +66,17 @@ const convertLambdaParameters = (
     }
 
     // Determine the IrType for this parameter
-    let irType;
+    // DETERMINISTIC Priority: 1. Explicit annotation, 2. expectedType from call site
+    let irType: IrType | undefined;
     if (actualType) {
       // Explicit type annotation - use it
       irType = convertType(actualType, checker);
-    } else if (inference) {
-      // No explicit type - use inferred type from contextual signature
-      irType = inference.paramTypes[index];
+    } else if (expectedParamTypes && expectedParamTypes[index]) {
+      // Use expectedType from call site (deterministic)
+      irType = expectedParamTypes[index];
     }
+    // If no type available, irType stays undefined (unknownType poison)
+    // Validation will emit TSN5202 for untyped lambda parameters
 
     return {
       kind: "parameter" as const,
@@ -78,14 +97,17 @@ const convertLambdaParameters = (
  * Convert function expression
  *
  * DETERMINISTIC TYPING: Build function type from declared parameters and return type.
+ * Parameter types come from explicit annotations or expectedType (no TS inference).
  */
 export const convertFunctionExpression = (
   node: ts.FunctionExpression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType?: IrType
 ): IrFunctionExpression => {
   // Get return type from declared annotation for contextual typing
   const returnType = node.type ? convertType(node.type, checker) : undefined;
-  const parameters = convertLambdaParameters(node, checker);
+  // DETERMINISTIC: Pass expectedType for parameter type inference
+  const parameters = convertLambdaParameters(node, checker, expectedType);
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {
@@ -116,14 +138,24 @@ export const convertFunctionExpression = (
  * Convert arrow function expression
  *
  * DETERMINISTIC TYPING: Build function type from declared parameters and return type.
+ * Parameter types come from explicit annotations or expectedType (no TS inference).
  */
 export const convertArrowFunction = (
   node: ts.ArrowFunction,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType?: IrType
 ): IrArrowFunctionExpression => {
-  // Get return type from declared annotation for contextual typing
-  const returnType = node.type ? convertType(node.type, checker) : undefined;
-  const parameters = convertLambdaParameters(node, checker);
+  // Get return type from declared annotation, or from expectedType if available
+  const declaredReturnType = node.type
+    ? convertType(node.type, checker)
+    : undefined;
+  // DETERMINISTIC: Use expectedType's return type if no explicit annotation
+  const expectedReturnType =
+    expectedType?.kind === "functionType" ? expectedType.returnType : undefined;
+  const returnType = declaredReturnType ?? expectedReturnType;
+
+  // DETERMINISTIC: Pass expectedType for parameter type inference
+  const parameters = convertLambdaParameters(node, checker, expectedType);
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type
@@ -132,11 +164,8 @@ export const convertArrowFunction = (
     ? convertBlockStatement(node.body, checker, returnType)
     : convertExpression(node.body, checker, returnType);
 
-  // DETERMINISTIC TYPING: contextualType is only set if derivable from declaration.
-  // For arrow functions passed as arguments, the parameter type comes from
-  // inferLambdaParamTypes which uses the signature's declaration TypeNode.
-  // We don't use TypeScript's computed contextual type here.
-  const contextualType = undefined;
+  // DETERMINISTIC TYPING: contextualType comes from expectedType
+  const contextualType = expectedType;
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {

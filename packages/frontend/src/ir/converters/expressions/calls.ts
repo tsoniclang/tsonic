@@ -257,6 +257,21 @@ export const buildTypeParameterSubstitutionMap = (
     return undefined;
   };
 
+  /**
+   * Build substitution map from an ArrayTypeNode.
+   * For `T[]`, maps the Array type parameter T to the element type.
+   * This enables contextual typing for array method callbacks like `nums.map((n) => ...)`.
+   */
+  const buildMapFromArrayType = (
+    arrayTypeNode: ts.ArrayTypeNode
+  ): Map<string, ts.TypeNode> => {
+    // JavaScript's Array<T> uses "T" for the element type parameter
+    // Map T to the element type
+    const substitutionMap = new Map<string, ts.TypeNode>();
+    substitutionMap.set("T", arrayTypeNode.elementType);
+    return substitutionMap;
+  };
+
   // Check various declaration forms for type arguments
   for (const decl of receiverDecls) {
     // Variable declaration with explicit type: const dict: Dictionary<int, Todo>
@@ -267,6 +282,16 @@ export const buildTypeParameterSubstitutionMap = (
     ) {
       const result = buildMapFromTypeRef(decl.type);
       if (result) return result;
+    }
+
+    // Variable declaration with array type: const nums: number[]
+    // Maps T -> number for array method callbacks like map, filter, etc.
+    if (
+      ts.isVariableDeclaration(decl) &&
+      decl.type &&
+      ts.isArrayTypeNode(decl.type)
+    ) {
+      return buildMapFromArrayType(decl.type);
     }
 
     // Variable declaration with new expression: const dict = new Dictionary<int, Todo>()
@@ -296,6 +321,15 @@ export const buildTypeParameterSubstitutionMap = (
       if (result) return result;
     }
 
+    // Property declaration with array type
+    if (
+      ts.isPropertyDeclaration(decl) &&
+      decl.type &&
+      ts.isArrayTypeNode(decl.type)
+    ) {
+      return buildMapFromArrayType(decl.type);
+    }
+
     // Property declaration with new expression initializer
     if (ts.isPropertyDeclaration(decl) && decl.initializer) {
       if (ts.isNewExpression(decl.initializer)) {
@@ -312,6 +346,11 @@ export const buildTypeParameterSubstitutionMap = (
     ) {
       const result = buildMapFromTypeRef(decl.type);
       if (result) return result;
+    }
+
+    // Parameter declaration with array type
+    if (ts.isParameter(decl) && decl.type && ts.isArrayTypeNode(decl.type)) {
+      return buildMapFromArrayType(decl.type);
     }
   }
 
@@ -396,6 +435,59 @@ export const substituteTypeNode = (
     }
   }
 
+  // Handle function types: (x: T) => T -> (x: int) => int
+  // This is critical for callback parameter contextual typing
+  if (ts.isFunctionTypeNode(typeNode)) {
+    let anySubstituted = false;
+
+    // Substitute parameter types
+    const newParams: ts.ParameterDeclaration[] = [];
+    for (const param of typeNode.parameters) {
+      if (param.type) {
+        const substituted = substituteTypeNode(
+          param.type,
+          substitutionMap,
+          checker
+        );
+        if (substituted) {
+          newParams.push(
+            ts.factory.createParameterDeclaration(
+              param.modifiers,
+              param.dotDotDotToken,
+              param.name,
+              param.questionToken,
+              substituted,
+              param.initializer
+            )
+          );
+          anySubstituted = true;
+          continue;
+        }
+      }
+      newParams.push(param);
+    }
+
+    // Substitute return type
+    let newReturnType = typeNode.type;
+    const substitutedReturn = substituteTypeNode(
+      typeNode.type,
+      substitutionMap,
+      checker
+    );
+    if (substitutedReturn) {
+      newReturnType = substitutedReturn;
+      anySubstituted = true;
+    }
+
+    if (anySubstituted) {
+      return ts.factory.createFunctionTypeNode(
+        typeNode.typeParameters, // Don't substitute type params in the function's own scope
+        newParams,
+        newReturnType
+      );
+    }
+  }
+
   return undefined;
 };
 
@@ -452,43 +544,40 @@ const extractParameterTypes = (
 
       // Get the declaration's type node if available
       if (decl && ts.isParameter(decl) && decl.type) {
-        // DETERMINISTIC: Check if the declaration type is a type parameter
-        // by examining the TypeNode syntax, not using getTypeAtLocation
-        const isTypeParameter =
+        // DETERMINISTIC: ALWAYS try to substitute type parameters in the parameter type.
+        // This handles both direct type parameters (T) and complex types containing them
+        // like function types ((x: T) => T) which need substitution for lambda contextual typing.
+        let typeToConvert = decl.type;
+        if (substitutionMap) {
+          const substituted = substituteTypeNode(
+            decl.type,
+            substitutionMap,
+            checker
+          );
+          if (substituted) {
+            typeToConvert = substituted;
+          }
+        }
+
+        // Check if the original type is a type parameter without substitution
+        // (e.g., generic function call where type param is inferred from args)
+        const isUnsubstitutedTypeParam =
           ts.isTypeReferenceNode(decl.type) &&
           ts.isIdentifier(decl.type.typeName) &&
-          funcTypeParams.has(decl.type.typeName.text);
+          funcTypeParams.has(decl.type.typeName.text) &&
+          typeToConvert === decl.type; // No substitution happened
 
-        if (isTypeParameter) {
-          if (substitutionMap) {
-            // Type parameter case: use substitution map to preserve CLR aliases
-            const substituted = substituteTypeNode(
-              decl.type,
-              substitutionMap,
-              checker
-            );
-            if (substituted) {
-              const irType = convertType(substituted, checker);
-              if (irType) {
-                paramTypes.push(irType);
-                continue;
-              }
-            }
-          }
-          // Type parameter without substitution (e.g., generic function call with inferred types)
-          // The type parameter is INFERRED from the argument, so don't validate against
-          // TypeScript's instantiated type (which loses CLR type aliases like `int`).
-          // Push undefined to skip validation for this parameter.
+        if (isUnsubstitutedTypeParam) {
+          // Type parameter without substitution - the type is INFERRED from the argument,
+          // so don't validate against it (would lose CLR type aliases like `int`).
           paramTypes.push(undefined);
           continue;
-        } else {
-          // Non-type-parameter: use declaration type node directly
-          // This preserves imported CLR type aliases like `int`
-          const irType = convertType(decl.type, checker);
-          if (irType) {
-            paramTypes.push(irType);
-            continue;
-          }
+        }
+
+        const irType = convertType(typeToConvert, checker);
+        if (irType) {
+          paramTypes.push(irType);
+          continue;
         }
       }
 

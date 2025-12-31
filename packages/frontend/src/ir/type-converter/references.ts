@@ -17,6 +17,7 @@ import {
   getClrPrimitiveType,
   CLR_PRIMITIVE_TYPE_SET,
 } from "./primitives.js";
+import { convertFunctionType } from "./functions.js";
 import {
   isExpandableUtilityType,
   expandUtilityType,
@@ -449,8 +450,35 @@ export const convertTypeReference = (
     };
   }
 
-  // Check if this is a type parameter reference (e.g., T in Container<T>)
-  // Use the type checker to determine if the reference resolves to a type parameter
+  // DETERMINISTIC: Check if this is a type parameter or type alias using symbol lookup
+  const symbol = checker.getSymbolAtLocation(node.typeName);
+  if (symbol) {
+    const decls = symbol.getDeclarations();
+    if (decls && decls.length > 0) {
+      for (const decl of decls) {
+        // Check for type parameter declaration
+        if (ts.isTypeParameterDeclaration(decl)) {
+          return { kind: "typeParameterType", name: typeName };
+        }
+
+        // Check for type alias to function type
+        // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
+        // e.g., `type NumberToNumber = (x: number) => number` should be converted
+        // to a functionType, not a referenceType
+        if (
+          ts.isTypeAliasDeclaration(decl) &&
+          ts.isFunctionTypeNode(decl.type)
+        ) {
+          // Convert the underlying function type directly
+          // This enables extractParamTypesFromExpectedType to work
+          return convertFunctionType(decl.type, checker, convertType);
+        }
+      }
+    }
+  }
+
+  // Fallback: check using getTypeAtLocation for type parameters
+  // (handles cases where symbol lookup fails, e.g., complex imports)
   const type = checker.getTypeAtLocation(node);
   if (type.flags & ts.TypeFlags.TypeParameter) {
     return { kind: "typeParameterType", name: typeName };

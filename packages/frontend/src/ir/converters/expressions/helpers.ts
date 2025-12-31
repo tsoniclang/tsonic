@@ -36,13 +36,157 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
  * - CLR type aliases like `int`, `byte`, `long` are preserved
  * - Types are deterministic and don't depend on TypeScript inference
  *
+ * For variables without explicit type annotation (e.g., `const x = createArray()`),
+ * derives the type from the initializer's declared return type.
+ *
  * Returns undefined if:
  * - No declaration found
- * - Declaration has no TypeNode (untyped parameter, etc.)
- *
- * For variables without explicit type but with initializer, returns undefined
- * (caller should derive from initializer's inferredType).
+ * - Declaration has no TypeNode and no derivable initializer
  */
+/**
+ * Derive the return type of a call expression from its declaration.
+ *
+ * DETERMINISTIC: Uses only TypeNode from the function declaration.
+ * This is a simplified version for use in deriveIdentifierType to avoid
+ * circular dependencies with calls.ts.
+ */
+const deriveCallReturnType = (
+  node: ts.CallExpression,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  const signature = checker.getResolvedSignature(node);
+  if (!signature) return undefined;
+
+  const decl = signature.declaration;
+  if (!decl) return undefined;
+
+  let returnTypeNode: ts.TypeNode | undefined;
+
+  if (
+    ts.isMethodSignature(decl) ||
+    ts.isMethodDeclaration(decl) ||
+    ts.isFunctionDeclaration(decl) ||
+    ts.isCallSignatureDeclaration(decl) ||
+    ts.isArrowFunction(decl) ||
+    ts.isFunctionExpression(decl)
+  ) {
+    returnTypeNode = decl.type;
+  }
+
+  if (!returnTypeNode) return undefined;
+
+  return convertType(returnTypeNode, checker);
+};
+
+/**
+ * Derive the constructed type from a new expression.
+ *
+ * For `new Foo<int>()`, returns `Foo<int>` as a reference type.
+ */
+const deriveNewExpressionType = (
+  node: ts.NewExpression,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  // Get the type name from the expression
+  const getTypeName = (expr: ts.Expression): string | undefined => {
+    if (ts.isIdentifier(expr)) {
+      return expr.text;
+    }
+    if (ts.isPropertyAccessExpression(expr)) {
+      const parts: string[] = [];
+      let current: ts.Expression = expr;
+      while (ts.isPropertyAccessExpression(current)) {
+        parts.unshift(current.name.text);
+        current = current.expression;
+      }
+      if (ts.isIdentifier(current)) {
+        parts.unshift(current.text);
+        return parts.join(".");
+      }
+    }
+    return undefined;
+  };
+
+  const typeName = getTypeName(node.expression);
+  if (!typeName) return undefined;
+
+  // If explicit type arguments, include them
+  if (node.typeArguments && node.typeArguments.length > 0) {
+    return {
+      kind: "referenceType",
+      name: typeName,
+      typeArguments: node.typeArguments.map((ta) => convertType(ta, checker)),
+    };
+  }
+
+  return { kind: "referenceType", name: typeName };
+};
+
+/**
+ * Derive type from an initializer expression.
+ *
+ * DETERMINISTIC: Only uses TypeNodes from declarations, not TS type inference.
+ * Returns undefined if type cannot be determined from declarations alone.
+ */
+const deriveTypeFromInitializer = (
+  initializer: ts.Expression,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  // Call expression: const arr = createArray()
+  if (ts.isCallExpression(initializer)) {
+    return deriveCallReturnType(initializer, checker);
+  }
+
+  // New expression: const list = new List<int>()
+  if (ts.isNewExpression(initializer)) {
+    return deriveNewExpressionType(initializer, checker);
+  }
+
+  // Identifier: const y = x (derive type from x's declaration)
+  if (ts.isIdentifier(initializer)) {
+    // Recursive call - will look up the identifier's declaration
+    // Note: This uses the main function, which is defined below
+    // TypeScript hoisting makes this work
+    return deriveIdentifierType(initializer, checker);
+  }
+
+  // Literals - derive from the literal itself
+  if (ts.isNumericLiteral(initializer)) {
+    return { kind: "primitiveType", name: "number" };
+  }
+  if (ts.isStringLiteral(initializer)) {
+    return { kind: "primitiveType", name: "string" };
+  }
+  if (
+    initializer.kind === ts.SyntaxKind.TrueKeyword ||
+    initializer.kind === ts.SyntaxKind.FalseKeyword
+  ) {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // Array literal - return Array type (element type from first element if possible)
+  if (ts.isArrayLiteralExpression(initializer)) {
+    // For array literals, we can try to derive element type from first element
+    if (initializer.elements.length > 0) {
+      const firstElem = initializer.elements[0];
+      if (firstElem && !ts.isSpreadElement(firstElem)) {
+        const elementType = deriveTypeFromInitializer(firstElem, checker);
+        if (elementType) {
+          return { kind: "arrayType", elementType };
+        }
+      }
+    }
+    // Empty array or couldn't derive element type
+    return undefined;
+  }
+
+  // Property access: const len = arr.length (need to trace through)
+  // Member access typing is complex - defer to undefined for now
+  // The proof pass will handle this
+
+  return undefined;
+};
+
 export const deriveIdentifierType = (
   node: ts.Identifier,
   checker: ts.TypeChecker
@@ -55,8 +199,22 @@ export const deriveIdentifierType = (
 
   for (const decl of declarations) {
     // Variable declaration: const x: int = 5
-    if (ts.isVariableDeclaration(decl) && decl.type) {
-      return convertType(decl.type, checker);
+    if (ts.isVariableDeclaration(decl)) {
+      // First, check for explicit type annotation
+      if (decl.type) {
+        return convertType(decl.type, checker);
+      }
+
+      // No explicit type - try to derive from initializer
+      if (decl.initializer) {
+        const initType = deriveTypeFromInitializer(decl.initializer, checker);
+        if (initType) {
+          return initType;
+        }
+      }
+
+      // Can't derive type - continue to next declaration
+      continue;
     }
 
     // Parameter declaration: function f(x: int)

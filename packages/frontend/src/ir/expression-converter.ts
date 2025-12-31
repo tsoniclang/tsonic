@@ -226,10 +226,12 @@ export const convertExpression = (
     return convertConditionalExpression(node, checker, expectedType);
   }
   if (ts.isFunctionExpression(node)) {
-    return convertFunctionExpression(node, checker);
+    // DETERMINISTIC: Pass expectedType for parameter type inference
+    return convertFunctionExpression(node, checker, expectedType);
   }
   if (ts.isArrowFunction(node)) {
-    return convertArrowFunction(node, checker);
+    // DETERMINISTIC: Pass expectedType for parameter type inference
+    return convertArrowFunction(node, checker, expectedType);
   }
   if (
     ts.isTemplateExpression(node) ||
