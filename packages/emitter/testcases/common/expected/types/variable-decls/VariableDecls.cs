@@ -4,7 +4,7 @@ namespace TestCases.common.types.variabledecls
         {
             public static readonly double inferredDouble = 42.5;
 
-            public static readonly double inferredInt = 42;
+            public static readonly int inferredInt = 42;
 
             public static readonly string inferredString = "hello";
 

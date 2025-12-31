@@ -3,7 +3,7 @@
  */
 
 import * as ts from "typescript";
-import { IrVariableDeclaration } from "../../../types.js";
+import { IrVariableDeclaration, IrExpression, IrType } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import {
   convertType,
@@ -11,6 +11,66 @@ import {
   inferType,
 } from "../../../type-converter.js";
 import { hasExportModifier } from "../helpers.js";
+
+/**
+ * Derive the type from a converted IR expression using deterministic rules.
+ * This replaces TypeScript type inference for unannotated variables.
+ *
+ * DETERMINISTIC TYPING RULES:
+ * - Integer literals (numericIntent: "Int32") → int
+ * - Floating literals (numericIntent: "Double") → double (as number)
+ * - String literals → string
+ * - Boolean literals → boolean
+ * - Other expressions → fallback to TypeScript inference
+ */
+const deriveTypeFromExpression = (
+  expr: IrExpression,
+  decl: ts.VariableDeclaration,
+  checker: ts.TypeChecker
+): IrType | undefined => {
+  // For literals with numericIntent, use the intent to determine type
+  if (expr.kind === "literal") {
+    if (typeof expr.value === "number" && expr.numericIntent) {
+      if (expr.numericIntent === "Int32") {
+        return { kind: "referenceType", name: "int" };
+      } else if (expr.numericIntent === "Double") {
+        return { kind: "primitiveType", name: "number" };
+      }
+    }
+    if (typeof expr.value === "string") {
+      return { kind: "primitiveType", name: "string" };
+    }
+    if (typeof expr.value === "boolean") {
+      return { kind: "primitiveType", name: "boolean" };
+    }
+  }
+
+  // For arrays, derive element type from first element if it's a literal
+  if (expr.kind === "array" && expr.elements.length > 0) {
+    const firstElement = expr.elements[0];
+    if (firstElement && firstElement.kind === "literal") {
+      if (
+        typeof firstElement.value === "number" &&
+        firstElement.numericIntent
+      ) {
+        if (firstElement.numericIntent === "Int32") {
+          return {
+            kind: "arrayType",
+            elementType: { kind: "referenceType", name: "int" },
+          };
+        } else if (firstElement.numericIntent === "Double") {
+          return {
+            kind: "arrayType",
+            elementType: { kind: "primitiveType", name: "number" },
+          };
+        }
+      }
+    }
+  }
+
+  // For other expressions, fallback to TypeScript inference
+  return inferType(decl, checker);
+};
 
 /**
  * Check if a variable statement is at module level (not inside a function).
@@ -52,26 +112,18 @@ const isBindingPattern = (decl: ts.VariableDeclaration): boolean => {
 };
 
 /**
- * Get the IR type for a variable declaration.
- * Uses explicit annotation if present, otherwise infers from TypeChecker.
- *
- * For binding patterns (destructuring), we infer from the initializer's type,
- * not from the declaration itself (which returns a tuple or any).
+ * Get the expected type for initializer conversion (only from explicit annotations).
+ * This is used for deterministic contextual typing - only explicit annotations
+ * should influence literal type inference.
  */
-const getDeclarationType = (
+const getExpectedTypeForInitializer = (
   decl: ts.VariableDeclaration,
-  checker: ts.TypeChecker,
-  needsExplicitType: boolean
+  checker: ts.TypeChecker
 ) => {
-  // If there's an explicit type annotation, use it
+  // Only use explicit type annotation as expectedType
+  // Inferred types should NOT influence literal typing
   if (decl.type) {
     return convertType(decl.type, checker);
-  }
-  // If we need an explicit type (for module-level variables), infer it
-  // EXCEPT for binding patterns - destructuring gets its type from the initializer's
-  // literal-form inference, not from an expected type
-  if (needsExplicitType && !isBindingPattern(decl)) {
-    return inferType(decl, checker);
   }
   return undefined;
 };
@@ -105,17 +157,32 @@ export const convertVariableStatement = (
     kind: "variableDeclaration",
     declarationKind,
     declarations: node.declarationList.declarations.map((decl) => {
-      // Get the declared type from LHS annotation or inferred type for module-level
-      const declaredType = getDeclarationType(decl, checker, needsExplicitType);
+      // expectedType for initializer: ONLY from explicit type annotation
+      // This ensures deterministic literal typing (e.g., 100 -> int unless annotated)
+      const expectedType = getExpectedTypeForInitializer(decl, checker);
+
+      // Convert initializer FIRST (before determining type)
+      // This allows us to derive the variable type from the converted expression
+      const convertedInitializer = decl.initializer
+        ? convertExpression(decl.initializer, checker, expectedType)
+        : undefined;
+
+      // Determine the variable type:
+      // 1. If there's an explicit annotation, use it
+      // 2. If we need an explicit type (module-level) and have an initializer,
+      //    derive it from the converted expression using deterministic rules
+      // 3. Otherwise, use TypeScript inference
+      const declaredType = decl.type
+        ? convertType(decl.type, checker)
+        : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
+          ? deriveTypeFromExpression(convertedInitializer, decl, checker)
+          : undefined;
 
       return {
         kind: "variableDeclarator",
         name: convertBindingName(decl.name),
         type: declaredType,
-        // Pass declared type as expectedType for deterministic contextual typing
-        initializer: decl.initializer
-          ? convertExpression(decl.initializer, checker, declaredType)
-          : undefined,
+        initializer: convertedInitializer,
       };
     }),
     isExported,

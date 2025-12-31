@@ -6,7 +6,7 @@ namespace TestCases.common.types.constants
 
             public static readonly string MESSAGE = "Hello, World!";
 
-            public static readonly double COUNT = 42;
+            public static readonly int COUNT = 42;
 
             public static readonly bool IS_ENABLED = true;
         }
