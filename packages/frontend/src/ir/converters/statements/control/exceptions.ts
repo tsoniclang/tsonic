@@ -16,12 +16,12 @@ export const convertTryStatement = (
 ): IrTryStatement => {
   return {
     kind: "tryStatement",
-    tryBlock: convertBlockStatement(node.tryBlock, checker),
+    tryBlock: convertBlockStatement(node.tryBlock, checker, undefined),
     catchClause: node.catchClause
       ? convertCatchClause(node.catchClause, checker)
       : undefined,
     finallyBlock: node.finallyBlock
-      ? convertBlockStatement(node.finallyBlock, checker)
+      ? convertBlockStatement(node.finallyBlock, checker, undefined)
       : undefined,
   };
 };
@@ -38,6 +38,6 @@ export const convertCatchClause = (
     parameter: node.variableDeclaration
       ? convertBindingName(node.variableDeclaration.name)
       : undefined,
-    body: convertBlockStatement(node.block, checker),
+    body: convertBlockStatement(node.block, checker, undefined),
   };
 };

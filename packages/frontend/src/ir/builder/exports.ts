@@ -49,23 +49,26 @@ export const extractExports = (
     } else if (ts.isExportAssignment(node)) {
       exports.push({
         kind: "default",
-        expression: convertExpression(node.expression, checker),
+        expression: convertExpression(node.expression, checker, undefined),
       });
     } else if (hasExportModifier(node)) {
       const hasDefault = hasDefaultModifier(node);
       if (hasDefault) {
         // export default function/class/etc
-        const result = convertStatement(node, checker);
+        const result = convertStatement(node, checker, undefined);
         const statements = flattenStatementResult(result);
         if (statements.length > 0) {
           exports.push({
             kind: "default",
-            expression: { kind: "identifier", name: "_default" }, // placeholder for now
+            expression: {
+              kind: "identifier",
+              name: "_default",
+            }, // placeholder for now
           });
         }
       } else {
         // regular export - may produce multiple statements (e.g., type aliases with synthetics)
-        const result = convertStatement(node, checker);
+        const result = convertStatement(node, checker, undefined);
         const statements = flattenStatementResult(result);
         for (const stmt of statements) {
           exports.push({

@@ -42,13 +42,19 @@ export const convertMethod = (
     parameterTypes
   );
 
+  // Get return type from declared annotation for contextual typing
+  const returnType = node.type ? convertType(node.type, checker) : undefined;
+
   return {
     kind: "methodDeclaration",
     name: memberName,
     typeParameters: convertTypeParameters(node.typeParameters, checker),
     parameters: convertParameters(node.parameters, checker),
-    returnType: node.type ? convertType(node.type, checker) : undefined,
-    body: node.body ? convertBlockStatement(node.body, checker) : undefined,
+    returnType,
+    // Pass return type to body for contextual typing of return statements
+    body: node.body
+      ? convertBlockStatement(node.body, checker, returnType)
+      : undefined,
     isStatic: hasStaticModifier(node),
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword

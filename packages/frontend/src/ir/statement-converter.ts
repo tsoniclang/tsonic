@@ -4,7 +4,7 @@
  */
 
 import * as ts from "typescript";
-import { IrStatement } from "./types.js";
+import { IrStatement, IrType } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
 
 // Import converters from specialized modules
@@ -48,10 +48,14 @@ const isAmbientDeclaration = (node: ts.Node): boolean => {
 
 /**
  * Main statement converter dispatcher
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
+ *                             Pass `undefined` explicitly when not inside a function.
  */
 export const convertStatement = (
   node: ts.Node,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedReturnType: IrType | undefined
 ): ConvertStatementResult => {
   // Skip ambient (declare) declarations - they're type-only
   if (isAmbientDeclaration(node)) {
@@ -80,14 +84,15 @@ export const convertStatement = (
   if (ts.isExpressionStatement(node)) {
     return {
       kind: "expressionStatement",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
     };
   }
   if (ts.isReturnStatement(node)) {
     return {
       kind: "returnStatement",
+      // Pass function return type for contextual typing of return expression
       expression: node.expression
-        ? convertExpression(node.expression, checker)
+        ? convertExpression(node.expression, checker, expectedReturnType)
         : undefined,
     };
   }
@@ -115,14 +120,14 @@ export const convertStatement = (
     }
     return {
       kind: "throwStatement",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
     };
   }
   if (ts.isTryStatement(node)) {
     return convertTryStatement(node, checker);
   }
   if (ts.isBlock(node)) {
-    return convertBlockStatement(node, checker);
+    return convertBlockStatement(node, checker, expectedReturnType);
   }
   if (ts.isBreakStatement(node)) {
     return {
@@ -168,7 +173,7 @@ export const convertStatementSingle = (
   node: ts.Node,
   checker: ts.TypeChecker
 ): IrStatement | null => {
-  const result = convertStatement(node, checker);
+  const result = convertStatement(node, checker, undefined);
   if (result === null) {
     return null;
   }

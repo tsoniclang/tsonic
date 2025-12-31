@@ -20,9 +20,9 @@ export const convertConditionalExpression = (
 ): IrConditionalExpression => {
   return {
     kind: "conditional",
-    condition: convertExpression(node.condition, checker),
-    whenTrue: convertExpression(node.whenTrue, checker),
-    whenFalse: convertExpression(node.whenFalse, checker),
+    condition: convertExpression(node.condition, checker, undefined),
+    whenTrue: convertExpression(node.whenTrue, checker, undefined),
+    whenFalse: convertExpression(node.whenFalse, checker, undefined),
     inferredType: getInferredType(node, checker),
     sourceSpan: getSourceSpan(node),
   };
@@ -49,7 +49,7 @@ export const convertTemplateLiteral = (
   const expressions: IrExpression[] = [];
 
   node.templateSpans.forEach((span) => {
-    expressions.push(convertExpression(span.expression, checker));
+    expressions.push(convertExpression(span.expression, checker, undefined));
     quasis.push(span.literal.text);
   });
 

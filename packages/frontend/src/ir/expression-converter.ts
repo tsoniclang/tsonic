@@ -7,6 +7,7 @@ import * as ts from "typescript";
 import {
   IrExpression,
   IrNumericNarrowingExpression,
+  IrType,
   NumericKind,
   TSONIC_TO_NUMERIC_KIND,
 } from "./types.js";
@@ -73,10 +74,17 @@ const getNumericKindFromTypeNode = (
 /**
  * Main expression conversion dispatcher
  * Converts TypeScript expression nodes to IR expressions
+ *
+ * @param node - The TypeScript expression node to convert
+ * @param checker - The TypeScript type checker
+ * @param expectedType - Expected type from context (e.g., LHS annotation, parameter type).
+ *                       Pass `undefined` explicitly when no contextual type exists.
+ *                       Used for deterministic typing of literals and arrays.
  */
 export const convertExpression = (
   node: ts.Expression,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedType: IrType | undefined
 ): IrExpression => {
   const inferredType = getInferredType(node, checker);
 
@@ -151,7 +159,7 @@ export const convertExpression = (
     };
   }
   if (ts.isArrayLiteralExpression(node)) {
-    return convertArrayLiteral(node, checker);
+    return convertArrayLiteral(node, checker, expectedType);
   }
   if (ts.isObjectLiteralExpression(node)) {
     return convertObjectLiteral(node, checker);
@@ -181,7 +189,7 @@ export const convertExpression = (
     return {
       kind: "unary",
       operator: "typeof",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
       inferredType,
       sourceSpan: getSourceSpan(node),
     };
@@ -190,7 +198,7 @@ export const convertExpression = (
     return {
       kind: "unary",
       operator: "void",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
       inferredType,
       sourceSpan: getSourceSpan(node),
     };
@@ -199,7 +207,7 @@ export const convertExpression = (
     return {
       kind: "unary",
       operator: "delete",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
       inferredType,
       sourceSpan: getSourceSpan(node),
     };
@@ -222,7 +230,7 @@ export const convertExpression = (
   if (ts.isSpreadElement(node)) {
     return {
       kind: "spread",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
       inferredType,
       sourceSpan: getSourceSpan(node),
     };
@@ -233,7 +241,7 @@ export const convertExpression = (
   if (ts.isAwaitExpression(node)) {
     return {
       kind: "await",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, checker, undefined),
       inferredType,
       sourceSpan: getSourceSpan(node),
     };
@@ -242,7 +250,7 @@ export const convertExpression = (
     return {
       kind: "yield",
       expression: node.expression
-        ? convertExpression(node.expression, checker)
+        ? convertExpression(node.expression, checker, undefined)
         : undefined,
       delegate: !!node.asteriskToken,
       inferredType,
@@ -250,11 +258,11 @@ export const convertExpression = (
     };
   }
   if (ts.isParenthesizedExpression(node)) {
-    return convertExpression(node.expression, checker);
+    return convertExpression(node.expression, checker, expectedType);
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Convert the inner expression
-    const innerExpr = convertExpression(node.expression, checker);
+    const innerExpr = convertExpression(node.expression, checker, undefined);
 
     // Get the asserted type
     const assertedTypeNode = node.type;

@@ -29,7 +29,7 @@ export const convertIfStatement = (
 
   return {
     kind: "ifStatement",
-    condition: convertExpression(node.expression, checker),
+    condition: convertExpression(node.expression, checker, undefined),
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
   };
@@ -44,7 +44,7 @@ export const convertSwitchStatement = (
 ): IrSwitchStatement => {
   return {
     kind: "switchStatement",
-    expression: convertExpression(node.expression, checker),
+    expression: convertExpression(node.expression, checker, undefined),
     cases: node.caseBlock.clauses.map((clause) =>
       convertSwitchCase(clause, checker)
     ),
@@ -61,10 +61,10 @@ export const convertSwitchCase = (
   return {
     kind: "switchCase",
     test: ts.isCaseClause(node)
-      ? convertExpression(node.expression, checker)
+      ? convertExpression(node.expression, checker, undefined)
       : undefined,
     statements: node.statements.flatMap((s) =>
-      flattenStatementResult(convertStatement(s, checker))
+      flattenStatementResult(convertStatement(s, checker, undefined))
     ),
   };
 };

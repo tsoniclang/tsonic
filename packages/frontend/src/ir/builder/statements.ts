@@ -38,7 +38,7 @@ export const extractStatements = (
       !ts.isExportDeclaration(stmt) &&
       !ts.isExportAssignment(stmt)
     ) {
-      const converted = convertStatement(stmt, checker);
+      const converted = convertStatement(stmt, checker, undefined);
       // Flatten result (handles both single statements and arrays)
       statements.push(...flattenStatementResult(converted));
     }

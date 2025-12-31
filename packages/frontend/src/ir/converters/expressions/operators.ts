@@ -38,10 +38,11 @@ export const convertBinaryExpression = (
         ? {
             kind: "identifier",
             name: node.left.text,
+            inferredType: getInferredType(node.left, checker),
             sourceSpan: getSourceSpan(node.left),
           }
-        : convertExpression(node.left, checker),
-      right: convertExpression(node.right, checker),
+        : convertExpression(node.left, checker, undefined),
+      right: convertExpression(node.right, checker, undefined),
       inferredType,
       sourceSpan,
     };
@@ -52,8 +53,8 @@ export const convertBinaryExpression = (
     return {
       kind: "logical",
       operator,
-      left: convertExpression(node.left, checker),
-      right: convertExpression(node.right, checker),
+      left: convertExpression(node.left, checker, undefined),
+      right: convertExpression(node.right, checker, undefined),
       inferredType,
       sourceSpan,
     };
@@ -63,8 +64,8 @@ export const convertBinaryExpression = (
   return {
     kind: "binary",
     operator: operator as IrBinaryOperator,
-    left: convertExpression(node.left, checker),
-    right: convertExpression(node.right, checker),
+    left: convertExpression(node.left, checker, undefined),
+    right: convertExpression(node.right, checker, undefined),
     inferredType,
     sourceSpan,
   };
@@ -89,7 +90,7 @@ export const convertUnaryExpression = (
       kind: "update",
       operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
       prefix: true,
-      expression: convertExpression(node.operand, checker),
+      expression: convertExpression(node.operand, checker, undefined),
       inferredType,
       sourceSpan,
     };
@@ -116,7 +117,7 @@ export const convertUnaryExpression = (
   return {
     kind: "unary",
     operator,
-    expression: convertExpression(node.operand, checker),
+    expression: convertExpression(node.operand, checker, undefined),
     inferredType,
     sourceSpan,
   };
@@ -142,7 +143,7 @@ export const convertUpdateExpression = (
         kind: "update",
         operator: node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
         prefix: true,
-        expression: convertExpression(node.operand, checker),
+        expression: convertExpression(node.operand, checker, undefined),
         inferredType,
         sourceSpan,
       };
@@ -155,7 +156,7 @@ export const convertUpdateExpression = (
     kind: "update",
     operator: postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--",
     prefix: false,
-    expression: convertExpression(postfix.operand, checker),
+    expression: convertExpression(postfix.operand, checker, undefined),
     inferredType,
     sourceSpan,
   };

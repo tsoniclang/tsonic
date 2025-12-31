@@ -36,7 +36,7 @@ export const convertBindingName = (
           const isRest = !!elem.dotDotDotToken;
           const defaultExpr =
             elem.initializer && checker
-              ? convertExpression(elem.initializer, checker)
+              ? convertExpression(elem.initializer, checker, undefined)
               : undefined;
 
           return {
@@ -73,7 +73,7 @@ export const convertBindingName = (
 
         const defaultExpr =
           elem.initializer && checker
-            ? convertExpression(elem.initializer, checker)
+            ? convertExpression(elem.initializer, checker, undefined)
             : undefined;
 
         properties.push({

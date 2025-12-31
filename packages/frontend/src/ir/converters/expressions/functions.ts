@@ -64,8 +64,9 @@ const convertLambdaParameters = (
       kind: "parameter" as const,
       pattern: convertBindingName(param.name),
       type: irType,
+      // Pass parameter type for contextual typing of default value
       initializer: param.initializer
-        ? convertExpression(param.initializer, checker)
+        ? convertExpression(param.initializer, checker, irType)
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
@@ -81,13 +82,17 @@ export const convertFunctionExpression = (
   node: ts.FunctionExpression,
   checker: ts.TypeChecker
 ): IrFunctionExpression => {
+  // Get return type from declared annotation for contextual typing
+  const returnType = node.type ? convertType(node.type, checker) : undefined;
+
   return {
     kind: "functionExpression",
     name: node.name?.text,
     parameters: convertLambdaParameters(node, checker),
-    returnType: node.type ? convertType(node.type, checker) : undefined,
+    returnType,
+    // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, checker)
+      ? convertBlockStatement(node.body, checker, returnType)
       : { kind: "blockStatement", statements: [] },
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -105,9 +110,15 @@ export const convertArrowFunction = (
   node: ts.ArrowFunction,
   checker: ts.TypeChecker
 ): IrArrowFunctionExpression => {
+  // Get return type from declared annotation for contextual typing
+  const returnType = node.type ? convertType(node.type, checker) : undefined;
+
+  // Pass return type to body for contextual typing:
+  // - Block body: return statements get the expected type
+  // - Expression body: the expression gets the expected type
   const body = ts.isBlock(node.body)
-    ? convertBlockStatement(node.body, checker)
-    : convertExpression(node.body, checker);
+    ? convertBlockStatement(node.body, checker, returnType)
+    : convertExpression(node.body, checker, returnType);
 
   // Get contextual type from call site (e.g., array.map callback signature)
   // This is used by later passes to infer parameter/return types
@@ -119,7 +130,7 @@ export const convertArrowFunction = (
   return {
     kind: "arrowFunction",
     parameters: convertLambdaParameters(node, checker),
-    returnType: node.type ? convertType(node.type, checker) : undefined,
+    returnType,
     body,
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword

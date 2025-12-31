@@ -157,7 +157,7 @@ export const convertClassDeclaration = (
     kind: "classDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, checker),
-    superClass: superClass ? convertExpression(superClass, checker) : undefined,
+    superClass: superClass ? convertExpression(superClass, checker, undefined) : undefined,
     implements: implementsTypes,
     members: finalMembers,
     isExported: hasExportModifier(node),

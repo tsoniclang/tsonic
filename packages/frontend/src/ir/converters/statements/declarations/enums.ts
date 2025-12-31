@@ -21,7 +21,7 @@ export const convertEnumDeclaration = (
       kind: "enumMember" as const,
       name: ts.isIdentifier(m.name) ? m.name.text : "[computed]",
       initializer: m.initializer
-        ? convertExpression(m.initializer, checker)
+        ? convertExpression(m.initializer, checker, undefined)
         : undefined,
     })),
     isExported: hasExportModifier(node),

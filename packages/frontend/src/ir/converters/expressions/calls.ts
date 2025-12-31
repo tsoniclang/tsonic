@@ -10,6 +10,7 @@ import {
 } from "../../types.js";
 import {
   getSourceSpan,
+  getInferredType,
   extractTypeArguments,
   checkIfRequiresSpecialization,
 } from "./helpers.js";
@@ -704,7 +705,7 @@ export const convertCallExpression = (
       );
     }
     const targetType = convertType(targetTypeNode, checker);
-    const argExpr = convertExpression(argNode, checker);
+    const argExpr = convertExpression(argNode, checker, undefined);
 
     // Build union type T | null for inferredType
     const nullType: IrType = { kind: "primitiveType", name: "null" };
@@ -729,7 +730,7 @@ export const convertCallExpression = (
   const parameterTypes = extractParameterTypes(node, checker);
 
   // Convert callee first so we can access its memberBinding
-  const callee = convertExpression(node.expression, checker);
+  const callee = convertExpression(node.expression, checker, undefined);
 
   // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
   // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
@@ -747,15 +748,21 @@ export const convertCallExpression = (
   return {
     kind: "call",
     callee,
-    arguments: node.arguments.map((arg) => {
+    // Pass parameter types as expectedType for deterministic contextual typing
+    // This ensures `spreadArray([1,2,3], [4,5,6])` with `number[]` params produces `double[]`
+    arguments: node.arguments.map((arg, index) => {
+      // Get expected type for this argument position
+      const expectedType = parameterTypes?.[index];
+
       if (ts.isSpreadElement(arg)) {
         return {
           kind: "spread" as const,
-          expression: convertExpression(arg.expression, checker),
+          expression: convertExpression(arg.expression, checker, undefined),
+          inferredType: getInferredType(arg.expression, checker),
           sourceSpan: getSourceSpan(arg),
         };
       }
-      return convertExpression(arg, checker);
+      return convertExpression(arg, checker, expectedType);
     }),
     isOptional: node.questionDotToken !== undefined,
     inferredType,
@@ -863,6 +870,7 @@ export const convertNewExpression = (
   // Extract type arguments from the constructor signature
   const typeArguments = extractTypeArguments(node, checker);
   const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
+  const parameterTypes = extractParameterTypes(node, checker);
 
   // For new expressions, the type is the constructed type from the type reference.
   // Unlike function calls, constructors don't need "return type" annotations.
@@ -871,17 +879,20 @@ export const convertNewExpression = (
 
   return {
     kind: "new",
-    callee: convertExpression(node.expression, checker),
+    callee: convertExpression(node.expression, checker, undefined),
+    // Pass parameter types as expectedType for deterministic contextual typing
     arguments:
-      node.arguments?.map((arg) => {
+      node.arguments?.map((arg, index) => {
+        const expectedType = parameterTypes?.[index];
         if (ts.isSpreadElement(arg)) {
           return {
             kind: "spread" as const,
-            expression: convertExpression(arg.expression, checker),
+            expression: convertExpression(arg.expression, checker, undefined),
+            inferredType: getInferredType(arg.expression, checker),
             sourceSpan: getSourceSpan(arg),
           };
         }
-        return convertExpression(arg, checker);
+        return convertExpression(arg, checker, expectedType);
       }) ?? [],
     inferredType,
     sourceSpan: getSourceSpan(node),

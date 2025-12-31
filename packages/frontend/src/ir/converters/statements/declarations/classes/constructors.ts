@@ -44,7 +44,9 @@ export const convertConstructor = (
             operator: "=",
             left: {
               kind: "memberAccess",
-              object: { kind: "this" },
+              object: {
+                kind: "this",
+              },
               property: param.name.text,
               isComputed: false,
               isOptional: false,
@@ -61,7 +63,7 @@ export const convertConstructor = (
 
   // Add existing constructor body statements
   if (node.body) {
-    const existingBody = convertBlockStatement(node.body, checker);
+    const existingBody = convertBlockStatement(node.body, checker, undefined);
     statements.push(...existingBody.statements);
   }
 

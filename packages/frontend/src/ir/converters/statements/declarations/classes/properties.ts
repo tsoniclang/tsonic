@@ -47,12 +47,16 @@ export const convertProperty = (
     checker
   );
 
+  // Get property type for contextual typing of initializer
+  const propertyType = getPropertyType(node, checker);
+
   return {
     kind: "propertyDeclaration",
     name: memberName,
-    type: getPropertyType(node, checker),
+    type: propertyType,
+    // Pass property type for contextual typing of initializer
     initializer: node.initializer
-      ? convertExpression(node.initializer, checker)
+      ? convertExpression(node.initializer, checker, propertyType)
       : undefined,
     isStatic: hasStaticModifier(node),
     isReadonly: hasReadonlyModifier(node),

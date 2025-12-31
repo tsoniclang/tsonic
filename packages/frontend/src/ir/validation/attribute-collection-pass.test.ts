@@ -36,6 +36,47 @@ describe("Attribute Collection Pass", () => {
   });
 
   /**
+   * Helper to create a minimal identifier IR
+   */
+  const makeIdentifier = (name: string, resolvedClrType?: string) => ({
+    kind: "identifier" as const,
+    name,
+    resolvedClrType,
+  });
+
+  /**
+   * Helper to create a minimal member access IR
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeMemberAccess = (object: any, property: string) => ({
+    kind: "memberAccess" as const,
+    object,
+    property,
+    isComputed: false,
+    isOptional: false,
+  });
+
+  /**
+   * Helper to create a minimal call IR
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeCall = (callee: any, args: readonly any[]) => ({
+    kind: "call" as const,
+    callee,
+    arguments: args,
+    isOptional: false,
+  });
+
+  /**
+   * Helper to create a minimal literal IR
+   */
+  const makeLiteral = (value: string | number | boolean) => ({
+    kind: "literal" as const,
+    value,
+    raw: String(value),
+  });
+
+  /**
    * Helper to create an attribute marker call IR for A.on(Target).type.add(Attr, ...args)
    */
   const makeMarkerCall = (
@@ -45,42 +86,22 @@ describe("Attribute Collection Pass", () => {
     resolvedClrType?: string
   ) => ({
     kind: "expressionStatement" as const,
-    expression: {
-      kind: "call" as const,
-      callee: {
-        kind: "memberAccess" as const,
-        object: {
-          kind: "memberAccess" as const,
-          object: {
-            kind: "call" as const,
-            callee: {
-              kind: "memberAccess" as const,
-              object: { kind: "identifier" as const, name: "A" },
-              property: "on",
-              isComputed: false,
-              isOptional: false,
-            },
-            arguments: [{ kind: "identifier" as const, name: targetName }],
-            isOptional: false,
-          },
-          property: "type",
-          isComputed: false,
-          isOptional: false,
-        },
-        property: "add",
-        isComputed: false,
-        isOptional: false,
-      },
-      arguments: [
-        {
-          kind: "identifier" as const,
-          name: attrName,
-          ...(resolvedClrType ? { resolvedClrType } : {}),
-        },
-        ...args,
-      ],
-      isOptional: false,
-    },
+    expression: makeCall(
+      makeMemberAccess(
+        makeMemberAccess(
+          makeCall(
+            makeMemberAccess(makeIdentifier("A"), "on"),
+            [makeIdentifier(targetName)]
+          ),
+          "type"
+        ),
+        "add"
+      ),
+      [
+        makeIdentifier(attrName, resolvedClrType),
+        ...args.map((a) => makeLiteral(a.value)),
+      ]
+    ),
   });
 
   describe("A.on(Class).type.add(Attr) pattern", () => {

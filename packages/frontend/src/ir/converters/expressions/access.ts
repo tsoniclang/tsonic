@@ -551,7 +551,7 @@ export const convertMemberExpression = (
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
-    const object = convertExpression(node.expression, checker);
+    const object = convertExpression(node.expression, checker, undefined);
     const propertyName = node.name.text;
 
     // Try to resolve hierarchical binding
@@ -601,7 +601,7 @@ export const convertMemberExpression = (
     };
   } else {
     // Element access (computed): obj[expr]
-    const object = convertExpression(node.expression, checker);
+    const object = convertExpression(node.expression, checker, undefined);
     const objectType = getInferredType(node.expression, checker);
 
     // Classify the access kind for proof pass
@@ -611,7 +611,7 @@ export const convertMemberExpression = (
     return {
       kind: "memberAccess",
       object,
-      property: convertExpression(node.argumentExpression, checker),
+      property: convertExpression(node.argumentExpression, checker, undefined),
       isComputed: true,
       isOptional,
       inferredType,

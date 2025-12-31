@@ -296,7 +296,7 @@ export type IrAwaitExpression = {
 
 export type IrYieldExpression = {
   readonly kind: "yield";
-  readonly expression?: IrExpression; // Optional for bare `yield`
+  readonly expression?: IrExpression; // undefined for bare `yield`
   readonly delegate: boolean; // true for `yield*`, false for `yield`
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;

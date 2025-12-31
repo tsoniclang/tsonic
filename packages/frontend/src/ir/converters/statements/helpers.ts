@@ -93,12 +93,16 @@ export const convertParameters = (
       }
     }
 
+    // Get parameter type for contextual typing of default value
+    const paramType = actualType ? convertType(actualType, checker) : undefined;
+
     return {
       kind: "parameter",
       pattern: convertBindingName(param.name),
-      type: actualType ? convertType(actualType, checker) : undefined,
+      type: paramType,
+      // Pass parameter type for contextual typing of default value
       initializer: param.initializer
-        ? convertExpression(param.initializer, checker)
+        ? convertExpression(param.initializer, checker, paramType)
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
@@ -121,14 +125,17 @@ export const convertVariableDeclarationList = (
   return {
     kind: "variableDeclaration",
     declarationKind,
-    declarations: node.declarations.map((decl) => ({
-      kind: "variableDeclarator",
-      name: convertBindingName(decl.name),
-      type: decl.type ? convertType(decl.type, checker) : undefined,
-      initializer: decl.initializer
-        ? convertExpression(decl.initializer, checker)
-        : undefined,
-    })),
+    declarations: node.declarations.map((decl) => {
+      const declType = decl.type ? convertType(decl.type, checker) : undefined;
+      return {
+        kind: "variableDeclarator" as const,
+        name: convertBindingName(decl.name),
+        type: declType,
+        initializer: decl.initializer
+          ? convertExpression(decl.initializer, checker, declType)
+          : undefined,
+      };
+    }),
     isExported: false,
   };
 };

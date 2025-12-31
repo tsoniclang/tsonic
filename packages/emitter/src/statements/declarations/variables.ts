@@ -98,6 +98,46 @@ export const emitVariableDeclaration = (
   const declarations: string[] = [];
 
   for (const decl of stmt.declarations) {
+    // Handle destructuring patterns EARLY - they use lowerPattern which generates `var` declarations
+    // Skip all the type inference logic for these
+    if (
+      decl.name.kind === "arrayPattern" ||
+      decl.name.kind === "objectPattern"
+    ) {
+      if (!decl.initializer) {
+        // Destructuring requires an initializer
+        declarations.push(
+          `${ind}/* destructuring without initializer - error */`
+        );
+        continue;
+      }
+
+      // Emit the RHS expression
+      const [initFrag, newContext] = emitExpression(
+        decl.initializer,
+        currentContext,
+        decl.type
+      );
+      currentContext = newContext;
+
+      // Use explicit type annotation if present, otherwise use initializer's inferred type
+      const patternType = decl.type ?? decl.initializer.inferredType;
+
+      // Lower the pattern to C# statements
+      const result = lowerPattern(
+        decl.name,
+        initFrag.text,
+        patternType,
+        ind,
+        currentContext
+      );
+
+      // Add all generated statements
+      declarations.push(...result.statements);
+      currentContext = result.context;
+      continue;
+    }
+
     let varDecl = "";
 
     // In static contexts, variable declarations become fields with modifiers
@@ -272,41 +312,9 @@ export const emitVariableDeclaration = (
       }
 
       declarations.push(`${ind}${varDecl};`);
-    } else if (
-      decl.name.kind === "arrayPattern" ||
-      decl.name.kind === "objectPattern"
-    ) {
-      // Destructuring patterns: use lowerPattern for full support
-      if (!decl.initializer) {
-        // Destructuring requires an initializer
-        declarations.push(
-          `${ind}/* destructuring without initializer - error */`
-        );
-        continue;
-      }
-
-      // Emit the RHS expression
-      const [initFrag, newContext] = emitExpression(
-        decl.initializer,
-        currentContext,
-        decl.type
-      );
-      currentContext = newContext;
-
-      // Lower the pattern to C# statements
-      const result = lowerPattern(
-        decl.name,
-        initFrag.text,
-        decl.type,
-        ind,
-        currentContext
-      );
-
-      // Add all generated statements
-      declarations.push(...result.statements);
-      currentContext = result.context;
     } else {
       // Unknown pattern kind - emit placeholder
+      // (arrayPattern and objectPattern are handled early with continue)
       varDecl += "/* unsupported pattern */";
       declarations.push(`${ind}${varDecl};`);
     }

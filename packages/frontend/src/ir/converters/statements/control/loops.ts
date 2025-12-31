@@ -23,7 +23,7 @@ export const convertWhileStatement = (
   const body = convertStatementSingle(node.statement, checker);
   return {
     kind: "whileStatement",
-    condition: convertExpression(node.expression, checker),
+    condition: convertExpression(node.expression, checker, undefined),
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -41,13 +41,13 @@ export const convertForStatement = (
     initializer: node.initializer
       ? ts.isVariableDeclarationList(node.initializer)
         ? convertVariableDeclarationList(node.initializer, checker)
-        : convertExpression(node.initializer, checker)
+        : convertExpression(node.initializer, checker, undefined)
       : undefined,
     condition: node.condition
-      ? convertExpression(node.condition, checker)
+      ? convertExpression(node.condition, checker, undefined)
       : undefined,
     update: node.incrementor
-      ? convertExpression(node.incrementor, checker)
+      ? convertExpression(node.incrementor, checker, undefined)
       : undefined,
     body: body ?? { kind: "emptyStatement" },
   };
@@ -72,7 +72,7 @@ export const convertForOfStatement = (
   return {
     kind: "forOfStatement",
     variable,
-    expression: convertExpression(node.expression, checker),
+    expression: convertExpression(node.expression, checker, undefined),
     body: body ?? { kind: "emptyStatement" },
     isAwait: !!node.awaitModifier,
   };
