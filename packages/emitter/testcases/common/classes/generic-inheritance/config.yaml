@@ -1,0 +1,3 @@
+- ConcreteExtends.ts: should emit non-generic classes extending generic base classes with concrete type arguments
+- GenericExtends.ts: should emit generic classes extending generic base classes
+- InheritanceChain.ts: should emit multi-level generic inheritance chains

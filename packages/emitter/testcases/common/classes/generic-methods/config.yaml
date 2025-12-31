@@ -1,0 +1,2 @@
+- MethodInGenericClass.ts: should emit generic methods within generic classes correctly
+- MethodInNonGenericClass.ts: should emit generic methods in non-generic classes

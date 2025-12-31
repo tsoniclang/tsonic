@@ -1,0 +1,3 @@
+Evens count: 2
+First doubled: 2
+Sum: 15

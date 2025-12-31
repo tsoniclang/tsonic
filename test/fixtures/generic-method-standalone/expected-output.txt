@@ -1,0 +1,4 @@
+Identity int: 42
+Identity string: hello
+Wrapped: 100
+Pair: count=5

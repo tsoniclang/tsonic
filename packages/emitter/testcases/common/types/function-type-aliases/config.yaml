@@ -1,0 +1,1 @@
+- GenericAliases.ts: should emit generic function type aliases correctly as delegate types

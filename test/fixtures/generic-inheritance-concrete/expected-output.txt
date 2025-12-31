@@ -1,0 +1,4 @@
+Value: 42
+Doubled: 84
+String: hello
+Length: 5

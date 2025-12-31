@@ -1,0 +1,8 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "GenericInheritanceConcrete",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "generic-inheritance-concrete"
+}

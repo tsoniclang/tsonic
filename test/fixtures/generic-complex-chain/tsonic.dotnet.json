@@ -1,0 +1,8 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "GenericComplexChain",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "generic-complex-chain"
+}
