@@ -10,19 +10,19 @@ import { int } from "@tsonic/core/types.js";
 
 // Test 1: Basic ?? with nullable parameter
 function getOrDefault(value: int | null): int {
-  return value ?? 100;  // 100 should get expectedType int, not double
+  return value ?? 100; // 100 should get expectedType int, not double
 }
 
 // Test 2: Nested ?? chain
 function getFirstValid(a: int | null, b: int | null): int {
-  return a ?? b ?? 333;  // All fallbacks should be int
+  return a ?? b ?? 333; // All fallbacks should be int
 }
 
 // Test 3: ?? in return with arithmetic RHS
 function divideOrDefault(value: int | null, divisor: int): int {
   const a = 10 as int;
   const b = 3 as int;
-  return value ?? ((a / b) as int);  // Should use int division (3, not 3.33)
+  return value ?? ((a / b) as int); // Should use int division (3, not 3.33)
 }
 
 export function main(): void {

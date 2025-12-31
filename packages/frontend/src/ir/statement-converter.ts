@@ -97,22 +97,22 @@ export const convertStatement = (
     };
   }
   if (ts.isIfStatement(node)) {
-    return convertIfStatement(node, checker);
+    return convertIfStatement(node, checker, expectedReturnType);
   }
   if (ts.isWhileStatement(node)) {
-    return convertWhileStatement(node, checker);
+    return convertWhileStatement(node, checker, expectedReturnType);
   }
   if (ts.isForStatement(node)) {
-    return convertForStatement(node, checker);
+    return convertForStatement(node, checker, expectedReturnType);
   }
   if (ts.isForOfStatement(node)) {
-    return convertForOfStatement(node, checker);
+    return convertForOfStatement(node, checker, expectedReturnType);
   }
   if (ts.isForInStatement(node)) {
-    return convertForInStatement(node, checker);
+    return convertForInStatement(node, checker, expectedReturnType);
   }
   if (ts.isSwitchStatement(node)) {
-    return convertSwitchStatement(node, checker);
+    return convertSwitchStatement(node, checker, expectedReturnType);
   }
   if (ts.isThrowStatement(node)) {
     if (!node.expression) {
@@ -124,7 +124,7 @@ export const convertStatement = (
     };
   }
   if (ts.isTryStatement(node)) {
-    return convertTryStatement(node, checker);
+    return convertTryStatement(node, checker, expectedReturnType);
   }
   if (ts.isBlock(node)) {
     return convertBlockStatement(node, checker, expectedReturnType);
@@ -168,12 +168,16 @@ export const flattenStatementResult = (
 /**
  * Convert a statement and return a single statement (for contexts where arrays not expected).
  * Type aliases inside control flow will return the first statement (usually the only one).
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
+ *                             Must be passed through for return statements in nested blocks.
  */
 export const convertStatementSingle = (
   node: ts.Node,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedReturnType?: IrType
 ): IrStatement | null => {
-  const result = convertStatement(node, checker, undefined);
+  const result = convertStatement(node, checker, expectedReturnType);
   if (result === null) {
     return null;
   }

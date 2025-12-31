@@ -1,3 +1,6 @@
 - TernaryTyping.ts: should thread expectedType through ternary branches
 - NullishCoalescing.ts: should thread expectedType through nullish coalescing fallback
 - ArraySpread.ts: should thread expectedType through array spread elements
+- VariableInit.ts: should thread expectedType through variable initializer
+- ReturnInControlFlow.ts: should thread expectedType through return in control flow
+- NullishFull.ts: should thread expectedType through all nullish coalescing patterns

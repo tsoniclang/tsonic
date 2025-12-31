@@ -7,6 +7,7 @@ import {
   IrWhileStatement,
   IrForStatement,
   IrForOfStatement,
+  IrType,
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../type-converter.js";
@@ -15,12 +16,19 @@ import { convertVariableDeclarationList } from "../helpers.js";
 
 /**
  * Convert while statement
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertWhileStatement = (
   node: ts.WhileStatement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedReturnType?: IrType
 ): IrWhileStatement => {
-  const body = convertStatementSingle(node.statement, checker);
+  const body = convertStatementSingle(
+    node.statement,
+    checker,
+    expectedReturnType
+  );
   return {
     kind: "whileStatement",
     condition: convertExpression(node.expression, checker, undefined),
@@ -30,12 +38,19 @@ export const convertWhileStatement = (
 
 /**
  * Convert for statement
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertForStatement = (
   node: ts.ForStatement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedReturnType?: IrType
 ): IrForStatement => {
-  const body = convertStatementSingle(node.statement, checker);
+  const body = convertStatementSingle(
+    node.statement,
+    checker,
+    expectedReturnType
+  );
   return {
     kind: "forStatement",
     initializer: node.initializer
@@ -55,10 +70,13 @@ export const convertForStatement = (
 
 /**
  * Convert for-of statement
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertForOfStatement = (
   node: ts.ForOfStatement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedReturnType?: IrType
 ): IrForOfStatement => {
   const firstDecl = ts.isVariableDeclarationList(node.initializer)
     ? node.initializer.declarations[0]
@@ -68,7 +86,11 @@ export const convertForOfStatement = (
     ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
     : convertBindingName(node.initializer as ts.BindingName);
 
-  const body = convertStatementSingle(node.statement, checker);
+  const body = convertStatementSingle(
+    node.statement,
+    checker,
+    expectedReturnType
+  );
   return {
     kind: "forOfStatement",
     variable,
@@ -80,15 +102,22 @@ export const convertForOfStatement = (
 
 /**
  * Convert for-in statement
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertForInStatement = (
   node: ts.ForInStatement,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  expectedReturnType?: IrType
 ): IrForStatement => {
   // Note: for...in needs special handling in C# - variable extraction will be handled in emitter
   // We'll need to extract the variable info in the emitter phase
 
-  const body = convertStatementSingle(node.statement, checker);
+  const body = convertStatementSingle(
+    node.statement,
+    checker,
+    expectedReturnType
+  );
   // Note: for...in needs special handling in C#
   return {
     kind: "forStatement",
