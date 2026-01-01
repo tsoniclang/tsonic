@@ -177,7 +177,10 @@ function testMapContainer(): void {
 
   // Map Container<int> to Container<long>
   const intContainer = wrap(25);
-  const longContainer = mapContainer<int, long>(intContainer, x => x as long * 1000000);
+  const longContainer = mapContainer<int, long>(
+    intContainer,
+    (x) => (x as long) * 1000000
+  );
 
   Console.writeLine(`intContainer.value: ${intContainer.value}`);
   Console.writeLine(`longContainer.value: ${longContainer.value}`);
@@ -194,7 +197,7 @@ function testBoxClass(): void {
   Console.writeLine(`intBox.get(): ${intValue}`);
 
   // Map Box<int> to Box<string>
-  const stringBox = intBox.map(x => `Value: ${x}`);
+  const stringBox = intBox.map((x) => `Value: ${x}`);
   const stringValue = stringBox.get();
 
   Console.writeLine(`stringBox.get(): ${stringValue}`);
@@ -206,7 +209,7 @@ function testFlatMapBox(): void {
 
   // Create Box<int> and flatMap to Box<long>
   const intBox = new Box(5);
-  const longBox = intBox.flatMap(x => new Box(x as long * 2000000000));
+  const longBox = intBox.flatMap((x) => new Box((x as long) * 2000000000));
 
   Console.writeLine(`intBox.get(): ${intBox.get()}`);
   Console.writeLine(`longBox.get(): ${longBox.get()}`);
@@ -238,8 +241,8 @@ function testChainedMethodCalls(): void {
 
   // Chain: Box<int> → map → map → get
   const result = new Box(100)
-    .map(x => x as long * 10)
-    .map(x => `Result: ${x}`)
+    .map((x) => (x as long) * 10)
+    .map((x) => `Result: ${x}`)
     .get();
 
   Console.writeLine(`chained result: ${result}`);

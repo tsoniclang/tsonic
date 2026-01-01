@@ -3,7 +3,7 @@ import { int } from "@tsonic/core/types.js";
 
 // Curried: (A) => (B) => C
 function add(a: int): (b: int) => int {
-  return b => a + b;
+  return (b) => a + b;
 }
 
 // Double nested: (T) => () => T
@@ -18,7 +18,7 @@ function createNested(): () => () => string {
 
 // Curried with 3 params: (A) => (B) => (C) => D
 function multiply3(a: int): (b: int) => (c: int) => int {
-  return b => c => a * b * c;
+  return (b) => (c) => a * b * c;
 }
 
 export function main(): void {

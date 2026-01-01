@@ -82,7 +82,7 @@ export function main(): void {
 
   const j: int = x + y;
   const k = x + y;
-  const l: int = (x + y) + z;
+  const l: int = x + y + z;
 
   Console.writeLine(`(x as int) + (y as int) = ${j}`); // 30
   Console.writeLine(`(x as int) + (y as int) (inferred) = ${k}`); // 30

@@ -21,12 +21,12 @@ export function main(): void {
   numbers.add(10);
 
   // LINQ Where
-  const evenNumbers = Enumerable.where(numbers, n => n % 2 === 0);
+  const evenNumbers = Enumerable.where(numbers, (n) => n % 2 === 0);
   const evenList = Enumerable.toList(evenNumbers);
   Console.writeLine(`Even numbers count: ${evenList.count}`);
 
   // LINQ Select
-  const doubled = Enumerable.select(numbers, n => n * 2);
+  const doubled = Enumerable.select(numbers, (n) => n * 2);
   const doubledList = Enumerable.toList(doubled);
   Console.writeLine(`Doubled numbers count: ${doubledList.count}`);
 
@@ -35,14 +35,14 @@ export function main(): void {
   Console.writeLine(`Sum: ${sum}`);
 
   // LINQ Any (renamed to any_ in tsbindgen because 'any' is TS keyword)
-  const hasLarge = Enumerable.any_(numbers, n => n > 5);
+  const hasLarge = Enumerable.any_(numbers, (n) => n > 5);
   Console.writeLine(`Has numbers > 5: ${hasLarge}`);
 
   // LINQ All
-  const allPositive = Enumerable.all(numbers, n => n > 0);
+  const allPositive = Enumerable.all(numbers, (n) => n > 0);
   Console.writeLine(`All positive: ${allPositive}`);
 
   // LINQ FirstOrDefault
-  const firstEven = Enumerable.firstOrDefault(evenNumbers, n => n > 0);
+  const firstEven = Enumerable.firstOrDefault(evenNumbers, (n) => n > 0);
   Console.writeLine(`First even: ${firstEven}`);
 }

@@ -21,11 +21,11 @@ function compare<T>(a: T, b: T, cmp: Comparer<T>): int {
 
 export function main(): void {
   // Test predicate type alias - T inferred from 4
-  const isEven = test(4, x => x % 2 === 0);
+  const isEven = test(4, (x) => x % 2 === 0);
   Console.writeLine(`Is 4 even: ${isEven}`);
 
   // Test transform type alias - types inferred from arguments
-  const doubled = transform(5, x => x * 2);
+  const doubled = transform(5, (x) => x * 2);
   Console.writeLine(`5 doubled: ${doubled}`);
 
   // Test comparer type alias - T inferred from arguments

@@ -3,12 +3,12 @@ import { int } from "@tsonic/core/types.js";
 
 // Async function returning sync function
 async function createMultiplier(factor: int): Promise<(x: int) => int> {
-  return x => x * factor;
+  return (x) => x * factor;
 }
 
 // Async function returning async function
 async function createAsyncAdder(base: int): Promise<(x: int) => Promise<int>> {
-  return async x => base + x;
+  return async (x) => base + x;
 }
 
 // Function taking async callback
@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   const result = await asyncAdd10(7);
   Console.writeLine(`10 + 7 = ${result}`);
 
-  const msg = await withAsyncCallback(42, async x => `Value is ${x}`);
+  const msg = await withAsyncCallback(42, async (x) => `Value is ${x}`);
   Console.writeLine(msg);
 }
 

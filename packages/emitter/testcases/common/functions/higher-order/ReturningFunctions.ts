@@ -2,7 +2,7 @@ import { int } from "@tsonic/core/types.js";
 
 // Curried: (A) => (B) => C
 export function add(a: int): (b: int) => int {
-  return b => a + b;
+  return (b) => a + b;
 }
 
 // Double nested: (T) => () => T

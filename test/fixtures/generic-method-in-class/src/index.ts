@@ -20,7 +20,7 @@ class Transformer<T> {
 
 export function main(): void {
   const t1 = new Transformer(5);
-  const t2 = t1.map(x => `Value: ${x}`);
+  const t2 = t1.map((x) => `Value: ${x}`);
   Console.writeLine(t2.value);
 
   const t3 = new Transformer(10);

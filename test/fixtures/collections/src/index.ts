@@ -16,8 +16,8 @@ export function main(): void {
   Console.writeLine(`Count: ${numbers.count}`);
 
   // Use LINQ to filter and map
-  const evenNumbers = Enumerable.where(numbers, x => x % 2 === 0);
-  const doubled = Enumerable.select(evenNumbers, x => x * 2);
+  const evenNumbers = Enumerable.where(numbers, (x) => x % 2 === 0);
+  const doubled = Enumerable.select(evenNumbers, (x) => x * 2);
   const result = Enumerable.toArray(doubled);
 
   // For simplicity, just show first two elements

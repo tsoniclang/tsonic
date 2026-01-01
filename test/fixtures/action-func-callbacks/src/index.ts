@@ -85,16 +85,16 @@ export function main(): void {
 
   // Test Action<int>
   Console.writeLine("forEach:");
-  forEach(numbers, n => {
+  forEach(numbers, (n) => {
     Console.writeLine(`  ${n}`);
   });
 
   // Test Func<int, int>
-  const doubled = mapToInt(numbers, n => n * 2);
+  const doubled = mapToInt(numbers, (n) => n * 2);
   Console.writeLine(`map (doubled): count = ${doubled.count}`);
 
   // Test Func<int, bool>
-  const evens = filter(numbers, n => n % 2 === 0);
+  const evens = filter(numbers, (n) => n % 2 === 0);
   Console.writeLine(`filter (evens): count = ${evens.count}`);
 
   // Test Action<int, int>

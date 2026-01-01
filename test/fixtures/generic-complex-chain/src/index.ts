@@ -45,22 +45,22 @@ class Maybe<T> extends Functor<T> {
 export function main(): void {
   // Test chained generics with type changes
   const result = Maybe.just(5)
-    .map(x => x * 2)
-    .map(x => `Value: ${x}`)
+    .map((x) => x * 2)
+    .map((x) => `Value: ${x}`)
     .getOrElse("Nothing");
 
   Console.writeLine(result);
 
   // Test nothing case - need explicit type param since no argument to infer from
   const nothing = Maybe.nothing<int>()
-    .map(x => x * 2)
+    .map((x) => x * 2)
     .getOrElse(0);
 
   Console.writeLine(`Nothing default: ${nothing}`);
 
   // Test flatMap
   const flatMapped = Maybe.just(10)
-    .flatMap(x => Maybe.just(x + 5))
+    .flatMap((x) => Maybe.just(x + 5))
     .getOrElse(0);
 
   Console.writeLine(`FlatMapped: ${flatMapped}`);

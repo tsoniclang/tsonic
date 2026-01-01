@@ -11,6 +11,7 @@ import {
   DotnetMetadataRegistry,
   BindingRegistry,
   createClrBindingsResolver,
+  clearTypeRegistries,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -21,6 +22,9 @@ const compileToCSharp = (
   source: string,
   fileName = "/test/test.ts"
 ): string => {
+  // Clear stale registries from previous tests to ensure isolation
+  clearTypeRegistries();
+
   const sourceFile = ts.createSourceFile(
     fileName,
     source,
@@ -225,6 +229,8 @@ describe("End-to-End Integration", () => {
   describe("Combined Features", () => {
     it("should compile code with multiple generic features", () => {
       const source = `
+        import { int } from "@tsonic/core/types.js";
+
         export interface Repository<T> {
           items: T[];
           add(item: T): void;
@@ -239,7 +245,12 @@ describe("End-to-End Integration", () => {
           }
 
           findById(id: number): T | undefined {
-            return this.items.find(item => item.id === id);
+            for (let i: int = 0; i < this.items.length; i++) {
+              if (this.items[i].id === id) {
+                return this.items[i];
+              }
+            }
+            return undefined;
           }
         }
       `;
@@ -282,22 +293,28 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/\(global::System\.Action.*\s+resolve\)\s*=>/);
     });
 
-    it("should infer types for array method callbacks", () => {
+    it("should infer types for generic method callbacks", () => {
       const source = `
-        // Inline minimal types for this test
-        interface Array<T> {
-          map<U>(fn: (item: T) => U): U[];
+        // Custom generic class with map method (valid in dotnet mode)
+        export class Box<T> {
+          value: T;
+          constructor(value: T) {
+            this.value = value;
+          }
+          map<U>(fn: (x: T) => U): Box<U> {
+            return new Box<U>(fn(this.value));
+          }
         }
 
-        export function doubleAll(nums: number[]): number[] {
-          return nums.map((n) => n * 2);
+        export function doubleBox(box: Box<number>): Box<number> {
+          return box.map((n) => n * 2);
         }
       `;
 
       const csharp = compileToCSharp(source);
 
       // Should emit lambda with typed parameter
-      // n should be inferred as number (double in C#)
+      // n should be inferred as number (double in C#) from Box<number>.map's callback type
       expect(csharp).to.include("(double n) => n * 2");
     });
   });
@@ -331,6 +348,8 @@ describe("End-to-End Integration", () => {
   describe("Full Module Compilation", () => {
     it("should compile a complete module with all features", () => {
       const source = `
+        import { int } from "@tsonic/core/types.js";
+
         // Type definitions
         export interface User {
           id: number;
@@ -340,7 +359,7 @@ describe("End-to-End Integration", () => {
 
         export type UserId = number;
 
-        // Generic repository
+        // User repository
         export class UserRepository {
           private users: User[] = [];
 
@@ -349,7 +368,12 @@ describe("End-to-End Integration", () => {
           }
 
           findById(id: UserId): User | undefined {
-            return this.users.find(u => u.id === id);
+            for (let i: int = 0; i < this.users.length; i++) {
+              if (this.users[i].id === id) {
+                return this.users[i];
+              }
+            }
+            return undefined;
           }
 
           all(): User[] {
@@ -357,9 +381,13 @@ describe("End-to-End Integration", () => {
           }
         }
 
-        // Generic utility function
-        export function map<T, U>(arr: T[], fn: (item: T) => U): U[] {
-          return arr.map(fn);
+        // Generic utility function with manual iteration
+        export function transform<T, U>(arr: T[], fn: (item: T) => U): U[] {
+          const result: U[] = [];
+          for (let i: int = 0; i < arr.length; i++) {
+            result.push(fn(arr[i]));
+          }
+          return result;
         }
       `;
 
@@ -373,7 +401,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("class UserRepository");
 
       // Should have the generic function with native array return type
-      expect(csharp).to.match(/public\s+static\s+U\[\]\s+map\s*<T,\s*U>/);
+      expect(csharp).to.match(/public\s+static\s+U\[\]\s+transform\s*<T,\s*U>/);
 
       // Should have proper namespace structure
       expect(csharp).to.include("namespace Test");

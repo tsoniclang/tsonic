@@ -24,11 +24,11 @@ export function main(): void {
   const r1 = compute(5);
   Console.writeLine(`Without callback: ${r1}`);
 
-  compute(10, result => {
+  compute(10, (result) => {
     Console.writeLine(`Callback received: ${result}`);
   });
 
-  const r2 = maybeTransform(7, x => x + 3);
+  const r2 = maybeTransform(7, (x) => x + 3);
   Console.writeLine(`Transformed: ${r2}`);
 
   const r3 = maybeTransform(7, null);
