@@ -352,7 +352,33 @@ export interface SignatureInfo {
    * for inheritance substitution in resolveCall().
    */
   readonly declaringMemberName?: string;
+
+  /**
+   * Type predicate information for `x is T` return types.
+   *
+   * Extracted at registration time via pure syntax inspection.
+   * TypeSystem can later convert targetTypeNode to IrType.
+   */
+  readonly typePredicate?: SignatureTypePredicate;
 }
+
+/**
+ * Type predicate extracted from signature's return type.
+ *
+ * For functions with `param is T` or `this is T` return types.
+ * Stored with the raw TypeNode; TypeSystem converts to IrType when needed.
+ */
+export type SignatureTypePredicate =
+  | {
+      readonly kind: "param";
+      readonly parameterName: string;
+      readonly parameterIndex: number;
+      readonly targetTypeNode: unknown; // ts.TypeNode
+    }
+  | {
+      readonly kind: "this";
+      readonly targetTypeNode: unknown; // ts.TypeNode
+    };
 
 export interface ParameterNode {
   readonly name: string;

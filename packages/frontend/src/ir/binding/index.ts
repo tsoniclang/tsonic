@@ -35,6 +35,8 @@ import type {
   DeclKind,
   ParameterNode,
   TypeParameterNode,
+  ParameterMode,
+  SignatureTypePredicate,
 } from "../type-system/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -222,14 +224,19 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     // Extract declaring identity (CRITICAL for Alice's spec: resolveCall needs this)
     const declaringIdentity = extractDeclaringIdentity(decl, checker);
 
+    // Extract type predicate from return type (ALICE'S SPEC: pure syntax inspection)
+    const returnTypeNode = getReturnTypeNode(decl);
+    const typePredicate = extractTypePredicate(returnTypeNode, decl);
+
     const entry: SignatureEntry = {
       signature,
       decl,
       parameters: extractParameterNodes(decl),
-      returnTypeNode: getReturnTypeNode(decl),
+      returnTypeNode,
       typeParameters: extractTypeParameterNodes(decl),
       declaringTypeFQName: declaringIdentity?.typeFQName,
       declaringMemberName: declaringIdentity?.memberName,
+      typePredicate,
     };
     signatureMap.set(id.id, entry);
 
@@ -410,6 +417,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         // CRITICAL for Alice's spec: declaring identity for resolveCall()
         declaringTypeFQName: entry.declaringTypeFQName,
         declaringMemberName: entry.declaringMemberName,
+        // Type predicate extracted at registration time (Alice's spec)
+        typePredicate: entry.typePredicate,
       };
     },
 
@@ -466,6 +475,8 @@ interface SignatureEntry {
   readonly declaringTypeFQName?: string;
   /** Declaring member name (for inheritance substitution in resolveCall) */
   readonly declaringMemberName?: string;
+  /** Type predicate extracted from return type (x is T) */
+  readonly typePredicate?: SignatureTypePredicate;
 }
 
 interface MemberEntry {
@@ -539,16 +550,71 @@ const getReturnTypeNode = (
   return decl.type;
 };
 
+/**
+ * Extract and normalize parameter nodes from a signature declaration.
+ *
+ * ALICE'S SPEC: Parameter mode detection happens HERE during signature registration.
+ * If the parameter type is `ref<T>`, `out<T>`, or `in<T>`:
+ * - Set `mode` to that keyword
+ * - Set `typeNode` to the INNER T node (unwrapped)
+ *
+ * This is PURE SYNTAX inspection, no TS type inference.
+ */
 const extractParameterNodes = (
   decl: ts.SignatureDeclaration | undefined
 ): readonly ParameterNode[] => {
   if (!decl) return [];
-  return decl.parameters.map((p) => ({
-    name: ts.isIdentifier(p.name) ? p.name.text : "param",
-    typeNode: p.type,
-    isOptional: !!p.questionToken || !!p.initializer,
-    isRest: !!p.dotDotDotToken,
-  }));
+  return decl.parameters.map((p) => {
+    const normalized = normalizeParameterTypeNode(p.type);
+    return {
+      name: ts.isIdentifier(p.name) ? p.name.text : "param",
+      typeNode: normalized.typeNode,
+      isOptional: !!p.questionToken || !!p.initializer,
+      isRest: !!p.dotDotDotToken,
+      mode: normalized.mode,
+    };
+  });
+};
+
+/**
+ * Normalize a parameter type node by detecting ref<T>/out<T>/in<T> wrappers.
+ *
+ * This is PURE SYNTAX analysis - we look at the TypeNode AST structure:
+ * - If it's a TypeReferenceNode with identifier name "ref"/"out"/"in"
+ * - And exactly one type argument
+ * - Then unwrap to get the inner type
+ *
+ * @param typeNode The parameter's type node
+ * @returns { mode, typeNode } where typeNode is unwrapped if wrapper detected
+ */
+const normalizeParameterTypeNode = (
+  typeNode: ts.TypeNode | undefined
+): { mode: ParameterMode; typeNode: ts.TypeNode | undefined } => {
+  if (!typeNode) {
+    return { mode: "value", typeNode: undefined };
+  }
+
+  // Check if it's a TypeReferenceNode with identifier name ref/out/in
+  if (
+    ts.isTypeReferenceNode(typeNode) &&
+    ts.isIdentifier(typeNode.typeName)
+  ) {
+    const typeName = typeNode.typeName.text;
+    if (
+      (typeName === "ref" || typeName === "out" || typeName === "in") &&
+      typeNode.typeArguments &&
+      typeNode.typeArguments.length === 1
+    ) {
+      // Unwrap: ref<T> → T with mode="ref"
+      return {
+        mode: typeName,
+        typeNode: typeNode.typeArguments[0],
+      };
+    }
+  }
+
+  // No wrapper detected - regular parameter
+  return { mode: "value", typeNode };
 };
 
 const extractTypeParameterNodes = (
@@ -560,6 +626,63 @@ const extractTypeParameterNodes = (
     constraintNode: tp.constraint,
     defaultNode: tp.default,
   }));
+};
+
+/**
+ * Extract type predicate from a signature's return type.
+ *
+ * ALICE'S SPEC: This is PURE SYNTAX inspection at registration time.
+ * We check if the return TypeNode is a TypePredicateNode (x is T or this is T).
+ * No TS type inference is used.
+ *
+ * @param returnTypeNode The signature's return type node
+ * @param decl The signature declaration (to find parameter index)
+ * @returns SignatureTypePredicate or undefined if not a predicate
+ */
+const extractTypePredicate = (
+  returnTypeNode: ts.TypeNode | undefined,
+  decl: ts.SignatureDeclaration | undefined
+): SignatureTypePredicate | undefined => {
+  // Return type must be a TypePredicateNode
+  if (!returnTypeNode || !ts.isTypePredicateNode(returnTypeNode)) {
+    return undefined;
+  }
+
+  const predNode = returnTypeNode;
+
+  // Must have a target type
+  if (!predNode.type) {
+    return undefined;
+  }
+
+  // Check if it's "this is T" predicate
+  if (predNode.parameterName.kind === ts.SyntaxKind.ThisType) {
+    return {
+      kind: "this",
+      targetTypeNode: predNode.type,
+    };
+  }
+
+  // Check if it's "param is T" predicate
+  if (ts.isIdentifier(predNode.parameterName)) {
+    const paramName = predNode.parameterName.text;
+
+    // Find parameter index
+    const paramIndex = decl?.parameters.findIndex((p) =>
+      ts.isIdentifier(p.name) && p.name.text === paramName
+    ) ?? -1;
+
+    if (paramIndex >= 0) {
+      return {
+        kind: "param",
+        parameterName: paramName,
+        parameterIndex: paramIndex,
+        targetTypeNode: predNode.type,
+      };
+    }
+  }
+
+  return undefined;
 };
 
 const isOptionalMember = (symbol: ts.Symbol): boolean => {
