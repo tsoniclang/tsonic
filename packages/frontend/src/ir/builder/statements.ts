@@ -13,6 +13,7 @@ import {
   getSyntheticDeclarations,
 } from "../converters/anonymous-synthesis.js";
 import type { Binding } from "../binding/index.js";
+import type { ConverterContext } from "../converters/context.js";
 
 /**
  * Extract statements from source file.
@@ -22,11 +23,18 @@ import type { Binding } from "../binding/index.js";
  *
  * Also collects synthetic type declarations generated during conversion
  * (from anonymous object literal synthesis) and prepends them.
+ *
+ * @param sourceFile - The TypeScript source file to extract from
+ * @param binding - Symbol resolution binding layer
+ * @param ctx - Optional converter context (for TypeSystem access during migration)
  */
 export const extractStatements = (
   sourceFile: ts.SourceFile,
-  binding: Binding
+  binding: Binding,
+  ctx?: ConverterContext
 ): readonly IrStatement[] => {
+  // Note: ctx is currently unused but will be passed to converters after full migration
+  void ctx;
   // Reset synthetic registry for this file
   resetSyntheticRegistry();
 

@@ -23,6 +23,7 @@ import { buildNominalEnv } from "../nominal-env.js";
 import { convertType } from "../type-converter.js";
 import { createTypeSystem } from "../type-system/type-system.js";
 import type { BindingInternal } from "../binding/index.js";
+import { createConverterContext, type ConverterContext } from "../converters/context.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
@@ -31,11 +32,19 @@ import { validateClassImplements } from "./validation.js";
 
 /**
  * Build IR module from TypeScript source file
+ *
+ * @param sourceFile - The TypeScript source file to convert
+ * @param program - The Tsonic program with type checker and bindings
+ * @param options - Build options (sourceRoot, rootNamespace)
+ * @param ctx - Optional ConverterContext for TypeSystem access. When provided,
+ *              converters can access TypeSystem instead of singletons.
+ *              Optional during migration; will become required when migration completes.
  */
 export const buildIrModule = (
   sourceFile: ts.SourceFile,
   program: TsonicProgram,
-  options: IrBuildOptions
+  options: IrBuildOptions,
+  ctx?: ConverterContext
 ): Result<IrModule, Diagnostic> => {
   try {
     // Set the metadata registry for this compilation
@@ -82,7 +91,7 @@ export const buildIrModule = (
       program.clrResolver
     );
     const exports = extractExports(sourceFile, program.binding);
-    const statements = extractStatements(sourceFile, program.binding);
+    const statements = extractStatements(sourceFile, program.binding, ctx);
 
     // Check for file name / export name collision (Issue #4)
     // When file name matches an exported function/variable name, C# will have illegal code
@@ -233,11 +242,21 @@ export const buildIr = (
   });
   setTypeSystem(typeSystem);
 
+  // Create converter context with all shared resources
+  // This will be passed through the converter chain during migration
+  const ctx: ConverterContext = createConverterContext({
+    binding: program.binding,
+    typeSystem,
+    metadata: program.metadata,
+    bindings: program.bindings,
+    clrResolver: program.clrResolver,
+  });
+
   const modules: IrModule[] = [];
   const diagnostics: Diagnostic[] = [];
 
   for (const sourceFile of program.sourceFiles) {
-    const result = buildIrModule(sourceFile, program, options);
+    const result = buildIrModule(sourceFile, program, options, ctx);
     if (result.ok) {
       modules.push(result.value);
     } else {

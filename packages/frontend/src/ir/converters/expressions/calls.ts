@@ -19,6 +19,7 @@ import { IrType } from "../../types.js";
 import {
   getTypeRegistry,
   getNominalEnv,
+  getTypeSystem,
 } from "../statements/declarations/registry.js";
 import { substituteIrType } from "../../nominal-env.js";
 import type { Binding } from "../../binding/index.js";
@@ -128,11 +129,19 @@ const extractNarrowing = (
  * Used for NominalEnv-based member type resolution.
  *
  * The nominal name is resolved to FQ using TypeRegistry when available.
+ *
+ * MIGRATION NOTE: Uses getTypeRegistry() singleton during Step 7 migration.
+ * After migration complete, this logic may move to TypeSystem or use context.
  */
 const normalizeReceiverToNominal = (
   receiverIrType: IrType
 ): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
+  // MIGRATION: Try TypeSystem first, fall back to legacy singleton
+  const typeSystem = getTypeSystem();
   const registry = getTypeRegistry();
+
+  // Suppress unused warning during migration - TypeSystem will be used after full migration
+  void typeSystem;
 
   // Helper to resolve simple name to FQ name
   const toFQName = (simpleName: string): string => {
@@ -187,6 +196,9 @@ const normalizeReceiverToNominal = (
  * @param node - Call or new expression
  * @param binding - Binding layer for symbol resolution
  * @param receiverIrType - IR type of the receiver (for member method calls)
+ *
+ * DETERMINISTIC TYPING: Uses TypeSystem.resolveCall() for proper substitution.
+ * Falls back to legacy NominalEnv path during migration.
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
@@ -203,6 +215,27 @@ const extractParameterTypes = (
     const sigInfo = binding.getHandleRegistry().getSignature(sigId);
     if (!sigInfo) return undefined;
 
+    // MIGRATION: Try TypeSystem.resolveCall() first (Alice's spec)
+    const typeSystem = getTypeSystem();
+    if (typeSystem && sigId) {
+      // Extract explicit type arguments from call site if any
+      const explicitTypeArgs =
+        node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
+
+      const resolved = typeSystem.resolveCall({
+        sigId,
+        receiverType: receiverIrType,
+        explicitTypeArgs,
+      });
+
+      // If TypeSystem returned non-empty parameter types, use them
+      if (resolved.parameterTypes.length > 0) {
+        return resolved.parameterTypes;
+      }
+      // Otherwise fall through to legacy path
+    }
+
+    // LEGACY PATH: Direct NominalEnv access (deprecated after migration)
     // Get NominalEnv substitution for member method calls
     const registry = getTypeRegistry();
     const nominalEnv = getNominalEnv();
@@ -410,6 +443,12 @@ const getCalleesDeclaredType = (
   return undefined;
 };
 
+/**
+ * Get the declared return type from a call or new expression's signature.
+ *
+ * DETERMINISTIC TYPING: Uses TypeSystem.resolveCall() for proper substitution.
+ * Falls back to legacy paths for edge cases during migration.
+ */
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
   binding: Binding,
@@ -421,6 +460,26 @@ export const getDeclaredReturnType = (
     const sigId = ts.isCallExpression(node)
       ? binding.resolveCallSignature(node)
       : binding.resolveConstructorSignature(node);
+
+    // MIGRATION: Try TypeSystem.resolveCall() first for call expressions
+    const typeSystem = getTypeSystem();
+    if (typeSystem && sigId && ts.isCallExpression(node)) {
+      const explicitTypeArgs =
+        node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
+
+      const resolved = typeSystem.resolveCall({
+        sigId,
+        receiverType: receiverIrType,
+        explicitTypeArgs,
+      });
+
+      // If TypeSystem returned a valid return type (not unknownType), use it
+      if (resolved.returnType.kind !== "unknownType") {
+        return resolved.returnType;
+      }
+      // Otherwise fall through to legacy path
+    }
+
     const sigInfo = sigId
       ? binding.getHandleRegistry().getSignature(sigId)
       : undefined;

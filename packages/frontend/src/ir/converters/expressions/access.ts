@@ -10,6 +10,7 @@ import {
   getBindingRegistry,
   getTypeRegistry,
   getNominalEnv,
+  getTypeSystem,
 } from "../statements/declarations/registry.js";
 import { convertType } from "../../type-converter.js";
 import { substituteIrType } from "../../nominal-env.js";
@@ -24,6 +25,9 @@ import type { Binding } from "../../binding/index.js";
  * - primitiveType: Map to "String", "Number", "Boolean" surfaces (resolved to FQ)
  *
  * Returns undefined for types that can't be normalized to nominals.
+ *
+ * MIGRATION NOTE: This is a legacy helper used by getDeclaredPropertyType's fallback path.
+ * After full migration to TypeSystem.typeOfMember(), this function may be removed.
  */
 const normalizeReceiverToNominal = (
   receiverIrType: IrType
@@ -73,15 +77,12 @@ const normalizeReceiverToNominal = (
 /**
  * Get the declared property type from a property access expression.
  *
- * DETERMINISTIC TYPING: Uses NominalEnv + TypeRegistry to walk inheritance chains
- * and substitute type parameters. Never uses TypeScript's type inference APIs.
+ * DETERMINISTIC TYPING: Uses TypeSystem.typeOfMember() for proper substitution.
+ * Falls back to legacy NominalEnv + TypeRegistry path during migration.
  *
- * Flow:
- * 1. Normalize receiver IR type to nominal + type args
- * 2. Use NominalEnv.findMemberDeclaringType() to find which type declares the member
- * 3. Get declared member TypeNode from TypeRegistry
- * 4. Convert to IR pattern (may contain type parameters)
- * 5. Apply substituteIrType() to replace type parameters with concrete types
+ * Flow (via TypeSystem):
+ * 1. TypeSystem.typeOfMember(receiverIrType, { byName: propertyName })
+ * 2. TypeSystem handles normalization, inheritance lookup, and substitution
  *
  * @param node - Property access expression node
  * @param receiverIrType - Already-computed IR type of the receiver (object) expression
@@ -95,6 +96,22 @@ const getDeclaredPropertyType = (
 ): IrType | undefined => {
   try {
     const propertyName = node.name.text;
+
+    // MIGRATION: Try TypeSystem.typeOfMember() first (Alice's spec)
+    const typeSystem = getTypeSystem();
+    if (typeSystem && receiverIrType && receiverIrType.kind !== "unknownType") {
+      const memberType = typeSystem.typeOfMember(
+        receiverIrType,
+        { kind: "byName", name: propertyName }
+      );
+      // If TypeSystem returned a valid type (not unknownType), use it
+      if (memberType.kind !== "unknownType") {
+        return memberType;
+      }
+      // Otherwise fall through to legacy path
+    }
+
+    // LEGACY PATH: Direct NominalEnv + TypeRegistry access (deprecated after migration)
     const registry = getTypeRegistry();
     const nominalEnv = getNominalEnv();
 
