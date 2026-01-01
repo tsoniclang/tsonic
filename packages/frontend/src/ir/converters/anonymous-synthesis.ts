@@ -2,13 +2,17 @@
  * Anonymous Object Literal Synthesis (TSN7403)
  *
  * When an object literal has no contextual nominal type, we synthesize a
- * nominal type from the TypeScript-inferred type. This enables:
+ * nominal type from the AST structure. This enables:
  * - Object literals without explicit type annotations
  * - Spread expressions in object literals
  * - Function-valued properties (as delegates)
  *
+ * DETERMINISTIC IR TYPING (INV-0 compliant):
+ * This module uses only AST-based synthesis. Property types come from the
+ * converted expression's inferredType, not from TS computed types.
+ *
  * Eligibility:
- * ✅ Allowed: identifier keys, string literal keys, spreads, arrow functions
+ * ✅ Allowed: identifier keys, string literal keys, spreads with typed sources, arrow functions
  * ❌ Rejected: computed keys, symbol keys, method shorthand, getters/setters
  */
 
@@ -19,62 +23,19 @@ import {
   IrInterfaceMember,
   IrTypeParameter,
 } from "../types.js";
-import { convertType } from "../type-converter.js";
 
 // ============================================================================
 // Shape Signature Computation
 // ============================================================================
 
 /**
- * Property info extracted from TypeScript type for shape signature
+ * Property info for shape signature (AST-based, no TS type computation)
  */
-type PropertyInfo = {
+export type PropertyInfo = {
   readonly name: string;
   readonly type: IrType;
   readonly optional: boolean;
   readonly readonly: boolean;
-};
-
-/**
- * Extract property info from a TypeScript object type
- */
-const extractPropertyInfo = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): readonly PropertyInfo[] => {
-  const properties = type.getProperties();
-  const result: PropertyInfo[] = [];
-
-  for (const prop of properties) {
-    const propType = checker.getTypeOfSymbolAtLocation(
-      prop,
-      prop.valueDeclaration ?? prop.declarations?.[0] ?? ({} as ts.Node)
-    );
-
-    const flags = prop.flags;
-    const optional = (flags & ts.SymbolFlags.Optional) !== 0;
-
-    // Check readonly via declaration modifiers
-    const decl = prop.valueDeclaration;
-    const readonly =
-      decl !== undefined &&
-      ts.isPropertySignature(decl) &&
-      decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ===
-        true;
-
-    const typeNode = checker.typeToTypeNode(propType, undefined, undefined);
-    if (typeNode) {
-      result.push({
-        name: prop.name,
-        type: convertType(typeNode, checker),
-        optional,
-        readonly,
-      });
-    }
-  }
-
-  // Sort by name for stable signature
-  return result.sort((a, b) => a.name.localeCompare(b.name));
 };
 
 /**
@@ -137,24 +98,22 @@ const serializeType = (type: IrType): string => {
 };
 
 /**
- * Compute a stable shape signature from property info
+ * Compute a stable shape signature from property info (AST-based)
+ *
+ * DETERMINISTIC: Takes pre-computed PropertyInfo array, no TS type computation.
  *
  * Format: sorted properties with their types, optionality, and readonly flags
  * Example: "count:number;name?:string;readonly:id:string"
  */
-export const computeShapeSignature = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): string => {
-  const props = extractPropertyInfo(type, checker);
-  return props
+export const computeShapeSignature = (props: readonly PropertyInfo[]): string =>
+  [...props]
+    .sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => {
       const prefix = p.readonly ? "ro:" : "";
       const suffix = p.optional ? "?" : "";
       return `${prefix}${p.name}${suffix}:${serializeType(p.type)}`;
     })
     .join(";");
-};
 
 // ============================================================================
 // Synthetic Type Registry
@@ -200,13 +159,13 @@ export const generateSyntheticName = (
 /**
  * Get or create a synthetic type for a shape
  *
- * Returns existing type if shape was seen before (deduplication)
+ * DETERMINISTIC: Takes pre-computed PropertyInfo array, no TS type computation.
+ * Returns existing type if shape was seen before (deduplication).
  */
 export const getOrCreateSyntheticType = (
   shapeSignature: string,
   name: string,
-  type: ts.Type,
-  checker: ts.TypeChecker,
+  props: readonly PropertyInfo[],
   capturedTypeParams: readonly IrTypeParameter[]
 ): SyntheticTypeEntry => {
   // Check if we already have a synthetic for this shape
@@ -215,8 +174,7 @@ export const getOrCreateSyntheticType = (
     return existing;
   }
 
-  // Create new synthetic interface declaration
-  const props = extractPropertyInfo(type, checker);
+  // Create new synthetic interface declaration from pre-computed props
   const members: IrInterfaceMember[] = props.map((p) => ({
     kind: "propertySignature" as const,
     name: p.name,
@@ -268,9 +226,12 @@ export type EligibilityResult =
 /**
  * Check if an object literal expression is eligible for synthesis
  *
+ * DETERMINISTIC IR TYPING (INV-0 compliant):
+ * Uses symbol-based checks, not getTypeAtLocation.
+ *
  * Eligible:
  * - All property keys are identifiers or string literals
- * - Spread expressions have resolvable object types
+ * - Spread expressions have typed sources (identifiers with type annotations)
  * - No method shorthand (arrow functions are ok)
  * - No getters/setters
  * - No computed keys with non-literal expressions
@@ -306,21 +267,44 @@ export const checkSynthesisEligibility = (
       continue;
     }
 
-    // Spread: check that the spread expression has a resolvable type
+    // Spread: check that the spread source is a typed identifier (symbol-based, no getTypeAtLocation)
     if (ts.isSpreadAssignment(prop)) {
-      const spreadType = checker.getTypeAtLocation(prop.expression);
-      if (spreadType.flags & ts.TypeFlags.Any) {
+      // Only allow spread of identifiers with declarations we can resolve
+      if (!ts.isIdentifier(prop.expression)) {
         return {
           eligible: false,
-          reason: `Spread expression has type 'any' which cannot be synthesized`,
+          reason: `Spread source must be a simple identifier (TSN5215)`,
         };
       }
-      if (spreadType.flags & ts.TypeFlags.Unknown) {
+
+      const symbol = checker.getSymbolAtLocation(prop.expression);
+      if (!symbol) {
         return {
           eligible: false,
-          reason: `Spread expression has type 'unknown' which cannot be synthesized`,
+          reason: `Spread source '${prop.expression.text}' could not be resolved`,
         };
       }
+
+      const decl = symbol.valueDeclaration ?? symbol.declarations?.[0];
+      if (!decl) {
+        return {
+          eligible: false,
+          reason: `Spread source '${prop.expression.text}' has no declaration`,
+        };
+      }
+
+      // Check if declaration has a type annotation (deterministic typing requirement)
+      const hasType =
+        (ts.isVariableDeclaration(decl) && decl.type !== undefined) ||
+        (ts.isParameter(decl) && decl.type !== undefined);
+
+      if (!hasType) {
+        return {
+          eligible: false,
+          reason: `Spread source '${prop.expression.text}' requires type annotation (TSN5215)`,
+        };
+      }
+
       continue;
     }
 

@@ -28,12 +28,104 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
-import { inferLambdaParamTypes } from "../ir/type-converter/index.js";
 import {
   UNSUPPORTED_MAPPED_UTILITY_TYPES,
   UNSUPPORTED_CONDITIONAL_UTILITY_TYPES,
 } from "./unsupported-utility-types.js";
 import { checkSynthesisEligibility } from "../ir/converters/anonymous-synthesis.js";
+
+/**
+ * DETERMINISTIC IR TYPING (INV-0 compliant):
+ * Check if a lambda is in a position where expected types provide parameter types.
+ *
+ * This replaces the old getContextualType-based inference with AST analysis.
+ * Expected types are propagated from:
+ * 1. Call arguments - the callee's parameter type provides the expected type
+ * 2. Variable initializers - the variable's type annotation provides the expected type
+ * 3. New expression arguments - the constructor's parameter type provides the expected type
+ * 4. Return statements - the function's return type provides the expected type
+ * 5. Property assignments - the object's contextual type provides the expected type
+ */
+const lambdaHasExpectedTypeContext = (
+  lambda: ts.ArrowFunction | ts.FunctionExpression
+): boolean => {
+  const parent = lambda.parent;
+
+  // Case 1: Lambda is a call argument
+  // e.g., nums.sort((a, b) => a - b) or apply((x) => x * 2, 5)
+  if (ts.isCallExpression(parent)) {
+    return true;
+  }
+
+  // Case 2: Lambda is a new expression argument
+  // e.g., new Promise((resolve) => resolve())
+  if (ts.isNewExpression(parent)) {
+    return true;
+  }
+
+  // Case 3: Lambda is assigned to a typed variable
+  // e.g., const fn: (x: number) => number = (x) => x + 1
+  if (ts.isVariableDeclaration(parent) && parent.type) {
+    return true;
+  }
+
+  // Case 4: Lambda is in a return statement in a function with return type
+  if (ts.isReturnStatement(parent)) {
+    const containingFunction = findContainingFunction(parent);
+    if (containingFunction && containingFunction.type) {
+      return true;
+    }
+  }
+
+  // Case 5: Lambda is a property value where the object has contextual type
+  // e.g., const ops: OperationMap = { add: (a, b) => a + b }
+  if (ts.isPropertyAssignment(parent) && ts.isObjectLiteralExpression(parent.parent)) {
+    const grandparent = parent.parent.parent;
+    // Check if the object literal is assigned to a typed variable
+    if (ts.isVariableDeclaration(grandparent) && grandparent.type) {
+      return true;
+    }
+    // Check if the object literal is a call argument
+    if (ts.isCallExpression(grandparent) || ts.isNewExpression(grandparent)) {
+      return true;
+    }
+  }
+
+  // Case 6: Lambda is an array element where the array has a type
+  // e.g., const ops: Operation[] = [(a, b) => a + b]
+  if (ts.isArrayLiteralExpression(parent)) {
+    const arrayParent = parent.parent;
+    if (ts.isVariableDeclaration(arrayParent) && arrayParent.type) {
+      return true;
+    }
+    if (ts.isCallExpression(arrayParent) || ts.isNewExpression(arrayParent)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+/**
+ * Find the containing function declaration/expression for a node.
+ */
+const findContainingFunction = (
+  node: ts.Node
+): ts.FunctionLikeDeclaration | undefined => {
+  let current = node.parent;
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isArrowFunction(current) ||
+      ts.isFunctionExpression(current)
+    ) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return undefined;
+};
 
 /**
  * Validate a source file for static safety violations.
@@ -92,17 +184,15 @@ export const validateStaticSafety = (
         ts.isArrowFunction(parent) || ts.isFunctionExpression(parent);
 
       if (isLambda) {
-        // Try contextual signature inference
-        const inference = inferLambdaParamTypes(parent, checker);
-        const paramIndex = parent.parameters.indexOf(
-          node as ts.ParameterDeclaration
-        );
+        // DETERMINISTIC IR TYPING (INV-0 compliant):
+        // Check if lambda is in a position where expected types provide parameter types.
+        // This replaces the old getContextualType-based inference.
+        const hasExpectedTypeContext = lambdaHasExpectedTypeContext(parent);
 
-        // If inference succeeded for this parameter, don't emit TSN7405
-        if (inference && inference.paramTypes[paramIndex] !== undefined) {
-          // Inference succeeded - no error needed
+        if (hasExpectedTypeContext) {
+          // Lambda is in a contextual position - converter will get types from expected type
         } else {
-          // Inference failed - emit TSN7405
+          // No expected type context - emit TSN7405
           const paramName = ts.isIdentifier(node.name)
             ? node.name.text
             : "param";

@@ -12,17 +12,15 @@ import {
   IrType,
   IrExpression,
 } from "../../types.js";
-import {
-  deriveIdentifierType,
-  getSourceSpan,
-  getContextualType,
-} from "./helpers.js";
+import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
+import { convertType } from "../../type-converter.js";
 import {
   computeShapeSignature,
   generateSyntheticName,
   getOrCreateSyntheticType,
   checkSynthesisEligibility,
+  PropertyInfo,
 } from "../anonymous-synthesis.js";
 import { NumericKind } from "../../types/numeric-kind.js";
 
@@ -259,14 +257,54 @@ export const convertObjectLiteral = (
         shorthand: false,
       });
     } else if (ts.isShorthandPropertyAssignment(prop)) {
-      // DETERMINISTIC: Derive identifier type from declaration
+      // DETERMINISTIC: Derive identifier type from the VALUE being assigned, not the property
+      // For { value }, we need to get the type of the variable `value`, not the property `value`
+      // Use getShorthandAssignmentValueSymbol to get the variable symbol
+      const valueSymbol = checker.getShorthandAssignmentValueSymbol(prop);
+      let inferredType: IrType | undefined;
+
+      if (valueSymbol) {
+        const valueDecls = valueSymbol.getDeclarations();
+        if (valueDecls && valueDecls.length > 0) {
+          for (const decl of valueDecls) {
+            if (ts.isVariableDeclaration(decl)) {
+              if (decl.type) {
+                inferredType = convertType(decl.type, checker);
+                break;
+              }
+              // No explicit type - try to derive from initializer
+              if (decl.initializer) {
+                if (ts.isNumericLiteral(decl.initializer)) {
+                  inferredType = { kind: "primitiveType", name: "number" };
+                  break;
+                }
+                if (ts.isStringLiteral(decl.initializer)) {
+                  inferredType = { kind: "primitiveType", name: "string" };
+                  break;
+                }
+                if (
+                  decl.initializer.kind === ts.SyntaxKind.TrueKeyword ||
+                  decl.initializer.kind === ts.SyntaxKind.FalseKeyword
+                ) {
+                  inferredType = { kind: "primitiveType", name: "boolean" };
+                  break;
+                }
+              }
+            } else if (ts.isParameter(decl) && decl.type) {
+              inferredType = convertType(decl.type, checker);
+              break;
+            }
+          }
+        }
+      }
+
       properties.push({
         kind: "property",
         key: prop.name.text,
         value: {
           kind: "identifier",
           name: prop.name.text,
-          inferredType: deriveIdentifierType(prop.name, checker),
+          inferredType,
           sourceSpan: getSourceSpan(prop.name),
         },
         shorthand: true,
@@ -285,50 +323,106 @@ export const convertObjectLiteral = (
   let contextualType = getContextualType(node, checker);
 
   // If no contextual type, check if eligible for synthesis
+  // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis
   if (!contextualType) {
     const eligibility = checkSynthesisEligibility(node, checker);
     if (eligibility.eligible) {
-      // Get the inferred type from TypeScript
-      const tsType = checker.getTypeAtLocation(node);
+      // Extract property info from already-converted properties (AST-based)
+      const propInfos: PropertyInfo[] = [];
+      let canSynthesize = true;
 
-      // Compute shape signature for deduplication
-      const shapeSignature = computeShapeSignature(tsType, checker);
+      for (const prop of properties) {
+        if (prop.kind === "property") {
+          // Get property name (must be a string for synthesis)
+          const keyName = typeof prop.key === "string" ? prop.key : undefined;
+          if (!keyName) {
+            canSynthesize = false;
+            break;
+          }
 
-      // Get source file info for synthetic name
-      const sourceFile = node.getSourceFile();
-      const fileStem = path.basename(
-        sourceFile.fileName,
-        path.extname(sourceFile.fileName)
-      );
-      const { line, character } = sourceFile.getLineAndCharacterOfPosition(
-        node.getStart()
-      );
+          // Get type from converted expression's inferredType
+          const propType = prop.value.inferredType;
+          if (
+            !propType ||
+            propType.kind === "unknownType" ||
+            propType.kind === "anyType"
+          ) {
+            // Cannot synthesize if property type is unknown/any
+            canSynthesize = false;
+            break;
+          }
 
-      // Generate synthetic name
-      const syntheticName = generateSyntheticName(
-        fileStem,
-        line + 1,
-        character + 1
-      );
+          propInfos.push({
+            name: keyName,
+            type: propType,
+            optional: false,
+            readonly: false,
+          });
+        } else if (prop.kind === "spread") {
+          // For spreads, merge properties from the spread source's objectType
+          const spreadType = prop.expression.inferredType;
+          if (spreadType?.kind === "objectType") {
+            for (const member of spreadType.members) {
+              if (member.kind === "propertySignature") {
+                propInfos.push({
+                  name: member.name,
+                  type: member.type,
+                  optional: member.isOptional,
+                  readonly: member.isReadonly,
+                });
+              }
+            }
+          } else if (spreadType?.kind === "referenceType") {
+            // Reference type spread - can still synthesize, the reference is kept
+            // The spread's type will be resolved at emit time
+            canSynthesize = false; // For now, require object type spreads
+            break;
+          } else {
+            canSynthesize = false;
+            break;
+          }
+        }
+      }
 
-      // Get or create synthetic type (handles deduplication)
-      // TODO: Handle generic type parameter capture
-      const syntheticEntry = getOrCreateSyntheticType(
-        shapeSignature,
-        syntheticName,
-        tsType,
-        checker,
-        [] // No captured type params for now
-      );
+      if (canSynthesize && propInfos.length > 0) {
+        // Compute shape signature for deduplication (AST-based)
+        const shapeSignature = computeShapeSignature(propInfos);
 
-      // Create reference to synthetic type
-      const syntheticRef: IrReferenceType = {
-        kind: "referenceType",
-        name: syntheticEntry.name,
-        typeArguments: undefined, // TODO: Add type args if capturing generic params
-      };
+        // Get source file info for synthetic name
+        const sourceFile = node.getSourceFile();
+        const fileStem = path.basename(
+          sourceFile.fileName,
+          path.extname(sourceFile.fileName)
+        );
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart()
+        );
 
-      contextualType = syntheticRef;
+        // Generate synthetic name
+        const syntheticName = generateSyntheticName(
+          fileStem,
+          line + 1,
+          character + 1
+        );
+
+        // Get or create synthetic type (handles deduplication)
+        // DETERMINISTIC: Takes pre-computed PropertyInfo array
+        const syntheticEntry = getOrCreateSyntheticType(
+          shapeSignature,
+          syntheticName,
+          propInfos,
+          [] // No captured type params for now
+        );
+
+        // Create reference to synthetic type
+        const syntheticRef: IrReferenceType = {
+          kind: "referenceType",
+          name: syntheticEntry.name,
+          typeArguments: undefined, // TODO: Add type args if capturing generic params
+        };
+
+        contextualType = syntheticRef;
+      }
     }
   }
 

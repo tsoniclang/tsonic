@@ -2,21 +2,21 @@ namespace TestCases.common.types.anonymousobjects
 {
     public class __Anon_AnonymousObjects_2_22
     {
-        public required double x { get; set; }
+        public required int x { get; set; }
 
-        public required double y { get; set; }
+        public required int y { get; set; }
     }
     public class __Anon_AnonymousObjects_5_23
     {
-        public required double count { get; set; }
+        public required string name { get; set; }
+
+        public required int count { get; set; }
 
         public required bool enabled { get; set; }
-
-        public required string name { get; set; }
     }
     public class __Anon_AnonymousObjects_12_24
     {
-        public required double id { get; set; }
+        public required int id { get; set; }
 
         public required global::System.Func<double, double> process { get; set; }
     }

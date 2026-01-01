@@ -3,13 +3,7 @@
  */
 
 import * as ts from "typescript";
-import {
-  IrType,
-  IrDictionaryType,
-  IrInterfaceMember,
-  IrPropertySignature,
-  IrMethodSignature,
-} from "../types.js";
+import { IrType, IrDictionaryType, IrInterfaceMember } from "../types.js";
 import {
   isPrimitiveTypeName,
   getPrimitiveType,
@@ -30,97 +24,50 @@ import {
  * Cache for structural member extraction to prevent infinite recursion
  * on recursive types like `type Node = { next: Node }`.
  *
- * Key: ts.Type (by identity)
+ * DETERMINISTIC IR TYPING (INV-0 compliant):
+ * Key: ts.Symbol (by identity) - symbols are stable identifiers
  * Value: extracted members, null (not extractable), or "in-progress" sentinel
  */
 const structuralMembersCache = new WeakMap<
-  ts.Type,
+  ts.Symbol,
   readonly IrInterfaceMember[] | null | "in-progress"
 >();
 
 /**
- * Check if a type should have structural members extracted.
+ * Check if a declaration should have structural members extracted.
  *
  * Only extract for:
  * - Interfaces (InterfaceDeclaration)
- * - Type aliases to object types (TypeAliasDeclaration)
+ * - Type aliases to object types (TypeAliasDeclaration with TypeLiteralNode)
  *
  * Do NOT extract for:
  * - Classes (have implementation, not just shape)
  * - Enums, namespaces
  * - Library types (from node_modules or lib.*.d.ts)
- * - CLR interop types
- * - Union/intersection types (ambiguous property semantics)
+ * - Type aliases to primitives, unions, functions, etc.
  */
-const shouldExtractStructuralMembers = (
-  resolvedType: ts.Type,
-  _checker: ts.TypeChecker
-): boolean => {
-  // Don't extract for type parameters
-  if (resolvedType.flags & ts.TypeFlags.TypeParameter) {
+const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
+  const sourceFile = decl.getSourceFile();
+  const fileName = sourceFile.fileName;
+
+  // Skip library types (node_modules, lib.*.d.ts, or declaration files)
+  if (
+    fileName.includes("node_modules") ||
+    fileName.includes("lib.") ||
+    sourceFile.isDeclarationFile
+  ) {
     return false;
   }
 
-  // Don't extract for union types (ambiguous property semantics)
-  if (resolvedType.isUnion()) {
-    return false;
-  }
-
-  // Don't extract for intersection types (conservative)
-  if (resolvedType.isIntersection()) {
-    return false;
-  }
-
-  // Check the symbol to determine if this is a structural type we should extract
-  const symbol = resolvedType.getSymbol();
-  if (!symbol) {
-    return false;
-  }
-
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) {
-    return false;
-  }
-
-  // Check if ANY declaration is from a library file (node_modules or lib.*.d.ts)
-  for (const decl of declarations) {
-    const sourceFile = decl.getSourceFile();
-    const fileName = sourceFile.fileName;
-
-    // Skip library types
-    if (
-      fileName.includes("node_modules") ||
-      fileName.includes("lib.") ||
-      sourceFile.isDeclarationFile
-    ) {
-      return false;
-    }
-  }
-
-  // Check the first declaration to determine type
-  const firstDecl = declarations[0];
-  if (!firstDecl) {
-    return false;
-  }
-
-  // Only extract for interfaces and type aliases
-  if (ts.isInterfaceDeclaration(firstDecl)) {
+  // Only extract for interfaces
+  if (ts.isInterfaceDeclaration(decl)) {
     return true;
   }
 
-  if (ts.isTypeAliasDeclaration(firstDecl)) {
-    // Only extract if the alias resolves to an object-like type
-    // (has properties, not a primitive/union/etc)
-    const properties = resolvedType.getProperties();
-    return properties !== undefined && properties.length > 0;
-  }
-
-  // TypeLiteral: When a type alias resolves to an object type like `type Config = { x: number }`,
-  // TypeScript's getTypeAtLocation returns the underlying object type, whose declaration is TypeLiteral.
-  // We need to extract structural members in this case too.
-  if (ts.isTypeLiteralNode(firstDecl)) {
-    const properties = resolvedType.getProperties();
-    return properties !== undefined && properties.length > 0;
+  // Only extract for type aliases that resolve to object types
+  if (ts.isTypeAliasDeclaration(decl)) {
+    // Check if the alias is to an object type (TypeLiteral)
+    return ts.isTypeLiteralNode(decl.type);
   }
 
   // Don't extract for classes, enums, etc.
@@ -128,7 +75,11 @@ const shouldExtractStructuralMembers = (
 };
 
 /**
- * Extract structural members from a resolved type.
+ * Extract structural members from type declarations (AST-based).
+ *
+ * DETERMINISTIC IR TYPING (INV-0 compliant):
+ * Uses AST nodes directly instead of ts.Type computation.
+ * Gets TypeNodes from declarations, not from getTypeOfSymbolAtLocation.
  *
  * Used to populate structuralMembers on referenceType for interfaces and type aliases.
  * This enables TSN5110 validation for object literal properties against expected types.
@@ -137,23 +88,26 @@ const shouldExtractStructuralMembers = (
  * - Only extracts for interfaces/type-aliases (not classes, enums, lib types)
  * - Uses cache to prevent infinite recursion on recursive types
  * - Skips unsupported keys instead of bailing entirely
- * - Returns undefined for union/intersection (conservative)
  * - Returns undefined for index signatures (can't fully represent)
  *
- * @param resolvedType - The resolved TypeScript type
- * @param node - The enclosing node for type-to-node conversion
- * @param checker - The TypeScript type checker
+ * @param symbol - The symbol for the type (may be undefined)
+ * @param node - The enclosing node for context
+ * @param checker - The TypeScript type checker (for symbol resolution only)
  * @param convertType - Function to convert nested types
  * @returns Structural members or undefined if extraction fails/skipped
  */
-const extractStructuralMembers = (
-  resolvedType: ts.Type,
-  node: ts.Node,
+const extractStructuralMembersFromDeclarations = (
+  symbol: ts.Symbol | undefined,
+  _node: ts.Node,
   checker: ts.TypeChecker,
   convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
 ): readonly IrInterfaceMember[] | undefined => {
+  if (!symbol) {
+    return undefined;
+  }
+
   // Check cache first (handles recursion)
-  const cached = structuralMembersCache.get(resolvedType);
+  const cached = structuralMembersCache.get(symbol);
   if (cached === "in-progress") {
     // Recursive reference - return undefined to break cycle
     return undefined;
@@ -162,140 +116,125 @@ const extractStructuralMembers = (
     return cached === null ? undefined : cached;
   }
 
-  // Gate: only extract for structural types we own
-  if (!shouldExtractStructuralMembers(resolvedType, checker)) {
-    structuralMembersCache.set(resolvedType, null);
+  // Get declarations
+  const declarations = symbol.getDeclarations();
+  if (!declarations || declarations.length === 0) {
+    structuralMembersCache.set(symbol, null);
+    return undefined;
+  }
+
+  // Find a suitable declaration (interface or type alias to object type)
+  const decl = declarations.find(shouldExtractFromDeclaration);
+  if (!decl) {
+    structuralMembersCache.set(symbol, null);
     return undefined;
   }
 
   // Mark as in-progress before recursing.
-  // IMPORTANT: Use try/finally to ensure cache is always settled.
-  // If typeToTypeNode() or convertType() throws, we must not leave
-  // "in-progress" in the cache (would cause future lookups to fail).
-  structuralMembersCache.set(resolvedType, "in-progress");
+  structuralMembersCache.set(symbol, "in-progress");
 
   try {
-    // Get properties
-    const properties = resolvedType.getProperties();
-    if (!properties || properties.length === 0) {
-      structuralMembersCache.set(resolvedType, null);
+    const members: IrInterfaceMember[] = [];
+
+    // Get the type element source (interface members or type literal members)
+    const typeElements = ts.isInterfaceDeclaration(decl)
+      ? decl.members
+      : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
+        ? decl.type.members
+        : undefined;
+
+    if (!typeElements) {
+      structuralMembersCache.set(symbol, null);
       return undefined;
     }
 
     // Check for index signatures - can't fully represent these structurally
-    const stringIndexType = checker.getIndexInfoOfType(
-      resolvedType,
-      ts.IndexKind.String
-    );
-    const numberIndexType = checker.getIndexInfoOfType(
-      resolvedType,
-      ts.IndexKind.Number
-    );
-    if (stringIndexType || numberIndexType) {
-      structuralMembersCache.set(resolvedType, null);
-      return undefined;
+    for (const member of typeElements) {
+      if (ts.isIndexSignatureDeclaration(member)) {
+        structuralMembersCache.set(symbol, null);
+        return undefined;
+      }
     }
 
-    // Extract members
-    const members: IrInterfaceMember[] = [];
+    // Extract members from AST (TypeNodes directly)
+    for (const member of typeElements) {
+      // Property signature
+      if (ts.isPropertySignature(member)) {
+        const propName = ts.isIdentifier(member.name)
+          ? member.name.text
+          : ts.isStringLiteral(member.name)
+            ? member.name.text
+            : undefined;
 
-    for (const prop of properties) {
-      const propName = prop.getName();
+        if (!propName) {
+          continue; // Skip computed/symbol keys
+        }
 
-      // Skip non-string keys (symbols, computed) - don't bail entirely
-      if (propName.startsWith("__@") || propName.startsWith("[")) {
-        continue; // Skip this property, keep extracting others
-      }
+        const isOptional = !!member.questionToken;
+        const isReadonly =
+          member.modifiers?.some(
+            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+          ) ?? false;
 
-      const propType = checker.getTypeOfSymbolAtLocation(prop, node);
-      const declarations = prop.getDeclarations();
+        // DETERMINISTIC: Get type from TypeNode in declaration
+        const declTypeNode = member.type;
+        if (!declTypeNode) {
+          continue; // Skip properties without type annotation
+        }
 
-      // Check optional/readonly
-      const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-      const isReadonly =
-        declarations?.some((decl) => {
-          if (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) {
-            return (
-              decl.modifiers?.some(
-                (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-              ) ?? false
-            );
-          }
-          return false;
-        }) ?? false;
-
-      // Check if it's a method
-      const isMethod =
-        declarations?.some(
-          (decl) => ts.isMethodSignature(decl) || ts.isMethodDeclaration(decl)
-        ) ?? false;
-
-      // IMPORTANT: Check for CLR primitive type aliases BEFORE calling typeToTypeNode.
-      // TypeScript eagerly resolves type aliases like `int` to their underlying type `number`
-      // when converting to TypeNode. We need to preserve the alias identity for CLR primitives
-      // so that TSN5110 correctly validates `int` properties accept `int` values.
-      //
-      // The propType.aliasSymbol approach doesn't work because getTypeOfSymbolAtLocation
-      // returns the resolved type without alias info. Instead, we look at the property
-      // declaration's type node directly to see the original type reference.
-      //
-      // Only preserve alias identity when:
-      // 1. The type reference name is a known CLR primitive (e.g., "int")
-      // 2. The type reference resolves to @tsonic/core (not a random user alias)
-      const propDecl = declarations?.[0];
-      if (
-        propDecl &&
-        (ts.isPropertySignature(propDecl) || ts.isPropertyDeclaration(propDecl))
-      ) {
-        const declTypeNode = propDecl.type;
-        // Check if the declared type is a type reference to a CLR primitive
-        if (declTypeNode && ts.isTypeReferenceNode(declTypeNode)) {
+        // Check for CLR primitive type aliases
+        if (ts.isTypeReferenceNode(declTypeNode)) {
           const typeName = ts.isIdentifier(declTypeNode.typeName)
             ? declTypeNode.typeName.text
             : undefined;
           if (typeName && CLR_PRIMITIVE_TYPE_SET.has(typeName)) {
-            // Resolve the type reference to check it comes from @tsonic/core
-            // For type aliases like `int`, we need to get the symbol from the type name identifier
-            // and follow any aliases (imports) to the original declaration
+            // Resolve to check it comes from @tsonic/core (symbol-based, allowed)
             const typeNameNode = declTypeNode.typeName;
             const typeSymbolRaw = ts.isIdentifier(typeNameNode)
               ? checker.getSymbolAtLocation(typeNameNode)
               : undefined;
-            // Follow alias chain to get the original symbol (handles re-exports/imports)
             const typeSymbol = typeSymbolRaw
               ? checker.getAliasedSymbol(typeSymbolRaw)
               : undefined;
             const refDecl = typeSymbol?.declarations?.[0];
             const refSourceFile = refDecl?.getSourceFile();
             if (refSourceFile?.fileName.includes("@tsonic/core")) {
-              // Directly emit the CLR primitive type, bypassing typeToTypeNode
-              const propSig: IrPropertySignature = {
+              members.push({
                 kind: "propertySignature",
                 name: propName,
                 type: getClrPrimitiveType(typeName as "int"),
                 isOptional,
                 isReadonly,
-              };
-              members.push(propSig);
+              });
               continue;
             }
           }
         }
+
+        // Convert the TypeNode to IrType
+        members.push({
+          kind: "propertySignature",
+          name: propName,
+          type: convertType(declTypeNode, checker),
+          isOptional,
+          isReadonly,
+        });
       }
 
-      const typeNodeFlags = ts.NodeBuilderFlags.NoTruncation;
-      const propTypeNode = checker.typeToTypeNode(
-        propType,
-        node,
-        typeNodeFlags
-      );
+      // Method signature
+      if (ts.isMethodSignature(member)) {
+        const methodName = ts.isIdentifier(member.name)
+          ? member.name.text
+          : undefined;
 
-      if (isMethod && propTypeNode && ts.isFunctionTypeNode(propTypeNode)) {
-        // Method signature
-        const methSig: IrMethodSignature = {
+        if (!methodName) {
+          continue; // Skip computed keys
+        }
+
+        members.push({
           kind: "methodSignature",
-          name: propName,
-          parameters: propTypeNode.parameters.map((param, index) => ({
+          name: methodName,
+          parameters: member.parameters.map((param, index) => ({
             kind: "parameter" as const,
             pattern: {
               kind: "identifierPattern" as const,
@@ -308,32 +247,19 @@ const extractStructuralMembers = (
             isRest: !!param.dotDotDotToken,
             passing: "value" as const,
           })),
-          returnType: propTypeNode.type
-            ? convertType(propTypeNode.type, checker)
+          returnType: member.type
+            ? convertType(member.type, checker)
             : undefined,
-        };
-        members.push(methSig);
-      } else {
-        // Property signature
-        const propSig: IrPropertySignature = {
-          kind: "propertySignature",
-          name: propName,
-          type: propTypeNode
-            ? convertType(propTypeNode, checker)
-            : { kind: "anyType" },
-          isOptional,
-          isReadonly,
-        };
-        members.push(propSig);
+        });
       }
     }
 
     const result = members.length > 0 ? members : undefined;
-    structuralMembersCache.set(resolvedType, result ?? null);
+    structuralMembersCache.set(symbol, result ?? null);
     return result;
   } catch {
     // On any error, settle cache to null (not extractable)
-    structuralMembersCache.set(resolvedType, null);
+    structuralMembersCache.set(symbol, null);
     return undefined;
   }
 };
@@ -477,17 +403,14 @@ export const convertTypeReference = (
     }
   }
 
-  // Fallback: check using getTypeAtLocation for type parameters
-  // (handles cases where symbol lookup fails, e.g., complex imports)
-  const type = checker.getTypeAtLocation(node);
-  if (type.flags & ts.TypeFlags.TypeParameter) {
-    return { kind: "typeParameterType", name: typeName };
-  }
+  // DETERMINISTIC IR TYPING (INV-0 compliant):
+  // Symbol-based type parameter check above handles all cases.
+  // The getTypeAtLocation fallback has been removed for INV-0 compliance.
 
-  // Extract structural members for interfaces and type aliases.
+  // Extract structural members from declarations (AST-based)
   // This enables TSN5110 validation for object literal properties.
-  const structuralMembers = extractStructuralMembers(
-    type,
+  const structuralMembers = extractStructuralMembersFromDeclarations(
+    symbol,
     node,
     checker,
     convertType
