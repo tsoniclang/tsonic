@@ -10,6 +10,7 @@ import { buildIrModule } from "./builder.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createBinding } from "./binding/index.js";
 
 describe("Hierarchical Bindings End-to-End", () => {
   it("should resolve hierarchical bindings in IR for member access chain", () => {
@@ -84,9 +85,10 @@ describe("Hierarchical Bindings End-to-End", () => {
       }
     );
 
+    const checker = program.getTypeChecker();
     const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker,
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -94,9 +96,11 @@ describe("Hierarchical Bindings End-to-End", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings,
       clrResolver: createClrBindingsResolver("/test"),
+      binding: createBinding(checker),
     };
 
     // Build IR

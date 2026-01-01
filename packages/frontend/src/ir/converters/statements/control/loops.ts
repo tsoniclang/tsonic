@@ -13,6 +13,7 @@ import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../type-converter.js";
 import { convertStatementSingle } from "../../../statement-converter.js";
 import { convertVariableDeclarationList } from "../helpers.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert while statement
@@ -21,17 +22,17 @@ import { convertVariableDeclarationList } from "../helpers.js";
  */
 export const convertWhileStatement = (
   node: ts.WhileStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrWhileStatement => {
   const body = convertStatementSingle(
     node.statement,
-    checker,
+    binding,
     expectedReturnType
   );
   return {
     kind: "whileStatement",
-    condition: convertExpression(node.expression, checker, undefined),
+    condition: convertExpression(node.expression, binding, undefined),
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -43,26 +44,26 @@ export const convertWhileStatement = (
  */
 export const convertForStatement = (
   node: ts.ForStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrForStatement => {
   const body = convertStatementSingle(
     node.statement,
-    checker,
+    binding,
     expectedReturnType
   );
   return {
     kind: "forStatement",
     initializer: node.initializer
       ? ts.isVariableDeclarationList(node.initializer)
-        ? convertVariableDeclarationList(node.initializer, checker)
-        : convertExpression(node.initializer, checker, undefined)
+        ? convertVariableDeclarationList(node.initializer, binding)
+        : convertExpression(node.initializer, binding, undefined)
       : undefined,
     condition: node.condition
-      ? convertExpression(node.condition, checker, undefined)
+      ? convertExpression(node.condition, binding, undefined)
       : undefined,
     update: node.incrementor
-      ? convertExpression(node.incrementor, checker, undefined)
+      ? convertExpression(node.incrementor, binding, undefined)
       : undefined,
     body: body ?? { kind: "emptyStatement" },
   };
@@ -75,7 +76,7 @@ export const convertForStatement = (
  */
 export const convertForOfStatement = (
   node: ts.ForOfStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrForOfStatement => {
   const firstDecl = ts.isVariableDeclarationList(node.initializer)
@@ -88,13 +89,13 @@ export const convertForOfStatement = (
 
   const body = convertStatementSingle(
     node.statement,
-    checker,
+    binding,
     expectedReturnType
   );
   return {
     kind: "forOfStatement",
     variable,
-    expression: convertExpression(node.expression, checker, undefined),
+    expression: convertExpression(node.expression, binding, undefined),
     body: body ?? { kind: "emptyStatement" },
     isAwait: !!node.awaitModifier,
   };
@@ -107,7 +108,7 @@ export const convertForOfStatement = (
  */
 export const convertForInStatement = (
   node: ts.ForInStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrForStatement => {
   // Note: for...in needs special handling in C# - variable extraction will be handled in emitter
@@ -115,7 +116,7 @@ export const convertForInStatement = (
 
   const body = convertStatementSingle(
     node.statement,
-    checker,
+    binding,
     expectedReturnType
   );
   // Note: for...in needs special handling in C#

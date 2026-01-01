@@ -9,14 +9,15 @@ import {
   IrArrayPatternElement,
 } from "../types/helpers.js";
 import { convertExpression } from "../expression-converter.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Convert TypeScript binding name to IR pattern.
- * Optionally accepts a TypeChecker for expression conversion (defaults, etc.)
+ * Optionally accepts a Binding for expression conversion (defaults, etc.)
  */
 export const convertBindingName = (
   name: ts.BindingName,
-  checker?: ts.TypeChecker
+  binding?: Binding
 ): IrPattern => {
   if (ts.isIdentifier(name)) {
     return {
@@ -35,12 +36,12 @@ export const convertBindingName = (
         if (ts.isBindingElement(elem)) {
           const isRest = !!elem.dotDotDotToken;
           const defaultExpr =
-            elem.initializer && checker
-              ? convertExpression(elem.initializer, checker, undefined)
+            elem.initializer && binding
+              ? convertExpression(elem.initializer, binding, undefined)
               : undefined;
 
           return {
-            pattern: convertBindingName(elem.name, checker),
+            pattern: convertBindingName(elem.name, binding),
             defaultExpr,
             isRest: isRest || undefined,
           };
@@ -60,7 +61,7 @@ export const convertBindingName = (
         // during rest type synthesis pass
         properties.push({
           kind: "rest",
-          pattern: convertBindingName(elem.name, checker),
+          pattern: convertBindingName(elem.name, binding),
         });
       } else {
         const key = elem.propertyName
@@ -72,14 +73,14 @@ export const convertBindingName = (
             : "[computed]";
 
         const defaultExpr =
-          elem.initializer && checker
-            ? convertExpression(elem.initializer, checker, undefined)
+          elem.initializer && binding
+            ? convertExpression(elem.initializer, binding, undefined)
             : undefined;
 
         properties.push({
           kind: "property",
           key,
-          value: convertBindingName(elem.name, checker),
+          value: convertBindingName(elem.name, binding),
           shorthand: !elem.propertyName,
           defaultExpr,
         });

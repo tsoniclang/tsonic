@@ -13,54 +13,42 @@ import {
   convertConstructor,
   extractParameterProperties,
 } from "./constructors.js";
+import type { Binding } from "../../../../binding/index.js";
 
 /**
  * Convert a single class member
  */
 const convertClassMember = (
   node: ts.ClassElement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   superClass: ts.ExpressionWithTypeArguments | undefined,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember | null => {
   if (ts.isPropertyDeclaration(node)) {
-    return convertProperty(node, checker, superClass);
+    return convertProperty(node, binding, superClass);
   }
 
   if (ts.isMethodDeclaration(node)) {
-    return convertMethod(node, checker, superClass);
+    return convertMethod(node, binding, superClass);
   }
 
   if (ts.isConstructorDeclaration(node)) {
-    return convertConstructor(node, checker, constructorParams);
+    return convertConstructor(node, binding, constructorParams);
   }
 
   return null;
 };
 
 /**
- * Filter members to only include those declared directly on this class
+ * Filter members to only include those declared directly on this class.
+ * DETERMINISTIC: Uses AST structure only, all members in node.members are own members.
  */
 const filterOwnMembers = (
-  node: ts.ClassDeclaration,
-  checker: ts.TypeChecker
+  node: ts.ClassDeclaration
 ): readonly ts.ClassElement[] => {
-  return node.members.filter((m) => {
-    // Always include constructors and methods declared on this class
-    if (ts.isConstructorDeclaration(m) || ts.isMethodDeclaration(m)) {
-      return true;
-    }
-    // For properties, only include if they're declared directly on this class
-    if (ts.isPropertyDeclaration(m)) {
-      // Check if this property has a declaration on this specific class node
-      const symbol = checker.getSymbolAtLocation(m.name);
-      if (!symbol) return true; // Include if we can't determine
-      const declarations = symbol.getDeclarations() || [];
-      // Only include if this exact node is in the declarations
-      return declarations.some((d) => d === m);
-    }
-    return true;
-  });
+  // All members directly on node.members ARE own members by definition
+  // The AST doesn't include inherited members in the class's members array
+  return node.members;
 };
 
 /**
@@ -89,14 +77,16 @@ const deduplicateMembers = (
 };
 
 /**
- * Check if a type reference is the struct marker
+ * Check if a type reference is the struct marker.
+ * DETERMINISTIC: Uses only the AST expression text, not TypeScript type resolution.
  */
-const isStructMarker = (
-  typeRef: ts.ExpressionWithTypeArguments,
-  checker: ts.TypeChecker
-): boolean => {
-  const symbol = checker.getSymbolAtLocation(typeRef.expression);
-  return symbol?.escapedName === "struct" || symbol?.escapedName === "Struct";
+const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
+  // Check the expression directly - it should be an identifier named "struct" or "Struct"
+  if (ts.isIdentifier(typeRef.expression)) {
+    const name = typeRef.expression.text;
+    return name === "struct" || name === "Struct";
+  }
+  return false;
 };
 
 /**
@@ -104,7 +94,7 @@ const isStructMarker = (
  */
 export const convertClassDeclaration = (
   node: ts.ClassDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrClassDeclaration | null => {
   if (!node.name) return null;
 
@@ -120,24 +110,24 @@ export const convertClassDeclaration = (
   const implementsTypes =
     implementsClause?.types
       .filter((t) => {
-        if (isStructMarker(t, checker)) {
+        if (isStructMarker(t)) {
           isStruct = true;
           return false; // Remove marker from implements
         }
         return true;
       })
-      .map((t) => convertType(t, checker)) ?? [];
+      .map((t) => convertType(t, binding)) ?? [];
 
   // Extract parameter properties from constructor
   const constructor = node.members.find(ts.isConstructorDeclaration);
-  const parameterProperties = extractParameterProperties(constructor, checker);
+  const parameterProperties = extractParameterProperties(constructor, binding);
 
   // Filter to only include members declared directly on this class (not inherited)
-  const ownMembers = filterOwnMembers(node, checker);
+  const ownMembers = filterOwnMembers(node);
 
   const convertedMembers = ownMembers
     .map((m) =>
-      convertClassMember(m, checker, superClass, constructor?.parameters)
+      convertClassMember(m, binding, superClass, constructor?.parameters)
     )
     .filter((m): m is IrClassMember => m !== null);
 
@@ -156,9 +146,9 @@ export const convertClassDeclaration = (
   return {
     kind: "classDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, checker),
+    typeParameters: convertTypeParameters(node.typeParameters, binding),
     superClass: superClass
-      ? convertExpression(superClass, checker, undefined)
+      ? convertExpression(superClass, binding, undefined)
       : undefined,
     implements: implementsTypes,
     members: finalMembers,

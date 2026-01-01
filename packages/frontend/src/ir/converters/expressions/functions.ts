@@ -13,6 +13,7 @@ import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
 import { convertType, convertBindingName } from "../../type-converter.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Extract parameter types from an expected function type.
@@ -38,7 +39,7 @@ const extractParamTypesFromExpectedType = (
  */
 const convertLambdaParameters = (
   node: ts.ArrowFunction | ts.FunctionExpression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedType: IrType | undefined
 ): readonly IrParameter[] => {
   // DETERMINISTIC: Extract parameter types from expectedType (the ONLY source for unannotated params)
@@ -70,7 +71,7 @@ const convertLambdaParameters = (
     let irType: IrType | undefined;
     if (actualType) {
       // Explicit type annotation - use it
-      irType = convertType(actualType, checker);
+      irType = convertType(actualType, binding);
     } else if (expectedParamTypes && expectedParamTypes[index]) {
       // Use expectedType from call site (deterministic)
       irType = expectedParamTypes[index];
@@ -84,7 +85,7 @@ const convertLambdaParameters = (
       type: irType,
       // Pass parameter type for contextual typing of default value
       initializer: param.initializer
-        ? convertExpression(param.initializer, checker, irType)
+        ? convertExpression(param.initializer, binding, irType)
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
@@ -101,13 +102,13 @@ const convertLambdaParameters = (
  */
 export const convertFunctionExpression = (
   node: ts.FunctionExpression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedType?: IrType
 ): IrFunctionExpression => {
   // Get return type from declared annotation for contextual typing
-  const returnType = node.type ? convertType(node.type, checker) : undefined;
+  const returnType = node.type ? convertType(node.type, binding) : undefined;
   // DETERMINISTIC: Pass expectedType for parameter type inference
-  const parameters = convertLambdaParameters(node, checker, expectedType);
+  const parameters = convertLambdaParameters(node, binding, expectedType);
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {
@@ -123,7 +124,7 @@ export const convertFunctionExpression = (
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, checker, returnType)
+      ? convertBlockStatement(node.body, binding, returnType)
       : { kind: "blockStatement", statements: [] },
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -142,12 +143,12 @@ export const convertFunctionExpression = (
  */
 export const convertArrowFunction = (
   node: ts.ArrowFunction,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedType?: IrType
 ): IrArrowFunctionExpression => {
   // Get return type from declared annotation, or from expectedType if available
   const declaredReturnType = node.type
-    ? convertType(node.type, checker)
+    ? convertType(node.type, binding)
     : undefined;
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
   const expectedReturnType =
@@ -155,14 +156,14 @@ export const convertArrowFunction = (
   const returnType = declaredReturnType ?? expectedReturnType;
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
-  const parameters = convertLambdaParameters(node, checker, expectedType);
+  const parameters = convertLambdaParameters(node, binding, expectedType);
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type
   // - Expression body: the expression gets the expected type
   const body = ts.isBlock(node.body)
-    ? convertBlockStatement(node.body, checker, returnType)
-    : convertExpression(node.body, checker, returnType);
+    ? convertBlockStatement(node.body, binding, returnType)
+    : convertExpression(node.body, binding, returnType);
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
   const contextualType = expectedType;

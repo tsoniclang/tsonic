@@ -18,6 +18,7 @@ import {
   isAssignmentOperator,
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Derive result type from binary operator and operand types.
@@ -148,7 +149,7 @@ const deriveUnaryResultType = (
  */
 export const convertBinaryExpression = (
   node: ts.BinaryExpression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedType?: IrType
 ): IrExpression => {
   const operator = convertBinaryOperator(node.operatorToken);
@@ -162,13 +163,13 @@ export const convertBinaryExpression = (
       ? {
           kind: "identifier" as const,
           name: node.left.text,
-          inferredType: deriveIdentifierType(node.left, checker),
+          inferredType: deriveIdentifierType(node.left, binding),
           sourceSpan: getSourceSpan(node.left),
         }
-      : convertExpression(node.left, checker, undefined);
+      : convertExpression(node.left, binding, undefined);
 
     const lhsType = leftExpr.inferredType;
-    const rightExpr = convertExpression(node.right, checker, lhsType);
+    const rightExpr = convertExpression(node.right, binding, lhsType);
 
     return {
       kind: "assignment",
@@ -186,8 +187,8 @@ export const convertBinaryExpression = (
   if (operator === "&&" || operator === "||" || operator === "??") {
     const rhsExpectedType =
       operator === "??" || operator === "||" ? expectedType : undefined;
-    const leftExpr = convertExpression(node.left, checker, undefined);
-    const rightExpr = convertExpression(node.right, checker, rhsExpectedType);
+    const leftExpr = convertExpression(node.left, binding, undefined);
+    const rightExpr = convertExpression(node.right, binding, rhsExpectedType);
 
     return {
       kind: "logical",
@@ -204,8 +205,8 @@ export const convertBinaryExpression = (
   }
 
   // Regular binary expression
-  const leftExpr = convertExpression(node.left, checker, undefined);
-  const rightExpr = convertExpression(node.right, checker, undefined);
+  const leftExpr = convertExpression(node.left, binding, undefined);
+  const rightExpr = convertExpression(node.right, binding, undefined);
 
   return {
     kind: "binary",
@@ -226,10 +227,10 @@ export const convertBinaryExpression = (
  */
 export const convertUnaryExpression = (
   node: ts.PrefixUnaryExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrUnaryExpression | IrUpdateExpression => {
   const sourceSpan = getSourceSpan(node);
-  const operandExpr = convertExpression(node.operand, checker, undefined);
+  const operandExpr = convertExpression(node.operand, binding, undefined);
 
   // Check if it's an increment/decrement (++ or --)
   if (
@@ -286,7 +287,7 @@ export const convertUnaryExpression = (
  */
 export const convertUpdateExpression = (
   node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrUpdateExpression => {
   const sourceSpan = getSourceSpan(node);
 
@@ -296,7 +297,7 @@ export const convertUpdateExpression = (
       node.operator === ts.SyntaxKind.PlusPlusToken ||
       node.operator === ts.SyntaxKind.MinusMinusToken
     ) {
-      const operandExpr = convertExpression(node.operand, checker, undefined);
+      const operandExpr = convertExpression(node.operand, binding, undefined);
       const updateOperator =
         node.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
       return {
@@ -315,7 +316,7 @@ export const convertUpdateExpression = (
 
   // Handle postfix unary expression
   const postfix = node as ts.PostfixUnaryExpression;
-  const operandExpr = convertExpression(postfix.operand, checker, undefined);
+  const operandExpr = convertExpression(postfix.operand, binding, undefined);
   const updateOperator =
     postfix.operator === ts.SyntaxKind.PlusPlusToken ? "++" : "--";
   return {

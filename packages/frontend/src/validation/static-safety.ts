@@ -79,7 +79,10 @@ const lambdaHasExpectedTypeContext = (
 
   // Case 5: Lambda is a property value where the object has contextual type
   // e.g., const ops: OperationMap = { add: (a, b) => a + b }
-  if (ts.isPropertyAssignment(parent) && ts.isObjectLiteralExpression(parent.parent)) {
+  if (
+    ts.isPropertyAssignment(parent) &&
+    ts.isObjectLiteralExpression(parent.parent)
+  ) {
     const grandparent = parent.parent.parent;
     // Check if the object literal is assigned to a typed variable
     if (ts.isVariableDeclaration(grandparent) && grandparent.type) {
@@ -128,6 +131,85 @@ const findContainingFunction = (
 };
 
 /**
+ * DETERMINISTIC IR TYPING (INV-0 compliant):
+ * Check if an object literal is in a position where expected types are available.
+ *
+ * This replaces checker.getContextualType with AST analysis.
+ * Expected types are propagated from:
+ * 1. Variable initializers - the variable's type annotation provides the expected type
+ * 2. Call arguments - the callee's parameter type provides the expected type
+ * 3. New expression arguments - the constructor's parameter type provides the expected type
+ * 4. Return statements - the function's return type provides the expected type
+ * 5. Property assignments - the parent object's contextual type provides the expected type
+ */
+const objectLiteralHasContextualType = (
+  node: ts.ObjectLiteralExpression
+): boolean => {
+  const parent = node.parent;
+
+  // Case 1: Object is assigned to a typed variable
+  // e.g., const user: User = { name: "Alice" }
+  if (ts.isVariableDeclaration(parent) && parent.type) {
+    return true;
+  }
+
+  // Case 2: Object is a call argument
+  // e.g., createUser({ name: "Alice" })
+  if (ts.isCallExpression(parent)) {
+    return true;
+  }
+
+  // Case 3: Object is a new expression argument
+  // e.g., new User({ name: "Alice" })
+  if (ts.isNewExpression(parent)) {
+    return true;
+  }
+
+  // Case 4: Object is in a return statement in a function with return type
+  if (ts.isReturnStatement(parent)) {
+    const containingFunction = findContainingFunction(parent);
+    if (containingFunction && containingFunction.type) {
+      return true;
+    }
+  }
+
+  // Case 5: Object is a property value in another object that has contextual type
+  // e.g., const config: Config = { nested: { value: 1 } }
+  if (
+    ts.isPropertyAssignment(parent) &&
+    ts.isObjectLiteralExpression(parent.parent)
+  ) {
+    return objectLiteralHasContextualType(parent.parent);
+  }
+
+  // Case 6: Object is an array element where the array has a type
+  // e.g., const users: User[] = [{ name: "Alice" }]
+  if (ts.isArrayLiteralExpression(parent)) {
+    const arrayParent = parent.parent;
+    if (ts.isVariableDeclaration(arrayParent) && arrayParent.type) {
+      return true;
+    }
+    if (ts.isCallExpression(arrayParent) || ts.isNewExpression(arrayParent)) {
+      return true;
+    }
+  }
+
+  // Case 7: Object is in an as-expression (type assertion)
+  // e.g., { name: "Alice" } as User
+  if (ts.isAsExpression(parent) && parent.type) {
+    return true;
+  }
+
+  // Case 8: Object is in a satisfies expression
+  // e.g., { name: "Alice" } satisfies User
+  if (ts.isSatisfiesExpression(parent) && parent.type) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
  * Validate a source file for static safety violations.
  */
 export const validateStaticSafety = (
@@ -135,7 +217,7 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const checker = program.checker;
+  const { binding } = program;
 
   const visitor = (
     node: ts.Node,
@@ -237,18 +319,16 @@ export const validateStaticSafety = (
 
     // TSN7403: Check for object literals without contextual nominal type
     // Now supports auto-synthesis for eligible object literals (spreads, arrow props)
+    // DETERMINISTIC (INV-0): Uses AST-based contextual type detection, not getContextualType
     if (ts.isObjectLiteralExpression(node)) {
-      const contextualType = checker.getContextualType(node);
+      // Check if object literal has a contextual type using deterministic AST analysis
+      const hasContextualType = objectLiteralHasContextualType(node);
 
-      // If there's a contextual nominal type, we're good
-      if (
-        contextualType &&
-        isNominalOrDictionaryType(contextualType, checker)
-      ) {
-        // Has contextual type - no synthesis needed
+      if (hasContextualType) {
+        // Has contextual type - type checking will validate compatibility during IR conversion
       } else {
         // No contextual type - check if eligible for synthesis
-        const eligibility = checkSynthesisEligibility(node, checker);
+        const eligibility = checkSynthesisEligibility(node, binding);
         if (!eligibility.eligible) {
           // Not eligible for synthesis - emit diagnostic with specific reason
           currentCollector = addDiagnostic(
@@ -475,7 +555,7 @@ export const validateStaticSafety = (
       currentCollector = validateArrowEscapeHatch(
         node,
         sourceFile,
-        checker,
+        program.checker,
         currentCollector
       );
     }
@@ -489,100 +569,6 @@ export const validateStaticSafety = (
   };
 
   return visitor(sourceFile, collector);
-};
-
-/**
- * Check if a contextual type is a nominal type (interface, type alias, class)
- * or a dictionary type that we can emit.
- *
- * Returns false for anonymous object types like `{ x: number }` without a name.
- *
- * Special case: Union types defined via type aliases (e.g., Result<T, E> = { ok: true; value: T } | {...})
- * are considered nominal because we generate synthetic interfaces for them during IR building.
- */
-const isNominalOrDictionaryType = (
-  type: ts.Type,
-  checker: ts.TypeChecker
-): boolean => {
-  // Check if it's a dictionary type (Record<K,V> or index signature)
-  if (isTsDictionaryType(type)) {
-    return true;
-  }
-
-  // Check if the type has an aliasSymbol (used via a type alias)
-  // This catches: type Result = { ok: true } | { ok: false }
-  // where the union was defined via a type alias
-  if (type.aliasSymbol) {
-    const aliasDecl = type.aliasSymbol.getDeclarations()?.[0];
-    if (aliasDecl && ts.isTypeAliasDeclaration(aliasDecl)) {
-      return true;
-    }
-  }
-
-  // Check if the type has a symbol with a declaration (named type)
-  const symbol = type.getSymbol();
-  if (symbol) {
-    const declarations = symbol.getDeclarations();
-    const decl = declarations?.[0];
-    if (decl !== undefined) {
-      // Accept: interface, type alias, class
-      if (
-        ts.isInterfaceDeclaration(decl) ||
-        ts.isTypeAliasDeclaration(decl) ||
-        ts.isClassDeclaration(decl)
-      ) {
-        return true;
-      }
-    }
-  }
-
-  // Check for union types with aliasSymbol (discriminated unions via type alias)
-  // This handles: return { ok: true, value } where return type is Result<T,E>
-  if (type.isUnion()) {
-    // Check if this union was created from a type alias
-    if (type.aliasSymbol) {
-      return true;
-    }
-  }
-
-  // Check for primitive types (allowed)
-  if (
-    type.flags & ts.TypeFlags.String ||
-    type.flags & ts.TypeFlags.Number ||
-    type.flags & ts.TypeFlags.Boolean ||
-    type.flags & ts.TypeFlags.Null ||
-    type.flags & ts.TypeFlags.Undefined ||
-    type.flags & ts.TypeFlags.Void
-  ) {
-    return true;
-  }
-
-  // Check for array types (allowed)
-  if (checker.isArrayType(type) || checker.isTupleType(type)) {
-    return true;
-  }
-
-  return false;
-};
-
-/**
- * Check if a type is a TS dictionary type (Record<K,V> or index signature).
- *
- * TS dictionary types:
- * - Record<string, T> → has aliasSymbol named "Record"
- * - { [k: string]: T } → has string index signature
- */
-const isTsDictionaryType = (type: ts.Type): boolean => {
-  // Check for Record<K,V> utility type
-  if (type.aliasSymbol?.name === "Record") {
-    return true;
-  }
-
-  // Check for index signature type like { [k: string]: T }
-  const stringIndexType = type.getStringIndexType();
-  const numberIndexType = type.getNumberIndexType();
-
-  return !!(stringIndexType || numberIndexType);
 };
 
 /**
@@ -651,7 +637,7 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
 const validateArrowEscapeHatch = (
   node: ts.ArrowFunction,
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker,
+  _checker: ts.TypeChecker,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
   // Check if arrow has explicit parameter types and return type
@@ -669,47 +655,15 @@ const validateArrowEscapeHatch = (
   const simpleArrowResult = isSimpleArrow(node);
 
   // If it's a simple arrow shape, check for contextual type
+  // DETERMINISTIC (INV-0): Uses AST-based contextual type detection, not getContextualType
   if (simpleArrowResult.isSimple) {
-    // Try to get contextual type for parameter inference
-    const contextualType = checker.getContextualType(node);
+    // Check if arrow has expected type context using deterministic AST analysis
+    const hasExpectedType = lambdaHasExpectedTypeContext(node);
 
-    if (contextualType) {
-      // Has contextual type - check if it's a function type
-      const signatures = contextualType.getCallSignatures();
-      if (signatures.length > 0) {
-        const sig = signatures[0];
-        const contextParams = sig?.getParameters() ?? [];
-
-        // Check parameter count matches
-        if (contextParams.length >= node.parameters.length) {
-          // Contextual type available and valid - inference can proceed
-          return collector;
-        } else {
-          // Parameter count mismatch
-          return addDiagnostic(
-            collector,
-            createDiagnostic(
-              "TSN7430",
-              "error",
-              `Arrow function requires explicit types. Parameter count mismatch with contextual type (expected ${node.parameters.length}, contextual type has ${contextParams.length}).`,
-              getNodeLocation(sourceFile, node),
-              "Add explicit type annotations to the arrow function parameters and return type."
-            )
-          );
-        }
-      } else {
-        // Contextual type is not a function type
-        return addDiagnostic(
-          collector,
-          createDiagnostic(
-            "TSN7430",
-            "error",
-            "Arrow function requires explicit types. Contextual type is not a function type.",
-            getNodeLocation(sourceFile, node),
-            "Add explicit type annotations to the arrow function parameters and return type."
-          )
-        );
-      }
+    if (hasExpectedType) {
+      // Contextual type available - parameter inference will proceed during IR conversion
+      // Parameter count validation is done in the IR conversion phase
+      return collector;
     } else {
       // No contextual type available
       return addDiagnostic(

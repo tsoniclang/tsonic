@@ -5,55 +5,67 @@
 import * as ts from "typescript";
 import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
+import type { Binding } from "../binding/index.js";
+import type { DeclId } from "../type-system/types.js";
 
 /**
  * Check if a type reference is the struct marker
  * (used to mark types as C# value types)
+ * Uses Binding layer for symbol resolution.
  */
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
-  checker: ts.TypeChecker
+  binding: Binding
 ): boolean => {
-  const symbol = checker.getSymbolAtLocation(typeRef.expression);
-  return symbol?.escapedName === "struct" || symbol?.escapedName === "Struct";
+  if (!ts.isIdentifier(typeRef.expression)) {
+    return false;
+  }
+  const declId = binding.resolveIdentifier(typeRef.expression);
+  if (!declId) {
+    return false;
+  }
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  const name = declInfo?.fqName;
+  return name === "struct" || name === "Struct";
 };
 
 /**
- * Check if a symbol represents a TypeScript interface
+ * Check if a declaration represents a TypeScript interface
  * (which Tsonic nominalizes to a C# class)
  */
 const isNominalizedInterface = (
-  symbol: ts.Symbol | undefined,
-  _checker: ts.TypeChecker
+  declId: DeclId | undefined,
+  binding: Binding
 ): boolean => {
-  if (!symbol) return false;
+  if (!declId) return false;
 
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return false;
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  if (!declInfo) return false;
 
-  // Check if any declaration is an interface
-  return declarations.some((decl) => ts.isInterfaceDeclaration(decl));
+  return declInfo.kind === "interface";
 };
 
 /**
- * Check if a symbol represents a type alias for an object type
+ * Check if a declaration represents a type alias for an object type
  * (which Tsonic nominalizes to a C# class)
+ * Note: We check DeclKind for typeAlias, then examine the typeNode.
  */
 const isNominalizedTypeAlias = (
-  symbol: ts.Symbol | undefined,
-  _checker: ts.TypeChecker
+  declId: DeclId | undefined,
+  binding: Binding
 ): boolean => {
-  if (!symbol) return false;
+  if (!declId) return false;
 
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return false;
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  if (!declInfo) return false;
 
-  // Check if declaration is a type alias with object literal type
-  return declarations.some((decl) => {
-    if (!ts.isTypeAliasDeclaration(decl)) return false;
-    // Type aliases for object shapes are nominalized
-    return ts.isTypeLiteralNode(decl.type);
-  });
+  if (declInfo.kind !== "typeAlias") return false;
+
+  // Check if the type alias points to an object literal type
+  const typeNode = declInfo.typeNode as ts.TypeNode | undefined;
+  if (!typeNode) return false;
+
+  return ts.isTypeLiteralNode(typeNode);
 };
 
 /**
@@ -61,7 +73,7 @@ const isNominalizedTypeAlias = (
  */
 const validateClassDeclaration = (
   node: ts.ClassDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
@@ -73,18 +85,20 @@ const validateClassDeclaration = (
 
   for (const typeRef of implementsClause.types) {
     // Skip the struct marker - it's a special pattern for value types
-    if (isStructMarker(typeRef, checker)) {
+    if (isStructMarker(typeRef, binding)) {
       continue;
     }
 
-    // Get the symbol for the identifier (not the resolved type)
+    // Get the declaration ID for the identifier
     // This preserves type alias identity
-    const identifierSymbol = checker.getSymbolAtLocation(typeRef.expression);
+    const identifierDeclId = ts.isIdentifier(typeRef.expression)
+      ? binding.resolveIdentifier(typeRef.expression)
+      : undefined;
 
     // Check if it's a nominalized interface or type alias
     if (
-      isNominalizedInterface(identifierSymbol, checker) ||
-      isNominalizedTypeAlias(identifierSymbol, checker)
+      isNominalizedInterface(identifierDeclId, binding) ||
+      isNominalizedTypeAlias(identifierDeclId, binding)
     ) {
       const typeName = typeRef.expression.getText();
       const location = getSourceLocation(
@@ -113,13 +127,13 @@ const validateClassDeclaration = (
  */
 export const validateClassImplements = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
   const visit = (node: ts.Node): void => {
     if (ts.isClassDeclaration(node)) {
-      diagnostics.push(...validateClassDeclaration(node, checker));
+      diagnostics.push(...validateClassDeclaration(node, binding));
     }
     ts.forEachChild(node, visit);
   };

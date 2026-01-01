@@ -12,6 +12,7 @@ import {
   IrMethodSignature,
 } from "../types.js";
 import { convertParameters as convertParametersFromStatement } from "../statement-converter.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Convert TypeScript object literal type to IR type.
@@ -24,8 +25,8 @@ import { convertParameters as convertParametersFromStatement } from "../statemen
  */
 export const convertObjectType = (
   node: ts.TypeLiteralNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrObjectType | IrDictionaryType => {
   // Check for pure index signature type (no other members)
   const indexSignatures = node.members.filter(ts.isIndexSignatureDeclaration);
@@ -48,7 +49,7 @@ export const convertObjectType = (
     // Determine value type - use anyType as marker if not specified
     // The IR soundness gate will catch this and emit TSN7414
     const valueType: IrType = indexSig.type
-      ? convertType(indexSig.type, checker)
+      ? convertType(indexSig.type, binding)
       : { kind: "anyType" };
 
     return {
@@ -69,7 +70,7 @@ export const convertObjectType = (
           member.name && ts.isIdentifier(member.name)
             ? member.name.text
             : "[computed]",
-        type: convertType(member.type, checker),
+        type: convertType(member.type, binding),
         isOptional: !!member.questionToken,
         isReadonly: !!member.modifiers?.some(
           (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
@@ -83,8 +84,8 @@ export const convertObjectType = (
           member.name && ts.isIdentifier(member.name)
             ? member.name.text
             : "[computed]",
-        parameters: convertParametersFromStatement(member.parameters, checker),
-        returnType: member.type ? convertType(member.type, checker) : undefined,
+        parameters: convertParametersFromStatement(member.parameters, binding),
+        returnType: member.type ? convertType(member.type, binding) : undefined,
       };
       members.push(methSig);
     }

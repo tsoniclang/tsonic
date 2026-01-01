@@ -5,6 +5,7 @@
 import * as ts from "typescript";
 import { IrStatement, IrBlockStatement, IrType } from "../../../types.js";
 import { convertStatement } from "../../../statement-converter.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert block statement
@@ -14,13 +15,13 @@ import { convertStatement } from "../../../statement-converter.js";
  */
 export const convertBlockStatement = (
   node: ts.Block,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType: IrType | undefined
 ): IrBlockStatement => {
   return {
     kind: "blockStatement",
     statements: node.statements
-      .map((s) => convertStatement(s, checker, expectedReturnType))
+      .map((s) => convertStatement(s, binding, expectedReturnType))
       .filter((s): s is IrStatement => s !== null),
   };
 };

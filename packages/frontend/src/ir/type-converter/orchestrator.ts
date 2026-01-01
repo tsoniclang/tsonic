@@ -20,17 +20,18 @@ import {
   convertIntersectionType,
 } from "./unions-intersections.js";
 import { convertLiteralType } from "./literals.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Convert TypeScript type node to IR type
  */
 export const convertType = (
   typeNode: ts.TypeNode,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType => {
   // Type references (including primitive type names)
   if (ts.isTypeReferenceNode(typeNode)) {
-    return convertTypeReference(typeNode, checker, convertType);
+    return convertTypeReference(typeNode, binding, convertType);
   }
 
   // Primitive keywords
@@ -41,7 +42,7 @@ export const convertType = (
 
   // Array types
   if (ts.isArrayTypeNode(typeNode)) {
-    return convertArrayType(typeNode, checker, convertType);
+    return convertArrayType(typeNode, binding, convertType);
   }
 
   // Tuple types
@@ -63,7 +64,7 @@ export const convertType = (
           // [...T[]] → T[]
           return {
             kind: "arrayType",
-            elementType: convertType(firstElement.type.elementType, checker),
+            elementType: convertType(firstElement.type.elementType, binding),
             origin: "explicit",
           };
         }
@@ -75,31 +76,31 @@ export const convertType = (
     const elementTypes = typeNode.elements.map((element) => {
       // Handle named tuple elements (e.g., [name: string, age: number])
       if (ts.isNamedTupleMember(element)) {
-        return convertType(element.type, checker);
+        return convertType(element.type, binding);
       }
-      return convertType(element, checker);
+      return convertType(element, binding);
     });
     return { kind: "tupleType", elementTypes } as IrTupleType;
   }
 
   // Function types
   if (ts.isFunctionTypeNode(typeNode)) {
-    return convertFunctionType(typeNode, checker, convertType);
+    return convertFunctionType(typeNode, binding, convertType);
   }
 
   // Object/interface types
   if (ts.isTypeLiteralNode(typeNode)) {
-    return convertObjectType(typeNode, checker, convertType);
+    return convertObjectType(typeNode, binding, convertType);
   }
 
   // Union types
   if (ts.isUnionTypeNode(typeNode)) {
-    return convertUnionType(typeNode, checker, convertType);
+    return convertUnionType(typeNode, binding, convertType);
   }
 
   // Intersection types
   if (ts.isIntersectionTypeNode(typeNode)) {
-    return convertIntersectionType(typeNode, checker, convertType);
+    return convertIntersectionType(typeNode, binding, convertType);
   }
 
   // Literal types
@@ -109,7 +110,7 @@ export const convertType = (
 
   // Parenthesized types
   if (ts.isParenthesizedTypeNode(typeNode)) {
-    return convertType(typeNode.type, checker);
+    return convertType(typeNode.type, binding);
   }
 
   // Type predicate return types: (x is T) has no direct C# type-level equivalent.
@@ -121,59 +122,28 @@ export const convertType = (
   // TypeQuery: typeof X - resolve to the type of the referenced value
   // DETERMINISTIC: Get type from declaration's TypeNode, not TS inference
   if (ts.isTypeQueryNode(typeNode)) {
-    const symbol = checker.getSymbolAtLocation(typeNode.exprName);
-    if (symbol) {
-      const declarations = symbol.getDeclarations();
-      if (declarations && declarations.length > 0) {
-        for (const decl of declarations) {
-          // Variable declaration with explicit type: const x: Foo = ...
-          if (ts.isVariableDeclaration(decl) && decl.type) {
-            return convertType(decl.type, checker);
-          }
-          // Variable declaration with new expression: const x = new Foo()
-          if (ts.isVariableDeclaration(decl) && decl.initializer) {
-            if (
-              ts.isNewExpression(decl.initializer) &&
-              ts.isIdentifier(decl.initializer.expression)
-            ) {
-              // typeof x where x = new Foo() → Foo
-              const className = decl.initializer.expression.text;
-              if (decl.initializer.typeArguments) {
-                return {
-                  kind: "referenceType",
-                  name: className,
-                  typeArguments: decl.initializer.typeArguments.map((ta) =>
-                    convertType(ta, checker)
-                  ),
-                };
-              }
-              return { kind: "referenceType", name: className };
-            }
-          }
-          // Class declaration: typeof SomeClass → SomeClass type
-          if (ts.isClassDeclaration(decl) && decl.name) {
-            return { kind: "referenceType", name: decl.name.text };
-          }
-          // Function declaration: typeof someFunc → function type
-          if (ts.isFunctionDeclaration(decl)) {
-            return convertFunctionType(
-              ts.factory.createFunctionTypeNode(
-                decl.typeParameters,
-                decl.parameters,
-                decl.type ??
-                  ts.factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword)
-              ),
-              checker,
-              convertType
-            );
-          }
-          // Parameter with explicit type
-          if (ts.isParameter(decl) && decl.type) {
-            return convertType(decl.type, checker);
-          }
+    // Resolve the expression name to its declaration using Binding
+    // For simple identifiers, use resolveIdentifier. For qualified names,
+    // we need to traverse the AST to find the declaration.
+    const exprName = typeNode.exprName;
+    if (ts.isIdentifier(exprName)) {
+      const declId = binding.resolveIdentifier(exprName);
+      if (declId) {
+        const declInfo = binding.getHandleRegistry().getDecl(declId);
+        // If we have a type node from the declaration, convert it
+        if (declInfo?.typeNode) {
+          return convertType(declInfo.typeNode as ts.TypeNode, binding);
         }
+        // For classes/interfaces, return a referenceType with the name
+        if (declInfo?.kind === "class" || declInfo?.kind === "interface") {
+          return { kind: "referenceType", name: exprName.text };
+        }
+        // For functions, we can't easily construct a function type without
+        // access to the declaration node itself, so fall through to anyType
       }
     }
+    // For qualified names (A.B.C), fall through to anyType
+    // TODO: Add support for qualified name resolution if needed
     // Fallback: use anyType as marker - IR soundness gate will emit TSN7414
     return { kind: "anyType" };
   }

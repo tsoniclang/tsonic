@@ -13,33 +13,7 @@ import {
 } from "../statements/declarations/registry.js";
 import { convertType } from "../../type-converter.js";
 import { substituteIrType } from "../../nominal-env.js";
-import { convertParameters } from "../statements/helpers.js";
-// Note: substituteTypeNode from calls.js is no longer needed - we use substituteIrType instead
-
-/**
- * Build a function type from a method declaration or signature.
- * For `greet(): string`, returns the function type `(): string`.
- */
-const buildFunctionTypeFromMethod = (
-  decl: ts.MethodDeclaration | ts.MethodSignature,
-  checker: ts.TypeChecker
-): IrType | undefined => {
-  // Get return type - required for methods
-  const returnTypeNode = decl.type;
-  if (!returnTypeNode) return undefined;
-
-  const returnType = convertType(returnTypeNode, checker);
-
-  // Convert parameters using the standard helper
-  const parameters = convertParameters(decl.parameters, checker);
-
-  // Build function type
-  return {
-    kind: "functionType",
-    parameters,
-    returnType,
-  };
-};
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Normalize receiver IR type to a fully-qualified nominal type name and type arguments.
@@ -111,35 +85,35 @@ const normalizeReceiverToNominal = (
  *
  * @param node - Property access expression node
  * @param receiverIrType - Already-computed IR type of the receiver (object) expression
- * @param checker - TypeChecker for symbol resolution only (NOT for type inference)
+ * @param binding - Binding layer for symbol resolution (NOT for type inference)
  * @returns The deterministically computed property type, or undefined if not found
  */
 const getDeclaredPropertyType = (
   node: ts.PropertyAccessExpression,
   receiverIrType: IrType | undefined,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
   try {
     const propertyName = node.name.text;
     const registry = getTypeRegistry();
     const nominalEnv = getNominalEnv();
 
-    // If no receiver type or infrastructure not available, fall back to TS symbol lookup
+    // If no receiver type or infrastructure not available, fall back to Binding lookup
     if (
       !receiverIrType ||
       receiverIrType.kind === "unknownType" ||
       !registry ||
       !nominalEnv
     ) {
-      // Fall back to direct symbol lookup (for built-ins and CLR types)
-      return getDeclaredPropertyTypeFallback(node, checker);
+      // Fall back to Binding lookup (for built-ins and CLR types)
+      return getDeclaredPropertyTypeFallback(node, binding);
     }
 
     // 1. Normalize receiver to nominal + type args
     const normalized = normalizeReceiverToNominal(receiverIrType);
     if (!normalized) {
-      // Can't normalize - fall back to symbol lookup
-      return getDeclaredPropertyTypeFallback(node, checker);
+      // Can't normalize - fall back to Binding lookup
+      return getDeclaredPropertyTypeFallback(node, binding);
     }
 
     const { nominal, typeArgs } = normalized;
@@ -152,9 +126,9 @@ const getDeclaredPropertyType = (
     );
 
     if (!result) {
-      // Member not found in inheritance chain - fall back to symbol lookup
+      // Member not found in inheritance chain - fall back to Binding lookup
       // This handles CLR-bound members and built-ins from globals
-      return getDeclaredPropertyTypeFallback(node, checker);
+      return getDeclaredPropertyTypeFallback(node, binding);
     }
 
     const { targetNominal, substitution } = result;
@@ -166,12 +140,12 @@ const getDeclaredPropertyType = (
     );
 
     if (!memberTypeNode) {
-      // TypeNode not found in registry - fall back to symbol lookup
-      return getDeclaredPropertyTypeFallback(node, checker);
+      // TypeNode not found in registry - fall back to Binding lookup
+      return getDeclaredPropertyTypeFallback(node, binding);
     }
 
     // 4. Convert TypeNode to IR pattern (may contain type parameters)
-    const memberTypePattern = convertType(memberTypeNode, checker);
+    const memberTypePattern = convertType(memberTypeNode, binding);
 
     // 5. Apply substitution to replace type parameters with concrete types
     const finalType = substituteIrType(memberTypePattern, substitution);
@@ -184,50 +158,28 @@ const getDeclaredPropertyType = (
 
 /**
  * Fallback for getDeclaredPropertyType when NominalEnv can't resolve the member.
- * Uses direct TS symbol lookup for:
+ * Uses Binding layer to resolve property declarations for:
  * - Built-in types from globals (string.length, Array.push, etc.)
  * - CLR-bound types from tsbindgen
  * - Types not registered in TypeRegistry
  */
 const getDeclaredPropertyTypeFallback = (
   node: ts.PropertyAccessExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
   try {
-    // Get property symbol directly from the property name node
-    const propSymbol = checker.getSymbolAtLocation(node.name);
-    if (!propSymbol) return undefined;
+    // Resolve property member through Binding layer
+    const memberId = binding.resolvePropertyAccess(node);
+    if (!memberId) return undefined;
 
-    // Get the property's declaration
-    const declarations = propSymbol.getDeclarations();
-    if (!declarations || declarations.length === 0) return undefined;
+    const memberInfo = binding.getHandleRegistry().getMember(memberId);
+    if (!memberInfo) return undefined;
 
-    // Find a declaration with a type annotation
-    for (const decl of declarations) {
-      if (ts.isPropertySignature(decl) && decl.type) {
-        return convertType(decl.type, checker);
-      }
-      if (ts.isPropertyDeclaration(decl) && decl.type) {
-        return convertType(decl.type, checker);
-      }
-      // Handle constructor parameter properties (public name: string)
-      if (ts.isParameter(decl) && decl.type) {
-        return convertType(decl.type, checker);
-      }
-      // Handle get accessor declarations (readonly properties)
-      if (ts.isGetAccessorDeclaration(decl) && decl.type) {
-        return convertType(decl.type, checker);
-      }
-      // Handle method declarations (class methods)
-      if (ts.isMethodDeclaration(decl)) {
-        const methodType = buildFunctionTypeFromMethod(decl, checker);
-        if (methodType) return methodType;
-      }
-      // Handle method signatures (interface methods)
-      if (ts.isMethodSignature(decl)) {
-        const methodType = buildFunctionTypeFromMethod(decl, checker);
-        if (methodType) return methodType;
-      }
+    // If the member has a type node, convert it
+    // For properties, this is the property type
+    // For methods, this is the method's function type signature from the AST
+    if (memberInfo.typeNode) {
+      return convertType(memberInfo.typeNode as ts.TypeNode, binding);
     }
 
     return undefined;
@@ -509,21 +461,21 @@ const deriveElementType = (
  */
 export const convertMemberExpression = (
   node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrMemberExpression => {
   const isOptional = node.questionDotToken !== undefined;
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
-    const object = convertExpression(node.expression, checker, undefined);
+    const object = convertExpression(node.expression, binding, undefined);
     const propertyName = node.name.text;
 
     // Try to resolve hierarchical binding
     const memberBinding = resolveHierarchicalBinding(object, propertyName);
 
     // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
-    // user-defined types (including inherited members), with fallback to TS symbol
-    // lookup for built-ins and CLR types.
+    // user-defined types (including inherited members), with fallback to Binding layer
+    // for built-ins and CLR types.
     //
     // The receiver's inferredType enables NominalEnv to walk inheritance chains
     // and substitute type parameters correctly for inherited generic members.
@@ -537,7 +489,7 @@ export const convertMemberExpression = (
     const declaredType = getDeclaredPropertyType(
       node,
       object.inferredType,
-      checker
+      binding
     );
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
@@ -572,7 +524,7 @@ export const convertMemberExpression = (
     };
   } else {
     // Element access (computed): obj[expr]
-    const object = convertExpression(node.expression, checker, undefined);
+    const object = convertExpression(node.expression, binding, undefined);
 
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
     const objectType = object.inferredType;
@@ -587,7 +539,7 @@ export const convertMemberExpression = (
     return {
       kind: "memberAccess",
       object,
-      property: convertExpression(node.argumentExpression, checker, undefined),
+      property: convertExpression(node.argumentExpression, binding, undefined),
       isComputed: true,
       isOptional,
       inferredType: elementType,

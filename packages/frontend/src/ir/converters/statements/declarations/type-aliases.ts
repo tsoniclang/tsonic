@@ -7,6 +7,7 @@ import { IrStatement, IrTypeAliasDeclaration } from "../../../types.js";
 import { convertType } from "../../../type-converter.js";
 import { hasExportModifier, convertTypeParameters } from "../helpers.js";
 import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert type alias declaration.
@@ -18,13 +19,13 @@ import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
  */
 export const convertTypeAliasDeclaration = (
   node: ts.TypeAliasDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrStatement[] => {
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, checker),
-    type: convertType(node.type, checker),
+    typeParameters: convertTypeParameters(node.typeParameters, binding),
+    type: convertType(node.type, binding),
     isExported: hasExportModifier(node),
     isStruct: false, // Type aliases are not structs by default
   };

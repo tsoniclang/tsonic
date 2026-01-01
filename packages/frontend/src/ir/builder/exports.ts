@@ -10,13 +10,14 @@ import {
 } from "../statement-converter.js";
 import { convertExpression } from "../expression-converter.js";
 import { hasExportModifier, hasDefaultModifier } from "./helpers.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Extract export declarations from source file
  */
 export const extractExports = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrExport[] => {
   const exports: IrExport[] = [];
 
@@ -49,13 +50,13 @@ export const extractExports = (
     } else if (ts.isExportAssignment(node)) {
       exports.push({
         kind: "default",
-        expression: convertExpression(node.expression, checker, undefined),
+        expression: convertExpression(node.expression, binding, undefined),
       });
     } else if (hasExportModifier(node)) {
       const hasDefault = hasDefaultModifier(node);
       if (hasDefault) {
         // export default function/class/etc
-        const result = convertStatement(node, checker, undefined);
+        const result = convertStatement(node, binding, undefined);
         const statements = flattenStatementResult(result);
         if (statements.length > 0) {
           exports.push({
@@ -68,7 +69,7 @@ export const extractExports = (
         }
       } else {
         // regular export - may produce multiple statements (e.g., type aliases with synthetics)
-        const result = convertStatement(node, checker, undefined);
+        const result = convertStatement(node, binding, undefined);
         const statements = flattenStatementResult(result);
         for (const stmt of statements) {
           exports.push({

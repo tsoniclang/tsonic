@@ -11,13 +11,14 @@ import {
   getAccessibility,
   convertParameters,
 } from "../../helpers.js";
+import type { Binding } from "../../../../binding/index.js";
 
 /**
  * Convert constructor declaration to IR
  */
 export const convertConstructor = (
   node: ts.ConstructorDeclaration,
-  checker: ts.TypeChecker,
+  binding: Binding,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember => {
   // Build constructor body with parameter property assignments
@@ -63,13 +64,13 @@ export const convertConstructor = (
 
   // Add existing constructor body statements
   if (node.body) {
-    const existingBody = convertBlockStatement(node.body, checker, undefined);
+    const existingBody = convertBlockStatement(node.body, binding, undefined);
     statements.push(...existingBody.statements);
   }
 
   return {
     kind: "constructorDeclaration",
-    parameters: convertParameters(node.parameters, checker),
+    parameters: convertParameters(node.parameters, binding),
     body: { kind: "blockStatement", statements },
     accessibility: getAccessibility(node),
   };
@@ -80,7 +81,7 @@ export const convertConstructor = (
  */
 export const extractParameterProperties = (
   constructor: ts.ConstructorDeclaration | undefined,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrClassMember[] => {
   if (!constructor) {
     return [];
@@ -109,7 +110,7 @@ export const extractParameterProperties = (
       parameterProperties.push({
         kind: "propertyDeclaration",
         name: param.name.text,
-        type: param.type ? convertType(param.type, checker) : undefined,
+        type: param.type ? convertType(param.type, binding) : undefined,
         initializer: undefined, // Will be assigned in constructor
         isStatic: false,
         isReadonly: hasReadonlyModifier(param),

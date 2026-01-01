@@ -281,84 +281,112 @@ export const buildTypeRegistry = (
   // Map from simple name to FQ name (for reverse lookup)
   const simpleNameToFQ = new Map<string, string>();
 
-  for (const sourceFile of sourceFiles) {
-    // Compute namespace for this file
-    const namespace = getNamespaceFromPath(
-      sourceFile.fileName,
-      sourceRoot,
-      rootNamespace
-    );
+  // Helper function to process a declaration node
+  const processDeclaration = (
+    node: ts.Node,
+    sf: ts.SourceFile,
+    ns: string | undefined
+  ): void => {
+    const makeFQName = (simpleName: string): string =>
+      ns ? `${ns}.${simpleName}` : simpleName;
 
-    // Walk the source file for declarations
-    ts.forEachChild(sourceFile, (node) => {
-      // Class declarations
-      if (ts.isClassDeclaration(node) && node.name) {
-        const simpleName = node.name.text;
-        const fqName = `${namespace}.${simpleName}`;
+    // Class declarations
+    if (ts.isClassDeclaration(node) && node.name) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
+      entries.set(fqName, {
+        kind: "class",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        typeParameters: extractTypeParameters(node.typeParameters),
+        declaration: node,
+        members: extractMembers(node.members),
+        heritage: extractHeritage(node.heritageClauses),
+        sourceFile: sf,
+      });
+      simpleNameToFQ.set(simpleName, fqName);
+    }
+
+    // Interface declarations
+    if (ts.isInterfaceDeclaration(node)) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
+      // Merge with existing interface (for module augmentation)
+      const existing = entries.get(fqName);
+      if (existing && existing.kind === "interface") {
+        // Merge members
+        const mergedMembers = new Map(existing.members);
+        for (const [memberName, memberInfo] of extractMembers(node.members)) {
+          mergedMembers.set(memberName, memberInfo);
+        }
         entries.set(fqName, {
-          kind: "class",
+          ...existing,
+          members: mergedMembers,
+          heritage: [
+            ...existing.heritage,
+            ...extractHeritage(node.heritageClauses),
+          ],
+        });
+      } else {
+        entries.set(fqName, {
+          kind: "interface",
           name: simpleName,
           fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters),
           declaration: node,
           members: extractMembers(node.members),
           heritage: extractHeritage(node.heritageClauses),
-          sourceFile,
+          sourceFile: sf,
         });
         simpleNameToFQ.set(simpleName, fqName);
       }
+    }
 
-      // Interface declarations
-      if (ts.isInterfaceDeclaration(node)) {
-        const simpleName = node.name.text;
-        const fqName = `${namespace}.${simpleName}`;
-        // Merge with existing interface (for module augmentation)
-        const existing = entries.get(fqName);
-        if (existing && existing.kind === "interface") {
-          // Merge members
-          const mergedMembers = new Map(existing.members);
-          for (const [memberName, memberInfo] of extractMembers(node.members)) {
-            mergedMembers.set(memberName, memberInfo);
-          }
-          entries.set(fqName, {
-            ...existing,
-            members: mergedMembers,
-            heritage: [
-              ...existing.heritage,
-              ...extractHeritage(node.heritageClauses),
-            ],
-          });
-        } else {
-          entries.set(fqName, {
-            kind: "interface",
-            name: simpleName,
-            fullyQualifiedName: fqName,
-            typeParameters: extractTypeParameters(node.typeParameters),
-            declaration: node,
-            members: extractMembers(node.members),
-            heritage: extractHeritage(node.heritageClauses),
-            sourceFile,
-          });
-          simpleNameToFQ.set(simpleName, fqName);
-        }
-      }
+    // Type alias declarations
+    if (ts.isTypeAliasDeclaration(node)) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
+      entries.set(fqName, {
+        kind: "typeAlias",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        typeParameters: extractTypeParameters(node.typeParameters),
+        declaration: node,
+        members: new Map(), // Type aliases don't have members directly
+        heritage: [], // Type aliases don't have heritage clauses
+        sourceFile: sf,
+      });
+      simpleNameToFQ.set(simpleName, fqName);
+    }
 
-      // Type alias declarations
-      if (ts.isTypeAliasDeclaration(node)) {
-        const simpleName = node.name.text;
-        const fqName = `${namespace}.${simpleName}`;
-        entries.set(fqName, {
-          kind: "typeAlias",
-          name: simpleName,
-          fullyQualifiedName: fqName,
-          typeParameters: extractTypeParameters(node.typeParameters),
-          declaration: node,
-          members: new Map(), // Type aliases don't have members directly
-          heritage: [], // Type aliases don't have heritage clauses
-          sourceFile,
-        });
-        simpleNameToFQ.set(simpleName, fqName);
+    // Handle 'declare global { ... }' blocks
+    // These are ModuleDeclarations with name "global" - declarations inside are at global scope
+    if (
+      ts.isModuleDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "global" &&
+      node.body &&
+      ts.isModuleBlock(node.body)
+    ) {
+      // Recursively process declarations inside the global block
+      // All declarations inside 'declare global' are at global scope (no namespace)
+      for (const stmt of node.body.statements) {
+        processDeclaration(stmt, sf, undefined);
       }
+    }
+  };
+
+  for (const sourceFile of sourceFiles) {
+    // Compute namespace for this file
+    // For declaration files (globals, dotnet types), use undefined to signal global scope
+    // so types are registered with simple name (e.g., "String" not "SomeRandomPath.String")
+    const namespace = sourceFile.isDeclarationFile
+      ? undefined // Global scope for .d.ts files
+      : getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace);
+
+    // Walk the source file for declarations
+    ts.forEachChild(sourceFile, (node) => {
+      processDeclaration(node, sourceFile, namespace);
     });
   }
 

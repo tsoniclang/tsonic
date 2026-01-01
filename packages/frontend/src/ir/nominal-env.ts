@@ -10,6 +10,7 @@
 import * as ts from "typescript";
 import { IrType } from "./types.js";
 import { TypeRegistry } from "./type-registry.js";
+import type { Binding } from "./binding/index.js";
 
 /**
  * Map from type parameter name to concrete IR type
@@ -19,10 +20,7 @@ export type InstantiationEnv = ReadonlyMap<string, IrType>;
 /**
  * Function signature for converting TypeNode to IrType
  */
-export type ConvertTypeFn = (
-  node: ts.TypeNode,
-  checker: ts.TypeChecker
-) => IrType;
+export type ConvertTypeFn = (node: ts.TypeNode, binding: Binding) => IrType;
 
 /**
  * Substitution result for a specific type in the inheritance chain
@@ -212,12 +210,12 @@ export const substituteIrType = (
  *
  * @param registry The TypeRegistry to use for lookups
  * @param convertType Function to convert TypeNode to IrType
- * @param checker TypeChecker for symbol resolution (not type inference)
+ * @param binding Binding layer for symbol resolution (not type inference)
  */
 export const buildNominalEnv = (
   registry: TypeRegistry,
   convertType: ConvertTypeFn,
-  checker: ts.TypeChecker
+  binding: Binding
 ): NominalEnv => {
   // Cache for computed inheritance chains
   const inheritanceChainCache = new Map<string, readonly string[]>();
@@ -294,7 +292,7 @@ export const buildNominalEnv = (
       const argNode = typeArgs[i];
       if (paramName && argNode) {
         // Convert the type argument to IR
-        const argType = convertType(argNode, checker);
+        const argType = convertType(argNode, binding);
         // Apply parent substitution (in case the arg contains type params from child)
         const substitutedArgType = substituteIrType(argType, parentSubst);
         subst.set(paramName, substitutedArgType);

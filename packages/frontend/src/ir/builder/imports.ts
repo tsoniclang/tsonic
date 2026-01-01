@@ -6,15 +6,16 @@ import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
 import { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Extract import declarations from source file.
- * Uses TypeChecker to determine if each import is a type or value.
+ * Uses Binding layer to determine if each import is a type or value.
  * Uses ClrBindingsResolver to detect CLR namespace imports.
  */
 export const extractImports = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker,
+  binding: Binding,
   clrResolver: ClrBindingsResolver
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
@@ -40,15 +41,15 @@ export const extractImports = (
         ? clrResolution.assembly
         : undefined;
 
-      const specifiers = extractImportSpecifiers(node, checker);
+      const specifiers = extractImportSpecifiers(node, binding);
 
       // Check for module binding (Node.js API, etc.)
-      const binding = getBindingRegistry().getBinding(source);
-      const hasModuleBinding = binding?.kind === "module";
+      const moduleBinding = getBindingRegistry().getBinding(source);
+      const hasModuleBinding = moduleBinding?.kind === "module";
 
       // Assembly comes from CLR resolution (bindings.json) or module binding
       const resolvedAssembly =
-        clrAssembly ?? (hasModuleBinding ? binding.assembly : undefined);
+        clrAssembly ?? (hasModuleBinding ? moduleBinding.assembly : undefined);
 
       imports.push({
         kind: "import",
@@ -57,7 +58,7 @@ export const extractImports = (
         isClr,
         specifiers,
         resolvedNamespace,
-        resolvedClrType: hasModuleBinding ? binding.type : undefined,
+        resolvedClrType: hasModuleBinding ? moduleBinding.type : undefined,
         resolvedAssembly,
       });
     }
@@ -70,11 +71,11 @@ export const extractImports = (
 
 /**
  * Extract import specifiers from an import declaration.
- * Uses TypeChecker to determine if each named import is a type or value.
+ * Uses Binding layer to determine if each named import is a type or value.
  */
 export const extractImportSpecifiers = (
   node: ts.ImportDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrImportSpecifier[] => {
   const specifiers: IrImportSpecifier[] = [];
 
@@ -96,7 +97,7 @@ export const extractImportSpecifiers = (
         });
       } else if (ts.isNamedImports(node.importClause.namedBindings)) {
         node.importClause.namedBindings.elements.forEach((spec) => {
-          const isType = isTypeImport(spec, checker);
+          const isType = isTypeImport(spec, binding);
           specifiers.push({
             kind: "named",
             name: (spec.propertyName ?? spec.name).text,
@@ -113,43 +114,30 @@ export const extractImportSpecifiers = (
 
 /**
  * Determine if an import specifier refers to a type (interface, class, type alias, enum).
- * Uses TypeChecker to resolve the symbol and check its declaration kind.
+ * Uses Binding layer to resolve the import and check its declaration kind.
  */
-const isTypeImport = (
-  spec: ts.ImportSpecifier,
-  checker: ts.TypeChecker
-): boolean => {
+const isTypeImport = (spec: ts.ImportSpecifier, binding: Binding): boolean => {
   try {
     // TypeScript's isTypeOnly flag on the specifier itself (for `import { type Foo }`)
     if (spec.isTypeOnly) {
       return true;
     }
 
-    // Get the symbol for this import specifier
-    const symbol = checker.getSymbolAtLocation(spec.name);
-    if (!symbol) {
+    // Use Binding to resolve the import to its declaration
+    const declId = binding.resolveImport(spec);
+    if (!declId) {
       return false;
     }
 
-    // Follow aliases to get the actual symbol
-    const resolvedSymbol =
-      symbol.flags & ts.SymbolFlags.Alias
-        ? checker.getAliasedSymbol(symbol)
-        : symbol;
-
-    if (!resolvedSymbol) {
+    // Get declaration info from the handle registry
+    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    if (!declInfo) {
       return false;
     }
 
-    // Check if the symbol is a type
-    const flags = resolvedSymbol.flags;
-    return !!(
-      flags & ts.SymbolFlags.Interface ||
-      flags & ts.SymbolFlags.Class ||
-      flags & ts.SymbolFlags.TypeAlias ||
-      flags & ts.SymbolFlags.Enum ||
-      flags & ts.SymbolFlags.TypeParameter
-    );
+    // Check if the declaration kind is a type
+    const typeKinds = ["interface", "class", "typeAlias", "enum"];
+    return typeKinds.includes(declInfo.kind);
   } catch {
     return false;
   }

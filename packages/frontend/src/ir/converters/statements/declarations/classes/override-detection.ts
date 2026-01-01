@@ -4,6 +4,8 @@
 
 import * as ts from "typescript";
 import { getMetadataRegistry } from "../registry.js";
+import type { Binding } from "../../../../binding/index.js";
+import type { DeclInfo } from "../../../../type-system/index.js";
 
 export type OverrideInfo = {
   readonly isOverride: boolean;
@@ -11,46 +13,83 @@ export type OverrideInfo = {
 };
 
 /**
- * Check if a method/property should be marked as override based on base class metadata
+ * Check if a method/property should be marked as override based on base class metadata.
+ * DETERMINISTIC: Uses Binding API for symbol resolution.
  */
 export const detectOverride = (
   memberName: string,
   memberKind: "method" | "property",
   superClass: ts.ExpressionWithTypeArguments | undefined,
-  checker: ts.TypeChecker,
+  binding: Binding,
   parameterTypes?: readonly string[]
 ): OverrideInfo => {
   if (!superClass) {
     return { isOverride: false, isShadow: false };
   }
 
-  // DETERMINISTIC: Get base class symbol directly from AST
-  // Uses getSymbolAtLocation (allowed) instead of getTypeAtLocation (banned)
-  const baseSymbol = checker.getSymbolAtLocation(superClass.expression);
+  // DETERMINISTIC: Get base class name directly from AST
+  // For simple identifiers, get the name; for qualified names, get the full path
+  const baseClassName = ts.isIdentifier(superClass.expression)
+    ? superClass.expression.text
+    : ts.isPropertyAccessExpression(superClass.expression)
+      ? getFullPropertyAccessName(superClass.expression)
+      : undefined;
 
-  if (!baseSymbol) {
+  if (!baseClassName) {
     return { isOverride: false, isShadow: false };
   }
 
-  // Get fully-qualified name for .NET types
-  const qualifiedName = checker.getFullyQualifiedName(baseSymbol);
+  // Try to resolve the identifier to get more context
+  const declId =
+    ts.isIdentifier(superClass.expression) &&
+    binding.resolveIdentifier(superClass.expression);
+
+  // Get qualified name from the resolved declaration if available
+  const qualifiedName = declId
+    ? binding.getHandleRegistry().getDecl(declId)?.fqName
+    : baseClassName;
 
   // Check if this is a .NET type (starts with "System." or other .NET namespaces)
   const isDotNetType =
-    qualifiedName.startsWith("System.") ||
-    qualifiedName.startsWith("Microsoft.") ||
-    qualifiedName.startsWith("Tsonic.Runtime.");
+    qualifiedName?.startsWith("System.") ||
+    qualifiedName?.startsWith("Microsoft.") ||
+    qualifiedName?.startsWith("Tsonic.Runtime.");
 
-  if (isDotNetType) {
+  if (isDotNetType && qualifiedName) {
     return detectDotNetOverride(
       memberName,
       memberKind,
       qualifiedName,
       parameterTypes
     );
-  } else {
-    return detectTypeScriptOverride(memberName, memberKind, baseSymbol);
+  } else if (declId) {
+    // For TypeScript classes, check the declaration
+    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    return detectTypeScriptOverrideFromDecl(memberName, memberKind, declInfo);
   }
+
+  return { isOverride: false, isShadow: false };
+};
+
+/**
+ * Get full property access name (e.g., "System.Collections.Generic.List")
+ */
+const getFullPropertyAccessName = (
+  expr: ts.PropertyAccessExpression
+): string => {
+  const parts: string[] = [expr.name.text];
+  let current: ts.Expression = expr.expression;
+
+  while (ts.isPropertyAccessExpression(current)) {
+    parts.unshift(current.name.text);
+    current = current.expression;
+  }
+
+  if (ts.isIdentifier(current)) {
+    parts.unshift(current.text);
+  }
+
+  return parts.join(".");
 };
 
 /**
@@ -80,35 +119,33 @@ const detectDotNetOverride = (
 };
 
 /**
- * Detect override for TypeScript base classes
+ * Detect override for TypeScript base classes using DeclInfo from HandleRegistry
  */
-const detectTypeScriptOverride = (
+const detectTypeScriptOverrideFromDecl = (
   memberName: string,
   memberKind: "method" | "property",
-  baseSymbol: ts.Symbol
+  declInfo: DeclInfo | undefined
 ): OverrideInfo => {
-  const baseDeclarations = baseSymbol.getDeclarations();
-
-  if (!baseDeclarations || baseDeclarations.length === 0) {
+  if (!declInfo?.declNode) {
     return { isOverride: false, isShadow: false };
   }
 
-  for (const baseDecl of baseDeclarations) {
-    if (ts.isClassDeclaration(baseDecl)) {
-      // Check if base class has this member
-      const baseMember = baseDecl.members.find((m) => {
-        if (memberKind === "method" && ts.isMethodDeclaration(m)) {
-          return ts.isIdentifier(m.name) && m.name.text === memberName;
-        } else if (memberKind === "property" && ts.isPropertyDeclaration(m)) {
-          return ts.isIdentifier(m.name) && m.name.text === memberName;
-        }
-        return false;
-      });
+  const baseDecl = declInfo.declNode as ts.Node;
 
-      if (baseMember) {
-        // In TypeScript, all methods can be overridden unless final (not supported in TS)
-        return { isOverride: true, isShadow: false };
+  if (ts.isClassDeclaration(baseDecl)) {
+    // Check if base class has this member
+    const baseMember = baseDecl.members.find((m) => {
+      if (memberKind === "method" && ts.isMethodDeclaration(m)) {
+        return ts.isIdentifier(m.name) && m.name.text === memberName;
+      } else if (memberKind === "property" && ts.isPropertyDeclaration(m)) {
+        return ts.isIdentifier(m.name) && m.name.text === memberName;
       }
+      return false;
+    });
+
+    if (baseMember) {
+      // In TypeScript, all methods can be overridden unless final (not supported in TS)
+      return { isOverride: true, isShadow: false };
     }
   }
 

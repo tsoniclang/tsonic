@@ -13,13 +13,14 @@ import {
 import { convertType, convertBindingName } from "../../type-converter.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Convert TypeScript type parameters to IR, detecting structural constraints
  */
 export const convertTypeParameters = (
   typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrTypeParameter[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
@@ -28,10 +29,10 @@ export const convertTypeParameters = (
   return typeParameters.map((tp) => {
     const name = tp.name.text;
     const constraint = tp.constraint
-      ? convertType(tp.constraint, checker)
+      ? convertType(tp.constraint, binding)
       : undefined;
     const defaultType = tp.default
-      ? convertType(tp.default, checker)
+      ? convertType(tp.default, binding)
       : undefined;
 
     // Check if constraint is structural (object literal type)
@@ -41,7 +42,7 @@ export const convertTypeParameters = (
     const structuralMembers =
       isStructural && tp.constraint && ts.isTypeLiteralNode(tp.constraint)
         ? tp.constraint.members
-            .map((member) => convertInterfaceMember(member, checker))
+            .map((member) => convertInterfaceMember(member, binding))
             .filter((m): m is IrInterfaceMember => m !== null)
         : undefined;
 
@@ -62,7 +63,7 @@ export const convertTypeParameters = (
  */
 export const convertParameters = (
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrParameter[] => {
   return parameters.map((param) => {
     let passing: "value" | "ref" | "out" | "in" = "value";
@@ -94,7 +95,7 @@ export const convertParameters = (
     }
 
     // Get parameter type for contextual typing of default value
-    const paramType = actualType ? convertType(actualType, checker) : undefined;
+    const paramType = actualType ? convertType(actualType, binding) : undefined;
 
     return {
       kind: "parameter",
@@ -102,7 +103,7 @@ export const convertParameters = (
       type: paramType,
       // Pass parameter type for contextual typing of default value
       initializer: param.initializer
-        ? convertExpression(param.initializer, checker, paramType)
+        ? convertExpression(param.initializer, binding, paramType)
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
@@ -116,7 +117,7 @@ export const convertParameters = (
  */
 export const convertVariableDeclarationList = (
   node: ts.VariableDeclarationList,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrVariableDeclaration => {
   const isConst = !!(node.flags & ts.NodeFlags.Const);
   const isLet = !!(node.flags & ts.NodeFlags.Let);
@@ -126,13 +127,13 @@ export const convertVariableDeclarationList = (
     kind: "variableDeclaration",
     declarationKind,
     declarations: node.declarations.map((decl) => {
-      const declType = decl.type ? convertType(decl.type, checker) : undefined;
+      const declType = decl.type ? convertType(decl.type, binding) : undefined;
       return {
         kind: "variableDeclarator" as const,
         name: convertBindingName(decl.name),
         type: declType,
         initializer: decl.initializer
-          ? convertExpression(decl.initializer, checker, declType)
+          ? convertExpression(decl.initializer, binding, declType)
           : undefined,
       };
     }),

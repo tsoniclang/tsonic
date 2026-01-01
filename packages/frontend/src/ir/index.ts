@@ -14,3 +14,4 @@ export {
   getNominalEnv,
   clearTypeRegistries,
 } from "./statement-converter.js";
+export { createBinding, type Binding } from "./binding/index.js";

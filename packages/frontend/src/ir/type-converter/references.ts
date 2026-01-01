@@ -19,17 +19,18 @@ import {
   expandConditionalUtilityType,
   expandRecordType,
 } from "./utility-types.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Cache for structural member extraction to prevent infinite recursion
  * on recursive types like `type Node = { next: Node }`.
  *
  * DETERMINISTIC IR TYPING (INV-0 compliant):
- * Key: ts.Symbol (by identity) - symbols are stable identifiers
+ * Key: DeclId.id (numeric identifier) - handles are stable identifiers
  * Value: extracted members, null (not extractable), or "in-progress" sentinel
  */
-const structuralMembersCache = new WeakMap<
-  ts.Symbol,
+const structuralMembersCache = new Map<
+  number,
   readonly IrInterfaceMember[] | null | "in-progress"
 >();
 
@@ -90,24 +91,22 @@ const shouldExtractFromDeclaration = (decl: ts.Declaration): boolean => {
  * - Skips unsupported keys instead of bailing entirely
  * - Returns undefined for index signatures (can't fully represent)
  *
- * @param symbol - The symbol for the type (may be undefined)
- * @param node - The enclosing node for context
- * @param checker - The TypeScript type checker (for symbol resolution only)
+ * @param declId - The DeclId for the type (from Binding.resolveTypeReference)
+ * @param binding - The Binding layer for symbol resolution
  * @param convertType - Function to convert nested types
  * @returns Structural members or undefined if extraction fails/skipped
  */
 const extractStructuralMembersFromDeclarations = (
-  symbol: ts.Symbol | undefined,
-  _node: ts.Node,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  declId: number | undefined,
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): readonly IrInterfaceMember[] | undefined => {
-  if (!symbol) {
+  if (declId === undefined) {
     return undefined;
   }
 
   // Check cache first (handles recursion)
-  const cached = structuralMembersCache.get(symbol);
+  const cached = structuralMembersCache.get(declId);
   if (cached === "in-progress") {
     // Recursive reference - return undefined to break cycle
     return undefined;
@@ -116,22 +115,24 @@ const extractStructuralMembersFromDeclarations = (
     return cached === null ? undefined : cached;
   }
 
-  // Get declarations
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) {
-    structuralMembersCache.set(symbol, null);
+  // Get declaration info from HandleRegistry
+  const registry = binding.getHandleRegistry();
+  const declInfo = registry.getDecl({ id: declId, __brand: "DeclId" } as never);
+  if (!declInfo?.declNode) {
+    structuralMembersCache.set(declId, null);
     return undefined;
   }
 
-  // Find a suitable declaration (interface or type alias to object type)
-  const decl = declarations.find(shouldExtractFromDeclaration);
-  if (!decl) {
-    structuralMembersCache.set(symbol, null);
+  const decl = declInfo.declNode as ts.Declaration;
+
+  // Check if this declaration should have structural members extracted
+  if (!shouldExtractFromDeclaration(decl)) {
+    structuralMembersCache.set(declId, null);
     return undefined;
   }
 
   // Mark as in-progress before recursing.
-  structuralMembersCache.set(symbol, "in-progress");
+  structuralMembersCache.set(declId, "in-progress");
 
   try {
     const members: IrInterfaceMember[] = [];
@@ -144,14 +145,14 @@ const extractStructuralMembersFromDeclarations = (
         : undefined;
 
     if (!typeElements) {
-      structuralMembersCache.set(symbol, null);
+      structuralMembersCache.set(declId, null);
       return undefined;
     }
 
     // Check for index signatures - can't fully represent these structurally
     for (const member of typeElements) {
       if (ts.isIndexSignatureDeclaration(member)) {
-        structuralMembersCache.set(symbol, null);
+        structuralMembersCache.set(declId, null);
         return undefined;
       }
     }
@@ -189,24 +190,24 @@ const extractStructuralMembersFromDeclarations = (
             : undefined;
           if (typeName && CLR_PRIMITIVE_TYPE_SET.has(typeName)) {
             // Resolve to check it comes from @tsonic/core (symbol-based, allowed)
-            const typeNameNode = declTypeNode.typeName;
-            const typeSymbolRaw = ts.isIdentifier(typeNameNode)
-              ? checker.getSymbolAtLocation(typeNameNode)
-              : undefined;
-            const typeSymbol = typeSymbolRaw
-              ? checker.getAliasedSymbol(typeSymbolRaw)
-              : undefined;
-            const refDecl = typeSymbol?.declarations?.[0];
-            const refSourceFile = refDecl?.getSourceFile();
-            if (refSourceFile?.fileName.includes("@tsonic/core")) {
-              members.push({
-                kind: "propertySignature",
-                name: propName,
-                type: getClrPrimitiveType(typeName as "int"),
-                isOptional,
-                isReadonly,
-              });
-              continue;
+            // Use Binding to resolve the type reference
+            const typeRefDeclId = binding.resolveTypeReference(declTypeNode);
+            if (typeRefDeclId) {
+              const typeRefDeclInfo = registry.getDecl(typeRefDeclId);
+              const refDeclNode = typeRefDeclInfo?.declNode as
+                | ts.Declaration
+                | undefined;
+              const refSourceFile = refDeclNode?.getSourceFile();
+              if (refSourceFile?.fileName.includes("@tsonic/core")) {
+                members.push({
+                  kind: "propertySignature",
+                  name: propName,
+                  type: getClrPrimitiveType(typeName as "int"),
+                  isOptional,
+                  isReadonly,
+                });
+                continue;
+              }
             }
           }
         }
@@ -215,7 +216,7 @@ const extractStructuralMembersFromDeclarations = (
         members.push({
           kind: "propertySignature",
           name: propName,
-          type: convertType(declTypeNode, checker),
+          type: convertType(declTypeNode, binding),
           isOptional,
           isReadonly,
         });
@@ -242,24 +243,24 @@ const extractStructuralMembersFromDeclarations = (
                 ? param.name.text
                 : `arg${index}`,
             },
-            type: param.type ? convertType(param.type, checker) : undefined,
+            type: param.type ? convertType(param.type, binding) : undefined,
             isOptional: !!param.questionToken,
             isRest: !!param.dotDotDotToken,
             passing: "value" as const,
           })),
           returnType: member.type
-            ? convertType(member.type, checker)
+            ? convertType(member.type, binding)
             : undefined,
         });
       }
     }
 
     const result = members.length > 0 ? members : undefined;
-    structuralMembersCache.set(symbol, result ?? null);
+    structuralMembersCache.set(declId, result ?? null);
     return result;
   } catch {
     // On any error, settle cache to null (not extractable)
-    structuralMembersCache.set(symbol, null);
+    structuralMembersCache.set(declId, null);
     return undefined;
   }
 };
@@ -270,8 +271,8 @@ const extractStructuralMembersFromDeclarations = (
  */
 export const convertTypeReference = (
   node: ts.TypeReferenceNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType => {
   const typeName = ts.isIdentifier(node.typeName)
     ? node.typeName.text
@@ -294,7 +295,7 @@ export const convertTypeReference = (
   if (typeName === "Array" && firstTypeArg) {
     return {
       kind: "arrayType",
-      elementType: convertType(firstTypeArg, checker),
+      elementType: convertType(firstTypeArg, binding),
       origin: "explicit",
     };
   }
@@ -308,7 +309,7 @@ export const convertTypeReference = (
     const expanded = expandConditionalUtilityType(
       node,
       typeName,
-      checker,
+      binding,
       convertType
     );
     if (expanded) return expanded;
@@ -323,7 +324,7 @@ export const convertTypeReference = (
   const valueTypeNode = typeArgsForRecord?.[1];
   if (typeName === "Record" && keyTypeNode && valueTypeNode) {
     // Try to expand to IrObjectType for finite literal keys
-    const expandedRecord = expandRecordType(node, checker, convertType);
+    const expandedRecord = expandRecordType(node, binding, convertType);
     if (expandedRecord) return expandedRecord;
 
     // Only create dictionary if K is exactly 'string' or 'number'
@@ -336,8 +337,8 @@ export const convertTypeReference = (
     const isNumberKey = keyTypeNode.kind === ts.SyntaxKind.NumberKeyword;
 
     if (isStringKey || isNumberKey) {
-      const keyType = convertType(keyTypeNode, checker);
-      const valueType = convertType(valueTypeNode, checker);
+      const keyType = convertType(keyTypeNode, binding);
+      const valueType = convertType(valueTypeNode, binding);
 
       return {
         kind: "dictionaryType",
@@ -351,7 +352,7 @@ export const convertTypeReference = (
   // Check for expandable utility types (Partial, Required, Readonly, Pick, Omit)
   // These are expanded to IrObjectType at compile time for concrete types
   if (isExpandableUtilityType(typeName) && node.typeArguments?.length) {
-    const expanded = expandUtilityType(node, typeName, checker, convertType);
+    const expanded = expandUtilityType(node, typeName, binding, convertType);
     if (expanded) return expanded;
     // Fall through to referenceType if can't expand (e.g., type parameter)
   }
@@ -372,32 +373,39 @@ export const convertTypeReference = (
     return {
       kind: "referenceType",
       name: typeName,
-      typeArguments: [convertType(innerTypeArg, checker)],
+      typeArguments: [convertType(innerTypeArg, binding)],
     };
   }
 
-  // DETERMINISTIC: Check if this is a type parameter or type alias using symbol lookup
-  const symbol = checker.getSymbolAtLocation(node.typeName);
-  if (symbol) {
-    const decls = symbol.getDeclarations();
-    if (decls && decls.length > 0) {
-      for (const decl of decls) {
-        // Check for type parameter declaration
-        if (ts.isTypeParameterDeclaration(decl)) {
+  // DETERMINISTIC: Check if this is a type parameter or type alias using Binding
+  const declId = binding.resolveTypeReference(node);
+  if (declId) {
+    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    if (declInfo) {
+      // Check for type parameter declaration
+      if (declInfo.kind === "parameter") {
+        // Type parameters have kind "parameter" when resolved from type parameter declarations
+        // But we need to check the actual declaration node to be sure
+        const declNode = declInfo.declNode as ts.Declaration | undefined;
+        if (declNode && ts.isTypeParameterDeclaration(declNode)) {
           return { kind: "typeParameterType", name: typeName };
         }
+      }
 
-        // Check for type alias to function type
-        // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
-        // e.g., `type NumberToNumber = (x: number) => number` should be converted
-        // to a functionType, not a referenceType
+      // Check for type alias to function type
+      // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
+      // e.g., `type NumberToNumber = (x: number) => number` should be converted
+      // to a functionType, not a referenceType
+      if (declInfo.kind === "typeAlias") {
+        const declNode = declInfo.declNode as ts.Declaration | undefined;
         if (
-          ts.isTypeAliasDeclaration(decl) &&
-          ts.isFunctionTypeNode(decl.type)
+          declNode &&
+          ts.isTypeAliasDeclaration(declNode) &&
+          ts.isFunctionTypeNode(declNode.type)
         ) {
           // Convert the underlying function type directly
           // This enables extractParamTypesFromExpectedType to work
-          return convertFunctionType(decl.type, checker, convertType);
+          return convertFunctionType(declNode.type, binding, convertType);
         }
       }
     }
@@ -410,9 +418,8 @@ export const convertTypeReference = (
   // Extract structural members from declarations (AST-based)
   // This enables TSN5110 validation for object literal properties.
   const structuralMembers = extractStructuralMembersFromDeclarations(
-    symbol,
-    node,
-    checker,
+    declId?.id,
+    binding,
     convertType
   );
 
@@ -420,7 +427,7 @@ export const convertTypeReference = (
   return {
     kind: "referenceType",
     name: typeName,
-    typeArguments: node.typeArguments?.map((t) => convertType(t, checker)),
+    typeArguments: node.typeArguments?.map((t) => convertType(t, binding)),
     structuralMembers,
   };
 };

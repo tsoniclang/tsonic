@@ -12,6 +12,7 @@ import {
   BindingRegistry,
   createClrBindingsResolver,
   clearTypeRegistries,
+  createBinding,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -63,16 +64,19 @@ const compileToCSharp = (
   };
 
   const tsProgram = ts.createProgram([fileName], compilerOptions, host);
+  const checker = tsProgram.getTypeChecker();
 
   const tsonicProgram = {
     program: tsProgram,
-    checker: tsProgram.getTypeChecker(),
+    checker,
+    binding: createBinding(checker),
     options: {
       projectRoot: "/test",
       sourceRoot: "/test",
       rootNamespace: "Test",
     },
     sourceFiles: [sourceFile],
+    declarationSourceFiles: [],
     metadata: new DotnetMetadataRegistry(),
     bindings: new BindingRegistry(),
     clrResolver: createClrBindingsResolver("/test"),

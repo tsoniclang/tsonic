@@ -23,6 +23,7 @@ import {
   IrInterfaceMember,
   IrTypeParameter,
 } from "../types.js";
+import type { Binding } from "../binding/index.js";
 
 // ============================================================================
 // Shape Signature Computation
@@ -238,7 +239,7 @@ export type EligibilityResult =
  */
 export const checkSynthesisEligibility = (
   node: ts.ObjectLiteralExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): EligibilityResult => {
   for (const prop of node.properties) {
     // Property assignment: check key type
@@ -277,16 +278,17 @@ export const checkSynthesisEligibility = (
         };
       }
 
-      const symbol = checker.getSymbolAtLocation(prop.expression);
-      if (!symbol) {
+      // Use Binding to resolve the spread source
+      const declId = binding.resolveIdentifier(prop.expression);
+      if (!declId) {
         return {
           eligible: false,
           reason: `Spread source '${prop.expression.text}' could not be resolved`,
         };
       }
 
-      const decl = symbol.valueDeclaration ?? symbol.declarations?.[0];
-      if (!decl) {
+      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      if (!declInfo) {
         return {
           eligible: false,
           reason: `Spread source '${prop.expression.text}' has no declaration`,
@@ -294,9 +296,8 @@ export const checkSynthesisEligibility = (
       }
 
       // Check if declaration has a type annotation (deterministic typing requirement)
-      const hasType =
-        (ts.isVariableDeclaration(decl) && decl.type !== undefined) ||
-        (ts.isParameter(decl) && decl.type !== undefined);
+      // DeclInfo.typeNode is set when the declaration has an explicit type annotation
+      const hasType = declInfo.typeNode !== undefined;
 
       if (!hasType) {
         return {

@@ -11,28 +11,29 @@ import {
   convertTypeParameters,
   convertParameters,
 } from "../helpers.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert function declaration
  */
 export const convertFunctionDeclaration = (
   node: ts.FunctionDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrFunctionDeclaration | null => {
   if (!node.name) return null;
 
   // Get return type from declared annotation for contextual typing
-  const returnType = node.type ? convertType(node.type, checker) : undefined;
+  const returnType = node.type ? convertType(node.type, binding) : undefined;
 
   return {
     kind: "functionDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, checker),
-    parameters: convertParameters(node.parameters, checker),
+    typeParameters: convertTypeParameters(node.typeParameters, binding),
+    parameters: convertParameters(node.parameters, binding),
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, checker, returnType)
+      ? convertBlockStatement(node.body, binding, returnType)
       : { kind: "blockStatement", statements: [] },
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword

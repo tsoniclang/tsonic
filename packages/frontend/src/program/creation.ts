@@ -14,6 +14,7 @@ import { loadDotnetMetadata } from "./metadata.js";
 import { loadBindings } from "./bindings.js";
 import { collectTsDiagnostics } from "./diagnostics.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createBinding } from "../ir/binding/index.js";
 
 /**
  * Recursively scan a directory for .d.ts files
@@ -247,11 +248,32 @@ export const createProgram = (
     return error(diagnostics);
   }
 
+  // User source files (non-declaration files from input paths)
   const sourceFiles = program
     .getSourceFiles()
     .filter(
       (sf) => !sf.isDeclarationFile && absolutePaths.includes(sf.fileName)
     );
+
+  // Declaration files for TypeRegistry - include all @tsonic/* package declarations
+  // This includes:
+  // - @tsonic/globals (globals like String, Array, Promise)
+  // - @tsonic/dotnet (BCL type definitions like String$instance, Array$instance)
+  // - @tsonic/core (type aliases like int, long, etc.)
+  // - Any other @tsonic/* dependencies
+  // We need all of these for proper heritage chain resolution (e.g., String extends String$instance)
+  const declarationSourceFiles = program.getSourceFiles().filter((sf) => {
+    if (!sf.isDeclarationFile) return false;
+    // Include any declaration files from @tsonic packages
+    // This captures globals, dotnet types, and any other tsonic-provided types
+    const sfPath = sf.fileName;
+    return (
+      sfPath.includes("/@tsonic/") ||
+      sfPath.includes("\\@tsonic\\") || // Windows paths
+      sfPath.includes("/node_modules/@tsonic/") ||
+      sfPath.includes("\\node_modules\\@tsonic\\")
+    );
+  });
 
   // Load .NET metadata files
   const metadata = loadDotnetMetadata(typeRoots);
@@ -263,13 +285,20 @@ export const createProgram = (
   // Uses projectRoot (not sourceRoot) to resolve packages from node_modules
   const clrResolver = createClrBindingsResolver(options.projectRoot);
 
+  // Create binding layer for symbol resolution
+  // This replaces direct checker API calls throughout the pipeline
+  const checker = program.getTypeChecker();
+  const binding = createBinding(checker);
+
   return ok({
     program,
-    checker: program.getTypeChecker(),
+    checker,
     options,
     sourceFiles,
+    declarationSourceFiles,
     metadata,
     bindings,
     clrResolver,
+    binding,
   });
 };

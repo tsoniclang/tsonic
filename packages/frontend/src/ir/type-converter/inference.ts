@@ -12,6 +12,7 @@
 
 import type * as ts from "typescript";
 import type { IrType } from "../types.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Result of inferring lambda parameter types from contextual signature.
@@ -37,7 +38,7 @@ export type LambdaParamInferenceResult = {
  */
 export const inferLambdaParamTypes = (
   _node: ts.ArrowFunction | ts.FunctionExpression,
-  _checker: ts.TypeChecker
+  _binding: Binding
 ): LambdaParamInferenceResult | undefined => {
   // Contextual inference removed for deterministic IR typing (INV-0).
   // Lambda params receive types via:

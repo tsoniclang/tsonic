@@ -13,6 +13,7 @@ import {
   convertParameters,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+import type { Binding } from "../../../../binding/index.js";
 
 /**
  * DETERMINISTIC: Convert a TypeNode to a string for signature matching.
@@ -70,7 +71,7 @@ const typeNodeToSignatureString = (typeNode: ts.TypeNode): string => {
  */
 export const convertMethod = (
   node: ts.MethodDeclaration,
-  checker: ts.TypeChecker,
+  binding: Binding,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): IrClassMember => {
   const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
@@ -87,22 +88,22 @@ export const convertMethod = (
     memberName,
     "method",
     superClass,
-    checker,
+    binding,
     parameterTypes
   );
 
   // Get return type from declared annotation for contextual typing
-  const returnType = node.type ? convertType(node.type, checker) : undefined;
+  const returnType = node.type ? convertType(node.type, binding) : undefined;
 
   return {
     kind: "methodDeclaration",
     name: memberName,
-    typeParameters: convertTypeParameters(node.typeParameters, checker),
-    parameters: convertParameters(node.parameters, checker),
+    typeParameters: convertTypeParameters(node.typeParameters, binding),
+    parameters: convertParameters(node.parameters, binding),
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, checker, returnType)
+      ? convertBlockStatement(node.body, binding, returnType)
       : undefined,
     isStatic: hasStaticModifier(node),
     isAsync: !!node.modifiers?.some(

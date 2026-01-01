@@ -16,6 +16,7 @@ import {
   expandRecordType,
 } from "./utility-types.js";
 import { IrType } from "../types.js";
+import { createBinding, Binding } from "../binding/index.js";
 
 /**
  * Assert value is not null/undefined and return it typed as non-null.
@@ -38,6 +39,7 @@ const createTestProgram = (
   program: ts.Program;
   checker: ts.TypeChecker;
   sourceFile: ts.SourceFile;
+  binding: Binding;
 } => {
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
@@ -87,8 +89,9 @@ const createTestProgram = (
     `Source file ${fileName} not found`
   );
   const checker = program.getTypeChecker();
+  const binding = createBinding(checker);
 
-  return { program, checker, sourceFile };
+  return { program, checker, sourceFile, binding };
 };
 
 /**
@@ -116,10 +119,7 @@ const findTypeAliasReference = (
 /**
  * Stub convertType for testing - just returns the type name
  */
-const stubConvertType = (
-  node: ts.TypeNode,
-  checker: ts.TypeChecker
-): IrType => {
+const stubConvertType = (node: ts.TypeNode, _binding: Binding): IrType => {
   if (ts.isTypeReferenceNode(node)) {
     const name = ts.isIdentifier(node.typeName)
       ? node.typeName.text
@@ -161,7 +161,7 @@ const stubConvertType = (
   if (ts.isUnionTypeNode(node)) {
     return {
       kind: "unionType",
-      types: node.types.map((t) => stubConvertType(t, checker)),
+      types: node.types.map((t) => stubConvertType(t, _binding)),
     };
   }
   return { kind: "anyType" };
@@ -178,13 +178,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialWithIndex = Partial<WithStringIndex>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialWithIndex");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -201,13 +201,13 @@ describe("Utility Type Expansion Safety", () => {
         type ReadonlyWithIndex = Readonly<WithNumberIndex>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ReadonlyWithIndex");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Readonly",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -224,13 +224,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialPerson = Partial<Person>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialPerson");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -254,7 +254,7 @@ describe("Utility Type Expansion Safety", () => {
         type PartialWithSymbol = Partial<WithSymbol>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialWithSymbol");
 
       // This may or may not find the type ref depending on how TS handles it
@@ -262,7 +262,7 @@ describe("Utility Type Expansion Safety", () => {
         const result = expandUtilityType(
           typeRef,
           "Partial",
-          checker,
+          binding,
           stubConvertType
         );
         // If expansion proceeds, it should return null due to symbol key
@@ -284,7 +284,7 @@ describe("Utility Type Expansion Safety", () => {
         type PartialWithUndefined = Partial<WithExplicitUndefined>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(
         sourceFile,
         "PartialWithUndefined"
@@ -293,7 +293,7 @@ describe("Utility Type Expansion Safety", () => {
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -323,7 +323,7 @@ describe("Utility Type Expansion Safety", () => {
         type PartialWithSynthetic = Partial<WithSyntheticUndefined>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(
         sourceFile,
         "PartialWithSynthetic"
@@ -332,7 +332,7 @@ describe("Utility Type Expansion Safety", () => {
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -363,13 +363,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialRequired = Partial<WithRequiredUndefined>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialRequired");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -396,13 +396,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialReadonly = Partial<Readonly<Person>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialReadonly");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -429,13 +429,13 @@ describe("Utility Type Expansion Safety", () => {
         type ReadonlyPartial = Readonly<Partial<Person>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ReadonlyPartial");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Readonly",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -464,13 +464,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialWithMethod = Partial<WithMethod>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialWithMethod");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -507,13 +507,13 @@ describe("Utility Type Expansion Safety", () => {
         type ContactInfo = Pick<Person, "name" | "email" | "phone">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ContactInfo");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Pick",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -542,13 +542,13 @@ describe("Utility Type Expansion Safety", () => {
         type MinimalPerson = Omit<Person, "email" | "phone">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "MinimalPerson");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Omit",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -573,7 +573,7 @@ describe("Utility Type Expansion Safety", () => {
         function process<T>(data: Partial<T>): void {}
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       // Find the Partial<T> type reference in the function parameter
       let typeRef: ts.TypeReferenceNode | null = null;
@@ -592,7 +592,7 @@ describe("Utility Type Expansion Safety", () => {
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -611,13 +611,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialTreeNode = Partial<TreeNode>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialTreeNode");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -651,13 +651,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialListNode = Partial<ListNode<string>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialListNode");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -684,13 +684,13 @@ describe("Utility Type Expansion Safety", () => {
         type TripleNested = Partial<Readonly<Required<Data>>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "TripleNested");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -718,13 +718,13 @@ describe("Utility Type Expansion Safety", () => {
         type SafeUser = Pick<Readonly<User>, "id" | "name" | "email">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "SafeUser");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Pick",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -752,13 +752,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialConfig = Omit<Partial<Config>, "debug">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialConfig");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Omit",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -782,13 +782,13 @@ describe("Utility Type Expansion Safety", () => {
         type RoundTrip = Required<Partial<Base>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "RoundTrip");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Required",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -814,7 +814,7 @@ describe("Utility Type Expansion Safety", () => {
         type PartialNumberContainer = Partial<Container<number>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(
         sourceFile,
         "PartialNumberContainer"
@@ -823,7 +823,7 @@ describe("Utility Type Expansion Safety", () => {
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -853,13 +853,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialPair = Partial<Pair<string, number>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialPair");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -894,13 +894,13 @@ describe("Utility Type Expansion Safety", () => {
         type ReadonlyBuilder = Readonly<Builder>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "ReadonlyBuilder");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Readonly",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -935,13 +935,13 @@ describe("Utility Type Expansion Safety", () => {
         type PartialDeep = Partial<DeepNested>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "PartialDeep");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Partial",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -970,13 +970,13 @@ describe("Utility Type Expansion Safety", () => {
         type SinglePick = Pick<LargeInterface, "c">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "SinglePick");
 
       const result = expandUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Pick",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -999,13 +999,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = NonNullable<string | null>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1021,13 +1021,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = NonNullable<string | null | undefined>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1043,13 +1043,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = NonNullable<null | undefined>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1062,13 +1062,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = NonNullable<any>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1081,13 +1081,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = NonNullable<unknown>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1100,7 +1100,7 @@ describe("Conditional Utility Type Expansion", () => {
         function process<T>(data: NonNullable<T>): void {}
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       let typeRef: ts.TypeReferenceNode | null = null;
       const visitor = (node: ts.Node): void => {
@@ -1118,7 +1118,7 @@ describe("Conditional Utility Type Expansion", () => {
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "NonNullable",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1132,13 +1132,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<"a" | "b" | "c", "a">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1153,13 +1153,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<string | number, number>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1175,13 +1175,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<string, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1194,7 +1194,7 @@ describe("Conditional Utility Type Expansion", () => {
         function process<T>(data: Exclude<T, null>): void {}
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       let typeRef: ts.TypeReferenceNode | null = null;
       const visitor = (node: ts.Node): void => {
@@ -1212,7 +1212,7 @@ describe("Conditional Utility Type Expansion", () => {
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1226,13 +1226,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Extract<"a" | "b" | "c", "a" | "f">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1245,13 +1245,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Extract<string | number, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1267,13 +1267,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Extract<string, number>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1288,13 +1288,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<never, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1307,13 +1307,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Extract<never, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1326,13 +1326,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<"a" | "b" | "c" | "d", "a" | "c">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1345,13 +1345,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Extract<"a" | "b" | "c" | "d", "a" | "c" | "e">;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1364,13 +1364,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<string | number | (() => void), Function>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1388,13 +1388,13 @@ describe("Conditional Utility Type Expansion", () => {
         type OnlyNumbers = Exclude<Mixed, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "OnlyNumbers");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1414,13 +1414,13 @@ describe("Conditional Utility Type Expansion", () => {
         type OnlyStrings = Extract<Mixed, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "OnlyStrings");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Extract",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1438,13 +1438,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Exclude<Exclude<string | null | undefined, null>, undefined>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Exclude",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1462,13 +1462,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = ReturnType<() => string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1484,13 +1484,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = ReturnType<(x: number) => boolean>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1506,13 +1506,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = ReturnType<() => void>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1529,13 +1529,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = ReturnType<Fn1 | Fn2>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1551,7 +1551,7 @@ describe("Conditional Utility Type Expansion", () => {
         }
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       let typeRef: ts.TypeReferenceNode | null = null;
       const visitor = (node: ts.Node): void => {
@@ -1569,7 +1569,7 @@ describe("Conditional Utility Type Expansion", () => {
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1586,13 +1586,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = ReturnType<typeof add>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "ReturnType",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1610,13 +1610,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Parameters<(x: string, y: number) => void>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1629,7 +1629,7 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Parameters<() => void>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       // Empty tuple may return null (falls through to referenceType)
@@ -1638,7 +1638,7 @@ describe("Conditional Utility Type Expansion", () => {
       expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
-        checker,
+        binding,
         stubConvertType
       );
     });
@@ -1648,13 +1648,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Parameters<(x: boolean) => void>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1671,7 +1671,7 @@ describe("Conditional Utility Type Expansion", () => {
         }
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       let typeRef: ts.TypeReferenceNode | null = null;
       const visitor = (node: ts.Node): void => {
@@ -1689,7 +1689,7 @@ describe("Conditional Utility Type Expansion", () => {
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1704,13 +1704,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Parameters<typeof greet>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Parameters",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1724,13 +1724,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Awaited<Promise<string>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1746,13 +1746,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Awaited<Promise<Promise<number>>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1768,13 +1768,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Awaited<string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1790,13 +1790,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Awaited<Promise<string> | Promise<number>>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1812,7 +1812,7 @@ describe("Conditional Utility Type Expansion", () => {
         }
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       let typeRef: ts.TypeReferenceNode | null = null;
       const visitor = (node: ts.Node): void => {
@@ -1830,7 +1830,7 @@ describe("Conditional Utility Type Expansion", () => {
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1842,13 +1842,13 @@ describe("Conditional Utility Type Expansion", () => {
         type Result = Awaited<null>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Result");
 
       const result = expandConditionalUtilityType(
         assertDefined(typeRef, "typeRef should be defined"),
         "Awaited",
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1868,12 +1868,12 @@ describe("Record Type Expansion", () => {
         type Config = Record<"a" | "b", number>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Config");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1893,12 +1893,12 @@ describe("Record Type Expansion", () => {
         type IndexedConfig = Record<1 | 2, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "IndexedConfig");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1919,12 +1919,12 @@ describe("Record Type Expansion", () => {
         type MixedConfig = Record<"name" | "age" | "email", boolean>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "MixedConfig");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1940,12 +1940,12 @@ describe("Record Type Expansion", () => {
         type Dictionary = Record<string, number>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "Dictionary");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1958,12 +1958,12 @@ describe("Record Type Expansion", () => {
         type NumberDictionary = Record<number, string>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "NumberDictionary");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -1978,7 +1978,7 @@ describe("Record Type Expansion", () => {
         }
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
 
       let typeRef: ts.TypeReferenceNode | null = null;
       const visitor = (node: ts.Node): void => {
@@ -1996,7 +1996,7 @@ describe("Record Type Expansion", () => {
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -2011,12 +2011,12 @@ describe("Record Type Expansion", () => {
         type AnyKeyRecord = Record<PropertyKey, number>;
       `;
 
-      const { checker, sourceFile } = createTestProgram(source);
+      const { binding, sourceFile } = createTestProgram(source);
       const typeRef = findTypeAliasReference(sourceFile, "AnyKeyRecord");
 
       const result = expandRecordType(
         assertDefined(typeRef, "typeRef should be defined"),
-        checker,
+        binding,
         stubConvertType
       );
 
@@ -2060,6 +2060,7 @@ describe("Record Type Expansion", () => {
       const keyTypeNode = foundTypeRef.typeArguments?.[0];
       expect(keyTypeNode).not.to.equal(undefined);
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // NOTE: This test uses getTypeAtLocation to verify TS internal behavior
       const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
 
       // The key type should be a type parameter, not string

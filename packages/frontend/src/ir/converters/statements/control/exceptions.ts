@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import { IrTryStatement, IrCatchClause, IrType } from "../../../types.js";
 import { convertBindingName } from "../../../type-converter.js";
 import { convertBlockStatement } from "./blocks.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert try statement
@@ -14,17 +15,17 @@ import { convertBlockStatement } from "./blocks.js";
  */
 export const convertTryStatement = (
   node: ts.TryStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrTryStatement => {
   return {
     kind: "tryStatement",
-    tryBlock: convertBlockStatement(node.tryBlock, checker, expectedReturnType),
+    tryBlock: convertBlockStatement(node.tryBlock, binding, expectedReturnType),
     catchClause: node.catchClause
-      ? convertCatchClause(node.catchClause, checker, expectedReturnType)
+      ? convertCatchClause(node.catchClause, binding, expectedReturnType)
       : undefined,
     finallyBlock: node.finallyBlock
-      ? convertBlockStatement(node.finallyBlock, checker, expectedReturnType)
+      ? convertBlockStatement(node.finallyBlock, binding, expectedReturnType)
       : undefined,
   };
 };
@@ -36,7 +37,7 @@ export const convertTryStatement = (
  */
 export const convertCatchClause = (
   node: ts.CatchClause,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrCatchClause => {
   return {
@@ -44,6 +45,6 @@ export const convertCatchClause = (
     parameter: node.variableDeclaration
       ? convertBindingName(node.variableDeclaration.name)
       : undefined,
-    body: convertBlockStatement(node.block, checker, expectedReturnType),
+    body: convertBlockStatement(node.block, binding, expectedReturnType),
   };
 };

@@ -15,6 +15,7 @@ import {
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createBinding } from "./binding/index.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -46,9 +47,11 @@ describe("IR Builder", () => {
       }
     );
 
+    const checker = program.getTypeChecker();
+
     return {
       program,
-      checker: program.getTypeChecker(),
+      checker,
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -56,9 +59,11 @@ describe("IR Builder", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings: new BindingRegistry(),
       clrResolver: createClrBindingsResolver("/test"),
+      binding: createBinding(checker),
     };
   };
 

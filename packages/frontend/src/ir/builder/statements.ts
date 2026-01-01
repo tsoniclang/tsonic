@@ -12,6 +12,7 @@ import {
   resetSyntheticRegistry,
   getSyntheticDeclarations,
 } from "../converters/anonymous-synthesis.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Extract statements from source file.
@@ -24,7 +25,7 @@ import {
  */
 export const extractStatements = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrStatement[] => {
   // Reset synthetic registry for this file
   resetSyntheticRegistry();
@@ -38,7 +39,7 @@ export const extractStatements = (
       !ts.isExportDeclaration(stmt) &&
       !ts.isExportAssignment(stmt)
     ) {
-      const converted = convertStatement(stmt, checker, undefined);
+      const converted = convertStatement(stmt, binding, undefined);
       // Flatten result (handles both single statements and arrays)
       statements.push(...flattenStatementResult(converted));
     }

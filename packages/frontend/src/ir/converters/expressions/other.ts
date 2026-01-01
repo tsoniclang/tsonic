@@ -11,6 +11,7 @@ import {
 } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Convert conditional (ternary) expression
@@ -22,18 +23,18 @@ import { convertExpression } from "../../expression-converter.js";
  */
 export const convertConditionalExpression = (
   node: ts.ConditionalExpression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedType: IrType | undefined
 ): IrConditionalExpression => {
-  const whenTrue = convertExpression(node.whenTrue, checker, expectedType);
-  const whenFalse = convertExpression(node.whenFalse, checker, expectedType);
+  const whenTrue = convertExpression(node.whenTrue, binding, expectedType);
+  const whenFalse = convertExpression(node.whenFalse, binding, expectedType);
 
   // DETERMINISTIC: Use expectedType if available, otherwise derive from whenTrue
   const inferredType = expectedType ?? whenTrue.inferredType;
 
   return {
     kind: "conditional",
-    condition: convertExpression(node.condition, checker, undefined),
+    condition: convertExpression(node.condition, binding, undefined),
     whenTrue,
     whenFalse,
     inferredType,
@@ -48,7 +49,7 @@ export const convertConditionalExpression = (
  */
 export const convertTemplateLiteral = (
   node: ts.TemplateExpression | ts.NoSubstitutionTemplateLiteral,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrTemplateLiteralExpression => {
   // DETERMINISTIC: Template literals always produce string
   const stringType = {
@@ -70,7 +71,7 @@ export const convertTemplateLiteral = (
   const expressions: IrExpression[] = [];
 
   node.templateSpans.forEach((span) => {
-    expressions.push(convertExpression(span.expression, checker, undefined));
+    expressions.push(convertExpression(span.expression, binding, undefined));
     quasis.push(span.literal.text);
   });
 

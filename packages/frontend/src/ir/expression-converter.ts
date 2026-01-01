@@ -13,6 +13,7 @@ import {
 } from "./types.js";
 import { getBindingRegistry } from "./converters/statements/declarations/registry.js";
 import { convertType } from "./type-converter.js";
+import type { Binding } from "./binding/index.js";
 
 // Import expression converters from specialized modules
 import { convertLiteral } from "./converters/expressions/literals.js";
@@ -76,21 +77,21 @@ const getNumericKindFromTypeNode = (
  * Converts TypeScript expression nodes to IR expressions
  *
  * @param node - The TypeScript expression node to convert
- * @param checker - The TypeScript type checker
+ * @param binding - The Binding layer for symbol resolution
  * @param expectedType - Expected type from context (e.g., LHS annotation, parameter type).
  *                       Pass `undefined` explicitly when no contextual type exists.
  *                       Used for deterministic typing of literals and arrays.
  */
 export const convertExpression = (
   node: ts.Expression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedType: IrType | undefined
 ): IrExpression => {
   // DETERMINISTIC TYPING: No top-level getInferredType() call.
   // Each expression type derives its inferredType from the appropriate source.
 
   if (ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
-    return convertLiteral(node, checker);
+    return convertLiteral(node, binding);
   }
   if (
     node.kind === ts.SyntaxKind.TrueKeyword ||
@@ -130,31 +131,33 @@ export const convertExpression = (
   }
   if (ts.isIdentifier(node)) {
     // DETERMINISTIC: Derive type from declaration TypeNode
-    const identifierType = deriveIdentifierType(node, checker);
+    const identifierType = deriveIdentifierType(node, binding);
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
     // We need the original name for binding lookup
     let originalName: string | undefined;
-    const symbol = checker.getSymbolAtLocation(node);
-    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
-      const aliased = checker.getAliasedSymbol(symbol);
-      if (aliased && aliased !== symbol && aliased.name !== "unknown") {
-        originalName = aliased.name;
+    const declId = binding.resolveIdentifier(node);
+    if (declId) {
+      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      // If the fqName differs from the identifier text, it's an aliased import
+      if (declInfo?.fqName && declInfo.fqName !== node.text) {
+        originalName = declInfo.fqName;
       }
     }
 
     // Check if this identifier is bound to a CLR type (e.g., console, Math, etc.)
-    const binding = getBindingRegistry().getBinding(node.text);
-    if (binding && binding.kind === "global") {
+    const clrBinding = getBindingRegistry().getBinding(node.text);
+    if (clrBinding && clrBinding.kind === "global") {
       return {
         kind: "identifier",
         name: node.text,
         inferredType: identifierType,
         sourceSpan: getSourceSpan(node),
-        resolvedClrType: binding.type,
-        resolvedAssembly: binding.assembly,
-        csharpName: binding.csharpName, // Optional C# name from binding
+        resolvedClrType: clrBinding.type,
+        resolvedAssembly: clrBinding.assembly,
+        csharpName: clrBinding.csharpName, // Optional C# name from binding
         originalName,
+        declId,
       };
     }
     return {
@@ -163,41 +166,42 @@ export const convertExpression = (
       inferredType: identifierType,
       sourceSpan: getSourceSpan(node),
       originalName,
+      declId,
     };
   }
   if (ts.isArrayLiteralExpression(node)) {
-    return convertArrayLiteral(node, checker, expectedType);
+    return convertArrayLiteral(node, binding, expectedType);
   }
   if (ts.isObjectLiteralExpression(node)) {
-    return convertObjectLiteral(node, checker, expectedType);
+    return convertObjectLiteral(node, binding, expectedType);
   }
   if (
     ts.isPropertyAccessExpression(node) ||
     ts.isElementAccessExpression(node)
   ) {
-    return convertMemberExpression(node, checker);
+    return convertMemberExpression(node, binding);
   }
   if (ts.isCallExpression(node)) {
-    return convertCallExpression(node, checker);
+    return convertCallExpression(node, binding);
   }
   if (ts.isNewExpression(node)) {
-    return convertNewExpression(node, checker);
+    return convertNewExpression(node, binding);
   }
   if (ts.isBinaryExpression(node)) {
-    return convertBinaryExpression(node, checker, expectedType);
+    return convertBinaryExpression(node, binding, expectedType);
   }
   if (ts.isPrefixUnaryExpression(node)) {
-    return convertUnaryExpression(node, checker);
+    return convertUnaryExpression(node, binding);
   }
   if (ts.isPostfixUnaryExpression(node)) {
-    return convertUpdateExpression(node, checker);
+    return convertUpdateExpression(node, binding);
   }
   if (ts.isTypeOfExpression(node)) {
     // typeof always returns string
     return {
       kind: "unary",
       operator: "typeof",
-      expression: convertExpression(node.expression, checker, undefined),
+      expression: convertExpression(node.expression, binding, undefined),
       inferredType: { kind: "primitiveType", name: "string" },
       sourceSpan: getSourceSpan(node),
     };
@@ -207,7 +211,7 @@ export const convertExpression = (
     return {
       kind: "unary",
       operator: "void",
-      expression: convertExpression(node.expression, checker, undefined),
+      expression: convertExpression(node.expression, binding, undefined),
       inferredType: { kind: "voidType" },
       sourceSpan: getSourceSpan(node),
     };
@@ -217,31 +221,31 @@ export const convertExpression = (
     return {
       kind: "unary",
       operator: "delete",
-      expression: convertExpression(node.expression, checker, undefined),
+      expression: convertExpression(node.expression, binding, undefined),
       inferredType: { kind: "primitiveType", name: "boolean" },
       sourceSpan: getSourceSpan(node),
     };
   }
   if (ts.isConditionalExpression(node)) {
-    return convertConditionalExpression(node, checker, expectedType);
+    return convertConditionalExpression(node, binding, expectedType);
   }
   if (ts.isFunctionExpression(node)) {
     // DETERMINISTIC: Pass expectedType for parameter type inference
-    return convertFunctionExpression(node, checker, expectedType);
+    return convertFunctionExpression(node, binding, expectedType);
   }
   if (ts.isArrowFunction(node)) {
     // DETERMINISTIC: Pass expectedType for parameter type inference
-    return convertArrowFunction(node, checker, expectedType);
+    return convertArrowFunction(node, binding, expectedType);
   }
   if (
     ts.isTemplateExpression(node) ||
     ts.isNoSubstitutionTemplateLiteral(node)
   ) {
-    return convertTemplateLiteral(node, checker);
+    return convertTemplateLiteral(node, binding);
   }
   if (ts.isSpreadElement(node)) {
     // Spread inherits type from expression (the array being spread)
-    const spreadExpr = convertExpression(node.expression, checker, undefined);
+    const spreadExpr = convertExpression(node.expression, binding, undefined);
     return {
       kind: "spread",
       expression: spreadExpr,
@@ -260,7 +264,7 @@ export const convertExpression = (
   if (ts.isAwaitExpression(node)) {
     // await unwraps Promise - for now pass through the expression's type
     // (full unwrapping would require detecting Promise<T> and returning T)
-    const awaitedExpr = convertExpression(node.expression, checker, undefined);
+    const awaitedExpr = convertExpression(node.expression, binding, undefined);
     return {
       kind: "await",
       expression: awaitedExpr,
@@ -273,7 +277,7 @@ export const convertExpression = (
     return {
       kind: "yield",
       expression: node.expression
-        ? convertExpression(node.expression, checker, undefined)
+        ? convertExpression(node.expression, binding, undefined)
         : undefined,
       delegate: !!node.asteriskToken,
       inferredType: undefined,
@@ -281,15 +285,15 @@ export const convertExpression = (
     };
   }
   if (ts.isParenthesizedExpression(node)) {
-    return convertExpression(node.expression, checker, expectedType);
+    return convertExpression(node.expression, binding, expectedType);
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Convert the inner expression
-    const innerExpr = convertExpression(node.expression, checker, undefined);
+    const innerExpr = convertExpression(node.expression, binding, undefined);
 
     // Get the asserted type
     const assertedTypeNode = node.type;
-    const assertedType = convertType(assertedTypeNode, checker);
+    const assertedType = convertType(assertedTypeNode, binding);
 
     // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)
     const numericKind = getNumericKindFromTypeNode(assertedTypeNode);

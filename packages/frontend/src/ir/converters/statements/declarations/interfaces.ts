@@ -16,20 +16,21 @@ import {
   convertTypeParameters,
   convertParameters,
 } from "../helpers.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert interface member
  */
 export const convertInterfaceMember = (
   node: ts.TypeElement,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrInterfaceMember | null => {
   if (ts.isPropertySignature(node) && node.type) {
     return {
       kind: "propertySignature",
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
-      type: convertType(node.type, checker),
+      type: convertType(node.type, binding),
       isOptional: !!node.questionToken,
       isReadonly: hasReadonlyModifier(node),
     };
@@ -40,9 +41,9 @@ export const convertInterfaceMember = (
       kind: "methodSignature",
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
-      typeParameters: convertTypeParameters(node.typeParameters, checker),
-      parameters: convertParameters(node.parameters, checker),
-      returnType: node.type ? convertType(node.type, checker) : undefined,
+      typeParameters: convertTypeParameters(node.typeParameters, binding),
+      parameters: convertParameters(node.parameters, binding),
+      returnType: node.type ? convertType(node.type, binding) : undefined,
     };
   }
 
@@ -50,14 +51,16 @@ export const convertInterfaceMember = (
 };
 
 /**
- * Check if a type reference is the struct marker
+ * Check if a type reference is the struct marker.
+ * DETERMINISTIC: Uses only the AST expression text, not TypeScript type resolution.
  */
-const isStructMarker = (
-  typeRef: ts.ExpressionWithTypeArguments,
-  checker: ts.TypeChecker
-): boolean => {
-  const symbol = checker.getSymbolAtLocation(typeRef.expression);
-  return symbol?.escapedName === "struct" || symbol?.escapedName === "Struct";
+const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
+  // Check the expression directly - it should be an identifier named "struct" or "Struct"
+  if (ts.isIdentifier(typeRef.expression)) {
+    const name = typeRef.expression.text;
+    return name === "struct" || name === "Struct";
+  }
+  return false;
 };
 
 /**
@@ -71,7 +74,7 @@ const isStructMarker = (
  */
 const extractIndexSignatureOnlyInterface = (
   node: ts.InterfaceDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): { keyType: IrType; valueType: IrType } | undefined => {
   const members = node.members;
 
@@ -91,7 +94,7 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  const keyType = convertType(param.type, checker);
+  const keyType = convertType(param.type, binding);
 
   // Only allow string or number keys (enforced by TSN7413)
   if (
@@ -106,7 +109,7 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  const valueType = convertType(member.type, checker);
+  const valueType = convertType(member.type, binding);
 
   return { keyType, valueType };
 };
@@ -143,7 +146,7 @@ const isMarkerInterface = (node: ts.InterfaceDeclaration): boolean => {
  */
 export const convertInterfaceDeclaration = (
   node: ts.InterfaceDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrInterfaceDeclaration | IrTypeAliasDeclaration | null => {
   // Filter out marker interfaces completely
   if (isMarkerInterface(node)) {
@@ -151,12 +154,12 @@ export const convertInterfaceDeclaration = (
   }
 
   // Check for index-signature-only interface → lower to type alias for dictionary
-  const dictInfo = extractIndexSignatureOnlyInterface(node, checker);
+  const dictInfo = extractIndexSignatureOnlyInterface(node, binding);
   if (dictInfo) {
     return {
       kind: "typeAliasDeclaration",
       name: node.name.text,
-      typeParameters: convertTypeParameters(node.typeParameters, checker),
+      typeParameters: convertTypeParameters(node.typeParameters, binding),
       type: {
         kind: "dictionaryType",
         keyType: dictInfo.keyType,
@@ -174,16 +177,16 @@ export const convertInterfaceDeclaration = (
   const extendsTypes =
     extendsClause?.types
       .filter((t) => {
-        if (isStructMarker(t, checker)) {
+        if (isStructMarker(t)) {
           isStruct = true;
           return false; // Remove marker from extends
         }
         return true;
       })
-      .map((t) => convertType(t, checker)) ?? [];
+      .map((t) => convertType(t, binding)) ?? [];
 
   const allMembers = node.members
-    .map((m) => convertInterfaceMember(m, checker))
+    .map((m) => convertInterfaceMember(m, binding))
     .filter((m): m is IrInterfaceMember => m !== null);
 
   // Filter out __brand property if this is a struct
@@ -196,7 +199,7 @@ export const convertInterfaceDeclaration = (
   return {
     kind: "interfaceDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, checker),
+    typeParameters: convertTypeParameters(node.typeParameters, binding),
     extends: extendsTypes,
     members: finalMembers,
     isExported: hasExportModifier(node),

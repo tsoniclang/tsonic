@@ -15,6 +15,7 @@ import {
   getAccessibility,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+import type { Binding } from "../../../../binding/index.js";
 
 /**
  * Derive type from a converted IR expression (deterministic).
@@ -61,7 +62,7 @@ const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
  */
 export const convertProperty = (
   node: ts.PropertyDeclaration,
-  checker: ts.TypeChecker,
+  binding: Binding,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): IrClassMember => {
   const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
@@ -70,15 +71,15 @@ export const convertProperty = (
     memberName,
     "property",
     superClass,
-    checker
+    binding
   );
 
   // Get explicit type annotation (if present) for contextual typing
-  const explicitType = node.type ? convertType(node.type, checker) : undefined;
+  const explicitType = node.type ? convertType(node.type, binding) : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)
   const convertedInitializer = node.initializer
-    ? convertExpression(node.initializer, checker, explicitType)
+    ? convertExpression(node.initializer, binding, explicitType)
     : undefined;
 
   // Derive property type:

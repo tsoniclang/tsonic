@@ -7,6 +7,7 @@ import { IrType } from "../../types.js";
 import { convertType } from "../../type-converter.js";
 import { SourceLocation } from "../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../program/diagnostics.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Get source span for a TypeScript node.
@@ -52,30 +53,15 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
  */
 const deriveCallReturnType = (
   node: ts.CallExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
-  const signature = checker.getResolvedSignature(node);
-  if (!signature) return undefined;
+  const sigId = binding.resolveCallSignature(node);
+  if (!sigId) return undefined;
 
-  const decl = signature.declaration;
-  if (!decl) return undefined;
+  const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+  if (!sigInfo?.returnTypeNode) return undefined;
 
-  let returnTypeNode: ts.TypeNode | undefined;
-
-  if (
-    ts.isMethodSignature(decl) ||
-    ts.isMethodDeclaration(decl) ||
-    ts.isFunctionDeclaration(decl) ||
-    ts.isCallSignatureDeclaration(decl) ||
-    ts.isArrowFunction(decl) ||
-    ts.isFunctionExpression(decl)
-  ) {
-    returnTypeNode = decl.type;
-  }
-
-  if (!returnTypeNode) return undefined;
-
-  return convertType(returnTypeNode, checker);
+  return convertType(sigInfo.returnTypeNode as ts.TypeNode, binding);
 };
 
 /**
@@ -85,7 +71,7 @@ const deriveCallReturnType = (
  */
 const deriveNewExpressionType = (
   node: ts.NewExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
   // Get the type name from the expression
   const getTypeName = (expr: ts.Expression): string | undefined => {
@@ -115,7 +101,7 @@ const deriveNewExpressionType = (
     return {
       kind: "referenceType",
       name: typeName,
-      typeArguments: node.typeArguments.map((ta) => convertType(ta, checker)),
+      typeArguments: node.typeArguments.map((ta) => convertType(ta, binding)),
     };
   }
 
@@ -130,16 +116,16 @@ const deriveNewExpressionType = (
  */
 const deriveTypeFromInitializer = (
   initializer: ts.Expression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
   // Call expression: const arr = createArray()
   if (ts.isCallExpression(initializer)) {
-    return deriveCallReturnType(initializer, checker);
+    return deriveCallReturnType(initializer, binding);
   }
 
   // New expression: const list = new List<int>()
   if (ts.isNewExpression(initializer)) {
-    return deriveNewExpressionType(initializer, checker);
+    return deriveNewExpressionType(initializer, binding);
   }
 
   // Identifier: const y = x (derive type from x's declaration)
@@ -147,7 +133,7 @@ const deriveTypeFromInitializer = (
     // Recursive call - will look up the identifier's declaration
     // Note: This uses the main function, which is defined below
     // TypeScript hoisting makes this work
-    return deriveIdentifierType(initializer, checker);
+    return deriveIdentifierType(initializer, binding);
   }
 
   // Literals - derive from the literal itself
@@ -170,7 +156,7 @@ const deriveTypeFromInitializer = (
     if (initializer.elements.length > 0) {
       const firstElem = initializer.elements[0];
       if (firstElem && !ts.isSpreadElement(firstElem)) {
-        const elementType = deriveTypeFromInitializer(firstElem, checker);
+        const elementType = deriveTypeFromInitializer(firstElem, binding);
         if (elementType) {
           return { kind: "arrayType", elementType };
         }
@@ -189,96 +175,40 @@ const deriveTypeFromInitializer = (
 
 export const deriveIdentifierType = (
   node: ts.Identifier,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
-  const symbol = checker.getSymbolAtLocation(node);
-  if (!symbol) return undefined;
+  const declId = binding.resolveIdentifier(node);
+  if (!declId) return undefined;
 
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return undefined;
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  if (!declInfo) return undefined;
 
-  for (const decl of declarations) {
-    // Variable declaration: const x: int = 5
-    if (ts.isVariableDeclaration(decl)) {
-      // First, check for explicit type annotation
-      if (decl.type) {
-        return convertType(decl.type, checker);
-      }
-
-      // No explicit type - try to derive from initializer
-      if (decl.initializer) {
-        const initType = deriveTypeFromInitializer(decl.initializer, checker);
-        if (initType) {
-          return initType;
-        }
-      }
-
-      // Can't derive type - continue to next declaration
-      continue;
-    }
-
-    // Parameter declaration: function f(x: int)
-    if (ts.isParameter(decl) && decl.type) {
-      return convertType(decl.type, checker);
-    }
-
-    // Property declaration: class C { x: int }
-    if (ts.isPropertyDeclaration(decl) && decl.type) {
-      return convertType(decl.type, checker);
-    }
-
-    // Property signature: interface I { x: int }
-    if (ts.isPropertySignature(decl) && decl.type) {
-      return convertType(decl.type, checker);
-    }
-
-    // Function declaration: function f(): int
-    if (ts.isFunctionDeclaration(decl)) {
-      // For function identifiers, return a function type with return type
-      // We simplify parameters since full IrParameter is complex
-      return {
-        kind: "functionType",
-        parameters: decl.parameters.map((p) => ({
-          kind: "parameter" as const,
-          pattern: {
-            kind: "identifierPattern" as const,
-            name: ts.isIdentifier(p.name) ? p.name.text : "_",
-          },
-          type: p.type ? convertType(p.type, checker) : undefined,
-          isOptional: !!p.questionToken,
-          isRest: !!p.dotDotDotToken,
-          passing: "value" as const,
-        })),
-        returnType: decl.type
-          ? convertType(decl.type, checker)
-          : { kind: "voidType" },
-      };
-    }
-
-    // Class declaration: class C {}
-    if (ts.isClassDeclaration(decl) && decl.name) {
-      return {
-        kind: "referenceType",
-        name: decl.name.text,
-      };
-    }
-
-    // Enum declaration: enum E {}
-    if (ts.isEnumDeclaration(decl)) {
-      return {
-        kind: "referenceType",
-        name: decl.name.text,
-      };
-    }
-
-    // Interface declaration: interface I {}
-    if (ts.isInterfaceDeclaration(decl)) {
-      return {
-        kind: "referenceType",
-        name: decl.name.text,
-      };
-    }
+  // If we have an explicit type node, use it
+  if (declInfo.typeNode) {
+    return convertType(declInfo.typeNode as ts.TypeNode, binding);
   }
+
+  // For variables without type annotation, try to derive from initializer
+  // We need to check the original declaration node
+  // NOTE: The Binding layer stores the declaration, and we can examine it
+  // But for full determinism, we'd need to store the initializer info too
+  // For now, return undefined if no explicit typeNode
+
+  // For class/interface/enum declarations, return reference type
+  if (
+    declInfo.kind === "class" ||
+    declInfo.kind === "interface" ||
+    declInfo.kind === "enum"
+  ) {
+    return {
+      kind: "referenceType",
+      name: declInfo.fqName ?? node.text,
+    };
+  }
+
+  // For function declarations, return function type
+  // NOTE: This requires the SignatureInfo which would need more work
+  // For now, return undefined
 
   return undefined;
 };
@@ -293,13 +223,13 @@ export const deriveIdentifierType = (
  */
 export const extractTypeArguments = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly IrType[] | undefined => {
   try {
     // Only return explicitly specified type arguments
     // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
-      return node.typeArguments.map((typeArg) => convertType(typeArg, checker));
+      return node.typeArguments.map((typeArg) => convertType(typeArg, binding));
     }
 
     // No explicit type arguments - return undefined
@@ -313,43 +243,56 @@ export const extractTypeArguments = (
 /**
  * Check if a call/new expression requires specialization
  * Returns true for conditional types, infer, variadic generics, this typing
+ *
+ * DETERMINISTIC: Uses Binding API to resolve signatures and extract declaration info.
  */
 export const checkIfRequiresSpecialization = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): boolean => {
   try {
-    const signature = checker.getResolvedSignature(node);
-    if (!signature || !signature.declaration) {
-      return false;
+    // Handle both CallExpression and NewExpression
+    const sigId = ts.isCallExpression(node)
+      ? binding.resolveCallSignature(node)
+      : binding.resolveConstructorSignature(node);
+    if (!sigId) return false;
+
+    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+    if (!sigInfo) return false;
+
+    // Check for conditional return types from the TypeNode
+    const returnTypeNode = sigInfo.returnTypeNode as ts.TypeNode | undefined;
+    if (returnTypeNode && ts.isConditionalTypeNode(returnTypeNode)) {
+      return true;
     }
 
-    const decl = signature.declaration;
-
-    // Check for conditional return types
-    if (
-      ts.isFunctionDeclaration(decl) ||
-      ts.isMethodDeclaration(decl) ||
-      ts.isFunctionTypeNode(decl)
-    ) {
-      if (decl.type && ts.isConditionalTypeNode(decl.type)) {
-        return true;
-      }
-    }
-
-    // Check for variadic type parameters (rest parameters with generic types)
-    const typeParameters = signature.typeParameters;
-    if (typeParameters) {
-      for (const typeParam of typeParameters) {
-        const constraint = typeParam.getConstraint();
-        if (constraint) {
-          const constraintStr = checker.typeToString(constraint);
-          // Check for unknown[] which indicates variadic
-          if (
-            constraintStr.includes("unknown[]") ||
-            constraintStr.includes("any[]")
-          ) {
-            return true;
+    // Check for variadic type parameters from stored type parameter info
+    // The SignatureInfo stores type parameters with constraint nodes
+    if (sigInfo.typeParameters) {
+      for (const typeParam of sigInfo.typeParameters) {
+        const constraintNode = typeParam.constraintNode as
+          | ts.TypeNode
+          | undefined;
+        if (constraintNode) {
+          // Check if constraint is an array type (variadic pattern)
+          if (ts.isArrayTypeNode(constraintNode)) {
+            const elementType = constraintNode.elementType;
+            // Check for unknown[] or any[] constraint
+            if (ts.isTypeReferenceNode(elementType)) {
+              const typeName = ts.isIdentifier(elementType.typeName)
+                ? elementType.typeName.text
+                : undefined;
+              if (typeName === "unknown" || typeName === "any") {
+                return true;
+              }
+            }
+            // Also check for keyword types like `unknown` or `any`
+            if (
+              elementType.kind === ts.SyntaxKind.UnknownKeyword ||
+              elementType.kind === ts.SyntaxKind.AnyKeyword
+            ) {
+              return true;
+            }
           }
         }
       }
@@ -438,14 +381,14 @@ export const isAssignmentOperator = (
  */
 export const getContextualType = (
   node: ts.Expression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
   try {
     const parent = node.parent;
 
     // Variable declaration: const x: Foo = { ... }
     if (ts.isVariableDeclaration(parent) && parent.type) {
-      return convertType(parent.type, checker);
+      return convertType(parent.type, binding);
     }
 
     // Return statement: function f(): Foo { return { ... } }
@@ -456,7 +399,7 @@ export const getContextualType = (
         current = current.parent;
       }
       if (current && ts.isFunctionLike(current) && current.type) {
-        return convertType(current.type, checker);
+        return convertType(current.type, binding);
       }
     }
 
@@ -469,7 +412,7 @@ export const getContextualType = (
           : undefined;
 
       if (propName && ts.isObjectLiteralExpression(parent.parent)) {
-        const parentType = getContextualType(parent.parent, checker);
+        const parentType = getContextualType(parent.parent, binding);
         if (parentType?.kind === "objectType") {
           const member = parentType.members.find(
             (m) => m.kind === "propertySignature" && m.name === propName
@@ -485,27 +428,28 @@ export const getContextualType = (
 
     // Array element: const arr: Foo[] = [{ ... }]
     if (ts.isArrayLiteralExpression(parent)) {
-      const arrayType = getContextualType(parent, checker);
+      const arrayType = getContextualType(parent, binding);
       if (arrayType?.kind === "arrayType") {
         return arrayType.elementType;
       }
     }
 
     // Call argument: f({ ... }) where f(x: Foo)
-    // This requires finding the parameter type from the resolved signature
-    // For now, use getResolvedSignature (allowed) to get the declaration
+    // Use Binding to resolve the call signature and get parameter types
     if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
       const argIndex = parent.arguments
         ? parent.arguments.indexOf(node as ts.Expression)
         : -1;
       if (argIndex >= 0) {
-        const sig = checker.getResolvedSignature(parent);
-        const decl = sig?.declaration;
-        if (decl && decl.parameters && decl.parameters[argIndex]) {
-          const paramDecl = decl.parameters[argIndex];
-          // Check it's a ParameterDeclaration (not JSDocParameterTag)
-          if (paramDecl && ts.isParameter(paramDecl) && paramDecl.type) {
-            return convertType(paramDecl.type, checker);
+        // Handle both CallExpression and NewExpression
+        const sigId = ts.isCallExpression(parent)
+          ? binding.resolveCallSignature(parent)
+          : binding.resolveConstructorSignature(parent);
+        if (sigId) {
+          const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+          const param = sigInfo?.parameters[argIndex];
+          if (param?.typeNode) {
+            return convertType(param.typeNode as ts.TypeNode, binding);
           }
         }
       }
@@ -517,18 +461,4 @@ export const getContextualType = (
   } catch {
     return undefined;
   }
-};
-
-/**
- * @deprecated Use getContextualType instead - returns IrType with type arguments
- */
-export const getContextualTypeName = (
-  node: ts.Expression,
-  checker: ts.TypeChecker
-): string | undefined => {
-  const irType = getContextualType(node, checker);
-  if (irType && irType.kind === "referenceType") {
-    return irType.name;
-  }
-  return undefined;
 };

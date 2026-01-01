@@ -15,6 +15,7 @@ import {
   flattenStatementResult,
   convertStatement,
 } from "../../../statement-converter.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert if statement
@@ -24,21 +25,21 @@ import {
  */
 export const convertIfStatement = (
   node: ts.IfStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrIfStatement => {
   const thenStmt = convertStatementSingle(
     node.thenStatement,
-    checker,
+    binding,
     expectedReturnType
   );
   const elseStmt = node.elseStatement
-    ? convertStatementSingle(node.elseStatement, checker, expectedReturnType)
+    ? convertStatementSingle(node.elseStatement, binding, expectedReturnType)
     : undefined;
 
   return {
     kind: "ifStatement",
-    condition: convertExpression(node.expression, checker, undefined),
+    condition: convertExpression(node.expression, binding, undefined),
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
   };
@@ -51,14 +52,14 @@ export const convertIfStatement = (
  */
 export const convertSwitchStatement = (
   node: ts.SwitchStatement,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrSwitchStatement => {
   return {
     kind: "switchStatement",
-    expression: convertExpression(node.expression, checker, undefined),
+    expression: convertExpression(node.expression, binding, undefined),
     cases: node.caseBlock.clauses.map((clause) =>
-      convertSwitchCase(clause, checker, expectedReturnType)
+      convertSwitchCase(clause, binding, expectedReturnType)
     ),
   };
 };
@@ -70,16 +71,16 @@ export const convertSwitchStatement = (
  */
 export const convertSwitchCase = (
   node: ts.CaseOrDefaultClause,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrSwitchCase => {
   return {
     kind: "switchCase",
     test: ts.isCaseClause(node)
-      ? convertExpression(node.expression, checker, undefined)
+      ? convertExpression(node.expression, binding, undefined)
       : undefined,
     statements: node.statements.flatMap((s) =>
-      flattenStatementResult(convertStatement(s, checker, expectedReturnType))
+      flattenStatementResult(convertStatement(s, binding, expectedReturnType))
     ),
   };
 };

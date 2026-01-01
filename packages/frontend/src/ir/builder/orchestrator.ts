@@ -44,8 +44,14 @@ export const buildIrModule = (
     // Initialize TypeRegistry/NominalEnv if not already set (e.g., when called directly by tests)
     // When called via buildIr, these are already initialized for all source files
     if (!getTypeRegistry()) {
+      // Include both user source files AND declaration files from typeRoots
+      // Declaration files contain globals (String, Array, etc.) needed for method resolution
+      const allSourceFiles = [
+        ...program.sourceFiles,
+        ...program.declarationSourceFiles,
+      ];
       const typeRegistry = buildTypeRegistry(
-        program.sourceFiles,
+        allSourceFiles,
         program.checker,
         options.sourceRoot,
         options.rootNamespace
@@ -55,7 +61,7 @@ export const buildIrModule = (
       const nominalEnv = buildNominalEnv(
         typeRegistry,
         convertType,
-        program.checker
+        program.binding
       );
       setNominalEnv(nominalEnv);
     }
@@ -69,11 +75,11 @@ export const buildIrModule = (
 
     const imports = extractImports(
       sourceFile,
-      program.checker,
+      program.binding,
       program.clrResolver
     );
-    const exports = extractExports(sourceFile, program.checker);
-    const statements = extractStatements(sourceFile, program.checker);
+    const exports = extractExports(sourceFile, program.binding);
+    const statements = extractStatements(sourceFile, program.binding);
 
     // Check for file name / export name collision (Issue #4)
     // When file name matches an exported function/variable name, C# will have illegal code
@@ -123,7 +129,7 @@ export const buildIrModule = (
     // TypeScript interfaces are nominalized to C# classes, so "implements" is invalid
     const implementsDiagnostics = validateClassImplements(
       sourceFile,
-      program.checker
+      program.binding
     );
     const firstImplementsDiagnostic = implementsDiagnostics[0];
     if (firstImplementsDiagnostic) {
@@ -187,10 +193,15 @@ export const buildIr = (
   // Clear any stale type registries from previous compilations
   clearTypeRegistries();
 
-  // Build TypeRegistry from all source files
+  // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
+  // Declaration files contain globals (String, Array, etc.) needed for method resolution
   // This enables deterministic typing for inherited generic members
+  const allSourceFiles = [
+    ...program.sourceFiles,
+    ...program.declarationSourceFiles,
+  ];
   const typeRegistry = buildTypeRegistry(
-    program.sourceFiles,
+    allSourceFiles,
     program.checker,
     options.sourceRoot,
     options.rootNamespace
@@ -202,7 +213,7 @@ export const buildIr = (
   const nominalEnv = buildNominalEnv(
     typeRegistry,
     convertType,
-    program.checker
+    program.binding
   );
   setNominalEnv(nominalEnv);
 

@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import { IrEnumDeclaration, IrType } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { hasExportModifier } from "../helpers.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Int type constant for enum initializers
@@ -18,7 +19,7 @@ const INT_TYPE: IrType = { kind: "primitiveType", name: "int" };
  */
 export const convertEnumDeclaration = (
   node: ts.EnumDeclaration,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrEnumDeclaration => {
   return {
     kind: "enumDeclaration",
@@ -28,7 +29,7 @@ export const convertEnumDeclaration = (
       name: ts.isIdentifier(m.name) ? m.name.text : "[computed]",
       // Thread int type to enum initializers for deterministic typing
       initializer: m.initializer
-        ? convertExpression(m.initializer, checker, INT_TYPE)
+        ? convertExpression(m.initializer, binding, INT_TYPE)
         : undefined,
     })),
     isExported: hasExportModifier(node),

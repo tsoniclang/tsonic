@@ -6,6 +6,7 @@
 import * as ts from "typescript";
 import { IrStatement, IrType } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
+import type { Binding } from "./binding/index.js";
 
 // Import converters from specialized modules
 import {
@@ -49,12 +50,13 @@ const isAmbientDeclaration = (node: ts.Node): boolean => {
 /**
  * Main statement converter dispatcher
  *
+ * @param binding - The Binding layer for symbol resolution
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  *                             Pass `undefined` explicitly when not inside a function.
  */
 export const convertStatement = (
   node: ts.Node,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType: IrType | undefined
 ): ConvertStatementResult => {
   // Skip ambient (declare) declarations - they're type-only
@@ -63,28 +65,28 @@ export const convertStatement = (
   }
 
   if (ts.isVariableStatement(node)) {
-    return convertVariableStatement(node, checker);
+    return convertVariableStatement(node, binding);
   }
   if (ts.isFunctionDeclaration(node)) {
-    return convertFunctionDeclaration(node, checker);
+    return convertFunctionDeclaration(node, binding);
   }
   if (ts.isClassDeclaration(node)) {
-    return convertClassDeclaration(node, checker);
+    return convertClassDeclaration(node, binding);
   }
   if (ts.isInterfaceDeclaration(node)) {
-    return convertInterfaceDeclaration(node, checker);
+    return convertInterfaceDeclaration(node, binding);
   }
   if (ts.isEnumDeclaration(node)) {
-    return convertEnumDeclaration(node, checker);
+    return convertEnumDeclaration(node, binding);
   }
   // Type alias declarations may return multiple statements (synthetic interfaces + alias)
   if (ts.isTypeAliasDeclaration(node)) {
-    return convertTypeAliasDeclaration(node, checker);
+    return convertTypeAliasDeclaration(node, binding);
   }
   if (ts.isExpressionStatement(node)) {
     return {
       kind: "expressionStatement",
-      expression: convertExpression(node.expression, checker, undefined),
+      expression: convertExpression(node.expression, binding, undefined),
     };
   }
   if (ts.isReturnStatement(node)) {
@@ -92,27 +94,27 @@ export const convertStatement = (
       kind: "returnStatement",
       // Pass function return type for contextual typing of return expression
       expression: node.expression
-        ? convertExpression(node.expression, checker, expectedReturnType)
+        ? convertExpression(node.expression, binding, expectedReturnType)
         : undefined,
     };
   }
   if (ts.isIfStatement(node)) {
-    return convertIfStatement(node, checker, expectedReturnType);
+    return convertIfStatement(node, binding, expectedReturnType);
   }
   if (ts.isWhileStatement(node)) {
-    return convertWhileStatement(node, checker, expectedReturnType);
+    return convertWhileStatement(node, binding, expectedReturnType);
   }
   if (ts.isForStatement(node)) {
-    return convertForStatement(node, checker, expectedReturnType);
+    return convertForStatement(node, binding, expectedReturnType);
   }
   if (ts.isForOfStatement(node)) {
-    return convertForOfStatement(node, checker, expectedReturnType);
+    return convertForOfStatement(node, binding, expectedReturnType);
   }
   if (ts.isForInStatement(node)) {
-    return convertForInStatement(node, checker, expectedReturnType);
+    return convertForInStatement(node, binding, expectedReturnType);
   }
   if (ts.isSwitchStatement(node)) {
-    return convertSwitchStatement(node, checker, expectedReturnType);
+    return convertSwitchStatement(node, binding, expectedReturnType);
   }
   if (ts.isThrowStatement(node)) {
     if (!node.expression) {
@@ -120,14 +122,14 @@ export const convertStatement = (
     }
     return {
       kind: "throwStatement",
-      expression: convertExpression(node.expression, checker, undefined),
+      expression: convertExpression(node.expression, binding, undefined),
     };
   }
   if (ts.isTryStatement(node)) {
-    return convertTryStatement(node, checker, expectedReturnType);
+    return convertTryStatement(node, binding, expectedReturnType);
   }
   if (ts.isBlock(node)) {
-    return convertBlockStatement(node, checker, expectedReturnType);
+    return convertBlockStatement(node, binding, expectedReturnType);
   }
   if (ts.isBreakStatement(node)) {
     return {
@@ -169,15 +171,16 @@ export const flattenStatementResult = (
  * Convert a statement and return a single statement (for contexts where arrays not expected).
  * Type aliases inside control flow will return the first statement (usually the only one).
  *
+ * @param binding - The Binding layer for symbol resolution
  * @param expectedReturnType - Return type from enclosing function for contextual typing.
  *                             Must be passed through for return statements in nested blocks.
  */
 export const convertStatementSingle = (
   node: ts.Node,
-  checker: ts.TypeChecker,
+  binding: Binding,
   expectedReturnType?: IrType
 ): IrStatement | null => {
-  const result = convertStatement(node, checker, expectedReturnType);
+  const result = convertStatement(node, binding, expectedReturnType);
   if (result === null) {
     return null;
   }

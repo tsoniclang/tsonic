@@ -2,7 +2,7 @@
  * Symbol table type definitions
  */
 
-import * as ts from "typescript";
+import type { DeclId } from "../ir/type-system/types.js";
 
 export type SymbolKind =
   | "class"
@@ -18,7 +18,7 @@ export type Symbol = {
   readonly kind: SymbolKind;
   readonly isExported: boolean;
   readonly module: string; // File path
-  readonly tsSymbol?: ts.Symbol; // Optional reference to TypeScript symbol
+  readonly declId?: DeclId; // Opaque handle to declaration (replaces ts.Symbol)
 };
 
 export type SymbolTable = {

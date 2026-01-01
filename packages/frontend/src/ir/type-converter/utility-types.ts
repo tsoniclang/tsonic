@@ -4,7 +4,7 @@
  * DETERMINISTIC IR TYPING (INV-0 compliant):
  * These utility types are expanded using AST-based analysis only.
  * No banned APIs (getTypeAtLocation, getTypeOfSymbolAtLocation, typeToTypeNode).
- * Uses symbol resolution to find declarations and extracts types from TypeNodes.
+ * Uses Binding for symbol resolution and extracts types from TypeNodes.
  */
 
 import * as ts from "typescript";
@@ -14,6 +14,7 @@ import {
   IrPropertySignature,
   IrInterfaceMember,
 } from "../types.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Set of supported mapped utility types that can be expanded
@@ -56,53 +57,46 @@ export const isExpandableConditionalUtilityType = (name: string): boolean =>
  * Follows type alias chains to get the actual type definition.
  *
  * @param node - The TypeNode to resolve
- * @param checker - The TypeScript type checker (for symbol resolution only)
+ * @param binding - The Binding layer for symbol resolution
  * @returns The resolved TypeNode, or the original if not a resolvable alias
  */
-const resolveTypeAlias = (
-  node: ts.TypeNode,
-  checker: ts.TypeChecker
-): ts.TypeNode => {
+const resolveTypeAlias = (node: ts.TypeNode, binding: Binding): ts.TypeNode => {
   // Only type references can be aliases
   if (!ts.isTypeReferenceNode(node)) return node;
   if (!ts.isIdentifier(node.typeName)) return node;
 
-  // Get the symbol for the type reference
-  const symbol = checker.getSymbolAtLocation(node.typeName);
-  if (!symbol) return node;
+  // Use Binding to resolve the type reference
+  const declId = binding.resolveTypeReference(node);
+  if (!declId) return node;
 
-  // If it's an aliased symbol, get the aliased symbol
-  const resolvedSymbol =
-    (symbol.flags & ts.SymbolFlags.Alias) !== 0
-      ? checker.getAliasedSymbol(symbol)
-      : symbol;
-
-  const decls = resolvedSymbol.getDeclarations();
-  if (!decls || decls.length === 0) return node;
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  if (!declInfo) return node;
 
   // Look for a type alias declaration
-  const typeAliasDecl = decls.find(ts.isTypeAliasDeclaration);
-  if (!typeAliasDecl) return node;
+  const decl = declInfo.declNode as ts.Declaration | undefined;
+  if (!decl || !ts.isTypeAliasDeclaration(decl)) return node;
 
   // Recursively resolve in case of chained aliases
-  return resolveTypeAlias(typeAliasDecl.type, checker);
+  return resolveTypeAlias(decl.type, binding);
 };
 
 /**
  * Check if a TypeNode is a type parameter reference (symbol-based, INV-0 compliant)
  */
-const isTypeParameterNode = (
-  node: ts.TypeNode,
-  checker: ts.TypeChecker
-): boolean => {
+const isTypeParameterNode = (node: ts.TypeNode, binding: Binding): boolean => {
   if (!ts.isTypeReferenceNode(node)) return false;
   if (!ts.isIdentifier(node.typeName)) return false;
 
-  const symbol = checker.getSymbolAtLocation(node.typeName);
-  if (!symbol) return false;
+  // Use Binding to resolve the type reference
+  const declId = binding.resolveTypeReference(node);
+  if (!declId) return false;
 
-  const decls = symbol.getDeclarations();
-  return decls?.some(ts.isTypeParameterDeclaration) ?? false;
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  if (!declInfo) return false;
+
+  // Check if the declaration is a type parameter
+  const decl = declInfo.declNode as ts.Declaration | undefined;
+  return decl ? ts.isTypeParameterDeclaration(decl) : false;
 };
 
 /**
@@ -111,8 +105,8 @@ const isTypeParameterNode = (
  */
 const extractMembersFromDeclaration = (
   decl: ts.Declaration,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): readonly IrInterfaceMember[] | null => {
   // Get type elements from declaration
   const typeElements = ts.isInterfaceDeclaration(decl)
@@ -155,7 +149,7 @@ const extractMembersFromDeclaration = (
       members.push({
         kind: "propertySignature",
         name: propName,
-        type: convertType(member.type, checker),
+        type: convertType(member.type, binding),
         isOptional,
         isReadonly,
       });
@@ -179,12 +173,12 @@ const extractMembersFromDeclaration = (
             kind: "identifierPattern" as const,
             name: ts.isIdentifier(param.name) ? param.name.text : `arg${index}`,
           },
-          type: param.type ? convertType(param.type, checker) : undefined,
+          type: param.type ? convertType(param.type, binding) : undefined,
           isOptional: !!param.questionToken,
           isRest: !!param.dotDotDotToken,
           passing: "value" as const,
         })),
-        returnType: member.type ? convertType(member.type, checker) : undefined,
+        returnType: member.type ? convertType(member.type, binding) : undefined,
       });
     }
   }
@@ -198,10 +192,10 @@ const extractMembersFromDeclaration = (
  */
 const extractLiteralKeysFromTypeNode = (
   node: ts.TypeNode,
-  checker: ts.TypeChecker
+  binding: Binding
 ): Set<string> | null => {
   // Check for type parameter
-  if (isTypeParameterNode(node, checker)) {
+  if (isTypeParameterNode(node, binding)) {
     return null;
   }
 
@@ -256,15 +250,15 @@ const extractLiteralKeysFromTypeNode = (
  *
  * @param node - The TypeReferenceNode for the utility type
  * @param typeName - The name of the utility type (Partial, Required, etc.)
- * @param checker - The TypeScript type checker (for symbol resolution only)
+ * @param binding - The Binding layer for symbol resolution
  * @param convertType - Function to convert nested types
  * @returns IrObjectType with the expanded properties, or null if expansion fails
  */
 export const expandUtilityType = (
   node: ts.TypeReferenceNode,
   typeName: string,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrObjectType | null => {
   const debug = !!process.env.DEBUG_UTILITY;
   if (debug) console.log(`[UTILITY] Expanding ${typeName}`);
@@ -283,7 +277,7 @@ export const expandUtilityType = (
   }
 
   // Check if target is a type parameter (can't expand generics)
-  if (isTypeParameterNode(targetArg, checker)) {
+  if (isTypeParameterNode(targetArg, binding)) {
     if (debug) console.log(`[UTILITY] Target is type param`);
     return null;
   }
@@ -291,7 +285,7 @@ export const expandUtilityType = (
   // For Pick/Omit, check if the keys argument is a type parameter
   if ((typeName === "Pick" || typeName === "Omit") && typeArgs.length >= 2) {
     const keysArg = typeArgs[1];
-    if (keysArg && isTypeParameterNode(keysArg, checker)) {
+    if (keysArg && isTypeParameterNode(keysArg, binding)) {
       if (debug) console.log(`[UTILITY] Keys is type param`);
       return null;
     }
@@ -325,7 +319,7 @@ export const expandUtilityType = (
     const innerExpanded = expandUtilityType(
       targetArg,
       targetName,
-      checker,
+      binding,
       convertType
     );
     if (innerExpanded) {
@@ -340,34 +334,31 @@ export const expandUtilityType = (
       return null;
     }
   } else {
-    // Not a utility type, resolve from declaration
-    const symbol = checker.getSymbolAtLocation(targetArg.typeName);
-    if (!symbol) {
-      if (debug) console.log(`[UTILITY] No symbol for ${targetName}`);
+    // Not a utility type, resolve from declaration using Binding
+    const declId = binding.resolveTypeReference(targetArg);
+    if (!declId) {
+      if (debug) console.log(`[UTILITY] No DeclId for ${targetName}`);
       return null;
     }
 
-    const decls = symbol.getDeclarations();
-    if (!decls || decls.length === 0) {
-      if (debug) console.log(`[UTILITY] No declarations`);
+    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    if (!declInfo?.declNode) {
+      if (debug) console.log(`[UTILITY] No declaration for ${targetName}`);
       return null;
     }
+
+    const decl = declInfo.declNode as ts.Declaration;
     if (debug)
-      console.log(
-        `[UTILITY] Found ${decls.length} declarations: ${decls.map((d) => ts.SyntaxKind[d.kind]).join(", ")}`
-      );
+      console.log(`[UTILITY] Found declaration: ${ts.SyntaxKind[decl.kind]}`);
 
-    // Find interface or type alias declaration
-    const decl = decls.find(
-      (d) => ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d)
-    );
-    if (!decl) {
+    // Check if it's an interface or type alias
+    if (!ts.isInterfaceDeclaration(decl) && !ts.isTypeAliasDeclaration(decl)) {
       if (debug) console.log(`[UTILITY] No interface/type alias decl`);
       return null;
     }
 
     // Extract members from declaration (AST-based)
-    baseMembers = extractMembersFromDeclaration(decl, checker, convertType);
+    baseMembers = extractMembersFromDeclaration(decl, binding, convertType);
     if (!baseMembers) {
       if (debug)
         console.log(`[UTILITY] extractMembersFromDeclaration returned null`);
@@ -387,7 +378,7 @@ export const expandUtilityType = (
       return null;
     }
 
-    const keys = extractLiteralKeysFromTypeNode(keysArg, checker);
+    const keys = extractLiteralKeysFromTypeNode(keysArg, binding);
     if (!keys) {
       return null; // Can't extract literal keys
     }
@@ -430,27 +421,27 @@ export const expandUtilityType = (
  */
 const typeNodeContainsTypeParameter = (
   node: ts.TypeNode,
-  checker: ts.TypeChecker
+  binding: Binding
 ): boolean => {
-  if (isTypeParameterNode(node, checker)) {
+  if (isTypeParameterNode(node, binding)) {
     return true;
   }
 
   if (ts.isUnionTypeNode(node)) {
-    return node.types.some((t) => typeNodeContainsTypeParameter(t, checker));
+    return node.types.some((t) => typeNodeContainsTypeParameter(t, binding));
   }
 
   if (ts.isIntersectionTypeNode(node)) {
-    return node.types.some((t) => typeNodeContainsTypeParameter(t, checker));
+    return node.types.some((t) => typeNodeContainsTypeParameter(t, binding));
   }
 
   if (ts.isArrayTypeNode(node)) {
-    return typeNodeContainsTypeParameter(node.elementType, checker);
+    return typeNodeContainsTypeParameter(node.elementType, binding);
   }
 
   if (ts.isTypeReferenceNode(node) && node.typeArguments) {
     return node.typeArguments.some((t) =>
-      typeNodeContainsTypeParameter(t, checker)
+      typeNodeContainsTypeParameter(t, binding)
     );
   }
 
@@ -492,16 +483,16 @@ const serializeTypeNode = (node: ts.TypeNode): string => {
  */
 const expandNonNullable = (
   typeArg: ts.TypeNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
   // Check for type parameter
-  if (isTypeParameterNode(typeArg, checker)) {
+  if (isTypeParameterNode(typeArg, binding)) {
     return null;
   }
 
   // Resolve type aliases to get the underlying type
-  const resolved = resolveTypeAlias(typeArg, checker);
+  const resolved = resolveTypeAlias(typeArg, binding);
 
   // Handle special keywords
   if (resolved.kind === ts.SyntaxKind.AnyKeyword) return { kind: "anyType" };
@@ -529,12 +520,12 @@ const expandNonNullable = (
 
     if (filtered.length === 0) return { kind: "neverType" };
     if (filtered.length === 1 && filtered[0]) {
-      return convertType(filtered[0], checker);
+      return convertType(filtered[0], binding);
     }
 
     return {
       kind: "unionType",
-      types: filtered.map((t) => convertType(t, checker)),
+      types: filtered.map((t) => convertType(t, binding)),
     };
   }
 
@@ -543,7 +534,7 @@ const expandNonNullable = (
   if (resolved.kind === ts.SyntaxKind.UndefinedKeyword)
     return { kind: "neverType" };
 
-  return convertType(resolved, checker);
+  return convertType(resolved, binding);
 };
 
 /**
@@ -553,20 +544,20 @@ const expandExcludeExtract = (
   tArg: ts.TypeNode,
   uArg: ts.TypeNode,
   isExtract: boolean,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
   // Check for type parameters
-  if (typeNodeContainsTypeParameter(tArg, checker)) {
+  if (typeNodeContainsTypeParameter(tArg, binding)) {
     return null;
   }
-  if (typeNodeContainsTypeParameter(uArg, checker)) {
+  if (typeNodeContainsTypeParameter(uArg, binding)) {
     return null;
   }
 
   // Resolve type aliases to get the underlying types
-  const resolvedT = resolveTypeAlias(tArg, checker);
-  const resolvedU = resolveTypeAlias(uArg, checker);
+  const resolvedT = resolveTypeAlias(tArg, binding);
+  const resolvedU = resolveTypeAlias(uArg, binding);
 
   // Only supported for union types
   if (!ts.isUnionTypeNode(resolvedT)) {
@@ -578,9 +569,9 @@ const expandExcludeExtract = (
     const matches = uTypes.some((u) => serializeTypeNode(u) === tSerialized);
 
     if (isExtract) {
-      return matches ? convertType(resolvedT, checker) : { kind: "neverType" };
+      return matches ? convertType(resolvedT, binding) : { kind: "neverType" };
     } else {
-      return matches ? { kind: "neverType" } : convertType(resolvedT, checker);
+      return matches ? { kind: "neverType" } : convertType(resolvedT, binding);
     }
   }
 
@@ -595,12 +586,12 @@ const expandExcludeExtract = (
 
   if (filtered.length === 0) return { kind: "neverType" };
   if (filtered.length === 1 && filtered[0]) {
-    return convertType(filtered[0], checker);
+    return convertType(filtered[0], binding);
   }
 
   return {
     kind: "unionType",
-    types: filtered.map((t) => convertType(t, checker)),
+    types: filtered.map((t) => convertType(t, binding)),
   };
 };
 
@@ -609,31 +600,34 @@ const expandExcludeExtract = (
  */
 const expandReturnType = (
   fArg: ts.TypeNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
   // Check for type parameter
-  if (isTypeParameterNode(fArg, checker)) {
+  if (isTypeParameterNode(fArg, binding)) {
     return null;
   }
 
   // Case 1: Direct function type node
   if (ts.isFunctionTypeNode(fArg)) {
-    return fArg.type ? convertType(fArg.type, checker) : { kind: "voidType" };
+    return fArg.type ? convertType(fArg.type, binding) : { kind: "voidType" };
   }
 
   // Case 2: Type reference to function type alias
   if (ts.isTypeReferenceNode(fArg) && ts.isIdentifier(fArg.typeName)) {
-    const symbol = checker.getSymbolAtLocation(fArg.typeName);
-    const decl = symbol?.getDeclarations()?.[0];
-    if (
-      decl &&
-      ts.isTypeAliasDeclaration(decl) &&
-      ts.isFunctionTypeNode(decl.type)
-    ) {
-      return decl.type.type
-        ? convertType(decl.type.type, checker)
-        : { kind: "voidType" };
+    const declId = binding.resolveTypeReference(fArg);
+    if (declId) {
+      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      const decl = declInfo?.declNode as ts.Declaration | undefined;
+      if (
+        decl &&
+        ts.isTypeAliasDeclaration(decl) &&
+        ts.isFunctionTypeNode(decl.type)
+      ) {
+        return decl.type.type
+          ? convertType(decl.type.type, binding)
+          : { kind: "voidType" };
+      }
     }
   }
 
@@ -645,11 +639,11 @@ const expandReturnType = (
  */
 const expandParameters = (
   fArg: ts.TypeNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
   // Check for type parameter
-  if (isTypeParameterNode(fArg, checker)) {
+  if (isTypeParameterNode(fArg, binding)) {
     return null;
   }
 
@@ -666,14 +660,17 @@ const expandParameters = (
     ts.isTypeReferenceNode(fArg) &&
     ts.isIdentifier(fArg.typeName)
   ) {
-    const symbol = checker.getSymbolAtLocation(fArg.typeName);
-    const decl = symbol?.getDeclarations()?.[0];
-    if (
-      decl &&
-      ts.isTypeAliasDeclaration(decl) &&
-      ts.isFunctionTypeNode(decl.type)
-    ) {
-      functionType = decl.type;
+    const declId = binding.resolveTypeReference(fArg);
+    if (declId) {
+      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      const decl = declInfo?.declNode as ts.Declaration | undefined;
+      if (
+        decl &&
+        ts.isTypeAliasDeclaration(decl) &&
+        ts.isFunctionTypeNode(decl.type)
+      ) {
+        functionType = decl.type;
+      }
     }
   }
 
@@ -683,7 +680,7 @@ const expandParameters = (
 
   // Build tuple type from parameters
   const paramTypes: IrType[] = functionType.parameters.map((param) =>
-    param.type ? convertType(param.type, checker) : { kind: "anyType" }
+    param.type ? convertType(param.type, binding) : { kind: "anyType" }
   );
 
   return { kind: "tupleType", elementTypes: paramTypes };
@@ -694,11 +691,11 @@ const expandParameters = (
  */
 const expandAwaited = (
   tArg: ts.TypeNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
   // Check for type parameter
-  if (isTypeParameterNode(tArg, checker)) {
+  if (isTypeParameterNode(tArg, binding)) {
     return null;
   }
 
@@ -710,15 +707,15 @@ const expandAwaited = (
       if (innerArg) {
         // Recursively unwrap nested promises
         return (
-          expandAwaited(innerArg, checker, convertType) ??
-          convertType(innerArg, checker)
+          expandAwaited(innerArg, binding, convertType) ??
+          convertType(innerArg, binding)
         );
       }
     }
   }
 
   // Not a Promise type - return as-is
-  return convertType(tArg, checker);
+  return convertType(tArg, binding);
 };
 
 /**
@@ -729,15 +726,15 @@ const expandAwaited = (
  *
  * @param node - The TypeReferenceNode for the utility type
  * @param typeName - The name of the utility type (NonNullable, Exclude, Extract, etc.)
- * @param checker - The TypeScript type checker (for symbol resolution only)
+ * @param binding - The Binding layer for symbol resolution
  * @param convertType - Function to convert nested types
  * @returns IR type with the expanded result, or null if expansion fails
  */
 export const expandConditionalUtilityType = (
   node: ts.TypeReferenceNode,
   typeName: string,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
   const typeArgs = node.typeArguments;
   if (!typeArgs || typeArgs.length === 0) {
@@ -746,7 +743,7 @@ export const expandConditionalUtilityType = (
 
   // Check for type parameters in any argument
   for (const typeArg of typeArgs) {
-    if (typeNodeContainsTypeParameter(typeArg, checker)) {
+    if (typeNodeContainsTypeParameter(typeArg, binding)) {
       return null;
     }
   }
@@ -758,7 +755,7 @@ export const expandConditionalUtilityType = (
 
   switch (typeName) {
     case "NonNullable":
-      return expandNonNullable(firstArg, checker, convertType);
+      return expandNonNullable(firstArg, binding, convertType);
 
     case "Exclude": {
       const secondArg = typeArgs[1];
@@ -767,7 +764,7 @@ export const expandConditionalUtilityType = (
         firstArg,
         secondArg,
         false,
-        checker,
+        binding,
         convertType
       );
     }
@@ -779,19 +776,19 @@ export const expandConditionalUtilityType = (
         firstArg,
         secondArg,
         true,
-        checker,
+        binding,
         convertType
       );
     }
 
     case "ReturnType":
-      return expandReturnType(firstArg, checker, convertType);
+      return expandReturnType(firstArg, binding, convertType);
 
     case "Parameters":
-      return expandParameters(firstArg, checker, convertType);
+      return expandParameters(firstArg, binding, convertType);
 
     case "Awaited":
-      return expandAwaited(firstArg, checker, convertType);
+      return expandAwaited(firstArg, binding, convertType);
 
     default:
       return null;
@@ -817,14 +814,14 @@ export const expandConditionalUtilityType = (
  * - Record<K, T> → null (type parameter)
  *
  * @param node - The TypeReferenceNode for Record<K, T>
- * @param checker - The TypeScript type checker (for symbol resolution only)
+ * @param binding - The Binding layer for symbol resolution
  * @param convertType - Function to convert nested types
  * @returns IrObjectType with the expanded properties, or null if should use dictionary
  */
 export const expandRecordType = (
   node: ts.TypeReferenceNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrObjectType | null => {
   const typeArgs = node.typeArguments;
   if (!typeArgs || typeArgs.length !== 2) {
@@ -839,24 +836,24 @@ export const expandRecordType = (
   }
 
   // Check for type parameters in key (AST-based)
-  if (typeNodeContainsTypeParameter(keyTypeNode, checker)) {
+  if (typeNodeContainsTypeParameter(keyTypeNode, binding)) {
     return null;
   }
 
   // Check for type parameters in value (AST-based)
-  if (typeNodeContainsTypeParameter(valueTypeNode, checker)) {
+  if (typeNodeContainsTypeParameter(valueTypeNode, binding)) {
     return null;
   }
 
   // Try to extract finite literal keys (AST-based)
-  const literalKeys = extractLiteralKeysFromTypeNode(keyTypeNode, checker);
+  const literalKeys = extractLiteralKeysFromTypeNode(keyTypeNode, binding);
   if (literalKeys === null || literalKeys.size === 0) {
     // Not a finite set of literals - use IrDictionaryType
     return null;
   }
 
   // Convert the value type
-  const irValueType = convertType(valueTypeNode, checker);
+  const irValueType = convertType(valueTypeNode, binding);
 
   // Build IrObjectType with a property for each key
   // Prefix numeric keys with '_' to make them valid C# identifiers

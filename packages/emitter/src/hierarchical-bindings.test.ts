@@ -11,6 +11,7 @@ import {
   DotnetMetadataRegistry,
   BindingRegistry,
   createClrBindingsResolver,
+  createBinding,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -85,9 +86,11 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       }
     );
 
+    const checker = program.getTypeChecker();
     const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker,
+      binding: createBinding(checker),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -95,6 +98,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings,
       clrResolver: createClrBindingsResolver("/test"),
@@ -230,9 +234,11 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       }
     );
 
+    const checker2 = program.getTypeChecker();
     const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker: checker2,
+      binding: createBinding(checker2),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -240,6 +246,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings,
       clrResolver: createClrBindingsResolver("/test"),

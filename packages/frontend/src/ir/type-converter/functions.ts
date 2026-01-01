@@ -5,18 +5,19 @@
 import * as ts from "typescript";
 import { IrType, IrFunctionType } from "../types.js";
 import { convertParameters as convertParametersFromStatement } from "../statement-converter.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Convert TypeScript function type to IR function type
  */
 export const convertFunctionType = (
   node: ts.FunctionTypeNode,
-  checker: ts.TypeChecker,
-  convertType: (node: ts.TypeNode, checker: ts.TypeChecker) => IrType
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrFunctionType => {
   return {
     kind: "functionType",
-    parameters: convertParametersFromStatement(node.parameters, checker),
-    returnType: convertType(node.type, checker),
+    parameters: convertParametersFromStatement(node.parameters, binding),
+    returnType: convertType(node.type, binding),
   };
 };

@@ -21,6 +21,7 @@ import {
   getNominalEnv,
 } from "../statements/declarations/registry.js";
 import { substituteIrType } from "../../nominal-env.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Extract argument passing modes from resolved signature
@@ -28,49 +29,38 @@ import { substituteIrType } from "../../nominal-env.js";
  */
 const extractArgumentPassing = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
   try {
-    const signature = checker.getResolvedSignature(node);
-    if (!signature || !signature.declaration) {
+    // Handle both CallExpression and NewExpression
+    const sigId = ts.isCallExpression(node)
+      ? binding.resolveCallSignature(node)
+      : binding.resolveConstructorSignature(node);
+    if (!sigId) return undefined;
+
+    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+    if (!sigInfo?.parameters || sigInfo.parameters.length === 0) {
       return undefined;
     }
 
-    const decl = signature.declaration;
-    let parameters: readonly ts.ParameterDeclaration[] = [];
-
-    // Extract parameters from declaration
-    if (
-      ts.isFunctionDeclaration(decl) ||
-      ts.isMethodDeclaration(decl) ||
-      ts.isConstructorDeclaration(decl) ||
-      ts.isArrowFunction(decl) ||
-      ts.isFunctionExpression(decl)
-    ) {
-      parameters = decl.parameters;
-    }
-
-    if (parameters.length === 0) {
-      return undefined;
-    }
-
-    // Build passing mode for each parameter
+    // Build passing mode for each parameter from stored TypeNodes
     const passingModes: ("value" | "ref" | "out" | "in")[] = [];
 
-    for (const param of parameters) {
+    for (const param of sigInfo.parameters) {
       let passing: "value" | "ref" | "out" | "in" = "value";
+      const paramTypeNode = param.typeNode as ts.TypeNode | undefined;
 
       // Check if parameter type is ref<T>, out<T>, or in<T>
       if (
-        param.type &&
-        ts.isTypeReferenceNode(param.type) &&
-        ts.isIdentifier(param.type.typeName)
+        paramTypeNode &&
+        ts.isTypeReferenceNode(paramTypeNode) &&
+        ts.isIdentifier(paramTypeNode.typeName)
       ) {
-        const typeName = param.type.typeName.text;
+        const typeName = paramTypeNode.typeName.text;
         if (
           (typeName === "ref" || typeName === "out" || typeName === "in") &&
-          param.type.typeArguments &&
-          param.type.typeArguments.length > 0
+          paramTypeNode.typeArguments &&
+          paramTypeNode.typeArguments.length > 0
         ) {
           passing = typeName === "in" ? "in" : typeName;
         }
@@ -93,35 +83,34 @@ const extractArgumentPassing = (
  */
 const extractNarrowing = (
   node: ts.CallExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrCallExpression["narrowing"] => {
   try {
-    const sig = checker.getResolvedSignature(node);
-    if (!sig || !sig.declaration) return undefined;
+    const sigId = binding.resolveCallSignature(node);
+    if (!sigId) return undefined;
 
-    const pred = checker.getTypePredicateOfSignature(sig);
-    // We only handle "param is T" predicates (not "this is T")
-    if (
-      pred &&
-      pred.kind === ts.TypePredicateKind.Identifier &&
-      pred.parameterIndex !== undefined
-    ) {
-      // DETERMINISTIC: Get target type from declaration's type predicate TypeNode
-      const decl = sig.declaration;
-      if (
-        (ts.isFunctionDeclaration(decl) ||
-          ts.isMethodDeclaration(decl) ||
-          ts.isArrowFunction(decl)) &&
-        decl.type &&
-        ts.isTypePredicateNode(decl.type)
-      ) {
-        const targetTypeNode = decl.type.type;
-        if (targetTypeNode) {
-          const targetType = convertType(targetTypeNode, checker);
+    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+    if (!sigInfo) return undefined;
+
+    // Check if return type is a type predicate
+    const returnTypeNode = sigInfo.returnTypeNode as ts.TypeNode | undefined;
+    if (returnTypeNode && ts.isTypePredicateNode(returnTypeNode)) {
+      const predNode = returnTypeNode;
+
+      // We only handle "param is T" predicates (not "this is T")
+      if (ts.isIdentifier(predNode.parameterName) && predNode.type) {
+        // Find the parameter index
+        const paramName = predNode.parameterName.text;
+        const paramIndex = sigInfo.parameters.findIndex(
+          (p) => p.name === paramName
+        );
+
+        if (paramIndex >= 0) {
+          const targetType = convertType(predNode.type, binding);
           if (targetType) {
             return {
               kind: "typePredicate",
-              argIndex: pred.parameterIndex,
+              argIndex: paramIndex,
               targetType,
             };
           }
@@ -196,21 +185,23 @@ const normalizeReceiverToNominal = (
  * returns the substituted types [int, Todo] with CLR aliases preserved.
  *
  * @param node - Call or new expression
- * @param checker - TypeChecker for symbol resolution
+ * @param binding - Binding layer for symbol resolution
  * @param receiverIrType - IR type of the receiver (for member method calls)
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   receiverIrType?: IrType
 ): readonly (IrType | undefined)[] | undefined => {
   try {
-    const signature = checker.getResolvedSignature(node);
-    if (!signature) {
-      return undefined;
-    }
+    // Handle both CallExpression and NewExpression
+    const sigId = ts.isCallExpression(node)
+      ? binding.resolveCallSignature(node)
+      : binding.resolveConstructorSignature(node);
+    if (!sigId) return undefined;
 
-    const sigParams = signature.getParameters();
+    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+    if (!sigInfo) return undefined;
 
     // Get NominalEnv substitution for member method calls
     const registry = getTypeRegistry();
@@ -242,9 +233,11 @@ const extractParameterTypes = (
       }
     }
 
-    // If TS signature has no declaration (e.g., noLib mode with intrinsic array type),
+    const parameters = sigInfo.parameters;
+
+    // If signature has no parameters but we found member declaring type,
     // fall back to TypeRegistry lookup for member method parameters
-    if (sigParams.length === 0 && memberDeclaringType && registry) {
+    if (parameters.length === 0 && memberDeclaringType && registry) {
       const entry = registry.resolveNominal(memberDeclaringType);
       if (
         entry &&
@@ -286,7 +279,7 @@ const extractParameterTypes = (
                 continue;
               }
 
-              const irType = convertType(param.type, checker);
+              const irType = convertType(param.type, binding);
               if (irType && inheritanceSubst) {
                 paramTypes.push(substituteIrType(irType, inheritanceSubst));
               } else if (irType) {
@@ -304,35 +297,31 @@ const extractParameterTypes = (
       return undefined;
     }
 
-    if (sigParams.length === 0) {
+    if (parameters.length === 0) {
       return undefined;
     }
 
-    // Build parameter type array
+    // Build parameter type array from stored TypeNodes
     const paramTypes: (IrType | undefined)[] = [];
 
-    // Get the type parameter names from the enclosing function's signature
-    const funcTypeParams = new Set<string>();
-    const sigDecl = signature.getDeclaration();
-    if (sigDecl && sigDecl.typeParameters) {
-      for (const tp of sigDecl.typeParameters) {
-        funcTypeParams.add(tp.name.text);
-      }
-    }
+    // Get the type parameter names from the signature's stored info
+    const funcTypeParams = new Set<string>(
+      sigInfo.typeParameters?.map((tp) => tp.name) ?? []
+    );
 
-    for (const sigParam of sigParams) {
-      const decl = sigParam.valueDeclaration;
+    for (const param of parameters) {
+      const paramTypeNode = param.typeNode as ts.TypeNode | undefined;
 
-      if (decl && ts.isParameter(decl) && decl.type) {
+      if (paramTypeNode) {
         // Check if this is a method-level type parameter (unsubstituted)
         const isMethodTypeParam =
-          ts.isTypeReferenceNode(decl.type) &&
-          ts.isIdentifier(decl.type.typeName) &&
-          funcTypeParams.has(decl.type.typeName.text);
+          ts.isTypeReferenceNode(paramTypeNode) &&
+          ts.isIdentifier(paramTypeNode.typeName) &&
+          funcTypeParams.has(paramTypeNode.typeName.text);
 
         if (
           isMethodTypeParam &&
-          !inheritanceSubst?.has(decl.type.typeName.text)
+          !inheritanceSubst?.has(paramTypeNode.typeName.text)
         ) {
           // Method type parameter without substitution - inferred from argument
           paramTypes.push(undefined);
@@ -340,7 +329,7 @@ const extractParameterTypes = (
         }
 
         // Convert to IR and apply inheritance substitution
-        const irType = convertType(decl.type, checker);
+        const irType = convertType(paramTypeNode, binding);
         if (irType && inheritanceSubst) {
           paramTypes.push(substituteIrType(irType, inheritanceSubst));
         } else if (irType) {
@@ -394,108 +383,72 @@ const getReturnTypeFromFunctionType = (
  */
 const getCalleesDeclaredType = (
   node: ts.CallExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): ts.TypeNode | undefined => {
   const callee = node.expression;
 
   // Only handle identifiers for now
   if (!ts.isIdentifier(callee)) return undefined;
 
-  const symbol = checker.getSymbolAtLocation(callee);
-  if (!symbol) return undefined;
+  const declId = binding.resolveIdentifier(callee);
+  if (!declId) return undefined;
 
-  const decls = symbol.getDeclarations();
-  if (!decls || decls.length === 0) return undefined;
+  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  if (!declInfo) return undefined;
 
-  for (const decl of decls) {
-    // Check variable declaration with explicit type
-    if (ts.isVariableDeclaration(decl) && decl.type) {
-      return decl.type;
-    }
-
-    // Check parameter with explicit type
-    if (ts.isParameter(decl) && decl.type) {
-      return decl.type;
-    }
-
-    // Check variable declaration with initializer that's a call
-    // e.g., const counter = makeCounter(); where makeCounter(): () => number
-    if (ts.isVariableDeclaration(decl) && decl.initializer) {
-      if (ts.isCallExpression(decl.initializer)) {
-        // Recursively get the return type of the initializer call
-        const initReturnType = getDeclaredReturnType(decl.initializer, checker);
-        if (initReturnType) {
-          // Convert back to a synthetic type node (we can work with IrType)
-          // Actually, we need the TypeNode, not IrType
-          // Let's try a different approach: look at the function declaration
-          const initSig = checker.getResolvedSignature(decl.initializer);
-          if (initSig?.declaration) {
-            // Get the declared return type of the function being called
-            let returnTypeNode: ts.TypeNode | undefined;
-            const initDecl = initSig.declaration;
-            if (
-              ts.isFunctionDeclaration(initDecl) ||
-              ts.isMethodDeclaration(initDecl) ||
-              ts.isArrowFunction(initDecl) ||
-              ts.isFunctionExpression(initDecl)
-            ) {
-              returnTypeNode = initDecl.type;
-            }
-            if (returnTypeNode) {
-              return returnTypeNode;
-            }
-          }
-        }
-      }
-    }
+  // Check for explicit type node on the declaration
+  if (declInfo.typeNode) {
+    return declInfo.typeNode as ts.TypeNode;
   }
+
+  // For function-typed variables declared from a call expression,
+  // we'd need the declaration node to get the initializer.
+  // The current DeclInfo only has typeNode, so we can't access initializers.
+  // This is a limitation - we'll return undefined and let validation handle it.
 
   return undefined;
 };
 
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker,
+  binding: Binding,
   receiverIrType?: IrType
 ): IrType | undefined => {
   try {
-    // 1. Get resolved signature
-    const signature = checker.getResolvedSignature(node);
+    // 1. Get resolved signature through Binding
+    // Handle both CallExpression and NewExpression
+    const sigId = ts.isCallExpression(node)
+      ? binding.resolveCallSignature(node)
+      : binding.resolveConstructorSignature(node);
+    const sigInfo = sigId
+      ? binding.getHandleRegistry().getSignature(sigId)
+      : undefined;
 
-    // 2. Try to extract return TypeNode from declaration
-    const decl = signature?.declaration;
-    let returnTypeNode: ts.TypeNode | undefined;
+    // 2. Try to extract return TypeNode from signature info
+    let returnTypeNode: ts.TypeNode | undefined = sigInfo?.returnTypeNode as
+      | ts.TypeNode
+      | undefined;
 
-    if (decl) {
-      if (
-        ts.isMethodSignature(decl) ||
-        ts.isMethodDeclaration(decl) ||
-        ts.isFunctionDeclaration(decl) ||
-        ts.isCallSignatureDeclaration(decl)
-      ) {
-        returnTypeNode = decl.type;
-      } else if (ts.isArrowFunction(decl) || ts.isFunctionExpression(decl)) {
-        returnTypeNode = decl.type;
-      } else if (ts.isConstructorDeclaration(decl)) {
-        // For constructors, the return type is the class type
-        // Get it from the parent class declaration
-        const classDecl = decl.parent;
-        if (ts.isClassDeclaration(classDecl) && classDecl.name) {
-          // For new expressions, use the callee's type with type arguments
-          if (ts.isNewExpression(node) && node.typeArguments) {
-            // Return a reference type with explicit type arguments
-            return {
-              kind: "referenceType",
-              name: classDecl.name.text,
-              typeArguments: node.typeArguments.map((ta) =>
-                convertType(ta, checker)
-              ),
-            };
-          }
-          // No explicit type args - return simple reference
-          return { kind: "referenceType", name: classDecl.name.text };
+    // Handle constructor case: For new expressions, the "return type" is the class type
+    // Constructors don't have return type annotations - the type is the class being instantiated
+    if (ts.isNewExpression(node) && !returnTypeNode) {
+      // For new expressions with explicit type arguments
+      if (node.typeArguments && node.typeArguments.length > 0) {
+        const typeName = buildQualifiedName(node.expression);
+        if (typeName) {
+          return {
+            kind: "referenceType",
+            name: typeName,
+            typeArguments: node.typeArguments.map((ta) =>
+              convertType(ta, binding)
+            ),
+          };
         }
-        return undefined;
+      }
+      // For constructors without type arguments, use the class name
+      const typeName = buildQualifiedName(node.expression);
+      if (typeName) {
+        return { kind: "referenceType", name: typeName };
       }
     }
 
@@ -503,19 +456,72 @@ export const getDeclaredReturnType = (
     // For calls like `counter()` where `counter: () => number` or `counter = makeCounter()`
     // Try to get the return type from the callee's declared type
     if (!returnTypeNode && ts.isCallExpression(node)) {
-      const calleeDeclaredType = getCalleesDeclaredType(node, checker);
+      const calleeDeclaredType = getCalleesDeclaredType(node, binding);
       if (calleeDeclaredType) {
         returnTypeNode = getReturnTypeFromFunctionType(calleeDeclaredType);
       }
     }
 
+    // 4. Fallback for member method calls using TypeRegistry/NominalEnv
+    // For calls like `s.substring(0, 5)` where Binding can't resolve the signature
+    // (common with noLib: true where globals augment String but checker doesn't know)
+    if (
+      !returnTypeNode &&
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      receiverIrType
+    ) {
+      const registry = getTypeRegistry();
+      const nominalEnv = getNominalEnv();
+
+      if (registry && nominalEnv) {
+        const methodName = node.expression.name.text;
+        const normalized = normalizeReceiverToNominal(receiverIrType);
+
+        if (normalized) {
+          // Try to find the method in the type's inheritance chain
+          const result = nominalEnv.findMemberDeclaringType(
+            normalized.nominal,
+            normalized.typeArgs,
+            methodName
+          );
+
+          if (result) {
+            // Get the method's return type from TypeRegistry
+            const entry = registry.resolveNominal(result.targetNominal);
+            if (entry) {
+              const member = entry.members.get(methodName);
+              if (
+                member?.kind === "method" &&
+                member.signatures &&
+                member.signatures.length > 0
+              ) {
+                // Use first signature's return type
+                const methodSig = member.signatures[0]!;
+                if (methodSig.type) {
+                  const baseReturnType = convertType(methodSig.type, binding);
+                  if (baseReturnType) {
+                    // Apply inheritance substitution
+                    return substituteIrType(
+                      baseReturnType,
+                      result.substitution
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     if (!returnTypeNode) return undefined;
 
-    // 4. Convert to IrType first (DETERMINISTIC: from TypeNode, not TS inference)
-    const baseReturnType = convertType(returnTypeNode, checker);
+    // 5. Convert to IrType first (DETERMINISTIC: from TypeNode, not TS inference)
+    const baseReturnType = convertType(returnTypeNode, binding);
     if (!baseReturnType) return undefined;
 
-    // 5. Apply inheritance substitution via NominalEnv for member method calls
+    // 6. Apply inheritance substitution via NominalEnv for member method calls
     const registry = getTypeRegistry();
     const nominalEnv = getNominalEnv();
 
@@ -541,7 +547,7 @@ export const getDeclaredReturnType = (
       }
     }
 
-    // 6. No inheritance substitution needed - return base type
+    // 7. No inheritance substitution needed - return base type
     return baseReturnType;
   } catch {
     return undefined;
@@ -588,7 +594,7 @@ const extractArgumentPassingFromBinding = (
  */
 export const convertCallExpression = (
   node: ts.CallExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrCallExpression | IrTryCastExpression => {
   // Check for trycast<T>(x) - special intrinsic for safe casting
   // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
@@ -607,8 +613,8 @@ export const convertCallExpression = (
         "ICE: trycast requires exactly 1 type argument and 1 argument"
       );
     }
-    const targetType = convertType(targetTypeNode, checker);
-    const argExpr = convertExpression(argNode, checker, undefined);
+    const targetType = convertType(targetTypeNode, binding);
+    const argExpr = convertExpression(argNode, binding, undefined);
 
     // Build union type T | null for inferredType
     const nullType: IrType = { kind: "primitiveType", name: "null" };
@@ -627,25 +633,25 @@ export const convertCallExpression = (
   }
 
   // Extract type arguments from the call signature
-  const typeArguments = extractTypeArguments(node, checker);
-  const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
-  const narrowing = extractNarrowing(node, checker);
+  const typeArguments = extractTypeArguments(node, binding);
+  const requiresSpecialization = checkIfRequiresSpecialization(node, binding);
+  const narrowing = extractNarrowing(node, binding);
 
   // Convert callee first so we can access memberBinding and receiver type
-  const callee = convertExpression(node.expression, checker, undefined);
+  const callee = convertExpression(node.expression, binding, undefined);
 
   // Extract receiver type for member method calls (e.g., dict.get() → dict's type)
   const receiverIrType =
     callee.kind === "memberAccess" ? callee.object.inferredType : undefined;
 
   // Extract parameter types with receiver type for inheritance substitution
-  const parameterTypes = extractParameterTypes(node, checker, receiverIrType);
+  const parameterTypes = extractParameterTypes(node, binding, receiverIrType);
 
   // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
   // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
   const argumentPassing =
     extractArgumentPassingFromBinding(callee, node.arguments.length) ??
-    extractArgumentPassing(node, checker);
+    extractArgumentPassing(node, binding);
 
   // DETERMINISTIC TYPING: Return type comes ONLY from declared TypeNodes.
   // NO fallback to TS inference - that loses CLR type aliases.
@@ -653,7 +659,7 @@ export const convertCallExpression = (
   // so validation can emit TSN5201.
   const declaredReturnType = getDeclaredReturnType(
     node,
-    checker,
+    binding,
     receiverIrType
   );
   const inferredType = declaredReturnType ?? { kind: "unknownType" as const };
@@ -671,7 +677,7 @@ export const convertCallExpression = (
         // DETERMINISTIC: Use expression's inferredType directly
         const spreadExpr = convertExpression(
           arg.expression,
-          checker,
+          binding,
           undefined
         );
         return {
@@ -681,7 +687,7 @@ export const convertCallExpression = (
           sourceSpan: getSourceSpan(arg),
         };
       }
-      return convertExpression(arg, checker, expectedType);
+      return convertExpression(arg, binding, expectedType);
     }),
     isOptional: node.questionDotToken !== undefined,
     inferredType,
@@ -734,7 +740,7 @@ const buildQualifiedName = (expr: ts.Expression): string | undefined => {
 
 const getConstructedType = (
   node: ts.NewExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrType | undefined => {
   // The expression in `new Foo<T>()` is the type reference
   // If type arguments are explicit, use them to build the type
@@ -746,24 +752,36 @@ const getConstructedType = (
       return {
         kind: "referenceType",
         name: typeName,
-        typeArguments: node.typeArguments.map((ta) => convertType(ta, checker)),
+        typeArguments: node.typeArguments.map((ta) => convertType(ta, binding)),
       };
     }
   }
 
   // No explicit type arguments - check if the target is generic
-  // DETERMINISTIC TYPING: If the type is generic and type args are missing,
-  // we cannot infer them deterministically. Return unknownType to trigger TSN5202.
-  const symbol = checker.getSymbolAtLocation(node.expression);
-  if (symbol) {
-    // Get the declared type of the symbol
-    const declaredType = checker.getDeclaredTypeOfSymbol(symbol);
-    // Check if it has type parameters (is generic)
-    const typeParams = (declaredType as ts.InterfaceType).typeParameters;
-    if (typeParams && typeParams.length > 0) {
-      // Generic type without explicit type arguments - poison with unknownType
-      // Validation will emit TSN5202
-      return { kind: "unknownType" as const };
+  // Use Binding to resolve the type and check for type parameters
+  if (ts.isIdentifier(node.expression)) {
+    const declId = binding.resolveIdentifier(node.expression);
+    if (declId) {
+      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      // Check the declaration node for type parameters
+      const declNode = declInfo?.declNode as ts.Declaration | undefined;
+      if (declNode) {
+        const hasTypeParams =
+          (ts.isClassDeclaration(declNode) &&
+            declNode.typeParameters &&
+            declNode.typeParameters.length > 0) ||
+          (ts.isInterfaceDeclaration(declNode) &&
+            declNode.typeParameters &&
+            declNode.typeParameters.length > 0) ||
+          (ts.isTypeAliasDeclaration(declNode) &&
+            declNode.typeParameters &&
+            declNode.typeParameters.length > 0);
+        if (hasTypeParams) {
+          // Generic type without explicit type arguments - poison with unknownType
+          // Validation will emit TSN5202
+          return { kind: "unknownType" as const };
+        }
+      }
     }
   }
 
@@ -784,21 +802,21 @@ const getConstructedType = (
  */
 export const convertNewExpression = (
   node: ts.NewExpression,
-  checker: ts.TypeChecker
+  binding: Binding
 ): IrNewExpression => {
   // Extract type arguments from the constructor signature
-  const typeArguments = extractTypeArguments(node, checker);
-  const requiresSpecialization = checkIfRequiresSpecialization(node, checker);
-  const parameterTypes = extractParameterTypes(node, checker);
+  const typeArguments = extractTypeArguments(node, binding);
+  const requiresSpecialization = checkIfRequiresSpecialization(node, binding);
+  const parameterTypes = extractParameterTypes(node, binding);
 
   // For new expressions, the type is the constructed type from the type reference.
   // Unlike function calls, constructors don't need "return type" annotations.
   // The type is simply what we're instantiating: `new Foo<int>()` → `Foo<int>`.
-  const inferredType = getConstructedType(node, checker);
+  const inferredType = getConstructedType(node, binding);
 
   return {
     kind: "new",
-    callee: convertExpression(node.expression, checker, undefined),
+    callee: convertExpression(node.expression, binding, undefined),
     // Pass parameter types as expectedType for deterministic contextual typing
     arguments:
       node.arguments?.map((arg, index) => {
@@ -807,7 +825,7 @@ export const convertNewExpression = (
           // DETERMINISTIC: Use expression's inferredType directly
           const spreadExpr = convertExpression(
             arg.expression,
-            checker,
+            binding,
             undefined
           );
           return {
@@ -817,7 +835,7 @@ export const convertNewExpression = (
             sourceSpan: getSourceSpan(arg),
           };
         }
-        return convertExpression(arg, checker, expectedType);
+        return convertExpression(arg, binding, expectedType);
       }) ?? [],
     inferredType,
     sourceSpan: getSourceSpan(node),
