@@ -201,8 +201,6 @@ export {
   setBindingRegistry,
   setTypeRegistry,
   setNominalEnv,
-  getTypeRegistry,
-  getNominalEnv,
   clearTypeRegistries,
   setTypeSystem,
   getTypeSystem,

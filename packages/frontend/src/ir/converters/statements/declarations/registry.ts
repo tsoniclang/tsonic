@@ -83,15 +83,6 @@ export const setTypeRegistry = (registry: TypeRegistry): void => {
 };
 
 /**
- * Get the current type registry
- * Returns undefined if not yet initialized
- *
- * @deprecated Use TypeSystem instead. This will be removed after Step 7 migration.
- * Converters should receive TypeSystem as a parameter, not access global singletons.
- */
-export const getTypeRegistry = (): TypeRegistry | undefined => _typeRegistry;
-
-/**
  * Internal accessor for TypeSystem construction only.
  * NOT for use in converters - use TypeSystem methods instead.
  */
@@ -105,15 +96,6 @@ export const _internalGetTypeRegistry = (): TypeRegistry | undefined =>
 export const setNominalEnv = (env: NominalEnv): void => {
   _nominalEnv = env;
 };
-
-/**
- * Get the current nominal env
- * Returns undefined if not yet initialized
- *
- * @deprecated Use TypeSystem instead. This will be removed after Step 7 migration.
- * Converters should receive TypeSystem as a parameter, not access global singletons.
- */
-export const getNominalEnv = (): NominalEnv | undefined => _nominalEnv;
 
 /**
  * Internal accessor for TypeSystem construction only.

@@ -16,12 +16,7 @@ import {
 import { convertExpression } from "../../expression-converter.js";
 import { convertType } from "../../type-converter.js";
 import { IrType } from "../../types.js";
-import {
-  getTypeRegistry,
-  getNominalEnv,
-  getTypeSystem,
-} from "../statements/declarations/registry.js";
-import { substituteIrType } from "../../nominal-env.js";
+import { getTypeSystem } from "../statements/declarations/registry.js";
 import type { Binding } from "../../binding/index.js";
 
 /**

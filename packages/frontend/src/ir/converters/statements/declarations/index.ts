@@ -7,10 +7,8 @@ export {
   setBindingRegistry,
   setTypeRegistry,
   setNominalEnv,
-  getTypeRegistry,
-  getNominalEnv,
   clearTypeRegistries,
-  // TypeSystem singleton for migration period
+  // TypeSystem singleton - single source of truth for type queries
   setTypeSystem,
   getTypeSystem,
   // Internal accessors for TypeSystem construction only
