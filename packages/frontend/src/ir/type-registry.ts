@@ -4,12 +4,73 @@
  * ALICE'S SPEC (Step 3): This registry stores IrType (pure IR), NOT ts.TypeNode.
  * Types are converted at registration time, making queries deterministic.
  *
+ * CANONICAL CLR IDENTITY: Well-known runtime types from @tsonic/globals,
+ * @tsonic/core, and @tsonic/dotnet are registered with canonical CLR FQ names
+ * (e.g., String → System.String, String$instance → System.String$instance).
+ *
  * Part of Alice's specification for deterministic IR typing.
  */
 
 import * as ts from "typescript";
 import type { IrType, IrMethodSignature } from "./types/index.js";
 import { getNamespaceFromPath } from "../resolver/namespace.js";
+import { GLOBALS_TO_CLR_FQ } from "./clr-type-mappings.js";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CANONICAL CLR NAME HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check if a source file is from a well-known Tsonic library.
+ * These libraries contain runtime types that need canonical CLR FQ names.
+ */
+const isWellKnownLibrary = (fileName: string): boolean => {
+  return (
+    fileName.includes("@tsonic/globals") ||
+    fileName.includes("@tsonic/core") ||
+    fileName.includes("@tsonic/dotnet")
+  );
+};
+
+/**
+ * Get the canonical CLR FQ name for a type from a well-known library.
+ * Returns undefined if the type should use its default FQ name.
+ *
+ * Handles:
+ * - Global types: String → System.String, Array → System.Array
+ * - $instance companions: String$instance → System.String$instance
+ * - Core primitives: int → System.Int32, etc. (handled via type aliases)
+ */
+const getCanonicalClrFQName = (
+  simpleName: string,
+  isFromWellKnownLib: boolean
+): string | undefined => {
+  if (!isFromWellKnownLib) return undefined;
+
+  // Check direct mapping (String, Array, Number, etc.)
+  const directMapping = GLOBALS_TO_CLR_FQ[simpleName];
+  if (directMapping) return directMapping;
+
+  // Handle $instance companions - they map to System.X$instance
+  if (simpleName.endsWith("$instance")) {
+    const baseName = simpleName.slice(0, -9); // Remove "$instance"
+    const baseClrName = GLOBALS_TO_CLR_FQ[baseName];
+    if (baseClrName) {
+      return `${baseClrName}$instance`;
+    }
+  }
+
+  // Handle __X$views companions - they map to System.X$views
+  if (simpleName.includes("$views")) {
+    const baseName = simpleName.replace("__", "").replace("$views", "");
+    const baseClrName = GLOBALS_TO_CLR_FQ[baseName];
+    if (baseClrName) {
+      return `${baseClrName}$views`;
+    }
+  }
+
+  return undefined;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PURE IR TYPES (Alice's Spec)
@@ -507,7 +568,8 @@ const extractLegacyMembers = (
  */
 const extractHeritage = (
   clauses: ts.NodeArray<ts.HeritageClause> | undefined,
-  convertType: ConvertTypeFn
+  convertType: ConvertTypeFn,
+  canonicalize?: (name: string) => string
 ): readonly HeritageInfo[] => {
   if (!clauses) return [];
 
@@ -516,8 +578,10 @@ const extractHeritage = (
     const kind =
       clause.token === ts.SyntaxKind.ExtendsKeyword ? "extends" : "implements";
     for (const type of clause.types) {
-      const typeName = getTypeNodeName(type);
-      if (typeName) {
+      const rawTypeName = getTypeNodeName(type);
+      if (rawTypeName) {
+        // Canonicalize the type name if a canonicalizer is provided
+        const typeName = canonicalize ? canonicalize(rawTypeName) : rawTypeName;
         result.push({
           kind,
           baseType: convertType(type),
@@ -592,8 +656,29 @@ export const buildTypeRegistry = (
     sf: ts.SourceFile,
     ns: string | undefined
   ): void => {
-    const makeFQName = (simpleName: string): string =>
-      ns ? `${ns}.${simpleName}` : simpleName;
+    // Check if this file is from a well-known Tsonic library
+    const isFromWellKnownLib = isWellKnownLibrary(sf.fileName);
+
+    // Canonicalize a type name to CLR FQ name if it's a well-known type
+    // This is used for both the type itself and its heritage references
+    const canonicalize = (simpleName: string): string => {
+      // Check for canonical CLR name (works for both the current file and heritage refs)
+      // Heritage refs like String$instance should be canonicalized even if
+      // the current file isn't from a well-known lib (though it usually is)
+      const canonicalName = getCanonicalClrFQName(simpleName, true);
+      if (canonicalName) return canonicalName;
+      return simpleName;
+    };
+
+    // Make FQ name - use canonical CLR FQ name for well-known types
+    const makeFQName = (simpleName: string): string => {
+      // First check if this is a well-known type that needs canonical CLR name
+      const canonicalName = getCanonicalClrFQName(simpleName, isFromWellKnownLib);
+      if (canonicalName) return canonicalName;
+
+      // Otherwise use namespace-based FQ name
+      return ns ? `${ns}.${simpleName}` : simpleName;
+    };
 
     // Class declarations
     if (ts.isClassDeclaration(node) && node.name) {
@@ -607,7 +692,7 @@ export const buildTypeRegistry = (
         fullyQualifiedName: fqName,
         typeParameters: extractTypeParameters(node.typeParameters, convert),
         members: extractMembers(node.members, convert),
-        heritage: extractHeritage(node.heritageClauses, convert),
+        heritage: extractHeritage(node.heritageClauses, convert, canonicalize),
       });
 
       // Legacy entry
@@ -648,7 +733,7 @@ export const buildTypeRegistry = (
           members: mergedMembers,
           heritage: [
             ...existing.heritage,
-            ...extractHeritage(node.heritageClauses, convert),
+            ...extractHeritage(node.heritageClauses, convert, canonicalize),
           ],
         });
       } else {
@@ -658,7 +743,7 @@ export const buildTypeRegistry = (
           fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters, convert),
           members: extractMembers(node.members, convert),
-          heritage: extractHeritage(node.heritageClauses, convert),
+          heritage: extractHeritage(node.heritageClauses, convert, canonicalize),
         });
         simpleNameToFQ.set(simpleName, fqName);
       }

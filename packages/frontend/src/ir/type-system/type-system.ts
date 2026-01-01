@@ -32,6 +32,9 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
+import { PRIMITIVE_TO_CLR_FQ, GLOBALS_TO_CLR_FQ } from "../clr-type-mappings.js";
+import type { UnifiedTypeCatalog } from "../type-universe/types.js";
+import { getMemberDeclaredType as catalogGetMemberType } from "../type-universe/unified-catalog.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ALICE'S EXACT API — TypeSystem Interface
@@ -189,10 +192,23 @@ export type MemberRef =
  * CallQuery — Input to resolveCall().
  *
  * Contains all information needed to resolve a call site.
+ *
+ * IMPORTANT (Alice's spec): argumentCount is REQUIRED for totality.
+ * Even if signature lookup fails, TypeSystem must return correct-arity
+ * arrays filled with unknownType. This prevents fallback behavior.
  */
 export type CallQuery = {
   /** The signature being called (from Binding.resolveCallSignature) */
   readonly sigId: SignatureId;
+
+  /**
+   * Number of arguments at the call site.
+   *
+   * REQUIRED for totality: Used to construct correct-arity poisoned result
+   * when signature lookup fails. Without this, TypeSystem cannot guarantee
+   * parameterTypes.length === argumentCount.
+   */
+  readonly argumentCount: number;
 
   /** Receiver type for member calls (e.g., `arr` in `arr.map(...)`) */
   readonly receiverType?: IrType;
@@ -320,6 +336,17 @@ export type TypeSystemConfig = {
    * stores pure IR, so this is only needed for on-demand conversion.
    */
   readonly convertTypeNode: (node: unknown) => IrType;
+
+  /**
+   * Unified type catalog for CLR assembly type lookups.
+   *
+   * When provided, member lookups will fall through to this catalog
+   * for types not found in TypeRegistry (e.g., System.String, System.Int32).
+   * This enables method chain type recovery for built-in types.
+   *
+   * Optional during migration; will become required when migration completes.
+   */
+  readonly unifiedCatalog?: UnifiedTypeCatalog;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -551,13 +578,21 @@ export const neverType: IrType = { kind: "neverType" };
 export const voidType: IrType = { kind: "voidType" };
 
 /**
- * Create a poisoned ResolvedCall with diagnostics.
+ * Create a poisoned ResolvedCall with correct arity.
+ *
+ * CRITICAL (Alice's spec): Empty arrays are ILLEGAL.
+ * Poisoned results must have correct arity so callers cannot
+ * detect failure via `length === 0` and fall back to legacy.
+ *
+ * @param arity Number of parameters/arguments (from CallQuery.argumentCount)
+ * @param diagnostics Diagnostics explaining why resolution failed
  */
 export const poisonedCall = (
+  arity: number,
   diagnostics: readonly Diagnostic[]
 ): ResolvedCall => ({
-  parameterTypes: [],
-  parameterModes: [],
+  parameterTypes: Array(arity).fill(unknownType),
+  parameterModes: Array(arity).fill("value" as const),
   returnType: unknownType,
   diagnostics,
 });
@@ -582,7 +617,7 @@ type NominalLookupResult = {
  * the returned TypeSystem instance.
  */
 export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
-  const { handleRegistry, typeRegistry, nominalEnv, convertTypeNode } = config;
+  const { handleRegistry, typeRegistry, nominalEnv, convertTypeNode, unifiedCatalog } = config;
 
   // ─────────────────────────────────────────────────────────────────────────
   // INTERNAL CACHES — Step 4 Implementation
@@ -762,27 +797,36 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   /**
    * Normalize a receiver type to nominal form for member lookup.
    *
+   * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
+   * Uses canonical CLR FQ names directly from clr-type-mappings.
+   *
    * Handles:
-   * - referenceType → { fqName, typeArgs }
-   * - arrayType → { fqName: "Array", typeArgs: [elementType] }
-   * - primitiveType → { fqName: "String"|"Number"|etc, typeArgs: [] }
+   * - referenceType → { fqName, typeArgs } - uses CLR mapping if available
+   * - arrayType → { fqName: "System.Array", typeArgs: [elementType] }
+   * - primitiveType → { fqName: "System.String"|"System.Double"|etc, typeArgs: [] }
    */
   const normalizeToNominal = (
     type: IrType
   ): { fqName: string; typeArgs: readonly IrType[] } | undefined => {
     if (type.kind === "referenceType") {
+      // Check if this is a well-known type that has a CLR FQ name
+      const clrFqName = GLOBALS_TO_CLR_FQ[type.name];
+      if (clrFqName) {
+        return { fqName: clrFqName, typeArgs: type.typeArguments ?? [] };
+      }
+      // Fall back to TypeRegistry lookup, then to name as-is
       const fqName = typeRegistry.getFQName(type.name) ?? type.name;
       return { fqName, typeArgs: type.typeArguments ?? [] };
     }
     if (type.kind === "arrayType") {
-      const arrayFqName = typeRegistry.getFQName("Array") ?? "Array";
-      return { fqName: arrayFqName, typeArgs: [type.elementType] };
+      // Array is System.Array in CLR
+      return { fqName: "System.Array", typeArgs: [type.elementType] };
     }
     if (type.kind === "primitiveType") {
-      const nominalName = BUILTIN_NOMINALS[type.name];
-      if (nominalName) {
-        const fqName = typeRegistry.getFQName(nominalName) ?? nominalName;
-        return { fqName, typeArgs: [] };
+      // RULE R3: Map primitives directly to their CLR FQ names
+      const clrFqName = PRIMITIVE_TO_CLR_FQ[type.name];
+      if (clrFqName) {
+        return { fqName: clrFqName, typeArgs: [] };
       }
     }
     return undefined;
@@ -955,29 +999,35 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       normalized.typeArgs,
       memberName
     );
-    if (!lookupResult) {
-      emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
-      return unknownType;
-    }
 
-    // 4. Get declared member type from TypeRegistry (pure IR after Step 3)
-    const memberType = typeRegistry.getMemberType(
-      lookupResult.targetNominal,
-      memberName
-    );
-    if (!memberType) {
-      emitDiagnostic(
-        "TSN5203",
-        `Member '${memberName}' has no declared type`,
-        site
+    // 4a. If NominalEnv found the member, get type from TypeRegistry
+    if (lookupResult) {
+      const memberType = typeRegistry.getMemberType(
+        lookupResult.targetNominal,
+        memberName
       );
-      return unknownType;
+      if (memberType) {
+        // 5. Apply substitution
+        const result = irSubstitute(memberType, lookupResult.substitution);
+        memberDeclaredTypeCache.set(cacheKey, result);
+        return result;
+      }
     }
 
-    // 5. Apply substitution
-    const result = irSubstitute(memberType, lookupResult.substitution);
-    memberDeclaredTypeCache.set(cacheKey, result);
-    return result;
+    // 4b. Fallback: Try UnifiedTypeCatalog for CLR assembly types
+    //     This handles primitives (string.length) and other CLR types
+    //     not defined in TypeScript source.
+    if (unifiedCatalog) {
+      const catalogResult = catalogGetMemberType(receiver, memberName, unifiedCatalog);
+      if (catalogResult) {
+        memberDeclaredTypeCache.set(cacheKey, catalogResult);
+        return catalogResult;
+      }
+    }
+
+    // 5. Member not found anywhere
+    emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
+    return unknownType;
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -986,13 +1036,25 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   // ─────────────────────────────────────────────────────────────────────────
 
   const resolveCall = (query: CallQuery): ResolvedCall => {
-    const { sigId, receiverType, explicitTypeArgs, site } = query;
+    const { sigId, argumentCount, receiverType, explicitTypeArgs, site } =
+      query;
 
     // 1. Load raw signature (cached)
     const rawSig = getRawSignature(sigId);
     if (!rawSig) {
-      emitDiagnostic("TSN5203", "Cannot resolve signature", site);
-      return poisonedCall(diagnostics.slice());
+      // BINDING CONTRACT VIOLATION (Alice's spec): If Binding returned a
+      // SignatureId, HandleRegistry.getSignature(sigId) MUST succeed.
+      // This indicates a bug in Binding, not a normal runtime condition.
+      //
+      // However, we cannot throw during normal compilation as it would
+      // crash the compiler. Instead, emit diagnostic and return poisoned
+      // result with correct arity.
+      emitDiagnostic(
+        "TSN5203",
+        `Cannot resolve signature (Binding contract violation: ID ${sigId.id} not in HandleRegistry)`,
+        site
+      );
+      return poisonedCall(argumentCount, diagnostics.slice());
     }
 
     // 2. Start with raw types

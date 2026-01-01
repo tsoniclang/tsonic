@@ -1,6 +1,9 @@
 /**
  * Declaration converters (variables, functions, classes, interfaces, enums, type aliases)
  * Main dispatcher - re-exports from declarations/ subdirectory
+ *
+ * ALICE'S SPEC: getTypeRegistry/getNominalEnv are deprecated.
+ * Use TypeSystem via getTypeSystem() for all type queries.
  */
 
 export {
@@ -8,11 +11,13 @@ export {
   setBindingRegistry,
   setTypeRegistry,
   setNominalEnv,
-  getTypeRegistry,
-  getNominalEnv,
   clearTypeRegistries,
+  // TypeSystem singleton - single source of truth for type queries
   setTypeSystem,
   getTypeSystem,
+  // Internal accessors - only for TypeSystem construction
+  _internalGetTypeRegistry,
+  _internalGetNominalEnv,
   convertVariableStatement,
   convertFunctionDeclaration,
   convertClassDeclaration,

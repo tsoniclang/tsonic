@@ -3,6 +3,7 @@
  */
 
 import * as ts from "typescript";
+import * as path from "path";
 import { relative } from "path";
 import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
@@ -13,11 +14,12 @@ import {
   setMetadataRegistry,
   setBindingRegistry,
   setTypeRegistry,
-  getTypeRegistry,
   setNominalEnv,
   clearTypeRegistries,
   setTypeSystem,
 } from "../statement-converter.js";
+// Internal accessor for checking if TypeRegistry is initialized (TypeSystem construction only)
+import { _internalGetTypeRegistry } from "../converters/statements/declarations/index.js";
 import { buildTypeRegistry } from "../type-registry.js";
 import { buildNominalEnv } from "../nominal-env.js";
 import { convertType } from "../type-converter.js";
@@ -32,6 +34,8 @@ import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
 import { extractStatements, isExecutableStatement } from "./statements.js";
 import { validateClassImplements } from "./validation.js";
+import { loadAssemblyTypeCatalog } from "../type-universe/assembly-catalog.js";
+import { buildUnifiedTypeCatalog } from "../type-universe/unified-catalog.js";
 
 /**
  * Build IR module from TypeScript source file
@@ -58,7 +62,7 @@ export const buildIrModule = (
 
     // Initialize TypeRegistry/NominalEnv if not already set (e.g., when called directly by tests)
     // When called via buildIr, these are already initialized for all source files
-    if (!getTypeRegistry()) {
+    if (!_internalGetTypeRegistry()) {
       // Include both user source files AND declaration files from typeRoots
       // Declaration files contain globals (String, Array, etc.) needed for method resolution
       const allSourceFiles = [
@@ -232,6 +236,18 @@ export const buildIr = (
   );
   setNominalEnv(nominalEnv);
 
+  // Load assembly type catalog for CLR stdlib types
+  // This enables member lookup on primitive types like string.length
+  const nodeModulesPath = path.resolve(program.options.projectRoot, "node_modules");
+  const assemblyCatalog = loadAssemblyTypeCatalog(nodeModulesPath);
+
+  // Build unified catalog merging source and assembly types
+  const unifiedCatalog = buildUnifiedTypeCatalog(
+    typeRegistry,
+    assemblyCatalog,
+    program.options.rootNamespace
+  );
+
   // Build TypeSystem — the single source of truth for all type queries (Alice's spec)
   // TypeSystem encapsulates HandleRegistry, TypeRegistry, NominalEnv and type conversion
   const bindingInternal = program.binding as BindingInternal;
@@ -242,6 +258,8 @@ export const buildIr = (
     // Wrap convertType to capture binding context
     convertTypeNode: (node: unknown) =>
       convertType(node as import("typescript").TypeNode, program.binding),
+    // Unified catalog for CLR assembly type lookups
+    unifiedCatalog,
   });
   setTypeSystem(typeSystem);
 

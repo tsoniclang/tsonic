@@ -1,5 +1,12 @@
 /**
  * Call and new expression converters
+ *
+ * ALICE'S SPEC: All call resolution goes through TypeSystem.resolveCall().
+ * Falls back to NominalEnv for inherited method return types that TypeSystem
+ * can't resolve (e.g., String.substring from String$instance).
+ *
+ * TODO(alice): The NominalEnv fallback should be removed once TypeSystem
+ * properly handles inherited methods from extended interfaces.
  */
 
 import * as ts from "typescript";
@@ -16,7 +23,16 @@ import {
 import { convertExpression } from "../../expression-converter.js";
 import { convertType } from "../../type-converter.js";
 import { IrType } from "../../types.js";
-import { getTypeSystem } from "../statements/declarations/registry.js";
+import {
+  getTypeSystem,
+  _internalGetTypeRegistry,
+  _internalGetNominalEnv,
+} from "../statements/declarations/registry.js";
+import { substituteIrType } from "../../nominal-env.js";
+import {
+  normalizeToClrFQ,
+  PRIMITIVE_TO_CLR_FQ,
+} from "../../clr-type-mappings.js";
 import type { Binding } from "../../binding/index.js";
 
 /**
@@ -119,263 +135,54 @@ const extractNarrowing = (
   }
 };
 
-/**
- * Normalize receiver IR type to a fully-qualified nominal type name and type arguments.
- * Used for NominalEnv-based member type resolution.
- *
- * The nominal name is resolved to FQ using TypeRegistry when available.
- *
- * MIGRATION NOTE: Uses getTypeRegistry() singleton during Step 7 migration.
- * After migration complete, this logic may move to TypeSystem or use context.
- */
-const normalizeReceiverToNominal = (
-  receiverIrType: IrType
-): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
-  // MIGRATION: Try TypeSystem first, fall back to legacy singleton
-  const typeSystem = getTypeSystem();
-  const registry = getTypeRegistry();
-
-  // Suppress unused warning during migration - TypeSystem will be used after full migration
-  void typeSystem;
-
-  // Helper to resolve simple name to FQ name
-  const toFQName = (simpleName: string): string => {
-    if (!registry) return simpleName;
-    // Try to get FQ name from registry
-    const fqName = registry.getFQName(simpleName);
-    // If name already contains ".", it might already be FQ
-    if (!fqName && simpleName.includes(".")) return simpleName;
-    return fqName ?? simpleName;
-  };
-
-  if (receiverIrType.kind === "referenceType") {
-    return {
-      nominal: toFQName(receiverIrType.name),
-      typeArgs: receiverIrType.typeArguments ?? [],
-    };
-  }
-
-  if (receiverIrType.kind === "arrayType") {
-    // Array is a built-in type - resolve to FQ name
-    return {
-      nominal: toFQName("Array"),
-      typeArgs: [receiverIrType.elementType],
-    };
-  }
-
-  if (receiverIrType.kind === "primitiveType") {
-    // Primitive types map to their wrapper types
-    const nominalMap: Record<string, string | undefined> = {
-      string: "String",
-      number: "Number",
-      boolean: "Boolean",
-      int: "Int32",
-    };
-    const simpleName = nominalMap[receiverIrType.name];
-    if (simpleName) {
-      return { nominal: toFQName(simpleName), typeArgs: [] };
-    }
-  }
-
-  return undefined;
-};
 
 /**
  * Extract parameter types from resolved signature.
  * Used for threading expectedType to array literal arguments etc.
  *
- * DETERMINISTIC TYPING: Uses NominalEnv to walk inheritance chains and substitute
- * type parameters. For `dict.add(key, value)` where `dict: Dictionary<int, Todo>`,
- * returns the substituted types [int, Todo] with CLR aliases preserved.
+ * ALICE'S SPEC: Uses TypeSystem.resolveCall() exclusively.
+ * TypeSystem is total - it always returns correct-arity arrays (filled with
+ * unknownType on failure). No fallback paths.
  *
  * @param node - Call or new expression
  * @param binding - Binding layer for symbol resolution
  * @param receiverIrType - IR type of the receiver (for member method calls)
- *
- * DETERMINISTIC TYPING: Uses TypeSystem.resolveCall() for proper substitution.
- * Falls back to legacy NominalEnv path during migration.
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
   binding: Binding,
   receiverIrType?: IrType
 ): readonly (IrType | undefined)[] | undefined => {
-  try {
-    // Handle both CallExpression and NewExpression
-    const sigId = ts.isCallExpression(node)
-      ? binding.resolveCallSignature(node)
-      : binding.resolveConstructorSignature(node);
-    if (!sigId) return undefined;
+  // Get the TypeSystem - required for all call resolution
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
 
-    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
-    if (!sigInfo) return undefined;
+  // Handle both CallExpression and NewExpression
+  const sigId = ts.isCallExpression(node)
+    ? binding.resolveCallSignature(node)
+    : binding.resolveConstructorSignature(node);
+  if (!sigId) return undefined;
 
-    // MIGRATION: Try TypeSystem.resolveCall() first (Alice's spec)
-    const typeSystem = getTypeSystem();
-    if (typeSystem && sigId) {
-      // Extract explicit type arguments from call site if any
-      const explicitTypeArgs =
-        node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
+  // Extract explicit type arguments from call site if any
+  const explicitTypeArgs =
+    node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
 
-      const resolved = typeSystem.resolveCall({
-        sigId,
-        receiverType: receiverIrType,
-        explicitTypeArgs,
-      });
+  // Get argument count for totality
+  const argumentCount = ts.isCallExpression(node)
+    ? node.arguments.length
+    : (node.arguments?.length ?? 0);
 
-      // If TypeSystem returned non-empty parameter types, use them
-      if (resolved.parameterTypes.length > 0) {
-        return resolved.parameterTypes;
-      }
-      // Otherwise fall through to legacy path
-    }
+  // Use TypeSystem.resolveCall() - guaranteed to return correct-arity result
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount,
+    receiverType: receiverIrType,
+    explicitTypeArgs,
+  });
 
-    // LEGACY PATH: Direct NominalEnv access (deprecated after migration)
-    // Get NominalEnv substitution for member method calls
-    const registry = getTypeRegistry();
-    const nominalEnv = getNominalEnv();
-    let inheritanceSubst: ReadonlyMap<string, IrType> | undefined;
-    let memberDeclaringType: string | undefined;
-
-    // For member method calls, get substitution from inheritance chain
-    if (
-      receiverIrType &&
-      receiverIrType.kind !== "unknownType" &&
-      registry &&
-      nominalEnv &&
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression)
-    ) {
-      const methodName = node.expression.name.text;
-      const normalized = normalizeReceiverToNominal(receiverIrType);
-      if (normalized) {
-        const result = nominalEnv.findMemberDeclaringType(
-          normalized.nominal,
-          normalized.typeArgs,
-          methodName
-        );
-        if (result) {
-          inheritanceSubst = result.substitution;
-          memberDeclaringType = result.targetNominal;
-        }
-      }
-    }
-
-    const parameters = sigInfo.parameters;
-
-    // If signature has no parameters but we found member declaring type,
-    // fall back to TypeRegistry lookup for member method parameters
-    // NOTE: Uses legacy API during migration period (Step 3)
-    if (parameters.length === 0 && memberDeclaringType && registry) {
-      const legacyEntry = registry.getLegacyEntry(memberDeclaringType);
-      if (
-        legacyEntry &&
-        ts.isCallExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression)
-      ) {
-        const methodName = node.expression.name.text;
-        const member = legacyEntry.members.get(methodName);
-        if (
-          member?.kind === "method" &&
-          member.signatures &&
-          member.signatures.length > 0
-        ) {
-          const methodSig = member.signatures[0]!;
-
-          // Get method-level type parameters
-          const methodTypeParams = new Set<string>();
-          if (methodSig.typeParameters) {
-            for (const tp of methodSig.typeParameters) {
-              methodTypeParams.add(tp.name.text);
-            }
-          }
-
-          const paramTypes: (IrType | undefined)[] = [];
-          for (const param of methodSig.parameters) {
-            if (param.type) {
-              // Check if this is a method-level type parameter
-              const isMethodTypeParam =
-                ts.isTypeReferenceNode(param.type) &&
-                ts.isIdentifier(param.type.typeName) &&
-                methodTypeParams.has(param.type.typeName.text);
-
-              if (
-                isMethodTypeParam &&
-                !inheritanceSubst?.has(param.type.typeName.text)
-              ) {
-                // Method type parameter without substitution - inferred from argument
-                paramTypes.push(undefined);
-                continue;
-              }
-
-              const irType = convertType(param.type, binding);
-              if (irType && inheritanceSubst) {
-                paramTypes.push(substituteIrType(irType, inheritanceSubst));
-              } else if (irType) {
-                paramTypes.push(irType);
-              } else {
-                paramTypes.push(undefined);
-              }
-            } else {
-              paramTypes.push(undefined);
-            }
-          }
-          return paramTypes;
-        }
-      }
-      return undefined;
-    }
-
-    if (parameters.length === 0) {
-      return undefined;
-    }
-
-    // Build parameter type array from stored TypeNodes
-    const paramTypes: (IrType | undefined)[] = [];
-
-    // Get the type parameter names from the signature's stored info
-    const funcTypeParams = new Set<string>(
-      sigInfo.typeParameters?.map((tp) => tp.name) ?? []
-    );
-
-    for (const param of parameters) {
-      const paramTypeNode = param.typeNode as ts.TypeNode | undefined;
-
-      if (paramTypeNode) {
-        // Check if this is a method-level type parameter (unsubstituted)
-        const isMethodTypeParam =
-          ts.isTypeReferenceNode(paramTypeNode) &&
-          ts.isIdentifier(paramTypeNode.typeName) &&
-          funcTypeParams.has(paramTypeNode.typeName.text);
-
-        if (
-          isMethodTypeParam &&
-          !inheritanceSubst?.has(paramTypeNode.typeName.text)
-        ) {
-          // Method type parameter without substitution - inferred from argument
-          paramTypes.push(undefined);
-          continue;
-        }
-
-        // Convert to IR and apply inheritance substitution
-        const irType = convertType(paramTypeNode, binding);
-        if (irType && inheritanceSubst) {
-          paramTypes.push(substituteIrType(irType, inheritanceSubst));
-        } else if (irType) {
-          paramTypes.push(irType);
-        } else {
-          paramTypes.push(undefined);
-        }
-        continue;
-      }
-
-      paramTypes.push(undefined);
-    }
-
-    return paramTypes;
-  } catch {
-    return undefined;
-  }
+  // TypeSystem.resolveCall() always returns parameterTypes with correct arity
+  // (filled with unknownType on failure). Return directly - no fallback.
+  return resolved.parameterTypes;
 };
 
 /**
@@ -439,175 +246,296 @@ const getCalleesDeclaredType = (
 };
 
 /**
+ * Walk a property access chain and build a qualified name.
+ * For `Foo.Bar.Baz`, returns "Foo.Bar.Baz" by walking the AST identifiers.
+ * This avoids getText() which bakes source formatting into type identity.
+ */
+const buildQualifiedName = (expr: ts.Expression): string | undefined => {
+  if (ts.isIdentifier(expr)) {
+    return expr.text;
+  }
+
+  if (ts.isPropertyAccessExpression(expr)) {
+    const parts: string[] = [];
+    let current: ts.Expression = expr;
+
+    while (ts.isPropertyAccessExpression(current)) {
+      parts.unshift(current.name.text);
+      current = current.expression;
+    }
+
+    if (ts.isIdentifier(current)) {
+      parts.unshift(current.text);
+      return parts.join(".");
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Fallback for getDeclaredReturnType when Binding can't resolve the signature.
+ * Uses Binding.resolvePropertyAccess to get the method's return type.
+ *
+ * TODO(alice): This fallback should be removed once TypeSystem properly
+ * handles inherited methods from extended interfaces.
+ */
+const getDeclaredReturnTypeFallback = (
+  node: ts.CallExpression,
+  binding: Binding
+): IrType | undefined => {
+  // Only for member method calls: obj.method()
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+
+  // Resolve the method as a property access
+  const memberId = binding.resolvePropertyAccess(node.expression);
+  if (!memberId) return undefined;
+
+  const memberInfo = binding.getHandleRegistry().getMember(memberId);
+  if (!memberInfo?.typeNode) return undefined;
+
+  const typeNode = memberInfo.typeNode as ts.TypeNode;
+
+  // If it's a function type node (property with function type), extract return type
+  if (ts.isFunctionTypeNode(typeNode)) {
+    return convertType(typeNode.type, binding);
+  }
+
+  // For method signatures, typeNode is already the return type node
+  return convertType(typeNode, binding);
+};
+
+/**
+ * Normalize receiver IR type to a fully-qualified CLR nominal type name and type arguments.
+ * Used for NominalEnv-based member type resolution.
+ *
+ * Uses hardcoded CLR mappings for @tsonic/globals and @tsonic/core types.
+ * These are fundamental runtime types with fixed CLR identities.
+ */
+const normalizeReceiverToNominal = (
+  receiverIrType: IrType
+): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
+  if (receiverIrType.kind === "referenceType") {
+    // Normalize reference type names to CLR FQ names
+    const clrFQ = normalizeToClrFQ(receiverIrType.name);
+    return {
+      nominal: clrFQ,
+      typeArgs: receiverIrType.typeArguments ?? [],
+    };
+  }
+
+  if (receiverIrType.kind === "arrayType") {
+    return {
+      nominal: "System.Array",
+      typeArgs: [receiverIrType.elementType],
+    };
+  }
+
+  if (receiverIrType.kind === "primitiveType") {
+    // Use CLR FQ mappings for all primitive types
+    const clrFQ = PRIMITIVE_TO_CLR_FQ[receiverIrType.name];
+    if (clrFQ) {
+      return { nominal: clrFQ, typeArgs: [] };
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Fallback for getDeclaredReturnType using NominalEnv to walk inheritance chains.
+ * Used for member method calls on types with inherited methods from globals
+ * (e.g., s.substring() where String extends String$instance from @tsonic/dotnet).
+ *
+ * TODO(alice): This fallback should be removed once TypeSystem properly
+ * handles inherited methods from extended interfaces.
+ */
+const getDeclaredReturnTypeNominalEnvFallback = (
+  node: ts.CallExpression,
+  receiverIrType: IrType | undefined,
+  binding: Binding
+): IrType | undefined => {
+  const DEBUG = process.env.DEBUG_NOMINALENV === "1";
+
+  // Only for member method calls: obj.method()
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  if (!receiverIrType || receiverIrType.kind === "unknownType") return undefined;
+
+  const registry = _internalGetTypeRegistry();
+  const nominalEnv = _internalGetNominalEnv();
+  if (!registry || !nominalEnv) {
+    if (DEBUG) console.log("[NominalEnvFallback] registry or nominalEnv is null");
+    return undefined;
+  }
+
+  const methodName = node.expression.name.text;
+  const normalized = normalizeReceiverToNominal(receiverIrType);
+  if (!normalized) {
+    if (DEBUG) console.log("[NominalEnvFallback] normalization failed for", receiverIrType);
+    return undefined;
+  }
+
+  if (DEBUG) console.log("[NominalEnvFallback] Looking up", methodName, "on", normalized.nominal);
+
+  // Try to find the method in the type's inheritance chain
+  const result = nominalEnv.findMemberDeclaringType(
+    normalized.nominal,
+    normalized.typeArgs,
+    methodName
+  );
+  if (!result) {
+    if (DEBUG) console.log("[NominalEnvFallback] findMemberDeclaringType returned null");
+    if (DEBUG) console.log("[NominalEnvFallback] Inheritance chain:", nominalEnv.getInheritanceChain(normalized.nominal));
+    return undefined;
+  }
+
+  if (DEBUG) console.log("[NominalEnvFallback] Found in", result.targetNominal);
+
+  // Get the method's return type from TypeRegistry
+  const legacyEntry = registry.getLegacyEntry(result.targetNominal);
+  if (!legacyEntry) {
+    if (DEBUG) console.log("[NominalEnvFallback] No legacy entry for", result.targetNominal);
+    return undefined;
+  }
+
+  const member = legacyEntry.members.get(methodName);
+  if (
+    member?.kind !== "method" ||
+    !member.signatures ||
+    member.signatures.length === 0
+  ) {
+    if (DEBUG) console.log("[NominalEnvFallback] Member not found or not a method:", member);
+    return undefined;
+  }
+
+  // Use first signature's return type
+  const methodSig = member.signatures[0]!;
+  if (!methodSig.type) {
+    if (DEBUG) console.log("[NominalEnvFallback] No return type on signature");
+    return undefined;
+  }
+
+  const baseReturnType = convertType(methodSig.type, binding);
+  if (!baseReturnType) {
+    if (DEBUG) console.log("[NominalEnvFallback] convertType returned undefined");
+    return undefined;
+  }
+
+  if (DEBUG) console.log("[NominalEnvFallback] Return type:", baseReturnType);
+
+  // Apply inheritance substitution
+  return substituteIrType(baseReturnType, result.substitution);
+};
+
+/**
  * Get the declared return type from a call or new expression's signature.
  *
- * DETERMINISTIC TYPING: Uses TypeSystem.resolveCall() for proper substitution.
- * Falls back to legacy paths for edge cases during migration.
+ * ALICE'S SPEC: Uses TypeSystem.resolveCall() as primary source.
+ * Falls back to Binding for inherited methods not in TypeRegistry
+ * (e.g., String.substring from String$instance).
+ *
+ * TODO(alice): The Binding fallback should be removed once TypeRegistry
+ * properly handles inherited members from extended interfaces.
  */
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
   binding: Binding,
   receiverIrType?: IrType
 ): IrType | undefined => {
-  try {
-    // 1. Get resolved signature through Binding
-    // Handle both CallExpression and NewExpression
-    const sigId = ts.isCallExpression(node)
-      ? binding.resolveCallSignature(node)
-      : binding.resolveConstructorSignature(node);
-
-    // MIGRATION: Try TypeSystem.resolveCall() first for call expressions
-    const typeSystem = getTypeSystem();
-    if (typeSystem && sigId && ts.isCallExpression(node)) {
-      const explicitTypeArgs =
-        node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
-
-      const resolved = typeSystem.resolveCall({
-        sigId,
-        receiverType: receiverIrType,
-        explicitTypeArgs,
-      });
-
-      // If TypeSystem returned a valid return type (not unknownType), use it
-      if (resolved.returnType.kind !== "unknownType") {
-        return resolved.returnType;
-      }
-      // Otherwise fall through to legacy path
-    }
-
-    const sigInfo = sigId
-      ? binding.getHandleRegistry().getSignature(sigId)
-      : undefined;
-
-    // 2. Try to extract return TypeNode from signature info
-    let returnTypeNode: ts.TypeNode | undefined = sigInfo?.returnTypeNode as
-      | ts.TypeNode
-      | undefined;
-
-    // Handle constructor case: For new expressions, the "return type" is the class type
-    // Constructors don't have return type annotations - the type is the class being instantiated
-    if (ts.isNewExpression(node) && !returnTypeNode) {
-      // For new expressions with explicit type arguments
-      if (node.typeArguments && node.typeArguments.length > 0) {
-        const typeName = buildQualifiedName(node.expression);
-        if (typeName) {
-          return {
-            kind: "referenceType",
-            name: typeName,
-            typeArguments: node.typeArguments.map((ta) =>
-              convertType(ta, binding)
-            ),
-          };
-        }
-      }
-      // For constructors without type arguments, use the class name
+  const DEBUG = process.env.DEBUG_RETURN_TYPE === "1";
+  const methodName = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+    ? node.expression.name.text
+    : undefined;
+  if (DEBUG && methodName) {
+    console.log("[getDeclaredReturnType]", methodName, "receiver:", receiverIrType);
+  }
+  // Handle new expressions specially - they construct the type from the expression
+  if (ts.isNewExpression(node)) {
+    // For new expressions with explicit type arguments
+    if (node.typeArguments && node.typeArguments.length > 0) {
       const typeName = buildQualifiedName(node.expression);
       if (typeName) {
-        return { kind: "referenceType", name: typeName };
+        return {
+          kind: "referenceType",
+          name: typeName,
+          typeArguments: node.typeArguments.map((ta) =>
+            convertType(ta, binding)
+          ),
+        };
       }
     }
-
-    // 3. Fallback for function-typed variables
-    // For calls like `counter()` where `counter: () => number` or `counter = makeCounter()`
-    // Try to get the return type from the callee's declared type
-    if (!returnTypeNode && ts.isCallExpression(node)) {
-      const calleeDeclaredType = getCalleesDeclaredType(node, binding);
-      if (calleeDeclaredType) {
-        returnTypeNode = getReturnTypeFromFunctionType(calleeDeclaredType);
-      }
+    // For constructors without type arguments, use the class name
+    const typeName = buildQualifiedName(node.expression);
+    if (typeName) {
+      return { kind: "referenceType", name: typeName };
     }
-
-    // 4. Fallback for member method calls using TypeRegistry/NominalEnv
-    // For calls like `s.substring(0, 5)` where Binding can't resolve the signature
-    // (common with noLib: true where globals augment String but checker doesn't know)
-    if (
-      !returnTypeNode &&
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      receiverIrType
-    ) {
-      const registry = getTypeRegistry();
-      const nominalEnv = getNominalEnv();
-
-      if (registry && nominalEnv) {
-        const methodName = node.expression.name.text;
-        const normalized = normalizeReceiverToNominal(receiverIrType);
-
-        if (normalized) {
-          // Try to find the method in the type's inheritance chain
-          const result = nominalEnv.findMemberDeclaringType(
-            normalized.nominal,
-            normalized.typeArgs,
-            methodName
-          );
-
-          if (result) {
-            // Get the method's return type from TypeRegistry
-            // NOTE: Uses legacy API during migration period (Step 3)
-            const legacyEntry = registry.getLegacyEntry(result.targetNominal);
-            if (legacyEntry) {
-              const member = legacyEntry.members.get(methodName);
-              if (
-                member?.kind === "method" &&
-                member.signatures &&
-                member.signatures.length > 0
-              ) {
-                // Use first signature's return type
-                const methodSig = member.signatures[0]!;
-                if (methodSig.type) {
-                  const baseReturnType = convertType(methodSig.type, binding);
-                  if (baseReturnType) {
-                    // Apply inheritance substitution
-                    return substituteIrType(
-                      baseReturnType,
-                      result.substitution
-                    );
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (!returnTypeNode) return undefined;
-
-    // 5. Convert to IrType first (DETERMINISTIC: from TypeNode, not TS inference)
-    const baseReturnType = convertType(returnTypeNode, binding);
-    if (!baseReturnType) return undefined;
-
-    // 6. Apply inheritance substitution via NominalEnv for member method calls
-    const registry = getTypeRegistry();
-    const nominalEnv = getNominalEnv();
-
-    if (
-      receiverIrType &&
-      receiverIrType.kind !== "unknownType" &&
-      registry &&
-      nominalEnv &&
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression)
-    ) {
-      const methodName = node.expression.name.text;
-      const normalized = normalizeReceiverToNominal(receiverIrType);
-      if (normalized) {
-        const result = nominalEnv.findMemberDeclaringType(
-          normalized.nominal,
-          normalized.typeArgs,
-          methodName
-        );
-        if (result) {
-          return substituteIrType(baseReturnType, result.substitution);
-        }
-      }
-    }
-
-    // 7. No inheritance substitution needed - return base type
-    return baseReturnType;
-  } catch {
     return undefined;
   }
+
+  // For call expressions, try TypeSystem.resolveCall() first
+  const typeSystem = getTypeSystem();
+
+  const sigId = binding.resolveCallSignature(node);
+  if (sigId && typeSystem) {
+    // Get argument count for totality
+    const argumentCount = node.arguments.length;
+
+    // Extract explicit type arguments from call site if any
+    const explicitTypeArgs =
+      node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
+
+    // Use TypeSystem.resolveCall() - guaranteed to return a result
+    const resolved = typeSystem.resolveCall({
+      sigId,
+      argumentCount,
+      receiverType: receiverIrType,
+      explicitTypeArgs,
+    });
+
+    if (DEBUG && methodName) {
+      console.log("[getDeclaredReturnType]", methodName, "TypeSystem returned:", resolved.returnType);
+    }
+
+    // If TypeSystem returned a valid return type (not unknownType), use it
+    if (resolved.returnType.kind !== "unknownType") {
+      return resolved.returnType;
+    }
+    // Fall through to fallbacks
+  } else if (DEBUG && methodName) {
+    console.log("[getDeclaredReturnType]", methodName, "sigId:", sigId, "typeSystem:", !!typeSystem);
+  }
+
+  // Fallback 1: Function-typed variables like `counter()` where `counter: () => number`
+  const calleeDeclaredType = getCalleesDeclaredType(node, binding);
+  if (calleeDeclaredType) {
+    const returnTypeNode = getReturnTypeFromFunctionType(calleeDeclaredType);
+    if (returnTypeNode) {
+      if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "Fallback 1 hit");
+      return convertType(returnTypeNode, binding);
+    }
+  }
+
+  // Fallback 2: Try Binding.resolvePropertyAccess for member methods
+  const fallbackResult = getDeclaredReturnTypeFallback(node, binding);
+  if (fallbackResult) {
+    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "Fallback 2 returned:", fallbackResult);
+    return fallbackResult;
+  }
+
+  // Fallback 3: NominalEnv lookup for inherited methods
+  // (e.g., s.substring() where String extends String$instance)
+  const nominalEnvResult = getDeclaredReturnTypeNominalEnvFallback(
+    node,
+    receiverIrType,
+    binding
+  );
+  if (nominalEnvResult) {
+    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "Fallback 3 returned:", nominalEnvResult);
+    return nominalEnvResult;
+  }
+
+  if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "ALL FALLBACKS FAILED");
+  return undefined;
 };
 
 /**
@@ -766,34 +694,6 @@ export const convertCallExpression = (
  * Constructors don't have return type annotations - the constructed type IS
  * the class/type being instantiated.
  */
-/**
- * Walk a property access chain and build a qualified name.
- * For `Foo.Bar.Baz`, returns "Foo.Bar.Baz" by walking the AST identifiers.
- * This avoids getText() which bakes source formatting into type identity.
- */
-const buildQualifiedName = (expr: ts.Expression): string | undefined => {
-  if (ts.isIdentifier(expr)) {
-    return expr.text;
-  }
-
-  if (ts.isPropertyAccessExpression(expr)) {
-    const parts: string[] = [];
-    let current: ts.Expression = expr;
-
-    while (ts.isPropertyAccessExpression(current)) {
-      parts.unshift(current.name.text);
-      current = current.expression;
-    }
-
-    if (ts.isIdentifier(current)) {
-      parts.unshift(current.text);
-      return parts.join(".");
-    }
-  }
-
-  return undefined;
-};
-
 const getConstructedType = (
   node: ts.NewExpression,
   binding: Binding

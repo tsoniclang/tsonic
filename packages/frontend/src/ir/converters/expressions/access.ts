@@ -1,5 +1,12 @@
 /**
  * Member access expression converters
+ *
+ * ALICE'S SPEC: All member type queries go through TypeSystem.typeOfMember().
+ * Falls back to Binding for inherited members from external packages that
+ * TypeRegistry/NominalEnv can't resolve (e.g., Array$instance.length).
+ *
+ * TODO(alice): Fix TypeRegistry to properly register inherited members so
+ * the Binding fallback can be removed.
  */
 
 import * as ts from "typescript";
@@ -8,67 +15,35 @@ import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import {
   getBindingRegistry,
-  getTypeRegistry,
-  getNominalEnv,
   getTypeSystem,
 } from "../statements/declarations/registry.js";
 import { convertType } from "../../type-converter.js";
-import { substituteIrType } from "../../nominal-env.js";
 import type { Binding } from "../../binding/index.js";
 
 /**
- * Normalize receiver IR type to a fully-qualified nominal type name and type arguments.
+ * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
+ * Uses Binding layer to resolve property declarations for:
+ * - Built-in types from globals (Array.length, string.length, etc.)
+ * - CLR-bound types from tsbindgen
+ * - Types with inherited members not in TypeRegistry
  *
- * Handles:
- * - referenceType: Use name (resolved to FQ) and typeArguments directly
- * - arrayType: Treat as "Array" (resolved to FQ) with [elementType]
- * - primitiveType: Map to "String", "Number", "Boolean" surfaces (resolved to FQ)
- *
- * Returns undefined for types that can't be normalized to nominals.
- *
- * MIGRATION NOTE: This is a legacy helper used by getDeclaredPropertyType's fallback path.
- * After full migration to TypeSystem.typeOfMember(), this function may be removed.
+ * TODO(alice): This fallback should be removed once TypeRegistry properly
+ * handles inherited members from extended interfaces.
  */
-const normalizeReceiverToNominal = (
-  receiverIrType: IrType
-): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
-  const registry = getTypeRegistry();
+const getDeclaredPropertyTypeFallback = (
+  node: ts.PropertyAccessExpression,
+  binding: Binding
+): IrType | undefined => {
+  // Resolve property member through Binding layer
+  const memberId = binding.resolvePropertyAccess(node);
+  if (!memberId) return undefined;
 
-  // Helper to resolve simple name to FQ name
-  const toFQName = (simpleName: string): string => {
-    if (!registry) return simpleName;
-    // Try to get FQ name from registry
-    const fqName = registry.getFQName(simpleName);
-    // If name already contains ".", it might already be FQ
-    if (!fqName && simpleName.includes(".")) return simpleName;
-    return fqName ?? simpleName;
-  };
+  const memberInfo = binding.getHandleRegistry().getMember(memberId);
+  if (!memberInfo) return undefined;
 
-  if (receiverIrType.kind === "referenceType") {
-    return {
-      nominal: toFQName(receiverIrType.name),
-      typeArgs: receiverIrType.typeArguments ?? [],
-    };
-  }
-
-  if (receiverIrType.kind === "arrayType") {
-    return {
-      nominal: toFQName("Array"),
-      typeArgs: [receiverIrType.elementType],
-    };
-  }
-
-  if (receiverIrType.kind === "primitiveType") {
-    const nominalMap: Record<string, string | undefined> = {
-      string: "String",
-      number: "Number",
-      boolean: "Boolean",
-      int: "Int32",
-    };
-    const simpleName = nominalMap[receiverIrType.name];
-    if (simpleName) {
-      return { nominal: toFQName(simpleName), typeArgs: [] };
-    }
+  // If the member has a type node, convert it
+  if (memberInfo.typeNode) {
+    return convertType(memberInfo.typeNode as ts.TypeNode, binding);
   }
 
   return undefined;
@@ -77,132 +52,50 @@ const normalizeReceiverToNominal = (
 /**
  * Get the declared property type from a property access expression.
  *
- * DETERMINISTIC TYPING: Uses TypeSystem.typeOfMember() for proper substitution.
- * Falls back to legacy NominalEnv + TypeRegistry path during migration.
- *
- * Flow (via TypeSystem):
- * 1. TypeSystem.typeOfMember(receiverIrType, { byName: propertyName })
- * 2. TypeSystem handles normalization, inheritance lookup, and substitution
+ * ALICE'S SPEC: Uses TypeSystem.typeOfMember() as primary source.
+ * Falls back to Binding for inherited members not in TypeRegistry.
  *
  * @param node - Property access expression node
  * @param receiverIrType - Already-computed IR type of the receiver (object) expression
- * @param binding - Binding layer for symbol resolution (NOT for type inference)
- * @returns The deterministically computed property type, or undefined if not found
+ * @param binding - Binding layer for fallback resolution
+ * @returns The deterministically computed property type
  */
 const getDeclaredPropertyType = (
   node: ts.PropertyAccessExpression,
   receiverIrType: IrType | undefined,
   binding: Binding
 ): IrType | undefined => {
-  try {
-    const propertyName = node.name.text;
+  const DEBUG = process.env.DEBUG_PROPERTY_TYPE === "1";
+  const propertyName = node.name.text;
 
-    // MIGRATION: Try TypeSystem.typeOfMember() first (Alice's spec)
-    const typeSystem = getTypeSystem();
-    if (typeSystem && receiverIrType && receiverIrType.kind !== "unknownType") {
-      const memberType = typeSystem.typeOfMember(receiverIrType, {
-        kind: "byName",
-        name: propertyName,
-      });
-      // If TypeSystem returned a valid type (not unknownType), use it
-      if (memberType.kind !== "unknownType") {
-        return memberType;
-      }
-      // Otherwise fall through to legacy path
-    }
-
-    // LEGACY PATH: Direct NominalEnv + TypeRegistry access (deprecated after migration)
-    const registry = getTypeRegistry();
-    const nominalEnv = getNominalEnv();
-
-    // If no receiver type or infrastructure not available, fall back to Binding lookup
-    if (
-      !receiverIrType ||
-      receiverIrType.kind === "unknownType" ||
-      !registry ||
-      !nominalEnv
-    ) {
-      // Fall back to Binding lookup (for built-ins and CLR types)
-      return getDeclaredPropertyTypeFallback(node, binding);
-    }
-
-    // 1. Normalize receiver to nominal + type args
-    const normalized = normalizeReceiverToNominal(receiverIrType);
-    if (!normalized) {
-      // Can't normalize - fall back to Binding lookup
-      return getDeclaredPropertyTypeFallback(node, binding);
-    }
-
-    const { nominal, typeArgs } = normalized;
-
-    // 2. Find declaring type + substitution using NominalEnv
-    const result = nominalEnv.findMemberDeclaringType(
-      nominal,
-      typeArgs,
-      propertyName
-    );
-
-    if (!result) {
-      // Member not found in inheritance chain - fall back to Binding lookup
-      // This handles CLR-bound members and built-ins from globals
-      return getDeclaredPropertyTypeFallback(node, binding);
-    }
-
-    const { targetNominal, substitution } = result;
-
-    // 3. Get declared member TypeNode from registry
-    const memberTypeNode = registry.getMemberTypeNode(
-      targetNominal,
-      propertyName
-    );
-
-    if (!memberTypeNode) {
-      // TypeNode not found in registry - fall back to Binding lookup
-      return getDeclaredPropertyTypeFallback(node, binding);
-    }
-
-    // 4. Convert TypeNode to IR pattern (may contain type parameters)
-    const memberTypePattern = convertType(memberTypeNode, binding);
-
-    // 5. Apply substitution to replace type parameters with concrete types
-    const finalType = substituteIrType(memberTypePattern, substitution);
-
-    return finalType;
-  } catch {
-    return undefined;
+  if (DEBUG) {
+    console.log("[getDeclaredPropertyType]", propertyName, "on receiver:", receiverIrType);
   }
-};
 
-/**
- * Fallback for getDeclaredPropertyType when NominalEnv can't resolve the member.
- * Uses Binding layer to resolve property declarations for:
- * - Built-in types from globals (string.length, Array.push, etc.)
- * - CLR-bound types from tsbindgen
- * - Types not registered in TypeRegistry
- */
-const getDeclaredPropertyTypeFallback = (
-  node: ts.PropertyAccessExpression,
-  binding: Binding
-): IrType | undefined => {
-  try {
-    // Resolve property member through Binding layer
-    const memberId = binding.resolvePropertyAccess(node);
-    if (!memberId) return undefined;
-
-    const memberInfo = binding.getHandleRegistry().getMember(memberId);
-    if (!memberInfo) return undefined;
-
-    // If the member has a type node, convert it
-    // For properties, this is the property type
-    // For methods, this is the method's function type signature from the AST
-    if (memberInfo.typeNode) {
-      return convertType(memberInfo.typeNode as ts.TypeNode, binding);
+  // Try TypeSystem.typeOfMember() first
+  const typeSystem = getTypeSystem();
+  if (typeSystem && receiverIrType && receiverIrType.kind !== "unknownType") {
+    const memberType = typeSystem.typeOfMember(receiverIrType, {
+      kind: "byName",
+      name: propertyName,
+    });
+    if (DEBUG) {
+      console.log("[getDeclaredPropertyType]", propertyName, "TypeSystem returned:", memberType);
     }
-
-    return undefined;
-  } catch {
-    return undefined;
+    // If TypeSystem returned a valid type (not unknownType), use it
+    if (memberType.kind !== "unknownType") {
+      return memberType;
+    }
+    // Fall through to Binding fallback
   }
+
+  // Fallback: Use Binding for inherited members not in TypeRegistry
+  // (e.g., Array.length from Array$instance)
+  const fallbackResult = getDeclaredPropertyTypeFallback(node, binding);
+  if (DEBUG) {
+    console.log("[getDeclaredPropertyType]", propertyName, "fallback returned:", fallbackResult);
+  }
+  return fallbackResult;
 };
 
 /**
