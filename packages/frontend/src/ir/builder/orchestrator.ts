@@ -23,7 +23,10 @@ import { buildNominalEnv } from "../nominal-env.js";
 import { convertType } from "../type-converter.js";
 import { createTypeSystem } from "../type-system/type-system.js";
 import type { BindingInternal } from "../binding/index.js";
-import { createConverterContext, type ConverterContext } from "../converters/context.js";
+import {
+  createConverterContext,
+  type ConverterContext,
+} from "../converters/context.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";

@@ -100,10 +100,10 @@ const getDeclaredPropertyType = (
     // MIGRATION: Try TypeSystem.typeOfMember() first (Alice's spec)
     const typeSystem = getTypeSystem();
     if (typeSystem && receiverIrType && receiverIrType.kind !== "unknownType") {
-      const memberType = typeSystem.typeOfMember(
-        receiverIrType,
-        { kind: "byName", name: propertyName }
-      );
+      const memberType = typeSystem.typeOfMember(receiverIrType, {
+        kind: "byName",
+        name: propertyName,
+      });
       // If TypeSystem returned a valid type (not unknownType), use it
       if (memberType.kind !== "unknownType") {
         return memberType;

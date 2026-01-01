@@ -180,7 +180,9 @@ export type TypeRegistry = {
   /**
    * @deprecated Access to legacy entry for backwards compatibility.
    */
-  readonly getLegacyEntry: (fqName: string) => LegacyTypeRegistryEntry | undefined;
+  readonly getLegacyEntry: (
+    fqName: string
+  ) => LegacyTypeRegistryEntry | undefined;
 };
 
 /**
@@ -581,7 +583,8 @@ export const buildTypeRegistry = (
   const simpleNameToFQ = new Map<string, string>();
 
   // Default converter returns unknownType (used during bootstrap)
-  const convert: ConvertTypeFn = convertType ?? (() => ({ kind: "unknownType" }));
+  const convert: ConvertTypeFn =
+    convertType ?? (() => ({ kind: "unknownType" }));
 
   // Helper function to process a declaration node
   const processDeclaration = (
@@ -634,7 +637,10 @@ export const buildTypeRegistry = (
       if (existing && existing.kind === "interface") {
         // Merge members
         const mergedMembers = new Map(existing.members);
-        for (const [memberName, memberInfo] of extractMembers(node.members, convert)) {
+        for (const [memberName, memberInfo] of extractMembers(
+          node.members,
+          convert
+        )) {
           mergedMembers.set(memberName, memberInfo);
         }
         entries.set(fqName, {
@@ -660,7 +666,9 @@ export const buildTypeRegistry = (
       // Legacy entry merge
       if (legacyExisting && legacyExisting.kind === "interface") {
         const mergedLegacyMembers = new Map(legacyExisting.members);
-        for (const [memberName, memberInfo] of extractLegacyMembers(node.members)) {
+        for (const [memberName, memberInfo] of extractLegacyMembers(
+          node.members
+        )) {
           mergedLegacyMembers.set(memberName, memberInfo);
         }
         legacyEntries.set(fqName, {
@@ -746,7 +754,9 @@ export const buildTypeRegistry = (
       return entries.get(fqName);
     },
 
-    resolveBySimpleName: (simpleName: string): TypeRegistryEntry | undefined => {
+    resolveBySimpleName: (
+      simpleName: string
+    ): TypeRegistryEntry | undefined => {
       const fqName = simpleNameToFQ.get(simpleName);
       return fqName ? entries.get(fqName) : undefined;
     },
@@ -755,7 +765,10 @@ export const buildTypeRegistry = (
       return simpleNameToFQ.get(simpleName);
     },
 
-    getMemberType: (fqNominal: string, memberName: string): IrType | undefined => {
+    getMemberType: (
+      fqNominal: string,
+      memberName: string
+    ): IrType | undefined => {
       const entry = entries.get(fqNominal);
       if (!entry) return undefined;
       const member = entry.members.get(memberName);
@@ -786,7 +799,9 @@ export const buildTypeRegistry = (
       return member?.typeNode;
     },
 
-    getHeritageTypeNodes: (fqNominal: string): readonly LegacyHeritageInfo[] => {
+    getHeritageTypeNodes: (
+      fqNominal: string
+    ): readonly LegacyHeritageInfo[] => {
       const entry = legacyEntries.get(fqNominal);
       return entry?.heritage ?? [];
     },

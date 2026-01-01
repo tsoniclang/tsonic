@@ -269,7 +269,9 @@ export const buildNominalEnv = (
     if (!childEntry) return new Map();
 
     // Use legacy API to get heritage clauses with TypeNodes
-    const legacyHeritage = registry.getHeritageTypeNodes(childEntry.fullyQualifiedName);
+    const legacyHeritage = registry.getHeritageTypeNodes(
+      childEntry.fullyQualifiedName
+    );
     const heritageClause = legacyHeritage.find(
       (h) => h.typeName === baseTypeName
     );

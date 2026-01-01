@@ -17,6 +17,7 @@ import type {
   IrFunctionType,
   IrReferenceType,
   IrPrimitiveType,
+  IrMethodSignature,
 } from "../types/index.js";
 import type { Diagnostic, DiagnosticCode } from "../../types/diagnostic.js";
 import type {
@@ -474,14 +475,15 @@ export type TypeRegistryEntry = {
 /**
  * Member info in TypeRegistry.
  *
- * Currently stores TypeNode (will be pure IR after Step 3).
+ * Pure IR representation - stores IrType, not TypeNode.
  */
 export type TypeRegistryMemberInfo = {
   readonly kind: "property" | "method" | "indexSignature";
   readonly name: string;
-  readonly typeNode?: unknown; // Will become `type: IrType` in Step 3
+  readonly type: IrType | undefined; // PURE IR - converted at registration time
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
+  readonly methodSignatures?: readonly IrMethodSignature[]; // For methods - PURE IR
 };
 
 /**
@@ -551,7 +553,9 @@ export const voidType: IrType = { kind: "voidType" };
 /**
  * Create a poisoned ResolvedCall with diagnostics.
  */
-export const poisonedCall = (diagnostics: readonly Diagnostic[]): ResolvedCall => ({
+export const poisonedCall = (
+  diagnostics: readonly Diagnostic[]
+): ResolvedCall => ({
   parameterTypes: [],
   parameterModes: [],
   returnType: unknownType,
@@ -610,7 +614,10 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
    * Key: "fqName:typeArgs:memberName"
    * Value: NominalLookupResult
    */
-  const nominalMemberLookupCache = new Map<string, NominalLookupResult | null>();
+  const nominalMemberLookupCache = new Map<
+    string,
+    NominalLookupResult | null
+  >();
 
   /**
    * Accumulated diagnostics from type queries.
@@ -680,7 +687,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     t: IrType
   ): t is IrPrimitiveType & { name: "null" | "undefined" } => {
     return (
-      t.kind === "primitiveType" && (t.name === "null" || t.name === "undefined")
+      t.kind === "primitiveType" &&
+      (t.name === "null" || t.name === "undefined")
     );
   };
 
@@ -695,7 +703,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
    * Get or compute raw signature info from SignatureId.
    * Caches the result for subsequent calls.
    */
-  const getRawSignature = (sigId: SignatureId): RawSignatureInfo | undefined => {
+  const getRawSignature = (
+    sigId: SignatureId
+  ): RawSignatureInfo | undefined => {
     const cached = signatureRawCache.get(sigId.id);
     if (cached) return cached;
 
@@ -703,8 +713,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     if (!sigInfo) return undefined;
 
     // Convert parameter types from TypeNodes to IrTypes
-    const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map((p) =>
-      p.typeNode ? convertTypeNode(p.typeNode) : undefined
+    const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map(
+      (p) => (p.typeNode ? convertTypeNode(p.typeNode) : undefined)
     );
 
     // Convert return type
@@ -721,17 +731,15 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     const parameterNames: string[] = sigInfo.parameters.map((p) => p.name);
 
     // Extract type parameters
-    const typeParameters: TypeParameterInfo[] = (sigInfo.typeParameters ?? []).map(
-      (tp) => ({
-        name: tp.name,
-        constraint: tp.constraintNode
-          ? convertTypeNode(tp.constraintNode)
-          : undefined,
-        defaultType: tp.defaultNode
-          ? convertTypeNode(tp.defaultNode)
-          : undefined,
-      })
-    );
+    const typeParameters: TypeParameterInfo[] = (
+      sigInfo.typeParameters ?? []
+    ).map((tp) => ({
+      name: tp.name,
+      constraint: tp.constraintNode
+        ? convertTypeNode(tp.constraintNode)
+        : undefined,
+      defaultType: tp.defaultNode ? convertTypeNode(tp.defaultNode) : undefined,
+    }));
 
     const rawSig: RawSignatureInfo = {
       parameterTypes,
@@ -1061,16 +1069,442 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // expandUtility — Utility type expansion (implemented in Step 8)
+  // expandUtility — Utility type expansion (Step 8)
+  //
+  // Implements all 13 utility types with deterministic constraints:
+  // - Partial/Required/Readonly: T must be object-like
+  // - Pick/Omit: K must be string literal union (finite keys)
+  // - ReturnType/Parameters: F must be function type
+  // - NonNullable: Works on any type
+  // - Exclude/Extract: Works on any types
+  // - Awaited: Recursive on Promise<T>
+  // - Record: K must be finite literal union (string/number infinite → dictionary)
   // ─────────────────────────────────────────────────────────────────────────
 
   const expandUtility = (
-    _name: UtilityTypeName,
-    _args: readonly IrType[],
-    _site?: Site
+    name: UtilityTypeName,
+    args: readonly IrType[],
+    site?: Site
   ): IrType => {
-    // Will be implemented in Step 8 - for now delegate to unknownType
+    const firstArg = args[0];
+    if (!firstArg) {
+      emitDiagnostic(
+        "TSN7414",
+        `Utility type '${name}' requires a type argument`,
+        site
+      );
+      return unknownType;
+    }
+
+    // Check if first arg contains type parameters (cannot expand)
+    if (containsTypeParameter(firstArg)) {
+      // Return unknownType - cannot expand utility types with type parameters
+      return unknownType;
+    }
+
+    switch (name) {
+      case "NonNullable":
+        return expandNonNullableUtility(firstArg);
+
+      case "Partial":
+        return expandMappedUtility(firstArg, "optional", site);
+
+      case "Required":
+        return expandMappedUtility(firstArg, "required", site);
+
+      case "Readonly":
+        return expandMappedUtility(firstArg, "readonly", site);
+
+      case "Pick": {
+        const keysArg = args[1];
+        if (!keysArg) {
+          emitDiagnostic("TSN7414", `Pick requires two type arguments`, site);
+          return unknownType;
+        }
+        return expandPickOmitUtility(firstArg, keysArg, true, site);
+      }
+
+      case "Omit": {
+        const keysArg = args[1];
+        if (!keysArg) {
+          emitDiagnostic("TSN7414", `Omit requires two type arguments`, site);
+          return unknownType;
+        }
+        return expandPickOmitUtility(firstArg, keysArg, false, site);
+      }
+
+      case "ReturnType":
+        return expandReturnTypeUtility(firstArg, site);
+
+      case "Parameters":
+        return expandParametersUtility(firstArg, site);
+
+      case "Exclude": {
+        const excludeArg = args[1];
+        if (!excludeArg) {
+          emitDiagnostic(
+            "TSN7414",
+            `Exclude requires two type arguments`,
+            site
+          );
+          return unknownType;
+        }
+        return expandExcludeExtractUtility(firstArg, excludeArg, false);
+      }
+
+      case "Extract": {
+        const extractArg = args[1];
+        if (!extractArg) {
+          emitDiagnostic(
+            "TSN7414",
+            `Extract requires two type arguments`,
+            site
+          );
+          return unknownType;
+        }
+        return expandExcludeExtractUtility(firstArg, extractArg, true);
+      }
+
+      case "Awaited":
+        return expandAwaitedUtility(firstArg);
+
+      case "Record": {
+        const valueArg = args[1];
+        if (!valueArg) {
+          emitDiagnostic("TSN7414", `Record requires two type arguments`, site);
+          return unknownType;
+        }
+        return expandRecordUtility(firstArg, valueArg, site);
+      }
+
+      default:
+        emitDiagnostic(
+          "TSN7414",
+          `Utility type '${name}' is not supported`,
+          site
+        );
+        return unknownType;
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Utility Type Helper Functions
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Expand NonNullable<T>: Filter out null and undefined from union
+   */
+  const expandNonNullableUtility = (type: IrType): IrType => {
+    // Direct null/undefined
+    if (isNullishPrimitive(type)) {
+      return neverType;
+    }
+
+    // Not a union - return as-is
+    if (type.kind !== "unionType") {
+      return type;
+    }
+
+    // Filter out null and undefined from union
+    const filtered = type.types.filter((t) => !isNullishPrimitive(t));
+
+    if (filtered.length === 0) {
+      return neverType;
+    }
+    if (filtered.length === 1 && filtered[0]) {
+      return filtered[0];
+    }
+    return { kind: "unionType", types: filtered };
+  };
+
+  /**
+   * Expand Partial/Required/Readonly<T>: Mapped type transformation
+   */
+  const expandMappedUtility = (
+    type: IrType,
+    mode: "optional" | "required" | "readonly",
+    site?: Site
+  ): IrType => {
+    // Must be object-like
+    if (type.kind !== "objectType") {
+      // For reference types, we need structural members
+      if (type.kind === "referenceType") {
+        // Try to get structural members from type
+        const members = getStructuralMembersForType(type);
+        if (members.length === 0) {
+          emitDiagnostic(
+            "TSN7414",
+            `${mode === "optional" ? "Partial" : mode === "required" ? "Required" : "Readonly"} requires a concrete object type`,
+            site
+          );
+          return unknownType;
+        }
+        // Transform the members
+        return {
+          kind: "objectType",
+          members: transformMembers(members, mode),
+        };
+      }
+      emitDiagnostic(
+        "TSN7414",
+        `${mode === "optional" ? "Partial" : mode === "required" ? "Required" : "Readonly"} requires an object type`,
+        site
+      );
+      return unknownType;
+    }
+
+    return {
+      kind: "objectType",
+      members: transformMembers(type.members, mode),
+    };
+  };
+
+  /**
+   * Transform members for Partial/Required/Readonly
+   */
+  const transformMembers = (
+    members: readonly import("../types/index.js").IrInterfaceMember[],
+    mode: "optional" | "required" | "readonly"
+  ): import("../types/index.js").IrInterfaceMember[] => {
+    return members.map((m) => {
+      if (m.kind === "propertySignature") {
+        return {
+          ...m,
+          isOptional:
+            mode === "optional"
+              ? true
+              : mode === "required"
+                ? false
+                : m.isOptional,
+          isReadonly: mode === "readonly" ? true : m.isReadonly,
+        };
+      }
+      return m;
+    });
+  };
+
+  /**
+   * Get structural members for a reference type
+   */
+  const getStructuralMembersForType = (
+    type: IrReferenceType
+  ): readonly import("../types/index.js").IrInterfaceMember[] => {
+    if (type.structuralMembers) {
+      return type.structuralMembers;
+    }
+    // Try to look up in registry
+    const fqName = typeRegistry.getFQName(type.name);
+    const entry = fqName
+      ? typeRegistry.resolveNominal(fqName)
+      : typeRegistry.resolveBySimpleName(type.name);
+    if (!entry) return [];
+
+    // Convert registry members to IR members
+    const members: import("../types/index.js").IrInterfaceMember[] = [];
+    entry.members.forEach((info, name) => {
+      if (info.kind === "property" && info.type) {
+        members.push({
+          kind: "propertySignature",
+          name,
+          type: info.type,
+          isOptional: info.isOptional,
+          isReadonly: info.isReadonly,
+        });
+      }
+    });
+    return members;
+  };
+
+  /**
+   * Expand Pick/Omit<T, K>: Filter members by keys
+   */
+  const expandPickOmitUtility = (
+    type: IrType,
+    keysType: IrType,
+    isPick: boolean,
+    site?: Site
+  ): IrType => {
+    // Extract literal keys from keysType
+    const keys = extractLiteralKeys(keysType);
+    if (keys === null) {
+      emitDiagnostic(
+        "TSN7414",
+        `${isPick ? "Pick" : "Omit"} requires literal string keys`,
+        site
+      );
+      return unknownType;
+    }
+
+    // Get members from type
+    let members: readonly import("../types/index.js").IrInterfaceMember[];
+    if (type.kind === "objectType") {
+      members = type.members;
+    } else if (type.kind === "referenceType") {
+      members = getStructuralMembersForType(type);
+    } else {
+      emitDiagnostic(
+        "TSN7414",
+        `${isPick ? "Pick" : "Omit"} requires an object type`,
+        site
+      );
+      return unknownType;
+    }
+
+    // Filter members
+    const filtered = members.filter((m) => {
+      const include = isPick ? keys.has(m.name) : !keys.has(m.name);
+      return include;
+    });
+
+    return { kind: "objectType", members: filtered };
+  };
+
+  /**
+   * Extract literal keys from a type (string literals or union of string literals)
+   */
+  const extractLiteralKeys = (type: IrType): Set<string> | null => {
+    if (type.kind === "literalType" && typeof type.value === "string") {
+      return new Set([type.value]);
+    }
+
+    if (type.kind === "unionType") {
+      const keys = new Set<string>();
+      for (const t of type.types) {
+        if (t.kind === "literalType" && typeof t.value === "string") {
+          keys.add(t.value);
+        } else if (t.kind === "literalType" && typeof t.value === "number") {
+          keys.add(String(t.value));
+        } else {
+          return null; // Non-literal in union
+        }
+      }
+      return keys;
+    }
+
+    return null;
+  };
+
+  /**
+   * Expand ReturnType<F>: Extract return type from function type
+   */
+  const expandReturnTypeUtility = (type: IrType, site?: Site): IrType => {
+    if (type.kind === "functionType") {
+      return type.returnType ?? voidType;
+    }
+    emitDiagnostic(
+      "TSN7414",
+      `ReturnType requires a function type argument`,
+      site
+    );
     return unknownType;
+  };
+
+  /**
+   * Expand Parameters<F>: Extract parameters as tuple from function type
+   */
+  const expandParametersUtility = (type: IrType, site?: Site): IrType => {
+    if (type.kind === "functionType") {
+      const elementTypes = type.parameters.map(
+        (p) => p.type ?? { kind: "anyType" as const }
+      );
+      return { kind: "tupleType", elementTypes };
+    }
+    emitDiagnostic(
+      "TSN7414",
+      `Parameters requires a function type argument`,
+      site
+    );
+    return unknownType;
+  };
+
+  /**
+   * Expand Exclude<T, U> or Extract<T, U>
+   */
+  const expandExcludeExtractUtility = (
+    tType: IrType,
+    uType: IrType,
+    isExtract: boolean
+  ): IrType => {
+    // If T is not a union, check if it matches U
+    if (tType.kind !== "unionType") {
+      const matches =
+        typesEqual(tType, uType) ||
+        (uType.kind === "unionType" &&
+          uType.types.some((u) => typesEqual(tType, u)));
+      if (isExtract) {
+        return matches ? tType : neverType;
+      } else {
+        return matches ? neverType : tType;
+      }
+    }
+
+    // T is a union - filter its constituents
+    const uTypes = uType.kind === "unionType" ? uType.types : [uType];
+    const filtered = tType.types.filter((t) => {
+      const matches = uTypes.some((u) => typesEqual(t, u));
+      return isExtract ? matches : !matches;
+    });
+
+    if (filtered.length === 0) {
+      return neverType;
+    }
+    if (filtered.length === 1 && filtered[0]) {
+      return filtered[0];
+    }
+    return { kind: "unionType", types: filtered };
+  };
+
+  /**
+   * Expand Awaited<T>: Unwrap Promise types recursively
+   */
+  const expandAwaitedUtility = (type: IrType): IrType => {
+    // Check for Promise<T>
+    if (
+      type.kind === "referenceType" &&
+      (type.name === "Promise" || type.name === "PromiseLike")
+    ) {
+      const innerType = type.typeArguments?.[0];
+      if (innerType) {
+        // Recursively unwrap
+        return expandAwaitedUtility(innerType);
+      }
+    }
+    // Not a Promise - return as-is
+    return type;
+  };
+
+  /**
+   * Expand Record<K, V>: Create object type from literal keys
+   */
+  const expandRecordUtility = (
+    keyType: IrType,
+    valueType: IrType,
+    site?: Site
+  ): IrType => {
+    // Check if K is a finite set of literal keys
+    const keys = extractLiteralKeys(keyType);
+    if (keys === null) {
+      // Non-finite key type - cannot expand to object, use dictionary instead
+      // Return unknownType to signal that caller should use dictionaryType
+      emitDiagnostic(
+        "TSN7414",
+        `Record with non-literal keys cannot be expanded to object type`,
+        site
+      );
+      return unknownType;
+    }
+
+    // Build object type with a property for each key
+    const members: import("../types/index.js").IrPropertySignature[] =
+      Array.from(keys).map((key) => ({
+        kind: "propertySignature" as const,
+        name: key,
+        type: valueType,
+        isOptional: false,
+        isReadonly: false,
+      }));
+
+    return { kind: "objectType", members };
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1260,7 +1694,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       }
 
       case "typeParameterType":
-        return b.kind === "typeParameterType" && a.name === (b as typeof a).name;
+        return (
+          b.kind === "typeParameterType" && a.name === (b as typeof a).name
+        );
 
       case "literalType":
         return b.kind === "literalType" && a.value === (b as typeof a).value;

@@ -119,8 +119,7 @@ export const getNominalEnv = (): NominalEnv | undefined => _nominalEnv;
  * Internal accessor for TypeSystem construction only.
  * NOT for use in converters - use TypeSystem methods instead.
  */
-export const _internalGetNominalEnv = (): NominalEnv | undefined =>
-  _nominalEnv;
+export const _internalGetNominalEnv = (): NominalEnv | undefined => _nominalEnv;
 
 /**
  * Set the TypeSystem for this compilation.

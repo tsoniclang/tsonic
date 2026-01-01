@@ -601,7 +601,7 @@ const extractDeclaringIdentity = (
     // Get the method name
     const memberName = ts.isIdentifier(decl.name)
       ? decl.name.text
-      : decl.name?.getText() ?? "unknown";
+      : (decl.name?.getText() ?? "unknown");
 
     // Get the containing type's FQ name
     if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
@@ -639,7 +639,7 @@ const extractDeclaringIdentity = (
     const parent = decl.parent;
     const memberName = ts.isIdentifier(decl.name)
       ? decl.name.text
-      : decl.name?.getText() ?? "unknown";
+      : (decl.name?.getText() ?? "unknown");
 
     if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
       const typeSymbol = parent.name
