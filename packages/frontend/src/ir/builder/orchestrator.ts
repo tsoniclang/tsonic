@@ -16,10 +16,13 @@ import {
   getTypeRegistry,
   setNominalEnv,
   clearTypeRegistries,
+  setTypeSystem,
 } from "../statement-converter.js";
 import { buildTypeRegistry } from "../type-registry.js";
 import { buildNominalEnv } from "../nominal-env.js";
 import { convertType } from "../type-converter.js";
+import { createTypeSystem } from "../type-system/type-system.js";
+import type { BindingInternal } from "../binding/index.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
@@ -216,6 +219,19 @@ export const buildIr = (
     program.binding
   );
   setNominalEnv(nominalEnv);
+
+  // Build TypeSystem — the single source of truth for all type queries (Alice's spec)
+  // TypeSystem encapsulates HandleRegistry, TypeRegistry, NominalEnv and type conversion
+  const bindingInternal = program.binding as BindingInternal;
+  const typeSystem = createTypeSystem({
+    handleRegistry: bindingInternal._getHandleRegistry(),
+    typeRegistry,
+    nominalEnv,
+    // Wrap convertType to capture binding context
+    convertTypeNode: (node: unknown) =>
+      convertType(node as import("typescript").TypeNode, program.binding),
+  });
+  setTypeSystem(typeSystem);
 
   const modules: IrModule[] = [];
   const diagnostics: Diagnostic[] = [];

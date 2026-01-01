@@ -10,6 +10,9 @@ export {
   getTypeRegistry,
   getNominalEnv,
   clearTypeRegistries,
+  // TypeSystem singleton for migration period
+  setTypeSystem,
+  getTypeSystem,
   // Internal accessors for TypeSystem construction only
   _internalGetTypeRegistry,
   _internalGetNominalEnv,

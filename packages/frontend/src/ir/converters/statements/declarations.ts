@@ -11,6 +11,8 @@ export {
   getTypeRegistry,
   getNominalEnv,
   clearTypeRegistries,
+  setTypeSystem,
+  getTypeSystem,
   convertVariableStatement,
   convertFunctionDeclaration,
   convertClassDeclaration,

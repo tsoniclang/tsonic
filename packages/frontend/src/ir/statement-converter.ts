@@ -204,4 +204,6 @@ export {
   getTypeRegistry,
   getNominalEnv,
   clearTypeRegistries,
+  setTypeSystem,
+  getTypeSystem,
 } from "./converters/statements/declarations.js";

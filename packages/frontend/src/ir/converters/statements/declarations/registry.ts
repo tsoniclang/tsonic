@@ -12,6 +12,7 @@ import { DotnetMetadataRegistry } from "../../../../dotnet-metadata.js";
 import { BindingRegistry } from "../../../../program/bindings.js";
 import { TypeRegistry } from "../../../type-registry.js";
 import { NominalEnv } from "../../../nominal-env.js";
+import type { TypeSystem } from "../../../type-system/type-system.js";
 
 /**
  * Module-level metadata registry singleton
@@ -38,6 +39,13 @@ let _typeRegistry: TypeRegistry | undefined = undefined;
  * Used for inheritance chain substitution (deterministic typing)
  */
 let _nominalEnv: NominalEnv | undefined = undefined;
+
+/**
+ * Module-level TypeSystem singleton
+ * Set once at the start of compilation via setTypeSystem()
+ * This is the single source of truth for all type queries (Alice's spec)
+ */
+let _typeSystem: TypeSystem | undefined = undefined;
 
 /**
  * Set the metadata registry for this compilation
@@ -115,10 +123,32 @@ export const _internalGetNominalEnv = (): NominalEnv | undefined =>
   _nominalEnv;
 
 /**
- * Clear type registry and nominal env
- * Called between compilations to prevent stale data
+ * Set the TypeSystem for this compilation.
+ * Called once at the start of IR building, after TypeRegistry and NominalEnv are created.
+ *
+ * This is the ONLY way to set the global TypeSystem. All converters should
+ * eventually receive TypeSystem as a parameter, but during migration they
+ * can access it via getTypeSystem().
+ */
+export const setTypeSystem = (ts: TypeSystem): void => {
+  _typeSystem = ts;
+};
+
+/**
+ * Get the current TypeSystem.
+ * Returns undefined if not yet initialized.
+ *
+ * During Step 7 migration, converters can use this to access TypeSystem
+ * before they are fully migrated to receive it as a parameter.
+ */
+export const getTypeSystem = (): TypeSystem | undefined => _typeSystem;
+
+/**
+ * Clear type registry, nominal env, and TypeSystem.
+ * Called between compilations to prevent stale data.
  */
 export const clearTypeRegistries = (): void => {
   _typeRegistry = undefined;
   _nominalEnv = undefined;
+  _typeSystem = undefined;
 };
