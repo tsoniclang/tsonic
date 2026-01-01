@@ -2,11 +2,7 @@
  * Call and new expression converters
  *
  * ALICE'S SPEC: All call resolution goes through TypeSystem.resolveCall().
- * Falls back to NominalEnv for inherited method return types that TypeSystem
- * can't resolve (e.g., String.substring from String$instance).
- *
- * TODO(alice): The NominalEnv fallback should be removed once TypeSystem
- * properly handles inherited methods from extended interfaces.
+ * NO FALLBACKS ALLOWED. If TypeSystem can't resolve, return unknownType.
  */
 
 import * as ts from "typescript";
@@ -23,116 +19,81 @@ import {
 import { convertExpression } from "../../expression-converter.js";
 import { convertType } from "../../type-converter.js";
 import { IrType } from "../../types.js";
-import {
-  getTypeSystem,
-  _internalGetTypeRegistry,
-  _internalGetNominalEnv,
-} from "../statements/declarations/registry.js";
-import { substituteIrType } from "../../nominal-env.js";
-import {
-  normalizeToClrFQ,
-  PRIMITIVE_TO_CLR_FQ,
-} from "../../clr-type-mappings.js";
+import { getTypeSystem } from "../statements/declarations/registry.js";
 import type { Binding } from "../../binding/index.js";
 
 /**
- * Extract argument passing modes from resolved signature
- * Returns array aligned with arguments, indicating ref/out/in/value for each
+ * Extract argument passing modes from resolved signature.
+ * Returns array aligned with arguments, indicating ref/out/in/value for each.
+ *
+ * ALICE'S SPEC: Uses TypeSystem to get parameter modes.
+ * Parameter modes were normalized in Binding at registration time.
  */
 const extractArgumentPassing = (
   node: ts.CallExpression | ts.NewExpression,
   binding: Binding
 ): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
-  try {
-    // Handle both CallExpression and NewExpression
-    const sigId = ts.isCallExpression(node)
-      ? binding.resolveCallSignature(node)
-      : binding.resolveConstructorSignature(node);
-    if (!sigId) return undefined;
+  // Get the TypeSystem
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
 
-    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
-    if (!sigInfo?.parameters || sigInfo.parameters.length === 0) {
-      return undefined;
-    }
+  // Handle both CallExpression and NewExpression
+  const sigId = ts.isCallExpression(node)
+    ? binding.resolveCallSignature(node)
+    : binding.resolveConstructorSignature(node);
+  if (!sigId) return undefined;
 
-    // Build passing mode for each parameter from stored TypeNodes
-    const passingModes: ("value" | "ref" | "out" | "in")[] = [];
+  // Use TypeSystem.resolveCall() to get parameter modes
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount: ts.isCallExpression(node)
+      ? node.arguments.length
+      : (node.arguments?.length ?? 0),
+  });
 
-    for (const param of sigInfo.parameters) {
-      let passing: "value" | "ref" | "out" | "in" = "value";
-      const paramTypeNode = param.typeNode as ts.TypeNode | undefined;
-
-      // Check if parameter type is ref<T>, out<T>, or in<T>
-      if (
-        paramTypeNode &&
-        ts.isTypeReferenceNode(paramTypeNode) &&
-        ts.isIdentifier(paramTypeNode.typeName)
-      ) {
-        const typeName = paramTypeNode.typeName.text;
-        if (
-          (typeName === "ref" || typeName === "out" || typeName === "in") &&
-          paramTypeNode.typeArguments &&
-          paramTypeNode.typeArguments.length > 0
-        ) {
-          passing = typeName === "in" ? "in" : typeName;
-        }
-      }
-
-      passingModes.push(passing);
-    }
-
-    return passingModes;
-  } catch {
-    return undefined;
-  }
+  // Return parameter modes from TypeSystem (already normalized in Binding)
+  return resolved.parameterModes;
 };
 
 /**
  * Extract type predicate narrowing metadata from a call expression.
  * Returns narrowing info if the callee is a type predicate function (x is T).
  *
- * DETERMINISTIC: Gets the target type from the predicate's declaration TypeNode.
+ * ALICE'S SPEC: Uses TypeSystem.resolveCall() which includes typePredicate
+ * extracted at Binding registration time.
  */
 const extractNarrowing = (
   node: ts.CallExpression,
   binding: Binding
 ): IrCallExpression["narrowing"] => {
-  try {
-    const sigId = binding.resolveCallSignature(node);
-    if (!sigId) return undefined;
+  // Get the TypeSystem
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
 
-    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
-    if (!sigInfo) return undefined;
+  const sigId = binding.resolveCallSignature(node);
+  if (!sigId) return undefined;
 
-    // Check if return type is a type predicate
-    const returnTypeNode = sigInfo.returnTypeNode as ts.TypeNode | undefined;
-    if (returnTypeNode && ts.isTypePredicateNode(returnTypeNode)) {
-      const predNode = returnTypeNode;
+  // Use TypeSystem.resolveCall() to get type predicate
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount: node.arguments.length,
+  });
 
-      // We only handle "param is T" predicates (not "this is T")
-      if (ts.isIdentifier(predNode.parameterName) && predNode.type) {
-        // Find the parameter index
-        const paramName = predNode.parameterName.text;
-        const paramIndex = sigInfo.parameters.findIndex(
-          (p) => p.name === paramName
-        );
+  // Check if resolved has a type predicate
+  const pred = resolved.typePredicate;
+  if (!pred) return undefined;
 
-        if (paramIndex >= 0) {
-          const targetType = convertType(predNode.type, binding);
-          if (targetType) {
-            return {
-              kind: "typePredicate",
-              argIndex: paramIndex,
-              targetType,
-            };
-          }
-        }
-      }
-    }
-    return undefined;
-  } catch {
-    return undefined;
+  // We only handle "param is T" predicates for call narrowing
+  if (pred.kind === "param") {
+    return {
+      kind: "typePredicate",
+      argIndex: pred.parameterIndex,
+      targetType: pred.targetType,
+    };
   }
+
+  // "this is T" predicates are not applicable to call expressions
+  return undefined;
 };
 
 
@@ -200,50 +161,9 @@ const extractParameterTypes = (
  * - No declaration on signature
  * - No return type annotation on declaration
  */
-/**
- * Extract return type from a FunctionTypeNode.
- * For `() => number`, returns the `number` TypeNode.
- */
-const getReturnTypeFromFunctionType = (
-  typeNode: ts.TypeNode
-): ts.TypeNode | undefined => {
-  if (ts.isFunctionTypeNode(typeNode)) {
-    return typeNode.type;
-  }
-  return undefined;
-};
-
-/**
- * Get the declared type of a callee from its variable/parameter declaration.
- * For function-typed identifiers, returns the function type.
- */
-const getCalleesDeclaredType = (
-  node: ts.CallExpression,
-  binding: Binding
-): ts.TypeNode | undefined => {
-  const callee = node.expression;
-
-  // Only handle identifiers for now
-  if (!ts.isIdentifier(callee)) return undefined;
-
-  const declId = binding.resolveIdentifier(callee);
-  if (!declId) return undefined;
-
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
-  if (!declInfo) return undefined;
-
-  // Check for explicit type node on the declaration
-  if (declInfo.typeNode) {
-    return declInfo.typeNode as ts.TypeNode;
-  }
-
-  // For function-typed variables declared from a call expression,
-  // we'd need the declaration node to get the initializer.
-  // The current DeclInfo only has typeNode, so we can't access initializers.
-  // This is a limitation - we'll return undefined and let validation handle it.
-
-  return undefined;
-};
+// DELETED: getReturnTypeFromFunctionType - Was part of fallback path
+// DELETED: getCalleesDeclaredType - Was part of fallback path
+// Alice's spec: TypeSystem.resolveCall() is the single source of truth.
 
 /**
  * Walk a property access chain and build a qualified name.
@@ -273,169 +193,19 @@ const buildQualifiedName = (expr: ts.Expression): string | undefined => {
   return undefined;
 };
 
-/**
- * Fallback for getDeclaredReturnType when Binding can't resolve the signature.
- * Uses Binding.resolvePropertyAccess to get the method's return type.
- *
- * TODO(alice): This fallback should be removed once TypeSystem properly
- * handles inherited methods from extended interfaces.
- */
-const getDeclaredReturnTypeFallback = (
-  node: ts.CallExpression,
-  binding: Binding
-): IrType | undefined => {
-  // Only for member method calls: obj.method()
-  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+// DELETED: getDeclaredReturnTypeFallback - Alice's spec: no fallbacks allowed
+// TypeSystem.resolveCall() is the single source of truth.
 
-  // Resolve the method as a property access
-  const memberId = binding.resolvePropertyAccess(node.expression);
-  if (!memberId) return undefined;
-
-  const memberInfo = binding.getHandleRegistry().getMember(memberId);
-  if (!memberInfo?.typeNode) return undefined;
-
-  const typeNode = memberInfo.typeNode as ts.TypeNode;
-
-  // If it's a function type node (property with function type), extract return type
-  if (ts.isFunctionTypeNode(typeNode)) {
-    return convertType(typeNode.type, binding);
-  }
-
-  // For method signatures, typeNode is already the return type node
-  return convertType(typeNode, binding);
-};
-
-/**
- * Normalize receiver IR type to a fully-qualified CLR nominal type name and type arguments.
- * Used for NominalEnv-based member type resolution.
- *
- * Uses hardcoded CLR mappings for @tsonic/globals and @tsonic/core types.
- * These are fundamental runtime types with fixed CLR identities.
- */
-const normalizeReceiverToNominal = (
-  receiverIrType: IrType
-): { nominal: string; typeArgs: readonly IrType[] } | undefined => {
-  if (receiverIrType.kind === "referenceType") {
-    // Normalize reference type names to CLR FQ names
-    const clrFQ = normalizeToClrFQ(receiverIrType.name);
-    return {
-      nominal: clrFQ,
-      typeArgs: receiverIrType.typeArguments ?? [],
-    };
-  }
-
-  if (receiverIrType.kind === "arrayType") {
-    return {
-      nominal: "System.Array",
-      typeArgs: [receiverIrType.elementType],
-    };
-  }
-
-  if (receiverIrType.kind === "primitiveType") {
-    // Use CLR FQ mappings for all primitive types
-    const clrFQ = PRIMITIVE_TO_CLR_FQ[receiverIrType.name];
-    if (clrFQ) {
-      return { nominal: clrFQ, typeArgs: [] };
-    }
-  }
-
-  return undefined;
-};
-
-/**
- * Fallback for getDeclaredReturnType using NominalEnv to walk inheritance chains.
- * Used for member method calls on types with inherited methods from globals
- * (e.g., s.substring() where String extends String$instance from @tsonic/dotnet).
- *
- * TODO(alice): This fallback should be removed once TypeSystem properly
- * handles inherited methods from extended interfaces.
- */
-const getDeclaredReturnTypeNominalEnvFallback = (
-  node: ts.CallExpression,
-  receiverIrType: IrType | undefined,
-  binding: Binding
-): IrType | undefined => {
-  const DEBUG = process.env.DEBUG_NOMINALENV === "1";
-
-  // Only for member method calls: obj.method()
-  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
-  if (!receiverIrType || receiverIrType.kind === "unknownType") return undefined;
-
-  const registry = _internalGetTypeRegistry();
-  const nominalEnv = _internalGetNominalEnv();
-  if (!registry || !nominalEnv) {
-    if (DEBUG) console.log("[NominalEnvFallback] registry or nominalEnv is null");
-    return undefined;
-  }
-
-  const methodName = node.expression.name.text;
-  const normalized = normalizeReceiverToNominal(receiverIrType);
-  if (!normalized) {
-    if (DEBUG) console.log("[NominalEnvFallback] normalization failed for", receiverIrType);
-    return undefined;
-  }
-
-  if (DEBUG) console.log("[NominalEnvFallback] Looking up", methodName, "on", normalized.nominal);
-
-  // Try to find the method in the type's inheritance chain
-  const result = nominalEnv.findMemberDeclaringType(
-    normalized.nominal,
-    normalized.typeArgs,
-    methodName
-  );
-  if (!result) {
-    if (DEBUG) console.log("[NominalEnvFallback] findMemberDeclaringType returned null");
-    if (DEBUG) console.log("[NominalEnvFallback] Inheritance chain:", nominalEnv.getInheritanceChain(normalized.nominal));
-    return undefined;
-  }
-
-  if (DEBUG) console.log("[NominalEnvFallback] Found in", result.targetNominal);
-
-  // Get the method's return type from TypeRegistry
-  const legacyEntry = registry.getLegacyEntry(result.targetNominal);
-  if (!legacyEntry) {
-    if (DEBUG) console.log("[NominalEnvFallback] No legacy entry for", result.targetNominal);
-    return undefined;
-  }
-
-  const member = legacyEntry.members.get(methodName);
-  if (
-    member?.kind !== "method" ||
-    !member.signatures ||
-    member.signatures.length === 0
-  ) {
-    if (DEBUG) console.log("[NominalEnvFallback] Member not found or not a method:", member);
-    return undefined;
-  }
-
-  // Use first signature's return type
-  const methodSig = member.signatures[0]!;
-  if (!methodSig.type) {
-    if (DEBUG) console.log("[NominalEnvFallback] No return type on signature");
-    return undefined;
-  }
-
-  const baseReturnType = convertType(methodSig.type, binding);
-  if (!baseReturnType) {
-    if (DEBUG) console.log("[NominalEnvFallback] convertType returned undefined");
-    return undefined;
-  }
-
-  if (DEBUG) console.log("[NominalEnvFallback] Return type:", baseReturnType);
-
-  // Apply inheritance substitution
-  return substituteIrType(baseReturnType, result.substitution);
-};
+// DELETED: normalizeReceiverToNominal - No longer needed without NominalEnv fallback
+// DELETED: getDeclaredReturnTypeNominalEnvFallback - Alice's spec: no fallbacks allowed
+// TypeSystem.resolveCall() is the single source of truth.
 
 /**
  * Get the declared return type from a call or new expression's signature.
  *
- * ALICE'S SPEC: Uses TypeSystem.resolveCall() as primary source.
- * Falls back to Binding for inherited methods not in TypeRegistry
- * (e.g., String.substring from String$instance).
- *
- * TODO(alice): The Binding fallback should be removed once TypeRegistry
- * properly handles inherited members from extended interfaces.
+ * ALICE'S SPEC: Uses TypeSystem.resolveCall() EXCLUSIVELY.
+ * NO FALLBACKS. If TypeSystem can't resolve, return unknownType.
+ * This ensures any missing TypeSystem functionality surfaces as test failures.
  */
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
@@ -449,6 +219,7 @@ export const getDeclaredReturnType = (
   if (DEBUG && methodName) {
     console.log("[getDeclaredReturnType]", methodName, "receiver:", receiverIrType);
   }
+
   // Handle new expressions specially - they construct the type from the expression
   if (ts.isNewExpression(node)) {
     // For new expressions with explicit type arguments
@@ -472,70 +243,41 @@ export const getDeclaredReturnType = (
     return undefined;
   }
 
-  // For call expressions, try TypeSystem.resolveCall() first
+  // For call expressions, use TypeSystem.resolveCall() EXCLUSIVELY
   const typeSystem = getTypeSystem();
+  if (!typeSystem) {
+    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "No TypeSystem available");
+    return undefined;
+  }
 
   const sigId = binding.resolveCallSignature(node);
-  if (sigId && typeSystem) {
-    // Get argument count for totality
-    const argumentCount = node.arguments.length;
-
-    // Extract explicit type arguments from call site if any
-    const explicitTypeArgs =
-      node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
-
-    // Use TypeSystem.resolveCall() - guaranteed to return a result
-    const resolved = typeSystem.resolveCall({
-      sigId,
-      argumentCount,
-      receiverType: receiverIrType,
-      explicitTypeArgs,
-    });
-
-    if (DEBUG && methodName) {
-      console.log("[getDeclaredReturnType]", methodName, "TypeSystem returned:", resolved.returnType);
-    }
-
-    // If TypeSystem returned a valid return type (not unknownType), use it
-    if (resolved.returnType.kind !== "unknownType") {
-      return resolved.returnType;
-    }
-    // Fall through to fallbacks
-  } else if (DEBUG && methodName) {
-    console.log("[getDeclaredReturnType]", methodName, "sigId:", sigId, "typeSystem:", !!typeSystem);
+  if (!sigId) {
+    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "No signature resolved");
+    return undefined;
   }
 
-  // Fallback 1: Function-typed variables like `counter()` where `counter: () => number`
-  const calleeDeclaredType = getCalleesDeclaredType(node, binding);
-  if (calleeDeclaredType) {
-    const returnTypeNode = getReturnTypeFromFunctionType(calleeDeclaredType);
-    if (returnTypeNode) {
-      if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "Fallback 1 hit");
-      return convertType(returnTypeNode, binding);
-    }
+  // Get argument count for totality
+  const argumentCount = node.arguments.length;
+
+  // Extract explicit type arguments from call site if any
+  const explicitTypeArgs =
+    node.typeArguments?.map((ta) => convertType(ta, binding)) ?? undefined;
+
+  // Use TypeSystem.resolveCall() - guaranteed to return a result
+  // NO FALLBACK: If TypeSystem returns unknownType, that's the answer
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount,
+    receiverType: receiverIrType,
+    explicitTypeArgs,
+  });
+
+  if (DEBUG && methodName) {
+    console.log("[getDeclaredReturnType]", methodName, "TypeSystem returned:", resolved.returnType);
   }
 
-  // Fallback 2: Try Binding.resolvePropertyAccess for member methods
-  const fallbackResult = getDeclaredReturnTypeFallback(node, binding);
-  if (fallbackResult) {
-    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "Fallback 2 returned:", fallbackResult);
-    return fallbackResult;
-  }
-
-  // Fallback 3: NominalEnv lookup for inherited methods
-  // (e.g., s.substring() where String extends String$instance)
-  const nominalEnvResult = getDeclaredReturnTypeNominalEnvFallback(
-    node,
-    receiverIrType,
-    binding
-  );
-  if (nominalEnvResult) {
-    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "Fallback 3 returned:", nominalEnvResult);
-    return nominalEnvResult;
-  }
-
-  if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "ALL FALLBACKS FAILED");
-  return undefined;
+  // Return TypeSystem's answer directly - no fallbacks
+  return resolved.returnType;
 };
 
 /**

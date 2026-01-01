@@ -238,9 +238,31 @@ export type ResolvedCall = {
   /** Fully instantiated return type */
   readonly returnType: IrType;
 
+  /**
+   * Type predicate info for narrowing (x is T).
+   * Only present if the function has a type predicate return type.
+   */
+  readonly typePredicate?: TypePredicateResult;
+
   /** Diagnostics emitted during resolution */
   readonly diagnostics: readonly Diagnostic[];
 };
+
+/**
+ * TypePredicateResult — Resolved type predicate info.
+ *
+ * Extracted from SignatureInfo.typePredicate and converted to IR types.
+ */
+export type TypePredicateResult =
+  | {
+      readonly kind: "param";
+      readonly parameterIndex: number;
+      readonly targetType: IrType;
+    }
+  | {
+      readonly kind: "this";
+      readonly targetType: IrType;
+    };
 
 // ParameterMode is imported from types.ts
 
@@ -292,6 +314,12 @@ export type RawSignatureInfo = {
 
   /** Parameter names (for diagnostics) */
   readonly parameterNames: readonly string[];
+
+  /**
+   * Type predicate (x is T) - extracted at Binding registration time.
+   * Contains target type as IrType.
+   */
+  readonly typePredicate?: TypePredicateResult;
 
   /**
    * Declaring identity — CRITICAL for inheritance substitution.
@@ -426,7 +454,31 @@ export type SignatureInfo = {
    * CRITICAL: Required for inheritance substitution in resolveCall().
    */
   readonly declaringMemberName?: string;
+
+  /**
+   * Type predicate information for `x is T` return types.
+   *
+   * Extracted at registration time via pure syntax inspection.
+   * Contains targetTypeNode which TypeSystem converts to IrType.
+   */
+  readonly typePredicate?: SignatureTypePredicateRaw;
 };
+
+/**
+ * Raw type predicate info as stored in SignatureInfo.
+ * Contains TypeNode, not IrType.
+ */
+export type SignatureTypePredicateRaw =
+  | {
+      readonly kind: "param";
+      readonly parameterName: string;
+      readonly parameterIndex: number;
+      readonly targetTypeNode: unknown; // ts.TypeNode
+    }
+  | {
+      readonly kind: "this";
+      readonly targetTypeNode: unknown; // ts.TypeNode
+    };
 
 export type ParameterNode = {
   readonly name: string;
@@ -776,12 +828,32 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       defaultType: tp.defaultNode ? convertTypeNode(tp.defaultNode) : undefined,
     }));
 
+    // Extract type predicate (already extracted in Binding at registration time)
+    let typePredicate: TypePredicateResult | undefined;
+    if (sigInfo.typePredicate) {
+      const pred = sigInfo.typePredicate;
+      const targetType = convertTypeNode(pred.targetTypeNode);
+      if (pred.kind === "param") {
+        typePredicate = {
+          kind: "param",
+          parameterIndex: pred.parameterIndex,
+          targetType,
+        };
+      } else {
+        typePredicate = {
+          kind: "this",
+          targetType,
+        };
+      }
+    }
+
     const rawSig: RawSignatureInfo = {
       parameterTypes,
       returnType,
       parameterModes,
       typeParameters,
       parameterNames,
+      typePredicate,
       declaringTypeFQName: sigInfo.declaringTypeFQName,
       declaringMemberName: sigInfo.declaringMemberName,
     };
@@ -1126,6 +1198,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       parameterTypes: workingParams,
       parameterModes: rawSig.parameterModes,
       returnType: workingReturn,
+      typePredicate: rawSig.typePredicate,
       diagnostics: [],
     };
   };
