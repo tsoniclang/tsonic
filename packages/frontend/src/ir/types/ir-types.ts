@@ -3,6 +3,7 @@
  */
 
 import { IrParameter, IrInterfaceMember } from "./helpers.js";
+import type { TypeId } from "../type-universe/types.js";
 
 export type IrType =
   | IrPrimitiveType
@@ -52,6 +53,12 @@ export type IrReferenceType = {
   readonly typeArguments?: readonly IrType[];
   /** Fully-qualified CLR type for imported types (e.g., "MyApp.models.User") */
   readonly resolvedClrType?: string;
+  /**
+   * Canonical type identity from UnifiedTypeCatalog.
+   * When present, this is the authoritative source of type identity.
+   * Use typeId.clrName for emission, typeId.stableId for equality checks.
+   */
+  readonly typeId?: TypeId;
   /**
    * Structural members for interfaces and type aliases that resolve to object types.
    * Populated when the reference resolves to a structural type (interface, type literal, etc.)
