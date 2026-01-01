@@ -10,6 +10,9 @@ export {
   getTypeRegistry,
   getNominalEnv,
   clearTypeRegistries,
+  // Internal accessors for TypeSystem construction only
+  _internalGetTypeRegistry,
+  _internalGetNominalEnv,
 } from "./registry.js";
 export { convertVariableStatement } from "./variables.js";
 export { convertFunctionDeclaration } from "./functions.js";

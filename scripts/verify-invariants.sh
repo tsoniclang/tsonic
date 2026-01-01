@@ -115,6 +115,32 @@ fi
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
+# WARN: Deprecated singleton accessor usage (tracking for Step 7 migration)
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking deprecated singleton accessors (getTypeRegistry/getNominalEnv)..."
+
+# Count usages outside registry.ts (where they're defined)
+SINGLETON_USAGES=$(grep -rE "(getTypeRegistry|getNominalEnv)\(" "$FRONTEND_SRC" --include="*.ts" \
+  | grep -v "registry.ts" \
+  | grep -v "_internalGet" \
+  | grep -v "\.test\.ts" \
+  || true)
+
+if [ -n "$SINGLETON_USAGES" ]; then
+  COUNT=$(echo "$SINGLETON_USAGES" | wc -l)
+  echo "  WARN: $COUNT deprecated singleton accessor(s) still in use (to be migrated in Step 7):"
+  echo "$SINGLETON_USAGES" | head -10
+  if [ "$COUNT" -gt 10 ]; then
+    echo "  ... and $((COUNT - 10)) more"
+  fi
+else
+  echo "  PASS: No deprecated singleton accessors in use"
+fi
+
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 
