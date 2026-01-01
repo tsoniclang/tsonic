@@ -28,6 +28,7 @@ import type {
   SyntaxPosition,
   TypeSubstitution,
   UtilityTypeName,
+  ParameterMode,
 } from "./types.js";
 
 // Re-export types for consumers
@@ -45,6 +46,7 @@ export type {
   ParameterType,
   TypeParameterInfo,
   SyntaxNodeKind,
+  ParameterMode,
 } from "./types.js";
 
 // Re-export factory functions
@@ -60,6 +62,34 @@ export {
   voidType,
   anyType,
 } from "./types.js";
+
+// Re-export Alice's TypeSystem API and supporting types
+export type {
+  TypeSystem as AliceTypeSystem, // Use prefixed name to avoid conflict during migration
+  MemberRef,
+  CallQuery,
+  ResolvedCall,
+  Site,
+  TypeSubstitutionMap,
+  RawSignatureInfo,
+  TypeSystemConfig,
+  HandleRegistry as TypeSystemHandleRegistry,
+  DeclInfo as TypeSystemDeclInfo,
+  TypeRegistryAPI,
+  NominalEnvAPI,
+  MemberLookupResult,
+} from "./type-system.js";
+
+export {
+  BUILTIN_NOMINALS,
+  poisonedCall,
+  unknownType as aliceUnknownType,
+  neverType as aliceNeverType,
+  voidType as aliceVoidType,
+  createTypeSystem,
+} from "./type-system.js";
+
+// Note: ParameterMode is also exported below in the legacy interface section
 
 /**
  * TypeSystem interface — the single source of truth for all type queries.
@@ -285,6 +315,11 @@ export type DeclKind =
 
 /**
  * Signature info stored in the handle registry.
+ *
+ * IMPORTANT (Alice's spec): Must include declaring identity for resolveCall().
+ * Without declaringTypeFQName + declaringMemberName, resolveCall() cannot
+ * compute inheritance substitution — it would have to "guess" the method name
+ * from the signature, which breaks on overloads, aliases, and non-property-access calls.
  */
 export interface SignatureInfo {
   /**
@@ -301,6 +336,22 @@ export interface SignatureInfo {
    * Type parameters.
    */
   readonly typeParameters?: readonly TypeParameterNode[];
+
+  /**
+   * Declaring type fully-qualified name.
+   *
+   * CRITICAL for Alice's spec: Required for receiver substitution
+   * in resolveCall(). Set when the signature belongs to a class/interface method.
+   */
+  readonly declaringTypeFQName?: string;
+
+  /**
+   * Declaring member name.
+   *
+   * CRITICAL for Alice's spec: Required together with declaringTypeFQName
+   * for inheritance substitution in resolveCall().
+   */
+  readonly declaringMemberName?: string;
 }
 
 export interface ParameterNode {
@@ -308,7 +359,11 @@ export interface ParameterNode {
   readonly typeNode?: unknown; // ts.TypeNode
   readonly isOptional: boolean;
   readonly isRest: boolean;
+  /** Parameter passing mode for C# interop (default: "value") */
+  readonly mode?: ParameterMode;
 }
+
+// ParameterMode is exported from types.ts
 
 export interface TypeParameterNode {
   readonly name: string;

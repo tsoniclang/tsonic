@@ -1,57 +1,117 @@
 /**
- * TypeRegistry - AST-based source of truth for type declarations
+ * TypeRegistry - Pure IR source of truth for type declarations
  *
- * This registry stores TypeNodes and declaration nodes, NOT ts.Type.
- * It enables deterministic type resolution without using TypeScript's
- * computed type inference APIs (getTypeAtLocation, etc.).
+ * ALICE'S SPEC (Step 3): This registry stores IrType (pure IR), NOT ts.TypeNode.
+ * Types are converted at registration time, making queries deterministic.
  *
  * Part of Alice's specification for deterministic IR typing.
  */
 
 import * as ts from "typescript";
+import type { IrType, IrMethodSignature } from "./types/index.js";
 import { getNamespaceFromPath } from "../resolver/namespace.js";
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PURE IR TYPES (Alice's Spec)
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * Information about a type member (property or method)
+ * Information about a type member (property or method) - PURE IR
  */
 export type MemberInfo = {
   readonly kind: "property" | "method" | "indexSignature";
   readonly name: string;
-  readonly typeNode: ts.TypeNode | undefined; // Preserve source TypeNode
+  readonly type: IrType | undefined; // PURE IR - converted at registration time
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
-  readonly signatures?: readonly ts.SignatureDeclaration[]; // For methods
-  readonly declaration: ts.Node; // Original declaration node
+  readonly methodSignatures?: readonly IrMethodSignature[]; // For methods - PURE IR
 };
 
 /**
- * Heritage clause information (extends/implements)
+ * Heritage clause information (extends/implements) - PURE IR
  */
 export type HeritageInfo = {
   readonly kind: "extends" | "implements";
-  readonly typeNode: ts.TypeNode; // The full type reference with args
+  readonly baseType: IrType; // PURE IR - converted at registration time
   readonly typeName: string; // The resolved type name
 };
 
 /**
- * Entry for a nominal type (class, interface, type alias)
+ * Type parameter info for generic types - PURE IR
+ */
+export type TypeParameterEntry = {
+  readonly name: string;
+  readonly constraint?: IrType; // PURE IR
+  readonly defaultType?: IrType; // PURE IR
+};
+
+/**
+ * Entry for a nominal type (class, interface, type alias) - PURE IR
+ *
+ * NOTE: No ts.Declaration, ts.SourceFile, or ts.TypeNode fields.
  */
 export type TypeRegistryEntry = {
   readonly kind: "class" | "interface" | "typeAlias";
   readonly name: string; // Simple name (e.g., "User")
   readonly fullyQualifiedName: string; // FQ name (e.g., "MyApp.Models.User")
+  readonly typeParameters: readonly TypeParameterEntry[]; // PURE IR
+  readonly members: ReadonlyMap<string, MemberInfo>; // PURE IR
+  readonly heritage: readonly HeritageInfo[]; // PURE IR
+  readonly aliasedType?: IrType; // For type aliases - the aliased type (PURE IR)
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY TYPES (for backwards compatibility during migration)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Legacy member info with TypeNode (for backwards compatibility)
+ * @deprecated Use MemberInfo instead. This will be removed after Step 7.
+ */
+export type LegacyMemberInfo = {
+  readonly kind: "property" | "method" | "indexSignature";
+  readonly name: string;
+  readonly typeNode: ts.TypeNode | undefined;
+  readonly isOptional: boolean;
+  readonly isReadonly: boolean;
+  readonly signatures?: readonly ts.SignatureDeclaration[];
+  readonly declaration: ts.Node;
+};
+
+/**
+ * Legacy heritage info with TypeNode (for backwards compatibility)
+ * @deprecated Use HeritageInfo instead. This will be removed after Step 7.
+ */
+export type LegacyHeritageInfo = {
+  readonly kind: "extends" | "implements";
+  readonly typeNode: ts.TypeNode;
+  readonly typeName: string;
+};
+
+/**
+ * Legacy entry with TypeNode fields (for backwards compatibility)
+ * @deprecated Use TypeRegistryEntry instead. This will be removed after Step 7.
+ */
+export type LegacyTypeRegistryEntry = {
+  readonly kind: "class" | "interface" | "typeAlias";
+  readonly name: string;
+  readonly fullyQualifiedName: string;
   readonly typeParameters: readonly string[];
   readonly declaration:
     | ts.ClassDeclaration
     | ts.InterfaceDeclaration
     | ts.TypeAliasDeclaration;
-  readonly members: ReadonlyMap<string, MemberInfo>;
-  readonly heritage: readonly HeritageInfo[];
+  readonly members: ReadonlyMap<string, LegacyMemberInfo>;
+  readonly heritage: readonly LegacyHeritageInfo[];
   readonly sourceFile: ts.SourceFile;
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TYPEREISTRY API (Pure IR)
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * TypeRegistry API
+ * TypeRegistry API - returns pure IR types
  */
 export type TypeRegistry = {
   /**
@@ -74,18 +134,19 @@ export type TypeRegistry = {
   readonly getFQName: (simpleName: string) => string | undefined;
 
   /**
-   * Get a member's TypeNode from a nominal type (by FQ name).
-   * Returns undefined if member not found.
+   * Get a member's type from a nominal type (by FQ name).
+   * Returns pure IrType - no TypeNode access needed.
    */
-  readonly getMemberTypeNode: (
+  readonly getMemberType: (
     fqNominal: string,
     memberName: string
-  ) => ts.TypeNode | undefined;
+  ) => IrType | undefined;
 
   /**
    * Get all heritage clauses for a nominal type (by FQ name).
+   * Returns pure IrType heritage info.
    */
-  readonly getHeritageTypeNodes: (fqNominal: string) => readonly HeritageInfo[];
+  readonly getHeritageTypes: (fqNominal: string) => readonly HeritageInfo[];
 
   /**
    * Get all registered type names (fully-qualified).
@@ -96,12 +157,60 @@ export type TypeRegistry = {
    * Check if a type name is registered (by FQ name).
    */
   readonly hasType: (fqName: string) => boolean;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LEGACY API (for backwards compatibility during migration)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * @deprecated Use getMemberType instead. This will be removed after Step 7.
+   */
+  readonly getMemberTypeNode: (
+    fqNominal: string,
+    memberName: string
+  ) => ts.TypeNode | undefined;
+
+  /**
+   * @deprecated Use getHeritageTypes instead. This will be removed after Step 7.
+   */
+  readonly getHeritageTypeNodes: (
+    fqNominal: string
+  ) => readonly LegacyHeritageInfo[];
+
+  /**
+   * @deprecated Access to legacy entry for backwards compatibility.
+   */
+  readonly getLegacyEntry: (fqName: string) => LegacyTypeRegistryEntry | undefined;
 };
+
+/**
+ * Type conversion function - converts TypeNode to IrType
+ */
+export type ConvertTypeFn = (typeNode: ts.TypeNode) => IrType;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Extract type parameters from a declaration
  */
 const extractTypeParameters = (
+  typeParams: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+  convertType: ConvertTypeFn
+): readonly TypeParameterEntry[] => {
+  if (!typeParams) return [];
+  return typeParams.map((p) => ({
+    name: p.name.text,
+    constraint: p.constraint ? convertType(p.constraint) : undefined,
+    defaultType: p.default ? convertType(p.default) : undefined,
+  }));
+};
+
+/**
+ * Extract type parameter names (legacy)
+ */
+const extractTypeParameterNames = (
   typeParams: ts.NodeArray<ts.TypeParameterDeclaration> | undefined
 ): readonly string[] => {
   if (!typeParams) return [];
@@ -117,7 +226,6 @@ const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
       return typeNode.typeName.text;
     }
     if (ts.isQualifiedName(typeNode.typeName)) {
-      // Handle Namespace.Type
       return typeNode.typeName.getText();
     }
   }
@@ -130,15 +238,176 @@ const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
 };
 
 /**
- * Extract member information from a class or interface
+ * Extract member information from a class or interface - PURE IR version
  */
 const extractMembers = (
-  members: ts.NodeArray<ts.ClassElement> | ts.NodeArray<ts.TypeElement>
+  members: ts.NodeArray<ts.ClassElement> | ts.NodeArray<ts.TypeElement>,
+  convertType: ConvertTypeFn
 ): ReadonlyMap<string, MemberInfo> => {
   const result = new Map<string, MemberInfo>();
 
   for (const member of members) {
     // Property declarations (class)
+    if (ts.isPropertyDeclaration(member)) {
+      const name = member.name.getText();
+      const isOptional =
+        member.questionToken !== undefined || member.initializer !== undefined;
+      const isReadonly = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+      );
+      result.set(name, {
+        kind: "property",
+        name,
+        type: member.type ? convertType(member.type) : undefined,
+        isOptional,
+        isReadonly: isReadonly ?? false,
+      });
+    }
+
+    // Property signatures (interface)
+    if (ts.isPropertySignature(member)) {
+      const name = member.name.getText();
+      result.set(name, {
+        kind: "property",
+        name,
+        type: member.type ? convertType(member.type) : undefined,
+        isOptional: member.questionToken !== undefined,
+        isReadonly:
+          member.modifiers?.some(
+            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+          ) ?? false,
+      });
+    }
+
+    // Method declarations (class)
+    if (ts.isMethodDeclaration(member)) {
+      const name = member.name.getText();
+      const existing = result.get(name);
+      const newSig = convertMethodToSignature(member, convertType);
+      const signatures = existing?.methodSignatures
+        ? [...existing.methodSignatures, newSig]
+        : [newSig];
+      result.set(name, {
+        kind: "method",
+        name,
+        type: undefined, // Methods have signatures, not a single type
+        isOptional: member.questionToken !== undefined,
+        isReadonly: false,
+        methodSignatures: signatures,
+      });
+    }
+
+    // Method signatures (interface)
+    if (ts.isMethodSignature(member)) {
+      const name = member.name.getText();
+      const existing = result.get(name);
+      const newSig = convertMethodSignatureToIr(member, convertType);
+      const signatures = existing?.methodSignatures
+        ? [...existing.methodSignatures, newSig]
+        : [newSig];
+      result.set(name, {
+        kind: "method",
+        name,
+        type: undefined, // Methods have signatures, not a single type
+        isOptional: member.questionToken !== undefined,
+        isReadonly: false,
+        methodSignatures: signatures,
+      });
+    }
+
+    // Index signatures (interface)
+    if (ts.isIndexSignatureDeclaration(member)) {
+      const param = member.parameters[0];
+      const keyType = param?.type;
+      const keyName = keyType
+        ? ts.isTypeReferenceNode(keyType)
+          ? keyType.typeName.getText()
+          : keyType.getText()
+        : "unknown";
+      const name = `[${keyName}]`;
+      result.set(name, {
+        kind: "indexSignature",
+        name,
+        type: member.type ? convertType(member.type) : undefined,
+        isOptional: false,
+        isReadonly:
+          member.modifiers?.some(
+            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+          ) ?? false,
+      });
+    }
+  }
+
+  return result;
+};
+
+/**
+ * Convert method declaration to IrMethodSignature
+ */
+const convertMethodToSignature = (
+  method: ts.MethodDeclaration,
+  convertType: ConvertTypeFn
+): IrMethodSignature => ({
+  kind: "methodSignature",
+  name: method.name.getText(),
+  parameters: method.parameters.map((p) => ({
+    kind: "parameter" as const,
+    pattern: {
+      kind: "identifierPattern" as const,
+      name: ts.isIdentifier(p.name) ? p.name.text : "param",
+    },
+    type: p.type ? convertType(p.type) : undefined,
+    isOptional: !!p.questionToken || !!p.initializer,
+    isRest: !!p.dotDotDotToken,
+    passing: "value" as const,
+  })),
+  returnType: method.type ? convertType(method.type) : undefined,
+  typeParameters: method.typeParameters?.map((tp) => ({
+    kind: "typeParameter" as const,
+    name: tp.name.text,
+    constraint: tp.constraint ? convertType(tp.constraint) : undefined,
+    default: tp.default ? convertType(tp.default) : undefined,
+  })),
+});
+
+/**
+ * Convert method signature to IrMethodSignature
+ */
+const convertMethodSignatureToIr = (
+  method: ts.MethodSignature,
+  convertType: ConvertTypeFn
+): IrMethodSignature => ({
+  kind: "methodSignature",
+  name: method.name.getText(),
+  parameters: method.parameters.map((p) => ({
+    kind: "parameter" as const,
+    pattern: {
+      kind: "identifierPattern" as const,
+      name: ts.isIdentifier(p.name) ? p.name.text : "param",
+    },
+    type: p.type ? convertType(p.type) : undefined,
+    isOptional: !!p.questionToken || !!p.initializer,
+    isRest: !!p.dotDotDotToken,
+    passing: "value" as const,
+  })),
+  returnType: method.type ? convertType(method.type) : undefined,
+  typeParameters: method.typeParameters?.map((tp) => ({
+    kind: "typeParameter" as const,
+    name: tp.name.text,
+    constraint: tp.constraint ? convertType(tp.constraint) : undefined,
+    default: tp.default ? convertType(tp.default) : undefined,
+  })),
+});
+
+/**
+ * Extract legacy member information (with TypeNodes)
+ */
+const extractLegacyMembers = (
+  members: ts.NodeArray<ts.ClassElement> | ts.NodeArray<ts.TypeElement>
+): ReadonlyMap<string, LegacyMemberInfo> => {
+  const result = new Map<string, LegacyMemberInfo>();
+
+  for (const member of members) {
     if (ts.isPropertyDeclaration(member)) {
       const name = member.name.getText();
       const isOptional =
@@ -156,7 +425,6 @@ const extractMembers = (
       });
     }
 
-    // Property signatures (interface)
     if (ts.isPropertySignature(member)) {
       const name = member.name.getText();
       result.set(name, {
@@ -172,7 +440,6 @@ const extractMembers = (
       });
     }
 
-    // Method declarations (class)
     if (ts.isMethodDeclaration(member)) {
       const name = member.name.getText();
       const existing = result.get(name);
@@ -190,7 +457,6 @@ const extractMembers = (
       });
     }
 
-    // Method signatures (interface)
     if (ts.isMethodSignature(member)) {
       const name = member.name.getText();
       const existing = result.get(name);
@@ -208,9 +474,7 @@ const extractMembers = (
       });
     }
 
-    // Index signatures (interface)
     if (ts.isIndexSignatureDeclaration(member)) {
-      // Use a synthetic name for index signatures
       const param = member.parameters[0];
       const keyType = param?.type;
       const keyName = keyType
@@ -237,14 +501,41 @@ const extractMembers = (
 };
 
 /**
- * Extract heritage clauses from a class or interface
+ * Extract heritage clauses - PURE IR version
  */
 const extractHeritage = (
-  clauses: ts.NodeArray<ts.HeritageClause> | undefined
+  clauses: ts.NodeArray<ts.HeritageClause> | undefined,
+  convertType: ConvertTypeFn
 ): readonly HeritageInfo[] => {
   if (!clauses) return [];
 
   const result: HeritageInfo[] = [];
+  for (const clause of clauses) {
+    const kind =
+      clause.token === ts.SyntaxKind.ExtendsKeyword ? "extends" : "implements";
+    for (const type of clause.types) {
+      const typeName = getTypeNodeName(type);
+      if (typeName) {
+        result.push({
+          kind,
+          baseType: convertType(type),
+          typeName,
+        });
+      }
+    }
+  }
+  return result;
+};
+
+/**
+ * Extract legacy heritage clauses (with TypeNodes)
+ */
+const extractLegacyHeritage = (
+  clauses: ts.NodeArray<ts.HeritageClause> | undefined
+): readonly LegacyHeritageInfo[] => {
+  if (!clauses) return [];
+
+  const result: LegacyHeritageInfo[] = [];
   for (const clause of clauses) {
     const kind =
       clause.token === ts.SyntaxKind.ExtendsKeyword ? "extends" : "implements";
@@ -262,6 +553,10 @@ const extractHeritage = (
   return result;
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BUILD FUNCTION
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
  * Build a TypeRegistry from source files.
  *
@@ -269,17 +564,24 @@ const extractHeritage = (
  * @param checker TypeChecker for symbol resolution only (NOT for type inference)
  * @param sourceRoot Absolute path to source root directory
  * @param rootNamespace Root namespace for the project
+ * @param convertType Optional type converter for pure IR storage
  */
 export const buildTypeRegistry = (
   sourceFiles: readonly ts.SourceFile[],
-  _checker: ts.TypeChecker, // Only for symbol resolution, not used yet
+  _checker: ts.TypeChecker,
   sourceRoot: string,
-  rootNamespace: string
+  rootNamespace: string,
+  convertType?: ConvertTypeFn
 ): TypeRegistry => {
-  // Map from FQ name to entry
+  // Map from FQ name to pure IR entry
   const entries = new Map<string, TypeRegistryEntry>();
+  // Map from FQ name to legacy entry (for backwards compatibility)
+  const legacyEntries = new Map<string, LegacyTypeRegistryEntry>();
   // Map from simple name to FQ name (for reverse lookup)
   const simpleNameToFQ = new Map<string, string>();
+
+  // Default converter returns unknownType (used during bootstrap)
+  const convert: ConvertTypeFn = convertType ?? (() => ({ kind: "unknownType" }));
 
   // Helper function to process a declaration node
   const processDeclaration = (
@@ -294,16 +596,29 @@ export const buildTypeRegistry = (
     if (ts.isClassDeclaration(node) && node.name) {
       const simpleName = node.name.text;
       const fqName = makeFQName(simpleName);
+
+      // Pure IR entry
       entries.set(fqName, {
         kind: "class",
         name: simpleName,
         fullyQualifiedName: fqName,
-        typeParameters: extractTypeParameters(node.typeParameters),
+        typeParameters: extractTypeParameters(node.typeParameters, convert),
+        members: extractMembers(node.members, convert),
+        heritage: extractHeritage(node.heritageClauses, convert),
+      });
+
+      // Legacy entry
+      legacyEntries.set(fqName, {
+        kind: "class",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        typeParameters: extractTypeParameterNames(node.typeParameters),
         declaration: node,
-        members: extractMembers(node.members),
-        heritage: extractHeritage(node.heritageClauses),
+        members: extractLegacyMembers(node.members),
+        heritage: extractLegacyHeritage(node.heritageClauses),
         sourceFile: sf,
       });
+
       simpleNameToFQ.set(simpleName, fqName);
     }
 
@@ -311,12 +626,15 @@ export const buildTypeRegistry = (
     if (ts.isInterfaceDeclaration(node)) {
       const simpleName = node.name.text;
       const fqName = makeFQName(simpleName);
+
       // Merge with existing interface (for module augmentation)
       const existing = entries.get(fqName);
+      const legacyExisting = legacyEntries.get(fqName);
+
       if (existing && existing.kind === "interface") {
         // Merge members
         const mergedMembers = new Map(existing.members);
-        for (const [memberName, memberInfo] of extractMembers(node.members)) {
+        for (const [memberName, memberInfo] of extractMembers(node.members, convert)) {
           mergedMembers.set(memberName, memberInfo);
         }
         entries.set(fqName, {
@@ -324,7 +642,7 @@ export const buildTypeRegistry = (
           members: mergedMembers,
           heritage: [
             ...existing.heritage,
-            ...extractHeritage(node.heritageClauses),
+            ...extractHeritage(node.heritageClauses, convert),
           ],
         });
       } else {
@@ -332,13 +650,38 @@ export const buildTypeRegistry = (
           kind: "interface",
           name: simpleName,
           fullyQualifiedName: fqName,
-          typeParameters: extractTypeParameters(node.typeParameters),
-          declaration: node,
-          members: extractMembers(node.members),
-          heritage: extractHeritage(node.heritageClauses),
-          sourceFile: sf,
+          typeParameters: extractTypeParameters(node.typeParameters, convert),
+          members: extractMembers(node.members, convert),
+          heritage: extractHeritage(node.heritageClauses, convert),
         });
         simpleNameToFQ.set(simpleName, fqName);
+      }
+
+      // Legacy entry merge
+      if (legacyExisting && legacyExisting.kind === "interface") {
+        const mergedLegacyMembers = new Map(legacyExisting.members);
+        for (const [memberName, memberInfo] of extractLegacyMembers(node.members)) {
+          mergedLegacyMembers.set(memberName, memberInfo);
+        }
+        legacyEntries.set(fqName, {
+          ...legacyExisting,
+          members: mergedLegacyMembers,
+          heritage: [
+            ...legacyExisting.heritage,
+            ...extractLegacyHeritage(node.heritageClauses),
+          ],
+        });
+      } else {
+        legacyEntries.set(fqName, {
+          kind: "interface",
+          name: simpleName,
+          fullyQualifiedName: fqName,
+          typeParameters: extractTypeParameterNames(node.typeParameters),
+          declaration: node,
+          members: extractLegacyMembers(node.members),
+          heritage: extractLegacyHeritage(node.heritageClauses),
+          sourceFile: sf,
+        });
       }
     }
 
@@ -346,21 +689,34 @@ export const buildTypeRegistry = (
     if (ts.isTypeAliasDeclaration(node)) {
       const simpleName = node.name.text;
       const fqName = makeFQName(simpleName);
+
+      // Pure IR entry
       entries.set(fqName, {
         kind: "typeAlias",
         name: simpleName,
         fullyQualifiedName: fqName,
-        typeParameters: extractTypeParameters(node.typeParameters),
+        typeParameters: extractTypeParameters(node.typeParameters, convert),
+        members: new Map(),
+        heritage: [],
+        aliasedType: convert(node.type),
+      });
+
+      // Legacy entry
+      legacyEntries.set(fqName, {
+        kind: "typeAlias",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        typeParameters: extractTypeParameterNames(node.typeParameters),
         declaration: node,
-        members: new Map(), // Type aliases don't have members directly
-        heritage: [], // Type aliases don't have heritage clauses
+        members: new Map(),
+        heritage: [],
         sourceFile: sf,
       });
+
       simpleNameToFQ.set(simpleName, fqName);
     }
 
     // Handle 'declare global { ... }' blocks
-    // These are ModuleDeclarations with name "global" - declarations inside are at global scope
     if (
       ts.isModuleDeclaration(node) &&
       ts.isIdentifier(node.name) &&
@@ -368,8 +724,6 @@ export const buildTypeRegistry = (
       node.body &&
       ts.isModuleBlock(node.body)
     ) {
-      // Recursively process declarations inside the global block
-      // All declarations inside 'declare global' are at global scope (no namespace)
       for (const stmt of node.body.statements) {
         processDeclaration(stmt, sf, undefined);
       }
@@ -377,55 +731,38 @@ export const buildTypeRegistry = (
   };
 
   for (const sourceFile of sourceFiles) {
-    // Compute namespace for this file
-    // For declaration files (globals, dotnet types), use undefined to signal global scope
-    // so types are registered with simple name (e.g., "String" not "SomeRandomPath.String")
     const namespace = sourceFile.isDeclarationFile
-      ? undefined // Global scope for .d.ts files
+      ? undefined
       : getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace);
 
-    // Walk the source file for declarations
     ts.forEachChild(sourceFile, (node) => {
       processDeclaration(node, sourceFile, namespace);
     });
   }
 
   return {
-    // Resolve by FQ name (preferred)
+    // Pure IR API
     resolveNominal: (fqName: string): TypeRegistryEntry | undefined => {
       return entries.get(fqName);
     },
 
-    // Resolve by simple name (for backwards compatibility, returns first match)
-    resolveBySimpleName: (
-      simpleName: string
-    ): TypeRegistryEntry | undefined => {
+    resolveBySimpleName: (simpleName: string): TypeRegistryEntry | undefined => {
       const fqName = simpleNameToFQ.get(simpleName);
       return fqName ? entries.get(fqName) : undefined;
     },
 
-    // Get FQ name from simple name
     getFQName: (simpleName: string): string | undefined => {
       return simpleNameToFQ.get(simpleName);
     },
 
-    getMemberTypeNode: (
-      fqNominal: string,
-      memberName: string
-    ): ts.TypeNode | undefined => {
+    getMemberType: (fqNominal: string, memberName: string): IrType | undefined => {
       const entry = entries.get(fqNominal);
       if (!entry) return undefined;
-
-      // Direct lookup
       const member = entry.members.get(memberName);
-      if (member?.typeNode) return member.typeNode;
-
-      // TODO: Check heritage chain if not found directly
-      // This will be handled by NominalEnv in Step 2
-      return undefined;
+      return member?.type;
     },
 
-    getHeritageTypeNodes: (fqNominal: string): readonly HeritageInfo[] => {
+    getHeritageTypes: (fqNominal: string): readonly HeritageInfo[] => {
       const entry = entries.get(fqNominal);
       return entry?.heritage ?? [];
     },
@@ -436,6 +773,26 @@ export const buildTypeRegistry = (
 
     hasType: (fqName: string): boolean => {
       return entries.has(fqName);
+    },
+
+    // Legacy API (for backwards compatibility)
+    getMemberTypeNode: (
+      fqNominal: string,
+      memberName: string
+    ): ts.TypeNode | undefined => {
+      const entry = legacyEntries.get(fqNominal);
+      if (!entry) return undefined;
+      const member = entry.members.get(memberName);
+      return member?.typeNode;
+    },
+
+    getHeritageTypeNodes: (fqNominal: string): readonly LegacyHeritageInfo[] => {
+      const entry = legacyEntries.get(fqNominal);
+      return entry?.heritage ?? [];
+    },
+
+    getLegacyEntry: (fqName: string): LegacyTypeRegistryEntry | undefined => {
+      return legacyEntries.get(fqName);
     },
   };
 };

@@ -237,15 +237,16 @@ const extractParameterTypes = (
 
     // If signature has no parameters but we found member declaring type,
     // fall back to TypeRegistry lookup for member method parameters
+    // NOTE: Uses legacy API during migration period (Step 3)
     if (parameters.length === 0 && memberDeclaringType && registry) {
-      const entry = registry.resolveNominal(memberDeclaringType);
+      const legacyEntry = registry.getLegacyEntry(memberDeclaringType);
       if (
-        entry &&
+        legacyEntry &&
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression)
       ) {
         const methodName = node.expression.name.text;
-        const member = entry.members.get(methodName);
+        const member = legacyEntry.members.get(methodName);
         if (
           member?.kind === "method" &&
           member.signatures &&
@@ -488,9 +489,10 @@ export const getDeclaredReturnType = (
 
           if (result) {
             // Get the method's return type from TypeRegistry
-            const entry = registry.resolveNominal(result.targetNominal);
-            if (entry) {
-              const member = entry.members.get(methodName);
+            // NOTE: Uses legacy API during migration period (Step 3)
+            const legacyEntry = registry.getLegacyEntry(result.targetNominal);
+            if (legacyEntry) {
+              const member = legacyEntry.members.get(methodName);
               if (
                 member?.kind === "method" &&
                 member.signatures &&

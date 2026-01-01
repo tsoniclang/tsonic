@@ -125,14 +125,30 @@ export interface Binding {
    */
   getTypePredicateOfSignature(sig: SignatureId): TypePredicateInfo | undefined;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // REGISTRY ACCESS
-  // ═══════════════════════════════════════════════════════════════════════════
-
   /**
    * Get the handle registry for TypeSystem queries.
+   *
+   * @deprecated Use TypeSystem API instead. This method will be removed
+   * after Step 7 migration is complete. See Alice's spec in the plan file.
    */
   getHandleRegistry(): HandleRegistry;
+}
+
+/**
+ * BindingInternal — extended interface for TypeSystem construction only.
+ *
+ * INVARIANT (Alice's spec): Only createTypeSystem() should access
+ * _getHandleRegistry(). All other code uses the TypeSystem API.
+ */
+export interface BindingInternal extends Binding {
+  /**
+   * Get the handle registry for TypeSystem construction.
+   *
+   * INTERNAL USE ONLY: This method is NOT part of the public Binding API.
+   * Only createTypeSystem() should call this to access declaration info.
+   * All other code should use TypeSystem queries instead.
+   */
+  _getHandleRegistry(): HandleRegistry;
 }
 
 /**
@@ -150,8 +166,11 @@ export type TypePredicateInfo = {
 
 /**
  * Create a Binding instance for a TypeScript program.
+ *
+ * Returns BindingInternal which includes _getHandleRegistry() for TypeSystem.
+ * Cast to Binding when passing to regular converters.
  */
-export const createBinding = (checker: ts.TypeChecker): Binding => {
+export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   // Internal registries mapping handles to underlying TS objects
   const declMap = new Map<number, DeclEntry>();
   const signatureMap = new Map<number, SignatureEntry>();
@@ -199,12 +218,18 @@ export const createBinding = (checker: ts.TypeChecker): Binding => {
 
     // Extract signature info from declaration
     const decl = signature.getDeclaration();
+
+    // Extract declaring identity (CRITICAL for Alice's spec: resolveCall needs this)
+    const declaringIdentity = extractDeclaringIdentity(decl, checker);
+
     const entry: SignatureEntry = {
       signature,
       decl,
       parameters: extractParameterNodes(decl),
       returnTypeNode: getReturnTypeNode(decl),
       typeParameters: extractTypeParameterNodes(decl),
+      declaringTypeFQName: declaringIdentity?.typeFQName,
+      declaringMemberName: declaringIdentity?.memberName,
     };
     signatureMap.set(id.id, entry);
 
@@ -382,6 +407,9 @@ export const createBinding = (checker: ts.TypeChecker): Binding => {
         parameters: entry.parameters,
         returnTypeNode: entry.returnTypeNode,
         typeParameters: entry.typeParameters,
+        // CRITICAL for Alice's spec: declaring identity for resolveCall()
+        declaringTypeFQName: entry.declaringTypeFQName,
+        declaringMemberName: entry.declaringMemberName,
       };
     },
 
@@ -409,7 +437,10 @@ export const createBinding = (checker: ts.TypeChecker): Binding => {
     resolveShorthandAssignment,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
+    // @deprecated - will be removed after Step 7 migration
     getHandleRegistry: () => handleRegistry,
+    // Internal method for TypeSystem construction only
+    _getHandleRegistry: () => handleRegistry,
   };
 };
 
@@ -431,6 +462,10 @@ interface SignatureEntry {
   readonly parameters: readonly ParameterNode[];
   readonly returnTypeNode?: ts.TypeNode;
   readonly typeParameters?: readonly TypeParameterNode[];
+  /** Declaring type FQ name (for inheritance substitution in resolveCall) */
+  readonly declaringTypeFQName?: string;
+  /** Declaring member name (for inheritance substitution in resolveCall) */
+  readonly declaringMemberName?: string;
 }
 
 interface MemberEntry {
@@ -540,4 +575,84 @@ const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
     );
   }
   return false;
+};
+
+/**
+ * Extract declaring identity from a signature declaration.
+ *
+ * CRITICAL for Alice's spec: Without this, resolveCall() cannot compute
+ * inheritance substitution. It would have to "guess" the method name
+ * from the signature, which breaks on overloads, aliases, etc.
+ *
+ * @param decl The signature declaration (method, function, etc.)
+ * @param checker TypeChecker for FQ name resolution
+ * @returns { typeFQName, memberName } or undefined if not a member
+ */
+const extractDeclaringIdentity = (
+  decl: ts.SignatureDeclaration | undefined,
+  checker: ts.TypeChecker
+): { typeFQName: string; memberName: string } | undefined => {
+  if (!decl) return undefined;
+
+  // Check if this is a method (class or interface member)
+  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
+    const parent = decl.parent;
+
+    // Get the method name
+    const memberName = ts.isIdentifier(decl.name)
+      ? decl.name.text
+      : decl.name?.getText() ?? "unknown";
+
+    // Get the containing type's FQ name
+    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
+      const typeSymbol = parent.name
+        ? checker.getSymbolAtLocation(parent.name)
+        : undefined;
+
+      if (typeSymbol) {
+        const typeFQName = checker.getFullyQualifiedName(typeSymbol);
+        return { typeFQName, memberName };
+      }
+    }
+
+    // Object literal method - use parent context
+    if (ts.isObjectLiteralExpression(parent)) {
+      // For object literals, we don't have a named type
+      return undefined;
+    }
+  }
+
+  // Constructor declarations
+  if (ts.isConstructorDeclaration(decl)) {
+    const parent = decl.parent;
+    if (ts.isClassDeclaration(parent) && parent.name) {
+      const typeSymbol = checker.getSymbolAtLocation(parent.name);
+      if (typeSymbol) {
+        const typeFQName = checker.getFullyQualifiedName(typeSymbol);
+        return { typeFQName, memberName: "constructor" };
+      }
+    }
+  }
+
+  // Getter/setter declarations
+  if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl)) {
+    const parent = decl.parent;
+    const memberName = ts.isIdentifier(decl.name)
+      ? decl.name.text
+      : decl.name?.getText() ?? "unknown";
+
+    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
+      const typeSymbol = parent.name
+        ? checker.getSymbolAtLocation(parent.name)
+        : undefined;
+
+      if (typeSymbol) {
+        const typeFQName = checker.getFullyQualifiedName(typeSymbol);
+        return { typeFQName, memberName };
+      }
+    }
+  }
+
+  // Standalone functions don't have a declaring type
+  return undefined;
 };

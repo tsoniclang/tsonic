@@ -257,6 +257,9 @@ export const buildNominalEnv = (
   /**
    * Build substitution map for a specific step in the inheritance chain.
    * Maps the base type's type parameters to the concrete types from the heritage clause.
+   *
+   * NOTE: Uses legacy API (getHeritageTypeNodes) for backwards compatibility.
+   * This will be updated in Step 7 to use pure IR HeritageInfo.
    */
   const buildStepSubstitution = (
     childEntry: ReturnType<TypeRegistry["resolveNominal"]>,
@@ -265,15 +268,16 @@ export const buildNominalEnv = (
   ): InstantiationEnv => {
     if (!childEntry) return new Map();
 
-    // Find the heritage clause for the base type
-    const heritageClause = childEntry.heritage.find(
+    // Use legacy API to get heritage clauses with TypeNodes
+    const legacyHeritage = registry.getHeritageTypeNodes(childEntry.fullyQualifiedName);
+    const heritageClause = legacyHeritage.find(
       (h) => h.typeName === baseTypeName
     );
     if (!heritageClause) return new Map();
 
-    // Get the base type's entry to find its type parameters
-    const baseEntry = registry.resolveNominal(baseTypeName);
-    if (!baseEntry) return new Map();
+    // Get the base type's legacy entry to find its type parameters (as strings)
+    const baseLegacyEntry = registry.getLegacyEntry(baseTypeName);
+    if (!baseLegacyEntry) return new Map();
 
     // Extract type arguments from heritage clause
     const typeNode = heritageClause.typeNode;
@@ -287,8 +291,8 @@ export const buildNominalEnv = (
 
     // Build substitution map: base type param → concrete type
     const subst = new Map<string, IrType>();
-    for (let i = 0; i < baseEntry.typeParameters.length; i++) {
-      const paramName = baseEntry.typeParameters[i];
+    for (let i = 0; i < baseLegacyEntry.typeParameters.length; i++) {
+      const paramName = baseLegacyEntry.typeParameters[i];
       const argNode = typeArgs[i];
       if (paramName && argNode) {
         // Convert the type argument to IR
@@ -304,6 +308,9 @@ export const buildNominalEnv = (
 
   /**
    * Get instantiation for a specific target in the inheritance chain.
+   *
+   * NOTE: Uses legacy API (getLegacyEntry) for backwards compatibility.
+   * This will be updated in Step 7 to use pure IR TypeParameterEntry.
    */
   const getInstantiation = (
     receiverNominal: string,
@@ -317,12 +324,13 @@ export const buildNominalEnv = (
 
     // If receiver is the target, build initial substitution from receiver's type args
     if (receiverNominal === targetNominal) {
-      const entry = registry.resolveNominal(receiverNominal);
-      if (!entry) return undefined;
+      // Use legacy entry to get type parameters as strings
+      const legacyEntry = registry.getLegacyEntry(receiverNominal);
+      if (!legacyEntry) return undefined;
 
       const subst = new Map<string, IrType>();
-      for (let i = 0; i < entry.typeParameters.length; i++) {
-        const paramName = entry.typeParameters[i];
+      for (let i = 0; i < legacyEntry.typeParameters.length; i++) {
+        const paramName = legacyEntry.typeParameters[i];
         const arg = receiverTypeArgs[i];
         if (paramName && arg) {
           subst.set(paramName, arg);
@@ -341,12 +349,13 @@ export const buildNominalEnv = (
 
     // Build substitution by walking the chain
     // Start with receiver's type args
-    const receiverEntry = registry.resolveNominal(receiverNominal);
-    if (!receiverEntry) return undefined;
+    // Use legacy entry to get type parameters as strings
+    const receiverLegacyEntry = registry.getLegacyEntry(receiverNominal);
+    if (!receiverLegacyEntry) return undefined;
 
     let currentSubst = new Map<string, IrType>();
-    for (let i = 0; i < receiverEntry.typeParameters.length; i++) {
-      const paramName = receiverEntry.typeParameters[i];
+    for (let i = 0; i < receiverLegacyEntry.typeParameters.length; i++) {
+      const paramName = receiverLegacyEntry.typeParameters[i];
       const arg = receiverTypeArgs[i];
       if (paramName && arg) {
         currentSubst.set(paramName, arg);

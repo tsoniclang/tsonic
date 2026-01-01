@@ -187,7 +187,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     entry.typeParameters.forEach((param, i) => {
       const arg = args[i];
       if (arg !== undefined) {
-        subst.set(param, arg);
+        subst.set(param.name, arg);
       }
     });
 
@@ -270,11 +270,11 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
 
       const members: MemberResult[] = [];
       entry.members.forEach((info, name) => {
-        if (info.kind === "property" && info.typeNode) {
-          const memberType = convertTypeNode(info.typeNode, binding);
+        if (info.kind === "property" && info.type) {
+          // MemberInfo.type is now pure IrType - no conversion needed
           members.push({
             name,
-            type: memberType,
+            type: info.type,
             isOptional: info.isOptional,
             isReadonly: info.isReadonly,
             declaringType: type,
@@ -301,11 +301,11 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
             // Skip if already have this member (child overrides)
             if (members.some((m) => m.name === name)) return;
 
-            if (info.kind === "property" && info.typeNode) {
-              const rawType = convertTypeNode(info.typeNode, binding);
+            if (info.kind === "property" && info.type) {
+              // MemberInfo.type is now pure IrType - apply substitution directly
               const memberType = subst
-                ? substituteIrType(rawType, subst)
-                : rawType;
+                ? substituteIrType(info.type, subst)
+                : info.type;
               members.push({
                 name,
                 type: memberType,
