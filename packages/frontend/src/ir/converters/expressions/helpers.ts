@@ -1,5 +1,8 @@
 /**
  * Helper functions for expression conversion
+ *
+ * ALICE'S SPEC: All type resolution goes through TypeSystem.
+ * NO getHandleRegistry() calls allowed here.
  */
 
 import * as ts from "typescript";
@@ -8,6 +11,7 @@ import { convertType } from "../../type-converter.js";
 import { SourceLocation } from "../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../program/diagnostics.js";
 import type { Binding } from "../../binding/index.js";
+import { getTypeSystem } from "../statements/declarations/registry.js";
 
 /**
  * Get source span for a TypeScript node.
@@ -47,7 +51,7 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
 /**
  * Derive the return type of a call expression from its declaration.
  *
- * DETERMINISTIC: Uses only TypeNode from the function declaration.
+ * ALICE'S SPEC: Uses TypeSystem.resolveCall() exclusively.
  * This is a simplified version for use in deriveIdentifierType to avoid
  * circular dependencies with calls.ts.
  */
@@ -55,13 +59,24 @@ const deriveCallReturnType = (
   node: ts.CallExpression,
   binding: Binding
 ): IrType | undefined => {
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
+
   const sigId = binding.resolveCallSignature(node);
   if (!sigId) return undefined;
 
-  const sigInfo = binding.getHandleRegistry().getSignature(sigId);
-  if (!sigInfo?.returnTypeNode) return undefined;
+  // Use TypeSystem.resolveCall() - returns fully resolved return type
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount: node.arguments.length,
+  });
 
-  return convertType(sigInfo.returnTypeNode as ts.TypeNode, binding);
+  // If TypeSystem returns unknownType, treat it as unresolvable
+  if (resolved.returnType.kind === "unknownType") {
+    return undefined;
+  }
+
+  return resolved.returnType;
 };
 
 /**
@@ -177,40 +192,21 @@ export const deriveIdentifierType = (
   node: ts.Identifier,
   binding: Binding
 ): IrType | undefined => {
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
+
   const declId = binding.resolveIdentifier(node);
   if (!declId) return undefined;
 
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
-  if (!declInfo) return undefined;
+  // ALICE'S SPEC: Use TypeSystem.typeOfDecl() exclusively
+  const declType = typeSystem.typeOfDecl(declId);
 
-  // If we have an explicit type node, use it
-  if (declInfo.typeNode) {
-    return convertType(declInfo.typeNode as ts.TypeNode, binding);
+  // TypeSystem returns unknownType if it can't resolve - treat as unresolvable
+  if (declType.kind === "unknownType") {
+    return undefined;
   }
 
-  // For variables without type annotation, try to derive from initializer
-  // We need to check the original declaration node
-  // NOTE: The Binding layer stores the declaration, and we can examine it
-  // But for full determinism, we'd need to store the initializer info too
-  // For now, return undefined if no explicit typeNode
-
-  // For class/interface/enum declarations, return reference type
-  if (
-    declInfo.kind === "class" ||
-    declInfo.kind === "interface" ||
-    declInfo.kind === "enum"
-  ) {
-    return {
-      kind: "referenceType",
-      name: declInfo.fqName ?? node.text,
-    };
-  }
-
-  // For function declarations, return function type
-  // NOTE: This requires the SignatureInfo which would need more work
-  // For now, return undefined
-
-  return undefined;
+  return declType;
 };
 
 /**
@@ -435,8 +431,11 @@ export const getContextualType = (
     }
 
     // Call argument: f({ ... }) where f(x: Foo)
-    // Use Binding to resolve the call signature and get parameter types
+    // Use TypeSystem.resolveCall() to get parameter types
     if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
+      const typeSystem = getTypeSystem();
+      if (!typeSystem) return undefined;
+
       const argIndex = parent.arguments
         ? parent.arguments.indexOf(node as ts.Expression)
         : -1;
@@ -446,10 +445,14 @@ export const getContextualType = (
           ? binding.resolveCallSignature(parent)
           : binding.resolveConstructorSignature(parent);
         if (sigId) {
-          const sigInfo = binding.getHandleRegistry().getSignature(sigId);
-          const param = sigInfo?.parameters[argIndex];
-          if (param?.typeNode) {
-            return convertType(param.typeNode as ts.TypeNode, binding);
+          // ALICE'S SPEC: Use TypeSystem.resolveCall() for parameter types
+          const resolved = typeSystem.resolveCall({
+            sigId,
+            argumentCount: parent.arguments?.length ?? 0,
+          });
+          const paramType = resolved.parameterTypes[argIndex];
+          if (paramType && paramType.kind !== "unknownType") {
+            return paramType;
           }
         }
       }
