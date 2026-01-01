@@ -17,36 +17,38 @@ import {
   getBindingRegistry,
   getTypeSystem,
 } from "../statements/declarations/registry.js";
-import { convertType } from "../../type-converter.js";
 import type { Binding } from "../../binding/index.js";
 
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
- * Uses Binding layer to resolve property declarations for:
+ * Uses TypeSystem.typeOfMemberId() to get member types for:
  * - Built-in types from globals (Array.length, string.length, etc.)
  * - CLR-bound types from tsbindgen
  * - Types with inherited members not in TypeRegistry
  *
- * TODO(alice): This fallback should be removed once TypeRegistry properly
- * handles inherited members from extended interfaces.
+ * ALICE'S SPEC: Uses TypeSystem as single source of truth.
  */
 const getDeclaredPropertyTypeFallback = (
   node: ts.PropertyAccessExpression,
   binding: Binding
 ): IrType | undefined => {
+  // ALICE'S SPEC: Use TypeSystem.typeOfMemberId() to get member type
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
+
   // Resolve property member through Binding layer
   const memberId = binding.resolvePropertyAccess(node);
   if (!memberId) return undefined;
 
-  const memberInfo = binding.getHandleRegistry().getMember(memberId);
-  if (!memberInfo) return undefined;
+  // Use TypeSystem.typeOfMemberId() to get the member's declared type
+  const memberType = typeSystem.typeOfMemberId(memberId);
 
-  // If the member has a type node, convert it
-  if (memberInfo.typeNode) {
-    return convertType(memberInfo.typeNode as ts.TypeNode, binding);
+  // If TypeSystem returns unknownType, treat as not found
+  if (memberType.kind === "unknownType") {
+    return undefined;
   }
 
-  return undefined;
+  return memberType;
 };
 
 /**

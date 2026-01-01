@@ -14,7 +14,7 @@ import {
 } from "../../types.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import { convertType } from "../../type-converter.js";
+import { getTypeSystem } from "../statements/declarations/registry.js";
 import {
   computeShapeSignature,
   generateSyntheticName,
@@ -260,14 +260,18 @@ export const convertObjectLiteral = (
     } else if (ts.isShorthandPropertyAssignment(prop)) {
       // DETERMINISTIC: Derive identifier type from the VALUE being assigned, not the property
       // For { value }, we need to get the type of the variable `value`, not the property `value`
-      // Use Binding to resolve the shorthand assignment to its declaration
+      // ALICE'S SPEC: Use TypeSystem.typeOfDecl() to get the variable's type
       const declId = binding.resolveShorthandAssignment(prop);
       let inferredType: IrType | undefined;
 
       if (declId) {
-        const declInfo = binding.getHandleRegistry().getDecl(declId);
-        if (declInfo?.typeNode) {
-          inferredType = convertType(declInfo.typeNode as ts.TypeNode, binding);
+        const typeSystem = getTypeSystem();
+        if (typeSystem) {
+          const declType = typeSystem.typeOfDecl(declId);
+          // If TypeSystem returns unknownType, treat as not found
+          if (declType.kind !== "unknownType") {
+            inferredType = declType;
+          }
         }
       }
 

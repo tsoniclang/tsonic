@@ -456,29 +456,17 @@ const getConstructedType = (
   }
 
   // No explicit type arguments - check if the target is generic
-  // Use Binding to resolve the type and check for type parameters
-  if (ts.isIdentifier(node.expression)) {
+  // ALICE'S SPEC: Use TypeSystem to check if the type has type parameters
+  const typeSystem = getTypeSystem();
+  if (typeSystem && ts.isIdentifier(node.expression)) {
     const declId = binding.resolveIdentifier(node.expression);
     if (declId) {
-      const declInfo = binding.getHandleRegistry().getDecl(declId);
-      // Check the declaration node for type parameters
-      const declNode = declInfo?.declNode as ts.Declaration | undefined;
-      if (declNode) {
-        const hasTypeParams =
-          (ts.isClassDeclaration(declNode) &&
-            declNode.typeParameters &&
-            declNode.typeParameters.length > 0) ||
-          (ts.isInterfaceDeclaration(declNode) &&
-            declNode.typeParameters &&
-            declNode.typeParameters.length > 0) ||
-          (ts.isTypeAliasDeclaration(declNode) &&
-            declNode.typeParameters &&
-            declNode.typeParameters.length > 0);
-        if (hasTypeParams) {
-          // Generic type without explicit type arguments - poison with unknownType
-          // Validation will emit TSN5202
-          return { kind: "unknownType" as const };
-        }
+      // Use TypeSystem.hasTypeParameters() to check without accessing HandleRegistry
+      const hasTypeParams = typeSystem.hasTypeParameters(declId);
+      if (hasTypeParams) {
+        // Generic type without explicit type arguments - poison with unknownType
+        // Validation will emit TSN5202
+        return { kind: "unknownType" as const };
       }
     }
   }

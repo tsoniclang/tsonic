@@ -11,7 +11,7 @@ import {
   NumericKind,
   TSONIC_TO_NUMERIC_KIND,
 } from "./types.js";
-import { getBindingRegistry } from "./converters/statements/declarations/registry.js";
+import { getBindingRegistry, getTypeSystem } from "./converters/statements/declarations/registry.js";
 import { convertType } from "./type-converter.js";
 import type { Binding } from "./binding/index.js";
 
@@ -134,14 +134,17 @@ export const convertExpression = (
     const identifierType = deriveIdentifierType(node, binding);
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
-    // We need the original name for binding lookup
+    // ALICE'S SPEC: Use TypeSystem.getFQNameOfDecl() to get the original name
     let originalName: string | undefined;
     const declId = binding.resolveIdentifier(node);
     if (declId) {
-      const declInfo = binding.getHandleRegistry().getDecl(declId);
-      // If the fqName differs from the identifier text, it's an aliased import
-      if (declInfo?.fqName && declInfo.fqName !== node.text) {
-        originalName = declInfo.fqName;
+      const typeSystem = getTypeSystem();
+      if (typeSystem) {
+        const fqName = typeSystem.getFQNameOfDecl(declId);
+        // If the fqName differs from the identifier text, it's an aliased import
+        if (fqName && fqName !== node.text) {
+          originalName = fqName;
+        }
       }
     }
 

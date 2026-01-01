@@ -157,6 +157,32 @@ export interface TypeSystem {
    */
   containsTypeParameter(type: IrType): boolean;
 
+  /**
+   * Check if a declaration has type parameters (is generic).
+   *
+   * Used by getConstructedType to detect if `new Foo()` needs explicit type args.
+   * Returns true for generic classes/interfaces/type aliases.
+   */
+  hasTypeParameters(declId: DeclId): boolean;
+
+  /**
+   * Get the type of a member by its handle.
+   *
+   * Used by property access fallback when TypeSystem.typeOfMember() can't resolve
+   * the member through TypeRegistry/NominalEnv (e.g., CLR-bound members).
+   *
+   * Returns unknownType if member not found or has no type annotation.
+   */
+  typeOfMemberId(memberId: MemberId): IrType;
+
+  /**
+   * Get the fully-qualified name of a declaration.
+   *
+   * Used to detect aliased imports (e.g., `import { String as ClrString }`).
+   * Returns undefined if no fqName is available.
+   */
+  getFQNameOfDecl(declId: DeclId): string | undefined;
+
   // ─────────────────────────────────────────────────────────────────────────
   // Diagnostics
   // ─────────────────────────────────────────────────────────────────────────
@@ -1901,6 +1927,50 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     diagnostics.length = 0;
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // hasTypeParameters — Check if declaration has type parameters
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const hasTypeParameters = (declId: DeclId): boolean => {
+    const declInfo = handleRegistry.getDecl(declId);
+    if (!declInfo?.declNode) return false;
+
+    // Check the declaration node for type parameters
+    // We need to import ts to check for type parameter declarations
+    // Access the declNode as any to check for typeParameters property
+    const declNode = declInfo.declNode as {
+      typeParameters?: readonly unknown[];
+    };
+    return !!(declNode.typeParameters && declNode.typeParameters.length > 0);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // typeOfMemberId — Get type of member by handle
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const typeOfMemberId = (memberId: MemberId): IrType => {
+    const memberInfo = handleRegistry.getMember(memberId);
+    if (!memberInfo) {
+      return unknownType;
+    }
+
+    // If the member has a type node, convert it
+    if (memberInfo.typeNode) {
+      return convertTypeNode(memberInfo.typeNode);
+    }
+
+    return unknownType;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getFQNameOfDecl — Get fully-qualified name of declaration
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const getFQNameOfDecl = (declId: DeclId): string | undefined => {
+    const declInfo = handleRegistry.getDecl(declId);
+    return declInfo?.fqName;
+  };
+
   // Suppress unused variable warning for nominalMemberLookupCache
   // Will be used for more advanced caching in future
   void nominalMemberLookupCache;
@@ -1912,6 +1982,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   return {
     typeOfDecl,
     typeOfMember,
+    typeOfMemberId,
+    getFQNameOfDecl,
     resolveCall,
     expandUtility,
     substitute,
@@ -1919,6 +1991,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     isAssignableTo,
     typesEqual,
     containsTypeParameter,
+    hasTypeParameters,
     getDiagnostics,
     clearDiagnostics,
   };
