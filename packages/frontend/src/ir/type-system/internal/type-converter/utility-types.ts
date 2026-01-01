@@ -13,8 +13,8 @@ import {
   IrObjectType,
   IrPropertySignature,
   IrInterfaceMember,
-} from "../types.js";
-import type { Binding } from "../binding/index.js";
+} from "../../../types.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Set of supported mapped utility types that can be expanded

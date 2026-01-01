@@ -15,8 +15,8 @@ import {
   expandConditionalUtilityType,
   expandRecordType,
 } from "./utility-types.js";
-import { IrType } from "../types.js";
-import { createBinding, Binding } from "../binding/index.js";
+import { IrType } from "../../../types.js";
+import { createBinding, Binding } from "../../../binding/index.js";
 
 /**
  * Assert value is not null/undefined and return it typed as non-null.

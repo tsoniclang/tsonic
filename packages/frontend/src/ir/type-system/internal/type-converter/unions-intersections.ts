@@ -3,8 +3,8 @@
  */
 
 import * as ts from "typescript";
-import { IrType } from "../types.js";
-import type { Binding } from "../binding/index.js";
+import { IrType } from "../../../types.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert TypeScript union type to IR union type

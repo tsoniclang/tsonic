@@ -3,9 +3,9 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrFunctionType } from "../types.js";
-import { convertParameters as convertParametersFromStatement } from "../statement-converter.js";
-import type { Binding } from "../binding/index.js";
+import { IrType, IrFunctionType } from "../../../types.js";
+import { convertParameters as convertParametersFromStatement } from "../../../statement-converter.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert TypeScript function type to IR function type

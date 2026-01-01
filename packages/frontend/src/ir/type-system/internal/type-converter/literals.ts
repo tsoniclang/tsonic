@@ -3,7 +3,7 @@
  */
 
 import * as ts from "typescript";
-import { IrType } from "../types.js";
+import { IrType } from "../../../types.js";
 
 /**
  * Convert TypeScript literal type to IR literal type

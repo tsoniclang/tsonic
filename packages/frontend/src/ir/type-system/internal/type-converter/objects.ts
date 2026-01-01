@@ -10,9 +10,9 @@ import {
   IrInterfaceMember,
   IrPropertySignature,
   IrMethodSignature,
-} from "../types.js";
-import { convertParameters as convertParametersFromStatement } from "../statement-converter.js";
-import type { Binding } from "../binding/index.js";
+} from "../../../types.js";
+import { convertParameters as convertParametersFromStatement } from "../../../statement-converter.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert TypeScript object literal type to IR type.

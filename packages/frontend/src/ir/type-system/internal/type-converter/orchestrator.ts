@@ -9,7 +9,7 @@ import {
   IrObjectType,
   IrDictionaryType,
   IrTupleType,
-} from "../types.js";
+} from "../../../types.js";
 import { convertPrimitiveKeyword } from "./primitives.js";
 import { convertTypeReference } from "./references.js";
 import { convertArrayType } from "./arrays.js";
@@ -20,7 +20,7 @@ import {
   convertIntersectionType,
 } from "./unions-intersections.js";
 import { convertLiteralType } from "./literals.js";
-import type { Binding } from "../binding/index.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert TypeScript type node to IR type

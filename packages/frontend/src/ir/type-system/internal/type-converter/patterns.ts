@@ -7,9 +7,9 @@ import {
   IrPattern,
   IrObjectPatternProperty,
   IrArrayPatternElement,
-} from "../types/helpers.js";
-import { convertExpression } from "../expression-converter.js";
-import type { Binding } from "../binding/index.js";
+} from "../../../types/helpers.js";
+import { convertExpression } from "../../../expression-converter.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Convert TypeScript binding name to IR pattern.

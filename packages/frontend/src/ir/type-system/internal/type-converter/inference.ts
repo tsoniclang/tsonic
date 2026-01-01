@@ -11,8 +11,8 @@
  */
 
 import type * as ts from "typescript";
-import type { IrType } from "../types.js";
-import type { Binding } from "../binding/index.js";
+import type { IrType } from "../../../types.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Result of inferring lambda parameter types from contextual signature.

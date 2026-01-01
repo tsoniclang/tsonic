@@ -8,7 +8,7 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrPrimitiveType } from "../types.js";
+import { IrType, IrPrimitiveType } from "../../../types.js";
 
 /**
  * CLR numeric type names from @tsonic/core.

@@ -3,7 +3,7 @@
  */
 
 import * as ts from "typescript";
-import { IrType, IrDictionaryType, IrInterfaceMember } from "../types.js";
+import { IrType, IrDictionaryType, IrInterfaceMember } from "../../../types.js";
 import {
   isPrimitiveTypeName,
   getPrimitiveType,
@@ -19,7 +19,7 @@ import {
   expandConditionalUtilityType,
   expandRecordType,
 } from "./utility-types.js";
-import type { Binding } from "../binding/index.js";
+import type { Binding } from "../../../binding/index.js";
 
 /**
  * Cache for structural member extraction to prevent infinite recursion
