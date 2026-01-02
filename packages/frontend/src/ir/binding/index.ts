@@ -285,15 +285,15 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     const id = makeMemberId(ownerDeclId, memberName);
     const decl = memberSymbol.getDeclarations()?.[0];
-    const entry: MemberEntry = {
-      memberId: id,
-      symbol: memberSymbol,
-      decl,
-      name: memberName,
-      typeNode: decl ? getMemberTypeNode(decl) : undefined,
-      isOptional: isOptionalMember(memberSymbol),
-      isReadonly: isReadonlyMember(decl),
-    };
+	    const entry: MemberEntry = {
+	      memberId: id,
+	      symbol: memberSymbol,
+	      decl,
+	      name: memberName,
+	      typeNode: decl ? getMemberTypeAnnotation(decl) : undefined,
+	      isOptional: isOptionalMember(memberSymbol),
+	      isReadonly: isReadonlyMember(decl),
+	    };
     memberMap.set(key, entry);
 
     return id;
@@ -598,7 +598,9 @@ const getTypeNodeFromDeclaration = (
   return undefined;
 };
 
-const getMemberTypeNode = (decl: ts.Declaration): ts.TypeNode | undefined => {
+const getMemberTypeAnnotation = (
+  decl: ts.Declaration
+): ts.TypeNode | undefined => {
   if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
     return decl.type;
   }

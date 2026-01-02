@@ -122,52 +122,6 @@ export type TypeRegistryEntry = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LEGACY TYPES (for backwards compatibility during migration)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Legacy member info with TypeNode (for backwards compatibility)
- * @deprecated Use MemberInfo instead. This will be removed after Step 7.
- */
-export type LegacyMemberInfo = {
-  readonly kind: "property" | "method" | "indexSignature";
-  readonly name: string;
-  readonly typeNode: ts.TypeNode | undefined;
-  readonly isOptional: boolean;
-  readonly isReadonly: boolean;
-  readonly signatures?: readonly ts.SignatureDeclaration[];
-  readonly declaration: ts.Node;
-};
-
-/**
- * Legacy heritage info with TypeNode (for backwards compatibility)
- * @deprecated Use HeritageInfo instead. This will be removed after Step 7.
- */
-export type LegacyHeritageInfo = {
-  readonly kind: "extends" | "implements";
-  readonly typeNode: ts.TypeNode;
-  readonly typeName: string;
-};
-
-/**
- * Legacy entry with TypeNode fields (for backwards compatibility)
- * @deprecated Use TypeRegistryEntry instead. This will be removed after Step 7.
- */
-export type LegacyTypeRegistryEntry = {
-  readonly kind: "class" | "interface" | "typeAlias";
-  readonly name: string;
-  readonly fullyQualifiedName: string;
-  readonly typeParameters: readonly string[];
-  readonly declaration:
-    | ts.ClassDeclaration
-    | ts.InterfaceDeclaration
-    | ts.TypeAliasDeclaration;
-  readonly members: ReadonlyMap<string, LegacyMemberInfo>;
-  readonly heritage: readonly LegacyHeritageInfo[];
-  readonly sourceFile: ts.SourceFile;
-};
-
-// ═══════════════════════════════════════════════════════════════════════════
 // TYPEREISTRY API (Pure IR)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -218,32 +172,6 @@ export type TypeRegistry = {
    * Check if a type name is registered (by FQ name).
    */
   readonly hasType: (fqName: string) => boolean;
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // LEGACY API (for backwards compatibility during migration)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * @deprecated Use getMemberType instead. This will be removed after Step 7.
-   */
-  readonly getMemberTypeNode: (
-    fqNominal: string,
-    memberName: string
-  ) => ts.TypeNode | undefined;
-
-  /**
-   * @deprecated Use getHeritageTypes instead. This will be removed after Step 7.
-   */
-  readonly getHeritageTypeNodes: (
-    fqNominal: string
-  ) => readonly LegacyHeritageInfo[];
-
-  /**
-   * @deprecated Access to legacy entry for backwards compatibility.
-   */
-  readonly getLegacyEntry: (
-    fqName: string
-  ) => LegacyTypeRegistryEntry | undefined;
 };
 
 /**
@@ -268,16 +196,6 @@ const extractTypeParameters = (
     constraint: p.constraint ? convertType(p.constraint) : undefined,
     defaultType: p.default ? convertType(p.default) : undefined,
   }));
-};
-
-/**
- * Extract type parameter names (legacy)
- */
-const extractTypeParameterNames = (
-  typeParams: ts.NodeArray<ts.TypeParameterDeclaration> | undefined
-): readonly string[] => {
-  if (!typeParams) return [];
-  return typeParams.map((p) => p.name.text);
 };
 
 /**
@@ -463,107 +381,6 @@ const convertMethodSignatureToIr = (
 });
 
 /**
- * Extract legacy member information (with TypeNodes)
- */
-const extractLegacyMembers = (
-  members: ts.NodeArray<ts.ClassElement> | ts.NodeArray<ts.TypeElement>
-): ReadonlyMap<string, LegacyMemberInfo> => {
-  const result = new Map<string, LegacyMemberInfo>();
-
-  for (const member of members) {
-    if (ts.isPropertyDeclaration(member)) {
-      const name = member.name.getText();
-      const isOptional =
-        member.questionToken !== undefined || member.initializer !== undefined;
-      const isReadonly = member.modifiers?.some(
-        (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-      );
-      result.set(name, {
-        kind: "property",
-        name,
-        typeNode: member.type,
-        isOptional,
-        isReadonly: isReadonly ?? false,
-        declaration: member,
-      });
-    }
-
-    if (ts.isPropertySignature(member)) {
-      const name = member.name.getText();
-      result.set(name, {
-        kind: "property",
-        name,
-        typeNode: member.type,
-        isOptional: member.questionToken !== undefined,
-        isReadonly:
-          member.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false,
-        declaration: member,
-      });
-    }
-
-    if (ts.isMethodDeclaration(member)) {
-      const name = member.name.getText();
-      const existing = result.get(name);
-      const signatures = existing?.signatures
-        ? [...existing.signatures, member]
-        : [member];
-      result.set(name, {
-        kind: "method",
-        name,
-        typeNode: member.type,
-        isOptional: member.questionToken !== undefined,
-        isReadonly: false,
-        signatures,
-        declaration: member,
-      });
-    }
-
-    if (ts.isMethodSignature(member)) {
-      const name = member.name.getText();
-      const existing = result.get(name);
-      const signatures = existing?.signatures
-        ? [...existing.signatures, member]
-        : [member];
-      result.set(name, {
-        kind: "method",
-        name,
-        typeNode: member.type,
-        isOptional: member.questionToken !== undefined,
-        isReadonly: false,
-        signatures,
-        declaration: member,
-      });
-    }
-
-    if (ts.isIndexSignatureDeclaration(member)) {
-      const param = member.parameters[0];
-      const keyType = param?.type;
-      const keyName = keyType
-        ? ts.isTypeReferenceNode(keyType)
-          ? keyType.typeName.getText()
-          : keyType.getText()
-        : "unknown";
-      const name = `[${keyName}]`;
-      result.set(name, {
-        kind: "indexSignature",
-        name,
-        typeNode: member.type,
-        isOptional: false,
-        isReadonly:
-          member.modifiers?.some(
-            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
-          ) ?? false,
-        declaration: member,
-      });
-    }
-  }
-
-  return result;
-};
-
-/**
  * Extract heritage clauses - PURE IR version
  */
 const extractHeritage = (
@@ -585,32 +402,6 @@ const extractHeritage = (
         result.push({
           kind,
           baseType: convertType(type),
-          typeName,
-        });
-      }
-    }
-  }
-  return result;
-};
-
-/**
- * Extract legacy heritage clauses (with TypeNodes)
- */
-const extractLegacyHeritage = (
-  clauses: ts.NodeArray<ts.HeritageClause> | undefined
-): readonly LegacyHeritageInfo[] => {
-  if (!clauses) return [];
-
-  const result: LegacyHeritageInfo[] = [];
-  for (const clause of clauses) {
-    const kind =
-      clause.token === ts.SyntaxKind.ExtendsKeyword ? "extends" : "implements";
-    for (const type of clause.types) {
-      const typeName = getTypeNodeName(type);
-      if (typeName) {
-        result.push({
-          kind,
-          typeNode: type,
           typeName,
         });
       }
@@ -641,8 +432,6 @@ export const buildTypeRegistry = (
 ): TypeRegistry => {
   // Map from FQ name to pure IR entry
   const entries = new Map<string, TypeRegistryEntry>();
-  // Map from FQ name to legacy entry (for backwards compatibility)
-  const legacyEntries = new Map<string, LegacyTypeRegistryEntry>();
   // Map from simple name to FQ name (for reverse lookup)
   const simpleNameToFQ = new Map<string, string>();
 
@@ -684,43 +473,30 @@ export const buildTypeRegistry = (
     };
 
     // Class declarations
-    if (ts.isClassDeclaration(node) && node.name) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
+	    if (ts.isClassDeclaration(node) && node.name) {
+	      const simpleName = node.name.text;
+	      const fqName = makeFQName(simpleName);
 
       // Pure IR entry
-      entries.set(fqName, {
-        kind: "class",
-        name: simpleName,
-        fullyQualifiedName: fqName,
-        typeParameters: extractTypeParameters(node.typeParameters, convert),
-        members: extractMembers(node.members, convert),
-        heritage: extractHeritage(node.heritageClauses, convert, canonicalize),
-      });
+	      entries.set(fqName, {
+	        kind: "class",
+	        name: simpleName,
+	        fullyQualifiedName: fqName,
+	        typeParameters: extractTypeParameters(node.typeParameters, convert),
+	        members: extractMembers(node.members, convert),
+	        heritage: extractHeritage(node.heritageClauses, convert, canonicalize),
+	      });
 
-      // Legacy entry
-      legacyEntries.set(fqName, {
-        kind: "class",
-        name: simpleName,
-        fullyQualifiedName: fqName,
-        typeParameters: extractTypeParameterNames(node.typeParameters),
-        declaration: node,
-        members: extractLegacyMembers(node.members),
-        heritage: extractLegacyHeritage(node.heritageClauses),
-        sourceFile: sf,
-      });
-
-      simpleNameToFQ.set(simpleName, fqName);
-    }
+	      simpleNameToFQ.set(simpleName, fqName);
+	    }
 
     // Interface declarations
-    if (ts.isInterfaceDeclaration(node)) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
+	    if (ts.isInterfaceDeclaration(node)) {
+	      const simpleName = node.name.text;
+	      const fqName = makeFQName(simpleName);
 
-      // Merge with existing interface (for module augmentation)
-      const existing = entries.get(fqName);
-      const legacyExisting = legacyEntries.get(fqName);
+	      // Merge with existing interface (for module augmentation)
+	      const existing = entries.get(fqName);
 
       if (existing && existing.kind === "interface") {
         // Merge members
@@ -739,11 +515,11 @@ export const buildTypeRegistry = (
             ...extractHeritage(node.heritageClauses, convert, canonicalize),
           ],
         });
-      } else {
-        entries.set(fqName, {
-          kind: "interface",
-          name: simpleName,
-          fullyQualifiedName: fqName,
+	      } else {
+	        entries.set(fqName, {
+	          kind: "interface",
+	          name: simpleName,
+	          fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters, convert),
           members: extractMembers(node.members, convert),
           heritage: extractHeritage(
@@ -751,70 +527,29 @@ export const buildTypeRegistry = (
             convert,
             canonicalize
           ),
-        });
-        simpleNameToFQ.set(simpleName, fqName);
-      }
-
-      // Legacy entry merge
-      if (legacyExisting && legacyExisting.kind === "interface") {
-        const mergedLegacyMembers = new Map(legacyExisting.members);
-        for (const [memberName, memberInfo] of extractLegacyMembers(
-          node.members
-        )) {
-          mergedLegacyMembers.set(memberName, memberInfo);
-        }
-        legacyEntries.set(fqName, {
-          ...legacyExisting,
-          members: mergedLegacyMembers,
-          heritage: [
-            ...legacyExisting.heritage,
-            ...extractLegacyHeritage(node.heritageClauses),
-          ],
-        });
-      } else {
-        legacyEntries.set(fqName, {
-          kind: "interface",
-          name: simpleName,
-          fullyQualifiedName: fqName,
-          typeParameters: extractTypeParameterNames(node.typeParameters),
-          declaration: node,
-          members: extractLegacyMembers(node.members),
-          heritage: extractLegacyHeritage(node.heritageClauses),
-          sourceFile: sf,
-        });
-      }
-    }
+	        });
+	        simpleNameToFQ.set(simpleName, fqName);
+	      }
+	    }
 
     // Type alias declarations
-    if (ts.isTypeAliasDeclaration(node)) {
-      const simpleName = node.name.text;
-      const fqName = makeFQName(simpleName);
+	    if (ts.isTypeAliasDeclaration(node)) {
+	      const simpleName = node.name.text;
+	      const fqName = makeFQName(simpleName);
 
       // Pure IR entry
-      entries.set(fqName, {
-        kind: "typeAlias",
-        name: simpleName,
-        fullyQualifiedName: fqName,
-        typeParameters: extractTypeParameters(node.typeParameters, convert),
-        members: new Map(),
-        heritage: [],
-        aliasedType: convert(node.type),
-      });
+	      entries.set(fqName, {
+	        kind: "typeAlias",
+	        name: simpleName,
+	        fullyQualifiedName: fqName,
+	        typeParameters: extractTypeParameters(node.typeParameters, convert),
+	        members: new Map(),
+	        heritage: [],
+	        aliasedType: convert(node.type),
+	      });
 
-      // Legacy entry
-      legacyEntries.set(fqName, {
-        kind: "typeAlias",
-        name: simpleName,
-        fullyQualifiedName: fqName,
-        typeParameters: extractTypeParameterNames(node.typeParameters),
-        declaration: node,
-        members: new Map(),
-        heritage: [],
-        sourceFile: sf,
-      });
-
-      simpleNameToFQ.set(simpleName, fqName);
-    }
+	      simpleNameToFQ.set(simpleName, fqName);
+	    }
 
     // Handle 'declare global { ... }' blocks
     if (
@@ -876,30 +611,8 @@ export const buildTypeRegistry = (
       return [...entries.keys()];
     },
 
-    hasType: (fqName: string): boolean => {
-      return entries.has(fqName);
-    },
-
-    // Legacy API (for backwards compatibility)
-    getMemberTypeNode: (
-      fqNominal: string,
-      memberName: string
-    ): ts.TypeNode | undefined => {
-      const entry = legacyEntries.get(fqNominal);
-      if (!entry) return undefined;
-      const member = entry.members.get(memberName);
-      return member?.typeNode;
-    },
-
-    getHeritageTypeNodes: (
-      fqNominal: string
-    ): readonly LegacyHeritageInfo[] => {
-      const entry = legacyEntries.get(fqNominal);
-      return entry?.heritage ?? [];
-    },
-
-    getLegacyEntry: (fqName: string): LegacyTypeRegistryEntry | undefined => {
-      return legacyEntries.get(fqName);
-    },
-  };
+	    hasType: (fqName: string): boolean => {
+	      return entries.has(fqName);
+	    },
+	  };
 };

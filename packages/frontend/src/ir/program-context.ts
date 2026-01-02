@@ -4,7 +4,7 @@
  * This is the ONLY place where internal registries are constructed and wired together.
  * All converters and builder helpers receive context explicitly — no global state.
  *
- * Phase 5 Step 4: Airplane-grade parallel safety.
+ * Phase 6: NominalEnv is now TypeId-based, using UnifiedTypeCatalog.
  */
 
 import * as path from "path";
@@ -16,11 +16,9 @@ import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { TsonicProgram } from "../program.js";
 import type { IrBuildOptions } from "./builder/types.js";
 import { buildNominalEnv } from "./type-system/internal/nominal-env.js";
-import {
-  convertType,
-  convertCapturedTypeNode,
-} from "./type-system/internal/type-converter.js";
+import { convertCapturedTypeNode } from "./type-system/internal/type-converter.js";
 import { createTypeSystem } from "./type-system/type-system.js";
+import { buildAliasTable } from "./type-system/internal/universe/alias-table.js";
 import { loadClrCatalog } from "./type-system/internal/universe/clr-catalog.js";
 import { buildUnifiedUniverse } from "./type-system/internal/universe/unified-universe.js";
 import { buildSourceCatalog } from "./type-system/internal/universe/source-catalog.js";
@@ -71,9 +69,9 @@ export type ProgramContext = {
  * This factory is the ONLY place that wires together the internal registries.
  * It performs the full setup:
  * 1. Build SourceCatalog / TypeRegistry using two-pass builder
- * 2. Build NominalEnv for inheritance chain substitution
- * 3. Build CLR catalog from node_modules
- * 4. Build UnifiedUniverse merging source and CLR types
+ * 2. Build CLR catalog from node_modules
+ * 3. Build UnifiedUniverse merging source and CLR types
+ * 4. Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
  * 5. Construct TypeSystem as single source of truth
  *
  * @param program - The TsonicProgram with type checker and bindings
@@ -101,14 +99,6 @@ export const createProgramContext = (
     binding: program.binding,
   });
 
-  // Build NominalEnv from TypeRegistry
-  // This enables inheritance chain substitution for member access
-  const nominalEnv = buildNominalEnv(
-    typeRegistry,
-    convertType,
-    program.binding
-  );
-
   // Load assembly type catalog for CLR stdlib types
   // This enables member lookup on primitive types like string.length
   const nodeModulesPath = path.resolve(
@@ -116,6 +106,7 @@ export const createProgramContext = (
     "node_modules"
   );
   const assemblyCatalog = loadClrCatalog(nodeModulesPath);
+  const aliasTable = buildAliasTable(assemblyCatalog);
 
   // Build unified catalog merging source and assembly types
   const unifiedCatalog = buildUnifiedUniverse(
@@ -123,6 +114,10 @@ export const createProgramContext = (
     assemblyCatalog,
     program.options.rootNamespace
   );
+
+  // Phase 6: Build NominalEnv from UnifiedTypeCatalog (TypeId-based)
+  // No longer requires TypeRegistry, convertType, or binding
+  const nominalEnv = buildNominalEnv(unifiedCatalog);
 
   // Build TypeSystem — the single source of truth for all type queries (Alice's spec)
   // TypeSystem encapsulates HandleRegistry, TypeRegistry, NominalEnv and type conversion
@@ -136,6 +131,7 @@ export const createProgramContext = (
       convertCapturedTypeNode(node, program.binding),
     // Unified catalog for CLR assembly type lookups
     unifiedCatalog,
+    aliasTable,
   });
 
   return {

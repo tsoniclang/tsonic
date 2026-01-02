@@ -29,18 +29,14 @@ import type {
   UtilityTypeName,
   ParameterMode,
 } from "./types.js";
-import {
-  substituteIrType as irSubstitute,
-  TypeSubstitutionMap as IrSubstitutionMap,
-} from "../types/ir-substitution.js";
-import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
-import type { NumericKind } from "../types/numeric-kind.js";
-import {
-  PRIMITIVE_TO_CLR_FQ,
-  GLOBALS_TO_CLR_FQ,
-} from "./internal/universe/alias-table.js";
-import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
-import { getMemberDeclaredType as catalogGetMemberType } from "./internal/universe/unified-universe.js";
+	import {
+	  substituteIrType as irSubstitute,
+	  TypeSubstitutionMap as IrSubstitutionMap,
+	} from "../types/ir-substitution.js";
+	import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
+	import type { NumericKind } from "../types/numeric-kind.js";
+	import type { AliasTable } from "./internal/universe/alias-table.js";
+	import type { TypeId, UnifiedTypeCatalog } from "./internal/universe/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ALICE'S EXACT API — TypeSystem Interface
@@ -498,7 +494,15 @@ export type TypeSystemConfig = {
    *
    * Optional during migration; will become required when migration completes.
    */
-  readonly unifiedCatalog?: UnifiedTypeCatalog;
+  readonly unifiedCatalog: UnifiedTypeCatalog;
+
+  /**
+   * Alias table mapping surface names to canonical TypeIds.
+   *
+   * This is required for Alice's invariant:
+   * - "string" and "System.String" unify to the same TypeId (stableId)
+   */
+  readonly aliasTable: AliasTable;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -719,23 +723,23 @@ export type TypeRegistryMemberInfo = {
 };
 
 /**
- * NominalEnv API — minimal interface needed by TypeSystem.
+ * NominalEnv API — Phase 6: TypeId-based interface.
  */
 export interface NominalEnvAPI {
-  /** Get inheritance chain for a type (FQ names) */
-  getInheritanceChain(fqName: string): readonly string[];
+  /** Get inheritance chain for a type (returns TypeIds) */
+  getInheritanceChain(typeId: TypeId): readonly TypeId[];
 
   /** Get substitution for a parent type given child instantiation */
   getInstantiation(
-    childFQName: string,
-    childTypeArgs: readonly IrType[],
-    parentFQName: string
+    receiverTypeId: TypeId,
+    receiverTypeArgs: readonly IrType[],
+    targetTypeId: TypeId
   ): ReadonlyMap<string, IrType> | undefined;
 
   /** Find the declaring type of a member in the inheritance chain */
   findMemberDeclaringType(
-    fqName: string,
-    typeArgs: readonly IrType[],
+    receiverTypeId: TypeId,
+    receiverTypeArgs: readonly IrType[],
     memberName: string
   ): MemberLookupResult | undefined;
 }
@@ -744,8 +748,8 @@ export interface NominalEnvAPI {
  * Result of looking up a member in the inheritance chain.
  */
 export type MemberLookupResult = {
-  /** FQ name of the type that declares the member */
-  readonly targetNominal: string;
+  /** TypeId of the type that declares the member */
+  readonly declaringTypeId: TypeId;
 
   /** Substitution to apply to the member's declared type */
   readonly substitution: ReadonlyMap<string, IrType>;
@@ -828,6 +832,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     nominalEnv,
     convertTypeNode,
     unifiedCatalog,
+    aliasTable,
   } = config;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1021,77 +1026,59 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     return rawSig;
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // STEP 5: TYPESYSTEM ALGORITHM IMPLEMENTATIONS
-  // ─────────────────────────────────────────────────────────────────────────
+	  // ─────────────────────────────────────────────────────────────────────────
+	  // STEP 5: TYPESYSTEM ALGORITHM IMPLEMENTATIONS
+	  // ─────────────────────────────────────────────────────────────────────────
 
-  /**
-   * Normalize a receiver type to nominal form for member lookup.
-   *
-   * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
-   *
-   * Resolution order (per Phase 3.5 - Universe-first):
-   * 1. Check UnifiedCatalog for TypeId (handles primitives, CLR types, source types)
-   * 2. Fall back to hardcoded mappings for backward compatibility
-   *
-   * Handles:
-   * - referenceType → { fqName, typeArgs } - uses Universe or CLR mapping
-   * - arrayType → { fqName: "System.Array", typeArgs: [elementType] }
-   * - primitiveType → { fqName: "System.String"|"System.Double"|etc, typeArgs: [] }
-   */
-  const normalizeToNominal = (
-    type: IrType
-  ): { fqName: string; typeArgs: readonly IrType[] } | undefined => {
-    // Phase 3.5: Try Universe first for all type resolution
-    if (unifiedCatalog) {
-      if (type.kind === "referenceType") {
-        // Try to resolve via Universe (handles globals, source types, CLR types)
-        const typeId = unifiedCatalog.resolveTsName(type.name);
-        if (typeId) {
-          return { fqName: typeId.clrName, typeArgs: type.typeArguments ?? [] };
-        }
-        // Also try CLR name in case it's already qualified
-        const clrTypeId = unifiedCatalog.resolveClrName(type.name);
-        if (clrTypeId) {
-          return {
-            fqName: clrTypeId.clrName,
-            typeArgs: type.typeArguments ?? [],
-          };
-        }
-      }
-      if (type.kind === "primitiveType") {
-        // Try to resolve primitive via Universe
-        const typeId = unifiedCatalog.resolveTsName(type.name);
-        if (typeId) {
-          return { fqName: typeId.clrName, typeArgs: [] };
-        }
-      }
-    }
+	  /**
+	   * Resolve a surface name to a canonical TypeId.
+	   *
+	   * Order:
+	   * 1) AliasTable (primitives/globals/System.* canonicalization)
+	   * 2) UnifiedTypeCatalog by tsName
+	   * 3) UnifiedTypeCatalog by clrName
+	   */
+	  const resolveTypeIdByName = (name: string): TypeId | undefined => {
+	    return (
+	      aliasTable.get(name) ??
+	      unifiedCatalog.resolveTsName(name) ??
+	      unifiedCatalog.resolveClrName(name)
+	    );
+	  };
 
-    // Fallback: Use hardcoded mappings (backward compatibility during migration)
-    if (type.kind === "referenceType") {
-      // Check if this is a well-known type that has a CLR FQ name
-      const clrFqName = GLOBALS_TO_CLR_FQ[type.name];
-      if (clrFqName) {
-        return { fqName: clrFqName, typeArgs: type.typeArguments ?? [] };
-      }
-      // Fall back to TypeRegistry lookup, then to name as-is
-      const fqName = typeRegistry.getFQName(type.name) ?? type.name;
-      return { fqName, typeArgs: type.typeArguments ?? [] };
-    }
-    if (type.kind === "arrayType") {
-      // Array is System.Array in CLR
-      return { fqName: "System.Array", typeArgs: [type.elementType] };
-    }
-    if (type.kind === "primitiveType") {
-      // RULE R3: Map primitives directly to their CLR FQ names
-      const clrFqName = PRIMITIVE_TO_CLR_FQ[type.name];
-      if (clrFqName) {
-        return { fqName: clrFqName, typeArgs: [] };
-      }
-    }
-    return undefined;
-  };
+	  /**
+	   * Normalize a receiver type to nominal form for member lookup.
+	   *
+	   * Phase 6: Returns TypeId + typeArgs for TypeId-based NominalEnv.
+	   *
+	   * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
+	   */
+	  const normalizeToNominal = (
+	    type: IrType
+	  ): { typeId: TypeId; typeArgs: readonly IrType[] } | undefined => {
+	    if (type.kind === "referenceType") {
+	      const typeId =
+	        (type.resolvedClrType
+	          ? resolveTypeIdByName(type.resolvedClrType)
+	          : undefined) ?? resolveTypeIdByName(type.name);
+	      if (!typeId) return undefined;
+	      return { typeId, typeArgs: type.typeArguments ?? [] };
+	    }
+
+	    if (type.kind === "primitiveType") {
+	      const typeId = resolveTypeIdByName(type.name);
+	      if (!typeId) return undefined;
+	      return { typeId, typeArgs: [] };
+	    }
+
+	    if (type.kind === "arrayType") {
+	      const arrayTypeId = resolveTypeIdByName("Array");
+	      if (!arrayTypeId) return undefined;
+	      return { typeId: arrayTypeId, typeArgs: [type.elementType] };
+	    }
+
+	    return undefined;
+	  };
 
   /**
    * Look up a member on a structural (object) type.
@@ -1152,28 +1139,25 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
    * Given a receiver type (e.g., Array<string>) and a declaring type's TS name,
    * computes the substitution map for class type parameters.
    *
-   * DESIGN (Phase 5 Step 4): Uses UnifiedTypeCatalog.resolveTsName() to convert
-   * the simple TS name to a CLR FQ name for nominalEnv.getInstantiation().
+   * Phase 6: Uses TypeId-based NominalEnv.getInstantiation().
    */
-  const computeReceiverSubstitution = (
-    receiverType: IrType,
-    declaringTypeTsName: string,
-    _declaringMemberName: string
-  ): TypeSubstitutionMap | undefined => {
-    const normalized = normalizeToNominal(receiverType);
-    if (!normalized) return undefined;
+	  const computeReceiverSubstitution = (
+	    receiverType: IrType,
+	    declaringTypeTsName: string,
+	    _declaringMemberName: string
+	  ): TypeSubstitutionMap | undefined => {
+	    const normalized = normalizeToNominal(receiverType);
+	    if (!normalized) return undefined;
 
-    // Resolve TS name to CLR FQ name via UnifiedTypeCatalog
-    // Fall back to the TS name if no catalog is available
-    const typeId = unifiedCatalog?.resolveTsName(declaringTypeTsName);
-    const declaringClrName = typeId?.clrName ?? declaringTypeTsName;
+	    const declaringTypeId = resolveTypeIdByName(declaringTypeTsName);
+	    if (!declaringTypeId) return undefined;
 
-    return nominalEnv.getInstantiation(
-      normalized.fqName,
-      normalized.typeArgs,
-      declaringClrName
-    );
-  };
+	    return nominalEnv.getInstantiation(
+	      normalized.typeId,
+	      normalized.typeArgs,
+	      declaringTypeId
+	    );
+	  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // typeOfDecl — Get declared type of a declaration
@@ -1339,55 +1323,40 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       return unknownType;
     }
 
-    // 2. Check cache
-    const cacheKey = makeMemberCacheKey(
-      normalized.fqName,
-      memberName,
-      normalized.typeArgs
-    );
-    const cached = memberDeclaredTypeCache.get(cacheKey);
-    if (cached) return cached;
+	    // 2. Check cache (use clrName as key for compatibility)
+	    const cacheKey = makeMemberCacheKey(
+	      normalized.typeId.stableId,
+	      memberName,
+	      normalized.typeArgs
+	    );
+	    const cached = memberDeclaredTypeCache.get(cacheKey);
+	    if (cached) return cached;
 
-    // 3. Use NominalEnv to find declaring type + substitution
+    // 3. Use NominalEnv to find declaring type + substitution (Phase 6: TypeId-based)
     const lookupResult = nominalEnv.findMemberDeclaringType(
-      normalized.fqName,
+      normalized.typeId,
       normalized.typeArgs,
       memberName
     );
 
-    // 4a. If NominalEnv found the member, get type from TypeRegistry
-    if (lookupResult) {
-      const memberType = typeRegistry.getMemberType(
-        lookupResult.targetNominal,
-        memberName
-      );
-      if (memberType) {
-        // 5. Apply substitution
-        const result = irSubstitute(memberType, lookupResult.substitution);
-        memberDeclaredTypeCache.set(cacheKey, result);
-        return result;
-      }
-    }
+	    // 4a. If NominalEnv found the member, get its declared type from Universe
+	    if (lookupResult) {
+	      const memberType = unifiedCatalog.getMember(
+	        lookupResult.declaringTypeId,
+	        memberName
+	      )?.type;
+	      if (memberType) {
+	        // 5. Apply substitution
+	        const result = irSubstitute(memberType, lookupResult.substitution);
+	        memberDeclaredTypeCache.set(cacheKey, result);
+	        return result;
+	      }
+	    }
 
-    // 4b. Fallback: Try UnifiedTypeCatalog for CLR assembly types
-    //     This handles primitives (string.length) and other CLR types
-    //     not defined in TypeScript source.
-    if (unifiedCatalog) {
-      const catalogResult = catalogGetMemberType(
-        receiver,
-        memberName,
-        unifiedCatalog
-      );
-      if (catalogResult) {
-        memberDeclaredTypeCache.set(cacheKey, catalogResult);
-        return catalogResult;
-      }
-    }
-
-    // 5. Member not found anywhere
-    emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
-    return unknownType;
-  };
+	    // 5. Member not found anywhere
+	    emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
+	    return unknownType;
+	  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // resolveCall — THE HEART OF DETERMINISM
@@ -2025,24 +1994,25 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       return isAssignableTo(source.elementType, target.elementType);
     }
 
-    // Reference types - check by name (nominal compatibility)
-    if (source.kind === "referenceType" && target.kind === "referenceType") {
-      if (source.name === target.name) {
-        // Same type - check type arguments
-        const sourceArgs = source.typeArguments ?? [];
-        const targetArgs = target.typeArguments ?? [];
-        if (sourceArgs.length !== targetArgs.length) return false;
-        return sourceArgs.every((sa, i) => {
-          const ta = targetArgs[i];
-          return ta ? typesEqual(sa, ta) : false;
-        });
-      }
-      // Different names - check inheritance chain
-      const sourceFQ = typeRegistry.getFQName(source.name) ?? source.name;
-      const chain = nominalEnv.getInheritanceChain(sourceFQ);
-      const targetFQ = typeRegistry.getFQName(target.name) ?? target.name;
-      return chain.includes(targetFQ);
-    }
+	    // Reference types - check nominal compatibility via TypeId
+	    if (source.kind === "referenceType" && target.kind === "referenceType") {
+	      const sourceNominal = normalizeToNominal(source);
+	      const targetNominal = normalizeToNominal(target);
+	      if (!sourceNominal || !targetNominal) return false;
+
+	      if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
+	        const sourceArgs = sourceNominal.typeArgs;
+	        const targetArgs = targetNominal.typeArgs;
+	        if (sourceArgs.length !== targetArgs.length) return false;
+	        return sourceArgs.every((sa, i) => {
+	          const ta = targetArgs[i];
+	          return ta ? typesEqual(sa, ta) : false;
+	        });
+	      }
+
+	      const chain = nominalEnv.getInheritanceChain(sourceNominal.typeId);
+	      return chain.some((t) => t.stableId === targetNominal.typeId.stableId);
+	    }
 
     // Conservative - return false if unsure
     return false;
