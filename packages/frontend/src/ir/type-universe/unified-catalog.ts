@@ -51,7 +51,9 @@ const makeSourceStableId = (
  * Extract name from IrParameter pattern.
  */
 const getParameterName = (
-  param: { readonly pattern: { readonly kind: string; readonly name?: string } },
+  param: {
+    readonly pattern: { readonly kind: string; readonly name?: string };
+  },
   index: number
 ): string => {
   if (param.pattern.kind === "identifierPattern" && param.pattern.name) {
@@ -125,7 +127,9 @@ const convertHeritageInfo = (
   const targetName = heritageInfo.typeName;
 
   // Check if it's a primitive that maps to a CLR type
-  const primitiveStableId = PRIMITIVE_TO_STABLE_ID.get(targetName.toLowerCase());
+  const primitiveStableId = PRIMITIVE_TO_STABLE_ID.get(
+    targetName.toLowerCase()
+  );
 
   // For now, assume source types for unresolved names
   const targetStableId = primitiveStableId
@@ -232,7 +236,9 @@ export const buildUnifiedTypeCatalog = (
 ): UnifiedTypeCatalog => {
   // Start with assembly entries (these are the "ground truth" for CLR types)
   const entries = new Map<string, NominalEntry>(assemblyCatalog.entries);
-  const tsNameToTypeId = new Map<string, TypeId>(assemblyCatalog.tsNameToTypeId);
+  const tsNameToTypeId = new Map<string, TypeId>(
+    assemblyCatalog.tsNameToTypeId
+  );
   const clrNameToTypeId = new Map<string, TypeId>(
     assemblyCatalog.clrNameToTypeId
   );

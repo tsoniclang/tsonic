@@ -32,7 +32,10 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
-import { PRIMITIVE_TO_CLR_FQ, GLOBALS_TO_CLR_FQ } from "../clr-type-mappings.js";
+import {
+  PRIMITIVE_TO_CLR_FQ,
+  GLOBALS_TO_CLR_FQ,
+} from "../clr-type-mappings.js";
 import type { UnifiedTypeCatalog } from "../type-universe/types.js";
 import { getMemberDeclaredType as catalogGetMemberType } from "../type-universe/unified-catalog.js";
 
@@ -182,6 +185,43 @@ export interface TypeSystem {
    * Returns undefined if no fqName is available.
    */
   getFQNameOfDecl(declId: DeclId): string | undefined;
+
+  /**
+   * Get full declaration info for complex operations that need it.
+   *
+   * Used by override detection which needs to examine the declaration node.
+   * Returns undefined if declaration not found.
+   */
+  getDeclInfo(declId: DeclId): DeclInfo | undefined;
+
+  /**
+   * Check if a declaration is a type (interface, class, type alias, or enum).
+   *
+   * Used by import processing to distinguish type imports from value imports.
+   */
+  isTypeDecl(declId: DeclId): boolean;
+
+  /**
+   * Check if a declaration is an interface.
+   *
+   * Used by validation to detect nominalized interfaces.
+   */
+  isInterfaceDecl(declId: DeclId): boolean;
+
+  /**
+   * Check if a declaration is a type alias to an object literal type.
+   *
+   * Used by validation to detect nominalized type aliases.
+   */
+  isTypeAliasToObjectLiteral(declId: DeclId): boolean;
+
+  /**
+   * Get signature info for specialization detection.
+   *
+   * Used by checkIfRequiresSpecialization to detect conditional types,
+   * infer patterns, and variadic type parameters in return/constraint nodes.
+   */
+  getSignatureInfo(sigId: SignatureId): SignatureInfo | undefined;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Diagnostics
@@ -695,7 +735,13 @@ type NominalLookupResult = {
  * the returned TypeSystem instance.
  */
 export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
-  const { handleRegistry, typeRegistry, nominalEnv, convertTypeNode, unifiedCatalog } = config;
+  const {
+    handleRegistry,
+    typeRegistry,
+    nominalEnv,
+    convertTypeNode,
+    unifiedCatalog,
+  } = config;
 
   // ─────────────────────────────────────────────────────────────────────────
   // INTERNAL CACHES — Step 4 Implementation
@@ -1116,7 +1162,11 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     //     This handles primitives (string.length) and other CLR types
     //     not defined in TypeScript source.
     if (unifiedCatalog) {
-      const catalogResult = catalogGetMemberType(receiver, memberName, unifiedCatalog);
+      const catalogResult = catalogGetMemberType(
+        receiver,
+        memberName,
+        unifiedCatalog
+      );
       if (catalogResult) {
         memberDeclaredTypeCache.set(cacheKey, catalogResult);
         return catalogResult;
@@ -1971,9 +2021,72 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     return declInfo?.fqName;
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // getDeclInfo — Get full declaration info
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const getDeclInfo = (declId: DeclId): DeclInfo | undefined => {
+    return handleRegistry.getDecl(declId);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // isTypeDecl — Check if declaration is a type
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const isTypeDecl = (declId: DeclId): boolean => {
+    const declInfo = handleRegistry.getDecl(declId);
+    if (!declInfo) return false;
+
+    const typeKinds: readonly DeclKind[] = [
+      "interface",
+      "class",
+      "typeAlias",
+      "enum",
+    ];
+    return typeKinds.includes(declInfo.kind);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // isInterfaceDecl — Check if declaration is an interface
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const isInterfaceDecl = (declId: DeclId): boolean => {
+    const declInfo = handleRegistry.getDecl(declId);
+    return declInfo?.kind === "interface";
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // isTypeAliasToObjectLiteral — Check if type alias points to object literal
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const isTypeAliasToObjectLiteral = (declId: DeclId): boolean => {
+    const declInfo = handleRegistry.getDecl(declId);
+    if (!declInfo || declInfo.kind !== "typeAlias") return false;
+
+    // Check if the typeNode is a type literal node
+    // We need to access the declNode to get the type alias declaration
+    const declNode = declInfo.declNode as
+      | { type?: { kind?: number } }
+      | undefined;
+    if (!declNode?.type) return false;
+
+    // TypeLiteralNode has kind 188 (ts.SyntaxKind.TypeLiteral in TS 5.x)
+    // Import ts would cause circular dependency, so use magic number
+    const TypeLiteralKind = 188; // ts.SyntaxKind.TypeLiteral
+    return declNode.type.kind === TypeLiteralKind;
+  };
+
   // Suppress unused variable warning for nominalMemberLookupCache
   // Will be used for more advanced caching in future
   void nominalMemberLookupCache;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getSignatureInfo — Get signature info for specialization detection
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const getSignatureInfo = (sigId: SignatureId): SignatureInfo | undefined => {
+    return handleRegistry.getSignature(sigId);
+  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // RETURN TYPESYSTEM INSTANCE
@@ -1984,6 +2097,11 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     typeOfMember,
     typeOfMemberId,
     getFQNameOfDecl,
+    getDeclInfo,
+    isTypeDecl,
+    isInterfaceDecl,
+    isTypeAliasToObjectLiteral,
+    getSignatureInfo,
     resolveCall,
     expandUtility,
     substitute,

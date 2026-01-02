@@ -66,11 +66,11 @@ export const GLOBALS_TO_CLR_FQ: Readonly<Record<string, string>> = {
   Array: "System.Array",
 
   // Instance interfaces (from @tsonic/dotnet)
-  "String$instance": "System.String",
-  "Double$instance": "System.Double",
-  "Boolean$instance": "System.Boolean",
-  "Object$instance": "System.Object",
-  "Array$instance": "System.Array",
+  String$instance: "System.String",
+  Double$instance: "System.Double",
+  Boolean$instance: "System.Boolean",
+  Object$instance: "System.Object",
+  Array$instance: "System.Array",
 };
 
 // ============================================================================

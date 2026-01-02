@@ -595,10 +595,7 @@ const normalizeParameterTypeNode = (
   }
 
   // Check if it's a TypeReferenceNode with identifier name ref/out/in
-  if (
-    ts.isTypeReferenceNode(typeNode) &&
-    ts.isIdentifier(typeNode.typeName)
-  ) {
+  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
     const typeName = typeNode.typeName.text;
     if (
       (typeName === "ref" || typeName === "out" || typeName === "in") &&
@@ -668,9 +665,10 @@ const extractTypePredicate = (
     const paramName = predNode.parameterName.text;
 
     // Find parameter index
-    const paramIndex = decl?.parameters.findIndex((p) =>
-      ts.isIdentifier(p.name) && p.name.text === paramName
-    ) ?? -1;
+    const paramIndex =
+      decl?.parameters.findIndex(
+        (p) => ts.isIdentifier(p.name) && p.name.text === paramName
+      ) ?? -1;
 
     if (paramIndex >= 0) {
       return {

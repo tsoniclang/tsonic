@@ -1,17 +1,20 @@
 /**
  * IR builder validation - checks for unsupported patterns
+ *
+ * ALICE'S SPEC: Uses TypeSystem for declaration queries.
  */
 
 import * as ts from "typescript";
 import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
+import { getTypeSystem } from "../converters/statements/declarations/registry.js";
 import type { Binding } from "../binding/index.js";
 import type { DeclId } from "../type-system/types.js";
 
 /**
  * Check if a type reference is the struct marker
  * (used to mark types as C# value types)
- * Uses Binding layer for symbol resolution.
+ * ALICE'S SPEC: Uses TypeSystem for symbol resolution.
  */
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
@@ -24,48 +27,39 @@ const isStructMarker = (
   if (!declId) {
     return false;
   }
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
-  const name = declInfo?.fqName;
-  return name === "struct" || name === "Struct";
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return false;
+
+  const fqName = typeSystem.getFQNameOfDecl(declId);
+  return fqName === "struct" || fqName === "Struct";
 };
 
 /**
  * Check if a declaration represents a TypeScript interface
  * (which Tsonic nominalizes to a C# class)
+ * ALICE'S SPEC: Uses TypeSystem.isInterfaceDecl()
  */
-const isNominalizedInterface = (
-  declId: DeclId | undefined,
-  binding: Binding
-): boolean => {
+const isNominalizedInterface = (declId: DeclId | undefined): boolean => {
   if (!declId) return false;
 
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
-  if (!declInfo) return false;
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return false;
 
-  return declInfo.kind === "interface";
+  return typeSystem.isInterfaceDecl(declId);
 };
 
 /**
  * Check if a declaration represents a type alias for an object type
  * (which Tsonic nominalizes to a C# class)
- * Note: We check DeclKind for typeAlias, then examine the typeNode.
+ * ALICE'S SPEC: Uses TypeSystem.isTypeAliasToObjectLiteral()
  */
-const isNominalizedTypeAlias = (
-  declId: DeclId | undefined,
-  binding: Binding
-): boolean => {
+const isNominalizedTypeAlias = (declId: DeclId | undefined): boolean => {
   if (!declId) return false;
 
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
-  if (!declInfo) return false;
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return false;
 
-  if (declInfo.kind !== "typeAlias") return false;
-
-  // Check if the type alias points to an object literal type
-  const typeNode = declInfo.typeNode as ts.TypeNode | undefined;
-  if (!typeNode) return false;
-
-  return ts.isTypeLiteralNode(typeNode);
+  return typeSystem.isTypeAliasToObjectLiteral(declId);
 };
 
 /**
@@ -97,8 +91,8 @@ const validateClassDeclaration = (
 
     // Check if it's a nominalized interface or type alias
     if (
-      isNominalizedInterface(identifierDeclId, binding) ||
-      isNominalizedTypeAlias(identifierDeclId, binding)
+      isNominalizedInterface(identifierDeclId) ||
+      isNominalizedTypeAlias(identifierDeclId)
     ) {
       const typeName = typeRef.expression.getText();
       const location = getSourceLocation(

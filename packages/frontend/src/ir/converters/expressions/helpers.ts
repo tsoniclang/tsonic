@@ -253,7 +253,10 @@ export const checkIfRequiresSpecialization = (
       : binding.resolveConstructorSignature(node);
     if (!sigId) return false;
 
-    const sigInfo = binding.getHandleRegistry().getSignature(sigId);
+    // ALICE'S SPEC: Use TypeSystem.getSignatureInfo() for signature info
+    const typeSystem = getTypeSystem();
+    if (!typeSystem) return false;
+    const sigInfo = typeSystem.getSignatureInfo(sigId);
     if (!sigInfo) return false;
 
     // Check for conditional return types from the TypeNode

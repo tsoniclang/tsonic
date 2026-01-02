@@ -205,7 +205,10 @@ describe("UnifiedTypeCatalog", () => {
         "test"
       );
 
-      const unknownType: IrType = { kind: "referenceType", name: "UnknownType" };
+      const unknownType: IrType = {
+        kind: "referenceType",
+        name: "UnknownType",
+      };
       const memberType = getMemberDeclaredType(unknownType, "foo", catalog);
 
       expect(memberType).to.be.undefined;

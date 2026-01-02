@@ -114,9 +114,7 @@ const parseClrTypeString = (clrType: string): IrType => {
   // Handle nullable: Nullable<T> or T?
   if (clrType.startsWith("System.Nullable`1")) {
     // Extract inner type
-    const innerMatch = clrType.match(
-      /System\.Nullable`1\[\[([^\]]+)\]\]/
-    );
+    const innerMatch = clrType.match(/System\.Nullable`1\[\[([^\]]+)\]\]/);
     if (innerMatch && innerMatch[1]) {
       const innerType = parseClrTypeString(innerMatch[1]);
       return {

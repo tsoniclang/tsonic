@@ -60,6 +60,13 @@ export const buildIrModule = (
     // Set the binding registry for this compilation
     setBindingRegistry(program.bindings);
 
+    // When called directly (without ctx), clear and initialize fresh registries.
+    // This is needed for tests and standalone buildIrModule calls.
+    // When called via buildIr with ctx, registries are already initialized.
+    if (!ctx) {
+      clearTypeRegistries();
+    }
+
     // Initialize TypeRegistry/NominalEnv if not already set (e.g., when called directly by tests)
     // When called via buildIr, these are already initialized for all source files
     if (!_internalGetTypeRegistry()) {
@@ -83,6 +90,33 @@ export const buildIrModule = (
         program.binding
       );
       setNominalEnv(nominalEnv);
+
+      // Initialize TypeSystem if not already set (needed for validation)
+      // Load assembly type catalog for CLR stdlib types
+      const nodeModulesPath = path.resolve(
+        program.options.projectRoot,
+        "node_modules"
+      );
+      const assemblyCatalog = loadAssemblyTypeCatalog(nodeModulesPath);
+
+      // Build unified catalog merging source and assembly types
+      const unifiedCatalog = buildUnifiedTypeCatalog(
+        typeRegistry,
+        assemblyCatalog,
+        program.options.rootNamespace
+      );
+
+      // Build TypeSystem — the single source of truth for all type queries
+      const bindingInternal = program.binding as BindingInternal;
+      const typeSystem = createTypeSystem({
+        handleRegistry: bindingInternal._getHandleRegistry(),
+        typeRegistry,
+        nominalEnv,
+        convertTypeNode: (node: unknown) =>
+          convertType(node as import("typescript").TypeNode, program.binding),
+        unifiedCatalog,
+      });
+      setTypeSystem(typeSystem);
     }
 
     const namespace = getNamespaceFromPath(
@@ -238,7 +272,10 @@ export const buildIr = (
 
   // Load assembly type catalog for CLR stdlib types
   // This enables member lookup on primitive types like string.length
-  const nodeModulesPath = path.resolve(program.options.projectRoot, "node_modules");
+  const nodeModulesPath = path.resolve(
+    program.options.projectRoot,
+    "node_modules"
+  );
   const assemblyCatalog = loadAssemblyTypeCatalog(nodeModulesPath);
 
   // Build unified catalog merging source and assembly types

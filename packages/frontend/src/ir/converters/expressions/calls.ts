@@ -96,7 +96,6 @@ const extractNarrowing = (
   return undefined;
 };
 
-
 /**
  * Extract parameter types from resolved signature.
  * Used for threading expectedType to array literal arguments etc.
@@ -213,11 +212,17 @@ export const getDeclaredReturnType = (
   receiverIrType?: IrType
 ): IrType | undefined => {
   const DEBUG = process.env.DEBUG_RETURN_TYPE === "1";
-  const methodName = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-    ? node.expression.name.text
-    : undefined;
+  const methodName =
+    ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      ? node.expression.name.text
+      : undefined;
   if (DEBUG && methodName) {
-    console.log("[getDeclaredReturnType]", methodName, "receiver:", receiverIrType);
+    console.log(
+      "[getDeclaredReturnType]",
+      methodName,
+      "receiver:",
+      receiverIrType
+    );
   }
 
   // Handle new expressions specially - they construct the type from the expression
@@ -246,13 +251,23 @@ export const getDeclaredReturnType = (
   // For call expressions, use TypeSystem.resolveCall() EXCLUSIVELY
   const typeSystem = getTypeSystem();
   if (!typeSystem) {
-    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "No TypeSystem available");
+    if (DEBUG && methodName)
+      console.log(
+        "[getDeclaredReturnType]",
+        methodName,
+        "No TypeSystem available"
+      );
     return undefined;
   }
 
   const sigId = binding.resolveCallSignature(node);
   if (!sigId) {
-    if (DEBUG && methodName) console.log("[getDeclaredReturnType]", methodName, "No signature resolved");
+    if (DEBUG && methodName)
+      console.log(
+        "[getDeclaredReturnType]",
+        methodName,
+        "No signature resolved"
+      );
     return undefined;
   }
 
@@ -273,7 +288,12 @@ export const getDeclaredReturnType = (
   });
 
   if (DEBUG && methodName) {
-    console.log("[getDeclaredReturnType]", methodName, "TypeSystem returned:", resolved.returnType);
+    console.log(
+      "[getDeclaredReturnType]",
+      methodName,
+      "TypeSystem returned:",
+      resolved.returnType
+    );
   }
 
   // Return TypeSystem's answer directly - no fallbacks

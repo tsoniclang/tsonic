@@ -673,7 +673,10 @@ export const buildTypeRegistry = (
     // Make FQ name - use canonical CLR FQ name for well-known types
     const makeFQName = (simpleName: string): string => {
       // First check if this is a well-known type that needs canonical CLR name
-      const canonicalName = getCanonicalClrFQName(simpleName, isFromWellKnownLib);
+      const canonicalName = getCanonicalClrFQName(
+        simpleName,
+        isFromWellKnownLib
+      );
       if (canonicalName) return canonicalName;
 
       // Otherwise use namespace-based FQ name
@@ -743,7 +746,11 @@ export const buildTypeRegistry = (
           fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters, convert),
           members: extractMembers(node.members, convert),
-          heritage: extractHeritage(node.heritageClauses, convert, canonicalize),
+          heritage: extractHeritage(
+            node.heritageClauses,
+            convert,
+            canonicalize
+          ),
         });
         simpleNameToFQ.set(simpleName, fqName);
       }

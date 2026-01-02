@@ -71,7 +71,12 @@ const getDeclaredPropertyType = (
   const propertyName = node.name.text;
 
   if (DEBUG) {
-    console.log("[getDeclaredPropertyType]", propertyName, "on receiver:", receiverIrType);
+    console.log(
+      "[getDeclaredPropertyType]",
+      propertyName,
+      "on receiver:",
+      receiverIrType
+    );
   }
 
   // Try TypeSystem.typeOfMember() first
@@ -82,7 +87,12 @@ const getDeclaredPropertyType = (
       name: propertyName,
     });
     if (DEBUG) {
-      console.log("[getDeclaredPropertyType]", propertyName, "TypeSystem returned:", memberType);
+      console.log(
+        "[getDeclaredPropertyType]",
+        propertyName,
+        "TypeSystem returned:",
+        memberType
+      );
     }
     // If TypeSystem returned a valid type (not unknownType), use it
     if (memberType.kind !== "unknownType") {
@@ -95,7 +105,12 @@ const getDeclaredPropertyType = (
   // (e.g., Array.length from Array$instance)
   const fallbackResult = getDeclaredPropertyTypeFallback(node, binding);
   if (DEBUG) {
-    console.log("[getDeclaredPropertyType]", propertyName, "fallback returned:", fallbackResult);
+    console.log(
+      "[getDeclaredPropertyType]",
+      propertyName,
+      "fallback returned:",
+      fallbackResult
+    );
   }
   return fallbackResult;
 };

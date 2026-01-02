@@ -1,10 +1,15 @@
 /**
  * Import extraction from TypeScript source
+ *
+ * ALICE'S SPEC: Uses TypeSystem for declaration queries.
  */
 
 import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
-import { getBindingRegistry } from "../converters/statements/declarations/registry.js";
+import {
+  getBindingRegistry,
+  getTypeSystem,
+} from "../converters/statements/declarations/registry.js";
 import { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
 import type { Binding } from "../binding/index.js";
 
@@ -114,7 +119,7 @@ export const extractImportSpecifiers = (
 
 /**
  * Determine if an import specifier refers to a type (interface, class, type alias, enum).
- * Uses Binding layer to resolve the import and check its declaration kind.
+ * ALICE'S SPEC: Uses TypeSystem.isTypeDecl() to check declaration kind.
  */
 const isTypeImport = (spec: ts.ImportSpecifier, binding: Binding): boolean => {
   try {
@@ -129,15 +134,13 @@ const isTypeImport = (spec: ts.ImportSpecifier, binding: Binding): boolean => {
       return false;
     }
 
-    // Get declaration info from the handle registry
-    const declInfo = binding.getHandleRegistry().getDecl(declId);
-    if (!declInfo) {
+    // ALICE'S SPEC: Use TypeSystem.isTypeDecl() to check if declaration is a type
+    const typeSystem = getTypeSystem();
+    if (!typeSystem) {
       return false;
     }
 
-    // Check if the declaration kind is a type
-    const typeKinds = ["interface", "class", "typeAlias", "enum"];
-    return typeKinds.includes(declInfo.kind);
+    return typeSystem.isTypeDecl(declId);
   } catch {
     return false;
   }

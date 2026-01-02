@@ -11,7 +11,10 @@ import {
   NumericKind,
   TSONIC_TO_NUMERIC_KIND,
 } from "./types.js";
-import { getBindingRegistry, getTypeSystem } from "./converters/statements/declarations/registry.js";
+import {
+  getBindingRegistry,
+  getTypeSystem,
+} from "./converters/statements/declarations/registry.js";
 import { convertType } from "./type-converter.js";
 import type { Binding } from "./binding/index.js";
 

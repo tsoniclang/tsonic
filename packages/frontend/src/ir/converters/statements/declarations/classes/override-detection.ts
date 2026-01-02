@@ -1,9 +1,11 @@
 /**
  * Override detection for class members
+ *
+ * ALICE'S SPEC: Uses TypeSystem exclusively for declaration queries.
  */
 
 import * as ts from "typescript";
-import { getMetadataRegistry } from "../registry.js";
+import { getMetadataRegistry, getTypeSystem } from "../registry.js";
 import type { Binding } from "../../../../binding/index.js";
 import type { DeclInfo } from "../../../../type-system/index.js";
 
@@ -39,6 +41,12 @@ export const detectOverride = (
     return { isOverride: false, isShadow: false };
   }
 
+  // ALICE'S SPEC: Use TypeSystem to get declaration info
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) {
+    return { isOverride: false, isShadow: false };
+  }
+
   // Try to resolve the identifier to get more context
   const declId =
     ts.isIdentifier(superClass.expression) &&
@@ -46,7 +54,7 @@ export const detectOverride = (
 
   // Get qualified name from the resolved declaration if available
   const qualifiedName = declId
-    ? binding.getHandleRegistry().getDecl(declId)?.fqName
+    ? typeSystem.getFQNameOfDecl(declId)
     : baseClassName;
 
   // Check if this is a .NET type (starts with "System." or other .NET namespaces)
@@ -64,7 +72,7 @@ export const detectOverride = (
     );
   } else if (declId) {
     // For TypeScript classes, check the declaration
-    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    const declInfo = typeSystem.getDeclInfo(declId);
     return detectTypeScriptOverrideFromDecl(memberName, memberKind, declInfo);
   }
 

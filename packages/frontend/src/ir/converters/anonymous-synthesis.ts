@@ -24,6 +24,7 @@ import {
   IrTypeParameter,
 } from "../types.js";
 import type { Binding } from "../binding/index.js";
+import { getTypeSystem } from "./statements/declarations/registry.js";
 
 // ============================================================================
 // Shape Signature Computation
@@ -287,7 +288,15 @@ export const checkSynthesisEligibility = (
         };
       }
 
-      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      // ALICE'S SPEC: Use TypeSystem.getDeclInfo() to check for type annotation
+      const typeSystem = getTypeSystem();
+      if (!typeSystem) {
+        return {
+          eligible: false,
+          reason: `Spread source '${prop.expression.text}' has no type system`,
+        };
+      }
+      const declInfo = typeSystem.getDeclInfo(declId);
       if (!declInfo) {
         return {
           eligible: false,
