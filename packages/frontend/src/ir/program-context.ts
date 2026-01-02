@@ -8,6 +8,7 @@
  */
 
 import * as path from "path";
+import * as ts from "typescript";
 import type { Binding, BindingInternal } from "./binding/index.js";
 import type { TypeSystem } from "./type-system/type-system.js";
 import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
@@ -132,6 +133,16 @@ export const createProgramContext = (
     // Unified catalog for CLR assembly type lookups
     unifiedCatalog,
     aliasTable,
+    resolveIdentifier: (node: unknown) =>
+      ts.isIdentifier(node)
+        ? program.binding.resolveIdentifier(node)
+        : undefined,
+    resolveCallSignature: (node: unknown) =>
+      ts.isCallExpression(node) ? program.binding.resolveCallSignature(node) : undefined,
+    resolveConstructorSignature: (node: unknown) =>
+      ts.isNewExpression(node)
+        ? program.binding.resolveConstructorSignature(node)
+        : undefined,
   });
 
   return {

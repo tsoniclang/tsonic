@@ -504,6 +504,18 @@ export type TypeSystemConfig = {
    * - "string" and "System.String" unify to the same TypeId (stableId)
    */
   readonly aliasTable: AliasTable;
+
+  /**
+   * Binding-powered symbol/signature resolution helpers (opaque boundary).
+   *
+   * ALICE'S SPEC: TypeSystem may depend on Binding for symbol resolution,
+   * but must never use TypeScript computed type APIs directly.
+   *
+   * These accept `unknown` to keep the TypeSystem public surface TS-free.
+   */
+  readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
+  readonly resolveCallSignature: (node: unknown) => SignatureId | undefined;
+  readonly resolveConstructorSignature: (node: unknown) => SignatureId | undefined;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -834,6 +846,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     convertTypeNode,
     unifiedCatalog,
     aliasTable,
+    resolveIdentifier,
+    resolveCallSignature,
+    resolveConstructorSignature,
   } = config;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1233,6 +1248,121 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     return undefined;
   };
 
+  /**
+   * Try to infer type from a variable declaration's initializer using only
+   * deterministic sources (declarations + explicit syntax).
+   *
+   * Handles:
+   * - simple literals (delegates to tryInferTypeFromLiteralInitializer)
+   * - call expressions where the callee has an explicit declared return type
+   * - new expressions with explicit type arguments (or best-effort nominal type)
+   * - identifier initializers (propagate deterministically)
+   */
+  const tryInferTypeFromInitializer = (declNode: unknown): IrType | undefined => {
+    const literalType = tryInferTypeFromLiteralInitializer(declNode);
+    if (literalType) return literalType;
+
+    if (!declNode || typeof declNode !== "object") return undefined;
+
+    const node = declNode as ts.Node;
+    if (!ts.isVariableDeclaration(node)) return undefined;
+    const init = node.initializer;
+    if (!init) return undefined;
+
+    if (ts.isCallExpression(init)) {
+      const sigId = resolveCallSignature(init);
+      if (!sigId) return undefined;
+
+      const explicitTypeArgs =
+        init.typeArguments && init.typeArguments.length > 0
+          ? init.typeArguments.map((ta) => convertTypeNode(ta))
+          : undefined;
+
+      const receiverType = (() => {
+        if (!ts.isPropertyAccessExpression(init.expression)) return undefined;
+        const receiverExpr = init.expression.expression;
+        if (!ts.isIdentifier(receiverExpr)) return undefined;
+        const receiverDeclId = resolveIdentifier(receiverExpr);
+        if (!receiverDeclId) return undefined;
+        const receiver = typeOfDecl(receiverDeclId);
+        return receiver.kind === "unknownType" ? undefined : receiver;
+      })();
+
+      const resolved = resolveCall({
+        sigId,
+        argumentCount: init.arguments.length,
+        receiverType,
+        explicitTypeArgs,
+      });
+
+      return resolved.returnType.kind === "unknownType"
+        ? undefined
+        : resolved.returnType;
+    }
+
+    if (ts.isNewExpression(init)) {
+      const sigId = resolveConstructorSignature(init);
+
+      const typeName = (() => {
+        const expr = init.expression;
+        if (ts.isIdentifier(expr)) return expr.text;
+        if (!ts.isPropertyAccessExpression(expr)) return undefined;
+
+        const parts: string[] = [];
+        let current: ts.Expression = expr;
+        while (ts.isPropertyAccessExpression(current)) {
+          parts.unshift(current.name.text);
+          current = current.expression;
+        }
+        if (ts.isIdentifier(current)) {
+          parts.unshift(current.text);
+          return parts.join(".");
+        }
+        return undefined;
+      })();
+
+      if (!typeName) return undefined;
+
+      const typeArguments =
+        init.typeArguments && init.typeArguments.length > 0
+          ? init.typeArguments.map((ta) => convertTypeNode(ta))
+          : undefined;
+
+      // If there are no explicit type args, this is still a deterministic nominal
+      // constructed type (but may later be rejected if generic args are required).
+      const constructedType: IrReferenceType = {
+        kind: "referenceType",
+        name: typeName,
+        ...(typeArguments ? { typeArguments } : {}),
+      };
+
+      // If we can resolve a constructor signature, ensure it doesn't carry unresolved
+      // type parameters (otherwise we'd be lying about determinism).
+      if (sigId) {
+        const resolved = resolveCall({
+          sigId,
+          argumentCount: init.arguments?.length ?? 0,
+          receiverType: constructedType,
+          explicitTypeArgs: undefined,
+        });
+        if (resolved.returnType.kind === "unknownType") {
+          return constructedType;
+        }
+      }
+
+      return constructedType;
+    }
+
+    if (ts.isIdentifier(init)) {
+      const sourceDeclId = resolveIdentifier(init);
+      if (!sourceDeclId) return undefined;
+      const sourceType = typeOfDecl(sourceDeclId);
+      return sourceType.kind === "unknownType" ? undefined : sourceType;
+    }
+
+    return undefined;
+  };
+
   const typeOfDecl = (declId: DeclId): IrType => {
     // Check cache first
     const cached = declTypeCache.get(declId.id);
@@ -1266,10 +1396,10 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       );
       result = unknownType;
     } else if (declInfo.kind === "variable" && declInfo.declNode) {
-      // Variable without type annotation - try to infer from literal initializer
-      const literalType = tryInferTypeFromLiteralInitializer(declInfo.declNode);
-      if (literalType) {
-        result = literalType;
+      // Variable without type annotation - infer from deterministic initializer
+      const inferred = tryInferTypeFromInitializer(declInfo.declNode);
+      if (inferred) {
+        result = inferred;
       } else {
         // Not a simple literal - require explicit type annotation
         emitDiagnostic(
