@@ -288,7 +288,7 @@ export const checkSynthesisEligibility = (
         };
       }
 
-      // ALICE'S SPEC: Use TypeSystem.getDeclInfo() to check for type annotation
+      // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
       const typeSystem = getTypeSystem();
       if (!typeSystem) {
         return {
@@ -296,17 +296,9 @@ export const checkSynthesisEligibility = (
           reason: `Spread source '${prop.expression.text}' has no type system`,
         };
       }
-      const declInfo = typeSystem.getDeclInfo(declId);
-      if (!declInfo) {
-        return {
-          eligible: false,
-          reason: `Spread source '${prop.expression.text}' has no declaration`,
-        };
-      }
 
       // Check if declaration has a type annotation (deterministic typing requirement)
-      // DeclInfo.typeNode is set when the declaration has an explicit type annotation
-      const hasType = declInfo.typeNode !== undefined;
+      const hasType = typeSystem.declHasTypeAnnotation(declId);
 
       if (!hasType) {
         return {

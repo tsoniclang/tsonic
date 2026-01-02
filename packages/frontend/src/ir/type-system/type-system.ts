@@ -207,14 +207,6 @@ export interface TypeSystem {
   getFQNameOfDecl(declId: DeclId): string | undefined;
 
   /**
-   * Get full declaration info for complex operations that need it.
-   *
-   * Used by override detection which needs to examine the declaration node.
-   * Returns undefined if declaration not found.
-   */
-  getDeclInfo(declId: DeclId): DeclInfo | undefined;
-
-  /**
    * Check if a declaration is a type (interface, class, type alias, or enum).
    *
    * Used by import processing to distinguish type imports from value imports.
@@ -236,14 +228,6 @@ export interface TypeSystem {
   isTypeAliasToObjectLiteral(declId: DeclId): boolean;
 
   /**
-   * Get signature info for specialization detection.
-   *
-   * Used by checkIfRequiresSpecialization to detect conditional types,
-   * infer patterns, and variadic type parameters in return/constraint nodes.
-   */
-  getSignatureInfo(sigId: SignatureId): SignatureInfo | undefined;
-
-  /**
    * Check if a signature has a conditional return type.
    *
    * This is used to detect if a call requires specialization due to
@@ -251,6 +235,45 @@ export interface TypeSystem {
    * The check is done inside TypeSystem to avoid exposing ts.TypeNode.
    */
   signatureHasConditionalReturn(sigId: SignatureId): boolean;
+
+  /**
+   * Check if a signature has variadic type parameters.
+   *
+   * Variadic patterns like `T extends unknown[]` require specialization.
+   * This encapsulates the AST inspection inside TypeSystem.
+   *
+   * ALICE'S SPEC (Phase 5): Semantic method replaces getSignatureInfo.
+   */
+  signatureHasVariadicTypeParams(sigId: SignatureId): boolean;
+
+  /**
+   * Check if a declaration has an explicit type annotation.
+   *
+   * Used for deterministic typing checks (e.g., spread sources must have types).
+   * Returns true if the declaration has a typeNode.
+   *
+   * ALICE'S SPEC (Phase 5): Semantic method replaces getDeclInfo.typeNode check.
+   */
+  declHasTypeAnnotation(declId: DeclId): boolean;
+
+  /**
+   * Check if a member in a TypeScript base class is overridable.
+   *
+   * For TypeScript classes, checks if the base class has the given member.
+   * In TypeScript, all methods can be overridden (no `final` keyword).
+   *
+   * ALICE'S SPEC (Phase 5): Semantic method replaces getDeclInfo for override detection.
+   *
+   * @param declId The declaration ID of the base class
+   * @param memberName Name of the member to check
+   * @param memberKind Whether it's a method or property
+   * @returns { isOverride: true } if member exists and can be overridden
+   */
+  checkTsClassMemberOverride(
+    declId: DeclId,
+    memberName: string,
+    memberKind: "method" | "property"
+  ): { isOverride: boolean; isShadow: boolean };
 
   // ─────────────────────────────────────────────────────────────────────────
   // Diagnostics
@@ -2101,14 +2124,6 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // getDeclInfo — Get full declaration info
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const getDeclInfo = (declId: DeclId): DeclInfo | undefined => {
-    return handleRegistry.getDecl(declId);
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
   // isTypeDecl — Check if declaration is a type
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -2160,14 +2175,6 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   void nominalMemberLookupCache;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // getSignatureInfo — Get signature info for specialization detection
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const getSignatureInfo = (sigId: SignatureId): SignatureInfo | undefined => {
-    return handleRegistry.getSignature(sigId);
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
   // signatureHasConditionalReturn — Check for conditional return type
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -2184,6 +2191,110 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     if (!returnTypeNode) return false;
 
     return returnTypeNode.kind === ConditionalTypeKind;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // signatureHasVariadicTypeParams — Check for variadic type parameters
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ts.SyntaxKind.ArrayType is 185 in TypeScript 5.x
+  const ArrayTypeKind = 185;
+  // ts.SyntaxKind.UnknownKeyword is 159, ts.SyntaxKind.AnyKeyword is 133
+  const UnknownKeywordKind = 159;
+  const AnyKeywordKind = 133;
+
+  const signatureHasVariadicTypeParams = (sigId: SignatureId): boolean => {
+    const sigInfo = handleRegistry.getSignature(sigId);
+    if (!sigInfo) return false;
+
+    if (!sigInfo.typeParameters) return false;
+
+    for (const typeParam of sigInfo.typeParameters) {
+      const constraintNode = typeParam.constraintNode as
+        | { kind?: number; elementType?: { kind?: number; typeName?: { text?: string } } }
+        | undefined;
+      if (!constraintNode) continue;
+
+      // Check if constraint is an array type (variadic pattern: T extends unknown[])
+      if (constraintNode.kind === ArrayTypeKind) {
+        const elementType = constraintNode.elementType;
+        if (!elementType) continue;
+
+        // Check for unknown[] or any[] constraint
+        if (
+          elementType.kind === UnknownKeywordKind ||
+          elementType.kind === AnyKeywordKind
+        ) {
+          return true;
+        }
+
+        // Also check for type reference to "unknown" or "any"
+        const typeName = elementType.typeName?.text;
+        if (typeName === "unknown" || typeName === "any") {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // declHasTypeAnnotation — Check if declaration has explicit type
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const declHasTypeAnnotation = (declId: DeclId): boolean => {
+    const declInfo = handleRegistry.getDecl(declId);
+    return declInfo?.typeNode !== undefined;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // checkTsClassMemberOverride — Check if member can be overridden
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ts.SyntaxKind.ClassDeclaration is 263 in TypeScript 5.x
+  const ClassDeclarationKind = 263;
+  // ts.SyntaxKind.MethodDeclaration is 174
+  const MethodDeclarationKind = 174;
+  // ts.SyntaxKind.PropertyDeclaration is 172
+  const PropertyDeclarationKind = 172;
+  // ts.SyntaxKind.Identifier is 80
+  const IdentifierKind = 80;
+
+  const checkTsClassMemberOverride = (
+    declId: DeclId,
+    memberName: string,
+    memberKind: "method" | "property"
+  ): { isOverride: boolean; isShadow: boolean } => {
+    const declInfo = handleRegistry.getDecl(declId);
+    if (!declInfo?.declNode) {
+      return { isOverride: false, isShadow: false };
+    }
+
+    const baseDecl = declInfo.declNode as { kind?: number; members?: readonly unknown[] };
+
+    // Only handle class declarations
+    if (baseDecl.kind !== ClassDeclarationKind || !baseDecl.members) {
+      return { isOverride: false, isShadow: false };
+    }
+
+    // Check if base class has this member
+    const targetKind =
+      memberKind === "method" ? MethodDeclarationKind : PropertyDeclarationKind;
+
+    const baseMember = baseDecl.members.find((m) => {
+      const member = m as { kind?: number; name?: { kind?: number; text?: string } };
+      if (member.kind !== targetKind) return false;
+      if (member.name?.kind !== IdentifierKind) return false;
+      return member.name.text === memberName;
+    });
+
+    if (baseMember) {
+      // In TypeScript, all methods can be overridden (no `final` keyword)
+      return { isOverride: true, isShadow: false };
+    }
+
+    return { isOverride: false, isShadow: false };
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2218,12 +2329,13 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     typeOfMember,
     typeOfMemberId,
     getFQNameOfDecl,
-    getDeclInfo,
     isTypeDecl,
     isInterfaceDecl,
     isTypeAliasToObjectLiteral,
-    getSignatureInfo,
     signatureHasConditionalReturn,
+    signatureHasVariadicTypeParams,
+    declHasTypeAnnotation,
+    checkTsClassMemberOverride,
     resolveCall,
     expandUtility,
     substitute,

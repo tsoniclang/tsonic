@@ -266,44 +266,16 @@ export const checkIfRequiresSpecialization = (
     const typeSystem = getTypeSystem();
     if (!typeSystem) return false;
 
-    // Check for conditional return types via TypeSystem (avoids ts.TypeNode cast)
+    // ALICE'S SPEC (Phase 5): Use semantic methods instead of getSignatureInfo
+
+    // Check for conditional return types
     if (typeSystem.signatureHasConditionalReturn(sigId)) {
       return true;
     }
 
-    const sigInfo = typeSystem.getSignatureInfo(sigId);
-    if (!sigInfo) return false;
-
-    // Check for variadic type parameters from stored type parameter info
-    // The SignatureInfo stores type parameters with constraint nodes
-    if (sigInfo.typeParameters) {
-      for (const typeParam of sigInfo.typeParameters) {
-        const constraintNode = typeParam.constraintNode as
-          | ts.TypeNode
-          | undefined;
-        if (constraintNode) {
-          // Check if constraint is an array type (variadic pattern)
-          if (ts.isArrayTypeNode(constraintNode)) {
-            const elementType = constraintNode.elementType;
-            // Check for unknown[] or any[] constraint
-            if (ts.isTypeReferenceNode(elementType)) {
-              const typeName = ts.isIdentifier(elementType.typeName)
-                ? elementType.typeName.text
-                : undefined;
-              if (typeName === "unknown" || typeName === "any") {
-                return true;
-              }
-            }
-            // Also check for keyword types like `unknown` or `any`
-            if (
-              elementType.kind === ts.SyntaxKind.UnknownKeyword ||
-              elementType.kind === ts.SyntaxKind.AnyKeyword
-            ) {
-              return true;
-            }
-          }
-        }
-      }
+    // Check for variadic type parameters (e.g., T extends unknown[])
+    if (typeSystem.signatureHasVariadicTypeParams(sigId)) {
+      return true;
     }
 
     return false;

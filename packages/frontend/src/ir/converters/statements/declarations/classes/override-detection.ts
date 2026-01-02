@@ -7,7 +7,6 @@
 import * as ts from "typescript";
 import { getMetadataRegistry, getTypeSystem } from "../registry.js";
 import type { Binding } from "../../../../binding/index.js";
-import type { DeclInfo } from "../../../../type-system/index.js";
 
 export type OverrideInfo = {
   readonly isOverride: boolean;
@@ -71,9 +70,8 @@ export const detectOverride = (
       parameterTypes
     );
   } else if (declId) {
-    // For TypeScript classes, check the declaration
-    const declInfo = typeSystem.getDeclInfo(declId);
-    return detectTypeScriptOverrideFromDecl(memberName, memberKind, declInfo);
+    // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
+    return typeSystem.checkTsClassMemberOverride(declId, memberName, memberKind);
   }
 
   return { isOverride: false, isShadow: false };
@@ -126,36 +124,3 @@ const detectDotNetOverride = (
   return { isOverride: false, isShadow: false };
 };
 
-/**
- * Detect override for TypeScript base classes using DeclInfo from HandleRegistry
- */
-const detectTypeScriptOverrideFromDecl = (
-  memberName: string,
-  memberKind: "method" | "property",
-  declInfo: DeclInfo | undefined
-): OverrideInfo => {
-  if (!declInfo?.declNode) {
-    return { isOverride: false, isShadow: false };
-  }
-
-  const baseDecl = declInfo.declNode as ts.Node;
-
-  if (ts.isClassDeclaration(baseDecl)) {
-    // Check if base class has this member
-    const baseMember = baseDecl.members.find((m) => {
-      if (memberKind === "method" && ts.isMethodDeclaration(m)) {
-        return ts.isIdentifier(m.name) && m.name.text === memberName;
-      } else if (memberKind === "property" && ts.isPropertyDeclaration(m)) {
-        return ts.isIdentifier(m.name) && m.name.text === memberName;
-      }
-      return false;
-    });
-
-    if (baseMember) {
-      // In TypeScript, all methods can be overridden unless final (not supported in TS)
-      return { isOverride: true, isShadow: false };
-    }
-  }
-
-  return { isOverride: false, isShadow: false };
-};
