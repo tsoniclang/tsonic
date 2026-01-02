@@ -7,7 +7,6 @@
 
 import * as ts from "typescript";
 import { IrType } from "../../types.js";
-import { convertType } from "../../type-converter.js";
 import { SourceLocation } from "../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../program/diagnostics.js";
 import type { Binding } from "../../binding/index.js";
@@ -86,7 +85,7 @@ const deriveCallReturnType = (
  */
 const deriveNewExpressionType = (
   node: ts.NewExpression,
-  binding: Binding
+  _binding: Binding
 ): IrType | undefined => {
   // Get the type name from the expression
   const getTypeName = (expr: ts.Expression): string | undefined => {
@@ -113,10 +112,15 @@ const deriveNewExpressionType = (
 
   // If explicit type arguments, include them
   if (node.typeArguments && node.typeArguments.length > 0) {
+    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    const typeSystem = getTypeSystem();
+    if (!typeSystem) return undefined;
     return {
       kind: "referenceType",
       name: typeName,
-      typeArguments: node.typeArguments.map((ta) => convertType(ta, binding)),
+      typeArguments: node.typeArguments.map((ta) =>
+        typeSystem.convertTypeNode(ta)
+      ),
     };
   }
 
@@ -219,13 +223,18 @@ export const deriveIdentifierType = (
  */
 export const extractTypeArguments = (
   node: ts.CallExpression | ts.NewExpression,
-  binding: Binding
+  _binding: Binding
 ): readonly IrType[] | undefined => {
   try {
     // Only return explicitly specified type arguments
     // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
-      return node.typeArguments.map((typeArg) => convertType(typeArg, binding));
+      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      const typeSystem = getTypeSystem();
+      if (!typeSystem) return undefined;
+      return node.typeArguments.map((typeArg) =>
+        typeSystem.convertTypeNode(typeArg)
+      );
     }
 
     // No explicit type arguments - return undefined
@@ -253,17 +262,17 @@ export const checkIfRequiresSpecialization = (
       : binding.resolveConstructorSignature(node);
     if (!sigId) return false;
 
-    // ALICE'S SPEC: Use TypeSystem.getSignatureInfo() for signature info
+    // ALICE'S SPEC: Use TypeSystem for all type checks
     const typeSystem = getTypeSystem();
     if (!typeSystem) return false;
-    const sigInfo = typeSystem.getSignatureInfo(sigId);
-    if (!sigInfo) return false;
 
-    // Check for conditional return types from the TypeNode
-    const returnTypeNode = sigInfo.returnTypeNode as ts.TypeNode | undefined;
-    if (returnTypeNode && ts.isConditionalTypeNode(returnTypeNode)) {
+    // Check for conditional return types via TypeSystem (avoids ts.TypeNode cast)
+    if (typeSystem.signatureHasConditionalReturn(sigId)) {
       return true;
     }
+
+    const sigInfo = typeSystem.getSignatureInfo(sigId);
+    if (!sigInfo) return false;
 
     // Check for variadic type parameters from stored type parameter info
     // The SignatureInfo stores type parameters with constraint nodes
@@ -383,11 +392,15 @@ export const getContextualType = (
   binding: Binding
 ): IrType | undefined => {
   try {
+    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    const typeSystem = getTypeSystem();
+    if (!typeSystem) return undefined;
+
     const parent = node.parent;
 
     // Variable declaration: const x: Foo = { ... }
     if (ts.isVariableDeclaration(parent) && parent.type) {
-      return convertType(parent.type, binding);
+      return typeSystem.convertTypeNode(parent.type);
     }
 
     // Return statement: function f(): Foo { return { ... } }
@@ -398,7 +411,7 @@ export const getContextualType = (
         current = current.parent;
       }
       if (current && ts.isFunctionLike(current) && current.type) {
-        return convertType(current.type, binding);
+        return typeSystem.convertTypeNode(current.type);
       }
     }
 

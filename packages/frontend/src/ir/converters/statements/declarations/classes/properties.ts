@@ -8,13 +8,13 @@
 import * as ts from "typescript";
 import { IrClassMember, IrExpression, IrType } from "../../../../types.js";
 import { convertExpression } from "../../../../expression-converter.js";
-import { convertType } from "../../../../type-converter.js";
 import {
   hasStaticModifier,
   hasReadonlyModifier,
   getAccessibility,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+import { getTypeSystem } from "../registry.js";
 import type { Binding } from "../../../../binding/index.js";
 
 /**
@@ -75,7 +75,10 @@ export const convertProperty = (
   );
 
   // Get explicit type annotation (if present) for contextual typing
-  const explicitType = node.type ? convertType(node.type, binding) : undefined;
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+  const explicitType =
+    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)
   const convertedInitializer = node.initializer

@@ -13,4 +13,4 @@ export {
   convertBindingName,
   inferLambdaParamTypes,
   type LambdaParamInferenceResult,
-} from "./type-system/internal/type-converter/index.js";
+} from "./type-converter/index.js";

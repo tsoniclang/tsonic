@@ -20,9 +20,9 @@ import {
 } from "../statement-converter.js";
 // Internal accessor for checking if TypeRegistry is initialized (TypeSystem construction only)
 import { _internalGetTypeRegistry } from "../converters/statements/declarations/index.js";
-import { buildTypeRegistry } from "../type-registry.js";
-import { buildNominalEnv } from "../nominal-env.js";
-import { convertType } from "../type-converter.js";
+import { buildTypeRegistry } from "../type-system/internal/type-registry.js";
+import { buildNominalEnv } from "../type-system/internal/nominal-env.js";
+import { convertType } from "../type-system/internal/type-converter.js";
 import { createTypeSystem } from "../type-system/type-system.js";
 import type { BindingInternal } from "../binding/index.js";
 import {

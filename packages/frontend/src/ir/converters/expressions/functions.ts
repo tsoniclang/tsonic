@@ -12,7 +12,8 @@ import {
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
-import { convertType, convertBindingName } from "../../type-converter.js";
+import { convertBindingName } from "../../type-system/internal/type-converter.js";
+import { getTypeSystem } from "../statements/declarations/registry.js";
 import type { Binding } from "../../binding/index.js";
 
 /**
@@ -70,8 +71,10 @@ const convertLambdaParameters = (
     // DETERMINISTIC Priority: 1. Explicit annotation, 2. expectedType from call site
     let irType: IrType | undefined;
     if (actualType) {
-      // Explicit type annotation - use it
-      irType = convertType(actualType, binding);
+      // Explicit type annotation - use TypeSystem.convertTypeNode()
+      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      const typeSystem = getTypeSystem();
+      irType = typeSystem ? typeSystem.convertTypeNode(actualType) : undefined;
     } else if (expectedParamTypes && expectedParamTypes[index]) {
       // Use expectedType from call site (deterministic)
       irType = expectedParamTypes[index];
@@ -105,8 +108,11 @@ export const convertFunctionExpression = (
   binding: Binding,
   expectedType?: IrType
 ): IrFunctionExpression => {
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
   // Get return type from declared annotation for contextual typing
-  const returnType = node.type ? convertType(node.type, binding) : undefined;
+  const returnType =
+    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(node, binding, expectedType);
 
@@ -146,10 +152,11 @@ export const convertArrowFunction = (
   binding: Binding,
   expectedType?: IrType
 ): IrArrowFunctionExpression => {
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
   // Get return type from declared annotation, or from expectedType if available
-  const declaredReturnType = node.type
-    ? convertType(node.type, binding)
-    : undefined;
+  const declaredReturnType =
+    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
   const expectedReturnType =
     expectedType?.kind === "functionType" ? expectedType.returnType : undefined;

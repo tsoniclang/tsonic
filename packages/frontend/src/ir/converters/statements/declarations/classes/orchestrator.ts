@@ -5,7 +5,6 @@
 import * as ts from "typescript";
 import { IrClassDeclaration, IrClassMember } from "../../../../types.js";
 import { convertExpression } from "../../../../expression-converter.js";
-import { convertType } from "../../../../type-converter.js";
 import { hasExportModifier, convertTypeParameters } from "../../helpers.js";
 import { convertProperty } from "./properties.js";
 import { convertMethod } from "./methods.js";
@@ -13,6 +12,7 @@ import {
   convertConstructor,
   extractParameterProperties,
 } from "./constructors.js";
+import { getTypeSystem } from "../registry.js";
 import type { Binding } from "../../../../binding/index.js";
 
 /**
@@ -107,6 +107,8 @@ export const convertClassDeclaration = (
   const implementsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ImplementsKeyword
   );
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
   const implementsTypes =
     implementsClause?.types
       .filter((t) => {
@@ -116,7 +118,8 @@ export const convertClassDeclaration = (
         }
         return true;
       })
-      .map((t) => convertType(t, binding)) ?? [];
+      .map((t) => (typeSystem ? typeSystem.convertTypeNode(t) : undefined))
+      .filter((t): t is NonNullable<typeof t> => t !== undefined) ?? [];
 
   // Extract parameter properties from constructor
   const constructor = node.members.find(ts.isConstructorDeclaration);

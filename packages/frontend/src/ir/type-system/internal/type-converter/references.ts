@@ -19,7 +19,7 @@ import {
   expandConditionalUtilityType,
   expandRecordType,
 } from "./utility-types.js";
-import type { Binding } from "../../../binding/index.js";
+import type { Binding, BindingInternal } from "../../../binding/index.js";
 
 /**
  * Cache for structural member extraction to prevent infinite recursion
@@ -116,7 +116,7 @@ const extractStructuralMembersFromDeclarations = (
   }
 
   // Get declaration info from HandleRegistry
-  const registry = binding.getHandleRegistry();
+  const registry = (binding as BindingInternal)._getHandleRegistry();
   const declInfo = registry.getDecl({ id: declId, __brand: "DeclId" } as never);
   if (!declInfo?.declNode) {
     structuralMembersCache.set(declId, null);
@@ -380,7 +380,9 @@ export const convertTypeReference = (
   // DETERMINISTIC: Check if this is a type parameter or type alias using Binding
   const declId = binding.resolveTypeReference(node);
   if (declId) {
-    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
     if (declInfo) {
       // Check for type parameter declaration
       if (declInfo.kind === "parameter") {

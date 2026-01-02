@@ -14,7 +14,7 @@ import {
   IrPropertySignature,
   IrInterfaceMember,
 } from "../../../types.js";
-import type { Binding } from "../../../binding/index.js";
+import type { Binding, BindingInternal } from "../../../binding/index.js";
 
 /**
  * Set of supported mapped utility types that can be expanded
@@ -69,7 +69,9 @@ const resolveTypeAlias = (node: ts.TypeNode, binding: Binding): ts.TypeNode => {
   const declId = binding.resolveTypeReference(node);
   if (!declId) return node;
 
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  const declInfo = (binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
   if (!declInfo) return node;
 
   // Look for a type alias declaration
@@ -91,7 +93,9 @@ const isTypeParameterNode = (node: ts.TypeNode, binding: Binding): boolean => {
   const declId = binding.resolveTypeReference(node);
   if (!declId) return false;
 
-  const declInfo = binding.getHandleRegistry().getDecl(declId);
+  const declInfo = (binding as BindingInternal)
+    ._getHandleRegistry()
+    .getDecl(declId);
   if (!declInfo) return false;
 
   // Check if the declaration is a type parameter
@@ -341,7 +345,9 @@ export const expandUtilityType = (
       return null;
     }
 
-    const declInfo = binding.getHandleRegistry().getDecl(declId);
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
     if (!declInfo?.declNode) {
       if (debug) console.log(`[UTILITY] No declaration for ${targetName}`);
       return null;
@@ -617,7 +623,9 @@ const expandReturnType = (
   if (ts.isTypeReferenceNode(fArg) && ts.isIdentifier(fArg.typeName)) {
     const declId = binding.resolveTypeReference(fArg);
     if (declId) {
-      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      const declInfo = (binding as BindingInternal)
+        ._getHandleRegistry()
+        .getDecl(declId);
       const decl = declInfo?.declNode as ts.Declaration | undefined;
       if (
         decl &&
@@ -662,7 +670,9 @@ const expandParameters = (
   ) {
     const declId = binding.resolveTypeReference(fArg);
     if (declId) {
-      const declInfo = binding.getHandleRegistry().getDecl(declId);
+      const declInfo = (binding as BindingInternal)
+        ._getHandleRegistry()
+        .getDecl(declId);
       const decl = declInfo?.declNode as ts.Declaration | undefined;
       if (
         decl &&

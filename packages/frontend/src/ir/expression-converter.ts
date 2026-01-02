@@ -15,7 +15,6 @@ import {
   getBindingRegistry,
   getTypeSystem,
 } from "./converters/statements/declarations/registry.js";
-import { convertType } from "./type-converter.js";
 import type { Binding } from "./binding/index.js";
 
 // Import expression converters from specialized modules
@@ -298,8 +297,12 @@ export const convertExpression = (
     const innerExpr = convertExpression(node.expression, binding, undefined);
 
     // Get the asserted type
+    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    const typeSystem = getTypeSystem();
     const assertedTypeNode = node.type;
-    const assertedType = convertType(assertedTypeNode, binding);
+    const assertedType = typeSystem
+      ? typeSystem.convertTypeNode(assertedTypeNode)
+      : { kind: "unknownType" as const };
 
     // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)
     const numericKind = getNumericKindFromTypeNode(assertedTypeNode);

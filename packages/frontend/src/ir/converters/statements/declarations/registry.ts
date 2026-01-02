@@ -10,8 +10,8 @@
 
 import { DotnetMetadataRegistry } from "../../../../dotnet-metadata.js";
 import { BindingRegistry } from "../../../../program/bindings.js";
-import { TypeRegistry } from "../../../type-registry.js";
-import { NominalEnv } from "../../../nominal-env.js";
+import { TypeRegistry } from "../../../type-system/internal/type-registry.js";
+import { NominalEnv } from "../../../type-system/internal/nominal-env.js";
 import type { TypeSystem } from "../../../type-system/type-system.js";
 
 /**

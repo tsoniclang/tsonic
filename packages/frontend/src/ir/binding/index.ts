@@ -126,14 +126,6 @@ export interface Binding {
    * For functions with `x is T` return type.
    */
   getTypePredicateOfSignature(sig: SignatureId): TypePredicateInfo | undefined;
-
-  /**
-   * Get the handle registry for TypeSystem queries.
-   *
-   * @deprecated Use TypeSystem API instead. This method will be removed
-   * after Step 7 migration is complete. See Alice's spec in the plan file.
-   */
-  getHandleRegistry(): HandleRegistry;
 }
 
 /**
@@ -446,8 +438,6 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolveShorthandAssignment,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
-    // @deprecated - will be removed after Step 7 migration
-    getHandleRegistry: () => handleRegistry,
     // Internal method for TypeSystem construction only
     _getHandleRegistry: () => handleRegistry,
   };

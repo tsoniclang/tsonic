@@ -10,7 +10,7 @@ import {
   IrType,
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
-import { convertBindingName } from "../../../type-converter.js";
+import { convertBindingName } from "../../../type-system/internal/type-converter.js";
 import { convertStatementSingle } from "../../../statement-converter.js";
 import { convertVariableDeclarationList } from "../helpers.js";
 import type { Binding } from "../../../binding/index.js";

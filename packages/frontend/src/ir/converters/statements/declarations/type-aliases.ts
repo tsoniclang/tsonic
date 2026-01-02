@@ -4,9 +4,9 @@
 
 import * as ts from "typescript";
 import { IrStatement, IrTypeAliasDeclaration } from "../../../types.js";
-import { convertType } from "../../../type-converter.js";
 import { hasExportModifier, convertTypeParameters } from "../helpers.js";
 import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
+import { getTypeSystem } from "./registry.js";
 import type { Binding } from "../../../binding/index.js";
 
 /**
@@ -21,11 +21,15 @@ export const convertTypeAliasDeclaration = (
   node: ts.TypeAliasDeclaration,
   binding: Binding
 ): readonly IrStatement[] => {
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, binding),
-    type: convertType(node.type, binding),
+    type: typeSystem
+      ? typeSystem.convertTypeNode(node.type)
+      : { kind: "unknownType" },
     isExported: hasExportModifier(node),
     isStruct: false, // Type aliases are not structs by default
   };

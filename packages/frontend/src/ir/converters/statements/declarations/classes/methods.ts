@@ -4,7 +4,6 @@
 
 import * as ts from "typescript";
 import { IrClassMember } from "../../../../types.js";
-import { convertType } from "../../../../type-converter.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasStaticModifier,
@@ -13,6 +12,7 @@ import {
   convertParameters,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
+import { getTypeSystem } from "../registry.js";
 import type { Binding } from "../../../../binding/index.js";
 
 /**
@@ -93,7 +93,10 @@ export const convertMethod = (
   );
 
   // Get return type from declared annotation for contextual typing
-  const returnType = node.type ? convertType(node.type, binding) : undefined;
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+  const returnType =
+    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
 
   return {
     kind: "methodDeclaration",

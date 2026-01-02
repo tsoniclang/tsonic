@@ -10,7 +10,8 @@ import {
   IrInterfaceMember,
   IrVariableDeclaration,
 } from "../../types.js";
-import { convertType, convertBindingName } from "../../type-converter.js";
+import { convertBindingName } from "../../type-system/internal/type-converter.js";
+import { getTypeSystem } from "./declarations/registry.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";
 import type { Binding } from "../../binding/index.js";
@@ -26,14 +27,19 @@ export const convertTypeParameters = (
     return undefined;
   }
 
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+
   return typeParameters.map((tp) => {
     const name = tp.name.text;
-    const constraint = tp.constraint
-      ? convertType(tp.constraint, binding)
-      : undefined;
-    const defaultType = tp.default
-      ? convertType(tp.default, binding)
-      : undefined;
+    const constraint =
+      tp.constraint && typeSystem
+        ? typeSystem.convertTypeNode(tp.constraint)
+        : undefined;
+    const defaultType =
+      tp.default && typeSystem
+        ? typeSystem.convertTypeNode(tp.default)
+        : undefined;
 
     // Check if constraint is structural (object literal type)
     const isStructural = tp.constraint && ts.isTypeLiteralNode(tp.constraint);
@@ -95,7 +101,12 @@ export const convertParameters = (
     }
 
     // Get parameter type for contextual typing of default value
-    const paramType = actualType ? convertType(actualType, binding) : undefined;
+    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    const typeSystem = getTypeSystem();
+    const paramType =
+      actualType && typeSystem
+        ? typeSystem.convertTypeNode(actualType)
+        : undefined;
 
     return {
       kind: "parameter",
@@ -123,11 +134,17 @@ export const convertVariableDeclarationList = (
   const isLet = !!(node.flags & ts.NodeFlags.Let);
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
 
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+
   return {
     kind: "variableDeclaration",
     declarationKind,
     declarations: node.declarations.map((decl) => {
-      const declType = decl.type ? convertType(decl.type, binding) : undefined;
+      const declType =
+        decl.type && typeSystem
+          ? typeSystem.convertTypeNode(decl.type)
+          : undefined;
       return {
         kind: "variableDeclarator" as const,
         name: convertBindingName(decl.name),

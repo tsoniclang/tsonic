@@ -12,6 +12,7 @@
  * - INV-3: Poison-on-missing-types (return unknownType + emit diagnostic)
  */
 
+import type * as ts from "typescript";
 import type {
   IrType,
   IrFunctionType,
@@ -49,6 +50,21 @@ import { getMemberDeclaredType as catalogGetMemberType } from "../type-universe/
  * Key method: resolveCall(query) — single entry point for all call resolution.
  */
 export interface TypeSystem {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Type Node Conversion
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Convert a TypeScript type node to IR type.
+   *
+   * This is the ONLY entry point for converting ts.TypeNode to IrType.
+   * All converters must use this method instead of calling convertType directly.
+   *
+   * ALICE'S SPEC: Type conversion is internal to TypeSystem. External code
+   * passes TypeNodes in; TypeSystem returns IrTypes.
+   */
+  convertTypeNode(typeNode: ts.TypeNode): IrType;
+
   // ─────────────────────────────────────────────────────────────────────────
   // Declaration Types
   // ─────────────────────────────────────────────────────────────────────────
@@ -222,6 +238,15 @@ export interface TypeSystem {
    * infer patterns, and variadic type parameters in return/constraint nodes.
    */
   getSignatureInfo(sigId: SignatureId): SignatureInfo | undefined;
+
+  /**
+   * Check if a signature has a conditional return type.
+   *
+   * This is used to detect if a call requires specialization due to
+   * conditional return types like `T extends string ? A : B`.
+   * The check is done inside TypeSystem to avoid exposing ts.TypeNode.
+   */
+  signatureHasConditionalReturn(sigId: SignatureId): boolean;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Diagnostics
@@ -428,6 +453,9 @@ export type TypeSystemConfig = {
    *
    * Used during TypeSystem construction only. After Step 3, TypeRegistry
    * stores pure IR, so this is only needed for on-demand conversion.
+   *
+   * NOTE: Takes `unknown` because HandleRegistry stores TypeNodes as opaque.
+   * The public TypeSystem.convertTypeNode() method wraps this with proper typing.
    */
   readonly convertTypeNode: (node: unknown) => IrType;
 
@@ -2089,10 +2117,45 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
+  // signatureHasConditionalReturn — Check for conditional return type
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ts.SyntaxKind.ConditionalType is 195 in TypeScript 5.x
+  const ConditionalTypeKind = 195;
+
+  const signatureHasConditionalReturn = (sigId: SignatureId): boolean => {
+    const sigInfo = handleRegistry.getSignature(sigId);
+    if (!sigInfo) return false;
+
+    const returnTypeNode = sigInfo.returnTypeNode as
+      | { kind?: number }
+      | undefined;
+    if (!returnTypeNode) return false;
+
+    return returnTypeNode.kind === ConditionalTypeKind;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // convertTypeNode — Wrapper for the injected type converter
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Convert a TypeScript type node to IR type.
+   *
+   * This wraps the injected convertTypeNode from config to satisfy the
+   * TypeSystem interface. All converters should use this method instead
+   * of importing convertType directly.
+   */
+  const convertTypeNodeMethod = (typeNode: ts.TypeNode): IrType => {
+    return convertTypeNode(typeNode);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RETURN TYPESYSTEM INSTANCE
   // ─────────────────────────────────────────────────────────────────────────
 
   return {
+    convertTypeNode: convertTypeNodeMethod,
     typeOfDecl,
     typeOfMember,
     typeOfMemberId,
@@ -2102,6 +2165,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     isInterfaceDecl,
     isTypeAliasToObjectLiteral,
     getSignatureInfo,
+    signatureHasConditionalReturn,
     resolveCall,
     expandUtility,
     substitute,

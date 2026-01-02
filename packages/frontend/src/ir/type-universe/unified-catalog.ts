@@ -31,7 +31,7 @@ import type {
   TypeRegistryEntry,
   MemberInfo,
   HeritageInfo,
-} from "../type-registry.js";
+} from "../type-system/internal/type-registry.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SOURCE TYPE → NOMINAL ENTRY CONVERSION

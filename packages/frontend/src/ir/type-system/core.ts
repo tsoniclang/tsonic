@@ -21,12 +21,12 @@ import type {
   IrMethodSignature,
 } from "../types/index.js";
 import { substituteIrType, typesEqual } from "../types/index.js";
-import type { TypeRegistry } from "../type-registry.js";
+import type { TypeRegistry } from "./internal/type-registry.js";
 import type {
   NominalEnv,
   ConvertTypeFn,
   InstantiationEnv,
-} from "../nominal-env.js";
+} from "./internal/nominal-env.js";
 import type {
   TypeSystem,
   HandleRegistry,

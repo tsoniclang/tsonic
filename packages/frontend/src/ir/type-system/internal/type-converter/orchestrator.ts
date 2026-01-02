@@ -20,7 +20,7 @@ import {
   convertIntersectionType,
 } from "./unions-intersections.js";
 import { convertLiteralType } from "./literals.js";
-import type { Binding } from "../../../binding/index.js";
+import type { Binding, BindingInternal } from "../../../binding/index.js";
 
 /**
  * Convert TypeScript type node to IR type
@@ -129,7 +129,9 @@ export const convertType = (
     if (ts.isIdentifier(exprName)) {
       const declId = binding.resolveIdentifier(exprName);
       if (declId) {
-        const declInfo = binding.getHandleRegistry().getDecl(declId);
+        const declInfo = (binding as BindingInternal)
+          ._getHandleRegistry()
+          .getDecl(declId);
         // If we have a type node from the declaration, convert it
         if (declInfo?.typeNode) {
           return convertType(declInfo.typeNode as ts.TypeNode, binding);

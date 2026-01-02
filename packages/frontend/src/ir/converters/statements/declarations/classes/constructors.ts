@@ -4,13 +4,13 @@
 
 import * as ts from "typescript";
 import { IrClassMember, IrStatement } from "../../../../types.js";
-import { convertType } from "../../../../type-converter.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasReadonlyModifier,
   getAccessibility,
   convertParameters,
 } from "../../helpers.js";
+import { getTypeSystem } from "../registry.js";
 import type { Binding } from "../../../../binding/index.js";
 
 /**
@@ -81,7 +81,7 @@ export const convertConstructor = (
  */
 export const extractParameterProperties = (
   constructor: ts.ConstructorDeclaration | undefined,
-  binding: Binding
+  _binding: Binding
 ): IrClassMember[] => {
   if (!constructor) {
     return [];
@@ -106,11 +106,16 @@ export const extractParameterProperties = (
 
     // Create a field declaration for this parameter property
     if (ts.isIdentifier(param.name)) {
+      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      const typeSystem = getTypeSystem();
       const accessibility = getAccessibility(param);
       parameterProperties.push({
         kind: "propertyDeclaration",
         name: param.name.text,
-        type: param.type ? convertType(param.type, binding) : undefined,
+        type:
+          param.type && typeSystem
+            ? typeSystem.convertTypeNode(param.type)
+            : undefined,
         initializer: undefined, // Will be assigned in constructor
         isStatic: false,
         isReadonly: hasReadonlyModifier(param),

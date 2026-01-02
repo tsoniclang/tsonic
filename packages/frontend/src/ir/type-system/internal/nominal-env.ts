@@ -8,9 +8,9 @@
  */
 
 import * as ts from "typescript";
-import { IrType } from "./types.js";
+import { IrType } from "../../types/index.js";
 import { TypeRegistry } from "./type-registry.js";
-import type { Binding } from "./binding/index.js";
+import type { Binding } from "../../binding/index.js";
 
 /**
  * Map from type parameter name to concrete IR type

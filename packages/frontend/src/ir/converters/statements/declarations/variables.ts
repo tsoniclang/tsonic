@@ -5,7 +5,8 @@
 import * as ts from "typescript";
 import { IrVariableDeclaration, IrExpression, IrType } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
-import { convertType, convertBindingName } from "../../../type-converter.js";
+import { convertBindingName } from "../../../type-system/internal/type-converter.js";
+import { getTypeSystem } from "./registry.js";
 import { hasExportModifier } from "../helpers.js";
 import type { Binding } from "../../../binding/index.js";
 
@@ -98,14 +99,13 @@ const isBindingPattern = (decl: ts.VariableDeclaration): boolean => {
  * This is used for deterministic contextual typing - only explicit annotations
  * should influence literal type inference.
  */
-const getExpectedTypeForInitializer = (
-  decl: ts.VariableDeclaration,
-  binding: Binding
-) => {
+const getExpectedTypeForInitializer = (decl: ts.VariableDeclaration) => {
   // Only use explicit type annotation as expectedType
   // Inferred types should NOT influence literal typing
   if (decl.type) {
-    return convertType(decl.type, binding);
+    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    const typeSystem = getTypeSystem();
+    return typeSystem ? typeSystem.convertTypeNode(decl.type) : undefined;
   }
   return undefined;
 };
@@ -135,13 +135,16 @@ export const convertVariableStatement = (
   const isModuleLevel = isModuleLevelVariable(node);
   const needsExplicitType = isExported || isModuleLevel;
 
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+
   return {
     kind: "variableDeclaration",
     declarationKind,
     declarations: node.declarationList.declarations.map((decl) => {
       // expectedType for initializer: ONLY from explicit type annotation
       // This ensures deterministic literal typing (e.g., 100 -> int unless annotated)
-      const expectedType = getExpectedTypeForInitializer(decl, binding);
+      const expectedType = getExpectedTypeForInitializer(decl);
 
       // Convert initializer FIRST (before determining type)
       // This allows us to derive the variable type from the converted expression
@@ -155,7 +158,9 @@ export const convertVariableStatement = (
       //    derive it from the converted expression (NO TypeScript fallback)
       // 3. Otherwise, undefined (let emitter use var or report error)
       const declaredType = decl.type
-        ? convertType(decl.type, binding)
+        ? typeSystem
+          ? typeSystem.convertTypeNode(decl.type)
+          : { kind: "unknownType" as const }
         : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
           ? deriveTypeFromExpression(convertedInitializer)
           : undefined;

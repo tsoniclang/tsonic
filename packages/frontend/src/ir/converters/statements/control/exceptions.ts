@@ -4,7 +4,7 @@
 
 import * as ts from "typescript";
 import { IrTryStatement, IrCatchClause, IrType } from "../../../types.js";
-import { convertBindingName } from "../../../type-converter.js";
+import { convertBindingName } from "../../../type-system/internal/type-converter.js";
 import { convertBlockStatement } from "./blocks.js";
 import type { Binding } from "../../../binding/index.js";
 

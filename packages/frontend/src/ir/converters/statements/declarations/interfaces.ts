@@ -9,13 +9,13 @@ import {
   IrTypeAliasDeclaration,
   IrType,
 } from "../../../types.js";
-import { convertType } from "../../../type-converter.js";
 import {
   hasExportModifier,
   hasReadonlyModifier,
   convertTypeParameters,
   convertParameters,
 } from "../helpers.js";
+import { getTypeSystem } from "./registry.js";
 import type { Binding } from "../../../binding/index.js";
 
 /**
@@ -25,12 +25,17 @@ export const convertInterfaceMember = (
   node: ts.TypeElement,
   binding: Binding
 ): IrInterfaceMember | null => {
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+
   if (ts.isPropertySignature(node) && node.type) {
     return {
       kind: "propertySignature",
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
-      type: convertType(node.type, binding),
+      type: typeSystem
+        ? typeSystem.convertTypeNode(node.type)
+        : { kind: "unknownType" },
       isOptional: !!node.questionToken,
       isReadonly: hasReadonlyModifier(node),
     };
@@ -43,7 +48,10 @@ export const convertInterfaceMember = (
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
       typeParameters: convertTypeParameters(node.typeParameters, binding),
       parameters: convertParameters(node.parameters, binding),
-      returnType: node.type ? convertType(node.type, binding) : undefined,
+      returnType:
+        node.type && typeSystem
+          ? typeSystem.convertTypeNode(node.type)
+          : undefined,
     };
   }
 
@@ -74,7 +82,7 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
  */
 const extractIndexSignatureOnlyInterface = (
   node: ts.InterfaceDeclaration,
-  binding: Binding
+  _binding: Binding
 ): { keyType: IrType; valueType: IrType } | undefined => {
   const members = node.members;
 
@@ -94,7 +102,11 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  const keyType = convertType(param.type, binding);
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
+  if (!typeSystem) return undefined;
+
+  const keyType = typeSystem.convertTypeNode(param.type);
 
   // Only allow string or number keys (enforced by TSN7413)
   if (
@@ -109,7 +121,7 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  const valueType = convertType(member.type, binding);
+  const valueType = typeSystem.convertTypeNode(member.type);
 
   return { keyType, valueType };
 };
@@ -174,6 +186,8 @@ export const convertInterfaceDeclaration = (
   const extendsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   );
+  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  const typeSystem = getTypeSystem();
   const extendsTypes =
     extendsClause?.types
       .filter((t) => {
@@ -183,7 +197,8 @@ export const convertInterfaceDeclaration = (
         }
         return true;
       })
-      .map((t) => convertType(t, binding)) ?? [];
+      .map((t) => (typeSystem ? typeSystem.convertTypeNode(t) : undefined))
+      .filter((t): t is NonNullable<typeof t> => t !== undefined) ?? [];
 
   const allMembers = node.members
     .map((m) => convertInterfaceMember(m, binding))
