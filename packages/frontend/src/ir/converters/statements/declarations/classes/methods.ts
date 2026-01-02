@@ -93,10 +93,12 @@ export const convertMethod = (
   );
 
   // Get return type from declared annotation for contextual typing
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   const returnType =
-    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
+    node.type && typeSystem
+      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
+      : undefined;
 
   return {
     kind: "methodDeclaration",

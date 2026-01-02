@@ -14,7 +14,7 @@
 import * as ts from "typescript";
 import type { IrType, IrMethodSignature } from "../../types/index.js";
 import { getNamespaceFromPath } from "../../../resolver/namespace.js";
-import { GLOBALS_TO_CLR_FQ } from "../../clr-type-mappings.js";
+import { GLOBALS_TO_CLR_FQ } from "./universe/alias-table.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL CLR NAME HELPERS

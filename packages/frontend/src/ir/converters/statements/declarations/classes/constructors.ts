@@ -106,7 +106,7 @@ export const extractParameterProperties = (
 
     // Create a field declaration for this parameter property
     if (ts.isIdentifier(param.name)) {
-      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const typeSystem = getTypeSystem();
       const accessibility = getAccessibility(param);
       parameterProperties.push({
@@ -114,7 +114,7 @@ export const extractParameterProperties = (
         name: param.name.text,
         type:
           param.type && typeSystem
-            ? typeSystem.convertTypeNode(param.type)
+            ? typeSystem.typeFromSyntax(_binding.captureTypeSyntax(param.type))
             : undefined,
         initializer: undefined, // Will be assigned in constructor
         isStatic: false,

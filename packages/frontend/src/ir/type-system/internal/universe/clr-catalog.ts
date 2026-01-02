@@ -1,5 +1,5 @@
 /**
- * Assembly Type Catalog Loader
+ * CLR Type Catalog Loader
  *
  * Loads CLR type metadata from bindings.json and metadata.json files
  * into a queryable catalog structure.
@@ -16,7 +16,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { IrType } from "../types/index.js";
+import type { IrType } from "../../../types/index.js";
 import type {
   AssemblyTypeCatalog,
   TypeId,
@@ -493,12 +493,6 @@ const findMetadataFiles = (packagePath: string): string[] => {
   return metadataFiles;
 };
 
-// TODO: findBindingsFile will be used for loading parameter modifier info and TS name overrides
-// const findBindingsFile = (namespaceDir: string): string | undefined => {
-//   const bindingsPath = path.join(namespaceDir, "bindings.json");
-//   return fs.existsSync(bindingsPath) ? bindingsPath : undefined;
-// };
-
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN LOADER FUNCTION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -509,7 +503,7 @@ const findMetadataFiles = (packagePath: string): string[] => {
  * @param nodeModulesPath - Path to node_modules directory
  * @returns AssemblyTypeCatalog with all loaded types
  */
-export const loadAssemblyTypeCatalog = (
+export const loadClrCatalog = (
   nodeModulesPath: string
 ): AssemblyTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
@@ -560,7 +554,7 @@ export const loadAssemblyTypeCatalog = (
 };
 
 /**
- * Load assembly catalog from a specific package (for testing).
+ * Load CLR catalog from a specific package (for testing).
  */
 export const loadSinglePackageMetadata = (
   metadataPath: string

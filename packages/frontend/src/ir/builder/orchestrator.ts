@@ -24,7 +24,8 @@ import {
 } from "../statement-converter.js";
 // Internal accessor for checking if TypeRegistry is initialized (TypeSystem construction only)
 import { _internalGetTypeRegistry } from "../converters/statements/declarations/index.js";
-import { buildTypeRegistry } from "../type-system/internal/type-registry.js";
+// NOTE: buildTypeRegistry is now called internally by buildSourceCatalog
+// import { buildTypeRegistry } from "../type-system/internal/type-registry.js";
 import { buildNominalEnv } from "../type-system/internal/nominal-env.js";
 import { convertType } from "../type-system/internal/type-converter.js";
 import { createTypeSystem } from "../type-system/type-system.js";
@@ -38,8 +39,9 @@ import { extractImports } from "./imports.js";
 import { extractExports } from "./exports.js";
 import { extractStatements, isExecutableStatement } from "./statements.js";
 import { validateClassImplements } from "./validation.js";
-import { loadAssemblyTypeCatalog } from "../type-universe/assembly-catalog.js";
-import { buildUnifiedTypeCatalog } from "../type-universe/unified-catalog.js";
+import { loadClrCatalog } from "../type-system/internal/universe/clr-catalog.js";
+import { buildUnifiedUniverse } from "../type-system/internal/universe/unified-universe.js";
+import { buildSourceCatalog } from "../type-system/internal/universe/source-catalog.js";
 
 /**
  * Build IR module from TypeScript source file
@@ -76,16 +78,19 @@ export const buildIrModule = (
     if (!_internalGetTypeRegistry()) {
       // Include both user source files AND declaration files from typeRoots
       // Declaration files contain globals (String, Array, etc.) needed for method resolution
+      //
+      // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
       const allSourceFiles = [
         ...program.sourceFiles,
         ...program.declarationSourceFiles,
       ];
-      const typeRegistry = buildTypeRegistry(
-        allSourceFiles,
-        program.checker,
-        options.sourceRoot,
-        options.rootNamespace
-      );
+      const { typeRegistry } = buildSourceCatalog({
+        sourceFiles: allSourceFiles,
+        checker: program.checker,
+        sourceRoot: options.sourceRoot,
+        rootNamespace: options.rootNamespace,
+        binding: program.binding,
+      });
       setTypeRegistry(typeRegistry);
 
       const nominalEnv = buildNominalEnv(
@@ -101,10 +106,10 @@ export const buildIrModule = (
         program.options.projectRoot,
         "node_modules"
       );
-      const assemblyCatalog = loadAssemblyTypeCatalog(nodeModulesPath);
+      const assemblyCatalog = loadClrCatalog(nodeModulesPath);
 
       // Build unified catalog merging source and assembly types
-      const unifiedCatalog = buildUnifiedTypeCatalog(
+      const unifiedCatalog = buildUnifiedUniverse(
         typeRegistry,
         assemblyCatalog,
         program.options.rootNamespace
@@ -253,16 +258,24 @@ export const buildIr = (
   // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
   // Declaration files contain globals (String, Array, etc.) needed for method resolution
   // This enables deterministic typing for inherited generic members
+  //
+  // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
+  // Pass A: Register all type names (skeleton)
+  // Pass B: Convert all type annotations (with stable resolution)
+  //
+  // After this, TypeRegistry contains all types already converted.
+  // Converters should use typeOfDecl(declId) instead of convertTypeNode().
   const allSourceFiles = [
     ...program.sourceFiles,
     ...program.declarationSourceFiles,
   ];
-  const typeRegistry = buildTypeRegistry(
-    allSourceFiles,
-    program.checker,
-    options.sourceRoot,
-    options.rootNamespace
-  );
+  const { typeRegistry } = buildSourceCatalog({
+    sourceFiles: allSourceFiles,
+    checker: program.checker,
+    sourceRoot: options.sourceRoot,
+    rootNamespace: options.rootNamespace,
+    binding: program.binding,
+  });
   setTypeRegistry(typeRegistry);
 
   // Build NominalEnv from TypeRegistry
@@ -280,10 +293,10 @@ export const buildIr = (
     program.options.projectRoot,
     "node_modules"
   );
-  const assemblyCatalog = loadAssemblyTypeCatalog(nodeModulesPath);
+  const assemblyCatalog = loadClrCatalog(nodeModulesPath);
 
   // Build unified catalog merging source and assembly types
-  const unifiedCatalog = buildUnifiedTypeCatalog(
+  const unifiedCatalog = buildUnifiedUniverse(
     typeRegistry,
     assemblyCatalog,
     program.options.rootNamespace

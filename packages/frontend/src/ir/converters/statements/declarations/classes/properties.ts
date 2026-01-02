@@ -75,10 +75,12 @@ export const convertProperty = (
   );
 
   // Get explicit type annotation (if present) for contextual typing
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   const explicitType =
-    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
+    node.type && typeSystem
+      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
+      : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)
   const convertedInitializer = node.initializer

@@ -71,10 +71,12 @@ const convertLambdaParameters = (
     // DETERMINISTIC Priority: 1. Explicit annotation, 2. expectedType from call site
     let irType: IrType | undefined;
     if (actualType) {
-      // Explicit type annotation - use TypeSystem.convertTypeNode()
-      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      // Explicit type annotation
+      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const typeSystem = getTypeSystem();
-      irType = typeSystem ? typeSystem.convertTypeNode(actualType) : undefined;
+      irType = typeSystem
+        ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(actualType))
+        : undefined;
     } else if (expectedParamTypes && expectedParamTypes[index]) {
       // Use expectedType from call site (deterministic)
       irType = expectedParamTypes[index];
@@ -108,11 +110,13 @@ export const convertFunctionExpression = (
   binding: Binding,
   expectedType?: IrType
 ): IrFunctionExpression => {
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   // Get return type from declared annotation for contextual typing
   const returnType =
-    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
+    node.type && typeSystem
+      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
+      : undefined;
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(node, binding, expectedType);
 
@@ -152,11 +156,13 @@ export const convertArrowFunction = (
   binding: Binding,
   expectedType?: IrType
 ): IrArrowFunctionExpression => {
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   // Get return type from declared annotation, or from expectedType if available
   const declaredReturnType =
-    node.type && typeSystem ? typeSystem.convertTypeNode(node.type) : undefined;
+    node.type && typeSystem
+      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
+      : undefined;
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
   const expectedReturnType =
     expectedType?.kind === "functionType" ? expectedType.returnType : undefined;

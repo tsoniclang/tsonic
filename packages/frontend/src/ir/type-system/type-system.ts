@@ -37,9 +37,9 @@ import {
 import {
   PRIMITIVE_TO_CLR_FQ,
   GLOBALS_TO_CLR_FQ,
-} from "../clr-type-mappings.js";
-import type { UnifiedTypeCatalog } from "../type-universe/types.js";
-import { getMemberDeclaredType as catalogGetMemberType } from "../type-universe/unified-catalog.js";
+} from "./internal/universe/alias-table.js";
+import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
+import { getMemberDeclaredType as catalogGetMemberType } from "./internal/universe/unified-universe.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ALICE'S EXACT API — TypeSystem Interface
@@ -52,22 +52,8 @@ import { getMemberDeclaredType as catalogGetMemberType } from "../type-universe/
  */
 export interface TypeSystem {
   // ─────────────────────────────────────────────────────────────────────────
-  // Type Node Conversion
+  // Type Syntax Conversion
   // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Convert a TypeScript type node to IR type.
-   *
-   * This is the ONLY entry point for converting ts.TypeNode to IrType.
-   * All converters must use this method instead of calling convertType directly.
-   *
-   * ALICE'S SPEC: Type conversion is internal to TypeSystem. External code
-   * passes TypeNodes in; TypeSystem returns IrTypes.
-   *
-   * @deprecated Use typeFromSyntax(TypeSyntaxId) instead. This method will be
-   * removed once all converters are migrated to use TypeSyntaxId handles.
-   */
-  convertTypeNode(typeNode: ts.TypeNode): IrType;
 
   /**
    * Convert a captured type syntax to IrType.
@@ -75,8 +61,11 @@ export interface TypeSystem {
    * This is the correct way for converters to convert inline type syntax
    * (as X, satisfies Y, generic args) that was captured via Binding.captureTypeSyntax().
    *
-   * ALICE'S SPEC (Phase 2): TypeSystem receives opaque handles, not ts.TypeNode.
+   * ALICE'S SPEC (Phase 4): TypeSystem receives opaque handles, not ts.TypeNode.
    * This keeps the TypeSystem public API free of TypeScript types.
+   *
+   * NOTE: The deprecated convertTypeNode() method has been removed.
+   * All converters now use captureTypeSyntax() + typeFromSyntax().
    */
   typeFromSyntax(typeSyntaxId: TypeSyntaxId): IrType;
 
@@ -470,7 +459,8 @@ export type TypeSystemConfig = {
    * stores pure IR, so this is only needed for on-demand conversion.
    *
    * NOTE: Takes `unknown` because HandleRegistry stores TypeNodes as opaque.
-   * The public TypeSystem.convertTypeNode() method wraps this with proper typing.
+   * This is used internally by TypeSystem methods (resolveCall, typeOfDecl, etc.)
+   * and by typeFromSyntax. External callers don't access this directly.
    */
   readonly convertTypeNode: (node: unknown) => IrType;
 
@@ -1001,16 +991,46 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
    * Normalize a receiver type to nominal form for member lookup.
    *
    * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
-   * Uses canonical CLR FQ names directly from clr-type-mappings.
+   *
+   * Resolution order (per Phase 3.5 - Universe-first):
+   * 1. Check UnifiedCatalog for TypeId (handles primitives, CLR types, source types)
+   * 2. Fall back to hardcoded mappings for backward compatibility
    *
    * Handles:
-   * - referenceType → { fqName, typeArgs } - uses CLR mapping if available
+   * - referenceType → { fqName, typeArgs } - uses Universe or CLR mapping
    * - arrayType → { fqName: "System.Array", typeArgs: [elementType] }
    * - primitiveType → { fqName: "System.String"|"System.Double"|etc, typeArgs: [] }
    */
   const normalizeToNominal = (
     type: IrType
   ): { fqName: string; typeArgs: readonly IrType[] } | undefined => {
+    // Phase 3.5: Try Universe first for all type resolution
+    if (unifiedCatalog) {
+      if (type.kind === "referenceType") {
+        // Try to resolve via Universe (handles globals, source types, CLR types)
+        const typeId = unifiedCatalog.resolveTsName(type.name);
+        if (typeId) {
+          return { fqName: typeId.clrName, typeArgs: type.typeArguments ?? [] };
+        }
+        // Also try CLR name in case it's already qualified
+        const clrTypeId = unifiedCatalog.resolveClrName(type.name);
+        if (clrTypeId) {
+          return {
+            fqName: clrTypeId.clrName,
+            typeArgs: type.typeArguments ?? [],
+          };
+        }
+      }
+      if (type.kind === "primitiveType") {
+        // Try to resolve primitive via Universe
+        const typeId = unifiedCatalog.resolveTsName(type.name);
+        if (typeId) {
+          return { fqName: typeId.clrName, typeArgs: [] };
+        }
+      }
+    }
+
+    // Fallback: Use hardcoded mappings (backward compatibility during migration)
     if (type.kind === "referenceType") {
       // Check if this is a well-known type that has a CLR FQ name
       const clrFqName = GLOBALS_TO_CLR_FQ[type.name];
@@ -2167,19 +2187,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // convertTypeNode — Wrapper for the injected type converter
+  // typeFromSyntax — Convert captured type syntax to IrType
   // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Convert a TypeScript type node to IR type.
-   *
-   * This wraps the injected convertTypeNode from config to satisfy the
-   * TypeSystem interface. All converters should use this method instead
-   * of importing convertType directly.
-   */
-  const convertTypeNodeMethod = (typeNode: ts.TypeNode): IrType => {
-    return convertTypeNode(typeNode);
-  };
 
   /**
    * Convert a captured type syntax to IrType.
@@ -2204,7 +2213,6 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   // ─────────────────────────────────────────────────────────────────────────
 
   return {
-    convertTypeNode: convertTypeNodeMethod,
     typeFromSyntax,
     typeOfDecl,
     typeOfMember,

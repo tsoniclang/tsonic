@@ -3,7 +3,7 @@
  */
 
 import { IrParameter, IrInterfaceMember } from "./helpers.js";
-import type { TypeId } from "../type-universe/types.js";
+import type { TypeId } from "../type-system/internal/universe/types.js";
 
 export type IrType =
   | IrPrimitiveType

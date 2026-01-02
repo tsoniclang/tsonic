@@ -107,7 +107,7 @@ export const convertClassDeclaration = (
   const implementsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ImplementsKeyword
   );
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   const implementsTypes =
     implementsClause?.types
@@ -118,7 +118,11 @@ export const convertClassDeclaration = (
         }
         return true;
       })
-      .map((t) => (typeSystem ? typeSystem.convertTypeNode(t) : undefined))
+      .map((t) =>
+        typeSystem
+          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(t))
+          : undefined
+      )
       .filter((t): t is NonNullable<typeof t> => t !== undefined) ?? [];
 
   // Extract parameter properties from constructor

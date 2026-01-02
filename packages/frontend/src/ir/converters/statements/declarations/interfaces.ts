@@ -25,7 +25,7 @@ export const convertInterfaceMember = (
   node: ts.TypeElement,
   binding: Binding
 ): IrInterfaceMember | null => {
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
 
   if (ts.isPropertySignature(node) && node.type) {
@@ -34,7 +34,7 @@ export const convertInterfaceMember = (
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
       type: typeSystem
-        ? typeSystem.convertTypeNode(node.type)
+        ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
         : { kind: "unknownType" },
       isOptional: !!node.questionToken,
       isReadonly: hasReadonlyModifier(node),
@@ -50,7 +50,7 @@ export const convertInterfaceMember = (
       parameters: convertParameters(node.parameters, binding),
       returnType:
         node.type && typeSystem
-          ? typeSystem.convertTypeNode(node.type)
+          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
           : undefined,
     };
   }
@@ -82,7 +82,7 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
  */
 const extractIndexSignatureOnlyInterface = (
   node: ts.InterfaceDeclaration,
-  _binding: Binding
+  binding: Binding
 ): { keyType: IrType; valueType: IrType } | undefined => {
   const members = node.members;
 
@@ -102,11 +102,13 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   if (!typeSystem) return undefined;
 
-  const keyType = typeSystem.convertTypeNode(param.type);
+  const keyType = typeSystem.typeFromSyntax(
+    binding.captureTypeSyntax(param.type)
+  );
 
   // Only allow string or number keys (enforced by TSN7413)
   if (
@@ -121,7 +123,9 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  const valueType = typeSystem.convertTypeNode(member.type);
+  const valueType = typeSystem.typeFromSyntax(
+    binding.captureTypeSyntax(member.type)
+  );
 
   return { keyType, valueType };
 };
@@ -186,7 +190,7 @@ export const convertInterfaceDeclaration = (
   const extendsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   );
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = getTypeSystem();
   const extendsTypes =
     extendsClause?.types
@@ -197,7 +201,11 @@ export const convertInterfaceDeclaration = (
         }
         return true;
       })
-      .map((t) => (typeSystem ? typeSystem.convertTypeNode(t) : undefined))
+      .map((t) =>
+        typeSystem
+          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(t))
+          : undefined
+      )
       .filter((t): t is NonNullable<typeof t> => t !== undefined) ?? [];
 
   const allMembers = node.members

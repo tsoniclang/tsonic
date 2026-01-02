@@ -15,7 +15,7 @@
  * - MethodSignatureEntry: Full method signature with parameters
  */
 
-import type { IrType } from "../types/index.js";
+import type { IrType } from "../../../types/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL TYPE IDENTITY

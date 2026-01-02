@@ -123,9 +123,11 @@ const extractParameterTypes = (
   if (!sigId) return undefined;
 
   // Extract explicit type arguments from call site if any
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const explicitTypeArgs = node.typeArguments
-    ? node.typeArguments.map((ta) => typeSystem.convertTypeNode(ta))
+    ? node.typeArguments.map((ta) =>
+        typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+      )
     : undefined;
 
   // Get argument count for totality
@@ -232,14 +234,14 @@ export const getDeclaredReturnType = (
     if (node.typeArguments && node.typeArguments.length > 0) {
       const typeName = buildQualifiedName(node.expression);
       if (typeName) {
-        // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+        // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
         const typeSystem = getTypeSystem();
         if (!typeSystem) return undefined;
         return {
           kind: "referenceType",
           name: typeName,
           typeArguments: node.typeArguments.map((ta) =>
-            typeSystem.convertTypeNode(ta)
+            typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
           ),
         };
       }
@@ -279,9 +281,11 @@ export const getDeclaredReturnType = (
   const argumentCount = node.arguments.length;
 
   // Extract explicit type arguments from call site if any
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const explicitTypeArgs = node.typeArguments
-    ? node.typeArguments.map((ta) => typeSystem.convertTypeNode(ta))
+    ? node.typeArguments.map((ta) =>
+        typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+      )
     : undefined;
 
   // Use TypeSystem.resolveCall() - guaranteed to return a result
@@ -365,12 +369,14 @@ export const convertCallExpression = (
         "ICE: trycast requires exactly 1 type argument and 1 argument"
       );
     }
-    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
     const typeSystem = getTypeSystem();
     if (!typeSystem) {
       throw new Error("ICE: TypeSystem not available for trycast conversion");
     }
-    const targetType = typeSystem.convertTypeNode(targetTypeNode);
+    const targetType = typeSystem.typeFromSyntax(
+      binding.captureTypeSyntax(targetTypeNode)
+    );
     const argExpr = convertExpression(argNode, binding, undefined);
 
     // Build union type T | null for inferredType
@@ -478,14 +484,14 @@ const getConstructedType = (
     const typeName = buildQualifiedName(node.expression);
 
     if (typeName) {
-      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const typeSystem = getTypeSystem();
       if (!typeSystem) return undefined;
       return {
         kind: "referenceType",
         name: typeName,
         typeArguments: node.typeArguments.map((ta) =>
-          typeSystem.convertTypeNode(ta)
+          typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
         ),
       };
     }

@@ -85,7 +85,7 @@ const deriveCallReturnType = (
  */
 const deriveNewExpressionType = (
   node: ts.NewExpression,
-  _binding: Binding
+  binding: Binding
 ): IrType | undefined => {
   // Get the type name from the expression
   const getTypeName = (expr: ts.Expression): string | undefined => {
@@ -112,14 +112,14 @@ const deriveNewExpressionType = (
 
   // If explicit type arguments, include them
   if (node.typeArguments && node.typeArguments.length > 0) {
-    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
     const typeSystem = getTypeSystem();
     if (!typeSystem) return undefined;
     return {
       kind: "referenceType",
       name: typeName,
       typeArguments: node.typeArguments.map((ta) =>
-        typeSystem.convertTypeNode(ta)
+        typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
       ),
     };
   }
@@ -223,17 +223,17 @@ export const deriveIdentifierType = (
  */
 export const extractTypeArguments = (
   node: ts.CallExpression | ts.NewExpression,
-  _binding: Binding
+  binding: Binding
 ): readonly IrType[] | undefined => {
   try {
     // Only return explicitly specified type arguments
     // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
-      // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const typeSystem = getTypeSystem();
       if (!typeSystem) return undefined;
       return node.typeArguments.map((typeArg) =>
-        typeSystem.convertTypeNode(typeArg)
+        typeSystem.typeFromSyntax(binding.captureTypeSyntax(typeArg))
       );
     }
 
@@ -392,7 +392,7 @@ export const getContextualType = (
   binding: Binding
 ): IrType | undefined => {
   try {
-    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
     const typeSystem = getTypeSystem();
     if (!typeSystem) return undefined;
 
@@ -400,7 +400,7 @@ export const getContextualType = (
 
     // Variable declaration: const x: Foo = { ... }
     if (ts.isVariableDeclaration(parent) && parent.type) {
-      return typeSystem.convertTypeNode(parent.type);
+      return typeSystem.typeFromSyntax(binding.captureTypeSyntax(parent.type));
     }
 
     // Return statement: function f(): Foo { return { ... } }
@@ -411,7 +411,7 @@ export const getContextualType = (
         current = current.parent;
       }
       if (current && ts.isFunctionLike(current) && current.type) {
-        return typeSystem.convertTypeNode(current.type);
+        return typeSystem.typeFromSyntax(binding.captureTypeSyntax(current.type));
       }
     }
 

@@ -252,6 +252,9 @@ export interface TypeSystemDeps {
   /**
    * Type converter for converting TypeNodes to IrType.
    * This is a pure function that doesn't use TS computed types.
+   *
+   * NOTE: This is an internal dependency. External callers should use
+   * TypeSystem.typeFromSyntax(TypeSyntaxId) via the public API.
    */
   readonly convertTypeNode: (node: unknown) => IrType;
 }

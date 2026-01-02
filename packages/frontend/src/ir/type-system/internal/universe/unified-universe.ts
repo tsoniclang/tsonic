@@ -1,8 +1,8 @@
 /**
- * Unified Type Catalog
+ * Unified Type Universe
  *
  * Merges source-authored types (from TypeRegistry) and assembly-authored
- * types (from AssemblyTypeCatalog) into a single unified lookup table.
+ * types (from ClrCatalog) into a single unified lookup table.
  *
  * INVARIANT INV-CLR: This is THE source of truth for all type queries.
  * No fallback paths allowed. If a type isn't in this catalog, it doesn't exist.
@@ -13,13 +13,12 @@
  * - Lookups by tsName, clrName, or stableId all work uniformly
  */
 
-import type { IrType } from "../types/index.js";
+import type { IrType } from "../../../types/index.js";
 import type {
   TypeId,
   NominalEntry,
   NominalKind,
   MemberEntry,
-  MemberKind,
   HeritageEdge,
   TypeParameterEntry,
   AssemblyTypeCatalog,
@@ -31,7 +30,7 @@ import type {
   TypeRegistryEntry,
   MemberInfo,
   HeritageInfo,
-} from "../type-system/internal/type-registry.js";
+} from "../type-registry.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SOURCE TYPE → NOMINAL ENTRY CONVERSION
@@ -70,7 +69,7 @@ const convertMemberInfo = (
   parentFQName: string
 ): MemberEntry => {
   // Determine member kind
-  const memberKind: MemberKind =
+  const memberKind =
     memberInfo.kind === "method"
       ? "method"
       : memberInfo.kind === "indexSignature"
@@ -229,7 +228,7 @@ const toPascalCase = (name: string): string => {
  * @param projectName - Project name for generating source type stableIds
  * @returns UnifiedTypeCatalog with merged type information
  */
-export const buildUnifiedTypeCatalog = (
+export const buildUnifiedUniverse = (
   sourceRegistry: TypeRegistry | undefined,
   assemblyCatalog: AssemblyTypeCatalog,
   projectName: string = "project"

@@ -297,11 +297,11 @@ export const convertExpression = (
     const innerExpr = convertExpression(node.expression, binding, undefined);
 
     // Get the asserted type
-    // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
     const typeSystem = getTypeSystem();
     const assertedTypeNode = node.type;
     const assertedType = typeSystem
-      ? typeSystem.convertTypeNode(assertedTypeNode)
+      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(assertedTypeNode))
       : { kind: "unknownType" as const };
 
     // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)

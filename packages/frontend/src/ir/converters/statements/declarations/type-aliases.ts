@@ -21,14 +21,16 @@ export const convertTypeAliasDeclaration = (
   node: ts.TypeAliasDeclaration,
   binding: Binding
 ): readonly IrStatement[] => {
-  // ALICE'S SPEC: Use TypeSystem.convertTypeNode() for all type conversion
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // This replaces the deprecated convertTypeNode pattern.
   const typeSystem = getTypeSystem();
+  const typeSyntaxId = binding.captureTypeSyntax(node.type);
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, binding),
     type: typeSystem
-      ? typeSystem.convertTypeNode(node.type)
+      ? typeSystem.typeFromSyntax(typeSyntaxId)
       : { kind: "unknownType" },
     isExported: hasExportModifier(node),
     isStruct: false, // Type aliases are not structs by default
