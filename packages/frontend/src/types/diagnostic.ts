@@ -2,7 +2,15 @@
  * Diagnostic types for Tsonic compiler
  */
 
-export type DiagnosticSeverity = "error" | "warning" | "info";
+/**
+ * Diagnostic severity levels.
+ *
+ * - fatal: Unrecoverable error that aborts compilation (e.g., missing stdlib type)
+ * - error: Recoverable error that prevents code generation but allows continued analysis
+ * - warning: Non-blocking issue that should be addressed
+ * - info: Informational message
+ */
+export type DiagnosticSeverity = "fatal" | "error" | "warning" | "info";
 
 export type DiagnosticCode =
   | "TSN1001" // Local import missing .ts extension
@@ -139,7 +147,10 @@ export const createDiagnostic = (
 });
 
 export const isError = (diagnostic: Diagnostic): boolean =>
-  diagnostic.severity === "error";
+  diagnostic.severity === "error" || diagnostic.severity === "fatal";
+
+export const isFatal = (diagnostic: Diagnostic): boolean =>
+  diagnostic.severity === "fatal";
 
 export const formatDiagnostic = (diagnostic: Diagnostic): string => {
   const parts: string[] = [];
@@ -163,11 +174,13 @@ export const formatDiagnostic = (diagnostic: Diagnostic): string => {
 export type DiagnosticsCollector = {
   readonly diagnostics: readonly Diagnostic[];
   readonly hasErrors: boolean;
+  readonly hasFatalErrors: boolean;
 };
 
 export const createDiagnosticsCollector = (): DiagnosticsCollector => ({
   diagnostics: [],
   hasErrors: false,
+  hasFatalErrors: false,
 });
 
 export const addDiagnostic = (
@@ -176,6 +189,7 @@ export const addDiagnostic = (
 ): DiagnosticsCollector => ({
   diagnostics: [...collector.diagnostics, diagnostic],
   hasErrors: collector.hasErrors || isError(diagnostic),
+  hasFatalErrors: collector.hasFatalErrors || isFatal(diagnostic),
 });
 
 export const mergeDiagnostics = (
@@ -184,4 +198,5 @@ export const mergeDiagnostics = (
 ): DiagnosticsCollector => ({
   diagnostics: [...collector1.diagnostics, ...collector2.diagnostics],
   hasErrors: collector1.hasErrors || collector2.hasErrors,
+  hasFatalErrors: collector1.hasFatalErrors || collector2.hasFatalErrors,
 });

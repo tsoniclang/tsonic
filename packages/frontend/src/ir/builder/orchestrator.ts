@@ -9,7 +9,11 @@ import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
 import { Result, ok, error } from "../../types/result.js";
-import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
+import {
+  Diagnostic,
+  createDiagnostic,
+  isFatal,
+} from "../../types/diagnostic.js";
 import {
   setMetadataRegistry,
   setBindingRegistry,
@@ -319,6 +323,10 @@ export const buildIr = (
       modules.push(result.value);
     } else {
       diagnostics.push(result.error);
+      // Fatal diagnostics abort immediately - no point continuing
+      if (isFatal(result.error)) {
+        return error(diagnostics);
+      }
     }
   }
 

@@ -36,6 +36,19 @@ export default [
       ],
       "@typescript-eslint/no-non-null-assertion": "error",
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
+      // TypeSystem Architecture Invariant: Block internal imports from outside
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/type-system/internal/**"],
+              message:
+                "TypeSystem internals are private. Use public TypeSystem API from type-system/index.ts.",
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -56,6 +69,20 @@ export default [
     rules: {
       // Chai uses property assertions like .to.be.true which look like unused expressions
       "@typescript-eslint/no-unused-expressions": "off",
+    },
+  },
+  {
+    // TypeSystem internal files can import from each other
+    // Orchestrator can import internals during migration (to be removed in Phase 7)
+    files: [
+      "**/type-system/internal/**/*.ts",
+      "**/type-system/index.ts",
+      "**/type-system/type-system.ts",
+      "**/type-system/types.ts",
+      "**/ir/builder/orchestrator.ts",
+    ],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
   {
