@@ -1,4 +1,4 @@
-import { struct } from "@tsonic/core/struct.js";
+import { struct } from "@tsonic/core/types.js";
 import { Console, Math } from "@tsonic/dotnet/System.js";
 
 interface Point extends struct {

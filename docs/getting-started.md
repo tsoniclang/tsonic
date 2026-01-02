@@ -86,7 +86,7 @@ my-app/
 tsonic project init --skip-types
 
 # Specify type package version
-tsonic project init --types-version 0.2.0
+tsonic project init --types-version <ver>
 ```
 
 ### Manual Setup
