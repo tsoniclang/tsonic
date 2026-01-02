@@ -1,15 +1,16 @@
 /**
  * IR builder validation - checks for unsupported patterns
  *
- * ALICE'S SPEC: Uses TypeSystem for declaration queries.
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
 import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
-import { getTypeSystem } from "../converters/statements/declarations/registry.js";
-import type { Binding } from "../binding/index.js";
+import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/types.js";
+import type { TypeSystem } from "../type-system/type-system.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Check if a type reference is the struct marker
@@ -18,7 +19,8 @@ import type { DeclId } from "../type-system/types.js";
  */
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
-  binding: Binding
+  binding: Binding,
+  typeSystem: TypeSystem
 ): boolean => {
   if (!ts.isIdentifier(typeRef.expression)) {
     return false;
@@ -27,8 +29,6 @@ const isStructMarker = (
   if (!declId) {
     return false;
   }
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return false;
 
   const fqName = typeSystem.getFQNameOfDecl(declId);
   return fqName === "struct" || fqName === "Struct";
@@ -39,12 +39,11 @@ const isStructMarker = (
  * (which Tsonic nominalizes to a C# class)
  * ALICE'S SPEC: Uses TypeSystem.isInterfaceDecl()
  */
-const isNominalizedInterface = (declId: DeclId | undefined): boolean => {
+const isNominalizedInterface = (
+  declId: DeclId | undefined,
+  typeSystem: TypeSystem
+): boolean => {
   if (!declId) return false;
-
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return false;
-
   return typeSystem.isInterfaceDecl(declId);
 };
 
@@ -53,12 +52,11 @@ const isNominalizedInterface = (declId: DeclId | undefined): boolean => {
  * (which Tsonic nominalizes to a C# class)
  * ALICE'S SPEC: Uses TypeSystem.isTypeAliasToObjectLiteral()
  */
-const isNominalizedTypeAlias = (declId: DeclId | undefined): boolean => {
+const isNominalizedTypeAlias = (
+  declId: DeclId | undefined,
+  typeSystem: TypeSystem
+): boolean => {
   if (!declId) return false;
-
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return false;
-
   return typeSystem.isTypeAliasToObjectLiteral(declId);
 };
 
@@ -67,7 +65,7 @@ const isNominalizedTypeAlias = (declId: DeclId | undefined): boolean => {
  */
 const validateClassDeclaration = (
   node: ts.ClassDeclaration,
-  binding: Binding
+  ctx: ProgramContext
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
@@ -79,20 +77,20 @@ const validateClassDeclaration = (
 
   for (const typeRef of implementsClause.types) {
     // Skip the struct marker - it's a special pattern for value types
-    if (isStructMarker(typeRef, binding)) {
+    if (isStructMarker(typeRef, ctx.binding, ctx.typeSystem)) {
       continue;
     }
 
     // Get the declaration ID for the identifier
     // This preserves type alias identity
     const identifierDeclId = ts.isIdentifier(typeRef.expression)
-      ? binding.resolveIdentifier(typeRef.expression)
+      ? ctx.binding.resolveIdentifier(typeRef.expression)
       : undefined;
 
     // Check if it's a nominalized interface or type alias
     if (
-      isNominalizedInterface(identifierDeclId) ||
-      isNominalizedTypeAlias(identifierDeclId)
+      isNominalizedInterface(identifierDeclId, ctx.typeSystem) ||
+      isNominalizedTypeAlias(identifierDeclId, ctx.typeSystem)
     ) {
       const typeName = typeRef.expression.getText();
       const location = getSourceLocation(
@@ -121,13 +119,13 @@ const validateClassDeclaration = (
  */
 export const validateClassImplements = (
   sourceFile: ts.SourceFile,
-  binding: Binding
+  ctx: ProgramContext
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
   const visit = (node: ts.Node): void => {
     if (ts.isClassDeclaration(node)) {
-      diagnostics.push(...validateClassDeclaration(node, binding));
+      diagnostics.push(...validateClassDeclaration(node, ctx));
     }
     ts.forEachChild(node, visit);
   };

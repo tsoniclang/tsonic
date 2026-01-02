@@ -14,7 +14,6 @@ import {
 } from "../../types.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import { getTypeSystem } from "../statements/declarations/registry.js";
 import {
   computeShapeSignature,
   generateSyntheticName,
@@ -23,7 +22,7 @@ import {
   PropertyInfo,
 } from "../anonymous-synthesis.js";
 import { NumericKind } from "../../types/numeric-kind.js";
-import type { Binding } from "../../binding/index.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Compute the element type for an array literal from its elements' types.
@@ -122,13 +121,13 @@ const computeArrayElementType = (
  * - Default to number[] (double[]) for ergonomics when type cannot be determined
  *
  * @param node - The TypeScript array literal expression
- * @param binding - The Binding layer for symbol resolution
+ * @param ctx - ProgramContext for type system and binding access
  * @param expectedType - Expected type from context (e.g., `const a: number[] = [1,2,3]`).
  *                       Pass `undefined` explicitly when no contextual type exists.
  */
 export const convertArrayLiteral = (
   node: ts.ArrayLiteralExpression,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedType: IrType | undefined
 ): IrArrayExpression => {
   // Determine element expected type from array expected type
@@ -142,11 +141,7 @@ export const convertArrayLiteral = (
     }
     if (ts.isSpreadElement(elem)) {
       // Spread element - convert and derive type from expression
-      const spreadExpr = convertExpression(
-        elem.expression,
-        binding,
-        expectedType
-      );
+      const spreadExpr = convertExpression(elem.expression, ctx, expectedType);
       return {
         kind: "spread" as const,
         expression: spreadExpr,
@@ -154,7 +149,7 @@ export const convertArrayLiteral = (
         sourceSpan: getSourceSpan(elem),
       };
     }
-    return convertExpression(elem, binding, expectedElementType);
+    return convertExpression(elem, ctx, expectedElementType);
   });
 
   // DETERMINISTIC TYPING: Determine inferredType using priority:
@@ -224,7 +219,7 @@ const getPropertyExpectedType = (
  */
 export const convertObjectLiteral = (
   node: ts.ObjectLiteralExpression,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedType?: IrType
 ): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
@@ -241,7 +236,7 @@ export const convertObjectLiteral = (
           : undefined;
 
       const key = ts.isComputedPropertyName(prop.name)
-        ? convertExpression(prop.name.expression, binding, undefined)
+        ? convertExpression(prop.name.expression, ctx, undefined)
         : ts.isIdentifier(prop.name)
           ? prop.name.text
           : String(prop.name.text);
@@ -254,24 +249,22 @@ export const convertObjectLiteral = (
       properties.push({
         kind: "property",
         key,
-        value: convertExpression(prop.initializer, binding, propExpectedType),
+        value: convertExpression(prop.initializer, ctx, propExpectedType),
         shorthand: false,
       });
     } else if (ts.isShorthandPropertyAssignment(prop)) {
       // DETERMINISTIC: Derive identifier type from the VALUE being assigned, not the property
       // For { value }, we need to get the type of the variable `value`, not the property `value`
       // ALICE'S SPEC: Use TypeSystem.typeOfDecl() to get the variable's type
-      const declId = binding.resolveShorthandAssignment(prop);
+      const declId = ctx.binding.resolveShorthandAssignment(prop);
       let inferredType: IrType | undefined;
 
       if (declId) {
-        const typeSystem = getTypeSystem();
-        if (typeSystem) {
-          const declType = typeSystem.typeOfDecl(declId);
-          // If TypeSystem returns unknownType, treat as not found
-          if (declType.kind !== "unknownType") {
-            inferredType = declType;
-          }
+        const typeSystem = ctx.typeSystem;
+        const declType = typeSystem.typeOfDecl(declId);
+        // If TypeSystem returns unknownType, treat as not found
+        if (declType.kind !== "unknownType") {
+          inferredType = declType;
         }
       }
 
@@ -291,19 +284,19 @@ export const convertObjectLiteral = (
       hasSpreads = true;
       properties.push({
         kind: "spread",
-        expression: convertExpression(prop.expression, binding, undefined),
+        expression: convertExpression(prop.expression, ctx, undefined),
       });
     }
     // Skip getters/setters/methods for now (can add later if needed)
   });
 
   // Try to get contextual type first
-  let contextualType = getContextualType(node, binding);
+  let contextualType = getContextualType(node, ctx);
 
   // If no contextual type, check if eligible for synthesis
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis
   if (!contextualType) {
-    const eligibility = checkSynthesisEligibility(node, binding);
+    const eligibility = checkSynthesisEligibility(node, ctx);
     if (eligibility.eligible) {
       // Extract property info from already-converted properties (AST-based)
       const propInfos: PropertyInfo[] = [];

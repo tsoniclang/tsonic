@@ -6,9 +6,8 @@ import * as ts from "typescript";
 import { IrVariableDeclaration, IrExpression, IrType } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
-import { getTypeSystem } from "./registry.js";
 import { hasExportModifier } from "../helpers.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Derive the type from a converted IR expression using deterministic rules.
@@ -101,16 +100,15 @@ const isBindingPattern = (decl: ts.VariableDeclaration): boolean => {
  */
 const getExpectedTypeForInitializer = (
   decl: ts.VariableDeclaration,
-  binding: Binding
+  ctx: ProgramContext
 ) => {
   // Only use explicit type annotation as expectedType
   // Inferred types should NOT influence literal typing
   if (decl.type) {
     // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-    const typeSystem = getTypeSystem();
-    return typeSystem
-      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(decl.type))
-      : undefined;
+    return ctx.typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(decl.type)
+    );
   }
   return undefined;
 };
@@ -129,7 +127,7 @@ const getExpectedTypeForInitializer = (
  */
 export const convertVariableStatement = (
   node: ts.VariableStatement,
-  binding: Binding
+  ctx: ProgramContext
 ): IrVariableDeclaration => {
   const isConst = !!(node.declarationList.flags & ts.NodeFlags.Const);
   const isLet = !!(node.declarationList.flags & ts.NodeFlags.Let);
@@ -140,21 +138,18 @@ export const convertVariableStatement = (
   const isModuleLevel = isModuleLevelVariable(node);
   const needsExplicitType = isExported || isModuleLevel;
 
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
-
   return {
     kind: "variableDeclaration",
     declarationKind,
     declarations: node.declarationList.declarations.map((decl) => {
       // expectedType for initializer: ONLY from explicit type annotation
       // This ensures deterministic literal typing (e.g., 100 -> int unless annotated)
-      const expectedType = getExpectedTypeForInitializer(decl, binding);
+      const expectedType = getExpectedTypeForInitializer(decl, ctx);
 
       // Convert initializer FIRST (before determining type)
       // This allows us to derive the variable type from the converted expression
       const convertedInitializer = decl.initializer
-        ? convertExpression(decl.initializer, binding, expectedType)
+        ? convertExpression(decl.initializer, ctx, expectedType)
         : undefined;
 
       // Determine the variable type:
@@ -164,9 +159,9 @@ export const convertVariableStatement = (
       // 3. Otherwise, undefined (let emitter use var or report error)
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const declaredType = decl.type
-        ? typeSystem
-          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(decl.type))
-          : { kind: "unknownType" as const }
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(decl.type)
+          )
         : needsExplicitType && convertedInitializer && !isBindingPattern(decl)
           ? deriveTypeFromExpression(convertedInitializer)
           : undefined;

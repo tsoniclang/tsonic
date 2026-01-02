@@ -23,8 +23,7 @@ import {
   IrInterfaceMember,
   IrTypeParameter,
 } from "../types.js";
-import type { Binding } from "../binding/index.js";
-import { getTypeSystem } from "./statements/declarations/registry.js";
+import type { ProgramContext } from "../program-context.js";
 
 // ============================================================================
 // Shape Signature Computation
@@ -237,10 +236,12 @@ export type EligibilityResult =
  * - No method shorthand (arrow functions are ok)
  * - No getters/setters
  * - No computed keys with non-literal expressions
+ *
+ * Phase 5 Step 4: Uses ProgramContext for unified semantic access.
  */
 export const checkSynthesisEligibility = (
   node: ts.ObjectLiteralExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): EligibilityResult => {
   for (const prop of node.properties) {
     // Property assignment: check key type
@@ -280,7 +281,7 @@ export const checkSynthesisEligibility = (
       }
 
       // Use Binding to resolve the spread source
-      const declId = binding.resolveIdentifier(prop.expression);
+      const declId = ctx.binding.resolveIdentifier(prop.expression);
       if (!declId) {
         return {
           eligible: false,
@@ -288,14 +289,8 @@ export const checkSynthesisEligibility = (
         };
       }
 
-      // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
-      const typeSystem = getTypeSystem();
-      if (!typeSystem) {
-        return {
-          eligible: false,
-          reason: `Spread source '${prop.expression.text}' has no type system`,
-        };
-      }
+      // ALICE'S SPEC (Phase 5): Use TypeSystem from context
+      const typeSystem = ctx.typeSystem;
 
       // Check if declaration has a type annotation (deterministic typing requirement)
       const hasType = typeSystem.declHasTypeAnnotation(declId);

@@ -40,6 +40,7 @@ import type {
   TypeParameterNode,
   SignatureTypePredicate,
   TypeSyntaxInfo,
+  ClassMemberNames,
 } from "../type-system/internal/handle-types.js";
 import type { ParameterMode } from "../type-system/types.js";
 
@@ -221,12 +222,20 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     // Get declaration info
     const decl = symbol.getDeclarations()?.[0];
+
+    // Capture class member names for override detection (TS-version safe)
+    const classMemberNames =
+      decl && ts.isClassDeclaration(decl)
+        ? extractClassMemberNames(decl)
+        : undefined;
+
     const entry: DeclEntry = {
       symbol,
       decl,
       typeNode: decl ? getTypeNodeFromDeclaration(decl) : undefined,
       kind: decl ? getDeclKind(decl) : "variable",
       fqName: symbol.getName(),
+      classMemberNames,
     };
     declMap.set(id.id, entry);
 
@@ -256,7 +265,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       parameters: extractParameterNodes(decl),
       returnTypeNode,
       typeParameters: extractTypeParameterNodes(decl),
-      declaringTypeFQName: declaringIdentity?.typeFQName,
+      declaringTypeTsName: declaringIdentity?.typeTsName,
       declaringMemberName: declaringIdentity?.memberName,
       typePredicate,
     };
@@ -426,6 +435,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         kind: entry.kind,
         fqName: entry.fqName,
         declNode: entry.decl,
+        classMemberNames: entry.classMemberNames,
       };
     },
 
@@ -437,7 +447,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         returnTypeNode: entry.returnTypeNode,
         typeParameters: entry.typeParameters,
         // CRITICAL for Alice's spec: declaring identity for resolveCall()
-        declaringTypeFQName: entry.declaringTypeFQName,
+        // Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName()
+        declaringTypeTsName: entry.declaringTypeTsName,
         declaringMemberName: entry.declaringMemberName,
         // Type predicate extracted at registration time (Alice's spec)
         typePredicate: entry.typePredicate,
@@ -522,6 +533,7 @@ interface DeclEntry {
   readonly typeNode?: ts.TypeNode;
   readonly kind: DeclKind;
   readonly fqName?: string;
+  readonly classMemberNames?: ClassMemberNames;
 }
 
 interface SignatureEntry {
@@ -530,8 +542,11 @@ interface SignatureEntry {
   readonly parameters: readonly ParameterNode[];
   readonly returnTypeNode?: ts.TypeNode;
   readonly typeParameters?: readonly TypeParameterNode[];
-  /** Declaring type FQ name (for inheritance substitution in resolveCall) */
-  readonly declaringTypeFQName?: string;
+  /**
+   * Declaring type simple TS name (e.g., "Box" not "Test.Box").
+   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
+   */
+  readonly declaringTypeTsName?: string;
   /** Declaring member name (for inheritance substitution in resolveCall) */
   readonly declaringMemberName?: string;
   /** Type predicate extracted from return type (x is T) */
@@ -771,14 +786,19 @@ const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
  * inheritance substitution. It would have to "guess" the method name
  * from the signature, which breaks on overloads, aliases, etc.
  *
+ * DESIGN (Phase 5 Step 4): Store the declaring type as a **simple TS name**
+ * (identifier text like "Box"), NOT a TS "fully qualified name". TypeSystem
+ * uses UnifiedTypeCatalog.resolveTsName() to resolve this to the proper
+ * CLR FQ name for inheritance substitution.
+ *
  * @param decl The signature declaration (method, function, etc.)
- * @param checker TypeChecker for FQ name resolution
- * @returns { typeFQName, memberName } or undefined if not a member
+ * @param _checker TypeChecker (kept for backwards compatibility, unused)
+ * @returns { typeTsName, memberName } or undefined if not a member
  */
 const extractDeclaringIdentity = (
   decl: ts.SignatureDeclaration | undefined,
-  checker: ts.TypeChecker
-): { typeFQName: string; memberName: string } | undefined => {
+  _checker: ts.TypeChecker
+): { typeTsName: string; memberName: string } | undefined => {
   if (!decl) return undefined;
 
   // Check if this is a method (class or interface member)
@@ -790,15 +810,12 @@ const extractDeclaringIdentity = (
       ? decl.name.text
       : (decl.name?.getText() ?? "unknown");
 
-    // Get the containing type's FQ name
+    // Get the containing type's simple name (identifier text)
     if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
-      const typeSymbol = parent.name
-        ? checker.getSymbolAtLocation(parent.name)
-        : undefined;
-
-      if (typeSymbol) {
-        const typeFQName = checker.getFullyQualifiedName(typeSymbol);
-        return { typeFQName, memberName };
+      if (parent.name) {
+        // Use the simple identifier text, not checker.getFullyQualifiedName
+        const typeTsName = parent.name.text;
+        return { typeTsName, memberName };
       }
     }
 
@@ -813,11 +830,9 @@ const extractDeclaringIdentity = (
   if (ts.isConstructorDeclaration(decl)) {
     const parent = decl.parent;
     if (ts.isClassDeclaration(parent) && parent.name) {
-      const typeSymbol = checker.getSymbolAtLocation(parent.name);
-      if (typeSymbol) {
-        const typeFQName = checker.getFullyQualifiedName(typeSymbol);
-        return { typeFQName, memberName: "constructor" };
-      }
+      // Use the simple identifier text
+      const typeTsName = parent.name.text;
+      return { typeTsName, memberName: "constructor" };
     }
   }
 
@@ -829,17 +844,66 @@ const extractDeclaringIdentity = (
       : (decl.name?.getText() ?? "unknown");
 
     if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
-      const typeSymbol = parent.name
-        ? checker.getSymbolAtLocation(parent.name)
-        : undefined;
-
-      if (typeSymbol) {
-        const typeFQName = checker.getFullyQualifiedName(typeSymbol);
-        return { typeFQName, memberName };
+      if (parent.name) {
+        // Use the simple identifier text
+        const typeTsName = parent.name.text;
+        return { typeTsName, memberName };
       }
     }
   }
 
   // Standalone functions don't have a declaring type
   return undefined;
+};
+
+/**
+ * Extract class member names from a ClassDeclaration.
+ *
+ * ALICE'S SPEC: This is PURE SYNTAX inspection at registration time.
+ * We iterate class members and collect method/property names.
+ * This data is used by TypeSystem.checkTsClassMemberOverride without
+ * needing to inspect TS AST nodes or use hardcoded SyntaxKind numbers.
+ *
+ * @param classDecl The class declaration node
+ * @returns ClassMemberNames with method and property name sets
+ */
+const extractClassMemberNames = (
+  classDecl: ts.ClassDeclaration
+): ClassMemberNames => {
+  const methods = new Set<string>();
+  const properties = new Set<string>();
+
+  for (const member of classDecl.members) {
+    // Get member name if it has an identifier
+    const name = ts.isMethodDeclaration(member)
+      ? ts.isIdentifier(member.name)
+        ? member.name.text
+        : undefined
+      : ts.isPropertyDeclaration(member)
+        ? ts.isIdentifier(member.name)
+          ? member.name.text
+          : undefined
+        : ts.isGetAccessorDeclaration(member) ||
+            ts.isSetAccessorDeclaration(member)
+          ? ts.isIdentifier(member.name)
+            ? member.name.text
+            : undefined
+          : undefined;
+
+    if (!name) continue;
+
+    if (ts.isMethodDeclaration(member)) {
+      methods.add(name);
+    } else if (ts.isPropertyDeclaration(member)) {
+      properties.add(name);
+    } else if (
+      ts.isGetAccessorDeclaration(member) ||
+      ts.isSetAccessorDeclaration(member)
+    ) {
+      // Accessors are treated as properties for override detection
+      properties.add(name);
+    }
+  }
+
+  return { methods, properties };
 };

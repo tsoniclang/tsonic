@@ -10,6 +10,7 @@ export {
   convertType,
   convertFunctionType,
   convertObjectType,
+  convertCapturedTypeNode,
   inferLambdaParamTypes,
   type LambdaParamInferenceResult,
 } from "./type-converter/index.js";

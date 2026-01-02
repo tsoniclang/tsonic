@@ -9,8 +9,7 @@ import * as ts from "typescript";
 import { IrType } from "../../types.js";
 import { SourceLocation } from "../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../program/diagnostics.js";
-import type { Binding } from "../../binding/index.js";
-import { getTypeSystem } from "../statements/declarations/registry.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Get source span for a TypeScript node.
@@ -56,12 +55,11 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
  */
 const deriveCallReturnType = (
   node: ts.CallExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
+  const typeSystem = ctx.typeSystem;
 
-  const sigId = binding.resolveCallSignature(node);
+  const sigId = ctx.binding.resolveCallSignature(node);
   if (!sigId) return undefined;
 
   // Use TypeSystem.resolveCall() - returns fully resolved return type
@@ -85,7 +83,7 @@ const deriveCallReturnType = (
  */
 const deriveNewExpressionType = (
   node: ts.NewExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
   // Get the type name from the expression
   const getTypeName = (expr: ts.Expression): string | undefined => {
@@ -113,13 +111,12 @@ const deriveNewExpressionType = (
   // If explicit type arguments, include them
   if (node.typeArguments && node.typeArguments.length > 0) {
     // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-    const typeSystem = getTypeSystem();
-    if (!typeSystem) return undefined;
+    const typeSystem = ctx.typeSystem;
     return {
       kind: "referenceType",
       name: typeName,
       typeArguments: node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
       ),
     };
   }
@@ -135,16 +132,16 @@ const deriveNewExpressionType = (
  */
 const deriveTypeFromInitializer = (
   initializer: ts.Expression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
   // Call expression: const arr = createArray()
   if (ts.isCallExpression(initializer)) {
-    return deriveCallReturnType(initializer, binding);
+    return deriveCallReturnType(initializer, ctx);
   }
 
   // New expression: const list = new List<int>()
   if (ts.isNewExpression(initializer)) {
-    return deriveNewExpressionType(initializer, binding);
+    return deriveNewExpressionType(initializer, ctx);
   }
 
   // Identifier: const y = x (derive type from x's declaration)
@@ -152,7 +149,7 @@ const deriveTypeFromInitializer = (
     // Recursive call - will look up the identifier's declaration
     // Note: This uses the main function, which is defined below
     // TypeScript hoisting makes this work
-    return deriveIdentifierType(initializer, binding);
+    return deriveIdentifierType(initializer, ctx);
   }
 
   // Literals - derive from the literal itself
@@ -175,7 +172,7 @@ const deriveTypeFromInitializer = (
     if (initializer.elements.length > 0) {
       const firstElem = initializer.elements[0];
       if (firstElem && !ts.isSpreadElement(firstElem)) {
-        const elementType = deriveTypeFromInitializer(firstElem, binding);
+        const elementType = deriveTypeFromInitializer(firstElem, ctx);
         if (elementType) {
           return { kind: "arrayType", elementType };
         }
@@ -194,12 +191,11 @@ const deriveTypeFromInitializer = (
 
 export const deriveIdentifierType = (
   node: ts.Identifier,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
+  const typeSystem = ctx.typeSystem;
 
-  const declId = binding.resolveIdentifier(node);
+  const declId = ctx.binding.resolveIdentifier(node);
   if (!declId) return undefined;
 
   // ALICE'S SPEC: Use TypeSystem.typeOfDecl() exclusively
@@ -223,17 +219,16 @@ export const deriveIdentifierType = (
  */
 export const extractTypeArguments = (
   node: ts.CallExpression | ts.NewExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): readonly IrType[] | undefined => {
   try {
     // Only return explicitly specified type arguments
     // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-      const typeSystem = getTypeSystem();
-      if (!typeSystem) return undefined;
+      const typeSystem = ctx.typeSystem;
       return node.typeArguments.map((typeArg) =>
-        typeSystem.typeFromSyntax(binding.captureTypeSyntax(typeArg))
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArg))
       );
     }
 
@@ -253,18 +248,17 @@ export const extractTypeArguments = (
  */
 export const checkIfRequiresSpecialization = (
   node: ts.CallExpression | ts.NewExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): boolean => {
   try {
     // Handle both CallExpression and NewExpression
     const sigId = ts.isCallExpression(node)
-      ? binding.resolveCallSignature(node)
-      : binding.resolveConstructorSignature(node);
+      ? ctx.binding.resolveCallSignature(node)
+      : ctx.binding.resolveConstructorSignature(node);
     if (!sigId) return false;
 
     // ALICE'S SPEC: Use TypeSystem for all type checks
-    const typeSystem = getTypeSystem();
-    if (!typeSystem) return false;
+    const typeSystem = ctx.typeSystem;
 
     // ALICE'S SPEC (Phase 5): Use semantic methods instead of getSignatureInfo
 
@@ -361,18 +355,19 @@ export const isAssignmentOperator = (
  */
 export const getContextualType = (
   node: ts.Expression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
   try {
     // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-    const typeSystem = getTypeSystem();
-    if (!typeSystem) return undefined;
+    const typeSystem = ctx.typeSystem;
 
     const parent = node.parent;
 
     // Variable declaration: const x: Foo = { ... }
     if (ts.isVariableDeclaration(parent) && parent.type) {
-      return typeSystem.typeFromSyntax(binding.captureTypeSyntax(parent.type));
+      return typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(parent.type)
+      );
     }
 
     // Return statement: function f(): Foo { return { ... } }
@@ -384,7 +379,7 @@ export const getContextualType = (
       }
       if (current && ts.isFunctionLike(current) && current.type) {
         return typeSystem.typeFromSyntax(
-          binding.captureTypeSyntax(current.type)
+          ctx.binding.captureTypeSyntax(current.type)
         );
       }
     }
@@ -398,7 +393,7 @@ export const getContextualType = (
           : undefined;
 
       if (propName && ts.isObjectLiteralExpression(parent.parent)) {
-        const parentType = getContextualType(parent.parent, binding);
+        const parentType = getContextualType(parent.parent, ctx);
         if (parentType?.kind === "objectType") {
           const member = parentType.members.find(
             (m) => m.kind === "propertySignature" && m.name === propName
@@ -414,7 +409,7 @@ export const getContextualType = (
 
     // Array element: const arr: Foo[] = [{ ... }]
     if (ts.isArrayLiteralExpression(parent)) {
-      const arrayType = getContextualType(parent, binding);
+      const arrayType = getContextualType(parent, ctx);
       if (arrayType?.kind === "arrayType") {
         return arrayType.elementType;
       }
@@ -423,17 +418,14 @@ export const getContextualType = (
     // Call argument: f({ ... }) where f(x: Foo)
     // Use TypeSystem.resolveCall() to get parameter types
     if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
-      const typeSystem = getTypeSystem();
-      if (!typeSystem) return undefined;
-
       const argIndex = parent.arguments
         ? parent.arguments.indexOf(node as ts.Expression)
         : -1;
       if (argIndex >= 0) {
         // Handle both CallExpression and NewExpression
         const sigId = ts.isCallExpression(parent)
-          ? binding.resolveCallSignature(parent)
-          : binding.resolveConstructorSignature(parent);
+          ? ctx.binding.resolveCallSignature(parent)
+          : ctx.binding.resolveConstructorSignature(parent);
         if (sigId) {
           // ALICE'S SPEC: Use TypeSystem.resolveCall() for parameter types
           const resolved = typeSystem.resolveCall({

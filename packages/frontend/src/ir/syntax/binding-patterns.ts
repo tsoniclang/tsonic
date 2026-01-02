@@ -8,6 +8,8 @@
  * - Identifier patterns: `x`
  * - Array patterns: `[a, b, ...rest]`
  * - Object patterns: `{ x, y: z, ...rest }`
+ *
+ * Phase 5 Step 4: Uses ProgramContext for expression conversion.
  */
 
 import * as ts from "typescript";
@@ -17,15 +19,15 @@ import {
   IrArrayPatternElement,
 } from "../types/helpers.js";
 import { convertExpression } from "../expression-converter.js";
-import type { Binding } from "../binding/index.js";
+import type { ProgramContext } from "../program-context.js";
 
 /**
  * Convert TypeScript binding name to IR pattern.
- * Optionally accepts a Binding for expression conversion (defaults, etc.)
+ * Optionally accepts a ProgramContext for expression conversion (defaults, etc.)
  */
 export const convertBindingName = (
   name: ts.BindingName,
-  binding?: Binding
+  ctx?: ProgramContext
 ): IrPattern => {
   if (ts.isIdentifier(name)) {
     return {
@@ -44,12 +46,12 @@ export const convertBindingName = (
         if (ts.isBindingElement(elem)) {
           const isRest = !!elem.dotDotDotToken;
           const defaultExpr =
-            elem.initializer && binding
-              ? convertExpression(elem.initializer, binding, undefined)
+            elem.initializer && ctx
+              ? convertExpression(elem.initializer, ctx, undefined)
               : undefined;
 
           return {
-            pattern: convertBindingName(elem.name, binding),
+            pattern: convertBindingName(elem.name, ctx),
             defaultExpr,
             isRest: isRest || undefined,
           };
@@ -69,7 +71,7 @@ export const convertBindingName = (
         // during rest type synthesis pass
         properties.push({
           kind: "rest",
-          pattern: convertBindingName(elem.name, binding),
+          pattern: convertBindingName(elem.name, ctx),
         });
       } else {
         const key = elem.propertyName
@@ -81,14 +83,14 @@ export const convertBindingName = (
             : "[computed]";
 
         const defaultExpr =
-          elem.initializer && binding
-            ? convertExpression(elem.initializer, binding, undefined)
+          elem.initializer && ctx
+            ? convertExpression(elem.initializer, ctx, undefined)
             : undefined;
 
         properties.push({
           kind: "property",
           key,
-          value: convertBindingName(elem.name, binding),
+          value: convertBindingName(elem.name, ctx),
           shorthand: !elem.propertyName,
           defaultExpr,
         });

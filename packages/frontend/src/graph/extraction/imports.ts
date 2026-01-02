@@ -24,7 +24,7 @@ export const extractImport = (
     specifier,
     sourceFile.fileName,
     program.options.sourceRoot,
-    program.clrResolver
+    { clrResolver: program.clrResolver, bindings: program.bindings }
   );
 
   const importedNames: { readonly name: string; readonly alias?: string }[] =

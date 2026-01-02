@@ -11,8 +11,8 @@ import {
   DotnetMetadataRegistry,
   BindingRegistry,
   createClrBindingsResolver,
-  clearTypeRegistries,
   createBinding,
+  createProgramContext,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -23,8 +23,7 @@ const compileToCSharp = (
   source: string,
   fileName = "/test/test.ts"
 ): string => {
-  // Clear stale registries from previous tests to ensure isolation
-  clearTypeRegistries();
+  // Phase 5: Each test creates fresh ProgramContext - no global cleanup needed
 
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -82,11 +81,12 @@ const compileToCSharp = (
     clrResolver: createClrBindingsResolver("/test"),
   };
 
+  // Phase 5: Create ProgramContext for this compilation
+  const options = { sourceRoot: "/test", rootNamespace: "Test" };
+  const ctx = createProgramContext(tsonicProgram, options);
+
   // Build IR
-  const irResult = buildIrModule(sourceFile, tsonicProgram, {
-    sourceRoot: "/test",
-    rootNamespace: "Test",
-  });
+  const irResult = buildIrModule(sourceFile, tsonicProgram, options, ctx);
 
   if (!irResult.ok) {
     throw new Error(`IR build failed: ${irResult.error.message}`);

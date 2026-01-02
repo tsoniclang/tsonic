@@ -1,5 +1,7 @@
 /**
  * Conditional statement converters (if, switch)
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of Binding.
  */
 
 import * as ts from "typescript";
@@ -15,7 +17,7 @@ import {
   flattenStatementResult,
   convertStatement,
 } from "../../../statement-converter.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert if statement
@@ -25,21 +27,21 @@ import type { Binding } from "../../../binding/index.js";
  */
 export const convertIfStatement = (
   node: ts.IfStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrIfStatement => {
   const thenStmt = convertStatementSingle(
     node.thenStatement,
-    binding,
+    ctx,
     expectedReturnType
   );
   const elseStmt = node.elseStatement
-    ? convertStatementSingle(node.elseStatement, binding, expectedReturnType)
+    ? convertStatementSingle(node.elseStatement, ctx, expectedReturnType)
     : undefined;
 
   return {
     kind: "ifStatement",
-    condition: convertExpression(node.expression, binding, undefined),
+    condition: convertExpression(node.expression, ctx, undefined),
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
   };
@@ -52,14 +54,14 @@ export const convertIfStatement = (
  */
 export const convertSwitchStatement = (
   node: ts.SwitchStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrSwitchStatement => {
   return {
     kind: "switchStatement",
-    expression: convertExpression(node.expression, binding, undefined),
+    expression: convertExpression(node.expression, ctx, undefined),
     cases: node.caseBlock.clauses.map((clause) =>
-      convertSwitchCase(clause, binding, expectedReturnType)
+      convertSwitchCase(clause, ctx, expectedReturnType)
     ),
   };
 };
@@ -71,16 +73,16 @@ export const convertSwitchStatement = (
  */
 export const convertSwitchCase = (
   node: ts.CaseOrDefaultClause,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrSwitchCase => {
   return {
     kind: "switchCase",
     test: ts.isCaseClause(node)
-      ? convertExpression(node.expression, binding, undefined)
+      ? convertExpression(node.expression, ctx, undefined)
       : undefined,
     statements: node.statements.flatMap((s) =>
-      flattenStatementResult(convertStatement(s, binding, expectedReturnType))
+      flattenStatementResult(convertStatement(s, ctx, expectedReturnType))
     ),
   };
 };

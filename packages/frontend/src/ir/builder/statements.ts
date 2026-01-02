@@ -1,5 +1,7 @@
 /**
  * Statement extraction from TypeScript source
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
@@ -12,8 +14,7 @@ import {
   resetSyntheticRegistry,
   getSyntheticDeclarations,
 } from "../converters/anonymous-synthesis.js";
-import type { Binding } from "../binding/index.js";
-import type { ConverterContext } from "../converters/context.js";
+import type { ProgramContext } from "../program-context.js";
 
 /**
  * Extract statements from source file.
@@ -25,16 +26,12 @@ import type { ConverterContext } from "../converters/context.js";
  * (from anonymous object literal synthesis) and prepends them.
  *
  * @param sourceFile - The TypeScript source file to extract from
- * @param binding - Symbol resolution binding layer
- * @param ctx - Optional converter context (for TypeSystem access during migration)
+ * @param ctx - ProgramContext for TypeSystem and binding access
  */
 export const extractStatements = (
   sourceFile: ts.SourceFile,
-  binding: Binding,
-  ctx?: ConverterContext
+  ctx: ProgramContext
 ): readonly IrStatement[] => {
-  // Note: ctx is currently unused but will be passed to converters after full migration
-  void ctx;
   // Reset synthetic registry for this file
   resetSyntheticRegistry();
 
@@ -47,7 +44,7 @@ export const extractStatements = (
       !ts.isExportDeclaration(stmt) &&
       !ts.isExportAssignment(stmt)
     ) {
-      const converted = convertStatement(stmt, binding, undefined);
+      const converted = convertStatement(stmt, ctx, undefined);
       // Flatten result (handles both single statements and arrays)
       statements.push(...flattenStatementResult(converted));
     }

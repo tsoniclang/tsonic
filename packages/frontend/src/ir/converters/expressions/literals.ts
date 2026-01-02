@@ -16,7 +16,7 @@ import { IrLiteralExpression, IrType } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { inferNumericKindFromRaw } from "../../types/numeric-helpers.js";
 import { NumericKind } from "../../types/numeric-kind.js";
-import type { Binding } from "../../binding/index.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Derive inferredType from numericIntent (deterministic, no TypeScript).
@@ -56,7 +56,7 @@ const deriveTypeFromNumericIntent = (numericIntent: NumericKind): IrType => {
  */
 export const convertLiteral = (
   node: ts.StringLiteral | ts.NumericLiteral,
-  _binding: Binding
+  _ctx: ProgramContext
 ): IrLiteralExpression => {
   const raw = node.getText();
   const value = ts.isStringLiteral(node) ? node.text : Number(node.text);

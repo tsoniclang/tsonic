@@ -31,6 +31,19 @@ export const emitMethodMember = (
   let currentContext = context;
   const parts: string[] = [];
 
+  // Build method type parameter names FIRST - needed before emitting return/parameter types
+  // Type parameters must be in scope before we emit types that reference them
+  const methodTypeParams = new Set<string>([
+    ...(context.typeParameters ?? []),
+    ...(member.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Create signatureContext with method type parameters in scope
+  const signatureContext: EmitterContext = {
+    ...context,
+    typeParameters: methodTypeParams,
+  };
+
   // Access modifier
   const accessibility = member.accessibility ?? "public";
   parts.push(accessibility);
@@ -53,11 +66,11 @@ export const emitMethodMember = (
     parts.push("async");
   }
 
-  // Return type
+  // Return type - use signatureContext which has method type parameters in scope
   if (member.returnType) {
     const [returnType, newContext] = emitType(
       member.returnType,
-      currentContext
+      signatureContext
     );
     currentContext = newContext;
     // If async and return type is Promise, it's already converted to Task
@@ -82,17 +95,17 @@ export const emitMethodMember = (
   // Method name (escape C# keywords)
   parts.push(escapeCSharpIdentifier(member.name));
 
-  // Type parameters
+  // Type parameters - emit the <T, U> syntax and where clauses
   const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
     member.typeParameters,
     currentContext
   );
   currentContext = typeParamContext;
 
-  // Parameters (with destructuring support)
+  // Parameters (with destructuring support) - use signatureContext for type parameter scope
   const paramsResult = emitParametersWithDestructuring(
     member.parameters,
-    currentContext
+    signatureContext
   );
   currentContext = paramsResult.context;
 
@@ -121,13 +134,8 @@ export const emitMethodMember = (
     return [code, attrContext];
   }
 
-  // Build type parameter names set for this method (includes class type params from context)
-  const methodTypeParams = new Set<string>([
-    ...(currentContext.typeParameters ?? []),
-    ...(member.typeParameters?.map((tp) => tp.name) ?? []),
-  ]);
-
   // Emit body with scoped typeParameters and returnType
+  // Reuse methodTypeParams defined at the top of this function
   // Note: member.body is guaranteed to exist here (early return above handles undefined case)
   const body = member.body;
   const [bodyCode, finalContext] = withScoped(

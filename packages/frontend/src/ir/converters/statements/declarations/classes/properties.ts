@@ -14,8 +14,7 @@ import {
   getAccessibility,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
-import { getTypeSystem } from "../registry.js";
-import type { Binding } from "../../../../binding/index.js";
+import type { ProgramContext } from "../../../../program-context.js";
 
 /**
  * Derive type from a converted IR expression (deterministic).
@@ -62,29 +61,22 @@ const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
  */
 export const convertProperty = (
   node: ts.PropertyDeclaration,
-  binding: Binding,
+  ctx: ProgramContext,
   superClass: ts.ExpressionWithTypeArguments | undefined
 ): IrClassMember => {
   const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
 
-  const overrideInfo = detectOverride(
-    memberName,
-    "property",
-    superClass,
-    binding
-  );
+  const overrideInfo = detectOverride(memberName, "property", superClass, ctx);
 
   // Get explicit type annotation (if present) for contextual typing
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
-  const explicitType =
-    node.type && typeSystem
-      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
-      : undefined;
+  const explicitType = node.type
+    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+    : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)
   const convertedInitializer = node.initializer
-    ? convertExpression(node.initializer, binding, explicitType)
+    ? convertExpression(node.initializer, ctx, explicitType)
     : undefined;
 
   // Derive property type:

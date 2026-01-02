@@ -1,9 +1,10 @@
 /**
  * IR Builder orchestration - Main module building logic
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
-import * as path from "path";
 import { relative } from "path";
 import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
@@ -15,33 +16,14 @@ import {
   isFatal,
 } from "../../types/diagnostic.js";
 import {
-  setMetadataRegistry,
-  setBindingRegistry,
-  setTypeRegistry,
-  setNominalEnv,
-  clearTypeRegistries,
-  setTypeSystem,
-} from "../statement-converter.js";
-// Internal accessor for checking if TypeRegistry is initialized (TypeSystem construction only)
-import { _internalGetTypeRegistry } from "../converters/statements/declarations/index.js";
-// NOTE: buildTypeRegistry is now called internally by buildSourceCatalog
-// import { buildTypeRegistry } from "../type-system/internal/type-registry.js";
-import { buildNominalEnv } from "../type-system/internal/nominal-env.js";
-import { convertType } from "../type-system/internal/type-converter.js";
-import { createTypeSystem } from "../type-system/type-system.js";
-import type { BindingInternal } from "../binding/index.js";
-import {
-  createConverterContext,
-  type ConverterContext,
-} from "../converters/context.js";
+  createProgramContext,
+  type ProgramContext,
+} from "../program-context.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
-import { extractExports } from "./exports.js";
+import { extractExportsWithContext } from "./exports.js";
 import { extractStatements, isExecutableStatement } from "./statements.js";
 import { validateClassImplements } from "./validation.js";
-import { loadClrCatalog } from "../type-system/internal/universe/clr-catalog.js";
-import { buildUnifiedUniverse } from "../type-system/internal/universe/unified-universe.js";
-import { buildSourceCatalog } from "../type-system/internal/universe/source-catalog.js";
 
 /**
  * Build IR module from TypeScript source file
@@ -49,85 +31,16 @@ import { buildSourceCatalog } from "../type-system/internal/universe/source-cata
  * @param sourceFile - The TypeScript source file to convert
  * @param program - The Tsonic program with type checker and bindings
  * @param options - Build options (sourceRoot, rootNamespace)
- * @param ctx - Optional ConverterContext for TypeSystem access. When provided,
- *              converters can access TypeSystem instead of singletons.
- *              Optional during migration; will become required when migration completes.
+ * @param ctx - ProgramContext for TypeSystem and other shared resources.
+ *              Required - no global state fallback.
  */
 export const buildIrModule = (
   sourceFile: ts.SourceFile,
-  program: TsonicProgram,
+  _program: TsonicProgram,
   options: IrBuildOptions,
-  ctx?: ConverterContext
+  ctx: ProgramContext
 ): Result<IrModule, Diagnostic> => {
   try {
-    // Set the metadata registry for this compilation
-    setMetadataRegistry(program.metadata);
-
-    // Set the binding registry for this compilation
-    setBindingRegistry(program.bindings);
-
-    // When called directly (without ctx), clear and initialize fresh registries.
-    // This is needed for tests and standalone buildIrModule calls.
-    // When called via buildIr with ctx, registries are already initialized.
-    if (!ctx) {
-      clearTypeRegistries();
-    }
-
-    // Initialize TypeRegistry/NominalEnv if not already set (e.g., when called directly by tests)
-    // When called via buildIr, these are already initialized for all source files
-    if (!_internalGetTypeRegistry()) {
-      // Include both user source files AND declaration files from typeRoots
-      // Declaration files contain globals (String, Array, etc.) needed for method resolution
-      //
-      // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
-      const allSourceFiles = [
-        ...program.sourceFiles,
-        ...program.declarationSourceFiles,
-      ];
-      const { typeRegistry } = buildSourceCatalog({
-        sourceFiles: allSourceFiles,
-        checker: program.checker,
-        sourceRoot: options.sourceRoot,
-        rootNamespace: options.rootNamespace,
-        binding: program.binding,
-      });
-      setTypeRegistry(typeRegistry);
-
-      const nominalEnv = buildNominalEnv(
-        typeRegistry,
-        convertType,
-        program.binding
-      );
-      setNominalEnv(nominalEnv);
-
-      // Initialize TypeSystem if not already set (needed for validation)
-      // Load assembly type catalog for CLR stdlib types
-      const nodeModulesPath = path.resolve(
-        program.options.projectRoot,
-        "node_modules"
-      );
-      const assemblyCatalog = loadClrCatalog(nodeModulesPath);
-
-      // Build unified catalog merging source and assembly types
-      const unifiedCatalog = buildUnifiedUniverse(
-        typeRegistry,
-        assemblyCatalog,
-        program.options.rootNamespace
-      );
-
-      // Build TypeSystem — the single source of truth for all type queries
-      const bindingInternal = program.binding as BindingInternal;
-      const typeSystem = createTypeSystem({
-        handleRegistry: bindingInternal._getHandleRegistry(),
-        typeRegistry,
-        nominalEnv,
-        convertTypeNode: (node: unknown) =>
-          convertType(node as import("typescript").TypeNode, program.binding),
-        unifiedCatalog,
-      });
-      setTypeSystem(typeSystem);
-    }
-
     const namespace = getNamespaceFromPath(
       sourceFile.fileName,
       options.sourceRoot,
@@ -135,13 +48,9 @@ export const buildIrModule = (
     );
     const className = getClassNameFromPath(sourceFile.fileName);
 
-    const imports = extractImports(
-      sourceFile,
-      program.binding,
-      program.clrResolver
-    );
-    const exports = extractExports(sourceFile, program.binding);
-    const statements = extractStatements(sourceFile, program.binding, ctx);
+    const imports = extractImports(sourceFile, ctx);
+    const exports = extractExportsWithContext(sourceFile, ctx);
+    const statements = extractStatements(sourceFile, ctx);
 
     // Check for file name / export name collision (Issue #4)
     // When file name matches an exported function/variable name, C# will have illegal code
@@ -189,10 +98,7 @@ export const buildIrModule = (
 
     // Validate class implements patterns
     // TypeScript interfaces are nominalized to C# classes, so "implements" is invalid
-    const implementsDiagnostics = validateClassImplements(
-      sourceFile,
-      program.binding
-    );
+    const implementsDiagnostics = validateClassImplements(sourceFile, ctx);
     const firstImplementsDiagnostic = implementsDiagnostics[0];
     if (firstImplementsDiagnostic) {
       return error(firstImplementsDiagnostic);
@@ -252,80 +158,9 @@ export const buildIr = (
   program: TsonicProgram,
   options: IrBuildOptions
 ): Result<readonly IrModule[], readonly Diagnostic[]> => {
-  // Clear any stale type registries from previous compilations
-  clearTypeRegistries();
-
-  // Build TypeRegistry from all source files INCLUDING declaration files from typeRoots
-  // Declaration files contain globals (String, Array, etc.) needed for method resolution
-  // This enables deterministic typing for inherited generic members
-  //
-  // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
-  // Pass A: Register all type names (skeleton)
-  // Pass B: Convert all type annotations (with stable resolution)
-  //
-  // After this, TypeRegistry contains all types already converted.
-  // Converters should use typeOfDecl(declId) instead of convertTypeNode().
-  const allSourceFiles = [
-    ...program.sourceFiles,
-    ...program.declarationSourceFiles,
-  ];
-  const { typeRegistry } = buildSourceCatalog({
-    sourceFiles: allSourceFiles,
-    checker: program.checker,
-    sourceRoot: options.sourceRoot,
-    rootNamespace: options.rootNamespace,
-    binding: program.binding,
-  });
-  setTypeRegistry(typeRegistry);
-
-  // Build NominalEnv from TypeRegistry
-  // This enables inheritance chain substitution for member access
-  const nominalEnv = buildNominalEnv(
-    typeRegistry,
-    convertType,
-    program.binding
-  );
-  setNominalEnv(nominalEnv);
-
-  // Load assembly type catalog for CLR stdlib types
-  // This enables member lookup on primitive types like string.length
-  const nodeModulesPath = path.resolve(
-    program.options.projectRoot,
-    "node_modules"
-  );
-  const assemblyCatalog = loadClrCatalog(nodeModulesPath);
-
-  // Build unified catalog merging source and assembly types
-  const unifiedCatalog = buildUnifiedUniverse(
-    typeRegistry,
-    assemblyCatalog,
-    program.options.rootNamespace
-  );
-
-  // Build TypeSystem — the single source of truth for all type queries (Alice's spec)
-  // TypeSystem encapsulates HandleRegistry, TypeRegistry, NominalEnv and type conversion
-  const bindingInternal = program.binding as BindingInternal;
-  const typeSystem = createTypeSystem({
-    handleRegistry: bindingInternal._getHandleRegistry(),
-    typeRegistry,
-    nominalEnv,
-    // Wrap convertType to capture binding context
-    convertTypeNode: (node: unknown) =>
-      convertType(node as import("typescript").TypeNode, program.binding),
-    // Unified catalog for CLR assembly type lookups
-    unifiedCatalog,
-  });
-  setTypeSystem(typeSystem);
-
-  // Create converter context with all shared resources
-  // This will be passed through the converter chain during migration
-  const ctx: ConverterContext = createConverterContext({
-    binding: program.binding,
-    typeSystem,
-    metadata: program.metadata,
-    bindings: program.bindings,
-    clrResolver: program.clrResolver,
-  });
+  // Create ProgramContext — the single owner of all semantic state
+  // No global singletons are used; context is passed explicitly
+  const ctx = createProgramContext(program, options);
 
   const modules: IrModule[] = [];
   const diagnostics: Diagnostic[] = [];

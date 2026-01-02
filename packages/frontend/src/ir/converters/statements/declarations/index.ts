@@ -1,20 +1,10 @@
 /**
  * Declaration converters - Public API
+ *
+ * Phase 5 Step 4: Registry singletons removed.
+ * All context now flows through ProgramContext.
  */
 
-export {
-  setMetadataRegistry,
-  setBindingRegistry,
-  setTypeRegistry,
-  setNominalEnv,
-  clearTypeRegistries,
-  // TypeSystem singleton - single source of truth for type queries
-  setTypeSystem,
-  getTypeSystem,
-  // Internal accessors for TypeSystem construction only
-  _internalGetTypeRegistry,
-  _internalGetNominalEnv,
-} from "./registry.js";
 export { convertVariableStatement } from "./variables.js";
 export { convertFunctionDeclaration } from "./functions.js";
 export { convertClassDeclaration } from "./classes.js";

@@ -1,5 +1,7 @@
 /**
  * Loop statement converters (while, for, for-of, for-in)
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of Binding.
  */
 
 import * as ts from "typescript";
@@ -13,7 +15,7 @@ import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertStatementSingle } from "../../../statement-converter.js";
 import { convertVariableDeclarationList } from "../helpers.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert while statement
@@ -22,17 +24,13 @@ import type { Binding } from "../../../binding/index.js";
  */
 export const convertWhileStatement = (
   node: ts.WhileStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrWhileStatement => {
-  const body = convertStatementSingle(
-    node.statement,
-    binding,
-    expectedReturnType
-  );
+  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
   return {
     kind: "whileStatement",
-    condition: convertExpression(node.expression, binding, undefined),
+    condition: convertExpression(node.expression, ctx, undefined),
     body: body ?? { kind: "emptyStatement" },
   };
 };
@@ -44,26 +42,22 @@ export const convertWhileStatement = (
  */
 export const convertForStatement = (
   node: ts.ForStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForStatement => {
-  const body = convertStatementSingle(
-    node.statement,
-    binding,
-    expectedReturnType
-  );
+  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
   return {
     kind: "forStatement",
     initializer: node.initializer
       ? ts.isVariableDeclarationList(node.initializer)
-        ? convertVariableDeclarationList(node.initializer, binding)
-        : convertExpression(node.initializer, binding, undefined)
+        ? convertVariableDeclarationList(node.initializer, ctx)
+        : convertExpression(node.initializer, ctx, undefined)
       : undefined,
     condition: node.condition
-      ? convertExpression(node.condition, binding, undefined)
+      ? convertExpression(node.condition, ctx, undefined)
       : undefined,
     update: node.incrementor
-      ? convertExpression(node.incrementor, binding, undefined)
+      ? convertExpression(node.incrementor, ctx, undefined)
       : undefined,
     body: body ?? { kind: "emptyStatement" },
   };
@@ -76,7 +70,7 @@ export const convertForStatement = (
  */
 export const convertForOfStatement = (
   node: ts.ForOfStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForOfStatement => {
   const firstDecl = ts.isVariableDeclarationList(node.initializer)
@@ -87,15 +81,11 @@ export const convertForOfStatement = (
     ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
     : convertBindingName(node.initializer as ts.BindingName);
 
-  const body = convertStatementSingle(
-    node.statement,
-    binding,
-    expectedReturnType
-  );
+  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
   return {
     kind: "forOfStatement",
     variable,
-    expression: convertExpression(node.expression, binding, undefined),
+    expression: convertExpression(node.expression, ctx, undefined),
     body: body ?? { kind: "emptyStatement" },
     isAwait: !!node.awaitModifier,
   };
@@ -108,17 +98,13 @@ export const convertForOfStatement = (
  */
 export const convertForInStatement = (
   node: ts.ForInStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForStatement => {
   // Note: for...in needs special handling in C# - variable extraction will be handled in emitter
   // We'll need to extract the variable info in the emitter phase
 
-  const body = convertStatementSingle(
-    node.statement,
-    binding,
-    expectedReturnType
-  );
+  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
   // Note: for...in needs special handling in C#
   return {
     kind: "forStatement",

@@ -13,8 +13,7 @@ import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
-import { getTypeSystem } from "../statements/declarations/registry.js";
-import type { Binding } from "../../binding/index.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Extract parameter types from an expected function type.
@@ -40,7 +39,7 @@ const extractParamTypesFromExpectedType = (
  */
 const convertLambdaParameters = (
   node: ts.ArrowFunction | ts.FunctionExpression,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedType: IrType | undefined
 ): readonly IrParameter[] => {
   // DETERMINISTIC: Extract parameter types from expectedType (the ONLY source for unannotated params)
@@ -73,10 +72,10 @@ const convertLambdaParameters = (
     if (actualType) {
       // Explicit type annotation
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-      const typeSystem = getTypeSystem();
-      irType = typeSystem
-        ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(actualType))
-        : undefined;
+      const typeSystem = ctx.typeSystem;
+      irType = typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(actualType)
+      );
     } else if (expectedParamTypes && expectedParamTypes[index]) {
       // Use expectedType from call site (deterministic)
       irType = expectedParamTypes[index];
@@ -90,7 +89,7 @@ const convertLambdaParameters = (
       type: irType,
       // Pass parameter type for contextual typing of default value
       initializer: param.initializer
-        ? convertExpression(param.initializer, binding, irType)
+        ? convertExpression(param.initializer, ctx, irType)
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
@@ -107,18 +106,17 @@ const convertLambdaParameters = (
  */
 export const convertFunctionExpression = (
   node: ts.FunctionExpression,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedType?: IrType
 ): IrFunctionExpression => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
+  const typeSystem = ctx.typeSystem;
   // Get return type from declared annotation for contextual typing
-  const returnType =
-    node.type && typeSystem
-      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
-      : undefined;
+  const returnType = node.type
+    ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+    : undefined;
   // DETERMINISTIC: Pass expectedType for parameter type inference
-  const parameters = convertLambdaParameters(node, binding, expectedType);
+  const parameters = convertLambdaParameters(node, ctx, expectedType);
 
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {
@@ -134,7 +132,7 @@ export const convertFunctionExpression = (
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, binding, returnType)
+      ? convertBlockStatement(node.body, ctx, returnType)
       : { kind: "blockStatement", statements: [] },
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -153,30 +151,29 @@ export const convertFunctionExpression = (
  */
 export const convertArrowFunction = (
   node: ts.ArrowFunction,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedType?: IrType
 ): IrArrowFunctionExpression => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
+  const typeSystem = ctx.typeSystem;
   // Get return type from declared annotation, or from expectedType if available
-  const declaredReturnType =
-    node.type && typeSystem
-      ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
-      : undefined;
+  const declaredReturnType = node.type
+    ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+    : undefined;
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
   const expectedReturnType =
     expectedType?.kind === "functionType" ? expectedType.returnType : undefined;
   const returnType = declaredReturnType ?? expectedReturnType;
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
-  const parameters = convertLambdaParameters(node, binding, expectedType);
+  const parameters = convertLambdaParameters(node, ctx, expectedType);
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type
   // - Expression body: the expression gets the expected type
   const body = ts.isBlock(node.body)
-    ? convertBlockStatement(node.body, binding, returnType)
-    : convertExpression(node.body, binding, returnType);
+    ? convertBlockStatement(node.body, ctx, returnType)
+    : convertExpression(node.body, ctx, returnType);
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
   const contextualType = expectedType;

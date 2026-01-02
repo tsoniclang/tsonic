@@ -11,6 +11,7 @@ import {
   buildIr,
   runNumericProofPass,
   runAttributeCollectionPass,
+  runAnonymousTypeLoweringPass,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../emitter.js";
 import { DiagnosticsMode, Scenario } from "./types.js";
@@ -143,8 +144,12 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
     throw new Error(`IR build failed:\n${errors}`);
   }
 
+  // Step 2.4: Run anonymous type lowering pass (synthesizes types for anonymous object literals)
+  const anonTypeResult = runAnonymousTypeLoweringPass(irResult.value);
+  const loweredModules = anonTypeResult.modules;
+
   // Step 2.5: Run numeric proof pass (validates and annotates numeric types)
-  const proofResult = runNumericProofPass(irResult.value);
+  const proofResult = runNumericProofPass(loweredModules);
   if (!proofResult.ok) {
     const errors = proofResult.diagnostics
       .map((d) => `${d.code}: ${d.message}`)

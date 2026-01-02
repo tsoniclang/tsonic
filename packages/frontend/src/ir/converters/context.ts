@@ -1,66 +1,41 @@
 /**
- * ConverterContext — Shared context for IR converters
+ * ConverterContext — Re-exports ProgramContext for backward compatibility
  *
- * This context object carries shared resources through the converter chain,
- * eliminating the need to pass individual parameters like binding, typeSystem,
- * metadata registry, etc.
- *
- * Part of Alice's TypeSystem migration (Step 7b).
+ * Phase 5 Step 4: ConverterContext is now an alias for ProgramContext.
+ * All converters use ProgramContext, but we keep ConverterContext as an alias
+ * to avoid breaking existing code during migration.
  */
 
-import type { Binding } from "../binding/index.js";
-import type { TypeSystem } from "../type-system/type-system.js";
-import type { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
-import type { BindingRegistry } from "../../program/bindings.js";
-import type { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import type { ProgramContext } from "../program-context.js";
 
 /**
- * Context object passed through all IR converters.
+ * ConverterContext is an alias for ProgramContext.
  *
- * Contains all shared resources needed for type conversion and code generation.
- * Converters receive this context as the first parameter (after the AST node).
+ * Use ProgramContext directly in new code.
  */
-export type ConverterContext = {
-  /**
-   * Binding layer for symbol resolution.
-   *
-   * Provides resolveIdentifier, resolveCallSignature, etc.
-   */
-  readonly binding: Binding;
+export type ConverterContext = ProgramContext;
 
-  /**
-   * TypeSystem for all type queries (Alice's spec).
-   *
-   * This is the ONLY source for type information. Converters should use
-   * TypeSystem methods instead of accessing TypeRegistry/NominalEnv directly.
-   */
-  readonly typeSystem: TypeSystem;
+/**
+ * Re-export ProgramContext for direct use.
+ */
+export type { ProgramContext } from "../program-context.js";
 
-  /**
-   * .NET metadata registry for imported types.
-   */
-  readonly metadata: DotnetMetadataRegistry;
-
-  /**
-   * CLR bindings from tsbindgen.
-   */
-  readonly bindings: BindingRegistry;
-
-  /**
-   * CLR namespace resolver for import-driven discovery.
-   */
-  readonly clrResolver: ClrBindingsResolver;
-};
+/**
+ * Re-export createProgramContext for direct use.
+ */
+export { createProgramContext } from "../program-context.js";
 
 /**
  * Create a ConverterContext from individual components.
+ *
+ * @deprecated Use createProgramContext instead.
  */
 export const createConverterContext = (params: {
-  binding: Binding;
-  typeSystem: TypeSystem;
-  metadata: DotnetMetadataRegistry;
-  bindings: BindingRegistry;
-  clrResolver: ClrBindingsResolver;
+  binding: import("../binding/index.js").Binding;
+  typeSystem: import("../type-system/type-system.js").TypeSystem;
+  metadata: import("../../dotnet-metadata.js").DotnetMetadataRegistry;
+  bindings: import("../../program/bindings.js").BindingRegistry;
+  clrResolver: import("../../resolver/clr-bindings-resolver.js").ClrBindingsResolver;
 }): ConverterContext => ({
   binding: params.binding,
   typeSystem: params.typeSystem,

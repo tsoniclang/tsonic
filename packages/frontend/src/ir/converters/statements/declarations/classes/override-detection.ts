@@ -5,8 +5,7 @@
  */
 
 import * as ts from "typescript";
-import { getMetadataRegistry, getTypeSystem } from "../registry.js";
-import type { Binding } from "../../../../binding/index.js";
+import type { ProgramContext } from "../../../../program-context.js";
 
 export type OverrideInfo = {
   readonly isOverride: boolean;
@@ -21,7 +20,7 @@ export const detectOverride = (
   memberName: string,
   memberKind: "method" | "property",
   superClass: ts.ExpressionWithTypeArguments | undefined,
-  binding: Binding,
+  ctx: ProgramContext,
   parameterTypes?: readonly string[]
 ): OverrideInfo => {
   if (!superClass) {
@@ -40,20 +39,14 @@ export const detectOverride = (
     return { isOverride: false, isShadow: false };
   }
 
-  // ALICE'S SPEC: Use TypeSystem to get declaration info
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) {
-    return { isOverride: false, isShadow: false };
-  }
-
   // Try to resolve the identifier to get more context
   const declId =
     ts.isIdentifier(superClass.expression) &&
-    binding.resolveIdentifier(superClass.expression);
+    ctx.binding.resolveIdentifier(superClass.expression);
 
   // Get qualified name from the resolved declaration if available
   const qualifiedName = declId
-    ? typeSystem.getFQNameOfDecl(declId)
+    ? ctx.typeSystem.getFQNameOfDecl(declId)
     : baseClassName;
 
   // Check if this is a .NET type (starts with "System." or other .NET namespaces)
@@ -67,11 +60,12 @@ export const detectOverride = (
       memberName,
       memberKind,
       qualifiedName,
+      ctx,
       parameterTypes
     );
   } else if (declId) {
     // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
-    return typeSystem.checkTsClassMemberOverride(
+    return ctx.typeSystem.checkTsClassMemberOverride(
       declId,
       memberName,
       memberKind
@@ -109,19 +103,18 @@ const detectDotNetOverride = (
   memberName: string,
   memberKind: "method" | "property",
   qualifiedName: string,
+  ctx: ProgramContext,
   parameterTypes?: readonly string[]
 ): OverrideInfo => {
-  const metadata = getMetadataRegistry();
-
   if (memberKind === "method" && parameterTypes) {
     const signature = `${memberName}(${parameterTypes.join(",")})`;
-    const isVirtual = metadata.isVirtualMember(qualifiedName, signature);
-    const isSealed = metadata.isSealedMember(qualifiedName, signature);
+    const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, signature);
+    const isSealed = ctx.metadata.isSealedMember(qualifiedName, signature);
     return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
   } else if (memberKind === "property") {
     // For properties, check without parameters
-    const isVirtual = metadata.isVirtualMember(qualifiedName, memberName);
-    const isSealed = metadata.isSealedMember(qualifiedName, memberName);
+    const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, memberName);
+    const isSealed = ctx.metadata.isSealedMember(qualifiedName, memberName);
     return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
   }
 

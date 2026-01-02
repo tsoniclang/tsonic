@@ -384,14 +384,12 @@ export const convertTypeReference = (
       ._getHandleRegistry()
       .getDecl(declId);
     if (declInfo) {
-      // Check for type parameter declaration
-      if (declInfo.kind === "parameter") {
-        // Type parameters have kind "parameter" when resolved from type parameter declarations
-        // But we need to check the actual declaration node to be sure
-        const declNode = declInfo.declNode as ts.Declaration | undefined;
-        if (declNode && ts.isTypeParameterDeclaration(declNode)) {
-          return { kind: "typeParameterType", name: typeName };
-        }
+      // Check for type parameter declaration (class type params, method type params, etc.)
+      // CRITICAL: Check the AST node directly - do NOT rely on declInfo.kind.
+      // Binding's DeclKind may not label TypeParameterDeclaration as "parameter".
+      const declNode = declInfo.declNode as ts.Declaration | undefined;
+      if (declNode && ts.isTypeParameterDeclaration(declNode)) {
+        return { kind: "typeParameterType", name: typeName };
       }
 
       // Check for type alias to function type
@@ -399,7 +397,6 @@ export const convertTypeReference = (
       // e.g., `type NumberToNumber = (x: number) => number` should be converted
       // to a functionType, not a referenceType
       if (declInfo.kind === "typeAlias") {
-        const declNode = declInfo.declNode as ts.Declaration | undefined;
         if (
           declNode &&
           ts.isTypeAliasDeclaration(declNode) &&

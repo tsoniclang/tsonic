@@ -7,6 +7,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
+import { createProgramContext } from "./program-context.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
@@ -103,11 +104,10 @@ describe("Hierarchical Bindings End-to-End", () => {
       binding: createBinding(checker),
     };
 
-    // Build IR
-    const irResult = buildIrModule(sourceFile, testProgram, {
-      sourceRoot: "/test",
-      rootNamespace: "TestApp",
-    });
+    // Build IR - Phase 5: Create ProgramContext and pass to buildIrModule
+    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const ctx = createProgramContext(testProgram, options);
+    const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
 
     // MUST succeed - this is a strict test
     if (!irResult.ok) {

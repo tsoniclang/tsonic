@@ -10,15 +10,14 @@ import {
   getAccessibility,
   convertParameters,
 } from "../../helpers.js";
-import { getTypeSystem } from "../registry.js";
-import type { Binding } from "../../../../binding/index.js";
+import type { ProgramContext } from "../../../../program-context.js";
 
 /**
  * Convert constructor declaration to IR
  */
 export const convertConstructor = (
   node: ts.ConstructorDeclaration,
-  binding: Binding,
+  ctx: ProgramContext,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember => {
   // Build constructor body with parameter property assignments
@@ -64,13 +63,13 @@ export const convertConstructor = (
 
   // Add existing constructor body statements
   if (node.body) {
-    const existingBody = convertBlockStatement(node.body, binding, undefined);
+    const existingBody = convertBlockStatement(node.body, ctx, undefined);
     statements.push(...existingBody.statements);
   }
 
   return {
     kind: "constructorDeclaration",
-    parameters: convertParameters(node.parameters, binding),
+    parameters: convertParameters(node.parameters, ctx),
     body: { kind: "blockStatement", statements },
     accessibility: getAccessibility(node),
   };
@@ -81,7 +80,7 @@ export const convertConstructor = (
  */
 export const extractParameterProperties = (
   constructor: ts.ConstructorDeclaration | undefined,
-  _binding: Binding
+  ctx: ProgramContext
 ): IrClassMember[] => {
   if (!constructor) {
     return [];
@@ -107,15 +106,15 @@ export const extractParameterProperties = (
     // Create a field declaration for this parameter property
     if (ts.isIdentifier(param.name)) {
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-      const typeSystem = getTypeSystem();
       const accessibility = getAccessibility(param);
       parameterProperties.push({
         kind: "propertyDeclaration",
         name: param.name.text,
-        type:
-          param.type && typeSystem
-            ? typeSystem.typeFromSyntax(_binding.captureTypeSyntax(param.type))
-            : undefined,
+        type: param.type
+          ? ctx.typeSystem.typeFromSyntax(
+              ctx.binding.captureTypeSyntax(param.type)
+            )
+          : undefined,
         initializer: undefined, // Will be assigned in constructor
         isStatic: false,
         isReadonly: hasReadonlyModifier(param),

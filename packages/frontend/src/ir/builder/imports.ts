@@ -1,17 +1,14 @@
 /**
  * Import extraction from TypeScript source
  *
- * ALICE'S SPEC: Uses TypeSystem for declaration queries.
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
-import {
-  getBindingRegistry,
-  getTypeSystem,
-} from "../converters/statements/declarations/registry.js";
-import { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
+import type { ProgramContext } from "../program-context.js";
 import type { Binding } from "../binding/index.js";
+import type { TypeSystem } from "../type-system/type-system.js";
 
 /**
  * Extract import declarations from source file.
@@ -20,8 +17,7 @@ import type { Binding } from "../binding/index.js";
  */
 export const extractImports = (
   sourceFile: ts.SourceFile,
-  binding: Binding,
-  clrResolver: ClrBindingsResolver
+  ctx: ProgramContext
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
 
@@ -37,7 +33,7 @@ export const extractImports = (
       // This works for any package that provides bindings.json
       // Note: Bindings are loaded upfront by discoverAndLoadClrBindings()
       // in dependency-graph.ts before IR building starts.
-      const clrResolution = clrResolver.resolve(source);
+      const clrResolution = ctx.clrResolver.resolve(source);
       const isClr = clrResolution.isClr;
       const resolvedNamespace = clrResolution.isClr
         ? clrResolution.resolvedNamespace
@@ -46,10 +42,14 @@ export const extractImports = (
         ? clrResolution.assembly
         : undefined;
 
-      const specifiers = extractImportSpecifiers(node, binding);
+      const specifiers = extractImportSpecifiers(
+        node,
+        ctx.binding,
+        ctx.typeSystem
+      );
 
       // Check for module binding (Node.js API, etc.)
-      const moduleBinding = getBindingRegistry().getBinding(source);
+      const moduleBinding = ctx.bindings.getBinding(source);
       const hasModuleBinding = moduleBinding?.kind === "module";
 
       // Assembly comes from CLR resolution (bindings.json) or module binding
@@ -80,7 +80,8 @@ export const extractImports = (
  */
 export const extractImportSpecifiers = (
   node: ts.ImportDeclaration,
-  binding: Binding
+  binding: Binding,
+  typeSystem: TypeSystem
 ): readonly IrImportSpecifier[] => {
   const specifiers: IrImportSpecifier[] = [];
 
@@ -102,7 +103,7 @@ export const extractImportSpecifiers = (
         });
       } else if (ts.isNamedImports(node.importClause.namedBindings)) {
         node.importClause.namedBindings.elements.forEach((spec) => {
-          const isType = isTypeImport(spec, binding);
+          const isType = isTypeImport(spec, binding, typeSystem);
           specifiers.push({
             kind: "named",
             name: (spec.propertyName ?? spec.name).text,
@@ -121,7 +122,11 @@ export const extractImportSpecifiers = (
  * Determine if an import specifier refers to a type (interface, class, type alias, enum).
  * ALICE'S SPEC: Uses TypeSystem.isTypeDecl() to check declaration kind.
  */
-const isTypeImport = (spec: ts.ImportSpecifier, binding: Binding): boolean => {
+const isTypeImport = (
+  spec: ts.ImportSpecifier,
+  binding: Binding,
+  typeSystem: TypeSystem
+): boolean => {
   try {
     // TypeScript's isTypeOnly flag on the specifier itself (for `import { type Foo }`)
     if (spec.isTypeOnly) {
@@ -135,11 +140,6 @@ const isTypeImport = (spec: ts.ImportSpecifier, binding: Binding): boolean => {
     }
 
     // ALICE'S SPEC: Use TypeSystem.isTypeDecl() to check if declaration is a type
-    const typeSystem = getTypeSystem();
-    if (!typeSystem) {
-      return false;
-    }
-
     return typeSystem.isTypeDecl(declId);
   } catch {
     return false;

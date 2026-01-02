@@ -12,7 +12,6 @@
  * - INV-3: Poison-on-missing-types (return unknownType + emit diagnostic)
  */
 
-import type * as ts from "typescript";
 import type {
   IrType,
   IrFunctionType,
@@ -34,6 +33,8 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
+import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
+import type { NumericKind } from "../types/numeric-kind.js";
 import {
   PRIMITIVE_TO_CLR_FQ,
   GLOBALS_TO_CLR_FQ,
@@ -443,8 +444,9 @@ export type RawSignatureInfo = {
    * Declaring identity — CRITICAL for inheritance substitution.
    *
    * Without this, resolveCall cannot compute receiver substitution.
+   * Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName().
    */
-  readonly declaringTypeFQName?: string;
+  readonly declaringTypeTsName?: string;
   readonly declaringMemberName?: string;
 };
 
@@ -537,6 +539,15 @@ export type TypeSyntaxInfo = {
 };
 
 /**
+ * Captured class member names for override detection.
+ * Pure data — no TS nodes.
+ */
+export type ClassMemberNames = {
+  readonly methods: ReadonlySet<string>;
+  readonly properties: ReadonlySet<string>;
+};
+
+/**
  * Declaration info in the handle registry.
  */
 export type DeclInfo = {
@@ -551,6 +562,9 @@ export type DeclInfo = {
 
   /** Declaration AST node (ts.Declaration, cast to unknown) */
   readonly declNode?: unknown;
+
+  /** Captured class member names (for class declarations only) */
+  readonly classMemberNames?: ClassMemberNames;
 };
 
 export type DeclKind =
@@ -580,11 +594,12 @@ export type SignatureInfo = {
   readonly typeParameters?: readonly TypeParameterNode[];
 
   /**
-   * Declaring type fully-qualified name.
+   * Declaring type simple TS name (e.g., "Box" not "Test.Box").
    *
    * CRITICAL: Required for inheritance substitution in resolveCall().
+   * Resolved via UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
    */
-  readonly declaringTypeFQName?: string;
+  readonly declaringTypeTsName?: string;
 
   /**
    * Declaring member name.
@@ -998,7 +1013,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       typeParameters,
       parameterNames,
       typePredicate,
-      declaringTypeFQName: sigInfo.declaringTypeFQName,
+      declaringTypeTsName: sigInfo.declaringTypeTsName,
       declaringMemberName: sigInfo.declaringMemberName,
     };
 
@@ -1134,27 +1149,108 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   /**
    * Compute receiver substitution for a method call.
    *
-   * Given a receiver type (e.g., Array<string>) and a declaring type,
+   * Given a receiver type (e.g., Array<string>) and a declaring type's TS name,
    * computes the substitution map for class type parameters.
+   *
+   * DESIGN (Phase 5 Step 4): Uses UnifiedTypeCatalog.resolveTsName() to convert
+   * the simple TS name to a CLR FQ name for nominalEnv.getInstantiation().
    */
   const computeReceiverSubstitution = (
     receiverType: IrType,
-    declaringTypeFQName: string,
+    declaringTypeTsName: string,
     _declaringMemberName: string
   ): TypeSubstitutionMap | undefined => {
     const normalized = normalizeToNominal(receiverType);
     if (!normalized) return undefined;
 
+    // Resolve TS name to CLR FQ name via UnifiedTypeCatalog
+    // Fall back to the TS name if no catalog is available
+    const typeId = unifiedCatalog?.resolveTsName(declaringTypeTsName);
+    const declaringClrName = typeId?.clrName ?? declaringTypeTsName;
+
     return nominalEnv.getInstantiation(
       normalized.fqName,
       normalized.typeArgs,
-      declaringTypeFQName
+      declaringClrName
     );
   };
 
   // ─────────────────────────────────────────────────────────────────────────
   // typeOfDecl — Get declared type of a declaration
   // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Derive IrType from NumericKind (deterministic, no TypeScript).
+   * Mirrors the logic in literals.ts deriveTypeFromNumericIntent.
+   */
+  const deriveTypeFromNumericKind = (kind: NumericKind): IrType => {
+    if (kind === "Int32") return { kind: "referenceType", name: "int" };
+    if (kind === "Int64") return { kind: "referenceType", name: "long" };
+    if (kind === "Double") return { kind: "primitiveType", name: "number" };
+    if (kind === "Single") return { kind: "referenceType", name: "float" };
+    if (kind === "Byte") return { kind: "referenceType", name: "byte" };
+    if (kind === "Int16") return { kind: "referenceType", name: "short" };
+    if (kind === "UInt32") return { kind: "referenceType", name: "uint" };
+    if (kind === "UInt64") return { kind: "referenceType", name: "ulong" };
+    if (kind === "UInt16") return { kind: "referenceType", name: "ushort" };
+    if (kind === "SByte") return { kind: "referenceType", name: "sbyte" };
+    // Default to double for unknown
+    return { kind: "primitiveType", name: "number" };
+  };
+
+  /**
+   * Try to infer type from a variable declaration's literal initializer.
+   *
+   * DETERMINISM: Uses the raw lexeme form of the literal, not TS computed types.
+   * Only handles simple literal initializers:
+   * - Numeric literals → inferred via inferNumericKindFromRaw
+   * - String literals → primitiveType("string")
+   * - Boolean literals → primitiveType("boolean")
+   *
+   * Returns undefined if the initializer is not a simple literal.
+   */
+  const tryInferTypeFromLiteralInitializer = (
+    declNode: unknown
+  ): IrType | undefined => {
+    // TypeScript's VariableDeclaration has an `initializer` property
+    const decl = declNode as {
+      kind?: number;
+      initializer?: {
+        kind?: number;
+        text?: string;
+        getText?: () => string;
+      };
+    };
+
+    // Must have an initializer
+    if (!decl.initializer) return undefined;
+
+    const init = decl.initializer;
+
+    // TypeScript SyntaxKind constants (version-stable for these)
+    // NumericLiteral = 9, StringLiteral = 11, TrueKeyword = 112, FalseKeyword = 113
+    const NumericLiteralKind = 9;
+    const StringLiteralKind = 11;
+    const TrueKeywordKind = 112;
+    const FalseKeywordKind = 113;
+
+    if (init.kind === NumericLiteralKind && init.getText) {
+      const raw = init.getText();
+      const numericKind = inferNumericKindFromRaw(raw);
+      return deriveTypeFromNumericKind(numericKind);
+    }
+
+    if (init.kind === StringLiteralKind) {
+      return { kind: "primitiveType", name: "string" };
+    }
+
+    if (init.kind === TrueKeywordKind || init.kind === FalseKeywordKind) {
+      return { kind: "primitiveType", name: "boolean" };
+    }
+
+    // Not a simple literal - cannot infer
+    return undefined;
+  };
 
   const typeOfDecl = (declId: DeclId): IrType => {
     // Check cache first
@@ -1188,8 +1284,21 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
         `Function '${declInfo.fqName ?? "unknown"}' requires explicit return type`
       );
       result = unknownType;
+    } else if (declInfo.kind === "variable" && declInfo.declNode) {
+      // Variable without type annotation - try to infer from literal initializer
+      const literalType = tryInferTypeFromLiteralInitializer(declInfo.declNode);
+      if (literalType) {
+        result = literalType;
+      } else {
+        // Not a simple literal - require explicit type annotation
+        emitDiagnostic(
+          "TSN5201",
+          `Declaration requires explicit type annotation`
+        );
+        result = unknownType;
+      }
     } else {
-      // Variable/parameter without type annotation
+      // Parameter or other declaration without type annotation
       emitDiagnostic(
         "TSN5201",
         `Declaration requires explicit type annotation`
@@ -1314,12 +1423,12 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     // 3. Compute receiver substitution (class type params)
     if (
       receiverType &&
-      rawSig.declaringTypeFQName &&
+      rawSig.declaringTypeTsName &&
       rawSig.declaringMemberName
     ) {
       const receiverSubst = computeReceiverSubstitution(
         receiverType,
-        rawSig.declaringTypeFQName,
+        rawSig.declaringTypeTsName,
         rawSig.declaringMemberName
       );
       if (receiverSubst && receiverSubst.size > 0) {
@@ -2255,55 +2364,35 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   // checkTsClassMemberOverride — Check if member can be overridden
   // ─────────────────────────────────────────────────────────────────────────
 
-  // ts.SyntaxKind.ClassDeclaration is 263 in TypeScript 5.x
-  const ClassDeclarationKind = 263;
-  // ts.SyntaxKind.MethodDeclaration is 174
-  const MethodDeclarationKind = 174;
-  // ts.SyntaxKind.PropertyDeclaration is 172
-  const PropertyDeclarationKind = 172;
-  // ts.SyntaxKind.Identifier is 80
-  const IdentifierKind = 80;
-
+  /**
+   * Check if a class member overrides a base class member.
+   *
+   * ALICE'S SPEC: Uses captured ClassMemberNames (pure data) from Binding.
+   * No TS AST inspection, no SyntaxKind numbers. TS-version safe.
+   */
   const checkTsClassMemberOverride = (
     declId: DeclId,
     memberName: string,
     memberKind: "method" | "property"
   ): { isOverride: boolean; isShadow: boolean } => {
     const declInfo = handleRegistry.getDecl(declId);
-    if (!declInfo?.declNode) {
-      return { isOverride: false, isShadow: false };
-    }
+    const members = declInfo?.classMemberNames;
 
-    const baseDecl = declInfo.declNode as {
-      kind?: number;
-      members?: readonly unknown[];
-    };
-
-    // Only handle class declarations
-    if (baseDecl.kind !== ClassDeclarationKind || !baseDecl.members) {
+    // No class member info available
+    if (!members) {
       return { isOverride: false, isShadow: false };
     }
 
     // Check if base class has this member
-    const targetKind =
-      memberKind === "method" ? MethodDeclarationKind : PropertyDeclarationKind;
+    const has =
+      memberKind === "method"
+        ? members.methods.has(memberName)
+        : members.properties.has(memberName);
 
-    const baseMember = baseDecl.members.find((m) => {
-      const member = m as {
-        kind?: number;
-        name?: { kind?: number; text?: string };
-      };
-      if (member.kind !== targetKind) return false;
-      if (member.name?.kind !== IdentifierKind) return false;
-      return member.name.text === memberName;
-    });
-
-    if (baseMember) {
-      // In TypeScript, all methods can be overridden (no `final` keyword)
-      return { isOverride: true, isShadow: false };
-    }
-
-    return { isOverride: false, isShadow: false };
+    // In TypeScript, all methods can be overridden (no `final` keyword)
+    return has
+      ? { isOverride: true, isShadow: false }
+      : { isOverride: false, isShadow: false };
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2324,8 +2413,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       // Invalid handle - return unknownType
       return { kind: "unknownType" };
     }
-    // Convert the captured TypeNode
-    return convertTypeNode(syntaxInfo.typeNode as ts.TypeNode);
+    // Phase 5: convertTypeNode accepts unknown, cast is inside type-system/internal
+    return convertTypeNode(syntaxInfo.typeNode);
   };
 
   // ─────────────────────────────────────────────────────────────────────────

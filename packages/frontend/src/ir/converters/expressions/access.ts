@@ -13,11 +13,7 @@ import * as ts from "typescript";
 import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import {
-  getBindingRegistry,
-  getTypeSystem,
-} from "../statements/declarations/registry.js";
-import type { Binding } from "../../binding/index.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
@@ -30,14 +26,13 @@ import type { Binding } from "../../binding/index.js";
  */
 const getDeclaredPropertyTypeFallback = (
   node: ts.PropertyAccessExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
   // ALICE'S SPEC: Use TypeSystem.typeOfMemberId() to get member type
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
+  const typeSystem = ctx.typeSystem;
 
   // Resolve property member through Binding layer
-  const memberId = binding.resolvePropertyAccess(node);
+  const memberId = ctx.binding.resolvePropertyAccess(node);
   if (!memberId) return undefined;
 
   // Use TypeSystem.typeOfMemberId() to get the member's declared type
@@ -59,13 +54,13 @@ const getDeclaredPropertyTypeFallback = (
  *
  * @param node - Property access expression node
  * @param receiverIrType - Already-computed IR type of the receiver (object) expression
- * @param binding - Binding layer for fallback resolution
+ * @param ctx - ProgramContext for type system and binding access
  * @returns The deterministically computed property type
  */
 const getDeclaredPropertyType = (
   node: ts.PropertyAccessExpression,
   receiverIrType: IrType | undefined,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
   const DEBUG = process.env.DEBUG_PROPERTY_TYPE === "1";
   const propertyName = node.name.text;
@@ -80,8 +75,8 @@ const getDeclaredPropertyType = (
   }
 
   // Try TypeSystem.typeOfMember() first
-  const typeSystem = getTypeSystem();
-  if (typeSystem && receiverIrType && receiverIrType.kind !== "unknownType") {
+  const typeSystem = ctx.typeSystem;
+  if (receiverIrType && receiverIrType.kind !== "unknownType") {
     const memberType = typeSystem.typeOfMember(receiverIrType, {
       kind: "byName",
       name: propertyName,
@@ -103,7 +98,7 @@ const getDeclaredPropertyType = (
 
   // Fallback: Use Binding for inherited members not in TypeRegistry
   // (e.g., Array.length from Array$instance)
-  const fallbackResult = getDeclaredPropertyTypeFallback(node, binding);
+  const fallbackResult = getDeclaredPropertyTypeFallback(node, ctx);
   if (DEBUG) {
     console.log(
       "[getDeclaredPropertyType]",
@@ -272,9 +267,10 @@ const extractTypeName = (
  */
 const resolveHierarchicalBinding = (
   object: ReturnType<typeof convertExpression>,
-  propertyName: string
+  propertyName: string,
+  ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
-  const registry = getBindingRegistry();
+  const registry = ctx.bindings;
 
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
@@ -388,17 +384,17 @@ const deriveElementType = (
  */
 export const convertMemberExpression = (
   node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrMemberExpression => {
   const isOptional = node.questionDotToken !== undefined;
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
-    const object = convertExpression(node.expression, binding, undefined);
+    const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
 
     // Try to resolve hierarchical binding
-    const memberBinding = resolveHierarchicalBinding(object, propertyName);
+    const memberBinding = resolveHierarchicalBinding(object, propertyName, ctx);
 
     // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
     // user-defined types (including inherited members), with fallback to Binding layer
@@ -416,7 +412,7 @@ export const convertMemberExpression = (
     const declaredType = getDeclaredPropertyType(
       node,
       object.inferredType,
-      binding
+      ctx
     );
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
@@ -451,7 +447,7 @@ export const convertMemberExpression = (
     };
   } else {
     // Element access (computed): obj[expr]
-    const object = convertExpression(node.expression, binding, undefined);
+    const object = convertExpression(node.expression, ctx, undefined);
 
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
     const objectType = object.inferredType;
@@ -466,7 +462,7 @@ export const convertMemberExpression = (
     return {
       kind: "memberAccess",
       object,
-      property: convertExpression(node.argumentExpression, binding, undefined),
+      property: convertExpression(node.argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
       inferredType: elementType,

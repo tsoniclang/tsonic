@@ -46,6 +46,15 @@ export interface TypeSyntaxInfo {
 }
 
 /**
+ * Captured class member names for override detection.
+ * Pure data — no TS nodes.
+ */
+export interface ClassMemberNames {
+  readonly methods: ReadonlySet<string>;
+  readonly properties: ReadonlySet<string>;
+}
+
+/**
  * Declaration info stored in the handle registry.
  */
 export interface DeclInfo {
@@ -53,6 +62,7 @@ export interface DeclInfo {
   readonly kind: DeclKind;
   readonly fqName?: string;
   readonly declNode?: unknown; // ts.Declaration — INTERNAL ONLY
+  readonly classMemberNames?: ClassMemberNames; // For class declarations only
 }
 
 export type DeclKind =
@@ -73,7 +83,11 @@ export interface SignatureInfo {
   readonly parameters: readonly ParameterNode[];
   readonly returnTypeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly typeParameters?: readonly TypeParameterNode[];
-  readonly declaringTypeFQName?: string;
+  /**
+   * Declaring type simple TS name (e.g., "Box" not "Test.Box").
+   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
+   */
+  readonly declaringTypeTsName?: string;
   readonly declaringMemberName?: string;
   readonly typePredicate?: SignatureTypePredicate;
 }

@@ -1,12 +1,14 @@
 /**
  * Exception handling converters (try, catch)
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of Binding.
  */
 
 import * as ts from "typescript";
 import { IrTryStatement, IrCatchClause, IrType } from "../../../types.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertBlockStatement } from "./blocks.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert try statement
@@ -15,17 +17,17 @@ import type { Binding } from "../../../binding/index.js";
  */
 export const convertTryStatement = (
   node: ts.TryStatement,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrTryStatement => {
   return {
     kind: "tryStatement",
-    tryBlock: convertBlockStatement(node.tryBlock, binding, expectedReturnType),
+    tryBlock: convertBlockStatement(node.tryBlock, ctx, expectedReturnType),
     catchClause: node.catchClause
-      ? convertCatchClause(node.catchClause, binding, expectedReturnType)
+      ? convertCatchClause(node.catchClause, ctx, expectedReturnType)
       : undefined,
     finallyBlock: node.finallyBlock
-      ? convertBlockStatement(node.finallyBlock, binding, expectedReturnType)
+      ? convertBlockStatement(node.finallyBlock, ctx, expectedReturnType)
       : undefined,
   };
 };
@@ -37,7 +39,7 @@ export const convertTryStatement = (
  */
 export const convertCatchClause = (
   node: ts.CatchClause,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrCatchClause => {
   return {
@@ -45,6 +47,6 @@ export const convertCatchClause = (
     parameter: node.variableDeclaration
       ? convertBindingName(node.variableDeclaration.name)
       : undefined,
-    body: convertBlockStatement(node.block, binding, expectedReturnType),
+    body: convertBlockStatement(node.block, ctx, expectedReturnType),
   };
 };

@@ -1,11 +1,13 @@
 /**
  * Block statement converter
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of Binding.
  */
 
 import * as ts from "typescript";
 import { IrStatement, IrBlockStatement, IrType } from "../../../types.js";
 import { convertStatement } from "../../../statement-converter.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert block statement
@@ -15,13 +17,13 @@ import type { Binding } from "../../../binding/index.js";
  */
 export const convertBlockStatement = (
   node: ts.Block,
-  binding: Binding,
+  ctx: ProgramContext,
   expectedReturnType: IrType | undefined
 ): IrBlockStatement => {
   return {
     kind: "blockStatement",
     statements: node.statements
-      .map((s) => convertStatement(s, binding, expectedReturnType))
+      .map((s) => convertStatement(s, ctx, expectedReturnType))
       .filter((s): s is IrStatement => s !== null),
   };
 };

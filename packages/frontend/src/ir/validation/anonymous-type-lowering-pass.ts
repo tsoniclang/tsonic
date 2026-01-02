@@ -403,17 +403,39 @@ const lowerTypeParameter = (
 
 /**
  * Lower an interface member
+ *
+ * IMPORTANT: For propertySignature where type is objectType, we KEEP the objectType
+ * instead of lowering to referenceType. This allows the emitter's interface inline-type
+ * extraction to name these inline objects properly (e.g., `Address` instead of `__Anon_*`).
+ *
+ * We still lower nested member types within the objectType to handle deeper nesting.
  */
 const lowerInterfaceMember = (
   member: IrInterfaceMember,
   ctx: LoweringContext
 ): IrInterfaceMember => {
   switch (member.kind) {
-    case "propertySignature":
+    case "propertySignature": {
+      // If the property type is objectType, preserve it for emitter's inline extraction
+      // but still lower nested member types within
+      if (member.type.kind === "objectType") {
+        const loweredMembers: IrInterfaceMember[] = member.type.members.map(
+          (m) => lowerInterfaceMember(m, ctx)
+        );
+        return {
+          ...member,
+          type: {
+            ...member.type,
+            members: loweredMembers,
+          },
+        };
+      }
+      // For non-objectType, lower normally
       return {
         ...member,
         type: lowerType(member.type, ctx),
       };
+    }
     case "methodSignature":
       return {
         ...member,

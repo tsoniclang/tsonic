@@ -32,7 +32,87 @@ import {
   UNSUPPORTED_MAPPED_UTILITY_TYPES,
   UNSUPPORTED_CONDITIONAL_UTILITY_TYPES,
 } from "./unsupported-utility-types.js";
-import { checkSynthesisEligibility } from "../ir/converters/anonymous-synthesis.js";
+
+/**
+ * Result of basic eligibility check for object literal synthesis.
+ */
+type BasicEligibilityResult =
+  | { eligible: true }
+  | { eligible: false; reason: string };
+
+/**
+ * Check basic structural eligibility for object literal synthesis.
+ *
+ * This is a simplified check that doesn't require TypeSystem access.
+ * It validates structural constraints (no computed keys, no method shorthand, etc.)
+ * but does NOT validate spread type annotations (that requires TypeSystem).
+ *
+ * Full eligibility check happens during IR conversion.
+ */
+const checkBasicSynthesisEligibility = (
+  node: ts.ObjectLiteralExpression
+): BasicEligibilityResult => {
+  for (const prop of node.properties) {
+    // Property assignment: check key type
+    if (ts.isPropertyAssignment(prop)) {
+      if (ts.isComputedPropertyName(prop.name)) {
+        // Computed key - check if it's a string literal
+        const expr = prop.name.expression;
+        if (!ts.isStringLiteral(expr)) {
+          return {
+            eligible: false,
+            reason: `Computed property key is not a string literal`,
+          };
+        }
+      }
+      // Check for symbol keys
+      if (ts.isPrivateIdentifier(prop.name)) {
+        return {
+          eligible: false,
+          reason: `Private identifier (symbol) keys are not supported`,
+        };
+      }
+    }
+
+    // Shorthand property: always ok (identifier key)
+    if (ts.isShorthandPropertyAssignment(prop)) {
+      continue;
+    }
+
+    // Spread: allow for now, full check happens during IR conversion
+    if (ts.isSpreadAssignment(prop)) {
+      // Basic check: spread source must be an identifier
+      if (!ts.isIdentifier(prop.expression)) {
+        return {
+          eligible: false,
+          reason: `Spread source must be a simple identifier (TSN5215)`,
+        };
+      }
+      continue;
+    }
+
+    // Method declaration: reject (use arrow functions instead)
+    if (ts.isMethodDeclaration(prop)) {
+      return {
+        eligible: false,
+        reason: `Method shorthand is not supported. Use arrow function syntax: 'name: () => ...'`,
+      };
+    }
+
+    // Getter/setter: reject
+    if (
+      ts.isGetAccessorDeclaration(prop) ||
+      ts.isSetAccessorDeclaration(prop)
+    ) {
+      return {
+        eligible: false,
+        reason: `Getters and setters are not supported in synthesized types`,
+      };
+    }
+  }
+
+  return { eligible: true };
+};
 
 /**
  * DETERMINISTIC IR TYPING (INV-0 compliant):
@@ -45,6 +125,7 @@ import { checkSynthesisEligibility } from "../ir/converters/anonymous-synthesis.
  * 3. New expression arguments - the constructor's parameter type provides the expected type
  * 4. Return statements - the function's return type provides the expected type
  * 5. Property assignments - the object's contextual type provides the expected type
+ * 6. Nested arrow functions - body of another arrow that has expected context
  */
 const lambdaHasExpectedTypeContext = (
   lambda: ts.ArrowFunction | ts.FunctionExpression
@@ -103,6 +184,26 @@ const lambdaHasExpectedTypeContext = (
     }
     if (ts.isCallExpression(arrayParent) || ts.isNewExpression(arrayParent)) {
       return true;
+    }
+  }
+
+  // Case 7: Lambda is the expression body of another arrow function
+  // e.g., () => () => "deeply nested" — the inner arrow is the body of the outer
+  // If the outer arrow has:
+  //   a) an explicit return type annotation, OR
+  //   b) expected-type context itself
+  // then the inner arrow has contextual type from the outer's expected return type.
+  if (ts.isArrowFunction(parent) || ts.isFunctionExpression(parent)) {
+    // Check if this lambda IS the body of the parent (not just a subexpression)
+    if (parent.body === lambda) {
+      // Parent has explicit return type → inner has context
+      if (parent.type) {
+        return true;
+      }
+      // Parent itself has expected-type context → inner has context
+      if (lambdaHasExpectedTypeContext(parent)) {
+        return true;
+      }
     }
   }
 
@@ -217,8 +318,6 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const { binding } = program;
-
   const visitor = (
     node: ts.Node,
     accCollector: DiagnosticsCollector
@@ -327,8 +426,10 @@ export const validateStaticSafety = (
       if (hasContextualType) {
         // Has contextual type - type checking will validate compatibility during IR conversion
       } else {
-        // No contextual type - check if eligible for synthesis
-        const eligibility = checkSynthesisEligibility(node, binding);
+        // No contextual type - check basic synthesis eligibility
+        // Full eligibility check (including spread type annotations) happens during IR conversion
+        // when we have TypeSystem access.
+        const eligibility = checkBasicSynthesisEligibility(node);
         if (!eligibility.eligible) {
           // Not eligible for synthesis - emit diagnostic with specific reason
           currentCollector = addDiagnostic(
@@ -342,7 +443,7 @@ export const validateStaticSafety = (
             )
           );
         }
-        // If eligible, synthesis will happen during IR conversion
+        // If eligible, full synthesis check happens during IR conversion
       }
     }
 

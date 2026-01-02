@@ -15,27 +15,23 @@ import {
   convertTypeParameters,
   convertParameters,
 } from "../helpers.js";
-import { getTypeSystem } from "./registry.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert interface member
  */
 export const convertInterfaceMember = (
   node: ts.TypeElement,
-  binding: Binding
+  ctx: ProgramContext
 ): IrInterfaceMember | null => {
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
-
   if (ts.isPropertySignature(node) && node.type) {
     return {
       kind: "propertySignature",
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
-      type: typeSystem
-        ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
-        : { kind: "unknownType" },
+      type: ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(node.type)
+      ),
       isOptional: !!node.questionToken,
       isReadonly: hasReadonlyModifier(node),
     };
@@ -46,12 +42,13 @@ export const convertInterfaceMember = (
       kind: "methodSignature",
       name:
         node.name && ts.isIdentifier(node.name) ? node.name.text : "[computed]",
-      typeParameters: convertTypeParameters(node.typeParameters, binding),
-      parameters: convertParameters(node.parameters, binding),
-      returnType:
-        node.type && typeSystem
-          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(node.type))
-          : undefined,
+      typeParameters: convertTypeParameters(node.typeParameters, ctx),
+      parameters: convertParameters(node.parameters, ctx),
+      returnType: node.type
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(node.type)
+          )
+        : undefined,
     };
   }
 
@@ -82,7 +79,7 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
  */
 const extractIndexSignatureOnlyInterface = (
   node: ts.InterfaceDeclaration,
-  binding: Binding
+  ctx: ProgramContext
 ): { keyType: IrType; valueType: IrType } | undefined => {
   const members = node.members;
 
@@ -102,12 +99,8 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
-
-  const keyType = typeSystem.typeFromSyntax(
-    binding.captureTypeSyntax(param.type)
+  const keyType = ctx.typeSystem.typeFromSyntax(
+    ctx.binding.captureTypeSyntax(param.type)
   );
 
   // Only allow string or number keys (enforced by TSN7413)
@@ -123,8 +116,8 @@ const extractIndexSignatureOnlyInterface = (
     return undefined;
   }
 
-  const valueType = typeSystem.typeFromSyntax(
-    binding.captureTypeSyntax(member.type)
+  const valueType = ctx.typeSystem.typeFromSyntax(
+    ctx.binding.captureTypeSyntax(member.type)
   );
 
   return { keyType, valueType };
@@ -162,7 +155,7 @@ const isMarkerInterface = (node: ts.InterfaceDeclaration): boolean => {
  */
 export const convertInterfaceDeclaration = (
   node: ts.InterfaceDeclaration,
-  binding: Binding
+  ctx: ProgramContext
 ): IrInterfaceDeclaration | IrTypeAliasDeclaration | null => {
   // Filter out marker interfaces completely
   if (isMarkerInterface(node)) {
@@ -170,12 +163,12 @@ export const convertInterfaceDeclaration = (
   }
 
   // Check for index-signature-only interface → lower to type alias for dictionary
-  const dictInfo = extractIndexSignatureOnlyInterface(node, binding);
+  const dictInfo = extractIndexSignatureOnlyInterface(node, ctx);
   if (dictInfo) {
     return {
       kind: "typeAliasDeclaration",
       name: node.name.text,
-      typeParameters: convertTypeParameters(node.typeParameters, binding),
+      typeParameters: convertTypeParameters(node.typeParameters, ctx),
       type: {
         kind: "dictionaryType",
         keyType: dictInfo.keyType,
@@ -190,8 +183,6 @@ export const convertInterfaceDeclaration = (
   const extendsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   );
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
   const extendsTypes =
     extendsClause?.types
       .filter((t) => {
@@ -202,14 +193,11 @@ export const convertInterfaceDeclaration = (
         return true;
       })
       .map((t) =>
-        typeSystem
-          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(t))
-          : undefined
-      )
-      .filter((t): t is NonNullable<typeof t> => t !== undefined) ?? [];
+        ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(t))
+      ) ?? [];
 
   const allMembers = node.members
-    .map((m) => convertInterfaceMember(m, binding))
+    .map((m) => convertInterfaceMember(m, ctx))
     .filter((m): m is IrInterfaceMember => m !== null);
 
   // Filter out __brand property if this is a struct
@@ -222,7 +210,7 @@ export const convertInterfaceDeclaration = (
   return {
     kind: "interfaceDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, binding),
+    typeParameters: convertTypeParameters(node.typeParameters, ctx),
     extends: extendsTypes,
     members: finalMembers,
     isExported: hasExportModifier(node),

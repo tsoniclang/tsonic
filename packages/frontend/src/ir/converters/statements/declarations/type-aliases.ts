@@ -6,8 +6,7 @@ import * as ts from "typescript";
 import { IrStatement, IrTypeAliasDeclaration } from "../../../types.js";
 import { hasExportModifier, convertTypeParameters } from "../helpers.js";
 import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
-import { getTypeSystem } from "./registry.js";
-import type { Binding } from "../../../binding/index.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert type alias declaration.
@@ -19,19 +18,16 @@ import type { Binding } from "../../../binding/index.js";
  */
 export const convertTypeAliasDeclaration = (
   node: ts.TypeAliasDeclaration,
-  binding: Binding
+  ctx: ProgramContext
 ): readonly IrStatement[] => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   // This replaces the deprecated convertTypeNode pattern.
-  const typeSystem = getTypeSystem();
-  const typeSyntaxId = binding.captureTypeSyntax(node.type);
+  const typeSyntaxId = ctx.binding.captureTypeSyntax(node.type);
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, binding),
-    type: typeSystem
-      ? typeSystem.typeFromSyntax(typeSyntaxId)
-      : { kind: "unknownType" },
+    typeParameters: convertTypeParameters(node.typeParameters, ctx),
+    type: ctx.typeSystem.typeFromSyntax(typeSyntaxId),
     isExported: hasExportModifier(node),
     isStruct: false, // Type aliases are not structs by default
   };

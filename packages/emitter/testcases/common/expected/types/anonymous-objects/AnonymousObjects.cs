@@ -22,7 +22,7 @@ namespace TestCases.common.types.anonymousobjects
     }
     public class __Anon_AnonymousObjects_19_26
     {
-        public required double value { get; set; }
+        public required int value { get; set; }
     }
 
             public static class AnonymousObjects

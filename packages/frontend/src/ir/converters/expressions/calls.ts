@@ -18,8 +18,7 @@ import {
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { IrType } from "../../types.js";
-import { getTypeSystem } from "../statements/declarations/registry.js";
-import type { Binding } from "../../binding/index.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Extract argument passing modes from resolved signature.
@@ -30,16 +29,15 @@ import type { Binding } from "../../binding/index.js";
  */
 const extractArgumentPassing = (
   node: ts.CallExpression | ts.NewExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
   // Get the TypeSystem
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
+  const typeSystem = ctx.typeSystem;
 
   // Handle both CallExpression and NewExpression
   const sigId = ts.isCallExpression(node)
-    ? binding.resolveCallSignature(node)
-    : binding.resolveConstructorSignature(node);
+    ? ctx.binding.resolveCallSignature(node)
+    : ctx.binding.resolveConstructorSignature(node);
   if (!sigId) return undefined;
 
   // Use TypeSystem.resolveCall() to get parameter modes
@@ -63,13 +61,12 @@ const extractArgumentPassing = (
  */
 const extractNarrowing = (
   node: ts.CallExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrCallExpression["narrowing"] => {
   // Get the TypeSystem
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
+  const typeSystem = ctx.typeSystem;
 
-  const sigId = binding.resolveCallSignature(node);
+  const sigId = ctx.binding.resolveCallSignature(node);
   if (!sigId) return undefined;
 
   // Use TypeSystem.resolveCall() to get type predicate
@@ -104,29 +101,28 @@ const extractNarrowing = (
  * unknownType on failure). No fallback paths.
  *
  * @param node - Call or new expression
- * @param binding - Binding layer for symbol resolution
+ * @param ctx - ProgramContext for type system and binding access
  * @param receiverIrType - IR type of the receiver (for member method calls)
  */
 const extractParameterTypes = (
   node: ts.CallExpression | ts.NewExpression,
-  binding: Binding,
+  ctx: ProgramContext,
   receiverIrType?: IrType
 ): readonly (IrType | undefined)[] | undefined => {
   // Get the TypeSystem - required for all call resolution
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) return undefined;
+  const typeSystem = ctx.typeSystem;
 
   // Handle both CallExpression and NewExpression
   const sigId = ts.isCallExpression(node)
-    ? binding.resolveCallSignature(node)
-    : binding.resolveConstructorSignature(node);
+    ? ctx.binding.resolveCallSignature(node)
+    : ctx.binding.resolveConstructorSignature(node);
   if (!sigId) return undefined;
 
   // Extract explicit type arguments from call site if any
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const explicitTypeArgs = node.typeArguments
     ? node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
       )
     : undefined;
 
@@ -211,7 +207,7 @@ const buildQualifiedName = (expr: ts.Expression): string | undefined => {
  */
 export const getDeclaredReturnType = (
   node: ts.CallExpression | ts.NewExpression,
-  binding: Binding,
+  ctx: ProgramContext,
   receiverIrType?: IrType
 ): IrType | undefined => {
   const DEBUG = process.env.DEBUG_RETURN_TYPE === "1";
@@ -235,13 +231,12 @@ export const getDeclaredReturnType = (
       const typeName = buildQualifiedName(node.expression);
       if (typeName) {
         // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-        const typeSystem = getTypeSystem();
-        if (!typeSystem) return undefined;
+        const typeSystem = ctx.typeSystem;
         return {
           kind: "referenceType",
           name: typeName,
           typeArguments: node.typeArguments.map((ta) =>
-            typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+            typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
           ),
         };
       }
@@ -255,18 +250,9 @@ export const getDeclaredReturnType = (
   }
 
   // For call expressions, use TypeSystem.resolveCall() EXCLUSIVELY
-  const typeSystem = getTypeSystem();
-  if (!typeSystem) {
-    if (DEBUG && methodName)
-      console.log(
-        "[getDeclaredReturnType]",
-        methodName,
-        "No TypeSystem available"
-      );
-    return undefined;
-  }
+  const typeSystem = ctx.typeSystem;
 
-  const sigId = binding.resolveCallSignature(node);
+  const sigId = ctx.binding.resolveCallSignature(node);
   if (!sigId) {
     if (DEBUG && methodName)
       console.log(
@@ -284,7 +270,7 @@ export const getDeclaredReturnType = (
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const explicitTypeArgs = node.typeArguments
     ? node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
       )
     : undefined;
 
@@ -350,7 +336,7 @@ const extractArgumentPassingFromBinding = (
  */
 export const convertCallExpression = (
   node: ts.CallExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrCallExpression | IrTryCastExpression => {
   // Check for trycast<T>(x) - special intrinsic for safe casting
   // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
@@ -370,14 +356,11 @@ export const convertCallExpression = (
       );
     }
     // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-    const typeSystem = getTypeSystem();
-    if (!typeSystem) {
-      throw new Error("ICE: TypeSystem not available for trycast conversion");
-    }
+    const typeSystem = ctx.typeSystem;
     const targetType = typeSystem.typeFromSyntax(
-      binding.captureTypeSyntax(targetTypeNode)
+      ctx.binding.captureTypeSyntax(targetTypeNode)
     );
-    const argExpr = convertExpression(argNode, binding, undefined);
+    const argExpr = convertExpression(argNode, ctx, undefined);
 
     // Build union type T | null for inferredType
     const nullType: IrType = { kind: "primitiveType", name: "null" };
@@ -396,35 +379,31 @@ export const convertCallExpression = (
   }
 
   // Extract type arguments from the call signature
-  const typeArguments = extractTypeArguments(node, binding);
-  const requiresSpecialization = checkIfRequiresSpecialization(node, binding);
-  const narrowing = extractNarrowing(node, binding);
+  const typeArguments = extractTypeArguments(node, ctx);
+  const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
+  const narrowing = extractNarrowing(node, ctx);
 
   // Convert callee first so we can access memberBinding and receiver type
-  const callee = convertExpression(node.expression, binding, undefined);
+  const callee = convertExpression(node.expression, ctx, undefined);
 
   // Extract receiver type for member method calls (e.g., dict.get() → dict's type)
   const receiverIrType =
     callee.kind === "memberAccess" ? callee.object.inferredType : undefined;
 
   // Extract parameter types with receiver type for inheritance substitution
-  const parameterTypes = extractParameterTypes(node, binding, receiverIrType);
+  const parameterTypes = extractParameterTypes(node, ctx, receiverIrType);
 
   // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
   // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
   const argumentPassing =
     extractArgumentPassingFromBinding(callee, node.arguments.length) ??
-    extractArgumentPassing(node, binding);
+    extractArgumentPassing(node, ctx);
 
   // DETERMINISTIC TYPING: Return type comes ONLY from declared TypeNodes.
   // NO fallback to TS inference - that loses CLR type aliases.
   // If getDeclaredReturnType returns undefined, use unknownType as poison
   // so validation can emit TSN5201.
-  const declaredReturnType = getDeclaredReturnType(
-    node,
-    binding,
-    receiverIrType
-  );
+  const declaredReturnType = getDeclaredReturnType(node, ctx, receiverIrType);
   const inferredType = declaredReturnType ?? { kind: "unknownType" as const };
 
   return {
@@ -438,11 +417,7 @@ export const convertCallExpression = (
 
       if (ts.isSpreadElement(arg)) {
         // DETERMINISTIC: Use expression's inferredType directly
-        const spreadExpr = convertExpression(
-          arg.expression,
-          binding,
-          undefined
-        );
+        const spreadExpr = convertExpression(arg.expression, ctx, undefined);
         return {
           kind: "spread" as const,
           expression: spreadExpr,
@@ -450,7 +425,7 @@ export const convertCallExpression = (
           sourceSpan: getSourceSpan(arg),
         };
       }
-      return convertExpression(arg, binding, expectedType);
+      return convertExpression(arg, ctx, expectedType);
     }),
     isOptional: node.questionDotToken !== undefined,
     inferredType,
@@ -475,7 +450,7 @@ export const convertCallExpression = (
  */
 const getConstructedType = (
   node: ts.NewExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrType | undefined => {
   // The expression in `new Foo<T>()` is the type reference
   // If type arguments are explicit, use them to build the type
@@ -485,13 +460,12 @@ const getConstructedType = (
 
     if (typeName) {
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-      const typeSystem = getTypeSystem();
-      if (!typeSystem) return undefined;
+      const typeSystem = ctx.typeSystem;
       return {
         kind: "referenceType",
         name: typeName,
         typeArguments: node.typeArguments.map((ta) =>
-          typeSystem.typeFromSyntax(binding.captureTypeSyntax(ta))
+          typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
         ),
       };
     }
@@ -499,9 +473,9 @@ const getConstructedType = (
 
   // No explicit type arguments - check if the target is generic
   // ALICE'S SPEC: Use TypeSystem to check if the type has type parameters
-  const typeSystem = getTypeSystem();
-  if (typeSystem && ts.isIdentifier(node.expression)) {
-    const declId = binding.resolveIdentifier(node.expression);
+  const typeSystem = ctx.typeSystem;
+  if (ts.isIdentifier(node.expression)) {
+    const declId = ctx.binding.resolveIdentifier(node.expression);
     if (declId) {
       // Use TypeSystem.hasTypeParameters() to check without accessing HandleRegistry
       const hasTypeParams = typeSystem.hasTypeParameters(declId);
@@ -530,32 +504,28 @@ const getConstructedType = (
  */
 export const convertNewExpression = (
   node: ts.NewExpression,
-  binding: Binding
+  ctx: ProgramContext
 ): IrNewExpression => {
   // Extract type arguments from the constructor signature
-  const typeArguments = extractTypeArguments(node, binding);
-  const requiresSpecialization = checkIfRequiresSpecialization(node, binding);
-  const parameterTypes = extractParameterTypes(node, binding);
+  const typeArguments = extractTypeArguments(node, ctx);
+  const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
+  const parameterTypes = extractParameterTypes(node, ctx);
 
   // For new expressions, the type is the constructed type from the type reference.
   // Unlike function calls, constructors don't need "return type" annotations.
   // The type is simply what we're instantiating: `new Foo<int>()` → `Foo<int>`.
-  const inferredType = getConstructedType(node, binding);
+  const inferredType = getConstructedType(node, ctx);
 
   return {
     kind: "new",
-    callee: convertExpression(node.expression, binding, undefined),
+    callee: convertExpression(node.expression, ctx, undefined),
     // Pass parameter types as expectedType for deterministic contextual typing
     arguments:
       node.arguments?.map((arg, index) => {
         const expectedType = parameterTypes?.[index];
         if (ts.isSpreadElement(arg)) {
           // DETERMINISTIC: Use expression's inferredType directly
-          const spreadExpr = convertExpression(
-            arg.expression,
-            binding,
-            undefined
-          );
+          const spreadExpr = convertExpression(arg.expression, ctx, undefined);
           return {
             kind: "spread" as const,
             expression: spreadExpr,
@@ -563,7 +533,7 @@ export const convertNewExpression = (
             sourceSpan: getSourceSpan(arg),
           };
         }
-        return convertExpression(arg, binding, expectedType);
+        return convertExpression(arg, ctx, expectedType);
       }) ?? [],
     inferredType,
     sourceSpan: getSourceSpan(node),

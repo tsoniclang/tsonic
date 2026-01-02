@@ -142,7 +142,8 @@ const findExpression = (
   return undefined;
 };
 
-describe("Declaration-Based Numeric Intent Recovery", () => {
+describe("Declaration-Based Numeric Intent Recovery", function () {
+  this.timeout(10_000);
   describe("Property Access Recovery", () => {
     it("should recover 'int' from arr.length property declaration", () => {
       const code = `

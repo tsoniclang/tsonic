@@ -12,28 +12,27 @@ import {
   convertConstructor,
   extractParameterProperties,
 } from "./constructors.js";
-import { getTypeSystem } from "../registry.js";
-import type { Binding } from "../../../../binding/index.js";
+import type { ProgramContext } from "../../../../program-context.js";
 
 /**
  * Convert a single class member
  */
 const convertClassMember = (
   node: ts.ClassElement,
-  binding: Binding,
+  ctx: ProgramContext,
   superClass: ts.ExpressionWithTypeArguments | undefined,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember | null => {
   if (ts.isPropertyDeclaration(node)) {
-    return convertProperty(node, binding, superClass);
+    return convertProperty(node, ctx, superClass);
   }
 
   if (ts.isMethodDeclaration(node)) {
-    return convertMethod(node, binding, superClass);
+    return convertMethod(node, ctx, superClass);
   }
 
   if (ts.isConstructorDeclaration(node)) {
-    return convertConstructor(node, binding, constructorParams);
+    return convertConstructor(node, ctx, constructorParams);
   }
 
   return null;
@@ -94,7 +93,7 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
  */
 export const convertClassDeclaration = (
   node: ts.ClassDeclaration,
-  binding: Binding
+  ctx: ProgramContext
 ): IrClassDeclaration | null => {
   if (!node.name) return null;
 
@@ -107,8 +106,6 @@ export const convertClassDeclaration = (
   const implementsClause = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ImplementsKeyword
   );
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const typeSystem = getTypeSystem();
   const implementsTypes =
     implementsClause?.types
       .filter((t) => {
@@ -119,23 +116,18 @@ export const convertClassDeclaration = (
         return true;
       })
       .map((t) =>
-        typeSystem
-          ? typeSystem.typeFromSyntax(binding.captureTypeSyntax(t))
-          : undefined
-      )
-      .filter((t): t is NonNullable<typeof t> => t !== undefined) ?? [];
+        ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(t))
+      ) ?? [];
 
   // Extract parameter properties from constructor
   const constructor = node.members.find(ts.isConstructorDeclaration);
-  const parameterProperties = extractParameterProperties(constructor, binding);
+  const parameterProperties = extractParameterProperties(constructor, ctx);
 
   // Filter to only include members declared directly on this class (not inherited)
   const ownMembers = filterOwnMembers(node);
 
   const convertedMembers = ownMembers
-    .map((m) =>
-      convertClassMember(m, binding, superClass, constructor?.parameters)
-    )
+    .map((m) => convertClassMember(m, ctx, superClass, constructor?.parameters))
     .filter((m): m is IrClassMember => m !== null);
 
   // Deduplicate members by name (keep first occurrence)
@@ -153,9 +145,9 @@ export const convertClassDeclaration = (
   return {
     kind: "classDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, binding),
+    typeParameters: convertTypeParameters(node.typeParameters, ctx),
     superClass: superClass
-      ? convertExpression(superClass, binding, undefined)
+      ? convertExpression(superClass, ctx, undefined)
       : undefined,
     implements: implementsTypes,
     members: finalMembers,
