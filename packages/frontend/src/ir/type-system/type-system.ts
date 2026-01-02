@@ -25,6 +25,7 @@ import type {
   DeclId,
   SignatureId,
   MemberId,
+  TypeSyntaxId,
   TypeParameterInfo,
   UtilityTypeName,
   ParameterMode,
@@ -62,8 +63,22 @@ export interface TypeSystem {
    *
    * ALICE'S SPEC: Type conversion is internal to TypeSystem. External code
    * passes TypeNodes in; TypeSystem returns IrTypes.
+   *
+   * @deprecated Use typeFromSyntax(TypeSyntaxId) instead. This method will be
+   * removed once all converters are migrated to use TypeSyntaxId handles.
    */
   convertTypeNode(typeNode: ts.TypeNode): IrType;
+
+  /**
+   * Convert a captured type syntax to IrType.
+   *
+   * This is the correct way for converters to convert inline type syntax
+   * (as X, satisfies Y, generic args) that was captured via Binding.captureTypeSyntax().
+   *
+   * ALICE'S SPEC (Phase 2): TypeSystem receives opaque handles, not ts.TypeNode.
+   * This keeps the TypeSystem public API free of TypeScript types.
+   */
+  typeFromSyntax(typeSyntaxId: TypeSyntaxId): IrType;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Declaration Types
@@ -490,7 +505,23 @@ export interface HandleRegistry {
 
   /** Get member info for a MemberId */
   getMember(id: MemberId): MemberInfo | undefined;
+
+  /**
+   * Get captured type syntax for a TypeSyntaxId.
+   *
+   * Returns the TypeNode that was captured via Binding.captureTypeSyntax().
+   * TypeSystem uses this internally to convert captured syntax to IrType.
+   */
+  getTypeSyntax(id: TypeSyntaxId): TypeSyntaxInfo | undefined;
 }
+
+/**
+ * Type syntax info stored in the handle registry.
+ */
+export type TypeSyntaxInfo = {
+  /** The captured TypeNode (ts.TypeNode, cast to unknown) */
+  readonly typeNode: unknown;
+};
 
 /**
  * Declaration info in the handle registry.
@@ -2150,12 +2181,31 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     return convertTypeNode(typeNode);
   };
 
+  /**
+   * Convert a captured type syntax to IrType.
+   *
+   * This method takes a TypeSyntaxId handle (opaque to caller) and looks up
+   * the captured TypeNode in the HandleRegistry, then converts it.
+   *
+   * ALICE'S SPEC (Phase 2): TypeSystem receives opaque handles, not ts.TypeNode.
+   */
+  const typeFromSyntax = (typeSyntaxId: TypeSyntaxId): IrType => {
+    const syntaxInfo = handleRegistry.getTypeSyntax(typeSyntaxId);
+    if (!syntaxInfo) {
+      // Invalid handle - return unknownType
+      return { kind: "unknownType" };
+    }
+    // Convert the captured TypeNode
+    return convertTypeNode(syntaxInfo.typeNode as ts.TypeNode);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
   // RETURN TYPESYSTEM INSTANCE
   // ─────────────────────────────────────────────────────────────────────────
 
   return {
     convertTypeNode: convertTypeNodeMethod,
+    typeFromSyntax,
     typeOfDecl,
     typeOfMember,
     typeOfMemberId,

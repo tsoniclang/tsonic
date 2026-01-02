@@ -49,6 +49,25 @@ export type MemberId = {
   readonly name: string;
 };
 
+/**
+ * Opaque handle for a type syntax node.
+ *
+ * Created by Binding.captureTypeSyntax() for inline type syntax:
+ * - `as Foo` type assertions
+ * - `satisfies Bar` expressions
+ * - Generic type arguments `Foo<T, U>`
+ * - Type annotations that need deferred conversion
+ *
+ * Converted to IrType by TypeSystem.typeFromSyntax().
+ *
+ * This is NOT an escape hatch — it's the correct boundary for inline syntax
+ * that cannot be captured at catalog-build time.
+ */
+export type TypeSyntaxId = {
+  readonly __brand: "TypeSyntaxId";
+  readonly id: number;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // RESULT TYPES — Totality: Queries always return type + diagnostics
 // ═══════════════════════════════════════════════════════════════════════════
@@ -224,6 +243,14 @@ export const makeMemberId = (declId: DeclId, name: string): MemberId => ({
   __brand: "MemberId",
   declId,
   name,
+});
+
+/**
+ * Create a TypeSyntaxId (used by Binding module internally).
+ */
+export const makeTypeSyntaxId = (id: number): TypeSyntaxId => ({
+  __brand: "TypeSyntaxId",
+  id,
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

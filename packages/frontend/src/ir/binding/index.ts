@@ -23,9 +23,11 @@ import {
   DeclId,
   SignatureId,
   MemberId,
+  TypeSyntaxId,
   makeDeclId,
   makeSignatureId,
   makeMemberId,
+  makeTypeSyntaxId,
 } from "../type-system/types.js";
 import type {
   HandleRegistry,
@@ -37,6 +39,7 @@ import type {
   TypeParameterNode,
   ParameterMode,
   SignatureTypePredicate,
+  TypeSyntaxInfo,
 } from "../type-system/index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -126,6 +129,30 @@ export interface Binding {
    * For functions with `x is T` return type.
    */
   getTypePredicateOfSignature(sig: SignatureId): TypePredicateInfo | undefined;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Capture a type syntax node for later conversion.
+   *
+   * Used for inline type syntax that cannot be captured at catalog-build time:
+   * - `as Foo` type assertions
+   * - `satisfies Bar` expressions
+   * - Generic type arguments in expressions
+   *
+   * The captured syntax can be converted to IrType via TypeSystem.typeFromSyntax().
+   * This is NOT an escape hatch — it's the correct boundary for inline syntax.
+   */
+  captureTypeSyntax(node: ts.TypeNode): TypeSyntaxId;
+
+  /**
+   * Capture multiple type arguments.
+   *
+   * Convenience method for capturing generic type arguments like `Foo<A, B, C>`.
+   */
+  captureTypeArgs(nodes: readonly ts.TypeNode[]): readonly TypeSyntaxId[];
 }
 
 /**
@@ -169,10 +196,12 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   const declMap = new Map<number, DeclEntry>();
   const signatureMap = new Map<number, SignatureEntry>();
   const memberMap = new Map<string, MemberEntry>(); // key: "declId:name"
+  const typeSyntaxMap = new Map<number, TypeSyntaxEntry>(); // TypeSyntaxId → TypeNode
 
   // Auto-increment IDs
   const nextDeclId = { value: 0 };
   const nextSignatureId = { value: 0 };
+  const nextTypeSyntaxId = { value: 0 };
 
   // Symbol to DeclId cache (avoid duplicate DeclIds for same symbol)
   const symbolToDeclId = new Map<ts.Symbol, DeclId>();
@@ -425,6 +454,42 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         isReadonly: entry.isReadonly,
       };
     },
+
+    getTypeSyntax: (id: TypeSyntaxId): TypeSyntaxInfo | undefined => {
+      const entry = typeSyntaxMap.get(id.id);
+      if (!entry) return undefined;
+      return {
+        typeNode: entry.typeNode,
+      };
+    },
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Capture a type syntax node for later conversion.
+   *
+   * This creates an opaque TypeSyntaxId handle that can be passed to
+   * TypeSystem.typeFromSyntax() for conversion. Used for inline type syntax
+   * that cannot be captured at catalog-build time.
+   */
+  const captureTypeSyntax = (node: ts.TypeNode): TypeSyntaxId => {
+    const id = makeTypeSyntaxId(nextTypeSyntaxId.value++);
+    typeSyntaxMap.set(id.id, { typeNode: node });
+    return id;
+  };
+
+  /**
+   * Capture multiple type arguments.
+   *
+   * Convenience method for capturing generic type arguments.
+   */
+  const captureTypeArgs = (
+    nodes: readonly ts.TypeNode[]
+  ): readonly TypeSyntaxId[] => {
+    return nodes.map((node) => captureTypeSyntax(node));
   };
 
   return {
@@ -438,6 +503,9 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolveShorthandAssignment,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
+    // Type syntax capture (Phase 2: TypeSyntaxId)
+    captureTypeSyntax,
+    captureTypeArgs,
     // Internal method for TypeSystem construction only
     _getHandleRegistry: () => handleRegistry,
   };
@@ -477,6 +545,13 @@ interface MemberEntry {
   readonly typeNode?: ts.TypeNode;
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
+}
+
+/**
+ * Entry for captured type syntax (Phase 2: TypeSyntaxId).
+ */
+interface TypeSyntaxEntry {
+  readonly typeNode: ts.TypeNode;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

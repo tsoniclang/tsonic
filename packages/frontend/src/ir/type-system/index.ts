@@ -21,6 +21,7 @@ import type {
   DeclId,
   SignatureId,
   MemberId,
+  TypeSyntaxId,
   TypeResult,
   SignatureResult,
   MemberResult,
@@ -36,6 +37,7 @@ export type {
   DeclId,
   SignatureId,
   MemberId,
+  TypeSyntaxId,
   TypeResult,
   SignatureResult,
   MemberResult,
@@ -54,6 +56,7 @@ export {
   makeDeclId,
   makeSignatureId,
   makeMemberId,
+  makeTypeSyntaxId,
   typeOk,
   typeError,
   signatureOk,
@@ -274,6 +277,26 @@ export interface HandleRegistry {
    * Get member info for a MemberId.
    */
   getMember(id: MemberId): MemberInfo | undefined;
+
+  /**
+   * Get captured type syntax for a TypeSyntaxId.
+   *
+   * Returns the TypeNode that was captured via Binding.captureTypeSyntax().
+   * TypeSystem uses this internally to convert captured syntax to IrType.
+   */
+  getTypeSyntax(id: TypeSyntaxId): TypeSyntaxInfo | undefined;
+}
+
+/**
+ * Type syntax info stored in the handle registry.
+ *
+ * Contains the captured TypeNode for later conversion.
+ */
+export interface TypeSyntaxInfo {
+  /**
+   * The captured TypeNode.
+   */
+  readonly typeNode: unknown; // ts.TypeNode
 }
 
 /**
