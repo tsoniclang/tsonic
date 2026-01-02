@@ -54,6 +54,9 @@ REGISTRY_VIOLATIONS=$(grep -r "getHandleRegistry" "$FRONTEND_SRC" --include="*.t
   | grep -v "_getHandleRegistry" \
   | grep -v "binding/index.ts" \
   | grep -v "\.test\.ts" \
+  | grep -v ":[[:space:]]*\\*" \
+  | grep -v ":[[:space:]]*//" \
+  | grep -v ":[[:space:]]*/\\*" \
   | grep -v "// INV-1 exception:" \
   || true)
 
@@ -110,6 +113,96 @@ if [ -n "$CAST_VIOLATIONS" ]; then
   ERRORS=$((ERRORS + 1))
 else
   echo "  PASS: No 'as ts.TypeNode' casts outside TypeSystem"
+fi
+
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INV-OP: No global TypeSystem state
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking INV-OP: No getTypeSystem()/clearTypeRegistries..."
+
+GET_TYPESYSTEM_VIOLATIONS=$(grep -r "getTypeSystem()" "$FRONTEND_SRC" --include="*.ts" \
+  | grep -v "\.test\.ts" \
+  || true)
+
+if [ -n "$GET_TYPESYSTEM_VIOLATIONS" ]; then
+  echo "FAIL: getTypeSystem() used (global singleton):"
+  echo "$GET_TYPESYSTEM_VIOLATIONS"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  PASS: No getTypeSystem() singleton usage"
+fi
+
+CLEAR_REGISTRY_VIOLATIONS=$(grep -r "clearTypeRegistries" "$FRONTEND_SRC" --include="*.ts" || true)
+
+if [ -n "$CLEAR_REGISTRY_VIOLATIONS" ]; then
+  echo "FAIL: clearTypeRegistries used (global registry state):"
+  echo "$CLEAR_REGISTRY_VIOLATIONS"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  PASS: No clearTypeRegistries usage"
+fi
+
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INV-ARCH: No type-system/internal imports in converters
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking INV-ARCH: No type-system/internal imports in converters..."
+
+INTERNAL_IMPORT_VIOLATIONS=$(grep -r "type-system/internal" "$FRONTEND_SRC/ir/converters" --include="*.ts" || true)
+
+if [ -n "$INTERNAL_IMPORT_VIOLATIONS" ]; then
+  echo "FAIL: type-system/internal imported from converters:"
+  echo "$INTERNAL_IMPORT_VIOLATIONS"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  PASS: No type-system/internal imports in converters"
+fi
+
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INV-API: Public TypeSystem API is TS-free
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking INV-API: Public type-system API mentions no TypeScript types..."
+
+PUBLIC_API_FILES=(
+  "$FRONTEND_SRC/ir/type-system/index.ts"
+  "$FRONTEND_SRC/ir/type-system/types.ts"
+)
+
+PUBLIC_TS_LEAKS=$(grep -nE "ts\\.|typescript" "${PUBLIC_API_FILES[@]}" \
+  | grep -v ":[[:space:]]*\\*" \
+  | grep -v ":[[:space:]]*//" \
+  | grep -v ":[[:space:]]*/\\*" \
+  || true)
+
+if [ -n "$PUBLIC_TS_LEAKS" ]; then
+  echo "FAIL: Public type-system API contains TypeScript references:"
+  echo "$PUBLIC_TS_LEAKS"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  PASS: Public type-system API contains no TypeScript references"
+fi
+
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INV-CLEAN: core.ts deleted
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking INV-CLEAN: core.ts deleted..."
+
+if [ -f "$FRONTEND_SRC/ir/type-system/core.ts" ]; then
+  echo "FAIL: packages/frontend/src/ir/type-system/core.ts still exists"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "  PASS: core.ts is deleted"
 fi
 
 echo ""
