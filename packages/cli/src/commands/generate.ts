@@ -337,20 +337,23 @@ export const generateCommand = (
     if (projectCsproj) {
       // Copy existing .csproj from project root (preserves user edits)
       copyFileSync(projectCsproj, csprojPath);
-    } else if (!existsSync(csprojPath)) {
+    } else {
+      // Always regenerate tsonic.csproj for generated output (unless the user
+      // provides a project .csproj at the project root). This keeps runtime and
+      // library references in sync across repeated builds.
+
       // Find Tsonic runtime - try multiple approaches:
       // 1. ProjectReference to .csproj (development/monorepo)
       // 2. Assembly references to DLLs (npm installed package)
-      let runtimePath: string | undefined;
-      let assemblyReferences: readonly AssemblyReference[] = [];
+      const runtimePath = (() => {
+        // 1. Try monorepo structure (development) - ProjectReference
+        const monorepoPath = resolve(
+          join(import.meta.dirname, "../../../runtime/src/Tsonic.Runtime.csproj")
+        );
+        if (existsSync(monorepoPath)) {
+          return monorepoPath;
+        }
 
-      // 1. Try monorepo structure (development) - ProjectReference
-      const monorepoPath = resolve(
-        join(import.meta.dirname, "../../../runtime/src/Tsonic.Runtime.csproj")
-      );
-      if (existsSync(monorepoPath)) {
-        runtimePath = monorepoPath;
-      } else {
         // 2. Try installed package structure - ProjectReference
         const installedPath = resolve(
           join(
@@ -359,50 +362,44 @@ export const generateCommand = (
           )
         );
         if (existsSync(installedPath)) {
-          runtimePath = installedPath;
-        } else {
-          // 3. Try to find runtime DLLs from npm package
-          const runtimeRefs = findRuntimeDlls(outputDir, usedAssemblies);
-
-          // 4. Add project libraries (from dotnet.libraries in tsonic.json)
-          const projectRefs = collectProjectLibraries(
-            projectRoot,
-            outputDir,
-            config.libraries
-          );
-
-          assemblyReferences = [...runtimeRefs, ...projectRefs];
+          return installedPath;
         }
-      }
+
+        return undefined;
+      })();
+
+      const assemblyReferences = runtimePath
+        ? []
+        : [
+            ...findRuntimeDlls(outputDir, usedAssemblies),
+            ...collectProjectLibraries(projectRoot, outputDir, config.libraries),
+          ];
 
       // Build output configuration
       const outputType = config.outputConfig.type ?? "executable";
-      let outputConfig: ExecutableConfig | LibraryConfig;
-
-      if (outputType === "library") {
-        outputConfig = {
-          type: "library",
-          targetFrameworks: config.outputConfig.targetFrameworks ?? [
-            config.dotnetVersion,
-          ],
-          generateDocumentation:
-            config.outputConfig.generateDocumentation ?? true,
-          includeSymbols: config.outputConfig.includeSymbols ?? true,
-          packable: config.outputConfig.packable ?? false,
-          packageMetadata: config.outputConfig.package,
-        };
-      } else {
-        outputConfig = {
-          type: "executable",
-          nativeAot: config.outputConfig.nativeAot ?? true,
-          singleFile: config.outputConfig.singleFile ?? true,
-          trimmed: config.outputConfig.trimmed ?? true,
-          stripSymbols: config.stripSymbols,
-          optimization: config.optimize === "size" ? "Size" : "Speed",
-          invariantGlobalization: config.invariantGlobalization,
-          selfContained: config.outputConfig.selfContained ?? true,
-        };
-      }
+      const outputConfig: ExecutableConfig | LibraryConfig =
+        outputType === "library"
+          ? {
+              type: "library",
+              targetFrameworks: config.outputConfig.targetFrameworks ?? [
+                config.dotnetVersion,
+              ],
+              generateDocumentation:
+                config.outputConfig.generateDocumentation ?? true,
+              includeSymbols: config.outputConfig.includeSymbols ?? true,
+              packable: config.outputConfig.packable ?? false,
+              packageMetadata: config.outputConfig.package,
+            }
+          : {
+              type: "executable",
+              nativeAot: config.outputConfig.nativeAot ?? true,
+              singleFile: config.outputConfig.singleFile ?? true,
+              trimmed: config.outputConfig.trimmed ?? true,
+              stripSymbols: config.stripSymbols,
+              optimization: config.optimize === "size" ? "Size" : "Speed",
+              invariantGlobalization: config.invariantGlobalization,
+              selfContained: config.outputConfig.selfContained ?? true,
+            };
 
       const buildConfig: BuildConfig = {
         rootNamespace,

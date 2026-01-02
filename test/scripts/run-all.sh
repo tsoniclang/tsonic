@@ -75,6 +75,13 @@ if [ "$QUICK_MODE" = true ]; then
     echo -e "${YELLOW}--- Skipping E2E Tests (--quick mode) ---${NC}" | tee -a "$LOG_FILE"
 else
     # ============================================================
+    # 1.5 Runtime DLL sync (required for generator runtime)
+    # ============================================================
+    echo -e "${BLUE}--- Syncing Runtime DLLs ---${NC}" | tee -a "$LOG_FILE"
+    "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"
+    echo "" | tee -a "$LOG_FILE"
+
+    # ============================================================
     # 2. E2E Dotnet Tests (Parallel)
     # ============================================================
     echo -e "${BLUE}--- Running E2E Dotnet Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"

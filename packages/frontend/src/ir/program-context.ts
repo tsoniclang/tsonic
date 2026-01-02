@@ -134,14 +134,16 @@ export const createProgramContext = (
     unifiedCatalog,
     aliasTable,
     resolveIdentifier: (node: unknown) =>
-      ts.isIdentifier(node)
-        ? program.binding.resolveIdentifier(node)
+      ts.isIdentifier(node as ts.Node)
+        ? program.binding.resolveIdentifier(node as ts.Identifier)
         : undefined,
     resolveCallSignature: (node: unknown) =>
-      ts.isCallExpression(node) ? program.binding.resolveCallSignature(node) : undefined,
+      ts.isCallExpression(node as ts.Node)
+        ? program.binding.resolveCallSignature(node as ts.CallExpression)
+        : undefined,
     resolveConstructorSignature: (node: unknown) =>
-      ts.isNewExpression(node)
-        ? program.binding.resolveConstructorSignature(node)
+      ts.isNewExpression(node as ts.Node)
+        ? program.binding.resolveConstructorSignature(node as ts.NewExpression)
         : undefined,
   });
 
