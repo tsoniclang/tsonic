@@ -19,6 +19,7 @@ import type {
   IrPrimitiveType,
   IrMethodSignature,
 } from "../types/index.js";
+import * as ts from "typescript";
 import type { Diagnostic, DiagnosticCode } from "../../types/diagnostic.js";
 import type {
   DeclId,
@@ -1209,28 +1210,24 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     // Must have an initializer
     if (!decl.initializer) return undefined;
 
-    const init = decl.initializer;
+	    const init = decl.initializer;
 
-    // TypeScript SyntaxKind constants (version-stable for these)
-    // NumericLiteral = 9, StringLiteral = 11, TrueKeyword = 112, FalseKeyword = 113
-    const NumericLiteralKind = 9;
-    const StringLiteralKind = 11;
-    const TrueKeywordKind = 112;
-    const FalseKeywordKind = 113;
+	    if (init.kind === ts.SyntaxKind.NumericLiteral && init.getText) {
+	      const raw = init.getText();
+	      const numericKind = inferNumericKindFromRaw(raw);
+	      return deriveTypeFromNumericKind(numericKind);
+	    }
 
-    if (init.kind === NumericLiteralKind && init.getText) {
-      const raw = init.getText();
-      const numericKind = inferNumericKindFromRaw(raw);
-      return deriveTypeFromNumericKind(numericKind);
-    }
+	    if (init.kind === ts.SyntaxKind.StringLiteral) {
+	      return { kind: "primitiveType", name: "string" };
+	    }
 
-    if (init.kind === StringLiteralKind) {
-      return { kind: "primitiveType", name: "string" };
-    }
-
-    if (init.kind === TrueKeywordKind || init.kind === FalseKeywordKind) {
-      return { kind: "primitiveType", name: "boolean" };
-    }
+	    if (
+	      init.kind === ts.SyntaxKind.TrueKeyword ||
+	      init.kind === ts.SyntaxKind.FalseKeyword
+	    ) {
+	      return { kind: "primitiveType", name: "boolean" };
+	    }
 
     // Not a simple literal - cannot infer
     return undefined;
@@ -2243,11 +2240,8 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       | undefined;
     if (!declNode?.type) return false;
 
-    // TypeLiteralNode has kind 188 (ts.SyntaxKind.TypeLiteral in TS 5.x)
-    // Import ts would cause circular dependency, so use magic number
-    const TypeLiteralKind = 188; // ts.SyntaxKind.TypeLiteral
-    return declNode.type.kind === TypeLiteralKind;
-  };
+	    return declNode.type.kind === ts.SyntaxKind.TypeLiteral;
+	  };
 
   // Suppress unused variable warning for nominalMemberLookupCache
   // Will be used for more advanced caching in future
@@ -2257,10 +2251,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   // signatureHasConditionalReturn — Check for conditional return type
   // ─────────────────────────────────────────────────────────────────────────
 
-  // ts.SyntaxKind.ConditionalType is 195 in TypeScript 5.x
-  const ConditionalTypeKind = 195;
-
-  const signatureHasConditionalReturn = (sigId: SignatureId): boolean => {
+	  const signatureHasConditionalReturn = (sigId: SignatureId): boolean => {
     const sigInfo = handleRegistry.getSignature(sigId);
     if (!sigInfo) return false;
 
@@ -2269,20 +2260,14 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       | undefined;
     if (!returnTypeNode) return false;
 
-    return returnTypeNode.kind === ConditionalTypeKind;
-  };
+	    return returnTypeNode.kind === ts.SyntaxKind.ConditionalType;
+	  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // signatureHasVariadicTypeParams — Check for variadic type parameters
   // ─────────────────────────────────────────────────────────────────────────
 
-  // ts.SyntaxKind.ArrayType is 185 in TypeScript 5.x
-  const ArrayTypeKind = 185;
-  // ts.SyntaxKind.UnknownKeyword is 159, ts.SyntaxKind.AnyKeyword is 133
-  const UnknownKeywordKind = 159;
-  const AnyKeywordKind = 133;
-
-  const signatureHasVariadicTypeParams = (sigId: SignatureId): boolean => {
+	  const signatureHasVariadicTypeParams = (sigId: SignatureId): boolean => {
     const sigInfo = handleRegistry.getSignature(sigId);
     if (!sigInfo) return false;
 
@@ -2298,17 +2283,17 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       if (!constraintNode) continue;
 
       // Check if constraint is an array type (variadic pattern: T extends unknown[])
-      if (constraintNode.kind === ArrayTypeKind) {
-        const elementType = constraintNode.elementType;
-        if (!elementType) continue;
+	      if (constraintNode.kind === ts.SyntaxKind.ArrayType) {
+	        const elementType = constraintNode.elementType;
+	        if (!elementType) continue;
 
-        // Check for unknown[] or any[] constraint
-        if (
-          elementType.kind === UnknownKeywordKind ||
-          elementType.kind === AnyKeywordKind
-        ) {
-          return true;
-        }
+	        // Check for unknown[] or any[] constraint
+	        if (
+	          elementType.kind === ts.SyntaxKind.UnknownKeyword ||
+	          elementType.kind === ts.SyntaxKind.AnyKeyword
+	        ) {
+	          return true;
+	        }
 
         // Also check for type reference to "unknown" or "any"
         const typeName = elementType.typeName?.text;
