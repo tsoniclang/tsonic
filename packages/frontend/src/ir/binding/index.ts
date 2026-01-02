@@ -29,6 +29,7 @@ import {
   makeMemberId,
   makeTypeSyntaxId,
 } from "../type-system/types.js";
+// ALICE'S SPEC: Binding is allowed to import internal handle types
 import type {
   HandleRegistry,
   DeclInfo,
@@ -37,10 +38,10 @@ import type {
   DeclKind,
   ParameterNode,
   TypeParameterNode,
-  ParameterMode,
   SignatureTypePredicate,
   TypeSyntaxInfo,
-} from "../type-system/index.js";
+} from "../type-system/internal/handle-types.js";
+import type { ParameterMode } from "../type-system/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BINDING INTERFACE

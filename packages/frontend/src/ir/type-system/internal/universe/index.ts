@@ -122,6 +122,9 @@ export {
 // SOURCE CATALOG (Phase 4: Two-Pass Build)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type { SourceCatalogConfig, SourceCatalogResult } from "./source-catalog.js";
+export type {
+  SourceCatalogConfig,
+  SourceCatalogResult,
+} from "./source-catalog.js";
 
 export { buildSourceCatalog, shouldIncludeFile } from "./source-catalog.js";

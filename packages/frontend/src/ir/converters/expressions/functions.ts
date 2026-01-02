@@ -12,7 +12,7 @@ import {
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertBlockStatement } from "../../statement-converter.js";
-import { convertBindingName } from "../../type-system/internal/type-converter.js";
+import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { getTypeSystem } from "../statements/declarations/registry.js";
 import type { Binding } from "../../binding/index.js";
 

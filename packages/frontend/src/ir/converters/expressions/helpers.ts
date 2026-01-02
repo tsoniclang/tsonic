@@ -383,7 +383,9 @@ export const getContextualType = (
         current = current.parent;
       }
       if (current && ts.isFunctionLike(current) && current.type) {
-        return typeSystem.typeFromSyntax(binding.captureTypeSyntax(current.type));
+        return typeSystem.typeFromSyntax(
+          binding.captureTypeSyntax(current.type)
+        );
       }
     }
 

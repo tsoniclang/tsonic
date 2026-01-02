@@ -1,5 +1,13 @@
 /**
- * Binding pattern converter - TypeScript patterns to IR patterns
+ * Binding Pattern Converter — TypeScript patterns to IR patterns
+ *
+ * ALICE'S SPEC: This is SYNTAX → IR conversion, NOT type logic.
+ * It must NOT depend on TypeSystem, TypeRegistry, or NominalEnv.
+ *
+ * Converts:
+ * - Identifier patterns: `x`
+ * - Array patterns: `[a, b, ...rest]`
+ * - Object patterns: `{ x, y: z, ...rest }`
  */
 
 import * as ts from "typescript";
@@ -7,9 +15,9 @@ import {
   IrPattern,
   IrObjectPatternProperty,
   IrArrayPatternElement,
-} from "../../../types/helpers.js";
-import { convertExpression } from "../../../expression-converter.js";
-import type { Binding } from "../../../binding/index.js";
+} from "../types/helpers.js";
+import { convertExpression } from "../expression-converter.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Convert TypeScript binding name to IR pattern.

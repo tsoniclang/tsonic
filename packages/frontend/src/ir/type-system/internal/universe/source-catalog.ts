@@ -136,7 +136,6 @@ export const buildSourceCatalog = (
 export const shouldIncludeFile = (sourceFile: ts.SourceFile): boolean => {
   // Include all TypeScript files
   return (
-    sourceFile.fileName.endsWith(".ts") ||
-    sourceFile.fileName.endsWith(".tsx")
+    sourceFile.fileName.endsWith(".ts") || sourceFile.fileName.endsWith(".tsx")
   );
 };

@@ -2211,7 +2211,10 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
 
     for (const typeParam of sigInfo.typeParameters) {
       const constraintNode = typeParam.constraintNode as
-        | { kind?: number; elementType?: { kind?: number; typeName?: { text?: string } } }
+        | {
+            kind?: number;
+            elementType?: { kind?: number; typeName?: { text?: string } };
+          }
         | undefined;
       if (!constraintNode) continue;
 
@@ -2271,7 +2274,10 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       return { isOverride: false, isShadow: false };
     }
 
-    const baseDecl = declInfo.declNode as { kind?: number; members?: readonly unknown[] };
+    const baseDecl = declInfo.declNode as {
+      kind?: number;
+      members?: readonly unknown[];
+    };
 
     // Only handle class declarations
     if (baseDecl.kind !== ClassDeclarationKind || !baseDecl.members) {
@@ -2283,7 +2289,10 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       memberKind === "method" ? MethodDeclarationKind : PropertyDeclarationKind;
 
     const baseMember = baseDecl.members.find((m) => {
-      const member = m as { kind?: number; name?: { kind?: number; text?: string } };
+      const member = m as {
+        kind?: number;
+        name?: { kind?: number; text?: string };
+      };
       if (member.kind !== targetKind) return false;
       if (member.name?.kind !== IdentifierKind) return false;
       return member.name.text === memberName;

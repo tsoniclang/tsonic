@@ -10,7 +10,7 @@ import {
   IrInterfaceMember,
   IrVariableDeclaration,
 } from "../../types.js";
-import { convertBindingName } from "../../type-system/internal/type-converter.js";
+import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { getTypeSystem } from "./declarations/registry.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";

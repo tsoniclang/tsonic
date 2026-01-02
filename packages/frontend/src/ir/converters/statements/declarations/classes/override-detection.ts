@@ -71,7 +71,11 @@ export const detectOverride = (
     );
   } else if (declId) {
     // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
-    return typeSystem.checkTsClassMemberOverride(declId, memberName, memberKind);
+    return typeSystem.checkTsClassMemberOverride(
+      declId,
+      memberName,
+      memberKind
+    );
   }
 
   return { isOverride: false, isShadow: false };
@@ -123,4 +127,3 @@ const detectDotNetOverride = (
 
   return { isOverride: false, isShadow: false };
 };
-

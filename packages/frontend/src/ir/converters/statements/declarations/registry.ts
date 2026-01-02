@@ -4,15 +4,29 @@
  * Provides module-level singletons for:
  * - DotnetMetadataRegistry: .NET metadata for imported types
  * - BindingRegistry: CLR bindings from tsbindgen
- * - TypeRegistry: AST-based type declarations (classes, interfaces, type aliases)
- * - NominalEnv: Inheritance chain substitution for deterministic typing
+ * - TypeRegistry: AST-based type declarations (opaque, set by orchestrator)
+ * - NominalEnv: Inheritance chain substitution (opaque, set by orchestrator)
+ *
+ * ALICE'S SPEC: This module does NOT import internal types.
+ * TypeRegistry and NominalEnv are stored as opaque values.
+ * Only the orchestrator (which IS allowed to import internals) knows the actual types.
  */
 
 import { DotnetMetadataRegistry } from "../../../../dotnet-metadata.js";
 import { BindingRegistry } from "../../../../program/bindings.js";
-import { TypeRegistry } from "../../../type-system/internal/type-registry.js";
-import { NominalEnv } from "../../../type-system/internal/nominal-env.js";
 import type { TypeSystem } from "../../../type-system/type-system.js";
+
+/**
+ * Opaque type for TypeRegistry (internal type-system implementation detail)
+ * The orchestrator sets and retrieves these; converters should use TypeSystem instead.
+ */
+type OpaqueTypeRegistry = unknown;
+
+/**
+ * Opaque type for NominalEnv (internal type-system implementation detail)
+ * The orchestrator sets and retrieves these; converters should use TypeSystem instead.
+ */
+type OpaqueNominalEnv = unknown;
 
 /**
  * Module-level metadata registry singleton
@@ -27,18 +41,22 @@ let _metadataRegistry: DotnetMetadataRegistry = new DotnetMetadataRegistry();
 let _bindingRegistry: BindingRegistry = new BindingRegistry();
 
 /**
- * Module-level type registry singleton
+ * Module-level type registry singleton (opaque)
  * Set once at the start of compilation via setTypeRegistry()
  * Used for AST-based type declaration lookups (deterministic typing)
+ *
+ * ALICE'S SPEC: Stored as opaque value. Only orchestrator knows actual type.
  */
-let _typeRegistry: TypeRegistry | undefined = undefined;
+let _typeRegistry: OpaqueTypeRegistry | undefined = undefined;
 
 /**
- * Module-level nominal env singleton
+ * Module-level nominal env singleton (opaque)
  * Set once at the start of compilation via setNominalEnv()
  * Used for inheritance chain substitution (deterministic typing)
+ *
+ * ALICE'S SPEC: Stored as opaque value. Only orchestrator knows actual type.
  */
-let _nominalEnv: NominalEnv | undefined = undefined;
+let _nominalEnv: OpaqueNominalEnv | undefined = undefined;
 
 /**
  * Module-level TypeSystem singleton
@@ -75,33 +93,42 @@ export const setBindingRegistry = (registry: BindingRegistry): void => {
 export const getBindingRegistry = (): BindingRegistry => _bindingRegistry;
 
 /**
- * Set the type registry for this compilation
- * Called once at the start of IR building
+ * Set the type registry for this compilation (opaque)
+ * Called once at the start of IR building by orchestrator
+ *
+ * ALICE'S SPEC: Parameter is opaque. Orchestrator passes actual TypeRegistry.
  */
-export const setTypeRegistry = (registry: TypeRegistry): void => {
+export const setTypeRegistry = (registry: OpaqueTypeRegistry): void => {
   _typeRegistry = registry;
 };
 
 /**
  * Internal accessor for TypeSystem construction only.
  * NOT for use in converters - use TypeSystem methods instead.
+ *
+ * ALICE'S SPEC: Returns opaque value. Orchestrator casts to actual type.
  */
-export const _internalGetTypeRegistry = (): TypeRegistry | undefined =>
+export const _internalGetTypeRegistry = (): OpaqueTypeRegistry | undefined =>
   _typeRegistry;
 
 /**
- * Set the nominal env for this compilation
- * Called once at the start of IR building
+ * Set the nominal env for this compilation (opaque)
+ * Called once at the start of IR building by orchestrator
+ *
+ * ALICE'S SPEC: Parameter is opaque. Orchestrator passes actual NominalEnv.
  */
-export const setNominalEnv = (env: NominalEnv): void => {
+export const setNominalEnv = (env: OpaqueNominalEnv): void => {
   _nominalEnv = env;
 };
 
 /**
  * Internal accessor for TypeSystem construction only.
  * NOT for use in converters - use TypeSystem methods instead.
+ *
+ * ALICE'S SPEC: Returns opaque value. Orchestrator casts to actual type.
  */
-export const _internalGetNominalEnv = (): NominalEnv | undefined => _nominalEnv;
+export const _internalGetNominalEnv = (): OpaqueNominalEnv | undefined =>
+  _nominalEnv;
 
 /**
  * Set the TypeSystem for this compilation.

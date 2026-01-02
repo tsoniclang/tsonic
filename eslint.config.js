@@ -72,14 +72,16 @@ export default [
     },
   },
   {
-    // TypeSystem internal files can import from each other
-    // Orchestrator can import internals during migration (to be removed in Phase 7)
+    // ALICE'S SPEC: TypeSystem internal files + Binding can import internal types
+    // Only these modules are allowed to import from type-system/internal/**
+    // NO EXCEPTIONS. If something needs an exception, fix the architecture.
     files: [
       "**/type-system/internal/**/*.ts",
       "**/type-system/index.ts",
       "**/type-system/type-system.ts",
       "**/type-system/types.ts",
-      "**/ir/builder/orchestrator.ts",
+      "**/ir/binding/**/*.ts", // Binding creates HandleRegistry
+      "**/ir/builder/orchestrator.ts", // Orchestrator wires everything
     ],
     rules: {
       "no-restricted-imports": "off",

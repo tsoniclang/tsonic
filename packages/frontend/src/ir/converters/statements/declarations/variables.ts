@@ -5,7 +5,7 @@
 import * as ts from "typescript";
 import { IrVariableDeclaration, IrExpression, IrType } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
-import { convertBindingName } from "../../../type-system/internal/type-converter.js";
+import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { getTypeSystem } from "./registry.js";
 import { hasExportModifier } from "../helpers.js";
 import type { Binding } from "../../../binding/index.js";

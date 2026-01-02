@@ -1,5 +1,8 @@
 /**
  * Type converter - Public API
+ *
+ * NOTE: convertBindingName was moved to ir/syntax/binding-patterns.ts
+ * per Alice's spec (it's syntax→IR conversion, not type logic).
  */
 
 export {
@@ -7,7 +10,6 @@ export {
   convertFunctionType,
   convertObjectType,
 } from "./converter.js";
-export { convertBindingName } from "./patterns.js";
 export {
   inferLambdaParamTypes,
   type LambdaParamInferenceResult,
