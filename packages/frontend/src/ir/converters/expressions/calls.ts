@@ -607,13 +607,23 @@ export const convertNewExpression = (
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
   const inferredType: IrType = finalResolved?.returnType ?? { kind: "unknownType" };
 
+  // Phase 18: IrNewExpression.typeArguments must include inferred type arguments.
+  // The emitter relies on this field to emit generic constructor calls (e.g., new Box<int>(...)).
+  const inferredTypeArguments =
+    inferredType.kind === "referenceType" ? inferredType.typeArguments : undefined;
+  const typeArgumentsForIr =
+    typeArguments ??
+    (inferredTypeArguments && inferredTypeArguments.length > 0
+      ? inferredTypeArguments
+      : undefined);
+
   return {
     kind: "new",
     callee,
     arguments: convertedArgs,
     inferredType,
     sourceSpan: getSourceSpan(node),
-    typeArguments,
+    typeArguments: typeArgumentsForIr,
     requiresSpecialization,
   };
 };

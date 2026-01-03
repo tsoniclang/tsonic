@@ -219,6 +219,75 @@ const getTypeNodeName = (typeNode: ts.TypeNode): string | undefined => {
 };
 
 /**
+ * Resolve a heritage clause type name to the same fully-qualified form used by
+ * TypeRegistry entries.
+ *
+ * This is required so UnifiedUniverse can build correct stableIds for inheritance
+ * edges (projectName:fullyQualifiedName), enabling NominalEnv substitution through
+ * inheritance chains.
+ *
+ * DETERMINISTIC: Uses symbol resolution only (no ts.Type queries).
+ */
+const resolveHeritageTypeName = (
+  typeNode: ts.ExpressionWithTypeArguments,
+  checker: ts.TypeChecker,
+  sourceRoot: string,
+  rootNamespace: string
+): string | undefined => {
+  const expr = typeNode.expression;
+
+  const symbol = (() => {
+    if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+    if (ts.isPropertyAccessExpression(expr)) {
+      return checker.getSymbolAtLocation(expr.name);
+    }
+    return undefined;
+  })();
+
+  const resolvedSymbol =
+    symbol && symbol.flags & ts.SymbolFlags.Alias
+      ? checker.getAliasedSymbol(symbol)
+      : symbol;
+
+  const decl = resolvedSymbol?.getDeclarations()?.[0];
+  const sourceFile = decl?.getSourceFile();
+
+  const simpleName = (() => {
+    if (
+      decl &&
+      (ts.isClassDeclaration(decl) ||
+        ts.isInterfaceDeclaration(decl) ||
+        ts.isTypeAliasDeclaration(decl) ||
+        ts.isEnumDeclaration(decl)) &&
+      decl.name
+    ) {
+      return decl.name.text;
+    }
+    if (resolvedSymbol) return resolvedSymbol.getName();
+    if (ts.isIdentifier(expr)) return expr.text;
+    if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+    return undefined;
+  })();
+
+  if (!simpleName) return undefined;
+
+  // Canonicalize well-known runtime types to CLR FQ names.
+  const canonical = getCanonicalClrFQName(
+    simpleName,
+    sourceFile ? isWellKnownLibrary(sourceFile.fileName) : false
+  );
+  if (canonical) return canonical;
+
+  // Source-authored types use namespace-based FQ names.
+  const ns =
+    sourceFile && !sourceFile.isDeclarationFile
+      ? getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace)
+      : undefined;
+
+  return ns ? `${ns}.${simpleName}` : simpleName;
+};
+
+/**
  * Extract member information from a class or interface - PURE IR version
  */
 const extractMembers = (
@@ -385,6 +454,9 @@ const convertMethodSignatureToIr = (
  */
 const extractHeritage = (
   clauses: ts.NodeArray<ts.HeritageClause> | undefined,
+  checker: ts.TypeChecker,
+  sourceRoot: string,
+  rootNamespace: string,
   convertType: ConvertTypeFn,
   canonicalize?: (name: string) => string
 ): readonly HeritageInfo[] => {
@@ -395,7 +467,13 @@ const extractHeritage = (
     const kind =
       clause.token === ts.SyntaxKind.ExtendsKeyword ? "extends" : "implements";
     for (const type of clause.types) {
-      const rawTypeName = getTypeNodeName(type);
+      const resolvedName = resolveHeritageTypeName(
+        type,
+        checker,
+        sourceRoot,
+        rootNamespace
+      );
+      const rawTypeName = resolvedName ?? getTypeNodeName(type);
       if (rawTypeName) {
         // Canonicalize the type name if a canonicalizer is provided
         const typeName = canonicalize ? canonicalize(rawTypeName) : rawTypeName;
@@ -425,7 +503,7 @@ const extractHeritage = (
  */
 export const buildTypeRegistry = (
   sourceFiles: readonly ts.SourceFile[],
-  _checker: ts.TypeChecker,
+  checker: ts.TypeChecker,
   sourceRoot: string,
   rootNamespace: string,
   convertType?: ConvertTypeFn
@@ -484,7 +562,14 @@ export const buildTypeRegistry = (
 	        fullyQualifiedName: fqName,
 	        typeParameters: extractTypeParameters(node.typeParameters, convert),
 	        members: extractMembers(node.members, convert),
-	        heritage: extractHeritage(node.heritageClauses, convert, canonicalize),
+	        heritage: extractHeritage(
+	          node.heritageClauses,
+	          checker,
+	          sourceRoot,
+	          rootNamespace,
+	          convert,
+	          canonicalize
+	        ),
 	      });
 
 	      simpleNameToFQ.set(simpleName, fqName);
@@ -512,7 +597,14 @@ export const buildTypeRegistry = (
           members: mergedMembers,
           heritage: [
             ...existing.heritage,
-            ...extractHeritage(node.heritageClauses, convert, canonicalize),
+            ...extractHeritage(
+              node.heritageClauses,
+              checker,
+              sourceRoot,
+              rootNamespace,
+              convert,
+              canonicalize
+            ),
           ],
         });
 	      } else {
@@ -524,6 +616,9 @@ export const buildTypeRegistry = (
           members: extractMembers(node.members, convert),
           heritage: extractHeritage(
             node.heritageClauses,
+            checker,
+            sourceRoot,
+            rootNamespace,
             convert,
             canonicalize
           ),

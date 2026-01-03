@@ -70,6 +70,32 @@ const getNumericKindFromTypeNode = (
   return undefined;
 };
 
+const inferThisType = (node: ts.Node): IrType | undefined => {
+  let current: ts.Node | undefined = node;
+
+  while (current) {
+    if (ts.isClassDeclaration(current) || ts.isClassExpression(current)) {
+      const className = current.name?.text;
+      if (!className) return undefined;
+
+      const typeArguments =
+        current.typeParameters?.map(
+          (tp): IrType => ({ kind: "typeParameterType", name: tp.name.text })
+        ) ?? [];
+
+      return {
+        kind: "referenceType",
+        name: className,
+        ...(typeArguments.length > 0 ? { typeArguments } : {}),
+      };
+    }
+
+    current = current.parent;
+  }
+
+  return undefined;
+};
+
 /**
  * Main expression conversion dispatcher
  * Converts TypeScript expression nodes to IR expressions
@@ -252,10 +278,10 @@ export const convertExpression = (
     };
   }
   if (node.kind === ts.SyntaxKind.ThisKeyword) {
-    // 'this' type depends on context - undefined for now
+    // Deterministic `this` typing: derive from the enclosing class declaration.
     return {
       kind: "this",
-      inferredType: undefined,
+      inferredType: inferThisType(node),
       sourceSpan: getSourceSpan(node),
     };
   }

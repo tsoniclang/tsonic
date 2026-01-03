@@ -15,7 +15,7 @@ namespace TestCases.common.types.genericsubstitution
 
         public Container(T value)
             {
-            this.wrapped = new Wrapper(value);
+            this.wrapped = new Wrapper<T>(value);
             }
 
         public T getInner()

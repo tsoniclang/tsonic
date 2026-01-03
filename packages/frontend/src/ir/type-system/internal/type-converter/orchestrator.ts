@@ -29,6 +29,40 @@ export const convertType = (
   typeNode: ts.TypeNode,
   binding: Binding
 ): IrType => {
+  // Heritage clause type syntax (`extends Foo<T>`, `implements Bar<U>`) is represented
+  // as ExpressionWithTypeArguments in the TS AST. This must be treated like a normal
+  // type reference so NominalEnv can compute substitution through inheritance chains.
+  if (ts.isExpressionWithTypeArguments(typeNode)) {
+    const name = (() => {
+      const expr = typeNode.expression;
+
+      if (ts.isIdentifier(expr)) return expr.text;
+
+      if (ts.isPropertyAccessExpression(expr)) {
+        const parts: string[] = [];
+        let current: ts.Expression = expr;
+
+        while (ts.isPropertyAccessExpression(current)) {
+          parts.unshift(current.name.text);
+          current = current.expression;
+        }
+
+        if (ts.isIdentifier(current)) {
+          parts.unshift(current.text);
+          return parts.join(".");
+        }
+      }
+
+      return expr.getText();
+    })();
+
+    return {
+      kind: "referenceType",
+      name,
+      typeArguments: typeNode.typeArguments?.map((t) => convertType(t, binding)),
+    };
+  }
+
   // Type references (including primitive type names)
   if (ts.isTypeReferenceNode(typeNode)) {
     return convertTypeReference(typeNode, binding, convertType);
