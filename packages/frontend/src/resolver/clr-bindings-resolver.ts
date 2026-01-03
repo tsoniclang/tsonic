@@ -211,7 +211,7 @@ export class ClrBindingsResolver {
       if (!pkgDirName) return null;
       const here = fileURLToPath(import.meta.url);
       // <repoRoot>/packages/frontend/src/resolver/clr-bindings-resolver.ts
-      const repoRoot = dirname(dirname(dirname(dirname(here))));
+      const repoRoot = dirname(dirname(dirname(dirname(dirname(here)))));
       const siblingRoot = join(repoRoot, "..", pkgDirName);
       if (!existsSync(join(siblingRoot, "package.json"))) return null;
       return siblingRoot;
