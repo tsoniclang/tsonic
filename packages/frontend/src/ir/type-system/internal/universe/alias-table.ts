@@ -158,6 +158,21 @@ export const buildAliasTable = (
     }
   }
 
+  // tsbindgen emits `$instance` interface names in some signature return/parameter
+  // types (e.g., `List_1$instance<T>`), even though the canonical nominal is
+  // `List_1`. These must unify to the same TypeId for inheritance-based
+  // generic inference (List<T> → IEnumerable<T>) and member lookup.
+  for (const [tsName, typeId] of clrCatalog.tsNameToTypeId) {
+    // Avoid generating nonsense aliases for already-suffixed or internal helper names.
+    if (tsName.endsWith("$instance")) continue;
+    if (tsName.startsWith("__") && tsName.includes("$views")) continue;
+
+    const instanceAlias = `${tsName}$instance`;
+    if (!aliases.has(instanceAlias)) {
+      aliases.set(instanceAlias, typeId);
+    }
+  }
+
   return aliases;
 };
 

@@ -88,10 +88,15 @@ export const createProgramContext = (
   // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
   // Pass A: Register all type names (skeleton)
   // Pass B: Convert all type annotations (with stable resolution)
-  const allSourceFiles = [
-    ...program.sourceFiles,
-    ...program.declarationSourceFiles,
-  ];
+  const declarationSourceFiles = program.declarationSourceFiles.filter((sf) => {
+    const fileName = sf.fileName.replace(/\\/g, "/");
+    // tsbindgen-generated CLR declarations live under @tsonic/dotnet and are already
+    // represented in the CLR catalog (metadata.json). Including them in SourceCatalog
+    // creates tsName collisions (e.g., `IEnumerable_1`) that break nominal resolution.
+    return !fileName.includes("/node_modules/@tsonic/dotnet/");
+  });
+
+  const allSourceFiles = [...program.sourceFiles, ...declarationSourceFiles];
   const { typeRegistry } = buildSourceCatalog({
     sourceFiles: allSourceFiles,
     checker: program.checker,

@@ -4,6 +4,7 @@
 
 import * as ts from "typescript";
 import { IrType, IrDictionaryType, IrInterfaceMember } from "../../../types.js";
+import { substituteIrType } from "../../../types/ir-substitution.js";
 import {
   isPrimitiveTypeName,
   getPrimitiveType,
@@ -357,6 +358,15 @@ export const convertTypeReference = (
     // Fall through to referenceType if can't expand (e.g., type parameter)
   }
 
+  // tsbindgen's `CLROf<T>` is a conditional type used to coerce ergonomic primitives
+  // into their CLR nominal types in generic positions. For deterministic IR typing,
+  // we treat it as an identity wrapper and rely on the TypeSystem's primitive-to-nominal
+  // normalization (and alias table) to unify primitives with System.* TypeIds.
+  if (typeName === "CLROf" && node.typeArguments?.length === 1) {
+    const inner = node.typeArguments[0];
+    return inner ? convertType(inner, binding) : { kind: "unknownType" };
+  }
+
   // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
   // These are type aliases that should NOT be resolved - we preserve them
   // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.
@@ -402,9 +412,34 @@ export const convertTypeReference = (
           ts.isTypeAliasDeclaration(declNode) &&
           ts.isFunctionTypeNode(declNode.type)
         ) {
-          // Convert the underlying function type directly
-          // This enables extractParamTypesFromExpectedType to work
-          return convertFunctionType(declNode.type, binding, convertType);
+          const fnType = convertFunctionType(declNode.type, binding, convertType);
+
+          // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
+          // apply the reference site's type arguments so lambdas get a fully-instantiated
+          // expected type (critical for deterministic inference).
+          const aliasTypeParams = (declNode.typeParameters ?? []).map(
+            (tp) => tp.name.text
+          );
+          const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+            convertType(t, binding)
+          );
+
+          if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
+            const subst = new Map<string, IrType>();
+            for (
+              let i = 0;
+              i < Math.min(aliasTypeParams.length, refTypeArgs.length);
+              i++
+            ) {
+              const name = aliasTypeParams[i];
+              const arg = refTypeArgs[i];
+              if (name && arg) subst.set(name, arg);
+            }
+
+            return subst.size > 0 ? substituteIrType(fnType, subst) : fnType;
+          }
+
+          return fnType;
         }
       }
     }

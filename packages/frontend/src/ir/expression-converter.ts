@@ -311,10 +311,11 @@ export const convertExpression = (
   if (ts.isParenthesizedExpression(node)) {
     return convertExpression(node.expression, ctx, expectedType);
   }
+  if (ts.isNonNullExpression(node)) {
+    // `expr!` has no runtime semantics; erase and preserve the inner expression/type.
+    return convertExpression(node.expression, ctx, expectedType);
+  }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-    // Convert the inner expression
-    const innerExpr = convertExpression(node.expression, ctx, undefined);
-
     // Get the asserted type
     // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
     const assertedTypeNode = node.type;
@@ -325,6 +326,9 @@ export const convertExpression = (
     // Check if this is a numeric narrowing (e.g., `as int`, `as byte`)
     const numericKind = getNumericKindFromTypeNode(assertedTypeNode);
     if (numericKind !== undefined) {
+      // Convert the inner expression with no expected type so we preserve its natural classification.
+      const innerExpr = convertExpression(node.expression, ctx, undefined);
+
       // Determine the inferredType based on the targetKind
       // INVARIANT: "Int32" → primitiveType(name="int")
       // Other numeric kinds remain as referenceType (handled by assertedType)
@@ -351,6 +355,9 @@ export const convertExpression = (
       assertedType.kind === "primitiveType" &&
       assertedType.name === "number"
     ) {
+      // Convert the inner expression with no expected type so we preserve its natural classification.
+      const innerExpr = convertExpression(node.expression, ctx, undefined);
+
       // Check if the inner expression is numeric (literal or already classified)
       const isNumericInner =
         (innerExpr.kind === "literal" && typeof innerExpr.value === "number") ||
@@ -374,7 +381,8 @@ export const convertExpression = (
       assertedType.kind === "unknownType" ||
       assertedType.kind === "anyType"
     ) {
-      return innerExpr;
+      // Preserve contextual typing from the outer position.
+      return convertExpression(node.expression, ctx, expectedType);
     }
 
     // Check if this is a parameter modifier type (out<T>, ref<T>, in<T>)
@@ -387,9 +395,14 @@ export const convertExpression = (
         assertedType.name === "inref");
 
     if (isParameterModifierType) {
-      // Just return the inner expression - the parameter modifier is handled elsewhere
-      return innerExpr;
+      // Preserve contextual typing from the outer position.
+      // The parameter modifier itself is handled in call lowering / argument emission.
+      return convertExpression(node.expression, ctx, expectedType);
     }
+
+    // Convert the inner expression contextually, using the asserted type as the target.
+    // This prevents `({ ... } as T)` from becoming an anonymous object cast to T (invalid in C#).
+    const innerExpr = convertExpression(node.expression, ctx, assertedType);
 
     // Non-numeric assertion - create type assertion node for C# cast
     return {

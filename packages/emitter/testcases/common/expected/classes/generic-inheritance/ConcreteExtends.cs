@@ -25,7 +25,7 @@ namespace TestCases.common.classes.genericinheritance
     {
         public int getLength()
             {
-            return this.getValue().length;
+            return this.getValue().Length;
             }
     }
 }

@@ -290,8 +290,10 @@ export const convertObjectLiteral = (
     // Skip getters/setters/methods for now (can add later if needed)
   });
 
-  // Try to get contextual type first
-  let contextualType = getContextualType(node, ctx);
+  // Contextual type priority:
+  // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
+  // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
+  let contextualType = expectedType ?? getContextualType(node, ctx);
 
   // If no contextual type, check if eligible for synthesis
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis

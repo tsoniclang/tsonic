@@ -16,6 +16,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import * as ts from "typescript";
 import type { IrType } from "../../../types/index.js";
 import type {
   AssemblyTypeCatalog,
@@ -198,6 +199,392 @@ const splitTypeArguments = (str: string): string[] => {
   }
 
   return result;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TSBINDGEN .D.TS HERITAGE EXTRACTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+const INSTANCE_SUFFIX = "$instance";
+const VIEWS_PREFIX = "__";
+const VIEWS_SUFFIX = "$views";
+
+const stripTsBindgenInstanceSuffix = (name: string): string => {
+  return name.endsWith(INSTANCE_SUFFIX)
+    ? name.slice(0, -INSTANCE_SUFFIX.length)
+    : name;
+};
+
+const stripTsBindgenViewsWrapper = (name: string): string | undefined => {
+  if (!name.startsWith(VIEWS_PREFIX)) return undefined;
+  if (!name.endsWith(VIEWS_SUFFIX)) return undefined;
+  return name.slice(VIEWS_PREFIX.length, -VIEWS_SUFFIX.length);
+};
+
+const getRightmostQualifiedNameText = (name: ts.EntityName): string => {
+  if (ts.isIdentifier(name)) return name.text;
+  return getRightmostQualifiedNameText(name.right);
+};
+
+const getRightmostPropertyAccessText = (expr: ts.Expression): string | undefined => {
+  if (ts.isIdentifier(expr)) return expr.text;
+  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  if (ts.isCallExpression(expr)) return getRightmostPropertyAccessText(expr.expression);
+  if (ts.isParenthesizedExpression(expr))
+    return getRightmostPropertyAccessText(expr.expression);
+  return undefined;
+};
+
+const dtsTypeNodeToIrType = (
+  node: ts.TypeNode,
+  inScopeTypeParams: ReadonlySet<string>
+): IrType => {
+  // Parenthesized type
+  if (ts.isParenthesizedTypeNode(node)) {
+    return dtsTypeNodeToIrType(node.type, inScopeTypeParams);
+  }
+
+  // Type references (including type parameters)
+  if (ts.isTypeReferenceNode(node)) {
+    const rawName = getRightmostQualifiedNameText(node.typeName);
+    const name = stripTsBindgenInstanceSuffix(rawName);
+
+    // Type parameter reference: `T` (no type args) where T is in scope
+    if (inScopeTypeParams.has(name) && !node.typeArguments?.length) {
+      return { kind: "typeParameterType", name };
+    }
+
+    const typeArguments = node.typeArguments?.map((a) =>
+      dtsTypeNodeToIrType(a, inScopeTypeParams)
+    );
+
+    return {
+      kind: "referenceType",
+      name,
+      typeArguments: typeArguments && typeArguments.length > 0 ? typeArguments : undefined,
+    };
+  }
+
+  // Array types
+  if (ts.isArrayTypeNode(node)) {
+    return { kind: "arrayType", elementType: dtsTypeNodeToIrType(node.elementType, inScopeTypeParams) };
+  }
+
+  // Union / intersection
+  if (ts.isUnionTypeNode(node)) {
+    return { kind: "unionType", types: node.types.map((t) => dtsTypeNodeToIrType(t, inScopeTypeParams)) };
+  }
+  if (ts.isIntersectionTypeNode(node)) {
+    return {
+      kind: "intersectionType",
+      types: node.types.map((t) => dtsTypeNodeToIrType(t, inScopeTypeParams)),
+    };
+  }
+
+  // Literal types
+  if (ts.isLiteralTypeNode(node)) {
+    const lit = node.literal;
+    if (ts.isStringLiteral(lit)) return { kind: "literalType", value: lit.text };
+    if (ts.isNumericLiteral(lit)) return { kind: "literalType", value: Number(lit.text) };
+    if (lit.kind === ts.SyntaxKind.TrueKeyword) return { kind: "literalType", value: true };
+    if (lit.kind === ts.SyntaxKind.FalseKeyword) return { kind: "literalType", value: false };
+  }
+
+  // Keywords
+  switch (node.kind) {
+    case ts.SyntaxKind.StringKeyword:
+      return { kind: "primitiveType", name: "string" };
+    case ts.SyntaxKind.NumberKeyword:
+      return { kind: "primitiveType", name: "number" };
+    case ts.SyntaxKind.BooleanKeyword:
+      return { kind: "primitiveType", name: "boolean" };
+    case ts.SyntaxKind.VoidKeyword:
+      return { kind: "voidType" };
+    case ts.SyntaxKind.AnyKeyword:
+      return { kind: "anyType" };
+    case ts.SyntaxKind.UnknownKeyword:
+      return { kind: "unknownType" };
+    case ts.SyntaxKind.NeverKeyword:
+      return { kind: "neverType" };
+    case ts.SyntaxKind.NullKeyword:
+      return { kind: "primitiveType", name: "null" };
+    case ts.SyntaxKind.UndefinedKeyword:
+      return { kind: "primitiveType", name: "undefined" };
+    default:
+      return { kind: "unknownType" };
+  }
+};
+
+type TsBindgenDtsTypeInfo = {
+  readonly typeParametersByTsName: ReadonlyMap<string, readonly string[]>;
+  readonly heritageByTsName: ReadonlyMap<string, readonly HeritageEdge[]>;
+};
+
+const extractHeritageFromTsBindgenDts = (
+  dtsPath: string,
+  tsNameToTypeId: ReadonlyMap<string, TypeId>,
+  entries: ReadonlyMap<string, NominalEntry>
+): TsBindgenDtsTypeInfo => {
+  const typeParametersByTsName = new Map<string, readonly string[]>();
+  const heritageByTsName = new Map<string, HeritageEdge[]>();
+
+  const content = fs.readFileSync(dtsPath, "utf-8");
+  const sf = ts.createSourceFile(dtsPath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+  const getEntry = (tsName: string): NominalEntry | undefined => {
+    const id = tsNameToTypeId.get(tsName);
+    return id ? entries.get(id.stableId) : undefined;
+  };
+
+  const addEdge = (sourceTsName: string, edge: HeritageEdge) => {
+    const list = heritageByTsName.get(sourceTsName) ?? [];
+    list.push(edge);
+    heritageByTsName.set(sourceTsName, list);
+  };
+
+  const computeEdgeKind = (
+    source: NominalEntry,
+    target: NominalEntry,
+    preferred?: HeritageEdge["kind"]
+  ): HeritageEdge["kind"] => {
+    if (preferred) return preferred;
+    if (source.kind === "interface") return "extends";
+    return target.kind === "interface" ? "implements" : "extends";
+  };
+
+  const addHeritageFromHeritageClauses = (
+    sourceTsName: string,
+    sourceEntry: NominalEntry,
+    inScopeTypeParams: ReadonlySet<string>,
+    clauses: readonly ts.HeritageClause[] | undefined,
+    forceKind?: HeritageEdge["kind"]
+  ) => {
+    if (!clauses) return;
+
+    for (const clause of clauses) {
+      for (const t of clause.types) {
+        const rawTarget = getRightmostPropertyAccessText(t.expression);
+        if (!rawTarget) continue;
+        const targetTsName = stripTsBindgenInstanceSuffix(rawTarget);
+
+        const targetTypeId = tsNameToTypeId.get(targetTsName);
+        if (!targetTypeId) continue;
+        const targetEntry = entries.get(targetTypeId.stableId);
+        if (!targetEntry) continue;
+
+        const typeArguments = (t.typeArguments ?? []).map((a) =>
+          dtsTypeNodeToIrType(a, inScopeTypeParams)
+        );
+
+        addEdge(sourceTsName, {
+          kind: computeEdgeKind(sourceEntry, targetEntry, forceKind),
+          targetStableId: targetTypeId.stableId,
+          typeArguments,
+        });
+      }
+    }
+  };
+
+  const addHeritageFromViewsInterface = (viewsDecl: ts.InterfaceDeclaration) => {
+    const baseTsName = stripTsBindgenViewsWrapper(viewsDecl.name.text);
+    if (!baseTsName) return;
+
+    const sourceEntry = getEntry(baseTsName);
+    if (!sourceEntry) return;
+
+    const inScopeTypeParams = new Set<string>(
+      (viewsDecl.typeParameters ?? []).map((p) => p.name.text)
+    );
+
+    for (const m of viewsDecl.members) {
+      if (!ts.isMethodSignature(m)) continue;
+      const methodName = m.name && ts.isIdentifier(m.name) ? m.name.text : undefined;
+      if (!methodName || !methodName.startsWith("As_")) continue;
+      if (!m.type) continue;
+
+      const returnType = dtsTypeNodeToIrType(m.type, inScopeTypeParams);
+      if (returnType.kind !== "referenceType") continue;
+
+      const targetTsName = returnType.name;
+      const targetTypeId = tsNameToTypeId.get(targetTsName);
+      if (!targetTypeId) continue;
+      const targetEntry = entries.get(targetTypeId.stableId);
+      if (!targetEntry) continue;
+
+      addEdge(baseTsName, {
+        kind: computeEdgeKind(sourceEntry, targetEntry, "implements"),
+        targetStableId: targetTypeId.stableId,
+        typeArguments: returnType.typeArguments ?? [],
+      });
+    }
+  };
+
+  for (const stmt of sf.statements) {
+    // export interface Foo$instance<T> ...
+    if (ts.isInterfaceDeclaration(stmt) && stmt.name) {
+      const nameText = stmt.name.text;
+
+      // Views wrapper: __Foo$views<T> { As_IEnumerable_1(): IEnumerable_1$instance<T> }
+      if (nameText.startsWith(VIEWS_PREFIX) && nameText.endsWith(VIEWS_SUFFIX)) {
+        addHeritageFromViewsInterface(stmt);
+        continue;
+      }
+
+      if (!nameText.endsWith(INSTANCE_SUFFIX)) continue;
+      const baseTsName = stripTsBindgenInstanceSuffix(nameText);
+      const sourceEntry = getEntry(baseTsName);
+      if (!sourceEntry) continue;
+
+      const typeParams = (stmt.typeParameters ?? []).map((p) => p.name.text);
+      if (!typeParametersByTsName.has(baseTsName)) {
+        typeParametersByTsName.set(baseTsName, typeParams);
+      }
+
+      const inScopeTypeParams = new Set<string>(typeParams);
+      addHeritageFromHeritageClauses(
+        baseTsName,
+        sourceEntry,
+        inScopeTypeParams,
+        stmt.heritageClauses
+      );
+      continue;
+    }
+
+    // export abstract class Foo$instance { ... } (static namespaces)
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      const nameText = stmt.name.text;
+      if (!nameText.endsWith(INSTANCE_SUFFIX)) continue;
+
+      const baseTsName = stripTsBindgenInstanceSuffix(nameText);
+      const sourceEntry = getEntry(baseTsName);
+      if (!sourceEntry) continue;
+
+      const typeParams = (stmt.typeParameters ?? []).map((p) => p.name.text);
+      if (!typeParametersByTsName.has(baseTsName)) {
+        typeParametersByTsName.set(baseTsName, typeParams);
+      }
+
+      const inScopeTypeParams = new Set<string>(typeParams);
+
+      // In a class declaration, TS encodes extends/implements explicitly.
+      if (stmt.heritageClauses) {
+        for (const clause of stmt.heritageClauses) {
+          if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+            addHeritageFromHeritageClauses(
+              baseTsName,
+              sourceEntry,
+              inScopeTypeParams,
+              [clause],
+              "extends"
+            );
+          } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
+            addHeritageFromHeritageClauses(
+              baseTsName,
+              sourceEntry,
+              inScopeTypeParams,
+              [clause],
+              "implements"
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Dedup + stable sort per type (determinism)
+  const dedupedHeritageByTsName = new Map<string, readonly HeritageEdge[]>();
+  for (const [tsName, edges] of heritageByTsName) {
+    const seen = new Set<string>();
+    const unique: HeritageEdge[] = [];
+    for (const e of edges) {
+      const key = `${e.kind}|${e.targetStableId}|${JSON.stringify(e.typeArguments)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(e);
+    }
+    unique.sort((a, b) => {
+      const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
+      const ra = rank(a.kind);
+      const rb = rank(b.kind);
+      if (ra !== rb) return ra - rb;
+      const stable = a.targetStableId.localeCompare(b.targetStableId);
+      if (stable !== 0) return stable;
+      return JSON.stringify(a.typeArguments).localeCompare(JSON.stringify(b.typeArguments));
+    });
+    dedupedHeritageByTsName.set(tsName, unique);
+  }
+
+  return {
+    typeParametersByTsName,
+    heritageByTsName: dedupedHeritageByTsName,
+  };
+};
+
+const enrichAssemblyEntriesFromTsBindgenDts = (
+  entries: Map<string, NominalEntry>,
+  tsNameToTypeId: ReadonlyMap<string, TypeId>,
+  dtsPaths: readonly string[]
+): void => {
+  const mergedTypeParams = new Map<string, readonly string[]>();
+  const mergedHeritage = new Map<string, HeritageEdge[]>();
+
+  for (const dtsPath of dtsPaths) {
+    try {
+      const info = extractHeritageFromTsBindgenDts(dtsPath, tsNameToTypeId, entries);
+      for (const [tsName, params] of info.typeParametersByTsName) {
+        if (!mergedTypeParams.has(tsName) && params.length > 0) {
+          mergedTypeParams.set(tsName, params);
+        }
+      }
+      for (const [tsName, edges] of info.heritageByTsName) {
+        const list = mergedHeritage.get(tsName) ?? [];
+        list.push(...edges);
+        mergedHeritage.set(tsName, list);
+      }
+    } catch (e) {
+      console.warn(`Failed to parse tsbindgen d.ts for heritage: ${dtsPath}`, e);
+    }
+  }
+
+  // Apply merged info to entries
+  for (const [tsName, typeId] of tsNameToTypeId) {
+    const entry = entries.get(typeId.stableId);
+    if (!entry) continue;
+
+    const dtsTypeParams = mergedTypeParams.get(tsName);
+    const updatedTypeParameters =
+      dtsTypeParams && dtsTypeParams.length === entry.typeParameters.length
+        ? dtsTypeParams.map((name) => ({ name }))
+        : entry.typeParameters;
+
+    const extraHeritage = mergedHeritage.get(tsName) ?? [];
+    if (extraHeritage.length === 0 && updatedTypeParameters === entry.typeParameters) continue;
+
+    const combined = [...entry.heritage, ...extraHeritage];
+    const seen = new Set<string>();
+    const deduped: HeritageEdge[] = [];
+    for (const h of combined) {
+      const key = `${h.kind}|${h.targetStableId}|${JSON.stringify(h.typeArguments)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(h);
+    }
+    deduped.sort((a, b) => {
+      const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
+      const ra = rank(a.kind);
+      const rb = rank(b.kind);
+      if (ra !== rb) return ra - rb;
+      const stable = a.targetStableId.localeCompare(b.targetStableId);
+      if (stable !== 0) return stable;
+      return JSON.stringify(a.typeArguments).localeCompare(JSON.stringify(b.typeArguments));
+    });
+
+    entries.set(typeId.stableId, {
+      ...entry,
+      typeParameters: updatedTypeParameters,
+      heritage: deduped,
+    });
+  }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -510,6 +897,7 @@ export const loadClrCatalog = (
   const tsNameToTypeId = new Map<string, TypeId>();
   const clrNameToTypeId = new Map<string, TypeId>();
   const namespaceToTypeIds = new Map<string, TypeId[]>();
+  const dtsFiles = new Set<string>();
 
   // Find all @tsonic packages
   const packages = findTsonicPackages(nodeModulesPath);
@@ -520,6 +908,11 @@ export const loadClrCatalog = (
 
     for (const metadataPath of metadataFiles) {
       try {
+        const dtsPath = path.join(path.dirname(metadataPath), "index.d.ts");
+        if (fs.existsSync(dtsPath)) {
+          dtsFiles.add(dtsPath);
+        }
+
         const content = fs.readFileSync(metadataPath, "utf-8");
         const metadata: RawMetadataFile = JSON.parse(content);
 
@@ -545,6 +938,15 @@ export const loadClrCatalog = (
     }
   }
 
+  // Enrich CLR catalog with heritage edges and type parameter names by parsing
+  // tsbindgen internal `index.d.ts` files. This is required for deterministic
+  // generic inference through inheritance (e.g., List<T> → IEnumerable<T>).
+  enrichAssemblyEntriesFromTsBindgenDts(
+    entries,
+    tsNameToTypeId,
+    Array.from(dtsFiles)
+  );
+
   return {
     entries,
     tsNameToTypeId,
@@ -563,6 +965,7 @@ export const loadSinglePackageMetadata = (
   const tsNameToTypeId = new Map<string, TypeId>();
   const clrNameToTypeId = new Map<string, TypeId>();
   const namespaceToTypeIds = new Map<string, TypeId[]>();
+  const dtsPath = path.join(path.dirname(metadataPath), "index.d.ts");
 
   const content = fs.readFileSync(metadataPath, "utf-8");
   const metadata: RawMetadataFile = JSON.parse(content);
@@ -577,6 +980,10 @@ export const loadSinglePackageMetadata = (
     const nsTypes = namespaceToTypeIds.get(metadata.namespace) ?? [];
     nsTypes.push(entry.typeId);
     namespaceToTypeIds.set(metadata.namespace, nsTypes);
+  }
+
+  if (fs.existsSync(dtsPath)) {
+    enrichAssemblyEntriesFromTsBindgenDts(entries, tsNameToTypeId, [dtsPath]);
   }
 
   return {
