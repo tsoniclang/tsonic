@@ -9,6 +9,20 @@ namespace TestCases.common.types.functorpatterns
             throw "Not implemented";
             }
     }
+    public static class Maybe
+    {
+        public static Maybe<T> just<T>(T value)
+            where T : class
+            {
+            return new Maybe<T>(value);
+            }
+
+        public static Maybe<T> nothing<T>()
+            where T : class
+            {
+            return new Maybe<T>(null);
+            }
+    }
     public class Maybe<T> : Functor<T>
         where T : class
     {
@@ -17,18 +31,6 @@ namespace TestCases.common.types.functorpatterns
         public Maybe(T? value) : base()
             {
             this.value = value;
-            }
-
-        public static Maybe<T> just<T>(T value)
-            where T : class
-            {
-            return new Maybe(value);
-            }
-
-        public static Maybe<T> nothing<T>()
-            where T : class
-            {
-            return new Maybe<T>(null);
             }
 
         public override Maybe<U> map<U>(global::System.Func<T, U> fn)

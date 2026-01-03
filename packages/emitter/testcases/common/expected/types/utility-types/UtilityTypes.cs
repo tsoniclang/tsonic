@@ -22,143 +22,143 @@ namespace TestCases.common.types.utilitytypes
 
         public string? email { get; set; }
     }
-    public class WithMethods
+    public interface WithMethods
     {
-        public required string name { get; set; }
+        string name { get; set; }
 
-        public string greet(string greeting) => throw new NotImplementedException();
+        string greet(string greeting);
 
-        public double calculate(double a, double b) => throw new NotImplementedException();
+        double calculate(double a, double b);
     }
 
-            public static class UtilityTypes
+        public static class UtilityTypes
+        {
+            public sealed class PartialPerson__Alias
             {
-                public sealed class PartialPerson__Alias
-                {
-                    public string? name { get; set; }
-                    public double? age { get; set; }
-                    public string? email { get; set; }
-                }
-
-                public sealed class RequiredOptionalPerson__Alias
-                {
-                    public required string name { get; set; }
-                    public required double age { get; set; }
-                }
-
-                public sealed class ReadonlyPerson__Alias
-                {
-                    public required string name { get; }
-                    public required double age { get; }
-                    public required string email { get; }
-                }
-
-                public sealed class PersonName__Alias
-                {
-                    public required string name { get; set; }
-                }
-
-                public sealed class PersonContact__Alias
-                {
-                    public required string name { get; set; }
-                    public required string email { get; set; }
-                }
-
-                public sealed class PersonWithoutEmail__Alias
-                {
-                    public required string name { get; set; }
-                    public required double age { get; set; }
-                }
-
-                public sealed class PersonNameOnly__Alias
-                {
-                    public required string name { get; set; }
-                }
-
-                public sealed class PartialReadonly__Alias
-                {
-                    public string? name { get; }
-                    public double? age { get; }
-                    public string? email { get; }
-                }
-
-                public sealed class ReadonlyPartial__Alias
-                {
-                    public string? name { get; }
-                    public double? age { get; }
-                    public string? email { get; }
-                }
-
-                public sealed class FullMixedPerson__Alias
-                {
-                    public required string name { get; set; }
-                    public required double age { get; set; }
-                    public required string email { get; set; }
-                }
-
-                public sealed class PartialMixedPerson__Alias
-                {
-                    public string? name { get; set; }
-                    public double? age { get; set; }
-                    public string? email { get; set; }
-                }
-
-                public sealed class PickFromPartial__Alias
-                {
-                    public string? name { get; set; }
-                    public double? age { get; set; }
-                }
-
-                public sealed class OmitFromReadonly__Alias
-                {
-                    public required string name { get; }
-                    public required double age { get; }
-                }
-
-                public sealed class PartialWithMethods__Alias
-                {
-                    public string? name { get; set; }
-                }
-
-                public sealed class ReadonlyWithMethods__Alias
-                {
-                    public required string name { get; }
-                }
-
-                // type MaybeString = string?
-
-                // type DefiniteString = string
-
-                // type MaybeNumber = double?
-
-                // type DefiniteNumber = double
-
-                // type StringOrNumber = global::Tsonic.Runtime.Union<string, double>
-
-                // type OnlyString = string
-
-                // type OnlyNumber = double
-
-                // type Literals = global::Tsonic.Runtime.Union<string, string, string>
-
-                // type WithoutA = global::Tsonic.Runtime.Union<string, string>
-
-                // type ExtractedString = string
-
-                // type ExtractedNumber = double
-
-                public sealed class StatusMap__Alias
-                {
-                    public required bool pending { get; set; }
-                    public required bool active { get; set; }
-                    public required bool done { get; set; }
-                }
-
-                public sealed class NumericKeys__Alias
-                {
-                    public required string _1 { get; set; }
-                    public required string _2 { get; set; }
-                    public required string _3 { get; set; }
-                }
+                public string? name { get; set; }
+                public double? age { get; set; }
+                public string? email { get; set; }
             }
+
+            public sealed class RequiredOptionalPerson__Alias
+            {
+                public required string name { get; set; }
+                public required double age { get; set; }
+            }
+
+            public sealed class ReadonlyPerson__Alias
+            {
+                public required string name { get; }
+                public required double age { get; }
+                public required string email { get; }
+            }
+
+            public sealed class PersonName__Alias
+            {
+                public required string name { get; set; }
+            }
+
+            public sealed class PersonContact__Alias
+            {
+                public required string name { get; set; }
+                public required string email { get; set; }
+            }
+
+            public sealed class PersonWithoutEmail__Alias
+            {
+                public required string name { get; set; }
+                public required double age { get; set; }
+            }
+
+            public sealed class PersonNameOnly__Alias
+            {
+                public required string name { get; set; }
+            }
+
+            public sealed class PartialReadonly__Alias
+            {
+                public string? name { get; }
+                public double? age { get; }
+                public string? email { get; }
+            }
+
+            public sealed class ReadonlyPartial__Alias
+            {
+                public string? name { get; }
+                public double? age { get; }
+                public string? email { get; }
+            }
+
+            public sealed class FullMixedPerson__Alias
+            {
+                public required string name { get; set; }
+                public required double age { get; set; }
+                public required string email { get; set; }
+            }
+
+            public sealed class PartialMixedPerson__Alias
+            {
+                public string? name { get; set; }
+                public double? age { get; set; }
+                public string? email { get; set; }
+            }
+
+            public sealed class PickFromPartial__Alias
+            {
+                public string? name { get; set; }
+                public double? age { get; set; }
+            }
+
+            public sealed class OmitFromReadonly__Alias
+            {
+                public required string name { get; }
+                public required double age { get; }
+            }
+
+            public sealed class PartialWithMethods__Alias
+            {
+                public string? name { get; set; }
+            }
+
+            public sealed class ReadonlyWithMethods__Alias
+            {
+                public required string name { get; }
+            }
+
+            // type MaybeString = string?
+
+            // type DefiniteString = string
+
+            // type MaybeNumber = double?
+
+            // type DefiniteNumber = double
+
+            // type StringOrNumber = global::Tsonic.Runtime.Union<string, double>
+
+            // type OnlyString = string
+
+            // type OnlyNumber = double
+
+            // type Literals = global::Tsonic.Runtime.Union<string, string, string>
+
+            // type WithoutA = global::Tsonic.Runtime.Union<string, string>
+
+            // type ExtractedString = string
+
+            // type ExtractedNumber = double
+
+            public sealed class StatusMap__Alias
+            {
+                public required bool pending { get; set; }
+                public required bool active { get; set; }
+                public required bool done { get; set; }
+            }
+
+            public sealed class NumericKeys__Alias
+            {
+                public required string _1 { get; set; }
+                public required string _2 { get; set; }
+                public required string _3 { get; set; }
+            }
+        }
 }

@@ -6,8 +6,8 @@ namespace TestCases.common.edgecases.shadowing
                 {
                 var x = 10;
                 {
-                var x = 20;
-                return x;
+                var x__1 = 20;
+                return x__1;
                 }
                 }
 
@@ -16,8 +16,8 @@ namespace TestCases.common.edgecases.shadowing
                 var value = 5;
                 var inner = () =>
                 {
-                var value = 10;
-                return value;
+                var value__1 = 10;
+                return value__1;
                 };
                 return value + inner();
                 }

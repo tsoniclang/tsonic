@@ -37,6 +37,70 @@ import {
   emitAwait,
 } from "./expressions/other.js";
 
+const getBareTypeParameterName = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  if (type.kind === "typeParameterType") return type.name;
+  if (
+    type.kind === "referenceType" &&
+    (context.typeParameters?.has(type.name) ?? false) &&
+    (!type.typeArguments || type.typeArguments.length === 0)
+  ) {
+    return type.name;
+  }
+  return undefined;
+};
+
+const getUnconstrainedNullishTypeParamName = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  if (type.kind !== "unionType") return undefined;
+
+  const nonNullTypes = type.types.filter(
+    (t) =>
+      !(
+        t.kind === "primitiveType" &&
+        (t.name === "null" || t.name === "undefined")
+      )
+  );
+  if (nonNullTypes.length !== 1) return undefined;
+
+  const nonNull = nonNullTypes[0];
+  if (!nonNull) return undefined;
+
+  const typeParamName = getBareTypeParameterName(nonNull, context);
+  if (!typeParamName) return undefined;
+
+  const constraintKind =
+    context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";
+  return constraintKind === "unconstrained" ? typeParamName : undefined;
+};
+
+const maybeCastNullishTypeParam = (
+  expr: IrExpression,
+  fragment: CSharpFragment,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpFragment, EmitterContext] => {
+  if (!expectedType) return [fragment, context];
+  if (!expr.inferredType) return [fragment, context];
+
+  const expectedTypeParam = getBareTypeParameterName(expectedType, context);
+  if (!expectedTypeParam) return [fragment, context];
+
+  const unionTypeParam = getUnconstrainedNullishTypeParamName(
+    expr.inferredType,
+    context
+  );
+  if (!unionTypeParam) return [fragment, context];
+  if (unionTypeParam !== expectedTypeParam) return [fragment, context];
+
+  const [typeName, newContext] = emitType(expectedType, context);
+  return [{ text: `(${typeName})${fragment.text}` }, newContext];
+};
+
 /**
  * Emit a numeric narrowing expression.
  *
@@ -65,27 +129,12 @@ const emitNumericNarrowing = (
       return [innerCode, newContext];
     }
 
-    // For binary/unary ops, variables, and parameters that already produce the
-    // target type, emit without expectedType to avoid redundant casts.
-    // The proof confirms the expression produces the correct type naturally.
-    if (
-      expr.proof.source.type === "binaryOp" ||
-      expr.proof.source.type === "unaryOp" ||
-      expr.proof.source.type === "variable" ||
-      expr.proof.source.type === "parameter" ||
-      expr.proof.source.type === "narrowing"
-    ) {
-      const [innerCode, newContext] = emitExpression(
-        expr.expression,
-        context
-        // No expectedType - the expression produces the target type naturally
-      );
-      return [innerCode, newContext];
-    }
-
-    // For dotnetReturn and other proof types, emit without forcing a cast
-    const [innerCode, newContext] = emitExpression(expr.expression, context);
-    return [innerCode, newContext];
+    // Numeric narrowings represent explicit user intent (`x as int`, `x as long`).
+    // Even when the conversion is proven sound, C# generic inference can become
+    // ambiguous without an explicit cast (e.g., choosing between `int` and `long`).
+    const [innerCode, ctx1] = emitExpression(expr.expression, context);
+    const [typeName, ctx2] = emitType(expr.inferredType, ctx1);
+    return [{ text: `(${typeName})${innerCode.text}` }, ctx2];
   }
 
   // HARD GATE: No proof means the proof pass failed to catch an unprovable narrowing.
@@ -140,7 +189,8 @@ export const emitExpression = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
-  switch (expr.kind) {
+  const [fragment, newContext] = (() => {
+    switch (expr.kind) {
     case "literal":
       // Pass expectedType for null → default conversion in generic contexts
       // Numeric literals use raw lexeme (no contextual widening under new spec)
@@ -212,7 +262,10 @@ export const emitExpression = (
     default:
       // Fallback for unhandled expressions
       return [{ text: "/* TODO: unhandled expression */" }, context];
-  }
+    }
+  })();
+
+  return maybeCastNullishTypeParam(expr, fragment, newContext, expectedType);
 };
 
 // Re-export commonly used functions for backward compatibility

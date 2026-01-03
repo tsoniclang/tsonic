@@ -480,8 +480,8 @@ describe("IR Builder", () => {
     });
   });
 
-  describe("Interface Implements Validation (TSN7301)", () => {
-    it("should report error when class implements a nominalized interface", () => {
+  describe("Implements Clause Handling", () => {
+    it("should allow class implements interface (emitter decides CLR shape)", () => {
       const source = `
         interface Printable {
           print(): void;
@@ -498,12 +498,7 @@ describe("IR Builder", () => {
 
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.code).to.equal("TSN7301");
-        expect(result.error.message).to.include("Printable");
-        expect(result.error.message).to.include("nominalized");
-      }
+      expect(result.ok).to.equal(true);
     });
 
     it("should allow struct marker in implements clause", () => {
@@ -527,7 +522,7 @@ describe("IR Builder", () => {
       expect(result.ok).to.equal(true);
     });
 
-    it("should report error when class implements a type alias", () => {
+    it("should allow class implements type alias (emitter decides CLR shape)", () => {
       const source = `
         type Serializable = {
           serialize(): string;
@@ -544,11 +539,7 @@ describe("IR Builder", () => {
 
       const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.code).to.equal("TSN7301");
-        expect(result.error.message).to.include("Serializable");
-      }
+      expect(result.ok).to.equal(true);
     });
   });
 

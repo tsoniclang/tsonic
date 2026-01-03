@@ -1322,6 +1322,78 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
   ): IrType | undefined => {
     const unwrapped = unwrapParens(expr);
 
+    if (ts.isCallExpression(unwrapped)) {
+      return tryInferReturnTypeFromCallExpression(unwrapped, env);
+    }
+
+    if (ts.isNewExpression(unwrapped)) {
+      const sigId = resolveConstructorSignature(unwrapped);
+      if (!sigId) return undefined;
+
+      const explicitTypeArgs =
+        unwrapped.typeArguments && unwrapped.typeArguments.length > 0
+          ? unwrapped.typeArguments.map((ta) => convertTypeNode(ta))
+          : undefined;
+
+      const argumentCount = unwrapped.arguments?.length ?? 0;
+      const argTypesWorking: (IrType | undefined)[] = Array(argumentCount).fill(
+        undefined
+      );
+
+      const args = unwrapped.arguments ?? [];
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (!arg) continue;
+        if (ts.isSpreadElement(arg)) continue;
+        if (isLambdaExpression(arg)) continue;
+
+        const t = inferExpressionType(arg, env);
+        if (t && t.kind !== "unknownType") {
+          argTypesWorking[i] = t;
+        }
+      }
+
+      const resolved = resolveCall({
+        sigId,
+        argumentCount,
+        explicitTypeArgs,
+        argTypes: argTypesWorking,
+      });
+
+      return resolved.returnType.kind === "unknownType"
+        ? undefined
+        : resolved.returnType;
+    }
+
+    if (ts.isPropertyAccessExpression(unwrapped)) {
+      const receiverType = inferExpressionType(unwrapped.expression, env);
+      if (!receiverType || receiverType.kind === "unknownType") return undefined;
+      const memberType = typeOfMember(receiverType, {
+        kind: "byName",
+        name: unwrapped.name.text,
+      });
+      return memberType.kind === "unknownType" ? undefined : memberType;
+    }
+
+    if (ts.isElementAccessExpression(unwrapped)) {
+      const objectType = inferExpressionType(unwrapped.expression, env);
+      if (!objectType || objectType.kind === "unknownType") return undefined;
+
+      if (objectType.kind === "arrayType") {
+        return objectType.elementType;
+      }
+
+      if (objectType.kind === "dictionaryType") {
+        return objectType.valueType;
+      }
+
+      if (objectType.kind === "primitiveType" && objectType.name === "string") {
+        return { kind: "primitiveType", name: "string" };
+      }
+
+      return undefined;
+    }
+
     if (ts.isIdentifier(unwrapped)) {
       const fromEnv = env.get(unwrapped.text);
       if (fromEnv) return fromEnv;
@@ -1462,7 +1534,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
 
     const inferredReturnType =
       explicitReturnType ??
-      (expectedReturnType && expectedReturnType.kind !== "typeParameterType"
+      (expectedReturnType && !containsTypeParameter(expectedReturnType)
         ? expectedReturnType
         : undefined) ??
       (() => {
@@ -1560,6 +1632,157 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
    * - new expressions with explicit type arguments (or best-effort nominal type)
    * - identifier initializers (propagate deterministically)
    */
+  const tryInferReturnTypeFromCallExpression = (
+    call: ts.CallExpression,
+    env: ReadonlyMap<string, IrType>
+  ): IrType | undefined => {
+    const sigId = resolveCallSignature(call);
+    if (!sigId) return undefined;
+
+    const explicitTypeArgs =
+      call.typeArguments && call.typeArguments.length > 0
+        ? call.typeArguments.map((ta) => convertTypeNode(ta))
+        : undefined;
+
+    const receiverType = (() => {
+      if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
+      const receiverExpr = call.expression.expression;
+      if (!ts.isIdentifier(receiverExpr)) return undefined;
+      const receiverDeclId = resolveIdentifier(receiverExpr);
+      if (!receiverDeclId) return undefined;
+      const receiver = typeOfDecl(receiverDeclId);
+      return receiver.kind === "unknownType" ? undefined : receiver;
+    })();
+
+    const argumentCount = call.arguments.length;
+
+    // Two-pass: resolve once to get expected parameter types, then infer non-lambda args,
+    // then infer lambda arg types (from expected types + body), then final resolve.
+    const initialResolved = resolveCall({
+      sigId,
+      argumentCount,
+      receiverType,
+      explicitTypeArgs,
+    });
+    const initialParameterTypes = initialResolved.parameterTypes;
+
+    const argTypesWorking: (IrType | undefined)[] = Array(argumentCount).fill(
+      undefined
+    );
+
+    for (let index = 0; index < call.arguments.length; index++) {
+      const arg = call.arguments[index];
+      if (!arg) continue;
+      if (ts.isSpreadElement(arg)) continue;
+      if (isLambdaExpression(arg)) continue;
+
+      if (ts.isNumericLiteral(arg)) {
+        const numericKind = inferNumericKindFromRaw(arg.getText());
+        argTypesWorking[index] = deriveTypeFromNumericKind(numericKind);
+        continue;
+      }
+
+      if (ts.isStringLiteral(arg)) {
+        argTypesWorking[index] = { kind: "primitiveType", name: "string" };
+        continue;
+      }
+
+      if (
+        arg.kind === ts.SyntaxKind.TrueKeyword ||
+        arg.kind === ts.SyntaxKind.FalseKeyword
+      ) {
+        argTypesWorking[index] = {
+          kind: "primitiveType",
+          name: "boolean",
+        };
+        continue;
+      }
+
+      if (ts.isIdentifier(arg)) {
+        const argDeclId = resolveIdentifier(arg);
+        if (!argDeclId) continue;
+        const t = typeOfDecl(argDeclId);
+        if (t.kind !== "unknownType") {
+          argTypesWorking[index] = t;
+        }
+        continue;
+      }
+
+      if (ts.isCallExpression(arg)) {
+        const t = tryInferReturnTypeFromCallExpression(arg, env);
+        if (t) {
+          argTypesWorking[index] = t;
+        }
+        continue;
+      }
+
+      if (ts.isNewExpression(arg)) {
+        const nestedSigId = resolveConstructorSignature(arg);
+        if (!nestedSigId) continue;
+
+        const nestedExplicitTypeArgs =
+          arg.typeArguments && arg.typeArguments.length > 0
+            ? arg.typeArguments.map((ta) => convertTypeNode(ta))
+            : undefined;
+
+        const nestedResolved = resolveCall({
+          sigId: nestedSigId,
+          argumentCount: arg.arguments?.length ?? 0,
+          explicitTypeArgs: nestedExplicitTypeArgs,
+        });
+
+        if (nestedResolved.returnType.kind !== "unknownType") {
+          argTypesWorking[index] = nestedResolved.returnType;
+        }
+        continue;
+      }
+
+      // Fallback: infer from a small deterministic expression set (identifiers, literals,
+      // arithmetic, nested member/index access, calls, etc).
+      const t = inferExpressionType(arg, env);
+      if (t && t.kind !== "unknownType") {
+        argTypesWorking[index] = t;
+        continue;
+      }
+    }
+
+    const lambdaContextResolved = resolveCall({
+      sigId,
+      argumentCount,
+      receiverType,
+      explicitTypeArgs,
+      argTypes: argTypesWorking,
+    });
+
+    const parameterTypesForLambdaContext =
+      lambdaContextResolved.parameterTypes ?? initialParameterTypes;
+
+    for (let index = 0; index < call.arguments.length; index++) {
+      const arg = call.arguments[index];
+      if (!arg) continue;
+      if (ts.isSpreadElement(arg)) continue;
+      if (!isLambdaExpression(arg)) continue;
+
+      const expectedType = parameterTypesForLambdaContext[index];
+      const lambdaType = inferLambdaType(arg, expectedType);
+      if (lambdaType) {
+        argTypesWorking[index] = lambdaType;
+      }
+    }
+
+    const finalResolved = resolveCall({
+      sigId,
+      argumentCount,
+      receiverType,
+      explicitTypeArgs,
+      argTypes: argTypesWorking,
+    });
+
+    return finalResolved.returnType.kind === "unknownType"
+      ? undefined
+      : finalResolved.returnType;
+  };
+
   const tryInferTypeFromInitializer = (declNode: unknown): IrType | undefined => {
     const literalType = tryInferTypeFromLiteralInitializer(declNode);
     if (literalType) return literalType;
@@ -1571,154 +1794,38 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
 	    const init = node.initializer;
 	    if (!init) return undefined;
 
-	    if (ts.isCallExpression(init)) {
-	      const sigId = resolveCallSignature(init);
-	      if (!sigId) return undefined;
-
-	      const explicitTypeArgs =
-	        init.typeArguments && init.typeArguments.length > 0
-	          ? init.typeArguments.map((ta) => convertTypeNode(ta))
-	          : undefined;
-
-		      const receiverType = (() => {
-		        if (!ts.isPropertyAccessExpression(init.expression)) return undefined;
-		        const receiverExpr = init.expression.expression;
-		        if (!ts.isIdentifier(receiverExpr)) return undefined;
-		        const receiverDeclId = resolveIdentifier(receiverExpr);
-	        if (!receiverDeclId) return undefined;
-		        const receiver = typeOfDecl(receiverDeclId);
-		        return receiver.kind === "unknownType" ? undefined : receiver;
-		      })();
-
-		      const argumentCount = init.arguments.length;
-
-		      // Two-pass: resolve once to get expected parameter types, then infer non-lambda args,
-		      // then infer lambda arg types (from expected types + body), then final resolve.
-		      const initialResolved = resolveCall({
-		        sigId,
-	        argumentCount,
-	        receiverType,
-	        explicitTypeArgs,
-	      });
-	      const initialParameterTypes = initialResolved.parameterTypes;
-
-	      const argTypesWorking: (IrType | undefined)[] = Array(argumentCount).fill(
-	        undefined
-	      );
-
-	      for (let index = 0; index < init.arguments.length; index++) {
-	        const arg = init.arguments[index];
-	        if (!arg) continue;
-	        if (ts.isSpreadElement(arg)) continue;
-	        if (isLambdaExpression(arg)) continue;
-
-	        if (ts.isNumericLiteral(arg)) {
-	          const numericKind = inferNumericKindFromRaw(arg.getText());
-	          argTypesWorking[index] = deriveTypeFromNumericKind(numericKind);
-	          continue;
-	        }
-
-	        if (ts.isStringLiteral(arg)) {
-	          argTypesWorking[index] = { kind: "primitiveType", name: "string" };
-	          continue;
-	        }
-
-	        if (
-	          arg.kind === ts.SyntaxKind.TrueKeyword ||
-	          arg.kind === ts.SyntaxKind.FalseKeyword
-	        ) {
-	          argTypesWorking[index] = {
-	            kind: "primitiveType",
-	            name: "boolean",
-	          };
-	          continue;
-	        }
-
-	        if (ts.isIdentifier(arg)) {
-	          const argDeclId = resolveIdentifier(arg);
-	          if (!argDeclId) continue;
-	          const t = typeOfDecl(argDeclId);
-	          if (t.kind !== "unknownType") {
-	            argTypesWorking[index] = t;
-	          }
-	          continue;
-	        }
-
-	        if (ts.isNewExpression(arg)) {
-	          const typeName = (() => {
-	            const expr = arg.expression;
-	            if (ts.isIdentifier(expr)) {
-	              const declId = resolveIdentifier(expr);
-	              const fqName = declId ? getFQNameOfDecl(declId) : undefined;
-	              return fqName ?? expr.text;
-	            }
-	            if (!ts.isPropertyAccessExpression(expr)) return undefined;
-
-	            const parts: string[] = [];
-	            let current: ts.Expression = expr;
-	            while (ts.isPropertyAccessExpression(current)) {
-	              parts.unshift(current.name.text);
-	              current = current.expression;
-	            }
-	            if (ts.isIdentifier(current)) {
-	              parts.unshift(current.text);
-	              return parts.join(".");
-	            }
-	            return undefined;
-	          })();
-
-	          if (!typeName) continue;
-
-	          const typeArguments =
-	            arg.typeArguments && arg.typeArguments.length > 0
-	              ? arg.typeArguments.map((ta) => convertTypeNode(ta))
-	              : undefined;
-
-	          argTypesWorking[index] = {
-	            kind: "referenceType",
-	            name: typeName,
-	            ...(typeArguments ? { typeArguments } : {}),
-	          };
-	          continue;
-	        }
-	      }
-
-	      const lambdaContextResolved = resolveCall({
-	        sigId,
-	        argumentCount,
-	        receiverType,
-	        explicitTypeArgs,
-	        argTypes: argTypesWorking,
-	      });
-
-	      const parameterTypesForLambdaContext =
-	        lambdaContextResolved.parameterTypes ?? initialParameterTypes;
-
-	      for (let index = 0; index < init.arguments.length; index++) {
-	        const arg = init.arguments[index];
-	        if (!arg) continue;
-	        if (ts.isSpreadElement(arg)) continue;
-	        if (!isLambdaExpression(arg)) continue;
-
-		        const expectedType = parameterTypesForLambdaContext[index];
-		        const lambdaType = inferLambdaType(arg, expectedType);
-		        if (lambdaType) {
-		          argTypesWorking[index] = lambdaType;
-		        }
-		      }
-
-	      const finalResolved = resolveCall({
-	        sigId,
-	        argumentCount,
-	        receiverType,
-		        explicitTypeArgs,
-		        argTypes: argTypesWorking,
-		      });
-
-		      return finalResolved.returnType.kind === "unknownType"
-		        ? undefined
-		        : finalResolved.returnType;
+		    if (ts.isCallExpression(init)) {
+		      return tryInferReturnTypeFromCallExpression(init, new Map());
 		    }
+
+    if (ts.isArrayLiteralExpression(init)) {
+      // Deterministic array literal typing for variable declarations:
+      // infer `T[]` only when all element types are deterministically known and equal.
+      const elementTypes: IrType[] = [];
+      const emptyEnv = new Map<string, IrType>();
+      for (const el of init.elements) {
+        if (ts.isOmittedExpression(el)) {
+          return undefined;
+        }
+        if (ts.isSpreadElement(el)) {
+          return undefined;
+        }
+
+        const t = inferExpressionType(el, emptyEnv);
+        if (!t || t.kind === "unknownType") {
+          return undefined;
+        }
+        elementTypes.push(t);
+      }
+
+      if (elementTypes.length === 0) return undefined;
+      const first = elementTypes[0];
+      if (first && elementTypes.every((t) => typesEqual(t, first))) {
+        return { kind: "arrayType", elementType: first };
+      }
+
+      return undefined;
+    }
 
     // Phase 15: NewExpression branch - use constructor signature with argTypes
     if (ts.isNewExpression(init)) {
@@ -1910,13 +2017,44 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
 
 	    // 4a. If NominalEnv found the member, get its declared type from Universe
 	    if (lookupResult) {
-	      const memberType = unifiedCatalog.getMember(
+	      const memberEntry = unifiedCatalog.getMember(
 	        lookupResult.declaringTypeId,
 	        memberName
-	      )?.type;
+	      );
+
+	      // Property/field member: return its declared type.
+	      const memberType = memberEntry?.type;
 	      if (memberType) {
-	        // 5. Apply substitution
 	        const result = irSubstitute(memberType, lookupResult.substitution);
+	        memberDeclaredTypeCache.set(cacheKey, result);
+	        return result;
+	      }
+
+	      // Method member: materialize a callable function type from the first signature.
+	      // Call resolution (resolveCall) uses SignatureId for overload selection; this
+	      // type is used only to keep member access expressions deterministic.
+	      const firstSig = memberEntry?.signatures?.[0];
+	      if (firstSig) {
+	        const funcType: IrFunctionType = {
+	          kind: "functionType",
+	          parameters: firstSig.parameters.map(
+	            (p): IrParameter => ({
+	              kind: "parameter",
+	              pattern: {
+	                kind: "identifierPattern",
+	                name: p.name,
+	              },
+	              type: p.type,
+	              initializer: undefined,
+	              isOptional: p.isOptional,
+	              isRest: p.isRest,
+	              passing: p.mode,
+	            })
+	          ),
+	          returnType: firstSig.returnType,
+	        };
+
+	        const result = irSubstitute(funcType, lookupResult.substitution);
 	        memberDeclaredTypeCache.set(cacheKey, result);
 	        return result;
 	      }
@@ -1957,7 +2095,20 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
         }
 
         const existing = substitution.get(parameterType.name);
-        if (existing) return typesEqual(existing, argumentType);
+        if (existing) {
+          // A self-mapping like `B -> B` can be produced when a lambda argument was typed
+          // contextually from the unresolved expected signature. This provides no real
+          // inference signal and must not block later concrete inference.
+          if (
+            existing.kind === "typeParameterType" &&
+            existing.name === parameterType.name
+          ) {
+            substitution.set(parameterType.name, argumentType);
+            return true;
+          }
+
+          return typesEqual(existing, argumentType);
+        }
 
         substitution.set(parameterType.name, argumentType);
         return true;
@@ -1977,6 +2128,26 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
       ) {
         const elementParam = parameterType.typeArguments?.[0];
         return elementParam ? tryUnify(elementParam, argumentType.elementType) : true;
+      }
+
+      // Union parameter type: allow deterministic inference through common nullish unions.
+      // Example: constructor(value: T | null) with argument of type T.
+      if (parameterType.kind === "unionType") {
+        const nonNullish = parameterType.types.filter(
+          (t) => t && !isNullishPrimitive(t)
+        );
+        const nullish = parameterType.types.filter(
+          (t) => t && isNullishPrimitive(t)
+        );
+
+        const candidates = isNullishPrimitive(argumentType) ? nullish : nonNullish;
+        if (candidates.length === 1) {
+          const only = candidates[0];
+          return only ? tryUnify(only, argumentType) : true;
+        }
+
+        // Conservative: ambiguous unions provide no deterministic signal.
+        return true;
       }
 
       if (
@@ -2103,7 +2274,6 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
           return tryUnify(parameterType.returnType, argFn.returnType);
         }
 
-        case "unionType":
         case "intersectionType":
         case "objectType":
         case "dictionaryType":

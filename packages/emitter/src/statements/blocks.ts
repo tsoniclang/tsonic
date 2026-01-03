@@ -15,7 +15,12 @@ export const emitBlockStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  let currentContext = context;
+  const outerNameMap = context.localNameMap;
+  // New lexical scope for locals (prevents C# CS0136 shadowing errors).
+  let currentContext: EmitterContext = {
+    ...context,
+    localNameMap: new Map(outerNameMap ?? []),
+  };
   const statements: string[] = [];
 
   for (const s of stmt.statements) {
@@ -25,7 +30,10 @@ export const emitBlockStatement = (
   }
 
   const bodyCode = statements.join("\n");
-  return [`${ind}{\n${bodyCode}\n${ind}}`, currentContext];
+  return [
+    `${ind}{\n${bodyCode}\n${ind}}`,
+    { ...currentContext, localNameMap: outerNameMap },
+  ];
 };
 
 /**

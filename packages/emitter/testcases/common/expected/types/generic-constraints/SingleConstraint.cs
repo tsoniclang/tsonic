@@ -1,8 +1,8 @@
 namespace TestCases.common.types.genericconstraints
 {
-    public class Printable
+    public interface Printable
     {
-        public string toString() => throw new NotImplementedException();
+        string toString();
     }
     public class Printer<T>
         where T : Printable

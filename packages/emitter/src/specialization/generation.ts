@@ -18,7 +18,6 @@ import {
 import {
   substituteType,
   substituteStatement,
-  substituteExpression,
 } from "./substitution.js";
 
 /**
@@ -177,7 +176,7 @@ const generateSpecializedClass = (
     typeParameters: undefined, // Remove type parameters
     members: specializedMembers,
     superClass: classDecl.superClass
-      ? substituteExpression(classDecl.superClass, substitutions)
+      ? substituteType(classDecl.superClass, substitutions)
       : undefined,
     implements: classDecl.implements.map((iface) =>
       substituteType(iface, substitutions)

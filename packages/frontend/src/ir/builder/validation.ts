@@ -5,8 +5,7 @@
  */
 
 import * as ts from "typescript";
-import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
-import { getSourceLocation } from "../../program/diagnostics.js";
+import { Diagnostic } from "../../types/diagnostic.js";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/types.js";
 import type { TypeSystem } from "../type-system/type-system.js";
@@ -92,22 +91,10 @@ const validateClassDeclaration = (
       isNominalizedInterface(identifierDeclId, ctx.typeSystem) ||
       isNominalizedTypeAlias(identifierDeclId, ctx.typeSystem)
     ) {
-      const typeName = typeRef.expression.getText();
-      const location = getSourceLocation(
-        node.getSourceFile(),
-        typeRef.getStart(),
-        typeRef.getWidth()
-      );
-
-      diagnostics.push(
-        createDiagnostic(
-          "TSN7301",
-          "error",
-          `Class cannot implement '${typeName}': TypeScript interfaces are nominalized to C# classes in Tsonic. Use 'extends' instead, or refactor to composition.`,
-          location,
-          "In Tsonic, interfaces become classes for object initializer support. C# classes cannot implement other classes."
-        )
-      );
+      // Tsonic supports `implements` in the TypeScript surface language even when the
+      // nominal type is emitted as a C# class or interface. The emitter is responsible
+      // for selecting a valid C# representation.
+      continue;
     }
   }
 

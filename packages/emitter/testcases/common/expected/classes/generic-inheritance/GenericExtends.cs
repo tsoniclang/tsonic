@@ -25,6 +25,11 @@ namespace TestCases.common.classes.genericinheritance
     }
     public class WrappedBox<U> : Box<U>
     {
+        public WrappedBox(U value) : base(value)
+            {
+
+            }
+
         public Box<U> wrap()
             {
             return new Box<U>(this.value);

@@ -96,6 +96,21 @@ const inferThisType = (node: ts.Node): IrType | undefined => {
   return undefined;
 };
 
+const stripNullish = (type: IrType | undefined): IrType | undefined => {
+  if (!type) return undefined;
+  if (type.kind !== "unionType") return type;
+  const nonNullish = type.types.filter(
+    (t) =>
+      !(
+        t.kind === "primitiveType" &&
+        (t.name === "null" || t.name === "undefined")
+      )
+  );
+  if (nonNullish.length === 0) return undefined;
+  if (nonNullish.length === 1) return nonNullish[0];
+  return { kind: "unionType", types: nonNullish };
+};
+
 /**
  * Main expression conversion dispatcher
  * Converts TypeScript expression nodes to IR expressions
@@ -155,7 +170,8 @@ export const convertExpression = (
   }
   if (ts.isIdentifier(node)) {
     // DETERMINISTIC: Derive type from declaration TypeNode
-    const identifierType = deriveIdentifierType(node, ctx);
+    const identifierType =
+      deriveIdentifierType(node, ctx) ?? ctx.lambdaTypeEnv?.get(node.text);
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
     // ALICE'S SPEC: Use TypeSystem.getFQNameOfDecl() to get the original name
@@ -312,8 +328,11 @@ export const convertExpression = (
     return convertExpression(node.expression, ctx, expectedType);
   }
   if (ts.isNonNullExpression(node)) {
-    // `expr!` has no runtime semantics; erase and preserve the inner expression/type.
-    return convertExpression(node.expression, ctx, expectedType);
+    // `expr!` has no runtime semantics but DOES narrow the type (T | null → T).
+    // Preserve the inner expression, but strip null/undefined from its inferredType.
+    const inner = convertExpression(node.expression, ctx, expectedType);
+    const narrowed = stripNullish(inner.inferredType);
+    return narrowed ? { ...inner, inferredType: narrowed } : inner;
   }
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     // Get the asserted type

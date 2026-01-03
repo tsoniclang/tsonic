@@ -34,6 +34,12 @@ export const emitIdentifier = (
     }
   }
 
+  // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
+  const remappedLocal = context.localNameMap?.get(expr.name);
+  if (remappedLocal) {
+    return [{ text: remappedLocal }, context];
+  }
+
   // Check if this identifier is from an import
   if (context.importBindings) {
     const binding = context.importBindings.get(expr.name);

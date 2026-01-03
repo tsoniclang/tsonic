@@ -2,7 +2,7 @@
  * Method member emission
  */
 
-import { IrClassMember } from "@tsonic/frontend";
+import { IrClassMember, type IrParameter } from "@tsonic/frontend";
 import {
   EmitterContext,
   getIndent,
@@ -19,6 +19,19 @@ import {
 } from "../parameters.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
+
+const seedLocalNameMapFromParameters = (
+  params: readonly IrParameter[],
+  context: EmitterContext
+): EmitterContext => {
+  const map = new Map(context.localNameMap ?? []);
+  for (const p of params) {
+    if (p.pattern.kind === "identifierPattern") {
+      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+    }
+  }
+  return { ...context, localNameMap: map };
+};
 
 /**
  * Emit a method declaration
@@ -43,6 +56,14 @@ export const emitMethodMember = (
     ...context,
     typeParameters: methodTypeParams,
   };
+
+  // Emit the <T, U> syntax and where clauses EARLY so nullable union emission
+  // can see type parameter constraint kinds when emitting return/parameter types.
+  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+    member.typeParameters,
+    signatureContext
+  );
+  currentContext = typeParamContext;
 
   // Access modifier
   const accessibility = member.accessibility ?? "public";
@@ -70,7 +91,7 @@ export const emitMethodMember = (
   if (member.returnType) {
     const [returnType, newContext] = emitType(
       member.returnType,
-      signatureContext
+      currentContext
     );
     currentContext = newContext;
     // If async and return type is Promise, it's already converted to Task
@@ -95,17 +116,10 @@ export const emitMethodMember = (
   // Method name (escape C# keywords)
   parts.push(escapeCSharpIdentifier(member.name));
 
-  // Type parameters - emit the <T, U> syntax and where clauses
-  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
-    member.typeParameters,
-    currentContext
-  );
-  currentContext = typeParamContext;
-
   // Parameters (with destructuring support) - use signatureContext for type parameter scope
   const paramsResult = emitParametersWithDestructuring(
     member.parameters,
-    signatureContext
+    currentContext
   );
   currentContext = paramsResult.context;
 
@@ -116,7 +130,10 @@ export const emitMethodMember = (
 
   // Method body
   // Use withScoped to set typeParameters and returnType for nested expressions
-  const baseBodyContext = withAsync(indent(currentContext), member.isAsync);
+  const baseBodyContext = seedLocalNameMapFromParameters(
+    member.parameters,
+    withAsync(indent(currentContext), member.isAsync)
+  );
 
   if (!member.body) {
     // Abstract method without body

@@ -2,7 +2,7 @@
  * Function declaration emission
  */
 
-import { IrStatement } from "@tsonic/frontend";
+import { IrStatement, type IrParameter } from "@tsonic/frontend";
 import {
   EmitterContext,
   getIndent,
@@ -25,6 +25,19 @@ import {
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/attributes.js";
 
+const seedLocalNameMapFromParameters = (
+  params: readonly IrParameter[],
+  context: EmitterContext
+): EmitterContext => {
+  const map = new Map(context.localNameMap ?? []);
+  for (const p of params) {
+    if (p.pattern.kind === "identifierPattern") {
+      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+    }
+  }
+  return { ...context, localNameMap: map };
+};
+
 /**
  * Emit a function declaration
  */
@@ -42,11 +55,19 @@ export const emitFunctionDeclaration = (
     ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
   ]);
 
-  // Create context with type parameters in scope for return type and parameter emission
-  let currentContext: EmitterContext = {
+  // Create context with type parameters in scope for signature emission
+  const signatureContext: EmitterContext = {
     ...context,
     typeParameters: funcTypeParams,
   };
+
+  // Emit the <T, U> syntax and where clauses EARLY so nullable union emission
+  // can see type parameter constraint kinds when emitting return/parameter types.
+  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+    stmt.typeParameters,
+    signatureContext
+  );
+  let currentContext = typeParamContext;
 
   // Access modifiers
   const accessibility = stmt.isExported ? "public" : "private";
@@ -107,13 +128,6 @@ export const emitFunctionDeclaration = (
   // Function name
   parts.push(escapeCSharpIdentifier(stmt.name));
 
-  // Type parameters
-  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
-    stmt.typeParameters,
-    currentContext
-  );
-  currentContext = typeParamContext;
-
   // Parameters (with destructuring support)
   const paramsResult = emitParametersWithDestructuring(
     stmt.parameters,
@@ -123,9 +137,9 @@ export const emitFunctionDeclaration = (
 
   // Function body (not a static context - local variables)
   // Use withScoped to set typeParameters and returnType for nested expressions
-  const baseBodyContext = withAsync(
-    withStatic(indent(currentContext), false),
-    stmt.isAsync
+  const baseBodyContext = seedLocalNameMapFromParameters(
+    stmt.parameters,
+    withAsync(withStatic(indent(currentContext), false), stmt.isAsync)
   );
 
   // Emit body with scoped typeParameters and returnType

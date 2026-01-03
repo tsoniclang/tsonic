@@ -60,6 +60,76 @@ type LoweringContext = {
 };
 
 /**
+ * Collect free type parameter names referenced by an IrType.
+ *
+ * These are used to make synthesized anonymous types generic when their
+ * member types contain typeParameterType nodes (e.g., `{ value: T }`).
+ */
+const collectTypeParameterNames = (type: IrType, out: Set<string>): void => {
+  switch (type.kind) {
+    case "typeParameterType":
+      out.add(type.name);
+      return;
+
+    case "referenceType":
+      for (const ta of type.typeArguments ?? []) {
+        if (ta) collectTypeParameterNames(ta, out);
+      }
+      return;
+
+    case "arrayType":
+      collectTypeParameterNames(type.elementType, out);
+      return;
+
+    case "tupleType":
+      for (const el of type.elementTypes) {
+        if (el) collectTypeParameterNames(el, out);
+      }
+      return;
+
+    case "functionType":
+      for (const p of type.parameters) {
+        if (p.type) collectTypeParameterNames(p.type, out);
+      }
+      collectTypeParameterNames(type.returnType, out);
+      return;
+
+    case "unionType":
+    case "intersectionType":
+      for (const t of type.types) {
+        if (t) collectTypeParameterNames(t, out);
+      }
+      return;
+
+    case "dictionaryType":
+      collectTypeParameterNames(type.keyType, out);
+      collectTypeParameterNames(type.valueType, out);
+      return;
+
+    case "objectType":
+      for (const m of type.members) {
+        if (m.kind === "propertySignature") {
+          collectTypeParameterNames(m.type, out);
+        } else if (m.kind === "methodSignature") {
+          for (const p of m.parameters) {
+            if (p.type) collectTypeParameterNames(p.type, out);
+          }
+          if (m.returnType) collectTypeParameterNames(m.returnType, out);
+        }
+      }
+      return;
+
+    case "primitiveType":
+    case "literalType":
+    case "anyType":
+    case "unknownType":
+    case "voidType":
+    case "neverType":
+      return;
+  }
+};
+
+/**
  * Serialize an IrType to a stable string for shape signature
  */
 const serializeType = (type: IrType): string => {
@@ -201,11 +271,32 @@ const getOrCreateTypeName = (
   const name = `__Anon_${moduleHash}_${shapeHash}`;
   ctx.shapeToName.set(signature, name);
 
+  const typeParamNames = new Set<string>();
+  for (const member of objectType.members) {
+    if (member.kind === "propertySignature") {
+      collectTypeParameterNames(member.type, typeParamNames);
+    } else if (member.kind === "methodSignature") {
+      for (const p of member.parameters) {
+        if (p.type) collectTypeParameterNames(p.type, typeParamNames);
+      }
+      if (member.returnType) collectTypeParameterNames(member.returnType, typeParamNames);
+    }
+  }
+  const orderedTypeParams = Array.from(typeParamNames).sort();
+
   // Create a class declaration (not interface) so it can be instantiated
   const declaration: IrClassDeclaration = {
     kind: "classDeclaration",
     name,
-    typeParameters: undefined,
+    typeParameters:
+      orderedTypeParams.length > 0
+        ? orderedTypeParams.map(
+            (tp): IrTypeParameter => ({
+              kind: "typeParameter",
+              name: tp,
+            })
+          )
+        : undefined,
     superClass: undefined,
     implements: [],
     members: interfaceMembersToClassMembers(objectType.members),
@@ -284,11 +375,32 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
       // Generate name for this shape
       const typeName = getOrCreateTypeName(loweredObjectType, ctx);
 
+      const typeParamNames = new Set<string>();
+      for (const member of loweredObjectType.members) {
+        if (member.kind === "propertySignature") {
+          collectTypeParameterNames(member.type, typeParamNames);
+        } else if (member.kind === "methodSignature") {
+          for (const p of member.parameters) {
+            if (p.type) collectTypeParameterNames(p.type, typeParamNames);
+          }
+          if (member.returnType) collectTypeParameterNames(member.returnType, typeParamNames);
+        }
+      }
+      const orderedTypeParams = Array.from(typeParamNames).sort();
+
       // Return reference to generated type
       const refType: IrReferenceType = {
         kind: "referenceType",
         name: typeName,
-        typeArguments: undefined,
+        typeArguments:
+          orderedTypeParams.length > 0
+            ? orderedTypeParams.map(
+                (tp): IrType => ({
+                  kind: "typeParameterType",
+                  name: tp,
+                })
+              )
+            : undefined,
         resolvedClrType: undefined,
       };
       return refType;
@@ -823,9 +935,7 @@ const lowerStatement = (
         typeParameters: stmt.typeParameters?.map((tp) =>
           lowerTypeParameter(tp, ctx)
         ),
-        superClass: stmt.superClass
-          ? lowerExpression(stmt.superClass, ctx)
-          : undefined,
+        superClass: stmt.superClass ? lowerType(stmt.superClass, ctx) : undefined,
         implements: stmt.implements.map((i) => lowerType(i, ctx)),
         members: stmt.members.map((m) => lowerClassMember(m, ctx)),
       };

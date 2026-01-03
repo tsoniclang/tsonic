@@ -372,7 +372,17 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     node: ts.CallExpression
   ): SignatureId | undefined => {
     const signature = checker.getResolvedSignature(node);
-    if (!signature || signature.declaration === undefined) return undefined;
+    if (!signature) return undefined;
+
+    // TypeScript can produce a resolved signature without a declaration for
+    // implicit default constructors (e.g., `super()` when the base class has
+    // no explicit constructor). We still want a SignatureId so TypeSystem can
+    // treat this call deterministically as `void`.
+    if (signature.declaration === undefined) {
+      return node.expression.kind === ts.SyntaxKind.SuperKeyword
+        ? getOrCreateSignatureId(signature)
+        : undefined;
+    }
 
     return getOrCreateSignatureId(signature);
   };

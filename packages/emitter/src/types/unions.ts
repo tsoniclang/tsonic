@@ -6,6 +6,24 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 
+const getBareTypeParameterName = (
+  type: IrType,
+  context: EmitterContext
+): string | undefined => {
+  if (type.kind === "typeParameterType") return type.name;
+
+  // Legacy representation: type parameters sometimes arrive as referenceType nodes.
+  if (
+    type.kind === "referenceType" &&
+    (context.typeParameters?.has(type.name) ?? false) &&
+    (!type.typeArguments || type.typeArguments.length === 0)
+  ) {
+    return type.name;
+  }
+
+  return undefined;
+};
+
 /**
  * Emit union types as nullable (T?), Union<T1, T2>, or object
  */
@@ -34,6 +52,18 @@ export const emitUnionType = (
     if (!firstType) {
       return ["object?", context];
     }
+
+    // `T | null` where `T` is an unconstrained type parameter cannot be represented as `T?`
+    // in C# (it forbids assigning null). Fall back to `object?` and rely on casts at use sites.
+    const typeParamName = getBareTypeParameterName(firstType, context);
+    if (typeParamName) {
+      const constraintKind =
+        context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";
+      if (constraintKind === "unconstrained") {
+        return ["object?", context];
+      }
+    }
+
     const [baseType, newContext] = emitType(firstType, context);
     // Add ? suffix for nullable types (both value types and reference types)
     // This includes string?, int?, double?, etc. per spec/04-type-mappings.md

@@ -12,6 +12,7 @@ import {
   IrType,
   IrExpression,
 } from "../../types.js";
+import { typesEqual } from "../../types/ir-substitution.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import {
@@ -109,6 +110,23 @@ const computeArrayElementType = (
   }
 
   // Mixed or complex - fall back to TS inference
+  // If all elements have a deterministically known IR type and they match, use it.
+  // This enables arrays like `[wrap(1), wrap(2)]` to infer `Container<int>[]`
+  // instead of defaulting to `number[]`.
+  const knownTypes: IrType[] = [];
+  for (const elem of regularElements) {
+    const t = elem.inferredType;
+    if (!t || t.kind === "unknownType") {
+      return fallbackType;
+    }
+    knownTypes.push(t);
+  }
+
+  const first = knownTypes[0];
+  if (first && knownTypes.every((t) => typesEqual(first, t))) {
+    return first;
+  }
+
   return fallbackType;
 };
 
@@ -192,7 +210,8 @@ export const convertArrayLiteral = (
  */
 const getPropertyExpectedType = (
   propName: string,
-  expectedType: IrType | undefined
+  expectedType: IrType | undefined,
+  ctx: ProgramContext
 ): IrType | undefined => {
   if (!expectedType) return undefined;
 
@@ -204,8 +223,16 @@ const getPropertyExpectedType = (
     return member?.kind === "propertySignature" ? member.type : undefined;
   }
 
-  // For referenceType, we'd need to resolve the interface/class
-  // This is complex and deferred for now - let TS inference handle it
+  if (expectedType.kind === "referenceType") {
+    // Use TypeSystem to resolve nominal members deterministically, including inherited members
+    // and generic substitutions (e.g., `DeepContainer<T>.level1`).
+    const memberType = ctx.typeSystem.typeOfMember(expectedType, {
+      kind: "byName",
+      name: propName,
+    });
+    return memberType.kind === "unknownType" ? undefined : memberType;
+  }
+
   return undefined;
 };
 
@@ -243,7 +270,7 @@ export const convertObjectLiteral = (
 
       // Look up property expected type from parent expected type
       const propExpectedType = keyName
-        ? getPropertyExpectedType(keyName, expectedType)
+        ? getPropertyExpectedType(keyName, expectedType, ctx)
         : undefined;
 
       properties.push({

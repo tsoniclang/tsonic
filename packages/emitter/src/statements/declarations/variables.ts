@@ -10,6 +10,33 @@ import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 
+const computeLocalName = (
+  originalName: string,
+  context: EmitterContext
+): { emittedName: string; updatedContext: EmitterContext } => {
+  const alreadyDeclared = context.localNameMap?.has(originalName) ?? false;
+  if (!alreadyDeclared) {
+    return { emittedName: escapeCSharpIdentifier(originalName), updatedContext: context };
+  }
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const renamed = `${originalName}__${nextId}`;
+  return {
+    emittedName: escapeCSharpIdentifier(renamed),
+    updatedContext: { ...context, tempVarId: nextId },
+  };
+};
+
+const registerLocalName = (
+  originalName: string,
+  emittedName: string,
+  context: EmitterContext
+): EmitterContext => {
+  const nextMap = new Map(context.localNameMap ?? []);
+  nextMap.set(originalName, emittedName);
+  return { ...context, localNameMap: nextMap };
+};
+
 /**
  * Types that require explicit LHS type because C# has no literal suffix for them.
  * For these types, `var x = 200;` would infer `int`, not the intended type.
@@ -298,7 +325,10 @@ export const emitVariableDeclaration = (
     // Handle different pattern types
     if (decl.name.kind === "identifierPattern") {
       // Simple identifier pattern (escape C# keywords)
-      varDecl += escapeCSharpIdentifier(decl.name.name);
+      const localNameInfo = computeLocalName(decl.name.name, currentContext);
+      const localName = localNameInfo.emittedName;
+      currentContext = localNameInfo.updatedContext;
+      varDecl += localName;
 
       // Add initializer if present
       if (decl.initializer) {
@@ -311,6 +341,8 @@ export const emitVariableDeclaration = (
         varDecl += ` = ${initFrag.text}`;
       }
 
+      // Register the name after emitting the initializer (C# scoping rules).
+      currentContext = registerLocalName(decl.name.name, localName, currentContext);
       declarations.push(`${ind}${varDecl};`);
     } else {
       // Unknown pattern kind - emit placeholder

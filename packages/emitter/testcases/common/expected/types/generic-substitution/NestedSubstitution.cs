@@ -25,6 +25,11 @@ namespace TestCases.common.types.genericsubstitution
     }
     public class IntContainer : Container<int>
     {
+        public IntContainer(int value) : base(value)
+            {
+
+            }
+
         public int addOne()
             {
             return this.getInner() + 1;

@@ -12,6 +12,11 @@ export const substituteType = (
   substitutions: Map<string, IrType>
 ): IrType => {
   switch (type.kind) {
+    case "typeParameterType": {
+      const substituted = substitutions.get(type.name);
+      return substituted ?? type;
+    }
+
     case "referenceType":
       // Check if this is a type parameter that needs substitution
       if (substitutions.has(type.name)) {

@@ -118,6 +118,16 @@ export const convertFunctionExpression = (
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(node, ctx, expectedType);
 
+  const bodyCtx: ProgramContext = (() => {
+    const env = new Map<string, IrType>(ctx.lambdaTypeEnv ?? []);
+    for (const p of parameters) {
+      if (p.pattern.kind === "identifierPattern" && p.type) {
+        env.set(p.pattern.name, p.type);
+      }
+    }
+    return { ...ctx, lambdaTypeEnv: env };
+  })();
+
   // DETERMINISTIC: Build function type from declared parameters and return type
   const inferredType = {
     kind: "functionType" as const,
@@ -132,7 +142,7 @@ export const convertFunctionExpression = (
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
-      ? convertBlockStatement(node.body, ctx, returnType)
+      ? convertBlockStatement(node.body, bodyCtx, returnType)
       : { kind: "blockStatement", statements: [] },
     isAsync: !!node.modifiers?.some(
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -166,25 +176,42 @@ export const convertArrowFunction = (
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
   const expectedReturnType = expectedFnType?.returnType;
 
+  const shouldUseExpectedReturnType =
+    expectedReturnType !== undefined &&
+    expectedReturnType.kind !== "typeParameterType" &&
+    !typeSystem.containsTypeParameter(expectedReturnType);
+
   const contextualReturnType =
     declaredReturnType ??
-    (expectedReturnType && expectedReturnType.kind !== "typeParameterType"
-      ? expectedReturnType
-      : undefined);
+    (shouldUseExpectedReturnType ? expectedReturnType : undefined);
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(node, ctx, expectedType);
+
+  const bodyCtx: ProgramContext = (() => {
+    const env = new Map<string, IrType>(ctx.lambdaTypeEnv ?? []);
+    for (const p of parameters) {
+      if (p.pattern.kind === "identifierPattern" && p.type) {
+        env.set(p.pattern.name, p.type);
+      }
+    }
+    return { ...ctx, lambdaTypeEnv: env };
+  })();
 
   // Pass return type to body for contextual typing:
   // - Block body: return statements get the expected type
   // - Expression body: the expression gets the expected type
   const body = ts.isBlock(node.body)
-    ? convertBlockStatement(node.body, ctx, declaredReturnType ?? expectedReturnType)
-    : convertExpression(node.body, ctx, contextualReturnType);
+    ? convertBlockStatement(
+        node.body,
+        bodyCtx,
+        declaredReturnType ?? expectedReturnType
+      )
+    : convertExpression(node.body, bodyCtx, contextualReturnType);
 
   const returnType =
     declaredReturnType ??
-    (expectedReturnType && expectedReturnType.kind !== "typeParameterType"
+    (shouldUseExpectedReturnType
       ? expectedReturnType
       : !ts.isBlock(node.body)
         ? (body as ReturnType<typeof convertExpression>).inferredType ??

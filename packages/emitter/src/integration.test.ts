@@ -261,8 +261,8 @@ describe("End-to-End Integration", () => {
 
       const csharp = compileToCSharp(source);
 
-      // Should emit Repository as generic class (interfaces become classes)
-      expect(csharp).to.match(/public\s+class\s+Repository\s*<T>/);
+      // Method-bearing interfaces emit as C# interfaces (required for constraints/implements)
+      expect(csharp).to.match(/public\s+interface\s+Repository\s*<T>/);
 
       // Should emit InMemoryRepository as generic class with constraint
       expect(csharp).to.match(/public\s+class\s+InMemoryRepository\s*<T>/);

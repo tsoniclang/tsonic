@@ -590,16 +590,24 @@ export const validateStaticSafety = (
 
     // TSN7410: Check for intersection types (e.g., A & B)
     if (ts.isIntersectionTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7410",
-          "error",
-          "Intersection types (A & B) are not supported. Use a nominal type that explicitly includes all required members.",
-          getNodeLocation(sourceFile, node),
-          "Replace the intersection with an interface or class that combines the members, or a type alias to an object type with explicit members."
-        )
-      );
+      const isTypeParamConstraint =
+        ts.isTypeParameterDeclaration(node.parent) &&
+        node.parent.constraint === node;
+
+      // Intersection constraints are representable as multiple C# generic constraints:
+      // `T extends A & B` -> `where T : A, B`.
+      if (!isTypeParamConstraint) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7410",
+            "error",
+            "Intersection types (A & B) are not supported. Use a nominal type that explicitly includes all required members.",
+            getNodeLocation(sourceFile, node),
+            "Replace the intersection with an interface or class that combines the members, or a type alias to an object type with explicit members."
+          )
+        );
+      }
     }
 
     // TSN7416: Check for new Array() without explicit type argument

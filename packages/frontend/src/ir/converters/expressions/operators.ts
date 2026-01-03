@@ -18,7 +18,55 @@ import {
   isAssignmentOperator,
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
+import {
+  NumericKind,
+  getBinaryResultKind,
+  NUMERIC_KIND_TO_CSHARP,
+  TSONIC_TO_NUMERIC_KIND,
+} from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
+
+const getNumericKindFromIrType = (type: IrType | undefined): NumericKind | undefined => {
+  if (!type) return undefined;
+
+  if (type.kind === "primitiveType") {
+    if (type.name === "int") return "Int32";
+    if (type.name === "number") return "Double";
+    return undefined;
+  }
+
+  if (type.kind === "referenceType") {
+    // Numeric proof pass can annotate using CLR kind names (e.g., "Int64").
+    if (
+      type.name === "SByte" ||
+      type.name === "Byte" ||
+      type.name === "Int16" ||
+      type.name === "UInt16" ||
+      type.name === "Int32" ||
+      type.name === "UInt32" ||
+      type.name === "Int64" ||
+      type.name === "UInt64" ||
+      type.name === "Single" ||
+      type.name === "Double"
+    ) {
+      return type.name;
+    }
+
+    return TSONIC_TO_NUMERIC_KIND.get(type.name);
+  }
+
+  return undefined;
+};
+
+const numericKindToIrType = (kind: NumericKind): IrType => {
+  if (kind === "Int32") return { kind: "primitiveType", name: "int" };
+  if (kind === "Double") return { kind: "primitiveType", name: "number" };
+
+  // Use the canonical C# keyword spelling as the IR referenceType name
+  // (e.g., Int64 -> "long", UInt16 -> "ushort").
+  const alias = NUMERIC_KIND_TO_CSHARP.get(kind) ?? "double";
+  return { kind: "referenceType", name: alias };
+};
 
 /**
  * Derive result type from binary operator and operand types.
@@ -66,22 +114,12 @@ const deriveBinaryResultType = (
 
   // Arithmetic operators: both int → int, otherwise double
   if (["+", "-", "*", "/", "%", "**"].includes(operator)) {
-    const leftIsInt =
-      leftType?.kind === "primitiveType" && leftType.name === "int";
-    const rightIsInt =
-      rightType?.kind === "primitiveType" && rightType.name === "int";
+    const leftKind = getNumericKindFromIrType(leftType);
+    const rightKind = getNumericKindFromIrType(rightType);
 
-    if (leftIsInt && rightIsInt) {
-      return { kind: "primitiveType", name: "int" };
-    }
-    // If either is numeric, result is double
-    if (
-      (leftType?.kind === "primitiveType" &&
-        (leftType.name === "number" || leftType.name === "int")) ||
-      (rightType?.kind === "primitiveType" &&
-        (rightType.name === "number" || rightType.name === "int"))
-    ) {
-      return { kind: "primitiveType", name: "number" };
+    if (leftKind !== undefined && rightKind !== undefined) {
+      const resultKind = getBinaryResultKind(leftKind, rightKind);
+      return numericKindToIrType(resultKind);
     }
   }
 

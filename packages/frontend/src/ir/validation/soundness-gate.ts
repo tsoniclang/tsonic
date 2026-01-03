@@ -521,7 +521,7 @@ const validateStatement = (stmt: IrStatement, ctx: ValidationContext): void => {
     case "classDeclaration":
       stmt.typeParameters?.forEach((tp) => validateTypeParameter(tp, ctx));
       if (stmt.superClass) {
-        validateExpression(stmt.superClass, ctx);
+        validateType(stmt.superClass, ctx, `class '${stmt.name}' extends`);
       }
       stmt.implements.forEach((i, idx) =>
         validateType(i, ctx, `class '${stmt.name}' implements ${idx}`)

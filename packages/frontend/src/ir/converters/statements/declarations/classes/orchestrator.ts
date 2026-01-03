@@ -4,7 +4,6 @@
 
 import * as ts from "typescript";
 import { IrClassDeclaration, IrClassMember } from "../../../../types.js";
-import { convertExpression } from "../../../../expression-converter.js";
 import { hasExportModifier, convertTypeParameters } from "../../helpers.js";
 import { convertProperty } from "./properties.js";
 import { convertMethod } from "./methods.js";
@@ -147,7 +146,7 @@ export const convertClassDeclaration = (
     name: node.name.text,
     typeParameters: convertTypeParameters(node.typeParameters, ctx),
     superClass: superClass
-      ? convertExpression(superClass, ctx, undefined)
+      ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(superClass))
       : undefined,
     implements: implementsTypes,
     members: finalMembers,

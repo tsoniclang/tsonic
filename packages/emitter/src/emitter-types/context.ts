@@ -114,7 +114,10 @@ export const withClassName = (
  * Scoped fields that should be restored after emission.
  * These fields define lexical scopes and should not leak to parent scopes.
  */
-type ScopedFields = Pick<EmitterContext, "typeParameters" | "returnType">;
+type ScopedFields = Pick<
+  EmitterContext,
+  "typeParameters" | "typeParamConstraints" | "returnType" | "localNameMap"
+>;
 
 /**
  * Execute an emission function with scoped context fields.
@@ -146,7 +149,9 @@ export const withScoped = <T>(
   // Save current scoped field values
   const saved: ScopedFields = {
     typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
     returnType: context.returnType,
+    localNameMap: context.localNameMap,
   };
 
   // Create child context with scoped patch applied

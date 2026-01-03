@@ -333,6 +333,23 @@ export const convertCallExpression = (
     return false;
   };
 
+  const isExplicitlyTypedLambdaArg = (expr: ts.Expression): boolean => {
+    if (ts.isParenthesizedExpression(expr)) {
+      return isExplicitlyTypedLambdaArg(expr.expression);
+    }
+
+    if (!ts.isArrowFunction(expr) && !ts.isFunctionExpression(expr)) {
+      return false;
+    }
+
+    if (expr.type) return true;
+    if (expr.typeParameters && expr.typeParameters.length > 0) return true;
+    return expr.parameters.some((p) => p.type !== undefined);
+  };
+
+  const shouldDeferLambdaForInference = (expr: ts.Expression): boolean =>
+    isLambdaArg(expr) && !isExplicitlyTypedLambdaArg(expr);
+
   // Pass 1: convert non-lambda arguments and infer type args from them.
   const argsWorking: (
     | IrCallExpression["arguments"][number]
@@ -359,9 +376,10 @@ export const convertCallExpression = (
       continue;
     }
 
-    if (isLambdaArg(arg)) {
-      // Defer lambda conversion until after we infer generic type args from
-      // non-lambda arguments. This prevents "T vs inferred T" conflicts.
+    if (shouldDeferLambdaForInference(arg)) {
+      // Defer *untyped* lambda conversion until after we infer generic type args
+      // from other arguments. Explicitly typed lambdas are safe to convert early
+      // and often provide the only deterministic inference signal.
       continue;
     }
 

@@ -16,6 +16,11 @@ namespace TestCases.common.classes.genericinheritance
     }
     public class IntContainer : Container<int>
     {
+        public IntContainer(int value) : base(value)
+            {
+
+            }
+
         public int @double()
             {
             return this.getValue() * 2;
@@ -23,6 +28,11 @@ namespace TestCases.common.classes.genericinheritance
     }
     public class StringContainer : Container<string>
     {
+        public StringContainer(string value) : base(value)
+            {
+
+            }
+
         public int getLength()
             {
             return this.getValue().Length;

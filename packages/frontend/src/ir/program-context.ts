@@ -11,6 +11,7 @@ import * as path from "path";
 import * as ts from "typescript";
 import type { Binding, BindingInternal } from "./binding/index.js";
 import type { TypeSystem } from "./type-system/type-system.js";
+import type { IrType } from "./types.js";
 import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
@@ -62,6 +63,14 @@ export type ProgramContext = {
    * CLR namespace resolver for import-driven discovery.
    */
   readonly clrResolver: ClrBindingsResolver;
+
+  /**
+   * Lexical type environment for lambda bodies.
+   *
+   * Used to type unannotated lambda parameters inside their body expressions
+   * deterministically, without consulting TypeScript inference.
+   */
+  readonly lambdaTypeEnv?: ReadonlyMap<string, IrType>;
 };
 
 /**
