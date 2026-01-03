@@ -184,6 +184,22 @@ const extractTypeName = (
 ): string | undefined => {
   if (!inferredType) return undefined;
 
+  // Handle common nullish unions like `Uri | undefined` by stripping null/undefined.
+  // This enables CLR member binding after explicit null checks in source code.
+  if (inferredType.kind === "unionType") {
+    const nonNullish = inferredType.types.filter(
+      (t) =>
+        !(
+          t.kind === "primitiveType" &&
+          (t.name === "null" || t.name === "undefined")
+        )
+    );
+    if (nonNullish.length === 1) {
+      const only = nonNullish[0];
+      return only ? extractTypeName(only) : undefined;
+    }
+  }
+
   // Handle primitive types - map to their CLR type names for binding lookup
   // This enables binding resolution for methods like string.split(), number.toString()
   if (inferredType.kind === "primitiveType") {

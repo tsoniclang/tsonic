@@ -12,6 +12,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
 import { IrModule, IrType } from "@tsonic/frontend";
+import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 
 /**
  * Helper to create a minimal module with a variable declaration of a given type
@@ -176,6 +177,37 @@ describe("Reference Type Emission", () => {
       const result = emitModule(module);
 
       expect(result).to.include("global::System.Func<string, double>");
+    });
+  });
+
+  describe("Bindings Registry Types", () => {
+    it("should strip generic arity markers from CLR names", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "Dictionary_2",
+        typeArguments: [
+          { kind: "primitiveType", name: "int" },
+          { kind: "primitiveType", name: "string" },
+        ],
+      });
+
+      const dictionaryBinding: FrontendTypeBinding = {
+        name: "System.Collections.Generic.Dictionary`2",
+        alias: "Dictionary_2",
+        kind: "class",
+        members: [],
+      };
+
+      const clrBindings = new Map<string, FrontendTypeBinding>([
+        ["Dictionary_2", dictionaryBinding],
+      ]);
+
+      const result = emitModule(module, { clrBindings });
+
+      expect(result).to.include(
+        "global::System.Collections.Generic.Dictionary<int, string>"
+      );
+      expect(result).to.not.include("Dictionary`2");
     });
   });
 

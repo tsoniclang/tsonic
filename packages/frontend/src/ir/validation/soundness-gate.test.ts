@@ -139,6 +139,19 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should allow known CLR binding type when provided", () => {
+      const module = createModuleWithType({
+        kind: "referenceType",
+        name: "Dictionary_2",
+      });
+
+      const result = validateIrSoundness([module], {
+        knownReferenceTypes: new Set(["Dictionary_2"]),
+      });
+
+      expect(result.ok).to.be.true;
+    });
+
     it("should allow known builtin Array", () => {
       const module = createModuleWithType({
         kind: "referenceType",

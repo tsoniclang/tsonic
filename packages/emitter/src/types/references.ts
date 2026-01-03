@@ -77,6 +77,30 @@ const getBindingClrName = (b: unknown): string | undefined => {
 };
 
 /**
+ * Convert CLR metadata type names into C#-emittable type names.
+ *
+ * tsbindgen bindings use CLR "full names" that include:
+ * - Generic arity markers: `Dictionary`2`, `Func`3`, etc.
+ * - Nested type separators: `Outer+Inner`
+ *
+ * C# source code must not include arity markers, and nested types use `.`
+ * in source (e.g. `Outer.Inner`).
+ */
+const clrTypeNameToCSharp = (clr: string): string => {
+  const prefix = "global::";
+  const hasGlobal = clr.startsWith(prefix);
+  const body = hasGlobal ? clr.slice(prefix.length) : clr;
+
+  const sanitized = body
+    // Strip generic arity markers (e.g. Dictionary`2 -> Dictionary)
+    .replace(/`\d+/g, "")
+    // CLR nested types use '+'; C# source uses '.'
+    .replace(/\+/g, ".");
+
+  return hasGlobal ? `${prefix}${sanitized}` : sanitized;
+};
+
+/**
  * Check if a type name indicates an unsupported support type.
  *
  * NOTE: The emitter does not have access to the TypeScript checker. Support types
@@ -275,7 +299,7 @@ export const emitReferenceType = (
     if (!clr) {
       throw new Error(`ICE: Binding for '${name}' has no CLR name`);
     }
-    const qualified = toGlobalClr(clr);
+    const qualified = toGlobalClr(clrTypeNameToCSharp(clr));
 
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];

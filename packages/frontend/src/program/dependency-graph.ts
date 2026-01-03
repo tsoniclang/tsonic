@@ -307,7 +307,9 @@ export const buildModuleDependencyGraph = (
 
   // Run IR soundness gate - validates no anyType leaked through
   // This is the final validation before emitter can run
-  const soundnessResult = validateIrSoundness(loweredModules);
+  const soundnessResult = validateIrSoundness(loweredModules, {
+    knownReferenceTypes: new Set(tsonicProgram.bindings.getTypesMap().keys()),
+  });
   if (!soundnessResult.ok) {
     return error(soundnessResult.diagnostics);
   }

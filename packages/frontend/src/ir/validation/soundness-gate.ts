@@ -32,6 +32,17 @@ export type SoundnessValidationResult = {
   readonly diagnostics: readonly Diagnostic[];
 };
 
+export type SoundnessGateOptions = {
+  /**
+   * Additional reference type names that are known to be resolvable by the emitter.
+   *
+   * This is primarily used for CLR types that can appear via inference/signatures
+   * without being explicitly imported in the current module (e.g. tsbindgen arity
+   * names like `Dictionary_2`).
+   */
+  readonly knownReferenceTypes?: ReadonlySet<string>;
+};
+
 /**
  * Known builtin types that are handled by emitter's built-in mappings
  * or are C# primitive type names that may appear in IR.
@@ -89,6 +100,8 @@ type ValidationContext = {
   readonly localTypeNames: ReadonlySet<string>;
   /** Type names imported in this module */
   readonly importedTypeNames: ReadonlySet<string>;
+  /** CLR/library type names known to be resolvable by the emitter */
+  readonly knownReferenceTypes: ReadonlySet<string>;
   /** Type parameter names in current scope */
   readonly typeParameterNames: ReadonlySet<string>;
 };
@@ -177,7 +190,7 @@ const validateType = (
       break;
 
     case "referenceType": {
-      const { name, resolvedClrType } = type;
+      const { name, resolvedClrType, typeId } = type;
 
       // Note: ref<T>, out<T>, inref<T> are valid parameter passing modifiers.
       // They are handled by:
@@ -187,6 +200,8 @@ const validateType = (
 
       // Check if this reference type is resolvable
       const isResolvable =
+        // Has canonical identity (authoritative)
+        typeId !== undefined ||
         // Has pre-resolved CLR type from IR
         resolvedClrType !== undefined ||
         // Is a known builtin handled by emitter
@@ -195,6 +210,8 @@ const validateType = (
         ctx.localTypeNames.has(name) ||
         // Is an imported type
         ctx.importedTypeNames.has(name) ||
+        // Is a known library type (e.g. from CLR bindings)
+        ctx.knownReferenceTypes.has(name) ||
         // Is a type parameter in current scope
         ctx.typeParameterNames.has(name);
 
@@ -730,7 +747,10 @@ const extractImportedTypeNames = (module: IrModule): ReadonlySet<string> => {
 /**
  * Validate a single module
  */
-const validateModule = (module: IrModule): readonly Diagnostic[] => {
+const validateModule = (
+  module: IrModule,
+  knownReferenceTypes: ReadonlySet<string>
+): readonly Diagnostic[] => {
   // Extract local and imported type names for reference type validation
   const localTypeNames = extractLocalTypeNames(module.body);
   const importedTypeNames = extractImportedTypeNames(module);
@@ -740,6 +760,7 @@ const validateModule = (module: IrModule): readonly Diagnostic[] => {
     diagnostics: [],
     localTypeNames,
     importedTypeNames,
+    knownReferenceTypes,
     typeParameterNames: new Set(), // Will be populated per-scope during validation
   };
 
@@ -765,12 +786,14 @@ const validateModule = (module: IrModule): readonly Diagnostic[] => {
  * the emitter must not run.
  */
 export const validateIrSoundness = (
-  modules: readonly IrModule[]
+  modules: readonly IrModule[],
+  options: SoundnessGateOptions = {}
 ): SoundnessValidationResult => {
   const allDiagnostics: Diagnostic[] = [];
+  const knownReferenceTypes = options.knownReferenceTypes ?? new Set<string>();
 
   for (const module of modules) {
-    const moduleDiagnostics = validateModule(module);
+    const moduleDiagnostics = validateModule(module, knownReferenceTypes);
     allDiagnostics.push(...moduleDiagnostics);
   }
 

@@ -93,6 +93,7 @@ const isStaticTypeReference = (
     objectType?.kind === "referenceType" ||
     objectType?.kind === "arrayType" ||
     objectType?.kind === "intersectionType" ||
+    objectType?.kind === "unionType" ||
     objectType?.kind === "primitiveType" ||
     objectType?.kind === "literalType"
   ) {
