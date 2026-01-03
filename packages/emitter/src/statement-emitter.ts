@@ -116,7 +116,9 @@ export const emitStatement = (
       return [`${ind};`, context];
 
     default:
-      return [`${ind}// TODO: unhandled statement`, context];
+      throw new Error(
+        `Unhandled IR statement kind: ${String((stmt as { kind?: unknown }).kind)}`
+      );
   }
 };
 

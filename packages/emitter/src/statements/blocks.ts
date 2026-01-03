@@ -6,6 +6,7 @@ import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
+import { lowerPattern } from "../patterns.js";
 
 /**
  * Emit a block statement
@@ -167,67 +168,19 @@ export const emitYieldStatement = (
 
     // Handle receiveTarget for bidirectional communication
     if (stmt.receiveTarget) {
-      const targetCode = emitPattern(stmt.receiveTarget, "exchange.Input", ind);
-      parts.push(targetCode);
+      const lowered = lowerPattern(
+        stmt.receiveTarget,
+        "(exchange.Input ?? default!)",
+        stmt.receivedType,
+        ind,
+        currentContext
+      );
+      parts.push(...lowered.statements);
+      currentContext = lowered.context;
     }
   }
 
   return [parts.join("\n"), currentContext];
-};
-
-/**
- * Emit pattern for receiving yield input
- * Handles identifier, array, and object patterns
- * Note: Input is nullable (?), so we use null-coalescing for value types
- */
-const emitPattern = (
-  pattern: Extract<
-    IrStatement,
-    { kind: "yieldStatement" }
-  >["receiveTarget"] extends infer P
-    ? P
-    : never,
-  inputExpr: string,
-  indent: string
-): string => {
-  if (!pattern) return "";
-
-  switch (pattern.kind) {
-    case "identifierPattern":
-      // Use null-coalescing to handle nullable Input
-      // For value types (like double), use .Value or ?? default
-      return `${indent}var ${pattern.name} = ${inputExpr} ?? default!;`;
-
-    case "arrayPattern": {
-      // Array destructuring: const [a, b] = yield expr;
-      const parts: string[] = [];
-      parts.push(`${indent}var __input = ${inputExpr};`);
-      pattern.elements.forEach((elem, i) => {
-        if (elem && elem.pattern.kind === "identifierPattern") {
-          parts.push(`${indent}var ${elem.pattern.name} = __input[${i}];`);
-        }
-        // TODO: Handle nested patterns
-      });
-      return parts.join("\n");
-    }
-
-    case "objectPattern": {
-      // Object destructuring: const {a, b} = yield expr;
-      const parts: string[] = [];
-      parts.push(`${indent}var __input = ${inputExpr};`);
-      for (const prop of pattern.properties) {
-        if (
-          prop.kind === "property" &&
-          prop.value.kind === "identifierPattern"
-        ) {
-          const key = typeof prop.key === "string" ? prop.key : prop.value.name;
-          parts.push(`${indent}var ${prop.value.name} = __input.${key};`);
-        }
-        // TODO: Handle shorthand and rest patterns
-      }
-      return parts.join("\n");
-    }
-  }
 };
 
 /**

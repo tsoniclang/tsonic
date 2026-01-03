@@ -369,7 +369,7 @@ describe("Generator Emission", () => {
       expect(code).to.include("yield return exchange");
 
       // Should emit receive pattern with null coalescing
-      expect(code).to.include("var msg = exchange.Input ?? default!");
+      expect(code).to.match(/string msg = \(exchange\.Input \?\? default!\);/);
     });
 
     it("should handle unidirectional generator without wrapper", () => {
@@ -635,9 +635,11 @@ describe("Generator Emission", () => {
         const code = emitModule(module);
 
         // Should emit array destructuring pattern
-        expect(code).to.include("var __input = exchange.Input");
-        expect(code).to.include("var a = __input[0]");
-        expect(code).to.include("var b = __input[1]");
+        expect(code).to.match(
+          /var __arr\d+ = \(exchange\.Input \?\? default!\);/
+        );
+        expect(code).to.match(/var a = __arr\d+\[0\];/);
+        expect(code).to.match(/var b = __arr\d+\[1\];/);
       });
 
       it("should emit object destructuring from yield", () => {
@@ -711,9 +713,11 @@ describe("Generator Emission", () => {
         const code = emitModule(module);
 
         // Should emit object destructuring pattern
-        expect(code).to.include("var __input = exchange.Input");
-        expect(code).to.include("var x = __input.x");
-        expect(code).to.include("var y = __input.y");
+        expect(code).to.match(
+          /var __obj\d+ = \(exchange\.Input \?\? default!\);/
+        );
+        expect(code).to.match(/var x = __obj\d+\.x;/);
+        expect(code).to.match(/var y = __obj\d+\.y;/);
       });
     });
 

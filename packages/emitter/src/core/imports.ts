@@ -200,15 +200,9 @@ const createImportBinding = (
   }
 
   if (spec.kind === "default") {
-    // Default export binds to the value container class
-    // TODO: Consider adding diagnostic for unsupported default exports
-    return {
-      localName,
-      importBinding: {
-        kind: "value",
-        clrName: valueContainerFqn,
-      },
-    };
+    throw new Error(
+      `Default imports are not supported for local modules (import ${localName} from ...). Use named exports or namespace imports.`
+    );
   }
 
   if (spec.kind === "namespace") {

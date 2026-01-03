@@ -235,13 +235,9 @@ const lowerObjectPattern = (
         statements.push(...result.statements);
         currentCtx = result.context;
       } else {
-        // No shape info - emit a comment placeholder
-        if (prop.pattern.kind === "identifierPattern") {
-          const name = escapeCSharpIdentifier(prop.pattern.name);
-          statements.push(
-            `${indent}// TODO: rest property ${name} needs shape info`
-          );
-        }
+        throw new Error(
+          "Object rest destructuring requires rest shape information from the frontend (restShapeMembers/restSynthTypeName)."
+        );
       }
       continue;
     }

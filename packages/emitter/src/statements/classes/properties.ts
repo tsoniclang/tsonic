@@ -96,6 +96,8 @@ export const emitInterfaceMemberAsProperty = (
     }
 
     default:
-      return [`${ind}// TODO: unhandled interface member`, context];
+      throw new Error(
+        `Unhandled IR interface member kind: ${String((member as { kind?: unknown }).kind)}`
+      );
   }
 };

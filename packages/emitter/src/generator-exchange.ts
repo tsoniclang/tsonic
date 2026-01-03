@@ -21,7 +21,8 @@ const collectGenerators = (module: IrModule): IrFunctionDeclaration[] => {
     if (stmt.kind === "functionDeclaration" && stmt.isGenerator) {
       generators.push(stmt);
     }
-    // TODO: Also handle generator methods in classes
+    // Note: Generator methods in classes are not handled here; generator support is currently
+    // implemented for module-level generator functions.
   }
 
   return generators;

@@ -260,8 +260,9 @@ export const emitExpression = (
       return emitTryCast(expr, context);
 
     default:
-      // Fallback for unhandled expressions
-      return [{ text: "/* TODO: unhandled expression */" }, context];
+      throw new Error(
+        `Unhandled IR expression kind: ${String((expr as { kind?: unknown }).kind)}`
+      );
     }
   })();
 

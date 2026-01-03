@@ -79,12 +79,9 @@ const getBindingClrName = (b: unknown): string | undefined => {
 /**
  * Check if a type name indicates an unsupported support type.
  *
- * TODO: This is a basic check. Full implementation requires:
- * 1. Access to TypeScript type checker
- * 2. Integration with support-types.ts helpers
- * 3. Proper diagnostic reporting
- *
- * For now, we check the type name string.
+ * NOTE: The emitter does not have access to the TypeScript checker. Support types
+ * should be rejected during frontend IR building. This is a defensive guard in case
+ * unsupported types leak into IR.
  */
 const checkUnsupportedSupportType = (typeName: string): string | undefined => {
   if (
@@ -185,10 +182,7 @@ export const emitReferenceType = (
   // Check for unsupported support types
   const unsupportedError = checkUnsupportedSupportType(name);
   if (unsupportedError) {
-    // TODO: Report diagnostic error instead of throwing
-    // For now, emit a comment to make the error visible in generated code
-    console.warn(`[Tsonic] ${unsupportedError}`);
-    return [`/* ERROR: ${unsupportedError} */ object`, context];
+    throw new Error(`[Tsonic] ${unsupportedError}`);
   }
 
   // Handle built-in types

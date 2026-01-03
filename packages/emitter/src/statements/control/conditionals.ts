@@ -273,33 +273,93 @@ const isBooleanCondition = (expr: IrExpression): boolean => {
  *
  * For non-boolean expressions:
  * - Reference types (objects, arrays): emit `expr != null`
- * - Numbers: could emit `expr != 0` (not implemented yet)
- * - Strings: could emit `!string.IsNullOrEmpty(expr)` (not implemented yet)
+ * - Numbers: emit a JS-truthiness check (0 and NaN are falsy)
+ * - Strings: emit `!string.IsNullOrEmpty(expr)`
  */
 const toBooleanCondition = (
   expr: IrExpression,
-  emittedText: string
-): string => {
+  emittedText: string,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  // Literal truthiness can be fully resolved without re-evaluating anything.
+  if (expr.kind === "literal") {
+    if (expr.value === null || expr.value === undefined) {
+      return ["false", context];
+    }
+    if (typeof expr.value === "boolean") {
+      return [expr.value ? "true" : "false", context];
+    }
+    if (typeof expr.value === "number") {
+      return [expr.value === 0 ? "false" : "true", context];
+    }
+    if (typeof expr.value === "string") {
+      return [expr.value.length === 0 ? "false" : "true", context];
+    }
+  }
+
   // If already boolean, use as-is
   if (isBooleanCondition(expr)) {
-    return emittedText;
+    return [emittedText, context];
   }
 
   // For reference types (non-primitive), add != null check
   const type = expr.inferredType;
   if (type && type.kind !== "primitiveType") {
-    return `${emittedText} != null`;
+    // Special-case literalType (which behaves like its primitive base) to avoid `0 != null` etc.
+    if (type.kind === "literalType") {
+      if (typeof type.value === "boolean") {
+        return [type.value ? "true" : "false", context];
+      }
+      if (typeof type.value === "number") {
+        return [type.value === 0 ? "false" : "true", context];
+      }
+      if (typeof type.value === "string") {
+        return [type.value.length === 0 ? "false" : "true", context];
+      }
+    }
+    return [`${emittedText} != null`, context];
   }
 
   // Default: assume it's a reference type and add null check
   // This handles cases where type inference didn't work
   if (!type) {
-    return `${emittedText} != null`;
+    return [`${emittedText} != null`, context];
   }
 
   // For primitives that are not boolean, just use as-is for now
-  // TODO: Handle number truthiness (x != 0) and string truthiness
-  return emittedText;
+  if (type.kind === "primitiveType") {
+    switch (type.name) {
+      case "null":
+      case "undefined":
+        return ["false", context];
+
+      case "string":
+        return [`!string.IsNullOrEmpty(${emittedText})`, context];
+
+      case "int":
+        return [`${emittedText} != 0`, context];
+
+      case "char":
+        return [`${emittedText} != '\\0'`, context];
+
+      case "number": {
+        // JS truthiness for numbers: falsy iff 0 or NaN.
+        // Use a pattern var to avoid evaluating the expression twice.
+        const nextId = (context.tempVarId ?? 0) + 1;
+        const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+        const tmp = `__tsonic_truthy_num_${nextId}`;
+        return [
+          `(${emittedText} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
+          ctxWithId,
+        ];
+      }
+
+      case "boolean":
+        return [emittedText, context];
+    }
+  }
+
+  return [emittedText, context];
 };
 
 /**
@@ -470,12 +530,16 @@ export const emitIfStatement = (
 
         // Emit RHS condition under narrowed context (TS semantics: rhs sees narrowed x)
         const [rhsFrag, rhsCtxAfterEmit] = emitExpression(right, outerThenCtx);
-        const rhsCondText = toBooleanCondition(right, rhsFrag.text);
+        const [rhsCondText, rhsCtxAfterCond] = toBooleanCondition(
+          right,
+          rhsFrag.text,
+          rhsCtxAfterEmit
+        );
 
         // When RHS true: emit original THEN under narrowed context
         const [thenCode, thenCtxAfter] = emitStatement(
           stmt.thenStatement,
-          indent(rhsCtxAfterEmit)
+          indent(rhsCtxAfterCond)
         );
 
         // Helper to clear narrowing from context
@@ -533,16 +597,18 @@ export const emitIfStatement = (
 
     // Emit condition
     const [condFrag, condContext] = emitExpression(stmt.condition, context);
-
-    // Convert to boolean condition if needed
-    const condText = toBooleanCondition(stmt.condition, condFrag.text);
+    const [condText, condCtxAfterCond] = toBooleanCondition(
+      stmt.condition,
+      condFrag.text,
+      condContext
+    );
 
     // Apply narrowing to appropriate branch
     const thenCtx: EmitterContext = {
-      ...indent(condContext),
+      ...indent(condCtxAfterCond),
       narrowedBindings: narrowsInThen
         ? narrowedMap
-        : condContext.narrowedBindings,
+        : condCtxAfterCond.narrowedBindings,
     };
 
     const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
@@ -580,13 +646,15 @@ export const emitIfStatement = (
 
   // Standard if-statement emission (no narrowing)
   const [condFrag, condContext] = emitExpression(stmt.condition, context);
-
-  // Convert to boolean condition if needed
-  const condText = toBooleanCondition(stmt.condition, condFrag.text);
+  const [condText, condCtxAfterCond] = toBooleanCondition(
+    stmt.condition,
+    condFrag.text,
+    condContext
+  );
 
   const [thenCode, thenContext] = emitStatement(
     stmt.thenStatement,
-    indent(condContext)
+    indent(condCtxAfterCond)
   );
 
   let code = `${ind}if (${condText})\n${thenCode}`;
