@@ -726,11 +726,13 @@ const isAllowedKeyType = (typeNode: ts.TypeNode): boolean => {
  * "simple arrow" criteria. Non-simple arrows must have explicit annotations.
  *
  * Simple Arrow Definition (per spec):
- * 1. isAsync === false
- * 2. Body is an expression (not a block) - block bodies ALWAYS require explicit return type
- * 3. Every parameter pattern is a simple identifier (no destructuring)
- * 4. No default initializers
- * 5. No rest parameters
+ * 1. Every parameter pattern is a simple identifier (no destructuring)
+ * 2. No default initializers
+ * 3. No rest parameters
+ *
+ * Notes:
+ * - Async arrows CAN be contextually typed when expected types are available.
+ * - Block-bodied arrows CAN be contextually typed when expected types are available.
  *
  * If an arrow fails ANY of these criteria AND doesn't have explicit types,
  * emit TSN7430.
@@ -804,25 +806,7 @@ const isSimpleArrow = (
 ):
   | { readonly isSimple: true }
   | { readonly isSimple: false; readonly reason: string } => {
-  // 1. Not async
-  if (node.modifiers?.some((mod) => mod.kind === ts.SyntaxKind.AsyncKeyword)) {
-    return {
-      isSimple: false,
-      reason: "Async arrow functions require explicit type annotations.",
-    };
-  }
-
-  // 2. Body must be an expression (not a block)
-  // Block bodies ALWAYS require explicit return type annotation
-  if (ts.isBlock(node.body)) {
-    return {
-      isSimple: false,
-      reason:
-        "Block-bodied arrow functions require explicit return type annotation.",
-    };
-  }
-
-  // 3. All parameter patterns must be simple identifiers (no destructuring)
+  // 1. All parameter patterns must be simple identifiers (no destructuring)
   for (const param of node.parameters) {
     if (!ts.isIdentifier(param.name)) {
       return {
@@ -833,7 +817,7 @@ const isSimpleArrow = (
     }
   }
 
-  // 4. No default initializers
+  // 2. No default initializers
   for (const param of node.parameters) {
     if (param.initializer !== undefined) {
       return {
@@ -844,7 +828,7 @@ const isSimpleArrow = (
     }
   }
 
-  // 5. No rest parameters
+  // 3. No rest parameters
   for (const param of node.parameters) {
     if (param.dotDotDotToken !== undefined) {
       return {
