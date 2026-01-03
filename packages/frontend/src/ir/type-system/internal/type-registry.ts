@@ -392,6 +392,53 @@ const extractMembers = (
 };
 
 /**
+ * Extract members from an already-converted object type.
+ *
+ * This is used for object-like type aliases that expand deterministically to
+ * `IrObjectType` during registration (e.g., `type StatusMap = Record<...>`).
+ * Registering these members enables TypeSystem member lookups on aliased types.
+ */
+const extractMembersFromAliasedObjectType = (
+  aliased: IrType
+): ReadonlyMap<string, MemberInfo> => {
+  if (aliased.kind !== "objectType") return new Map();
+
+  const result = new Map<string, MemberInfo>();
+
+  for (const member of aliased.members) {
+    if (member.kind === "propertySignature") {
+      result.set(member.name, {
+        kind: "property",
+        name: member.name,
+        type: member.type,
+        isOptional: member.isOptional,
+        isReadonly: member.isReadonly,
+      });
+      continue;
+    }
+
+    if (member.kind === "methodSignature") {
+      const existing = result.get(member.name);
+      const signatures = existing?.methodSignatures
+        ? [...existing.methodSignatures, member]
+        : [member];
+
+      result.set(member.name, {
+        kind: "method",
+        name: member.name,
+        type: undefined,
+        isOptional: false,
+        isReadonly: false,
+        methodSignatures: signatures,
+      });
+      continue;
+    }
+  }
+
+  return result;
+};
+
+/**
  * Convert method declaration to IrMethodSignature
  */
 const convertMethodToSignature = (
@@ -633,14 +680,17 @@ export const buildTypeRegistry = (
 	      const fqName = makeFQName(simpleName);
 
       // Pure IR entry
+      const aliasedType = convert(node.type);
+      const aliasedMembers = extractMembersFromAliasedObjectType(aliasedType);
+
 	      entries.set(fqName, {
 	        kind: "typeAlias",
 	        name: simpleName,
 	        fullyQualifiedName: fqName,
 	        typeParameters: extractTypeParameters(node.typeParameters, convert),
-	        members: new Map(),
+	        members: aliasedMembers,
 	        heritage: [],
-	        aliasedType: convert(node.type),
+	        aliasedType,
 	      });
 
 	      simpleNameToFQ.set(simpleName, fqName);

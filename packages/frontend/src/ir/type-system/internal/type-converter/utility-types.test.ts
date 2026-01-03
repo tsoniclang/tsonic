@@ -1576,9 +1576,7 @@ describe("Conditional Utility Type Expansion", () => {
       expect(result).to.equal(null);
     });
 
-    // INV-0 LIMITATION: typeof requires TypeScript type inference to get the
-    // function type from the value. Our syntactic implementation can't resolve typeof.
-    it.skip("should expand ReturnType with typeof function", () => {
+    it("should expand ReturnType with typeof function", () => {
       const source = `
         function add(a: number, b: number): number {
           return a + b;
@@ -1696,9 +1694,7 @@ describe("Conditional Utility Type Expansion", () => {
       expect(result).to.equal(null);
     });
 
-    // INV-0 LIMITATION: typeof requires TypeScript type inference to get the
-    // function type from the value. Our syntactic implementation can't resolve typeof.
-    it.skip("should expand Parameters with typeof function", () => {
+    it("should expand Parameters with typeof function", () => {
       const source = `
         function greet(name: string, age: number): void {}
         type Result = Parameters<typeof greet>;

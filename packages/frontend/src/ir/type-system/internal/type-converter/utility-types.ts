@@ -639,6 +639,28 @@ const expandReturnType = (
     }
   }
 
+  // Case 3: typeof function value (ReturnType<typeof fn>)
+  //
+  // INV-0 COMPLIANT: Resolve the identifier to a declaration via Binding and
+  // read the syntactic return type annotation (no ts.Type queries).
+  if (ts.isTypeQueryNode(fArg) && ts.isIdentifier(fArg.exprName)) {
+    const declId = binding.resolveIdentifier(fArg.exprName);
+    if (declId) {
+      const declInfo = (binding as BindingInternal)
+        ._getHandleRegistry()
+        .getDecl(declId);
+      const decl = declInfo?.declNode as ts.Declaration | undefined;
+
+      if (decl && (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))) {
+        return decl.type ? convertType(decl.type, binding) : null;
+      }
+
+      if (decl && ts.isVariableDeclaration(decl) && decl.type) {
+        return expandReturnType(decl.type, binding, convertType);
+      }
+    }
+  }
+
   return null; // Can't extract return type
 };
 
@@ -680,6 +702,31 @@ const expandParameters = (
         ts.isFunctionTypeNode(decl.type)
       ) {
         functionType = decl.type;
+      }
+    }
+  }
+
+  // Case 3: typeof function value (Parameters<typeof fn>)
+  //
+  // INV-0 COMPLIANT: Resolve the identifier to a declaration via Binding and
+  // read syntactic parameter type annotations (no ts.Type queries).
+  if (!functionType && ts.isTypeQueryNode(fArg) && ts.isIdentifier(fArg.exprName)) {
+    const declId = binding.resolveIdentifier(fArg.exprName);
+    if (declId) {
+      const declInfo = (binding as BindingInternal)
+        ._getHandleRegistry()
+        .getDecl(declId);
+      const decl = declInfo?.declNode as ts.Declaration | undefined;
+
+      if (decl && (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))) {
+        const paramTypes: IrType[] = decl.parameters.map((param) =>
+          param.type ? convertType(param.type, binding) : { kind: "anyType" }
+        );
+        return { kind: "tupleType", elementTypes: paramTypes };
+      }
+
+      if (decl && ts.isVariableDeclaration(decl) && decl.type) {
+        return expandParameters(decl.type, binding, convertType);
       }
     }
   }
