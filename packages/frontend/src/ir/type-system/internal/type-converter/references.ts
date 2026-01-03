@@ -23,6 +23,77 @@ import {
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 
 /**
+ * tsbindgen emits qualified names for core System primitives inside internal
+ * extension bucket signatures, e.g. `System_Internal.Boolean`.
+ *
+ * For IR purposes these must canonicalize to the compiler's surface primitive
+ * / numeric alias names so:
+ * - deterministic lambda typing can use `boolean`/`int` etc
+ * - the IR soundness gate does not treat these as unresolved reference types
+ *
+ * This is NOT a workaround: it is the correct boundary translation from the
+ * tsbindgen surface name to Tsonic's canonical IR type names.
+ */
+const normalizeSystemInternalQualifiedName = (typeName: string): string => {
+  const prefix = "System_Internal.";
+  if (!typeName.startsWith(prefix)) return typeName;
+
+  const inner = typeName.slice(prefix.length);
+  const mapped = (() => {
+    switch (inner) {
+      // TS primitives
+      case "Boolean":
+        return "boolean";
+      case "String":
+        return "string";
+      case "Char":
+        return "char";
+
+      // Distinct CLR numeric aliases (from @tsonic/core)
+      case "SByte":
+        return "sbyte";
+      case "Byte":
+        return "byte";
+      case "Int16":
+        return "short";
+      case "UInt16":
+        return "ushort";
+      case "Int32":
+        return "int";
+      case "UInt32":
+        return "uint";
+      case "Int64":
+        return "long";
+      case "UInt64":
+        return "ulong";
+      case "Int128":
+        return "int128";
+      case "UInt128":
+        return "uint128";
+      case "Half":
+        return "half";
+      case "Single":
+        return "float";
+      case "Double":
+        return "double";
+      case "Decimal":
+        return "decimal";
+      case "IntPtr":
+        return "nint";
+      case "UIntPtr":
+        return "nuint";
+
+      default:
+        return undefined;
+    }
+  })();
+
+  // If we don't recognize the alias, strip the namespace import prefix and
+  // keep the exported type name (e.g. System_Internal.Exception -> Exception).
+  return mapped ?? inner;
+};
+
+/**
  * Cache for structural member extraction to prevent infinite recursion
  * on recursive types like `type Node = { next: Node }`.
  *
@@ -275,9 +346,10 @@ export const convertTypeReference = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType => {
-  const typeName = ts.isIdentifier(node.typeName)
+  const rawTypeName = ts.isIdentifier(node.typeName)
     ? node.typeName.text
     : node.typeName.getText();
+  const typeName = normalizeSystemInternalQualifiedName(rawTypeName);
 
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
