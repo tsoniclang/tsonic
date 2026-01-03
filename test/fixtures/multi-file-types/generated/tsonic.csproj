@@ -18,6 +18,8 @@
     <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Tsonic.Runtime" Version="0.0.1" />
+    <Reference Include="Tsonic.Runtime">
+      <HintPath>../../../../packages/cli/runtime/Tsonic.Runtime.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>
