@@ -50,7 +50,7 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("[System.SerializableAttribute]");
+      expect(result).to.include("[global::System.SerializableAttribute]");
     });
 
     it("should emit attribute with positional string argument", () => {
@@ -211,7 +211,7 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("typeof(MyApp.CustomConverter)");
+      expect(result).to.include("typeof(global::MyApp.CustomConverter)");
     });
 
     it("should emit enum argument", () => {

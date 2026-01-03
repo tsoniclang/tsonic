@@ -138,6 +138,9 @@ export const emitReferenceType = (
 
   // If the type has a pre-resolved CLR type (from IR), use it
   if (resolvedClrType) {
+    const qualifiedClr = CSHARP_PRIMITIVES.has(resolvedClrType)
+      ? resolvedClrType
+      : toGlobalClr(resolvedClrType);
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];
       let currentContext = context;
@@ -146,9 +149,9 @@ export const emitReferenceType = (
         typeParams.push(paramType);
         currentContext = newContext;
       }
-      return [`${resolvedClrType}<${typeParams.join(", ")}>`, currentContext];
+      return [`${qualifiedClr}<${typeParams.join(", ")}>`, currentContext];
     }
-    return [resolvedClrType, context];
+    return [qualifiedClr, context];
   }
 
   // Check if this type is imported - use pre-computed CLR name directly
