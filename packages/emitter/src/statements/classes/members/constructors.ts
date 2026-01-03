@@ -79,12 +79,9 @@ export const emitConstructorMember = (
   );
 
   if (hasLaterSuperCall) {
-    // TODO: This should be a compile error in the IR builder
-    // For now, emit a comment noting the issue
-    const signature = parts.join(" ");
-    const errorComment = `${ind}// ERROR: super() must be the first statement in constructor`;
-    const code = `${errorComment}\n${ind}${signature}(${paramsResult.parameterList})\n${ind}{\n${ind}    // Constructor body omitted due to error\n${ind}}`;
-    return [code, currentContext];
+    throw new Error(
+      "Unsupported constructor semantics: super() must be the first statement to preserve JavaScript initialization order."
+    );
   }
 
   // Emit body without the super() call

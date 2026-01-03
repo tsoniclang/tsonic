@@ -42,12 +42,8 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
       metadata = librariesResult.value.metadata;
       bindingsRegistry = buildBindingsRegistry(librariesResult.value.bindings);
     } else {
-      // TODO: Report diagnostics from librariesResult.error
-      // Need to integrate diagnostic reporting infrastructure
-      console.warn(
-        "[Tsonic] Failed to load libraries:",
-        librariesResult.error.map((d) => d.message).join(", ")
-      );
+      const message = librariesResult.error.map((d) => d.message).join(", ");
+      throw new Error(`[Tsonic] Failed to load libraries: ${message}`);
     }
   }
 

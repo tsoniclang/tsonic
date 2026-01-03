@@ -2,7 +2,7 @@
  * Member access expression emitters
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, type IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import {
@@ -10,6 +10,7 @@ import {
   extractInterfaceNameFromView,
 } from "@tsonic/frontend/types/explicit-views.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { emitType } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -260,10 +261,13 @@ export const emitMemberAccess = (
     const interfaceName = extractInterfaceNameFromView(prop);
     if (interfaceName) {
       // Emit as C# interface cast: ((IInterface)obj)
-      // TODO: Need to look up full interface name from metadata
-      // For now, use the extracted short name
-      const text = `((${interfaceName})${objectFrag.text})`;
-      return [{ text }, newContext];
+      const interfaceType: IrType = { kind: "referenceType", name: interfaceName };
+      const [interfaceTypeStr, ctxAfterType] = emitType(
+        interfaceType,
+        newContext
+      );
+      const text = `((${interfaceTypeStr})${objectFrag.text})`;
+      return [{ text }, ctxAfterType];
     }
   }
 

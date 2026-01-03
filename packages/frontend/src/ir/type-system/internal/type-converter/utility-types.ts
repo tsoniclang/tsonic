@@ -53,6 +53,12 @@ export const isExpandableConditionalUtilityType = (name: string): boolean =>
   EXPANDABLE_CONDITIONAL_UTILITY_TYPES.has(name);
 
 /**
+ * Maximum recursion depth for nested conditional utility expansion.
+ * Prevents infinite recursion on cyclic aliases or pathological inputs.
+ */
+const MAX_CONDITIONAL_UTILITY_RECURSION = 16;
+
+/**
  * Resolve a type alias to its underlying TypeNode (AST-based, INV-0 compliant).
  * Follows type alias chains to get the actual type definition.
  *
@@ -64,6 +70,22 @@ const resolveTypeAlias = (node: ts.TypeNode, binding: Binding): ts.TypeNode => {
   // Only type references can be aliases
   if (!ts.isTypeReferenceNode(node)) return node;
   if (!ts.isIdentifier(node.typeName)) return node;
+
+  // IMPORTANT: Do not resolve compiler-known utility types to their lib.d.ts
+  // conditional/type-alias definitions. We treat these as intrinsic and expand
+  // them ourselves (deterministically) when requested.
+  const name = node.typeName.text;
+  if (
+    isExpandableUtilityType(name) ||
+    isExpandableConditionalUtilityType(name) ||
+    name === "Record" ||
+    name === "CLROf" ||
+    name === "out" ||
+    name === "ref" ||
+    name === "inref"
+  ) {
+    return node;
+  }
 
   // Use Binding to resolve the type reference
   const declId = binding.resolveTypeReference(node);
@@ -80,6 +102,25 @@ const resolveTypeAlias = (node: ts.TypeNode, binding: Binding): ts.TypeNode => {
 
   // Recursively resolve in case of chained aliases
   return resolveTypeAlias(decl.type, binding);
+};
+
+const unwrapParens = (node: ts.TypeNode): ts.TypeNode => {
+  let current: ts.TypeNode = node;
+  while (ts.isParenthesizedTypeNode(current)) {
+    current = current.type;
+  }
+  return current;
+};
+
+const flattenUnionTypeNodes = (node: ts.TypeNode): readonly ts.TypeNode[] => {
+  const unwrapped = unwrapParens(node);
+  if (!ts.isUnionTypeNode(unwrapped)) return [unwrapped];
+
+  const parts: ts.TypeNode[] = [];
+  for (const t of unwrapped.types) {
+    parts.push(...flattenUnionTypeNodes(t));
+  }
+  return parts;
 };
 
 /**
@@ -454,34 +495,74 @@ const typeNodeContainsTypeParameter = (
   return false;
 };
 
-/**
- * Serialize a TypeNode to a stable string for comparison.
- * Used by Exclude/Extract to compare type constituents.
- */
-const serializeTypeNode = (node: ts.TypeNode): string => {
-  if (node.kind === ts.SyntaxKind.StringKeyword) return "string";
-  if (node.kind === ts.SyntaxKind.NumberKeyword) return "number";
-  if (node.kind === ts.SyntaxKind.BooleanKeyword) return "boolean";
-  if (node.kind === ts.SyntaxKind.NullKeyword) return "null";
-  if (node.kind === ts.SyntaxKind.UndefinedKeyword) return "undefined";
-  if (node.kind === ts.SyntaxKind.NeverKeyword) return "never";
-  if (node.kind === ts.SyntaxKind.AnyKeyword) return "any";
-  if (node.kind === ts.SyntaxKind.UnknownKeyword) return "unknown";
-  if (ts.isLiteralTypeNode(node)) {
-    if (ts.isStringLiteral(node.literal)) return `"${node.literal.text}"`;
-    if (ts.isNumericLiteral(node.literal)) return node.literal.text;
-    if (node.literal.kind === ts.SyntaxKind.TrueKeyword) return "true";
-    if (node.literal.kind === ts.SyntaxKind.FalseKeyword) return "false";
+type TriBool = true | false | null;
+
+const flattenUnionIrType = (type: IrType): readonly IrType[] => {
+  if (type.kind === "neverType") return [];
+  if (type.kind !== "unionType") return [type];
+
+  const flat: IrType[] = [];
+  for (const t of type.types) {
+    flat.push(...flattenUnionIrType(t));
   }
-  if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
-    return `ref:${node.typeName.text}`;
+  return flat;
+};
+
+const isProvablyAssignable = (source: IrType, target: IrType): TriBool => {
+  // Union target: assignable if assignable to any constituent
+  if (target.kind === "unionType") {
+    let sawUnknown = false;
+    for (const t of target.types) {
+      const res = isProvablyAssignable(source, t);
+      if (res === true) return true;
+      if (res === null) sawUnknown = true;
+    }
+    return sawUnknown ? null : false;
   }
-  // Fallback: use getText if available
-  try {
-    return node.getText();
-  } catch {
-    return "?";
+
+  // Top types
+  if (target.kind === "anyType") return true;
+  if (target.kind === "unknownType") return true;
+
+  // Bottom
+  if (target.kind === "neverType") return source.kind === "neverType";
+  if (source.kind === "neverType") return true;
+
+  // Exact literals
+  if (source.kind === "literalType" && target.kind === "literalType") {
+    return source.value === target.value;
   }
+
+  // Primitive ↔ primitive
+  if (source.kind === "primitiveType" && target.kind === "primitiveType") {
+    return source.name === target.name;
+  }
+
+  // Literal → primitive
+  if (source.kind === "literalType" && target.kind === "primitiveType") {
+    switch (typeof source.value) {
+      case "string":
+        return target.name === "string";
+      case "number":
+        // Numeric literal types are always assignable to `number`.
+        // Assignability to `int` is intentionally left unknown here (range-dependent).
+        if (target.name === "number") return true;
+        if (target.name === "int") return null;
+        return false;
+      case "boolean":
+        return target.name === "boolean";
+      default:
+        return null;
+    }
+  }
+
+  // Primitive → literal is never provable (would require narrowing)
+  if (source.kind === "primitiveType" && target.kind === "literalType") {
+    return false;
+  }
+
+  // Other kinds (reference types, functions, objects, etc.) require richer typing.
+  return null;
 };
 
 /**
@@ -540,7 +621,79 @@ const expandNonNullable = (
   if (resolved.kind === ts.SyntaxKind.UndefinedKeyword)
     return { kind: "neverType" };
 
-  return convertType(resolved, binding);
+ return convertType(resolved, binding);
+};
+
+const expandConditionalUtilityTypeInternal = (
+  node: ts.TypeReferenceNode,
+  typeName: string,
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType,
+  depth: number
+): IrType | null => {
+  if (depth > MAX_CONDITIONAL_UTILITY_RECURSION) {
+    return null;
+  }
+
+  const typeArgs = node.typeArguments;
+  if (!typeArgs || typeArgs.length === 0) {
+    return null;
+  }
+
+  // Check for type parameters in any argument
+  for (const typeArg of typeArgs) {
+    if (typeNodeContainsTypeParameter(typeArg, binding)) {
+      return null;
+    }
+  }
+
+  const firstArg = typeArgs[0];
+  if (!firstArg) {
+    return null;
+  }
+
+  switch (typeName) {
+    case "NonNullable":
+      return expandNonNullable(firstArg, binding, convertType);
+
+    case "Exclude": {
+      const secondArg = typeArgs[1];
+      if (!secondArg) return null;
+      return expandExcludeExtract(
+        firstArg,
+        secondArg,
+        false,
+        binding,
+        convertType,
+        depth
+      );
+    }
+
+    case "Extract": {
+      const secondArg = typeArgs[1];
+      if (!secondArg) return null;
+      return expandExcludeExtract(
+        firstArg,
+        secondArg,
+        true,
+        binding,
+        convertType,
+        depth
+      );
+    }
+
+    case "ReturnType":
+      return expandReturnType(firstArg, binding, convertType);
+
+    case "Parameters":
+      return expandParameters(firstArg, binding, convertType);
+
+    case "Awaited":
+      return expandAwaited(firstArg, binding, convertType);
+
+    default:
+      return null;
+  }
 };
 
 /**
@@ -551,7 +704,8 @@ const expandExcludeExtract = (
   uArg: ts.TypeNode,
   isExtract: boolean,
   binding: Binding,
-  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType,
+  depth: number
 ): IrType | null => {
   // Check for type parameters
   if (typeNodeContainsTypeParameter(tArg, binding)) {
@@ -561,44 +715,80 @@ const expandExcludeExtract = (
     return null;
   }
 
-  // Resolve type aliases to get the underlying types
-  const resolvedT = resolveTypeAlias(tArg, binding);
-  const resolvedU = resolveTypeAlias(uArg, binding);
+  if (depth > MAX_CONDITIONAL_UTILITY_RECURSION) {
+    return null;
+  }
 
-  // Only supported for union types
-  if (!ts.isUnionTypeNode(resolvedT)) {
-    // Single type: check if it matches U
-    const uTypes = ts.isUnionTypeNode(resolvedU)
-      ? resolvedU.types
-      : [resolvedU];
-    const tSerialized = serializeTypeNode(resolvedT);
-    const matches = uTypes.some((u) => serializeTypeNode(u) === tSerialized);
+  const tryExpandConditionalArg = (node: ts.TypeNode): IrType | null => {
+    const unwrapped = unwrapParens(node);
+    if (!ts.isTypeReferenceNode(unwrapped) || !ts.isIdentifier(unwrapped.typeName)) {
+      return null;
+    }
+    const name = unwrapped.typeName.text;
+    if (!isExpandableConditionalUtilityType(name)) {
+      return null;
+    }
+    if (!unwrapped.typeArguments?.length) {
+      return null;
+    }
+    return expandConditionalUtilityTypeInternal(
+      unwrapped,
+      name,
+      binding,
+      convertType,
+      depth + 1
+    );
+  };
 
+  const convertForFiltering = (node: ts.TypeNode): IrType | null => {
+    const directExpanded = tryExpandConditionalArg(node);
+    if (directExpanded) return directExpanded;
+
+    const resolved = unwrapParens(resolveTypeAlias(unwrapParens(node), binding));
+    const resolvedExpanded = tryExpandConditionalArg(resolved);
+    if (resolvedExpanded) return resolvedExpanded;
+
+    if (ts.isUnionTypeNode(resolved)) {
+      const parts = flattenUnionTypeNodes(resolved);
+      const converted: IrType[] = [];
+      for (const p of parts) {
+        const inner = convertForFiltering(p);
+        if (!inner) return null;
+        converted.push(inner);
+      }
+      return { kind: "unionType", types: converted };
+    }
+
+    return convertType(resolved, binding);
+  };
+
+  const tType = convertForFiltering(tArg);
+  const uType = convertForFiltering(uArg);
+  if (!tType || !uType) {
+    return null;
+  }
+
+  const tMembers = flattenUnionIrType(tType);
+
+  const filtered: IrType[] = [];
+  for (const t of tMembers) {
+    const assignable = isProvablyAssignable(t, uType);
     if (isExtract) {
-      return matches ? convertType(resolvedT, binding) : { kind: "neverType" };
+      // Conservative: keep unless we can prove NOT assignable
+      if (assignable !== false) {
+        filtered.push(t);
+      }
     } else {
-      return matches ? { kind: "neverType" } : convertType(resolvedT, binding);
+      // Conservative: exclude only when we can prove assignable
+      if (assignable !== true) {
+        filtered.push(t);
+      }
     }
   }
 
-  // T is a union - filter its constituents
-  const uTypes = ts.isUnionTypeNode(resolvedU) ? resolvedU.types : [resolvedU];
-  const uSet = new Set(uTypes.map((t) => serializeTypeNode(t)));
-
-  const filtered = resolvedT.types.filter((t) => {
-    const matches = uSet.has(serializeTypeNode(t));
-    return isExtract ? matches : !matches;
-  });
-
   if (filtered.length === 0) return { kind: "neverType" };
-  if (filtered.length === 1 && filtered[0]) {
-    return convertType(filtered[0], binding);
-  }
-
-  return {
-    kind: "unionType",
-    types: filtered.map((t) => convertType(t, binding)),
-  };
+  if (filtered.length === 1) return filtered[0] ?? { kind: "neverType" };
+  return { kind: "unionType", types: filtered };
 };
 
 /**
@@ -614,14 +804,31 @@ const expandReturnType = (
     return null;
   }
 
+  // Distribute over unions: ReturnType<F1 | F2> = ReturnType<F1> | ReturnType<F2>
+  const unwrapped = unwrapParens(fArg);
+  if (ts.isUnionTypeNode(unwrapped)) {
+    const results: IrType[] = [];
+    for (const member of flattenUnionTypeNodes(unwrapped)) {
+      const result = expandReturnType(member, binding, convertType);
+      if (!result) return null;
+      results.push(result);
+    }
+    const flat = results.flatMap((t) => flattenUnionIrType(t));
+    if (flat.length === 0) return { kind: "neverType" };
+    if (flat.length === 1) return flat[0] ?? { kind: "neverType" };
+    return { kind: "unionType", types: flat };
+  }
+
   // Case 1: Direct function type node
-  if (ts.isFunctionTypeNode(fArg)) {
-    return fArg.type ? convertType(fArg.type, binding) : { kind: "voidType" };
+  if (ts.isFunctionTypeNode(unwrapped)) {
+    return unwrapped.type
+      ? convertType(unwrapped.type, binding)
+      : { kind: "voidType" };
   }
 
   // Case 2: Type reference to function type alias
-  if (ts.isTypeReferenceNode(fArg) && ts.isIdentifier(fArg.typeName)) {
-    const declId = binding.resolveTypeReference(fArg);
+  if (ts.isTypeReferenceNode(unwrapped) && ts.isIdentifier(unwrapped.typeName)) {
+    const declId = binding.resolveTypeReference(unwrapped);
     if (declId) {
       const declInfo = (binding as BindingInternal)
         ._getHandleRegistry()
@@ -643,15 +850,18 @@ const expandReturnType = (
   //
   // INV-0 COMPLIANT: Resolve the identifier to a declaration via Binding and
   // read the syntactic return type annotation (no ts.Type queries).
-  if (ts.isTypeQueryNode(fArg) && ts.isIdentifier(fArg.exprName)) {
-    const declId = binding.resolveIdentifier(fArg.exprName);
+  if (ts.isTypeQueryNode(unwrapped) && ts.isIdentifier(unwrapped.exprName)) {
+    const declId = binding.resolveIdentifier(unwrapped.exprName);
     if (declId) {
       const declInfo = (binding as BindingInternal)
         ._getHandleRegistry()
         .getDecl(declId);
       const decl = declInfo?.declNode as ts.Declaration | undefined;
 
-      if (decl && (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))) {
+      if (
+        decl &&
+        (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))
+      ) {
         return decl.type ? convertType(decl.type, binding) : null;
       }
 
@@ -793,63 +1003,13 @@ export const expandConditionalUtilityType = (
   binding: Binding,
   convertType: (node: ts.TypeNode, binding: Binding) => IrType
 ): IrType | null => {
-  const typeArgs = node.typeArguments;
-  if (!typeArgs || typeArgs.length === 0) {
-    return null;
-  }
-
-  // Check for type parameters in any argument
-  for (const typeArg of typeArgs) {
-    if (typeNodeContainsTypeParameter(typeArg, binding)) {
-      return null;
-    }
-  }
-
-  const firstArg = typeArgs[0];
-  if (!firstArg) {
-    return null;
-  }
-
-  switch (typeName) {
-    case "NonNullable":
-      return expandNonNullable(firstArg, binding, convertType);
-
-    case "Exclude": {
-      const secondArg = typeArgs[1];
-      if (!secondArg) return null;
-      return expandExcludeExtract(
-        firstArg,
-        secondArg,
-        false,
-        binding,
-        convertType
-      );
-    }
-
-    case "Extract": {
-      const secondArg = typeArgs[1];
-      if (!secondArg) return null;
-      return expandExcludeExtract(
-        firstArg,
-        secondArg,
-        true,
-        binding,
-        convertType
-      );
-    }
-
-    case "ReturnType":
-      return expandReturnType(firstArg, binding, convertType);
-
-    case "Parameters":
-      return expandParameters(firstArg, binding, convertType);
-
-    case "Awaited":
-      return expandAwaited(firstArg, binding, convertType);
-
-    default:
-      return null;
-  }
+  return expandConditionalUtilityTypeInternal(
+    node,
+    typeName,
+    binding,
+    convertType,
+    0
+  );
 };
 
 /**

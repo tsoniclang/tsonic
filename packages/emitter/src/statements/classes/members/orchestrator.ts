@@ -3,7 +3,7 @@
  */
 
 import { IrClassMember } from "@tsonic/frontend";
-import { EmitterContext, getIndent } from "../../../types.js";
+import { EmitterContext } from "../../../types.js";
 import { emitPropertyMember } from "./properties.js";
 import { emitMethodMember } from "./methods.js";
 import { emitConstructorMember } from "./constructors.js";
@@ -15,8 +15,6 @@ export const emitClassMember = (
   member: IrClassMember,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  const ind = getIndent(context);
-
   switch (member.kind) {
     case "propertyDeclaration":
       return emitPropertyMember(member, context);
@@ -28,6 +26,8 @@ export const emitClassMember = (
       return emitConstructorMember(member, context);
 
     default:
-      return [`${ind}// TODO: unhandled class member`, context];
+      throw new Error(
+        `Unhandled IR class member kind: ${String((member as { kind?: unknown }).kind)}`
+      );
   }
 };

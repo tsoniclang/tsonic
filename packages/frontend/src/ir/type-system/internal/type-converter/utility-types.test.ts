@@ -1378,10 +1378,7 @@ describe("Conditional Utility Type Expansion", () => {
       // Should expand to string | number (function removed)
     });
 
-    // INV-0 LIMITATION: This test requires type inference to determine which
-    // literals are string-assignable vs number-assignable. Our syntactic implementation
-    // can't distinguish "a" (string literal) from 1 (number literal) without type inference.
-    it.skip("should distribute Exclude over mixed string and number literals", () => {
+    it("should distribute Exclude over mixed string and number literals", () => {
       // Alice's review case: mixed literals with Exclude filtering by type
       const source = `
         type Mixed = ("a" | "b") | (1 | 2);
@@ -1402,12 +1399,16 @@ describe("Conditional Utility Type Expansion", () => {
       // Should be 1 | 2 (string literals removed)
       // TypeScript distributes over the union and removes string-assignable types
       expect(result?.kind).to.equal("unionType");
+      if (result?.kind === "unionType") {
+        expect(result.types).to.have.length(2);
+        const values = result.types
+          .filter((t) => t.kind === "literalType")
+          .map((t) => (t.kind === "literalType" ? t.value : null));
+        expect(values).to.deep.equal([1, 2]);
+      }
     });
 
-    // INV-0 LIMITATION: This test requires type inference to determine which
-    // literals are string-assignable vs number-assignable. Our syntactic implementation
-    // can't distinguish "a" (string literal) from 1 (number literal) for Extract filtering.
-    it.skip("should distribute Extract over mixed string and number literals", () => {
+    it("should distribute Extract over mixed string and number literals", () => {
       // Alice's review case: mixed literals with Extract filtering by type
       const source = `
         type Mixed = ("a" | "b") | (1 | 2);
@@ -1428,12 +1429,16 @@ describe("Conditional Utility Type Expansion", () => {
       // Should be "a" | "b" (number literals removed)
       // TypeScript distributes over the union and keeps only string-assignable types
       expect(result?.kind).to.equal("unionType");
+      if (result?.kind === "unionType") {
+        expect(result.types).to.have.length(2);
+        const values = result.types
+          .filter((t) => t.kind === "literalType")
+          .map((t) => (t.kind === "literalType" ? t.value : null));
+        expect(values).to.deep.equal(["a", "b"]);
+      }
     });
 
-    // INV-0 LIMITATION: Nested conditional types require recursive expansion.
-    // The outer Exclude receives inner Exclude as a type reference, not a resolved union.
-    // We would need to recursively expand conditional utility types in the argument.
-    it.skip("should handle nested conditional types", () => {
+    it("should handle nested conditional types", () => {
       const source = `
         type Result = Exclude<Exclude<string | null | undefined, null>, undefined>;
       `;
@@ -1520,9 +1525,7 @@ describe("Conditional Utility Type Expansion", () => {
       // void is handled by fallback
     });
 
-    // INV-0 LIMITATION: Union of function type aliases requires distributing
-    // ReturnType over the union, which we don't currently support syntactically.
-    it.skip("should expand ReturnType with union function types", () => {
+    it("should expand ReturnType with union function types", () => {
       const source = `
         type Fn1 = () => string;
         type Fn2 = () => number;
@@ -1542,6 +1545,13 @@ describe("Conditional Utility Type Expansion", () => {
       expect(result).not.to.equal(null);
       // Should be string | number
       expect(result?.kind).to.equal("unionType");
+      if (result?.kind === "unionType") {
+        expect(result.types).to.have.length(2);
+        const names = result.types
+          .filter((t) => t.kind === "primitiveType")
+          .map((t) => (t.kind === "primitiveType" ? t.name : null));
+        expect(names).to.deep.equal(["string", "number"]);
+      }
     });
 
     it("should return null for ReturnType<T> where T is a type parameter", () => {
