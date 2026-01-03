@@ -1,0 +1,2 @@
+User 1: Alice (alice@example.com)
+Admin admin-001: Bob [admin]

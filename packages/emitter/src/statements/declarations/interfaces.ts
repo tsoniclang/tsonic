@@ -20,10 +20,13 @@ export const emitInterfaceDeclaration = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   // Per spec/16-types-and-interfaces.md §2.1:
-  // TypeScript interfaces map to C# classes (not C# interfaces)
-  // because TS interfaces are structural and we need nominal types in C#
+  // - Property-only TS interfaces map to C# classes (instantiable for object literals).
+  // - Interfaces with method signatures map to C# interfaces so classes can implement
+  //   multiple constraints/implements safely in C# (and so generic constraints can be expressed).
 
   const ind = getIndent(context);
+
+  const hasMethodSignatures = stmt.members.some((m) => m.kind === "methodSignature");
 
   // Build type parameter names set FIRST - needed when emitting member types
   // Type parameters must be in scope before we emit types that reference them
@@ -56,8 +59,8 @@ export const emitInterfaceDeclaration = (
   // Access modifier
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
-  // Emit struct or class based on isStruct flag
-  parts.push(stmt.isStruct ? "struct" : "class");
+  // Emit as C# interface when methods exist; otherwise keep class/struct for object literals.
+  parts.push(hasMethodSignatures ? "interface" : stmt.isStruct ? "struct" : "class");
   parts.push(escapeCSharpIdentifier(stmt.name));
 
   // Type parameters (if any)
@@ -104,12 +107,58 @@ export const emitInterfaceDeclaration = (
   const members: string[] = [];
 
   for (const member of stmt.members) {
-    const [memberCode, newContext] = emitInterfaceMemberAsProperty(
-      member,
-      bodyContext
-    );
-    members.push(memberCode);
-    currentContext = newContext;
+    if (!hasMethodSignatures) {
+      const [memberCode, newContext] = emitInterfaceMemberAsProperty(
+        member,
+        bodyContext
+      );
+      members.push(memberCode);
+      currentContext = newContext;
+      continue;
+    }
+
+    // C# interface member emission
+    if (member.kind === "propertySignature") {
+      const [typeName, newContext] = emitType(member.type, currentContext);
+      currentContext = newContext;
+      const typeStr = member.isOptional ? `${typeName}?` : typeName;
+      const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
+      members.push(
+        `${getIndent(bodyContext)}${typeStr} ${escapeCSharpIdentifier(member.name)} ${accessors}`
+      );
+      continue;
+    }
+
+    if (member.kind === "methodSignature") {
+      const returnType = member.returnType
+        ? (() => {
+            const [rt, newContext] = emitType(member.returnType, currentContext);
+            currentContext = newContext;
+            return rt;
+          })()
+        : "void";
+
+      // NOTE: methodSignature.typeParameters are not supported in emitter yet (rare in TS interface surface).
+      // If needed, they should be lowered to a generic method on the interface.
+      const params = member.parameters
+        .map((p) => {
+          const paramName =
+            p.pattern.kind === "identifierPattern"
+              ? escapeCSharpIdentifier(p.pattern.name)
+              : "param";
+
+          if (!p.type) return `object ${paramName}`;
+          const [pt, newContext] = emitType(p.type, currentContext);
+          currentContext = newContext;
+          return `${pt} ${paramName}`;
+        })
+        .join(", ");
+
+      members.push(
+        `${getIndent(bodyContext)}${returnType} ${escapeCSharpIdentifier(member.name)}(${params});`
+      );
+      continue;
+    }
   }
 
   const signature = parts.join(" ");

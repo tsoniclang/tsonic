@@ -222,9 +222,14 @@ const validateType = (
     case "primitiveType":
     case "typeParameterType":
     case "literalType":
-    case "unknownType":
     case "voidType":
     case "neverType":
+      break;
+
+    case "unknownType":
+      // unknownType is a poison type indicating failed type recovery.
+      // It's valid here because the specific diagnostic (TSN5201/TSN5203)
+      // is emitted in validateExpression when checking inferredType.
       break;
   }
 };
@@ -383,6 +388,22 @@ const validateExpression = (
       if (typeof expr.property !== "string") {
         validateExpression(expr.property, ctx);
       }
+      // DETERMINISTIC TYPING: Validate that member type was recovered
+      // Note: inferredType may be undefined if memberBinding exists (valid - emitter uses binding)
+      // Only flag unknownType which indicates a failed type recovery attempt
+      if (expr.inferredType?.kind === "unknownType") {
+        const propName =
+          typeof expr.property === "string" ? expr.property : "<computed>";
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN5203",
+            "error",
+            `Member/property type for '${propName}' cannot be recovered deterministically. Add an explicit type annotation at the declaration site.`,
+            expr.sourceSpan ?? moduleLocation(ctx),
+            "Ensure the property has a declared type annotation in its interface/class definition."
+          )
+        );
+      }
       break;
 
     case "call":
@@ -394,6 +415,18 @@ const validateExpression = (
       if (expr.narrowing) {
         validateType(expr.narrowing.targetType, ctx, "type predicate target");
       }
+      // DETERMINISTIC TYPING: Validate that return type was recovered
+      if (expr.inferredType?.kind === "unknownType") {
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN5201",
+            "error",
+            `Return type of this call cannot be recovered deterministically. Add an explicit return type annotation at the function/method declaration.`,
+            expr.sourceSpan ?? moduleLocation(ctx),
+            "Ensure the called function/method has a declared return type annotation."
+          )
+        );
+      }
       break;
 
     case "new":
@@ -402,6 +435,18 @@ const validateExpression = (
       expr.typeArguments?.forEach((ta, i) =>
         validateType(ta, ctx, `new type argument ${i}`)
       );
+      // DETERMINISTIC TYPING: Validate that constructed type was recovered
+      if (expr.inferredType?.kind === "unknownType") {
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN5202",
+            "error",
+            `Type arguments for this constructor call cannot be inferred deterministically. Add explicit type arguments: new Foo<T>(...).`,
+            expr.sourceSpan ?? moduleLocation(ctx),
+            "Provide explicit type arguments when instantiating generic types."
+          )
+        );
+      }
       break;
 
     case "update":
@@ -476,7 +521,7 @@ const validateStatement = (stmt: IrStatement, ctx: ValidationContext): void => {
     case "classDeclaration":
       stmt.typeParameters?.forEach((tp) => validateTypeParameter(tp, ctx));
       if (stmt.superClass) {
-        validateExpression(stmt.superClass, ctx);
+        validateType(stmt.superClass, ctx, `class '${stmt.name}' extends`);
       }
       stmt.implements.forEach((i, idx) =>
         validateType(i, ctx, `class '${stmt.name}' implements ${idx}`)

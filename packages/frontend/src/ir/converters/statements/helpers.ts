@@ -10,28 +10,32 @@ import {
   IrInterfaceMember,
   IrVariableDeclaration,
 } from "../../types.js";
-import { convertType, convertBindingName } from "../../type-converter.js";
+import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Convert TypeScript type parameters to IR, detecting structural constraints
  */
 export const convertTypeParameters = (
   typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): readonly IrTypeParameter[] | undefined => {
   if (!typeParameters || typeParameters.length === 0) {
     return undefined;
   }
 
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  const typeSystem = ctx.typeSystem;
+
   return typeParameters.map((tp) => {
     const name = tp.name.text;
     const constraint = tp.constraint
-      ? convertType(tp.constraint, checker)
+      ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(tp.constraint))
       : undefined;
     const defaultType = tp.default
-      ? convertType(tp.default, checker)
+      ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(tp.default))
       : undefined;
 
     // Check if constraint is structural (object literal type)
@@ -41,7 +45,7 @@ export const convertTypeParameters = (
     const structuralMembers =
       isStructural && tp.constraint && ts.isTypeLiteralNode(tp.constraint)
         ? tp.constraint.members
-            .map((member) => convertInterfaceMember(member, checker))
+            .map((member) => convertInterfaceMember(member, ctx))
             .filter((m): m is IrInterfaceMember => m !== null)
         : undefined;
 
@@ -62,7 +66,7 @@ export const convertTypeParameters = (
  */
 export const convertParameters = (
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): readonly IrParameter[] => {
   return parameters.map((param) => {
     let passing: "value" | "ref" | "out" | "in" = "value";
@@ -93,12 +97,20 @@ export const convertParameters = (
       }
     }
 
+    // Get parameter type for contextual typing of default value
+    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    const typeSystem = ctx.typeSystem;
+    const paramType = actualType
+      ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(actualType))
+      : undefined;
+
     return {
       kind: "parameter",
       pattern: convertBindingName(param.name),
-      type: actualType ? convertType(actualType, checker) : undefined,
+      type: paramType,
+      // Pass parameter type for contextual typing of default value
       initializer: param.initializer
-        ? convertExpression(param.initializer, checker)
+        ? convertExpression(param.initializer, ctx, paramType)
         : undefined,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
@@ -112,23 +124,31 @@ export const convertParameters = (
  */
 export const convertVariableDeclarationList = (
   node: ts.VariableDeclarationList,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): IrVariableDeclaration => {
   const isConst = !!(node.flags & ts.NodeFlags.Const);
   const isLet = !!(node.flags & ts.NodeFlags.Let);
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
 
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  const typeSystem = ctx.typeSystem;
+
   return {
     kind: "variableDeclaration",
     declarationKind,
-    declarations: node.declarations.map((decl) => ({
-      kind: "variableDeclarator",
-      name: convertBindingName(decl.name),
-      type: decl.type ? convertType(decl.type, checker) : undefined,
-      initializer: decl.initializer
-        ? convertExpression(decl.initializer, checker)
-        : undefined,
-    })),
+    declarations: node.declarations.map((decl) => {
+      const declType = decl.type
+        ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(decl.type))
+        : undefined;
+      return {
+        kind: "variableDeclarator" as const,
+        name: convertBindingName(decl.name),
+        type: declType,
+        initializer: decl.initializer
+          ? convertExpression(decl.initializer, ctx, declType)
+          : undefined,
+      };
+    }),
     isExported: false,
   };
 };

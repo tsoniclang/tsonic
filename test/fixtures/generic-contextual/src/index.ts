@@ -1,6 +1,6 @@
 // Test generic contextual object literals
 // This tests that object literals in generic type contexts emit with type arguments
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 interface Container<T> {
   value: T;

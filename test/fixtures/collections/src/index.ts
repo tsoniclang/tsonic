@@ -1,23 +1,23 @@
 // Test BCL collections and LINQ
-import { Console, String } from "@tsonic/dotnet/System";
-import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Console, String } from "@tsonic/dotnet/System.js";
+import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 import { int } from "@tsonic/core/types.js";
 
 export function main(): void {
   // Create a list of numbers (using int for CLR compatibility)
   const numbers = new List<int>();
-  numbers.add(1 as int);
-  numbers.add(2 as int);
-  numbers.add(3 as int);
-  numbers.add(4 as int);
-  numbers.add(5 as int);
+  numbers.add(1);
+  numbers.add(2);
+  numbers.add(3);
+  numbers.add(4);
+  numbers.add(5);
 
   Console.writeLine(`Count: ${numbers.count}`);
 
   // Use LINQ to filter and map
-  const evenNumbers = Enumerable.where(numbers, (x: int) => x % 2 === 0);
-  const doubled = Enumerable.select(evenNumbers, (x: int) => (x * 2) as int);
+  const evenNumbers = Enumerable.where(numbers, (x) => x % 2 === 0);
+  const doubled = Enumerable.select(evenNumbers, (x) => x * 2);
   const result = Enumerable.toArray(doubled);
 
   // For simplicity, just show first two elements
@@ -29,7 +29,7 @@ export function main(): void {
 
   // Dictionary test
   const dict = new Dictionary<string, int>();
-  dict.add("one", 1 as int);
-  dict.add("two", 2 as int);
+  dict.add("one", 1);
+  dict.add("two", 2);
   Console.writeLine(`Dictionary size: ${dict.count}`);
 }

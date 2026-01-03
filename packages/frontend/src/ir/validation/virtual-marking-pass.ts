@@ -45,6 +45,14 @@ export const runVirtualMarkingPass = (
   // Find all override methods and mark their base methods as virtual
   const virtualMethods = new Set<string>(); // "ClassName.methodName"
 
+  const normalizeBaseClassName = (raw: string): string => {
+    // `Functor<T>` → `Functor`
+    const withoutTypeArgs = raw.split("<")[0] ?? raw;
+    // `Namespace.Functor` → `Functor`
+    const simple = withoutTypeArgs.split(".").pop() ?? withoutTypeArgs;
+    return simple.trim();
+  };
+
   for (const classDecl of classRegistry.values()) {
     for (const member of classDecl.members) {
       if (
@@ -53,8 +61,10 @@ export const runVirtualMarkingPass = (
         !member.isStatic
       ) {
         // Find base class
-        if (classDecl.superClass?.kind === "identifier") {
-          const baseClassName = classDecl.superClass.name;
+        if (classDecl.superClass?.kind === "referenceType") {
+          const baseClassName = normalizeBaseClassName(
+            classDecl.superClass.name
+          );
           virtualMethods.add(`${baseClassName}.${member.name}`);
         }
       }

@@ -1,0 +1,2 @@
+Max: Number(20)
+Max value: 20

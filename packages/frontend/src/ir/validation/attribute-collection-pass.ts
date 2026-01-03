@@ -73,8 +73,31 @@ const tryExtractAttributeArg = (
       return { kind: "boolean", value: expr.value };
     }
   }
-  // TODO: Handle typeof expressions
-  // TODO: Handle enum member expressions
+
+  // typeof(SomeType) → C# typeof(SomeType) attribute argument
+  if (expr.kind === "unary" && expr.operator === "typeof") {
+    const targetType = expr.expression.inferredType;
+    if (targetType && targetType.kind !== "unknownType") {
+      return { kind: "typeof", type: targetType };
+    }
+  }
+
+  // Enum.Member → enum literal argument
+  if (
+    expr.kind === "memberAccess" &&
+    !expr.isComputed &&
+    typeof expr.property === "string"
+  ) {
+    const object = expr.object;
+    if (
+      object.kind === "identifier" &&
+      object.inferredType &&
+      object.inferredType.kind === "referenceType"
+    ) {
+      return { kind: "enum", type: object.inferredType, member: expr.property };
+    }
+  }
+
   return undefined;
 };
 
@@ -94,7 +117,7 @@ const tryExtractAttributeArg = (
  */
 const tryDetectAttributeMarker = (
   call: IrCallExpression,
-  _module: IrModule
+  module: IrModule
 ): AttributeMarker | undefined => {
   // Check outer call: must be a member access call like .add(...)
   if (call.callee.kind !== "memberAccess") return undefined;
@@ -167,9 +190,25 @@ const tryDetectAttributeMarker = (
   }
 
   const attrIdent = attrTypeArg as IrIdentifierExpression;
-  // Use resolvedClrType if available, otherwise fall back to the identifier name.
-  // This handles ambient declarations where the name IS the CLR type name.
-  const clrType = attrIdent.resolvedClrType ?? attrIdent.name;
+  const resolveClrFromImports = (): string | undefined => {
+    // If the attribute type is imported from a CLR bindings module, reconstruct the CLR FQN
+    // from the module import table. Identifier expressions do not always carry resolvedClrType.
+    for (const imp of module.imports) {
+      if (!imp.isClr) continue;
+      if (!imp.resolvedNamespace) continue;
+      for (const spec of imp.specifiers) {
+        if (spec.kind !== "named") continue;
+        if (spec.localName !== attrIdent.name) continue;
+        return `${imp.resolvedNamespace}.${spec.name}`;
+      }
+    }
+    return undefined;
+  };
+
+  // Prefer resolvedClrType if present (bindings/globals). Otherwise resolve via CLR imports.
+  // Final fallback is the identifier name (ambient declarations where name is already a CLR type).
+  const clrType =
+    attrIdent.resolvedClrType ?? resolveClrFromImports() ?? attrIdent.name;
   const attributeType: IrType = {
     kind: "referenceType",
     name: attrIdent.name,

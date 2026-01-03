@@ -1,10 +1,5 @@
 namespace TestCases.common.types.dictionaries
 {
-    public class __Anon_Dictionaries_3_10
-    {
-
-    }
-
         public static class Dictionaries
         {
             public static global::System.Collections.Generic.Dictionary<string, double> getStringDict()

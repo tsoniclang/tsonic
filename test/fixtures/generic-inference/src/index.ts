@@ -4,7 +4,7 @@
 // - Floating literals (42.0) have type double
 // - number = double in dotnet mode
 // - To use an int where double is expected, write 42.0 (explicit double literal)
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 interface Pair<T, U> {
   first: T;

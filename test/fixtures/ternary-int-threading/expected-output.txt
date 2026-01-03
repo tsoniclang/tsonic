@@ -1,0 +1,24 @@
+=== Ternary Int Threading E2E Tests ===
+
+--- Section 1: Basic ternary with int ---
+ternaryInt = 5
+ternaryFalse = 10
+
+--- Section 2: Ternary int division (critical test) ---
+7/2 via ternary = 3
+
+--- Section 3: Nested ternary ---
+nested = 2
+deepNest = 20
+
+--- Section 4: Ternary in function return ---
+ternaryReturn(true) = 100
+ternaryReturn(false) = 200
+
+--- Section 5: Ternary with arithmetic ---
+withArith = 15
+
+--- Section 6: Assignment with ternary ---
+mutableInt after assignment = 42
+
+=== All tests completed ===

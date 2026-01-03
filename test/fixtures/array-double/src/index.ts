@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Test that number[] correctly emits as double[]
 // Integer literals in number[] must emit as double[]

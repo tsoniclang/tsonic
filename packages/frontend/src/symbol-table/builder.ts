@@ -5,13 +5,15 @@
 import * as ts from "typescript";
 import { Symbol } from "./types.js";
 import { hasExportModifier } from "./helpers.js";
+import type { Binding } from "../ir/binding/index.js";
 
 /**
  * Build symbol table from a TypeScript source file
+ * Uses Binding layer for symbol resolution (no direct checker calls)
  */
 export const buildSymbolTable = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  binding: Binding
 ): readonly Symbol[] => {
   const symbols: Symbol[] = [];
   const modulePath = sourceFile.fileName;
@@ -26,7 +28,7 @@ export const buildSymbolTable = (
         kind: "class",
         isExported,
         module: modulePath,
-        tsSymbol: checker.getSymbolAtLocation(node.name),
+        declId: binding.resolveIdentifier(node.name),
       });
     } else if (ts.isInterfaceDeclaration(node)) {
       symbols.push({
@@ -34,7 +36,7 @@ export const buildSymbolTable = (
         kind: "interface",
         isExported,
         module: modulePath,
-        tsSymbol: checker.getSymbolAtLocation(node.name),
+        declId: binding.resolveIdentifier(node.name),
       });
     } else if (ts.isFunctionDeclaration(node) && node.name) {
       symbols.push({
@@ -42,7 +44,7 @@ export const buildSymbolTable = (
         kind: "function",
         isExported,
         module: modulePath,
-        tsSymbol: checker.getSymbolAtLocation(node.name),
+        declId: binding.resolveIdentifier(node.name),
       });
     } else if (ts.isVariableStatement(node)) {
       node.declarationList.declarations.forEach((decl) => {
@@ -52,7 +54,7 @@ export const buildSymbolTable = (
             kind: "variable",
             isExported,
             module: modulePath,
-            tsSymbol: checker.getSymbolAtLocation(decl.name),
+            declId: binding.resolveIdentifier(decl.name),
           });
         }
       });
@@ -62,7 +64,7 @@ export const buildSymbolTable = (
         kind: "type",
         isExported,
         module: modulePath,
-        tsSymbol: checker.getSymbolAtLocation(node.name),
+        declId: binding.resolveIdentifier(node.name),
       });
     } else if (ts.isEnumDeclaration(node)) {
       symbols.push({
@@ -70,7 +72,7 @@ export const buildSymbolTable = (
         kind: "enum",
         isExported,
         module: modulePath,
-        tsSymbol: checker.getSymbolAtLocation(node.name),
+        declId: binding.resolveIdentifier(node.name),
       });
     } else if (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name)) {
       symbols.push({
@@ -78,7 +80,7 @@ export const buildSymbolTable = (
         kind: "namespace",
         isExported,
         module: modulePath,
-        tsSymbol: checker.getSymbolAtLocation(node.name),
+        declId: binding.resolveIdentifier(node.name),
       });
     }
 

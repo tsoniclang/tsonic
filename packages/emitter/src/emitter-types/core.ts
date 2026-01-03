@@ -169,12 +169,16 @@ export type EmitterContext = {
   readonly intLoopVars?: ReadonlySet<string>;
   /** Type parameter names in current scope (for detecting generic type contexts) */
   readonly typeParameters?: ReadonlySet<string>;
+  /** Type parameter constraint kinds in current scope (for nullable emission decisions) */
+  readonly typeParamConstraints?: ReadonlyMap<string, "class" | "struct" | "unconstrained">;
   /** Return type of current function/method (for contextual typing in return statements) */
   readonly returnType?: IrType;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
   /** Scoped identifier remaps for union narrowing */
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
+  /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
+  readonly localNameMap?: ReadonlyMap<string, string>;
   /** Counter for generating unique temp variable names */
   readonly tempVarId?: number;
 };

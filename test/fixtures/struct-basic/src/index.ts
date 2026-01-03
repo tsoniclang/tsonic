@@ -1,5 +1,5 @@
-import { struct } from "@tsonic/core/struct.js";
-import { Console, Math } from "@tsonic/dotnet/System";
+import { struct } from "@tsonic/core/types.js";
+import { Console, Math } from "@tsonic/dotnet/System.js";
 
 interface Point extends struct {
   x: number;

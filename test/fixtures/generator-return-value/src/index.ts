@@ -1,6 +1,6 @@
 // Test: Generator return value capture
 // When a generator returns a value, it should be accessible via the final IteratorResult
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Generator that yields numbers and returns a final string value
 export function* countdown(start: number): Generator<number, string, number> {

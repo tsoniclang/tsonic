@@ -1,6 +1,6 @@
 // Test barrel re-exports - imports through index.ts barrel file
 import { User, createUser } from "./models/index.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function formatUser(user: User): string {
   return `User #${user.id}: ${user.name}`;

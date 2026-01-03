@@ -1,5 +1,5 @@
 import { int, double } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function createIntArray(size: int): int[] {
   return new Array<int>(size);

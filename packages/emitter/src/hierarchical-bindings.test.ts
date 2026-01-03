@@ -11,6 +11,8 @@ import {
   DotnetMetadataRegistry,
   BindingRegistry,
   createClrBindingsResolver,
+  createBinding,
+  createProgramContext,
 } from "@tsonic/frontend";
 import { emitModule } from "./emitter.js";
 
@@ -85,9 +87,11 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       }
     );
 
+    const checker = program.getTypeChecker();
     const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker,
+      binding: createBinding(checker),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -95,16 +99,18 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings,
       clrResolver: createClrBindingsResolver("/test"),
     };
 
+    // Phase 5: Create ProgramContext for this compilation
+    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const ctx = createProgramContext(testProgram, options);
+
     // Step 1: Build IR
-    const irResult = buildIrModule(sourceFile, testProgram, {
-      sourceRoot: "/test",
-      rootNamespace: "TestApp",
-    });
+    const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
 
     if (!irResult.ok) {
       throw new Error(
@@ -230,9 +236,11 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
       }
     );
 
+    const checker2 = program.getTypeChecker();
     const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker: checker2,
+      binding: createBinding(checker2),
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -240,15 +248,17 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings,
       clrResolver: createClrBindingsResolver("/test"),
     };
 
-    const irResult = buildIrModule(sourceFile, testProgram, {
-      sourceRoot: "/test",
-      rootNamespace: "TestApp",
-    });
+    // Phase 5: Create ProgramContext for this compilation
+    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const ctx = createProgramContext(testProgram, options);
+
+    const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
 
     if (!irResult.ok) {
       throw new Error("IR build failed for multiple bindings test");

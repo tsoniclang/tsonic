@@ -1,8 +1,8 @@
 import { int, byte, short, long, float } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Numeric type assertions
-const intFromLiteral = 1000 as int;
+const intFromLiteral = 1000;
 const byteFromLiteral = 255 as byte;
 const shortFromLiteral = 1000 as short;
 const longFromLiteral = 1000000 as long;

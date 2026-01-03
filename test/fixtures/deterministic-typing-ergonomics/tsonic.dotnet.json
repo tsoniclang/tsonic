@@ -1,0 +1,5 @@
+{
+  "runtime": "dotnet",
+  "projectName": "deterministic-typing-ergonomics",
+  "rootNamespace": "DeterministicTypingErgonomics"
+}

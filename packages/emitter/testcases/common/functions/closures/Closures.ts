@@ -7,5 +7,5 @@ export function makeCounter(): () => number {
 }
 
 export function makeAdder(x: number): (y: number) => number {
-  return (y: number): number => x + y;
+  return (y) => x + y;
 }

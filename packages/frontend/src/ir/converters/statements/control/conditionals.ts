@@ -1,5 +1,7 @@
 /**
  * Conditional statement converters (if, switch)
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of Binding.
  */
 
 import * as ts from "typescript";
@@ -7,6 +9,7 @@ import {
   IrIfStatement,
   IrSwitchStatement,
   IrSwitchCase,
+  IrType,
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import {
@@ -14,22 +17,31 @@ import {
   flattenStatementResult,
   convertStatement,
 } from "../../../statement-converter.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert if statement
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
+ *                             Passed through to nested statements for return expressions.
  */
 export const convertIfStatement = (
   node: ts.IfStatement,
-  checker: ts.TypeChecker
+  ctx: ProgramContext,
+  expectedReturnType?: IrType
 ): IrIfStatement => {
-  const thenStmt = convertStatementSingle(node.thenStatement, checker);
+  const thenStmt = convertStatementSingle(
+    node.thenStatement,
+    ctx,
+    expectedReturnType
+  );
   const elseStmt = node.elseStatement
-    ? convertStatementSingle(node.elseStatement, checker)
+    ? convertStatementSingle(node.elseStatement, ctx, expectedReturnType)
     : undefined;
 
   return {
     kind: "ifStatement",
-    condition: convertExpression(node.expression, checker),
+    condition: convertExpression(node.expression, ctx, undefined),
     thenStatement: thenStmt ?? { kind: "emptyStatement" },
     elseStatement: elseStmt ?? undefined,
   };
@@ -37,34 +49,40 @@ export const convertIfStatement = (
 
 /**
  * Convert switch statement
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertSwitchStatement = (
   node: ts.SwitchStatement,
-  checker: ts.TypeChecker
+  ctx: ProgramContext,
+  expectedReturnType?: IrType
 ): IrSwitchStatement => {
   return {
     kind: "switchStatement",
-    expression: convertExpression(node.expression, checker),
+    expression: convertExpression(node.expression, ctx, undefined),
     cases: node.caseBlock.clauses.map((clause) =>
-      convertSwitchCase(clause, checker)
+      convertSwitchCase(clause, ctx, expectedReturnType)
     ),
   };
 };
 
 /**
  * Convert switch case
+ *
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
  */
 export const convertSwitchCase = (
   node: ts.CaseOrDefaultClause,
-  checker: ts.TypeChecker
+  ctx: ProgramContext,
+  expectedReturnType?: IrType
 ): IrSwitchCase => {
   return {
     kind: "switchCase",
     test: ts.isCaseClause(node)
-      ? convertExpression(node.expression, checker)
+      ? convertExpression(node.expression, ctx, undefined)
       : undefined,
     statements: node.statements.flatMap((s) =>
-      flattenStatementResult(convertStatement(s, checker))
+      flattenStatementResult(convertStatement(s, ctx, expectedReturnType))
     ),
   };
 };

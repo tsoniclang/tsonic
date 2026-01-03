@@ -2,7 +2,7 @@
 // This tests that Tsonic.Runtime.IteratorResult<T> resolves correctly
 // across separate modules without collisions
 
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import { counter } from "./counter-gen.js";
 import { accumulator } from "./accumulator-gen.js";
 

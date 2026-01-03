@@ -4,9 +4,9 @@
 
 import * as ts from "typescript";
 import { IrStatement, IrTypeAliasDeclaration } from "../../../types.js";
-import { convertType } from "../../../type-converter.js";
 import { hasExportModifier, convertTypeParameters } from "../helpers.js";
 import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
+import type { ProgramContext } from "../../../program-context.js";
 
 /**
  * Convert type alias declaration.
@@ -18,13 +18,16 @@ import { processTypeAliasForSynthetics } from "../../synthetic-types.js";
  */
 export const convertTypeAliasDeclaration = (
   node: ts.TypeAliasDeclaration,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): readonly IrStatement[] => {
+  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+  // This replaces the deprecated convertTypeNode pattern.
+  const typeSyntaxId = ctx.binding.captureTypeSyntax(node.type);
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",
     name: node.name.text,
-    typeParameters: convertTypeParameters(node.typeParameters, checker),
-    type: convertType(node.type, checker),
+    typeParameters: convertTypeParameters(node.typeParameters, ctx),
+    type: ctx.typeSystem.typeFromSyntax(typeSyntaxId),
     isExported: hasExportModifier(node),
     isStruct: false, // Type aliases are not structs by default
   };

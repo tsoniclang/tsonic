@@ -42,7 +42,11 @@ const createModuleWithType = (
           kind: "variableDeclarator",
           name: { kind: "identifierPattern", name: "x" },
           type: varType,
-          initializer: { kind: "literal", value: null },
+          initializer: {
+            kind: "literal",
+            value: null,
+            raw: "null",
+          },
         },
       ],
     },
@@ -343,7 +347,10 @@ describe("IR Soundness Gate", () => {
               statements: [
                 {
                   kind: "returnStatement",
-                  expression: { kind: "identifier", name: "x" },
+                  expression: {
+                    kind: "identifier",
+                    name: "x",
+                  },
                 },
               ],
             },

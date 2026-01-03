@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Test NonNullable - filters null/undefined from union types
 type MaybeString = string | null | undefined;

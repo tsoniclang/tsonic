@@ -6,6 +6,41 @@ import { IrType, IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
 
+type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
+
+const inferTypeParamConstraintKind = (
+  tp: IrTypeParameter
+): TypeParamConstraintKind => {
+  // No constraint → unconstrained (can be class or struct in C# terms)
+  if (!tp.constraint) return "unconstrained";
+
+  // Structural constraints are object-shape constraints (reference-like).
+  if (tp.isStructuralConstraint) return "class";
+
+  // Direct markers
+  if (tp.constraint.kind === "referenceType" && tp.constraint.name === "struct") {
+    return "struct";
+  }
+  if (tp.constraint.kind === "referenceType" && tp.constraint.name === "object") {
+    return "class";
+  }
+
+  // Intersection constraints may include object/struct markers
+  if (tp.constraint.kind === "intersectionType") {
+    const hasStruct = tp.constraint.types.some(
+      (t) => t.kind === "referenceType" && t.name === "struct"
+    );
+    const hasObject = tp.constraint.types.some(
+      (t) => t.kind === "referenceType" && t.name === "object"
+    );
+    if (hasStruct) return "struct";
+    if (hasObject) return "class";
+  }
+
+  // Interface/class constraints are not enough to determine reference vs value.
+  return "unconstrained";
+};
+
 /**
  * Emit C# type parameters with constraints
  * Example: <T, U extends Foo> → <T, U> with where clauses
@@ -18,12 +53,22 @@ export const emitTypeParameters = (
     return ["", [], context];
   }
 
+  // Track constraint kinds for type parameters in this scope.
+  // Used by union emission to decide whether `T | null` can be represented as `T?`.
+  const mergedConstraints = new Map(context.typeParamConstraints ?? []);
+  for (const tp of typeParams) {
+    mergedConstraints.set(tp.name, inferTypeParamConstraintKind(tp));
+  }
+
   const paramNames = typeParams.map((tp) => tp.name).join(", ");
   const typeParamsStr = `<${paramNames}>`;
 
   // Build where clauses for constraints
   const whereClauses: string[] = [];
-  let currentContext = context;
+  let currentContext: EmitterContext = {
+    ...context,
+    typeParamConstraints: mergedConstraints,
+  };
 
   for (const tp of typeParams) {
     if (tp.constraint) {

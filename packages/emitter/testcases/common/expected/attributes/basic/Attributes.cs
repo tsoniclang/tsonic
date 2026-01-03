@@ -1,19 +1,19 @@
 namespace TestCases.common.attributes.basic
 {
-    [SerializableAttribute]
+    [global::SerializableAttribute]
     public class User
     {
         public string name;
 
         public double age;
     }
-    [ObsoleteAttribute("Use NewConfig instead")]
+    [global::ObsoleteAttribute("Use NewConfig instead")]
     public class Config
     {
         public string setting;
     }
-    [SerializableAttribute]
-    [ObsoleteAttribute("Deprecated")]
+    [global::SerializableAttribute]
+    [global::ObsoleteAttribute("Deprecated")]
     public class LegacyService
     {
         public string data;

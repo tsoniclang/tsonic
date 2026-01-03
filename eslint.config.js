@@ -36,6 +36,19 @@ export default [
       ],
       "@typescript-eslint/no-non-null-assertion": "error",
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
+      // TypeSystem Architecture Invariant: Block internal imports from outside
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/type-system/internal/**"],
+              message:
+                "TypeSystem internals are private. Use public TypeSystem API from type-system/index.ts.",
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -56,6 +69,22 @@ export default [
     rules: {
       // Chai uses property assertions like .to.be.true which look like unused expressions
       "@typescript-eslint/no-unused-expressions": "off",
+    },
+  },
+  {
+    // ALICE'S SPEC: TypeSystem internal files + Binding can import internal types
+    // Only these modules are allowed to import from type-system/internal/**
+    // NO EXCEPTIONS. If something needs an exception, fix the architecture.
+    files: [
+      "**/type-system/internal/**/*.ts",
+      "**/type-system/index.ts",
+      "**/type-system/type-system.ts",
+      "**/type-system/types.ts",
+      "**/ir/binding/**/*.ts", // Binding creates HandleRegistry
+      "**/ir/builder/orchestrator.ts", // Orchestrator wires everything
+    ],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
   {

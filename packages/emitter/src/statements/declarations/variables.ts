@@ -10,6 +10,33 @@ import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 
+const computeLocalName = (
+  originalName: string,
+  context: EmitterContext
+): { emittedName: string; updatedContext: EmitterContext } => {
+  const alreadyDeclared = context.localNameMap?.has(originalName) ?? false;
+  if (!alreadyDeclared) {
+    return { emittedName: escapeCSharpIdentifier(originalName), updatedContext: context };
+  }
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const renamed = `${originalName}__${nextId}`;
+  return {
+    emittedName: escapeCSharpIdentifier(renamed),
+    updatedContext: { ...context, tempVarId: nextId },
+  };
+};
+
+const registerLocalName = (
+  originalName: string,
+  emittedName: string,
+  context: EmitterContext
+): EmitterContext => {
+  const nextMap = new Map(context.localNameMap ?? []);
+  nextMap.set(originalName, emittedName);
+  return { ...context, localNameMap: nextMap };
+};
+
 /**
  * Types that require explicit LHS type because C# has no literal suffix for them.
  * For these types, `var x = 200;` would infer `int`, not the intended type.
@@ -36,12 +63,13 @@ const canEmitTypeExplicitly = (type: IrType): boolean => {
     return true;
   }
 
-  // Accept arrays, functions, references, tuples
+  // Accept arrays, functions, references, tuples, dictionaries
   if (
     type.kind === "arrayType" ||
     type.kind === "functionType" ||
     type.kind === "referenceType" ||
-    type.kind === "tupleType"
+    type.kind === "tupleType" ||
+    type.kind === "dictionaryType"
   ) {
     return true;
   }
@@ -97,6 +125,46 @@ export const emitVariableDeclaration = (
   const declarations: string[] = [];
 
   for (const decl of stmt.declarations) {
+    // Handle destructuring patterns EARLY - they use lowerPattern which generates `var` declarations
+    // Skip all the type inference logic for these
+    if (
+      decl.name.kind === "arrayPattern" ||
+      decl.name.kind === "objectPattern"
+    ) {
+      if (!decl.initializer) {
+        // Destructuring requires an initializer
+        declarations.push(
+          `${ind}/* destructuring without initializer - error */`
+        );
+        continue;
+      }
+
+      // Emit the RHS expression
+      const [initFrag, newContext] = emitExpression(
+        decl.initializer,
+        currentContext,
+        decl.type
+      );
+      currentContext = newContext;
+
+      // Use explicit type annotation if present, otherwise use initializer's inferred type
+      const patternType = decl.type ?? decl.initializer.inferredType;
+
+      // Lower the pattern to C# statements
+      const result = lowerPattern(
+        decl.name,
+        initFrag.text,
+        patternType,
+        ind,
+        currentContext
+      );
+
+      // Add all generated statements
+      declarations.push(...result.statements);
+      currentContext = result.context;
+      continue;
+    }
+
     let varDecl = "";
 
     // In static contexts, variable declarations become fields with modifiers
@@ -257,7 +325,10 @@ export const emitVariableDeclaration = (
     // Handle different pattern types
     if (decl.name.kind === "identifierPattern") {
       // Simple identifier pattern (escape C# keywords)
-      varDecl += escapeCSharpIdentifier(decl.name.name);
+      const localNameInfo = computeLocalName(decl.name.name, currentContext);
+      const localName = localNameInfo.emittedName;
+      currentContext = localNameInfo.updatedContext;
+      varDecl += localName;
 
       // Add initializer if present
       if (decl.initializer) {
@@ -270,42 +341,12 @@ export const emitVariableDeclaration = (
         varDecl += ` = ${initFrag.text}`;
       }
 
+      // Register the name after emitting the initializer (C# scoping rules).
+      currentContext = registerLocalName(decl.name.name, localName, currentContext);
       declarations.push(`${ind}${varDecl};`);
-    } else if (
-      decl.name.kind === "arrayPattern" ||
-      decl.name.kind === "objectPattern"
-    ) {
-      // Destructuring patterns: use lowerPattern for full support
-      if (!decl.initializer) {
-        // Destructuring requires an initializer
-        declarations.push(
-          `${ind}/* destructuring without initializer - error */`
-        );
-        continue;
-      }
-
-      // Emit the RHS expression
-      const [initFrag, newContext] = emitExpression(
-        decl.initializer,
-        currentContext,
-        decl.type
-      );
-      currentContext = newContext;
-
-      // Lower the pattern to C# statements
-      const result = lowerPattern(
-        decl.name,
-        initFrag.text,
-        decl.type,
-        ind,
-        currentContext
-      );
-
-      // Add all generated statements
-      declarations.push(...result.statements);
-      currentContext = result.context;
     } else {
       // Unknown pattern kind - emit placeholder
+      // (arrayPattern and objectPattern are handled early with continue)
       varDecl += "/* unsupported pattern */";
       declarations.push(`${ind}${varDecl};`);
     }

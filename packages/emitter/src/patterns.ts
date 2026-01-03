@@ -81,7 +81,15 @@ const lowerIdentifier = (
   ctx: EmitterContext
 ): LoweringResult => {
   const escapedName = escapeCSharpIdentifier(name);
-  // emitType returns [typeString, newContext]
+
+  // In static context, we can't use 'var' - need explicit type with modifiers
+  if (ctx.isStatic) {
+    const typeStr = type ? emitType(type, ctx)[0] : "object";
+    const stmt = `${indent}private static readonly ${typeStr} ${escapedName} = ${inputExpr};`;
+    return { statements: [stmt], context: ctx };
+  }
+
+  // Local context: use var when type not available
   const typeStr = type ? emitType(type, ctx)[0] : "var";
   const stmt = `${indent}${typeStr} ${escapedName} = ${inputExpr};`;
   return { statements: [stmt], context: ctx };
@@ -95,7 +103,8 @@ const lowerArrayPattern = (
   inputExpr: string,
   elementType: IrType | undefined,
   indent: string,
-  ctx: EmitterContext
+  ctx: EmitterContext,
+  arrayType?: IrType
 ): LoweringResult => {
   const statements: string[] = [];
   let currentCtx = ctx;
@@ -103,7 +112,22 @@ const lowerArrayPattern = (
   // Create temporary for the input to avoid re-evaluation
   const [tempName, ctx1] = generateTemp("arr", currentCtx);
   currentCtx = ctx1;
-  statements.push(`${indent}var ${tempName} = ${inputExpr};`);
+
+  // In static context, we can't use 'var' - need explicit type
+  if (ctx.isStatic && arrayType) {
+    const [typeStr, ctx2] = emitType(arrayType, currentCtx);
+    currentCtx = ctx2;
+    statements.push(
+      `${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`
+    );
+  } else if (ctx.isStatic) {
+    // Static without type - use object as fallback
+    statements.push(
+      `${indent}private static readonly object ${tempName} = ${inputExpr};`
+    );
+  } else {
+    statements.push(`${indent}var ${tempName} = ${inputExpr};`);
+  }
 
   // Process each element
   let index = 0;
@@ -172,7 +196,22 @@ const lowerObjectPattern = (
   // Create temporary for the input to avoid re-evaluation
   const [tempName, ctx1] = generateTemp("obj", currentCtx);
   currentCtx = ctx1;
-  statements.push(`${indent}var ${tempName} = ${inputExpr};`);
+
+  // In static context, we can't use 'var' - need explicit type with modifiers
+  if (ctx.isStatic && inputType) {
+    const [typeStr, ctx2] = emitType(inputType, currentCtx);
+    currentCtx = ctx2;
+    statements.push(
+      `${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`
+    );
+  } else if (ctx.isStatic) {
+    // Static without type - use object as fallback
+    statements.push(
+      `${indent}private static readonly object ${tempName} = ${inputExpr};`
+    );
+  } else {
+    statements.push(`${indent}var ${tempName} = ${inputExpr};`);
+  }
 
   // Process each property
   for (const prop of pattern.properties) {
@@ -312,10 +351,17 @@ export const lowerPattern = (
       return lowerIdentifier(pattern.name, inputExpr, type, indent, ctx);
 
     case "arrayPattern": {
-      // Get element type from array type
+      // Get element type from array type, and pass full array type for static context
       const elementType =
         type?.kind === "arrayType" ? type.elementType : undefined;
-      return lowerArrayPattern(pattern, inputExpr, elementType, indent, ctx);
+      return lowerArrayPattern(
+        pattern,
+        inputExpr,
+        elementType,
+        indent,
+        ctx,
+        type
+      );
     }
 
     case "objectPattern":

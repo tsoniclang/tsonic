@@ -26,7 +26,7 @@ export const explicitBool: boolean = false;
 // Section 3: Type assertions on literals (module level)
 // =============================================================================
 
-export const assertedInt = 42 as int;
+export const assertedInt = 42;
 export const assertedByte = 255 as byte;
 export const assertedShort = 1000 as short;
 export const assertedLong = 1000000 as long;
@@ -51,7 +51,7 @@ export function localDeclarations(): void {
   const localExplicitString: string = "explicit";
 
   // Type assertions
-  const localAssertedInt = 200 as int;
+  const localAssertedInt = 200;
   const localAssertedFloat = 3.14 as float;
   const localAssertedDouble = 100 as number;
 }

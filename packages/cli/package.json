@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsc -b && chmod +x dist/index.js",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "test": "mocha 'dist/**/*.test.js'",
+    "test": "mocha --parallel 'dist/**/*.test.js'",
     "test:watch": "mocha 'dist/**/*.test.js' --watch"
   },
   "dependencies": {

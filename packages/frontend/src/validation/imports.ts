@@ -71,7 +71,7 @@ export const validateImportDeclaration = (
     importPath,
     sourceFile.fileName,
     program.options.sourceRoot,
-    program.clrResolver
+    { clrResolver: program.clrResolver, bindings: program.bindings }
   );
 
   if (!result.ok) {

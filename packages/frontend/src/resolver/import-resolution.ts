@@ -1,5 +1,7 @@
 /**
  * Import resolution with ESM rules enforcement
+ *
+ * Phase 5 Step 4: No more singleton access. Module bindings are passed explicitly.
  */
 
 import * as path from "node:path";
@@ -8,18 +10,41 @@ import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { isLocalImport } from "../types/module.js";
 import { ResolvedModule } from "./types.js";
-import { getBindingRegistry } from "../ir/converters/statements/declarations/registry.js";
 import { ClrBindingsResolver } from "./clr-bindings-resolver.js";
+import type { BindingRegistry } from "../program/bindings.js";
+
+/**
+ * Options for import resolution
+ */
+export type ResolveImportOptions = {
+  readonly clrResolver?: ClrBindingsResolver;
+  readonly bindings?: BindingRegistry;
+};
 
 /**
  * Resolve import specifier to module
+ *
+ * @param importSpecifier - The import path to resolve
+ * @param containingFile - The file containing the import
+ * @param sourceRoot - The project source root
+ * @param opts - Optional resolvers (clrResolver for CLR imports, bindings for module bindings)
  */
 export const resolveImport = (
   importSpecifier: string,
   containingFile: string,
   sourceRoot: string,
-  clrResolver?: ClrBindingsResolver
+  opts?: ClrBindingsResolver | ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
+  // Support both old signature (clrResolver only) and new signature (options object)
+  const clrResolver =
+    opts && "resolve" in opts
+      ? (opts as ClrBindingsResolver)
+      : (opts as ResolveImportOptions | undefined)?.clrResolver;
+  const bindings =
+    opts && "resolve" in opts
+      ? undefined
+      : (opts as ResolveImportOptions | undefined)?.bindings;
+
   if (isLocalImport(importSpecifier)) {
     return resolveLocalImport(importSpecifier, containingFile, sourceRoot);
   }
@@ -39,16 +64,19 @@ export const resolveImport = (
   }
 
   // Check if this is a module binding (e.g., Node.js API)
-  const binding = getBindingRegistry().getBinding(importSpecifier);
-  if (binding && binding.kind === "module") {
-    return ok({
-      resolvedPath: "", // No file path for bound modules
-      isLocal: false,
-      isClr: false,
-      originalSpecifier: importSpecifier,
-      resolvedClrType: binding.type,
-      resolvedAssembly: binding.assembly,
-    });
+  // Only if bindings registry is provided
+  if (bindings) {
+    const binding = bindings.getBinding(importSpecifier);
+    if (binding && binding.kind === "module") {
+      return ok({
+        resolvedPath: "", // No file path for bound modules
+        isLocal: false,
+        isClr: false,
+        originalSpecifier: importSpecifier,
+        resolvedClrType: binding.type,
+        resolvedAssembly: binding.assembly,
+      });
+    }
   }
 
   // @tsonic/core packages are type-only (phantom types, attributes) - no runtime code

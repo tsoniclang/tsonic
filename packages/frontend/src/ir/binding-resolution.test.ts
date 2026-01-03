@@ -6,10 +6,12 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
+import { createProgramContext } from "./program-context.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { IrIdentifierExpression } from "./types.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createBinding } from "./binding/index.js";
 
 describe("Binding Resolution in IR", () => {
   const createTestProgram = (
@@ -45,9 +47,11 @@ describe("Binding Resolution in IR", () => {
       }
     );
 
-    return {
+    const checker = program.getTypeChecker();
+
+    const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker,
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -55,10 +59,18 @@ describe("Binding Resolution in IR", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings: bindings || new BindingRegistry(),
       clrResolver: createClrBindingsResolver("/test"),
+      binding: createBinding(checker),
     };
+
+    // Create ProgramContext for the test
+    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const ctx = createProgramContext(testProgram, options);
+
+    return { testProgram, ctx, options };
   };
 
   describe("Global Identifier Resolution", () => {
@@ -80,14 +92,11 @@ describe("Binding Resolution in IR", () => {
         },
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -128,14 +137,11 @@ describe("Binding Resolution in IR", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -178,14 +184,11 @@ describe("Binding Resolution in IR", () => {
         },
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -229,14 +232,11 @@ describe("Binding Resolution in IR", () => {
         },
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       // May fail due to unresolved import, but we can still check the IR structure
       if (!result.ok) {
@@ -262,14 +262,11 @@ describe("Binding Resolution in IR", () => {
       const bindings = new BindingRegistry();
       // No bindings added
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -300,14 +297,11 @@ describe("Binding Resolution in IR", () => {
         },
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -362,14 +356,11 @@ describe("Binding Resolution in IR", () => {
         },
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -435,14 +426,11 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       // May fail due to unresolved import, but we can check the IR if it succeeds
       if (!result.ok) {
@@ -492,14 +480,11 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
@@ -558,14 +543,11 @@ describe("Binding Resolution in IR", () => {
         ],
       });
 
-      const testProgram = createTestProgram(source, bindings);
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       // May fail due to unresolved import
       if (!result.ok) {

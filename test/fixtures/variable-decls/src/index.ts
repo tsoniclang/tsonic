@@ -1,5 +1,5 @@
 import { int, byte, short, long, float } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Inferred types (module level)
 const inferredDouble = 42.5;

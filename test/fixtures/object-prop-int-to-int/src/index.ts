@@ -9,7 +9,7 @@
 // calling typeToTypeNode and preserves CLR primitive aliases from @tsonic/core.
 
 import { int } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Interface with int-typed property
 interface Todo {
@@ -28,6 +28,6 @@ function createTodo(id: int, title: string): Todo {
 }
 
 export function main(): void {
-  const todo = createTodo(1 as int, "Test todo");
+  const todo = createTodo(1, "Test todo");
   Console.writeLine("Created todo: " + todo.title);
 }

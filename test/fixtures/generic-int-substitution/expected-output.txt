@@ -1,0 +1,25 @@
+=== Generic CLR Type Substitution Tests ===
+
+--- Test 1: Box<int>.value ---
+intBox.label = int box
+intBox.value = 42
+doubled = 84
+
+--- Test 2: Box<long>.value ---
+longBox.label = long box
+longBox.value = 9999999999
+doubled = 19999999998
+
+--- Test 3: Generic function ---
+getBoxValue(intBox) = 42
+doubled = 84
+
+--- Test 4: Arithmetic on generic value ---
+intValue + 10 = 52
+intValue * 3 = 126
+
+--- Test 5: Direct property access ---
+createIntBox(100, 'direct').value = 100
+doubled = 200
+
+=== All tests completed ===

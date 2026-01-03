@@ -36,8 +36,8 @@ export const buildDependencyGraph = (
     const moduleInfo = extractModuleInfo(sourceFile, program);
     modules.set(sourceFile.fileName, moduleInfo);
 
-    // Build symbol table
-    const symbols = buildSymbolTable(sourceFile, program.checker);
+    // Build symbol table using Binding layer (no direct checker calls)
+    const symbols = buildSymbolTable(sourceFile, program.binding);
     symbols.forEach((symbol) => {
       symbolTable = addSymbol(symbolTable, symbol);
     });

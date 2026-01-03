@@ -1,12 +1,111 @@
 /**
  * Member access expression converters
+ *
+ * ALICE'S SPEC: All member type queries go through TypeSystem.typeOfMember().
+ * Falls back to Binding-resolved MemberId only when the receiver type cannot
+ * be normalized nominally (e.g., tsbindgen `$instance & __views` intersections).
  */
 
 import * as ts from "typescript";
 import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
-import { getInferredType, getSourceSpan } from "./helpers.js";
+import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import { getBindingRegistry } from "../statements/declarations/registry.js";
+import type { ProgramContext } from "../../program-context.js";
+
+/**
+ * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
+ * Uses TypeSystem.typeOfMemberId() to get member types for:
+ * - Built-in types from globals (Array.length, string.length, etc.)
+ * - CLR-bound types from tsbindgen
+ * - Types with inherited members not in TypeRegistry
+ *
+ * ALICE'S SPEC: Uses TypeSystem as single source of truth.
+ */
+const getDeclaredPropertyTypeFallback = (
+  node: ts.PropertyAccessExpression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  // ALICE'S SPEC: Use TypeSystem.typeOfMemberId() to get member type
+  const typeSystem = ctx.typeSystem;
+
+  // Resolve property member through Binding layer
+  const memberId = ctx.binding.resolvePropertyAccess(node);
+  if (!memberId) return undefined;
+
+  // Use TypeSystem.typeOfMemberId() to get the member's declared type
+  const memberType = typeSystem.typeOfMemberId(memberId);
+
+  // If TypeSystem returns unknownType, treat as not found
+  if (memberType.kind === "unknownType") {
+    return undefined;
+  }
+
+  return memberType;
+};
+
+/**
+ * Get the declared property type from a property access expression.
+ *
+ * ALICE'S SPEC: Uses TypeSystem.typeOfMember() as primary source.
+ * Falls back to Binding for inherited members not in TypeRegistry.
+ *
+ * @param node - Property access expression node
+ * @param receiverIrType - Already-computed IR type of the receiver (object) expression
+ * @param ctx - ProgramContext for type system and binding access
+ * @returns The deterministically computed property type
+ */
+const getDeclaredPropertyType = (
+  node: ts.PropertyAccessExpression,
+  receiverIrType: IrType | undefined,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const DEBUG = process.env.DEBUG_PROPERTY_TYPE === "1";
+  const propertyName = node.name.text;
+
+  if (DEBUG) {
+    console.log(
+      "[getDeclaredPropertyType]",
+      propertyName,
+      "on receiver:",
+      receiverIrType
+    );
+  }
+
+  // Try TypeSystem.typeOfMember() first
+  const typeSystem = ctx.typeSystem;
+  if (receiverIrType && receiverIrType.kind !== "unknownType") {
+    const memberType = typeSystem.typeOfMember(receiverIrType, {
+      kind: "byName",
+      name: propertyName,
+    });
+    if (DEBUG) {
+      console.log(
+        "[getDeclaredPropertyType]",
+        propertyName,
+        "TypeSystem returned:",
+        memberType
+      );
+    }
+    // If TypeSystem returned a valid type (not unknownType), use it
+    if (memberType.kind !== "unknownType") {
+      return memberType;
+    }
+    // Fall through to Binding fallback
+  }
+
+  // Fallback: Use Binding for inherited members not in TypeRegistry
+  // (e.g., Array.length from Array$instance)
+  const fallbackResult = getDeclaredPropertyTypeFallback(node, ctx);
+  if (DEBUG) {
+    console.log(
+      "[getDeclaredPropertyType]",
+      propertyName,
+      "fallback returned:",
+      fallbackResult
+    );
+  }
+  return fallbackResult;
+};
 
 /**
  * Classify computed member access for proof pass.
@@ -81,7 +180,7 @@ const classifyComputedAccess = (
  * the $instance member and extract the type name from it.
  */
 const extractTypeName = (
-  inferredType: ReturnType<typeof getInferredType>
+  inferredType: IrType | undefined
 ): string | undefined => {
   if (!inferredType) return undefined;
 
@@ -165,9 +264,10 @@ const extractTypeName = (
  */
 const resolveHierarchicalBinding = (
   object: ReturnType<typeof convertExpression>,
-  propertyName: string
+  propertyName: string,
+  ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
-  const registry = getBindingRegistry();
+  const registry = ctx.bindings;
 
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
@@ -249,22 +349,88 @@ const resolveHierarchicalBinding = (
 };
 
 /**
+ * Derive element type from object type for element access.
+ * - Array type → element type
+ * - Dictionary type → value type
+ * - String → string (single character)
+ * - Other → undefined
+ */
+const deriveElementType = (
+  objectType: IrType | undefined
+): IrType | undefined => {
+  if (!objectType) return undefined;
+
+  if (objectType.kind === "arrayType") {
+    return objectType.elementType;
+  }
+
+  if (objectType.kind === "dictionaryType") {
+    return objectType.valueType;
+  }
+
+  if (objectType.kind === "primitiveType" && objectType.name === "string") {
+    // string[n] returns a single character (string in TS, char in C#)
+    return { kind: "primitiveType", name: "string" };
+  }
+
+  return undefined;
+};
+
+/**
  * Convert property access or element access expression
  */
 export const convertMemberExpression = (
   node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): IrMemberExpression => {
   const isOptional = node.questionDotToken !== undefined;
-  const inferredType = getInferredType(node, checker);
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
-    const object = convertExpression(node.expression, checker);
+    const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
 
     // Try to resolve hierarchical binding
-    const memberBinding = resolveHierarchicalBinding(object, propertyName);
+    const memberBinding = resolveHierarchicalBinding(object, propertyName, ctx);
+
+    // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
+    // user-defined types (including inherited members), with fallback to Binding layer
+    // for built-ins and CLR types.
+    //
+    // The receiver's inferredType enables NominalEnv to walk inheritance chains
+    // and substitute type parameters correctly for inherited generic members.
+    //
+    // Built-ins like string.length work because globals declare them with proper types.
+    // If getDeclaredPropertyType returns undefined, it means the property declaration
+    // is missing - use unknownType as poison so validation can emit TSN5203.
+    //
+    // EXCEPTION: If memberBinding exists AND declaredType is undefined, return undefined.
+    // This handles pure CLR-bound methods like Console.WriteLine that have no TS declaration.
+    const declaredType = getDeclaredPropertyType(
+      node,
+      object.inferredType,
+      ctx
+    );
+
+    // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
+    // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).
+    //
+    // Priority order for inferredType:
+    // 1. If declaredType exists, use it (covers built-ins like string.length -> int)
+    // 2. If memberBinding exists but no declaredType, use undefined (pure CLR-bound)
+    // 3. Otherwise, poison with unknownType for validation (TSN5203)
+    //
+    // Note: Both memberBinding AND inferredType can be set - they serve different purposes:
+    // - memberBinding: used by emitter for C# member names
+    // - inferredType: used by validation passes for type checking
+    //
+    // Class fields without explicit type annotations will emit TSN5203.
+    // Users must add explicit types like `count: int = 0` instead of `count = 0`.
+    const propertyInferredType = declaredType
+      ? declaredType
+      : memberBinding
+        ? undefined
+        : { kind: "unknownType" as const };
 
     return {
       kind: "memberAccess",
@@ -272,26 +438,31 @@ export const convertMemberExpression = (
       property: propertyName,
       isComputed: false,
       isOptional,
-      inferredType,
+      inferredType: propertyInferredType,
       sourceSpan,
       memberBinding,
     };
   } else {
     // Element access (computed): obj[expr]
-    const object = convertExpression(node.expression, checker);
-    const objectType = getInferredType(node.expression, checker);
+    const object = convertExpression(node.expression, ctx, undefined);
+
+    // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
+    const objectType = object.inferredType;
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
     const accessKind = classifyComputedAccess(objectType);
 
+    // Derive element type from object type
+    const elementType = deriveElementType(objectType);
+
     return {
       kind: "memberAccess",
       object,
-      property: convertExpression(node.argumentExpression, checker),
+      property: convertExpression(node.argumentExpression, ctx, undefined),
       isComputed: true,
       isOptional,
-      inferredType,
+      inferredType: elementType,
       sourceSpan,
       accessKind,
     };

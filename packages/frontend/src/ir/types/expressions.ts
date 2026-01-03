@@ -12,6 +12,7 @@ import type {
 import { IrBlockStatement } from "./statements.js";
 import { NumericKind } from "./numeric-kind.js";
 import { SourceLocation } from "../../types/diagnostic.js";
+import type { DeclId, SignatureId, MemberId } from "../type-system/types.js";
 
 /**
  * Base fields shared by all expression types.
@@ -74,6 +75,8 @@ export type IrIdentifierExpression = {
   readonly name: string;
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
+  // Opaque handle to the declaration this identifier references (from Binding layer)
+  readonly declId?: DeclId;
   // Resolved binding for globals (console, Math, etc.)
   readonly resolvedClrType?: string; // e.g., "Tsonic.Runtime.console"
   readonly resolvedAssembly?: string; // e.g., "Tsonic.Runtime"
@@ -165,6 +168,8 @@ export type IrMemberExpression = {
   readonly isOptional: boolean; // true for obj?.prop
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
+  // Opaque handle to the member declaration (from Binding layer)
+  readonly memberId?: MemberId;
   // Hierarchical member binding (from bindings manifest)
   // When a member access like systemLinq.enumerable.selectMany is resolved,
   // this contains the full CLR binding info
@@ -190,6 +195,8 @@ export type IrCallExpression = {
   readonly isOptional: boolean; // true for func?.()
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
+  // Opaque handle to the resolved signature (from Binding layer)
+  readonly signatureId?: SignatureId;
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
   readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[]; // Passing mode for each argument
@@ -209,6 +216,8 @@ export type IrNewExpression = {
   readonly arguments: readonly (IrExpression | IrSpreadExpression)[];
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;
+  // Opaque handle to the resolved constructor signature (from Binding layer)
+  readonly signatureId?: SignatureId;
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments
   readonly requiresSpecialization?: boolean; // Flag for conditional/unsupported patterns
 };
@@ -296,7 +305,7 @@ export type IrAwaitExpression = {
 
 export type IrYieldExpression = {
   readonly kind: "yield";
-  readonly expression?: IrExpression; // Optional for bare `yield`
+  readonly expression?: IrExpression; // undefined for bare `yield`
   readonly delegate: boolean; // true for `yield*`, false for `yield`
   readonly inferredType?: IrType;
   readonly sourceSpan?: SourceLocation;

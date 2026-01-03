@@ -2,14 +2,28 @@
  * Constructor member emission
  */
 
-import { IrClassMember, IrStatement } from "@tsonic/frontend";
+import { IrClassMember, IrStatement, type IrParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
+import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import {
   emitParametersWithDestructuring,
   generateParameterDestructuring,
 } from "../parameters.js";
+
+const seedLocalNameMapFromParameters = (
+  params: readonly IrParameter[],
+  context: EmitterContext
+): EmitterContext => {
+  const map = new Map(context.localNameMap ?? []);
+  for (const p of params) {
+    if (p.pattern.kind === "identifierPattern") {
+      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+    }
+  }
+  return { ...context, localNameMap: map };
+};
 
 /**
  * Emit a constructor declaration
@@ -36,6 +50,7 @@ export const emitConstructorMember = (
     currentContext
   );
   currentContext = paramsResult.context;
+  currentContext = seedLocalNameMapFromParameters(member.parameters, currentContext);
 
   // Constructor body
   if (!member.body) {

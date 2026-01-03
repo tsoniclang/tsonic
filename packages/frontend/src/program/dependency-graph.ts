@@ -8,7 +8,7 @@ import { relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
 import { IrModule } from "../ir/types.js";
-import { buildIrModule } from "../ir/builder/orchestrator.js";
+import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
 import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
@@ -286,32 +286,18 @@ export const buildModuleDependencyGraph = (
   }
 
   // Third pass: Build IR for all discovered modules
-  const modules: IrModule[] = [];
+  // Phase 5 Step 4: Use buildIr() which creates a single ProgramContext for the entire program
+  // This ensures no global singleton state and enables parallel compilation safety
+  const irResult = buildIr(tsonicProgram, {
+    sourceRoot: sourceRootAbs,
+    rootNamespace: options.rootNamespace,
+  });
 
-  for (const filePath of allDiscoveredFiles) {
-    const sourceFile = tsonicProgram.program.getSourceFile(filePath);
-    if (!sourceFile) {
-      // This shouldn't happen since we already verified files exist
-      continue;
-    }
-
-    const moduleResult = buildIrModule(sourceFile, tsonicProgram, {
-      sourceRoot: sourceRootAbs,
-      rootNamespace: options.rootNamespace,
-    });
-
-    if (!moduleResult.ok) {
-      diagnostics.push(moduleResult.error);
-      continue;
-    }
-
-    modules.push(moduleResult.value);
+  if (!irResult.ok) {
+    return error(irResult.error);
   }
 
-  // If any diagnostics from IR building, fail the build
-  if (diagnostics.length > 0) {
-    return error(diagnostics);
-  }
+  const modules: IrModule[] = [...irResult.value];
 
   // Run anonymous type lowering pass - transforms objectType to generated named types
   // This must run before soundness validation so the emitter never sees objectType

@@ -1,5 +1,5 @@
 // Bidirectional generator test - gen.next(value)
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Simple accumulator generator that receives values via next()
 // Uses number for all three type arguments: Generator<Yield, Return, Next>

@@ -1,12 +1,15 @@
 /**
  * Helper functions for expression conversion
+ *
+ * ALICE'S SPEC: All type resolution goes through TypeSystem.
+ * NO getHandleRegistry() calls allowed here.
  */
 
 import * as ts from "typescript";
-import { IrType, TSONIC_TO_NUMERIC_KIND } from "../../types.js";
-import { convertType, convertTsTypeToIr } from "../../type-converter.js";
+import { IrType } from "../../types.js";
 import { SourceLocation } from "../../../types/diagnostic.js";
 import { getSourceLocation } from "../../../program/diagnostics.js";
+import type { ProgramContext } from "../../program-context.js";
 
 /**
  * Get source span for a TypeScript node.
@@ -29,302 +32,225 @@ export const getSourceSpan = (node: ts.Node): SourceLocation | undefined => {
 };
 
 /**
- * Check if a TypeScript type is a numeric alias from @tsonic/core.
- * Returns true for types like `int`, `byte`, `float`, etc.
+ * Derive identifier type from declaration TypeNode (DETERMINISTIC).
  *
- * This is used to prevent numeric intent from leaking through contextual typing.
- * When an expression like `a + b` is inside `(a + b) as int`, TypeScript's
- * contextual type for the binary is `int`. We must NOT use this contextual type
- * for inferredType because it would make the binary appear to have numeric intent
- * when we haven't proven it does.
+ * This function looks up the identifier's declaration and extracts the type
+ * from the TypeNode, NOT from TypeScript's computed type. This ensures:
+ * - CLR type aliases like `int`, `byte`, `long` are preserved
+ * - Types are deterministic and don't depend on TypeScript inference
+ *
+ * For variables without explicit type annotation (e.g., `const x = createArray()`),
+ * derives the type from the initializer's declared return type.
+ *
+ * Returns undefined if:
+ * - No declaration found
+ * - Declaration has no TypeNode and no derivable initializer
  */
-const isNumericAliasType = (tsType: ts.Type): boolean => {
-  // Check if it's a type alias that resolves to a numeric kind
-  const symbol = tsType.aliasSymbol ?? tsType.getSymbol();
-  if (symbol) {
-    const name = symbol.getName();
-    if (TSONIC_TO_NUMERIC_KIND.has(name)) {
-      return true;
-    }
-  }
-  return false;
-};
-
 /**
- * Attempt to recover numeric intent from a property declaration's type annotation.
+ * Derive the return type of a call expression from its declaration.
  *
- * When TypeScript normalizes `int` to `number`, we can still find the original
- * annotation in the property's declaration AST.
- *
- * GUARDRAILS:
- * - Only accepts clean TypeReferenceNode with simple identifier (not qualified names)
- * - Only returns if identifier is in TSONIC_TO_NUMERIC_KIND vocabulary
- * - Rejects unions, intersections, or complex types
- * - CONSERVATIVE: If multiple declarations have conflicting numeric annotations,
- *   returns undefined to avoid incorrect recovery from partial declaration merges
- *
- * NOTE: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
- * not package-path based. Do not add special casing for @tsonic/core paths.
+ * ALICE'S SPEC: Uses TypeSystem.resolveCall() exclusively.
+ * This is a simplified version for use in deriveIdentifierType to avoid
+ * circular dependencies with calls.ts.
  */
-const tryRecoverNumericReferenceFromPropertyDecl = (
-  propSymbol: ts.Symbol
+const deriveCallReturnType = (
+  node: ts.CallExpression,
+  ctx: ProgramContext
 ): IrType | undefined => {
-  const declarations = propSymbol.declarations ?? [];
+  const typeSystem = ctx.typeSystem;
 
-  // Collect all numeric annotations found across declarations
-  const recoveredNames = new Set<string>();
+  const sigId = ctx.binding.resolveCallSignature(node);
+  if (!sigId) return undefined;
 
-  for (const decl of declarations) {
-    // Only handle PropertySignature and PropertyDeclaration with type annotation
-    if (
-      (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) &&
-      decl.type
-    ) {
-      const typeNode = decl.type;
+  // Use TypeSystem.resolveCall() - returns fully resolved return type
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount: node.arguments.length,
+  });
 
-      // STRICT: Only accept TypeReferenceNode with simple identifier
-      if (
-        ts.isTypeReferenceNode(typeNode) &&
-        ts.isIdentifier(typeNode.typeName)
-      ) {
-        const name = typeNode.typeName.text;
-
-        // Only if name is in numeric vocabulary
-        if (TSONIC_TO_NUMERIC_KIND.has(name)) {
-          recoveredNames.add(name);
-        }
-      }
-    }
-  }
-
-  // CONSERVATIVE: Only return if exactly one numeric annotation was found
-  // If conflicting (e.g., one says `int`, another says `long`), return undefined
-  if (recoveredNames.size === 1) {
-    const names = [...recoveredNames];
-    const name = names[0];
-    if (name !== undefined) {
-      return { kind: "referenceType", name };
-    }
-  }
-
-  return undefined;
-};
-
-/**
- * Attempt to recover numeric intent from a method/function's return type annotation.
- *
- * For calls like arr.indexOf("x"), if the declaration says `indexOf(...): int`,
- * we recover "int" even if checker normalizes to "number".
- *
- * Also handles array types: if declaration says `createArray(): int[]`,
- * we recover int[] even if checker normalizes to number[].
- *
- * STRICT: Only handles common declaration types, not arrow functions or function types.
- * CONSERVATIVE: If signature has multiple declarations with conflicting return types,
- * returns undefined to avoid incorrect recovery.
- *
- * NOTE: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
- * not package-path based. Do not add special casing for @tsonic/core paths.
- */
-const tryRecoverNumericReferenceFromSignatureReturnDecl = (
-  signature: ts.Signature
-): IrType | undefined => {
-  const decl = signature.declaration;
-  if (!decl) return undefined;
-
-  // Get the return type annotation from the declaration
-  // STRICT: Only accept method/function declarations, not arrow functions
-  const returnTypeNode =
-    ts.isMethodSignature(decl) ||
-    ts.isMethodDeclaration(decl) ||
-    ts.isFunctionDeclaration(decl) ||
-    ts.isCallSignatureDeclaration(decl)
-      ? decl.type
-      : undefined;
-
-  if (!returnTypeNode) return undefined;
-
-  // STRICT: Only accept TypeReferenceNode with simple identifier
-  if (
-    ts.isTypeReferenceNode(returnTypeNode) &&
-    ts.isIdentifier(returnTypeNode.typeName)
-  ) {
-    const name = returnTypeNode.typeName.text;
-
-    if (TSONIC_TO_NUMERIC_KIND.has(name)) {
-      return { kind: "referenceType", name };
-    }
-  }
-
-  // Handle array types: int[] -> arrayType with referenceType("int") element
-  if (ts.isArrayTypeNode(returnTypeNode)) {
-    const elementType = returnTypeNode.elementType;
-    if (
-      ts.isTypeReferenceNode(elementType) &&
-      ts.isIdentifier(elementType.typeName)
-    ) {
-      const name = elementType.typeName.text;
-      if (TSONIC_TO_NUMERIC_KIND.has(name)) {
-        return {
-          kind: "arrayType",
-          elementType: { kind: "referenceType", name },
-        };
-      }
-    }
-  }
-
-  return undefined;
-};
-
-/**
- * Helper to get inferred type from TypeScript node
- * Prefers contextual type (from assignment target, return position, etc.)
- * over literal type to handle cases like empty arrays `[]` correctly.
- *
- * IMPORTANT: For numeric types, we do NOT use contextual type. This prevents
- * numeric intent from leaking through TypeScript's contextual typing.
- * The `numericNarrowing` IR node is the ONLY source of numeric intent.
- */
-export const getInferredType = (
-  node: ts.Node,
-  checker: ts.TypeChecker
-): IrType | undefined => {
-  try {
-    // Get the actual type first
-    const actualType = checker.getTypeAtLocation(node);
-
-    // Try contextual type (from assignment target, parameter, return, etc.)
-    // This is essential for empty arrays: [] has literal type never[] but contextual
-    // type Player[] when assigned to a Player[] variable
-    const expr = ts.isExpression(node) ? node : undefined;
-    const contextualType = expr ? checker.getContextualType(expr) : undefined;
-
-    // CRITICAL: Do NOT use contextual type if it's a numeric alias.
-    // This prevents numeric intent from leaking into inner expressions.
-    // Example: (a + b) as int - the binary should NOT have int intent from contextual typing.
-    // Only the numericNarrowing node should carry the intent.
-    const tsType =
-      contextualType && !isNumericAliasType(contextualType)
-        ? contextualType
-        : actualType;
-
-    // First try typeToTypeNode for simple types
-    const typeNode = checker.typeToTypeNode(
-      tsType,
-      node,
-      ts.NodeBuilderFlags.None
-    );
-
-    // If typeNode conversion works, use convertType
-    const result = typeNode
-      ? convertType(typeNode, checker)
-      : // Fallback: use convertTsTypeToIr directly for complex types
-        // This handles intersection types like List_1$instance<T> that can't be converted to TypeNodes
-        convertTsTypeToIr(tsType, checker);
-
-    // DECLARATION RECOVERY: If checker returned primitive "number", try to recover
-    // numeric intent from the declaration AST. TypeScript sometimes normalizes type
-    // aliases like `int` to plain `number`, losing the alias information.
-    //
-    // IMPORTANT: Recovery is intentionally VOCABULARY-BASED (TSONIC_TO_NUMERIC_KIND),
-    // not package-path based. We recognize `int`, `long`, `byte`, etc. by NAME only.
-    // Do not add special casing for "@tsonic/core" or other package paths.
-    if (result?.kind === "primitiveType" && result.name === "number") {
-      // For property access like arr.length, check the property declaration
-      if (ts.isPropertyAccessExpression(node)) {
-        const objType = checker.getTypeAtLocation(node.expression);
-        const propName = node.name.text;
-        const propSymbol = checker.getPropertyOfType(objType, propName);
-
-        if (propSymbol) {
-          const recovered =
-            tryRecoverNumericReferenceFromPropertyDecl(propSymbol);
-          if (recovered) {
-            return recovered; // Return referenceType("int") instead of primitiveType("number")
-          }
-        }
-      }
-
-      // For call expressions like arr.indexOf("x"), check the signature return type
-      if (ts.isCallExpression(node)) {
-        const signature = checker.getResolvedSignature(node);
-        if (signature) {
-          const recovered =
-            tryRecoverNumericReferenceFromSignatureReturnDecl(signature);
-          if (recovered) {
-            return recovered;
-          }
-        }
-      }
-    }
-
-    // ARRAY RECOVERY: If checker returned array of "number", try to recover
-    // numeric intent from the declaration AST. E.g., int[] -> number[] in TS.
-    if (
-      result?.kind === "arrayType" &&
-      result.elementType?.kind === "primitiveType" &&
-      result.elementType.name === "number"
-    ) {
-      // For call expressions like createArray(): int[], check the signature return type
-      if (ts.isCallExpression(node)) {
-        const signature = checker.getResolvedSignature(node);
-        if (signature) {
-          const recovered =
-            tryRecoverNumericReferenceFromSignatureReturnDecl(signature);
-          if (recovered) {
-            return recovered;
-          }
-        }
-      }
-    }
-
-    return result;
-  } catch {
-    // If type extraction fails, return undefined
+  // If TypeSystem returns unknownType, treat it as unresolvable
+  if (resolved.returnType.kind === "unknownType") {
     return undefined;
   }
+
+  return resolved.returnType;
 };
 
 /**
- * Extract type arguments from a call or new expression
- * This captures both explicit type arguments and inferred ones
+ * Derive the constructed type from a new expression.
+ *
+ * Phase 15 (Alice's spec): Uses constructor-signature-based logic with resolveCall.
+ * This enables deterministic generic inference from argument types.
+ */
+const deriveNewExpressionType = (
+  node: ts.NewExpression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const typeSystem = ctx.typeSystem;
+
+  // Get constructor signature ID
+  const sigId = ctx.binding.resolveConstructorSignature(node);
+  if (!sigId) return undefined;
+
+  // Extract explicit type arguments
+  const explicitTypeArgs = node.typeArguments
+    ? node.typeArguments.map((ta) =>
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
+      )
+    : undefined;
+
+  // Derive argTypes conservatively from syntax (similar to deriveTypeFromInitializer)
+  const argTypes: (IrType | undefined)[] = [];
+  const args = node.arguments ?? [];
+  for (const arg of args) {
+    if (ts.isSpreadElement(arg)) {
+      argTypes.push(undefined);
+    } else if (ts.isNumericLiteral(arg)) {
+      argTypes.push({ kind: "primitiveType", name: "number" });
+    } else if (ts.isStringLiteral(arg)) {
+      argTypes.push({ kind: "primitiveType", name: "string" });
+    } else if (
+      arg.kind === ts.SyntaxKind.TrueKeyword ||
+      arg.kind === ts.SyntaxKind.FalseKeyword
+    ) {
+      argTypes.push({ kind: "primitiveType", name: "boolean" });
+    } else if (ts.isIdentifier(arg)) {
+      argTypes.push(deriveIdentifierType(arg, ctx));
+    } else if (ts.isNewExpression(arg)) {
+      // Recursive call for nested new expressions
+      argTypes.push(deriveNewExpressionType(arg, ctx));
+    } else {
+      argTypes.push(undefined);
+    }
+  }
+
+  // Resolve the constructor call with argTypes for inference
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount: args.length,
+    explicitTypeArgs,
+    argTypes,
+  });
+
+  // Return the resolved returnType (the constructed type)
+  if (resolved.returnType.kind === "unknownType") {
+    return undefined;
+  }
+
+  return resolved.returnType;
+};
+
+/**
+ * Derive type from an initializer expression.
+ *
+ * DETERMINISTIC: Only uses TypeNodes from declarations, not TS type inference.
+ * Returns undefined if type cannot be determined from declarations alone.
+ */
+const deriveTypeFromInitializer = (
+  initializer: ts.Expression,
+  ctx: ProgramContext
+): IrType | undefined => {
+  // Call expression: const arr = createArray()
+  if (ts.isCallExpression(initializer)) {
+    return deriveCallReturnType(initializer, ctx);
+  }
+
+  // New expression: const list = new List<int>()
+  if (ts.isNewExpression(initializer)) {
+    return deriveNewExpressionType(initializer, ctx);
+  }
+
+  // Identifier: const y = x (derive type from x's declaration)
+  if (ts.isIdentifier(initializer)) {
+    // Recursive call - will look up the identifier's declaration
+    // Note: This uses the main function, which is defined below
+    // TypeScript hoisting makes this work
+    return deriveIdentifierType(initializer, ctx);
+  }
+
+  // Literals - derive from the literal itself
+  if (ts.isNumericLiteral(initializer)) {
+    return { kind: "primitiveType", name: "number" };
+  }
+  if (ts.isStringLiteral(initializer)) {
+    return { kind: "primitiveType", name: "string" };
+  }
+  if (
+    initializer.kind === ts.SyntaxKind.TrueKeyword ||
+    initializer.kind === ts.SyntaxKind.FalseKeyword
+  ) {
+    return { kind: "primitiveType", name: "boolean" };
+  }
+
+  // Array literal - return Array type (element type from first element if possible)
+  if (ts.isArrayLiteralExpression(initializer)) {
+    // For array literals, we can try to derive element type from first element
+    if (initializer.elements.length > 0) {
+      const firstElem = initializer.elements[0];
+      if (firstElem && !ts.isSpreadElement(firstElem)) {
+        const elementType = deriveTypeFromInitializer(firstElem, ctx);
+        if (elementType) {
+          return { kind: "arrayType", elementType };
+        }
+      }
+    }
+    // Empty array or couldn't derive element type
+    return undefined;
+  }
+
+  // Property access: const len = arr.length (need to trace through)
+  // Member access typing is complex - defer to undefined for now
+  // The proof pass will handle this
+
+  return undefined;
+};
+
+export const deriveIdentifierType = (
+  node: ts.Identifier,
+  ctx: ProgramContext
+): IrType | undefined => {
+  const typeSystem = ctx.typeSystem;
+
+  const declId = ctx.binding.resolveIdentifier(node);
+  if (!declId) return undefined;
+
+  // ALICE'S SPEC: Use TypeSystem.typeOfDecl() exclusively
+  const declType = typeSystem.typeOfDecl(declId);
+
+  // TypeSystem returns unknownType if it can't resolve - treat as unresolvable
+  if (declType.kind === "unknownType") {
+    return undefined;
+  }
+
+  return declType;
+};
+
+/**
+ * Extract explicit type arguments from a call or new expression.
+ *
+ * DETERMINISTIC TYPING: Only returns type arguments that are explicitly
+ * specified in the source code. Does NOT use TypeScript's type inference
+ * to infer type arguments. For inferred type arguments, use expectedType
+ * threading in the caller (Step 6 of deterministic typing).
  */
 export const extractTypeArguments = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): readonly IrType[] | undefined => {
   try {
-    // First check for explicit type arguments
+    // Only return explicitly specified type arguments
+    // DETERMINISTIC: No typeToTypeNode for inferred type args
     if (node.typeArguments && node.typeArguments.length > 0) {
-      return node.typeArguments.map((typeArg) => convertType(typeArg, checker));
-    }
-
-    // Try to get inferred type arguments from resolved signature
-    const signature = checker.getResolvedSignature(node);
-    if (!signature) {
-      return undefined;
-    }
-
-    const typeParameters = signature.typeParameters;
-    if (!typeParameters || typeParameters.length === 0) {
-      return undefined;
-    }
-
-    // Get the type arguments inferred by the checker
-    const typeArgs: IrType[] = [];
-    for (const typeParam of typeParameters) {
-      // Try to resolve the instantiated type for this parameter
-      const typeNode = checker.typeToTypeNode(
-        typeParam as ts.Type,
-        node,
-        ts.NodeBuilderFlags.None
+      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+      const typeSystem = ctx.typeSystem;
+      return node.typeArguments.map((typeArg) =>
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(typeArg))
       );
-      if (typeNode) {
-        typeArgs.push(convertType(typeNode, checker));
-      }
     }
 
-    return typeArgs.length > 0 ? typeArgs : undefined;
+    // No explicit type arguments - return undefined
+    // The caller should use expectedType threading if type args are needed
+    return undefined;
   } catch {
     return undefined;
   }
@@ -333,46 +259,33 @@ export const extractTypeArguments = (
 /**
  * Check if a call/new expression requires specialization
  * Returns true for conditional types, infer, variadic generics, this typing
+ *
+ * DETERMINISTIC: Uses Binding API to resolve signatures and extract declaration info.
  */
 export const checkIfRequiresSpecialization = (
   node: ts.CallExpression | ts.NewExpression,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): boolean => {
   try {
-    const signature = checker.getResolvedSignature(node);
-    if (!signature || !signature.declaration) {
-      return false;
-    }
+    // Handle both CallExpression and NewExpression
+    const sigId = ts.isCallExpression(node)
+      ? ctx.binding.resolveCallSignature(node)
+      : ctx.binding.resolveConstructorSignature(node);
+    if (!sigId) return false;
 
-    const decl = signature.declaration;
+    // ALICE'S SPEC: Use TypeSystem for all type checks
+    const typeSystem = ctx.typeSystem;
+
+    // ALICE'S SPEC (Phase 5): Use semantic methods instead of getSignatureInfo
 
     // Check for conditional return types
-    if (
-      ts.isFunctionDeclaration(decl) ||
-      ts.isMethodDeclaration(decl) ||
-      ts.isFunctionTypeNode(decl)
-    ) {
-      if (decl.type && ts.isConditionalTypeNode(decl.type)) {
-        return true;
-      }
+    if (typeSystem.signatureHasConditionalReturn(sigId)) {
+      return true;
     }
 
-    // Check for variadic type parameters (rest parameters with generic types)
-    const typeParameters = signature.typeParameters;
-    if (typeParameters) {
-      for (const typeParam of typeParameters) {
-        const constraint = typeParam.getConstraint();
-        if (constraint) {
-          const constraintStr = checker.typeToString(constraint);
-          // Check for unknown[] which indicates variadic
-          if (
-            constraintStr.includes("unknown[]") ||
-            constraintStr.includes("any[]")
-          ) {
-            return true;
-          }
-        }
-      }
+    // Check for variadic type parameters (e.g., T extends unknown[])
+    if (typeSystem.signatureHasVariadicTypeParams(sigId)) {
+      return true;
     }
 
     return false;
@@ -447,68 +360,106 @@ export const isAssignmentOperator = (
 };
 
 /**
- * Get the contextual type for an expression (for object literals).
- * Returns an IrType with type arguments if the contextual type is a named type
- * (interface, class, generic), or undefined if it's an anonymous/primitive type.
+ * Get the contextual type for an expression from explicit TypeNodes.
  *
- * This captures the full type including generic type arguments (e.g., Container<T>),
- * which is essential for emitting correct C# object initializers.
+ * DETERMINISTIC TYPING: Only extracts types from explicit TypeNodes in the
+ * source code. Does NOT use TypeScript's getContextualType (banned API).
+ * Returns undefined if no explicit type annotation is found.
+ *
+ * For complete expectedType threading (covering all contexts), see Step 6
+ * of deterministic typing implementation.
  */
 export const getContextualType = (
   node: ts.Expression,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): IrType | undefined => {
   try {
-    const contextualType = checker.getContextualType(node);
-    if (!contextualType) {
-      return undefined;
+    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
+    const typeSystem = ctx.typeSystem;
+
+    const parent = node.parent;
+
+    // Variable declaration: const x: Foo = { ... }
+    if (ts.isVariableDeclaration(parent) && parent.type) {
+      return typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(parent.type)
+      );
     }
 
-    // Check if it's an object type with a symbol (named type)
-    const symbol = contextualType.getSymbol();
-    if (!symbol) {
-      return undefined;
-    }
-
-    // Get the symbol name
-    const name = symbol.getName();
-
-    // Skip anonymous types and built-in types
-    if (name === "__type" || name === "__object" || name === "Object") {
-      return undefined;
-    }
-
-    // Check that it's actually a class or interface declaration
-    const declarations = symbol.getDeclarations();
-    if (declarations && declarations.length > 0) {
-      const firstDecl = declarations[0];
-      if (
-        firstDecl &&
-        (ts.isInterfaceDeclaration(firstDecl) ||
-          ts.isClassDeclaration(firstDecl) ||
-          ts.isTypeAliasDeclaration(firstDecl))
-      ) {
-        // Convert the full contextual type to IR, capturing type arguments
-        return convertTsTypeToIr(contextualType, checker);
+    // Return statement: function f(): Foo { return { ... } }
+    if (ts.isReturnStatement(parent)) {
+      // Walk up to find enclosing function
+      let current: ts.Node = parent;
+      while (current && !ts.isFunctionLike(current)) {
+        current = current.parent;
+      }
+      if (current && ts.isFunctionLike(current) && current.type) {
+        return typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(current.type)
+        );
       }
     }
 
+    // Property assignment in object literal: { prop: { ... } }
+    if (ts.isPropertyAssignment(parent)) {
+      const propName = ts.isIdentifier(parent.name)
+        ? parent.name.text
+        : ts.isStringLiteral(parent.name)
+          ? parent.name.text
+          : undefined;
+
+      if (propName && ts.isObjectLiteralExpression(parent.parent)) {
+        const parentType = getContextualType(parent.parent, ctx);
+        if (parentType?.kind === "objectType") {
+          const member = parentType.members.find(
+            (m) => m.kind === "propertySignature" && m.name === propName
+          );
+          if (member?.kind === "propertySignature") {
+            return member.type;
+          }
+        }
+        // For referenceType, we would need TypeRegistry to find member type
+        // This will be handled in Step 6 with full expectedType threading
+      }
+    }
+
+    // Array element: const arr: Foo[] = [{ ... }]
+    if (ts.isArrayLiteralExpression(parent)) {
+      const arrayType = getContextualType(parent, ctx);
+      if (arrayType?.kind === "arrayType") {
+        return arrayType.elementType;
+      }
+    }
+
+    // Call argument: f({ ... }) where f(x: Foo)
+    // Use TypeSystem.resolveCall() to get parameter types
+    if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
+      const argIndex = parent.arguments
+        ? parent.arguments.indexOf(node as ts.Expression)
+        : -1;
+      if (argIndex >= 0) {
+        // Handle both CallExpression and NewExpression
+        const sigId = ts.isCallExpression(parent)
+          ? ctx.binding.resolveCallSignature(parent)
+          : ctx.binding.resolveConstructorSignature(parent);
+        if (sigId) {
+          // ALICE'S SPEC: Use TypeSystem.resolveCall() for parameter types
+          const resolved = typeSystem.resolveCall({
+            sigId,
+            argumentCount: parent.arguments?.length ?? 0,
+          });
+          const paramType = resolved.parameterTypes[argIndex];
+          if (paramType && paramType.kind !== "unknownType") {
+            return paramType;
+          }
+        }
+      }
+    }
+
+    // DETERMINISTIC: No fallback to checker.getContextualType
+    // Return undefined if we can't find an explicit type annotation
     return undefined;
   } catch {
     return undefined;
   }
-};
-
-/**
- * @deprecated Use getContextualType instead - returns IrType with type arguments
- */
-export const getContextualTypeName = (
-  node: ts.Expression,
-  checker: ts.TypeChecker
-): string | undefined => {
-  const irType = getContextualType(node, checker);
-  if (irType && irType.kind === "referenceType") {
-    return irType.name;
-  }
-  return undefined;
 };

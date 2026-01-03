@@ -1,59 +1,62 @@
 /**
  * IR builder validation - checks for unsupported patterns
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
-import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
-import { getSourceLocation } from "../../program/diagnostics.js";
+import { Diagnostic } from "../../types/diagnostic.js";
+import type { ProgramContext } from "../program-context.js";
+import type { DeclId } from "../type-system/types.js";
+import type { TypeAuthority } from "../type-system/type-system.js";
+import type { Binding } from "../binding/index.js";
 
 /**
  * Check if a type reference is the struct marker
  * (used to mark types as C# value types)
+ * ALICE'S SPEC: Uses TypeSystem for symbol resolution.
  */
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
-  checker: ts.TypeChecker
+  binding: Binding,
+  typeSystem: TypeAuthority
 ): boolean => {
-  const symbol = checker.getSymbolAtLocation(typeRef.expression);
-  return symbol?.escapedName === "struct" || symbol?.escapedName === "Struct";
+  if (!ts.isIdentifier(typeRef.expression)) {
+    return false;
+  }
+  const declId = binding.resolveIdentifier(typeRef.expression);
+  if (!declId) {
+    return false;
+  }
+
+  const fqName = typeSystem.getFQNameOfDecl(declId);
+  return fqName === "struct" || fqName === "Struct";
 };
 
 /**
- * Check if a symbol represents a TypeScript interface
+ * Check if a declaration represents a TypeScript interface
  * (which Tsonic nominalizes to a C# class)
+ * ALICE'S SPEC: Uses TypeSystem.isInterfaceDecl()
  */
 const isNominalizedInterface = (
-  symbol: ts.Symbol | undefined,
-  _checker: ts.TypeChecker
+  declId: DeclId | undefined,
+  typeSystem: TypeAuthority
 ): boolean => {
-  if (!symbol) return false;
-
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return false;
-
-  // Check if any declaration is an interface
-  return declarations.some((decl) => ts.isInterfaceDeclaration(decl));
+  if (!declId) return false;
+  return typeSystem.isInterfaceDecl(declId);
 };
 
 /**
- * Check if a symbol represents a type alias for an object type
+ * Check if a declaration represents a type alias for an object type
  * (which Tsonic nominalizes to a C# class)
+ * ALICE'S SPEC: Uses TypeSystem.isTypeAliasToObjectLiteral()
  */
 const isNominalizedTypeAlias = (
-  symbol: ts.Symbol | undefined,
-  _checker: ts.TypeChecker
+  declId: DeclId | undefined,
+  typeSystem: TypeAuthority
 ): boolean => {
-  if (!symbol) return false;
-
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return false;
-
-  // Check if declaration is a type alias with object literal type
-  return declarations.some((decl) => {
-    if (!ts.isTypeAliasDeclaration(decl)) return false;
-    // Type aliases for object shapes are nominalized
-    return ts.isTypeLiteralNode(decl.type);
-  });
+  if (!declId) return false;
+  return typeSystem.isTypeAliasToObjectLiteral(declId);
 };
 
 /**
@@ -61,7 +64,7 @@ const isNominalizedTypeAlias = (
  */
 const validateClassDeclaration = (
   node: ts.ClassDeclaration,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
@@ -73,35 +76,25 @@ const validateClassDeclaration = (
 
   for (const typeRef of implementsClause.types) {
     // Skip the struct marker - it's a special pattern for value types
-    if (isStructMarker(typeRef, checker)) {
+    if (isStructMarker(typeRef, ctx.binding, ctx.typeSystem)) {
       continue;
     }
 
-    // Get the symbol for the identifier (not the resolved type)
+    // Get the declaration ID for the identifier
     // This preserves type alias identity
-    const identifierSymbol = checker.getSymbolAtLocation(typeRef.expression);
+    const identifierDeclId = ts.isIdentifier(typeRef.expression)
+      ? ctx.binding.resolveIdentifier(typeRef.expression)
+      : undefined;
 
     // Check if it's a nominalized interface or type alias
     if (
-      isNominalizedInterface(identifierSymbol, checker) ||
-      isNominalizedTypeAlias(identifierSymbol, checker)
+      isNominalizedInterface(identifierDeclId, ctx.typeSystem) ||
+      isNominalizedTypeAlias(identifierDeclId, ctx.typeSystem)
     ) {
-      const typeName = typeRef.expression.getText();
-      const location = getSourceLocation(
-        node.getSourceFile(),
-        typeRef.getStart(),
-        typeRef.getWidth()
-      );
-
-      diagnostics.push(
-        createDiagnostic(
-          "TSN7301",
-          "error",
-          `Class cannot implement '${typeName}': TypeScript interfaces are nominalized to C# classes in Tsonic. Use 'extends' instead, or refactor to composition.`,
-          location,
-          "In Tsonic, interfaces become classes for object initializer support. C# classes cannot implement other classes."
-        )
-      );
+      // Tsonic supports `implements` in the TypeScript surface language even when the
+      // nominal type is emitted as a C# class or interface. The emitter is responsible
+      // for selecting a valid C# representation.
+      continue;
     }
   }
 
@@ -113,13 +106,13 @@ const validateClassDeclaration = (
  */
 export const validateClassImplements = (
   sourceFile: ts.SourceFile,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
   const visit = (node: ts.Node): void => {
     if (ts.isClassDeclaration(node)) {
-      diagnostics.push(...validateClassDeclaration(node, checker));
+      diagnostics.push(...validateClassDeclaration(node, ctx));
     }
     ts.forEachChild(node, visit);
   };

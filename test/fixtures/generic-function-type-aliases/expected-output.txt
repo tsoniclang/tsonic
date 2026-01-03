@@ -1,0 +1,3 @@
+Is 4 even: True
+5 doubled: 10
+Compare 10 vs 5: 5

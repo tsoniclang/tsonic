@@ -1,0 +1,6 @@
+Op 0: 15
+Op 1: 5
+Op 2: 50
+Add: 15
+Subtract: 5
+Multiply: 50

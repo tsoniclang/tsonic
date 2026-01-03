@@ -2,9 +2,22 @@
  * Miscellaneous expression emitters (template literals, spread, await)
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
+
+const typeMayBeNullish = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  if (type.kind === "primitiveType" && (type.name === "null" || type.name === "undefined")) {
+    return true;
+  }
+  if (type.kind === "unionType") {
+    return type.types.some(
+      (t) => t.kind === "primitiveType" && (t.name === "null" || t.name === "undefined")
+    );
+  }
+  return false;
+};
 
 /**
  * Escape a string for use in a C# interpolated string literal.
@@ -57,9 +70,18 @@ export const emitTemplateLiteral = (
       // - Any expression containing ':' (e.g., global::Namespace.Type)
       const needsParens =
         exprAtIndex.kind === "conditional" || exprFrag.text.includes(":");
-      const interpolation = needsParens
-        ? `{(${exprFrag.text})}`
-        : `{${exprFrag.text}}`;
+      const baseExpr = needsParens ? `(${exprFrag.text})` : exprFrag.text;
+
+      // JavaScript template literal holes use ToString conversion:
+      // `${undefined}` -> "undefined". C# interpolated strings render null as "".
+      // For nullish unions, force a string conversion with an explicit fallback.
+      const interpolationExpr = typeMayBeNullish(exprAtIndex.inferredType)
+        ? `global::System.Convert.ToString(${baseExpr}) ?? "undefined"`
+        : baseExpr;
+
+      const interpolation = needsParens || typeMayBeNullish(exprAtIndex.inferredType)
+        ? `{(${interpolationExpr})}`
+        : `{${interpolationExpr}}`;
       parts.push(interpolation);
       currentContext = newContext;
     }

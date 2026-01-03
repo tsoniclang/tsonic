@@ -1,0 +1,13 @@
+=== Return in Control Flow E2E Tests ===
+
+getInIf(true) = 3
+getInElse(false) = 4
+getInWhile(1) = 3
+getInFor() = 3
+getInSwitch(1) = 3
+getInSwitch(2) = 3
+getInSwitch(99) = 3
+getInNestedIf(true, true) = 3
+getWithNullish(null) = 12
+
+=== All tests completed ===

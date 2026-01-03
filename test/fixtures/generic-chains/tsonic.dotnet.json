@@ -1,0 +1,22 @@
+{
+  "$schema": "https://tsonic.dev/schema/v1.json",
+  "rootNamespace": "GenericChains",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "generic-chains",
+  "runtime": "dotnet",
+  "optimize": "speed",
+  "packages": [],
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  },
+  "dotnet": {
+    "typeRoots": [
+      "node_modules/@tsonic/globals",
+      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/core"
+    ]
+  }
+}

@@ -101,7 +101,8 @@ export const emitFunctionExpression = (
     : paramContext;
   const [blockCode] = emitStatement(expr.body, blockContext);
 
-  const text = `(${paramList}) =>\n${blockCode}`;
+  const asyncPrefix = expr.isAsync ? "async " : "";
+  const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
   return [{ text }, paramContext];
 };
 
@@ -118,6 +119,8 @@ export const emitArrowFunction = (
     context
   );
 
+  const asyncPrefix = expr.isAsync ? "async " : "";
+
   // Arrow function body can be block or expression
   if (expr.body.kind === "blockStatement") {
     // Block body: (params) => { ... }
@@ -125,12 +128,12 @@ export const emitArrowFunction = (
       ? indent(paramContext)
       : paramContext;
     const [blockCode] = emitStatement(expr.body, blockContext);
-    const text = `(${paramList}) =>\n${blockCode}`;
+    const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
     return [{ text }, paramContext];
   } else {
     // Expression body: (params) => expression
     const [exprCode, newContext] = emitExpression(expr.body, paramContext);
-    const text = `(${paramList}) => ${exprCode.text}`;
+    const text = `${asyncPrefix}(${paramList}) => ${exprCode.text}`;
     return [{ text }, newContext];
   }
 };

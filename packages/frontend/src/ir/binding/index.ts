@@ -1,0 +1,996 @@
+/**
+ * Binding Layer — TS Symbol Resolution with Opaque Handles
+ *
+ * This module wraps TypeScript's symbol resolution APIs and returns opaque
+ * handles (DeclId, SignatureId, MemberId) instead of ts.Symbol/ts.Signature.
+ *
+ * ALLOWED APIs (symbol resolution only):
+ * - checker.getSymbolAtLocation(node) — Find symbol at AST node
+ * - checker.getAliasedSymbol(symbol) — Resolve import alias
+ * - checker.getExportSymbolOfSymbol(symbol) — Resolve export
+ * - symbol.getDeclarations() — Get AST declaration nodes
+ * - checker.getResolvedSignature(call) — Pick overload (type from declaration)
+ *
+ * BANNED APIs (these produce ts.Type, which violates INV-0):
+ * - checker.getTypeAtLocation
+ * - checker.getTypeOfSymbolAtLocation
+ * - checker.getContextualType
+ * - checker.typeToTypeNode
+ */
+
+import ts from "typescript";
+import {
+  DeclId,
+  SignatureId,
+  MemberId,
+  TypeSyntaxId,
+  makeDeclId,
+  makeSignatureId,
+  makeMemberId,
+  makeTypeSyntaxId,
+} from "../type-system/types.js";
+// ALICE'S SPEC: Binding is allowed to import internal handle types
+import type {
+  HandleRegistry,
+  DeclInfo,
+  SignatureInfo,
+  MemberInfo,
+  DeclKind,
+  ParameterNode,
+  TypeParameterNode,
+  SignatureTypePredicate,
+  TypeSyntaxInfo,
+  ClassMemberNames,
+} from "../type-system/internal/handle-types.js";
+import type { ParameterMode } from "../type-system/types.js";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BINDING INTERFACE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Binding interface — wraps TS symbol resolution APIs.
+ *
+ * All methods return opaque handles. Use HandleRegistry to look up
+ * the underlying declaration/signature information.
+ */
+export interface Binding {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DECLARATION RESOLUTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Resolve an identifier to its declaration.
+   * Uses checker.getSymbolAtLocation + symbol.getDeclarations().
+   */
+  resolveIdentifier(node: ts.Identifier): DeclId | undefined;
+
+  /**
+   * Resolve a type reference to its declaration.
+   * For qualified names (A.B.C), resolves the rightmost symbol.
+   */
+  resolveTypeReference(node: ts.TypeReferenceNode): DeclId | undefined;
+
+  /**
+   * Resolve a property access to its member declaration.
+   */
+  resolvePropertyAccess(
+    node: ts.PropertyAccessExpression
+  ): MemberId | undefined;
+
+  /**
+   * Resolve an element access to its member (for known keys).
+   */
+  resolveElementAccess(node: ts.ElementAccessExpression): MemberId | undefined;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CALL RESOLUTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Pick the correct overload for a call expression.
+   * Uses checker.getResolvedSignature to pick the overload.
+   */
+  resolveCallSignature(node: ts.CallExpression): SignatureId | undefined;
+
+  /**
+   * Resolve new expression constructor signature.
+   */
+  resolveConstructorSignature(node: ts.NewExpression): SignatureId | undefined;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // IMPORT RESOLUTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Resolve an import specifier to its actual declaration.
+   * Uses checker.getAliasedSymbol to follow the import chain.
+   */
+  resolveImport(node: ts.ImportSpecifier): DeclId | undefined;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADDITIONAL RESOLUTION METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Resolve a shorthand property assignment to its declaration.
+   * For `{ foo }` syntax, resolves `foo` to its declaration.
+   */
+  resolveShorthandAssignment(
+    node: ts.ShorthandPropertyAssignment
+  ): DeclId | undefined;
+
+  /**
+   * Get the fully-qualified name for a declaration.
+   * Used for override detection and .NET type identification.
+   */
+  getFullyQualifiedName(decl: DeclId): string | undefined;
+
+  /**
+   * Get type predicate information from a signature.
+   * For functions with `x is T` return type.
+   */
+  getTypePredicateOfSignature(sig: SignatureId): TypePredicateInfo | undefined;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Capture a type syntax node for later conversion.
+   *
+   * Used for inline type syntax that cannot be captured at catalog-build time:
+   * - `as Foo` type assertions
+   * - `satisfies Bar` expressions
+   * - Generic type arguments in expressions
+   *
+   * The captured syntax can be converted to IrType via TypeSystem.typeFromSyntax().
+   * This is NOT an escape hatch — it's the correct boundary for inline syntax.
+   */
+  captureTypeSyntax(node: ts.TypeNode): TypeSyntaxId;
+
+  /**
+   * Capture multiple type arguments.
+   *
+   * Convenience method for capturing generic type arguments like `Foo<A, B, C>`.
+   */
+  captureTypeArgs(nodes: readonly ts.TypeNode[]): readonly TypeSyntaxId[];
+}
+
+/**
+ * BindingInternal — extended interface for TypeSystem construction only.
+ *
+ * INVARIANT (Alice's spec): Only createTypeSystem() should access
+ * _getHandleRegistry(). All other code uses the TypeSystem API.
+ */
+export interface BindingInternal extends Binding {
+  /**
+   * Get the handle registry for TypeSystem construction.
+   *
+   * INTERNAL USE ONLY: This method is NOT part of the public Binding API.
+   * Only createTypeSystem() should call this to access declaration info.
+   * All other code should use TypeSystem queries instead.
+   */
+  _getHandleRegistry(): HandleRegistry;
+}
+
+/**
+ * Type predicate information for `x is T` predicates.
+ */
+export type TypePredicateInfo = {
+  readonly kind: "typePredicate";
+  readonly parameterIndex: number;
+  readonly typeNode?: ts.TypeNode;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BINDING IMPLEMENTATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Create a Binding instance for a TypeScript program.
+ *
+ * Returns BindingInternal which includes _getHandleRegistry() for TypeSystem.
+ * Cast to Binding when passing to regular converters.
+ */
+export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
+  // Internal registries mapping handles to underlying TS objects
+  const declMap = new Map<number, DeclEntry>();
+  const signatureMap = new Map<number, SignatureEntry>();
+  const memberMap = new Map<string, MemberEntry>(); // key: "declId:name"
+  const typeSyntaxMap = new Map<number, TypeSyntaxEntry>(); // TypeSyntaxId → TypeNode
+
+  // Auto-increment IDs
+  const nextDeclId = { value: 0 };
+  const nextSignatureId = { value: 0 };
+  const nextTypeSyntaxId = { value: 0 };
+
+  // Symbol to DeclId cache (avoid duplicate DeclIds for same symbol)
+  const symbolToDeclId = new Map<ts.Symbol, DeclId>();
+  const signatureToId = new Map<ts.Signature, SignatureId>();
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INTERNAL HELPERS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const getOrCreateDeclId = (symbol: ts.Symbol): DeclId => {
+    const existing = symbolToDeclId.get(symbol);
+    if (existing) return existing;
+
+    const id = makeDeclId(nextDeclId.value++);
+    symbolToDeclId.set(symbol, id);
+
+    // Get declaration info
+    const decl = symbol.getDeclarations()?.[0];
+
+    // Capture class member names for override detection (TS-version safe)
+    const classMemberNames =
+      decl && ts.isClassDeclaration(decl)
+        ? extractClassMemberNames(decl)
+        : undefined;
+
+    const entry: DeclEntry = {
+      symbol,
+      decl,
+      typeNode: decl ? getTypeNodeFromDeclaration(decl) : undefined,
+      kind: decl ? getDeclKind(decl) : "variable",
+      fqName: symbol.getName(),
+      classMemberNames,
+    };
+    declMap.set(id.id, entry);
+
+    return id;
+  };
+
+  const getOrCreateSignatureId = (signature: ts.Signature): SignatureId => {
+    const existing = signatureToId.get(signature);
+    if (existing) return existing;
+
+    const id = makeSignatureId(nextSignatureId.value++);
+    signatureToId.set(signature, id);
+
+    // Extract signature info from declaration
+    const decl = signature.getDeclaration();
+
+    // Extract declaring identity (CRITICAL for Alice's spec: resolveCall needs this)
+    const declaringIdentity = extractDeclaringIdentity(decl, checker);
+
+    // Extract type predicate from return type (ALICE'S SPEC: pure syntax inspection)
+    const returnTypeNode = getReturnTypeNode(decl);
+    const typePredicate = extractTypePredicate(returnTypeNode, decl);
+
+    const entry: SignatureEntry = {
+      signature,
+      decl,
+      parameters: extractParameterNodes(decl),
+      returnTypeNode,
+      typeParameters: extractTypeParameterNodes(decl),
+      declaringTypeTsName: declaringIdentity?.typeTsName,
+      declaringMemberName: declaringIdentity?.memberName,
+      typePredicate,
+    };
+    signatureMap.set(id.id, entry);
+
+    return id;
+  };
+
+  const getOrCreateMemberId = (
+    ownerDeclId: DeclId,
+    memberName: string,
+    memberSymbol: ts.Symbol
+  ): MemberId => {
+    const key = `${ownerDeclId.id}:${memberName}`;
+    const existing = memberMap.get(key);
+    if (existing) return existing.memberId;
+
+    const id = makeMemberId(ownerDeclId, memberName);
+    const decl = memberSymbol.getDeclarations()?.[0];
+	    const entry: MemberEntry = {
+	      memberId: id,
+	      symbol: memberSymbol,
+	      decl,
+	      name: memberName,
+	      typeNode: decl ? getMemberTypeAnnotation(decl) : undefined,
+	      isOptional: isOptionalMember(memberSymbol),
+	      isReadonly: isReadonlyMember(decl),
+	    };
+    memberMap.set(key, entry);
+
+    return id;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BINDING IMPLEMENTATION
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const resolveIdentifier = (node: ts.Identifier): DeclId | undefined => {
+    const symbol = checker.getSymbolAtLocation(node);
+    if (!symbol) return undefined;
+
+    // Follow aliases for imports
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+
+    return getOrCreateDeclId(resolvedSymbol);
+  };
+
+  const resolveTypeReference = (
+    node: ts.TypeReferenceNode
+  ): DeclId | undefined => {
+    const typeName = node.typeName;
+    const symbol = ts.isIdentifier(typeName)
+      ? checker.getSymbolAtLocation(typeName)
+      : checker.getSymbolAtLocation(typeName.right);
+
+    if (!symbol) return undefined;
+
+    // Follow aliases
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+
+    return getOrCreateDeclId(resolvedSymbol);
+  };
+
+  const resolvePropertyAccess = (
+    node: ts.PropertyAccessExpression
+  ): MemberId | undefined => {
+    const rawPropSymbol = checker.getSymbolAtLocation(node.name);
+    if (!rawPropSymbol) return undefined;
+
+    const propSymbol =
+      rawPropSymbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(rawPropSymbol)
+        : rawPropSymbol;
+
+    // Get owner type's declaration
+    const rawOwnerSymbol = checker.getSymbolAtLocation(node.expression);
+    if (!rawOwnerSymbol) return undefined;
+
+    const ownerSymbol =
+      rawOwnerSymbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(rawOwnerSymbol)
+        : rawOwnerSymbol;
+
+    const ownerDeclId = getOrCreateDeclId(ownerSymbol);
+    return getOrCreateMemberId(ownerDeclId, node.name.text, propSymbol);
+  };
+
+  const resolveElementAccess = (
+    _node: ts.ElementAccessExpression
+  ): MemberId | undefined => {
+    // Element access member resolution requires type-level analysis
+    // Return undefined (member not resolved via handles)
+    return undefined;
+  };
+
+  const resolveCallSignature = (
+    node: ts.CallExpression
+  ): SignatureId | undefined => {
+    const signature = checker.getResolvedSignature(node);
+    if (!signature) return undefined;
+
+    // TypeScript can produce a resolved signature without a declaration for
+    // implicit default constructors (e.g., `super()` when the base class has
+    // no explicit constructor). We still want a SignatureId so TypeSystem can
+    // treat this call deterministically as `void`.
+    if (signature.declaration === undefined) {
+      return node.expression.kind === ts.SyntaxKind.SuperKeyword
+        ? getOrCreateSignatureId(signature)
+        : undefined;
+    }
+
+    return getOrCreateSignatureId(signature);
+  };
+
+  const resolveConstructorSignature = (
+    node: ts.NewExpression
+  ): SignatureId | undefined => {
+    const signature = checker.getResolvedSignature(node);
+    if (!signature) return undefined;
+
+    const sigId = getOrCreateSignatureId(signature);
+
+    // For implicit default constructors, TypeScript may return a signature with no declaration.
+    // We still need a SignatureEntry that identifies the constructed type so TypeSystem can
+    // synthesize the constructor return type deterministically.
+    const entry = signatureMap.get(sigId.id);
+    if (entry && !entry.decl) {
+      const expr = node.expression;
+
+      const symbol = (() => {
+        if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+        if (ts.isPropertyAccessExpression(expr)) {
+          return checker.getSymbolAtLocation(expr.name);
+        }
+        return undefined;
+      })();
+
+      const resolvedSymbol =
+        symbol && symbol.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(symbol)
+          : symbol;
+
+      const decl = resolvedSymbol?.getDeclarations()?.[0];
+
+      const declaringTypeTsName = (() => {
+        if (decl && ts.isClassDeclaration(decl) && decl.name) return decl.name.text;
+        if (resolvedSymbol) return resolvedSymbol.getName();
+        if (ts.isIdentifier(expr)) return expr.text;
+        if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+        return undefined;
+      })();
+
+      if (declaringTypeTsName) {
+        signatureMap.set(sigId.id, {
+          ...entry,
+          declaringTypeTsName,
+          declaringMemberName: "constructor",
+          typeParameters:
+            decl && ts.isClassDeclaration(decl)
+              ? convertTypeParameterDeclarations(decl.typeParameters)
+              : undefined,
+        });
+      }
+    }
+
+    return sigId;
+  };
+
+  const resolveImport = (node: ts.ImportSpecifier): DeclId | undefined => {
+    const symbol = checker.getSymbolAtLocation(node.name);
+    if (!symbol) return undefined;
+
+    const aliased = checker.getAliasedSymbol(symbol);
+    return getOrCreateDeclId(aliased);
+  };
+
+  const resolveShorthandAssignment = (
+    node: ts.ShorthandPropertyAssignment
+  ): DeclId | undefined => {
+    const symbol = checker.getShorthandAssignmentValueSymbol(node);
+    if (!symbol) return undefined;
+    return getOrCreateDeclId(symbol);
+  };
+
+  const getFullyQualifiedName = (declId: DeclId): string | undefined => {
+    const entry = declMap.get(declId.id);
+    if (!entry) return undefined;
+    return checker.getFullyQualifiedName(entry.symbol);
+  };
+
+  const getTypePredicateOfSignature = (
+    sigId: SignatureId
+  ): TypePredicateInfo | undefined => {
+    const entry = signatureMap.get(sigId.id);
+    if (!entry) return undefined;
+
+    const predicate = checker.getTypePredicateOfSignature(entry.signature);
+    if (!predicate || predicate.kind !== ts.TypePredicateKind.Identifier) {
+      return undefined;
+    }
+
+    return {
+      kind: "typePredicate",
+      parameterIndex: predicate.parameterIndex ?? 0,
+      typeNode: predicate.type
+        ? checker.typeToTypeNode(
+            predicate.type,
+            undefined,
+            ts.NodeBuilderFlags.None
+          )
+        : undefined,
+    };
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HANDLE REGISTRY IMPLEMENTATION
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleRegistry: HandleRegistry = {
+    getDecl: (id: DeclId): DeclInfo | undefined => {
+      const entry = declMap.get(id.id);
+      if (!entry) return undefined;
+      return {
+        typeNode: entry.typeNode,
+        kind: entry.kind,
+        fqName: entry.fqName,
+        declNode: entry.decl,
+        classMemberNames: entry.classMemberNames,
+      };
+    },
+
+    getSignature: (id: SignatureId): SignatureInfo | undefined => {
+      const entry = signatureMap.get(id.id);
+      if (!entry) return undefined;
+      return {
+        parameters: entry.parameters,
+        returnTypeNode: entry.returnTypeNode,
+        typeParameters: entry.typeParameters,
+        // CRITICAL for Alice's spec: declaring identity for resolveCall()
+        // Uses simple TS name, resolved via UnifiedTypeCatalog.resolveTsName()
+        declaringTypeTsName: entry.declaringTypeTsName,
+        declaringMemberName: entry.declaringMemberName,
+        // Type predicate extracted at registration time (Alice's spec)
+        typePredicate: entry.typePredicate,
+      };
+    },
+
+    getMember: (id: MemberId): MemberInfo | undefined => {
+      const key = `${id.declId.id}:${id.name}`;
+      const entry = memberMap.get(key);
+      if (!entry) return undefined;
+      return {
+        name: entry.name,
+        declNode: entry.decl,
+        typeNode: entry.typeNode,
+        isOptional: entry.isOptional,
+        isReadonly: entry.isReadonly,
+      };
+    },
+
+    getTypeSyntax: (id: TypeSyntaxId): TypeSyntaxInfo | undefined => {
+      const entry = typeSyntaxMap.get(id.id);
+      if (!entry) return undefined;
+      return {
+        typeNode: entry.typeNode,
+      };
+    },
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Capture a type syntax node for later conversion.
+   *
+   * This creates an opaque TypeSyntaxId handle that can be passed to
+   * TypeSystem.typeFromSyntax() for conversion. Used for inline type syntax
+   * that cannot be captured at catalog-build time.
+   */
+  const captureTypeSyntax = (node: ts.TypeNode): TypeSyntaxId => {
+    const id = makeTypeSyntaxId(nextTypeSyntaxId.value++);
+    typeSyntaxMap.set(id.id, { typeNode: node });
+    return id;
+  };
+
+  /**
+   * Capture multiple type arguments.
+   *
+   * Convenience method for capturing generic type arguments.
+   */
+  const captureTypeArgs = (
+    nodes: readonly ts.TypeNode[]
+  ): readonly TypeSyntaxId[] => {
+    return nodes.map((node) => captureTypeSyntax(node));
+  };
+
+  return {
+    resolveIdentifier,
+    resolveTypeReference,
+    resolvePropertyAccess,
+    resolveElementAccess,
+    resolveCallSignature,
+    resolveConstructorSignature,
+    resolveImport,
+    resolveShorthandAssignment,
+    getFullyQualifiedName,
+    getTypePredicateOfSignature,
+    // Type syntax capture (Phase 2: TypeSyntaxId)
+    captureTypeSyntax,
+    captureTypeArgs,
+    // Internal method for TypeSystem construction only
+    _getHandleRegistry: () => handleRegistry,
+  };
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INTERNAL TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface DeclEntry {
+  readonly symbol: ts.Symbol;
+  readonly decl?: ts.Declaration;
+  readonly typeNode?: ts.TypeNode;
+  readonly kind: DeclKind;
+  readonly fqName?: string;
+  readonly classMemberNames?: ClassMemberNames;
+}
+
+interface SignatureEntry {
+  readonly signature: ts.Signature;
+  readonly decl?: ts.SignatureDeclaration;
+  readonly parameters: readonly ParameterNode[];
+  readonly returnTypeNode?: ts.TypeNode;
+  readonly typeParameters?: readonly TypeParameterNode[];
+  /**
+   * Declaring type simple TS name (e.g., "Box" not "Test.Box").
+   * TypeSystem uses UnifiedTypeCatalog.resolveTsName() to get CLR FQ name.
+   */
+  readonly declaringTypeTsName?: string;
+  /** Declaring member name (for inheritance substitution in resolveCall) */
+  readonly declaringMemberName?: string;
+  /** Type predicate extracted from return type (x is T) */
+  readonly typePredicate?: SignatureTypePredicate;
+}
+
+interface MemberEntry {
+  readonly memberId: MemberId;
+  readonly symbol: ts.Symbol;
+  readonly decl?: ts.Declaration;
+  readonly name: string;
+  readonly typeNode?: ts.TypeNode;
+  readonly isOptional: boolean;
+  readonly isReadonly: boolean;
+}
+
+/**
+ * Entry for captured type syntax (Phase 2: TypeSyntaxId).
+ */
+interface TypeSyntaxEntry {
+  readonly typeNode: ts.TypeNode;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const getTypeNodeFromDeclaration = (
+  decl: ts.Declaration
+): ts.TypeNode | undefined => {
+  if (ts.isVariableDeclaration(decl) && decl.type) {
+    return decl.type;
+  }
+  if (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl)) {
+    return decl.type;
+  }
+  if (ts.isParameter(decl) && decl.type) {
+    return decl.type;
+  }
+  if (ts.isPropertyDeclaration(decl) && decl.type) {
+    return decl.type;
+  }
+  if (ts.isPropertySignature(decl) && decl.type) {
+    return decl.type;
+  }
+  if (ts.isTypeAliasDeclaration(decl)) {
+    return decl.type;
+  }
+  return undefined;
+};
+
+const getMemberTypeAnnotation = (
+  decl: ts.Declaration
+): ts.TypeNode | undefined => {
+  if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
+    return decl.type;
+  }
+  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
+    // For methods, we could return a function type node if needed
+    return decl.type;
+  }
+  return undefined;
+};
+
+const getDeclKind = (decl: ts.Declaration): DeclKind => {
+  if (ts.isVariableDeclaration(decl)) return "variable";
+  if (ts.isFunctionDeclaration(decl)) return "function";
+  if (ts.isClassDeclaration(decl)) return "class";
+  if (ts.isInterfaceDeclaration(decl)) return "interface";
+  if (ts.isTypeAliasDeclaration(decl)) return "typeAlias";
+  if (ts.isEnumDeclaration(decl)) return "enum";
+  if (ts.isParameter(decl)) return "parameter";
+  if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl))
+    return "property";
+  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl))
+    return "method";
+  return "variable";
+};
+
+const getReturnTypeNode = (
+  decl: ts.SignatureDeclaration | undefined
+): ts.TypeNode | undefined => {
+  if (!decl) return undefined;
+  return decl.type;
+};
+
+/**
+ * Extract and normalize parameter nodes from a signature declaration.
+ *
+ * ALICE'S SPEC: Parameter mode detection happens HERE during signature registration.
+ * If the parameter type is `ref<T>`, `out<T>`, or `in<T>`:
+ * - Set `mode` to that keyword
+ * - Set `typeNode` to the INNER T node (unwrapped)
+ *
+ * This is PURE SYNTAX inspection, no TS type inference.
+ */
+const extractParameterNodes = (
+  decl: ts.SignatureDeclaration | undefined
+): readonly ParameterNode[] => {
+  if (!decl) return [];
+  return decl.parameters.map((p) => {
+    const normalized = normalizeParameterTypeNode(p.type);
+    return {
+      name: ts.isIdentifier(p.name) ? p.name.text : "param",
+      typeNode: normalized.typeNode,
+      isOptional: !!p.questionToken || !!p.initializer,
+      isRest: !!p.dotDotDotToken,
+      mode: normalized.mode,
+    };
+  });
+};
+
+/**
+ * Normalize a parameter type node by detecting ref<T>/out<T>/in<T> wrappers.
+ *
+ * This is PURE SYNTAX analysis - we look at the TypeNode AST structure:
+ * - If it's a TypeReferenceNode with identifier name "ref"/"out"/"in"
+ * - And exactly one type argument
+ * - Then unwrap to get the inner type
+ *
+ * @param typeNode The parameter's type node
+ * @returns { mode, typeNode } where typeNode is unwrapped if wrapper detected
+ */
+const normalizeParameterTypeNode = (
+  typeNode: ts.TypeNode | undefined
+): { mode: ParameterMode; typeNode: ts.TypeNode | undefined } => {
+  if (!typeNode) {
+    return { mode: "value", typeNode: undefined };
+  }
+
+  // Check if it's a TypeReferenceNode with identifier name ref/out/in
+  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
+    const typeName = typeNode.typeName.text;
+    if (
+      (typeName === "ref" || typeName === "out" || typeName === "in") &&
+      typeNode.typeArguments &&
+      typeNode.typeArguments.length === 1
+    ) {
+      // Unwrap: ref<T> → T with mode="ref"
+      return {
+        mode: typeName,
+        typeNode: typeNode.typeArguments[0],
+      };
+    }
+  }
+
+  // No wrapper detected - regular parameter
+  return { mode: "value", typeNode };
+};
+
+const convertTypeParameterDeclarations = (
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
+): readonly TypeParameterNode[] | undefined => {
+  if (!typeParameters || typeParameters.length === 0) return undefined;
+  return typeParameters.map((tp) => ({
+    name: tp.name.text,
+    constraintNode: tp.constraint,
+    defaultNode: tp.default,
+  }));
+};
+
+const extractTypeParameterNodes = (
+  decl: ts.SignatureDeclaration | undefined
+): readonly TypeParameterNode[] | undefined => {
+  if (!decl) return undefined;
+
+  // Constructor declarations don't have their own type parameters in TS syntax,
+  // but the enclosing class may be generic (class Box<T> { constructor(x: T) {} }).
+  // For constructor signature typing/inference, the relevant type parameters are the
+  // class type parameters.
+  if (ts.isConstructorDeclaration(decl)) {
+    const parent = decl.parent;
+    if (ts.isClassDeclaration(parent)) {
+      return convertTypeParameterDeclarations(parent.typeParameters);
+    }
+    return undefined;
+  }
+
+  return convertTypeParameterDeclarations(decl.typeParameters);
+};
+
+/**
+ * Extract type predicate from a signature's return type.
+ *
+ * ALICE'S SPEC: This is PURE SYNTAX inspection at registration time.
+ * We check if the return TypeNode is a TypePredicateNode (x is T or this is T).
+ * No TS type inference is used.
+ *
+ * @param returnTypeNode The signature's return type node
+ * @param decl The signature declaration (to find parameter index)
+ * @returns SignatureTypePredicate or undefined if not a predicate
+ */
+const extractTypePredicate = (
+  returnTypeNode: ts.TypeNode | undefined,
+  decl: ts.SignatureDeclaration | undefined
+): SignatureTypePredicate | undefined => {
+  // Return type must be a TypePredicateNode
+  if (!returnTypeNode || !ts.isTypePredicateNode(returnTypeNode)) {
+    return undefined;
+  }
+
+  const predNode = returnTypeNode;
+
+  // Must have a target type
+  if (!predNode.type) {
+    return undefined;
+  }
+
+  // Check if it's "this is T" predicate
+  if (predNode.parameterName.kind === ts.SyntaxKind.ThisType) {
+    return {
+      kind: "this",
+      targetTypeNode: predNode.type,
+    };
+  }
+
+  // Check if it's "param is T" predicate
+  if (ts.isIdentifier(predNode.parameterName)) {
+    const paramName = predNode.parameterName.text;
+
+    // Find parameter index
+    const paramIndex =
+      decl?.parameters.findIndex(
+        (p) => ts.isIdentifier(p.name) && p.name.text === paramName
+      ) ?? -1;
+
+    if (paramIndex >= 0) {
+      return {
+        kind: "param",
+        parameterName: paramName,
+        parameterIndex: paramIndex,
+        targetTypeNode: predNode.type,
+      };
+    }
+  }
+
+  return undefined;
+};
+
+const isOptionalMember = (symbol: ts.Symbol): boolean => {
+  return (symbol.flags & ts.SymbolFlags.Optional) !== 0;
+};
+
+const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
+  if (!decl) return false;
+  if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)) {
+    return (
+      decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ??
+      false
+    );
+  }
+  return false;
+};
+
+/**
+ * Extract declaring identity from a signature declaration.
+ *
+ * CRITICAL for Alice's spec: Without this, resolveCall() cannot compute
+ * inheritance substitution. It would have to "guess" the method name
+ * from the signature, which breaks on overloads, aliases, etc.
+ *
+ * DESIGN (Phase 5 Step 4): Store the declaring type as a **simple TS name**
+ * (identifier text like "Box"), NOT a TS "fully qualified name". TypeSystem
+ * uses UnifiedTypeCatalog.resolveTsName() to resolve this to the proper
+ * CLR FQ name for inheritance substitution.
+ *
+ * @param decl The signature declaration (method, function, etc.)
+ * @param _checker TypeChecker (kept for backwards compatibility, unused)
+ * @returns { typeTsName, memberName } or undefined if not a member
+ */
+const extractDeclaringIdentity = (
+  decl: ts.SignatureDeclaration | undefined,
+  _checker: ts.TypeChecker
+): { typeTsName: string; memberName: string } | undefined => {
+  if (!decl) return undefined;
+
+  // Check if this is a method (class or interface member)
+  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
+    const parent = decl.parent;
+
+    // Get the method name
+    const memberName = ts.isIdentifier(decl.name)
+      ? decl.name.text
+      : (decl.name?.getText() ?? "unknown");
+
+    // Get the containing type's simple name (identifier text)
+    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
+      if (parent.name) {
+        // Use the simple identifier text, not checker.getFullyQualifiedName
+        const typeTsName = parent.name.text;
+        return { typeTsName, memberName };
+      }
+    }
+
+    // Object literal method - use parent context
+    if (ts.isObjectLiteralExpression(parent)) {
+      // For object literals, we don't have a named type
+      return undefined;
+    }
+  }
+
+  // Constructor declarations
+  if (ts.isConstructorDeclaration(decl)) {
+    const parent = decl.parent;
+    if (ts.isClassDeclaration(parent) && parent.name) {
+      // Use the simple identifier text
+      const typeTsName = parent.name.text;
+      return { typeTsName, memberName: "constructor" };
+    }
+  }
+
+  // Getter/setter declarations
+  if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl)) {
+    const parent = decl.parent;
+    const memberName = ts.isIdentifier(decl.name)
+      ? decl.name.text
+      : (decl.name?.getText() ?? "unknown");
+
+    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
+      if (parent.name) {
+        // Use the simple identifier text
+        const typeTsName = parent.name.text;
+        return { typeTsName, memberName };
+      }
+    }
+  }
+
+  // Standalone functions don't have a declaring type
+  return undefined;
+};
+
+/**
+ * Extract class member names from a ClassDeclaration.
+ *
+ * ALICE'S SPEC: This is PURE SYNTAX inspection at registration time.
+ * We iterate class members and collect method/property names.
+ * This data is used by TypeSystem.checkTsClassMemberOverride without
+ * needing to inspect TS AST nodes or use hardcoded SyntaxKind numbers.
+ *
+ * @param classDecl The class declaration node
+ * @returns ClassMemberNames with method and property name sets
+ */
+const extractClassMemberNames = (
+  classDecl: ts.ClassDeclaration
+): ClassMemberNames => {
+  const methods = new Set<string>();
+  const properties = new Set<string>();
+
+  for (const member of classDecl.members) {
+    // Get member name if it has an identifier
+    const name = ts.isMethodDeclaration(member)
+      ? ts.isIdentifier(member.name)
+        ? member.name.text
+        : undefined
+      : ts.isPropertyDeclaration(member)
+        ? ts.isIdentifier(member.name)
+          ? member.name.text
+          : undefined
+        : ts.isGetAccessorDeclaration(member) ||
+            ts.isSetAccessorDeclaration(member)
+          ? ts.isIdentifier(member.name)
+            ? member.name.text
+            : undefined
+          : undefined;
+
+    if (!name) continue;
+
+    if (ts.isMethodDeclaration(member)) {
+      methods.add(name);
+    } else if (ts.isPropertyDeclaration(member)) {
+      properties.add(name);
+    } else if (
+      ts.isGetAccessorDeclaration(member) ||
+      ts.isSetAccessorDeclaration(member)
+    ) {
+      // Accessors are treated as properties for override detection
+      properties.add(name);
+    }
+  }
+
+  return { methods, properties };
+};

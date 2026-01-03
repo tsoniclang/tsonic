@@ -1,5 +1,5 @@
 // Async bidirectional generator test - async gen.next(value)
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Async accumulator generator that receives values via next()
 // Uses AsyncGenerator<Yield, Return, Next>

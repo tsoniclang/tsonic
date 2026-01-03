@@ -1,0 +1,3 @@
+- SingleConstraint.ts: should emit generic type constraints with interface bounds
+- ObjectConstraint.ts: should emit generic constraints with object type bound
+- MultipleConstraints.ts: should emit intersection constraints correctly

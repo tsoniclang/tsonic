@@ -2,7 +2,7 @@
  * Method member emission
  */
 
-import { IrClassMember } from "@tsonic/frontend";
+import { IrClassMember, type IrParameter } from "@tsonic/frontend";
 import {
   EmitterContext,
   getIndent,
@@ -20,6 +20,19 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
 
+const seedLocalNameMapFromParameters = (
+  params: readonly IrParameter[],
+  context: EmitterContext
+): EmitterContext => {
+  const map = new Map(context.localNameMap ?? []);
+  for (const p of params) {
+    if (p.pattern.kind === "identifierPattern") {
+      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+    }
+  }
+  return { ...context, localNameMap: map };
+};
+
 /**
  * Emit a method declaration
  */
@@ -30,6 +43,27 @@ export const emitMethodMember = (
   const ind = getIndent(context);
   let currentContext = context;
   const parts: string[] = [];
+
+  // Build method type parameter names FIRST - needed before emitting return/parameter types
+  // Type parameters must be in scope before we emit types that reference them
+  const methodTypeParams = new Set<string>([
+    ...(context.typeParameters ?? []),
+    ...(member.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+
+  // Create signatureContext with method type parameters in scope
+  const signatureContext: EmitterContext = {
+    ...context,
+    typeParameters: methodTypeParams,
+  };
+
+  // Emit the <T, U> syntax and where clauses EARLY so nullable union emission
+  // can see type parameter constraint kinds when emitting return/parameter types.
+  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+    member.typeParameters,
+    signatureContext
+  );
+  currentContext = typeParamContext;
 
   // Access modifier
   const accessibility = member.accessibility ?? "public";
@@ -53,7 +87,7 @@ export const emitMethodMember = (
     parts.push("async");
   }
 
-  // Return type
+  // Return type - use signatureContext which has method type parameters in scope
   if (member.returnType) {
     const [returnType, newContext] = emitType(
       member.returnType,
@@ -82,14 +116,7 @@ export const emitMethodMember = (
   // Method name (escape C# keywords)
   parts.push(escapeCSharpIdentifier(member.name));
 
-  // Type parameters
-  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
-    member.typeParameters,
-    currentContext
-  );
-  currentContext = typeParamContext;
-
-  // Parameters (with destructuring support)
+  // Parameters (with destructuring support) - use signatureContext for type parameter scope
   const paramsResult = emitParametersWithDestructuring(
     member.parameters,
     currentContext
@@ -103,7 +130,10 @@ export const emitMethodMember = (
 
   // Method body
   // Use withScoped to set typeParameters and returnType for nested expressions
-  const baseBodyContext = withAsync(indent(currentContext), member.isAsync);
+  const baseBodyContext = seedLocalNameMapFromParameters(
+    member.parameters,
+    withAsync(indent(currentContext), member.isAsync)
+  );
 
   if (!member.body) {
     // Abstract method without body
@@ -121,13 +151,8 @@ export const emitMethodMember = (
     return [code, attrContext];
   }
 
-  // Build type parameter names set for this method (includes class type params from context)
-  const methodTypeParams = new Set<string>([
-    ...(currentContext.typeParameters ?? []),
-    ...(member.typeParameters?.map((tp) => tp.name) ?? []),
-  ]);
-
   // Emit body with scoped typeParameters and returnType
+  // Reuse methodTypeParams defined at the top of this function
   // Note: member.body is guaranteed to exist here (early return above handles undefined case)
   const body = member.body;
   const [bodyCode, finalContext] = withScoped(

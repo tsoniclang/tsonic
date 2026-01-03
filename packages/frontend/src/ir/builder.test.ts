@@ -6,6 +6,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
+import { createProgramContext } from "./program-context.js";
 import {
   IrFunctionDeclaration,
   IrVariableDeclaration,
@@ -15,6 +16,7 @@ import {
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createBinding } from "./binding/index.js";
 
 describe("IR Builder", () => {
   const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -46,9 +48,11 @@ describe("IR Builder", () => {
       }
     );
 
-    return {
+    const checker = program.getTypeChecker();
+
+    const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker,
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -56,10 +60,18 @@ describe("IR Builder", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings: new BindingRegistry(),
       clrResolver: createClrBindingsResolver("/test"),
+      binding: createBinding(checker),
     };
+
+    // Create ProgramContext for the test
+    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const ctx = createProgramContext(testProgram, options);
+
+    return { testProgram, ctx, options };
   };
 
   describe("Module Structure", () => {
@@ -70,14 +82,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -95,14 +104,11 @@ describe("IR Builder", () => {
         export const x = 42;
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -118,14 +124,11 @@ describe("IR Builder", () => {
         import * as utils from "./utils.ts";
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -155,14 +158,11 @@ describe("IR Builder", () => {
         import { File } from "System.IO";
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -184,14 +184,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -218,14 +215,11 @@ describe("IR Builder", () => {
         export const z: Named = { name: "test" };
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -261,14 +255,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -290,14 +281,11 @@ describe("IR Builder", () => {
         const greeting = \`Hello \${name}\`;
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -316,14 +304,11 @@ describe("IR Builder", () => {
         const double = (x: number) => x * 2;
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -345,14 +330,11 @@ describe("IR Builder", () => {
         export { a, b as c };
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -382,14 +364,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -412,14 +391,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -454,14 +430,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -489,14 +462,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -510,8 +480,8 @@ describe("IR Builder", () => {
     });
   });
 
-  describe("Interface Implements Validation (TSN7301)", () => {
-    it("should report error when class implements a nominalized interface", () => {
+  describe("Implements Clause Handling", () => {
+    it("should allow class implements interface (emitter decides CLR shape)", () => {
       const source = `
         interface Printable {
           print(): void;
@@ -522,21 +492,13 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.code).to.equal("TSN7301");
-        expect(result.error.message).to.include("Printable");
-        expect(result.error.message).to.include("nominalized");
-      }
+      expect(result.ok).to.equal(true);
     });
 
     it("should allow struct marker in implements clause", () => {
@@ -551,19 +513,16 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
     });
 
-    it("should report error when class implements a type alias", () => {
+    it("should allow class implements type alias (emitter decides CLR shape)", () => {
       const source = `
         type Serializable = {
           serialize(): string;
@@ -574,20 +533,13 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
-      expect(result.ok).to.equal(false);
-      if (!result.ok) {
-        expect(result.error.code).to.equal("TSN7301");
-        expect(result.error.message).to.include("Serializable");
-      }
+      expect(result.ok).to.equal(true);
     });
   });
 
@@ -601,14 +553,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {
@@ -633,14 +582,11 @@ describe("IR Builder", () => {
         }
       `;
 
-      const testProgram = createTestProgram(source);
+      const { testProgram, ctx, options } = createTestProgram(source);
       const sourceFile = testProgram.sourceFiles[0];
       if (!sourceFile) throw new Error("Failed to create source file");
 
-      const result = buildIrModule(sourceFile, testProgram, {
-        sourceRoot: "/test",
-        rootNamespace: "TestApp",
-      });
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
 
       expect(result.ok).to.equal(true);
       if (result.ok) {

@@ -28,8 +28,8 @@ export {
 } from "./control.js";
 
 // Declaration converters
+// Phase 5 Step 4: Removed setMetadataRegistry - no more global singletons
 export {
-  setMetadataRegistry,
   convertVariableStatement,
   convertFunctionDeclaration,
   convertClassDeclaration,

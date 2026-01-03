@@ -1,0 +1,1 @@
+- AsyncReturningFunctions.ts: should emit async functions returning functions correctly

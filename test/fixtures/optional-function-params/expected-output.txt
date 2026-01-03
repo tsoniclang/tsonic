@@ -1,0 +1,4 @@
+Without callback: 10
+Callback received: 20
+Transformed: 10
+Not transformed: 7

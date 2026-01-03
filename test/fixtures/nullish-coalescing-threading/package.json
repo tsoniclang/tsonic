@@ -1,0 +1,11 @@
+{
+  "name": "nullish-coalescing-threading-test",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "0.6.0",
+    "@tsonic/dotnet": "latest",
+    "@tsonic/globals": "latest"
+  }
+}

@@ -1,5 +1,7 @@
 /**
  * IR Builder orchestration - Main module building logic
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
@@ -8,32 +10,37 @@ import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
 import { Result, ok, error } from "../../types/result.js";
-import { Diagnostic, createDiagnostic } from "../../types/diagnostic.js";
 import {
-  setMetadataRegistry,
-  setBindingRegistry,
-} from "../statement-converter.js";
+  Diagnostic,
+  createDiagnostic,
+  isFatal,
+} from "../../types/diagnostic.js";
+import {
+  createProgramContext,
+  type ProgramContext,
+} from "../program-context.js";
 import { IrBuildOptions } from "./types.js";
 import { extractImports } from "./imports.js";
-import { extractExports } from "./exports.js";
+import { extractExportsWithContext } from "./exports.js";
 import { extractStatements, isExecutableStatement } from "./statements.js";
 import { validateClassImplements } from "./validation.js";
 
 /**
  * Build IR module from TypeScript source file
+ *
+ * @param sourceFile - The TypeScript source file to convert
+ * @param program - The Tsonic program with type checker and bindings
+ * @param options - Build options (sourceRoot, rootNamespace)
+ * @param ctx - ProgramContext for TypeSystem and other shared resources.
+ *              Required - no global state fallback.
  */
 export const buildIrModule = (
   sourceFile: ts.SourceFile,
-  program: TsonicProgram,
-  options: IrBuildOptions
+  _program: TsonicProgram,
+  options: IrBuildOptions,
+  ctx: ProgramContext
 ): Result<IrModule, Diagnostic> => {
   try {
-    // Set the metadata registry for this compilation
-    setMetadataRegistry(program.metadata);
-
-    // Set the binding registry for this compilation
-    setBindingRegistry(program.bindings);
-
     const namespace = getNamespaceFromPath(
       sourceFile.fileName,
       options.sourceRoot,
@@ -41,13 +48,9 @@ export const buildIrModule = (
     );
     const className = getClassNameFromPath(sourceFile.fileName);
 
-    const imports = extractImports(
-      sourceFile,
-      program.checker,
-      program.clrResolver
-    );
-    const exports = extractExports(sourceFile, program.checker);
-    const statements = extractStatements(sourceFile, program.checker);
+    const imports = extractImports(sourceFile, ctx);
+    const exports = extractExportsWithContext(sourceFile, ctx);
+    const statements = extractStatements(sourceFile, ctx);
 
     // Check for file name / export name collision (Issue #4)
     // When file name matches an exported function/variable name, C# will have illegal code
@@ -95,10 +98,7 @@ export const buildIrModule = (
 
     // Validate class implements patterns
     // TypeScript interfaces are nominalized to C# classes, so "implements" is invalid
-    const implementsDiagnostics = validateClassImplements(
-      sourceFile,
-      program.checker
-    );
+    const implementsDiagnostics = validateClassImplements(sourceFile, ctx);
     const firstImplementsDiagnostic = implementsDiagnostics[0];
     if (firstImplementsDiagnostic) {
       return error(firstImplementsDiagnostic);
@@ -158,15 +158,23 @@ export const buildIr = (
   program: TsonicProgram,
   options: IrBuildOptions
 ): Result<readonly IrModule[], readonly Diagnostic[]> => {
+  // Create ProgramContext — the single owner of all semantic state
+  // No global singletons are used; context is passed explicitly
+  const ctx = createProgramContext(program, options);
+
   const modules: IrModule[] = [];
   const diagnostics: Diagnostic[] = [];
 
   for (const sourceFile of program.sourceFiles) {
-    const result = buildIrModule(sourceFile, program, options);
+    const result = buildIrModule(sourceFile, program, options, ctx);
     if (result.ok) {
       modules.push(result.value);
     } else {
       diagnostics.push(result.error);
+      // Fatal diagnostics abort immediately - no point continuing
+      if (isFatal(result.error)) {
+        return error(diagnostics);
+      }
     }
   }
 

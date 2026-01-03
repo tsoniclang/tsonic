@@ -4,7 +4,7 @@ import { int, byte, short, long, float } from "@tsonic/core/types.js";
 // Module-level numeric assertions (Bug 1: should emit correct CLR type)
 // =============================================================================
 
-export const intFromLiteral = 1000 as int;
+export const intFromLiteral = 1000;
 export const byteFromLiteral = 255 as byte;
 export const shortFromLiteral = 1000 as short;
 export const longFromLiteral = 1000000 as long;

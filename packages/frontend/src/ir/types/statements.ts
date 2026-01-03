@@ -68,7 +68,8 @@ export type IrClassDeclaration = {
   readonly kind: "classDeclaration";
   readonly name: string;
   readonly typeParameters?: readonly IrTypeParameter[];
-  readonly superClass?: IrExpression;
+  /** Base class type from `extends` clause (type-level, not expression-level). */
+  readonly superClass?: IrType;
   readonly implements: readonly IrType[];
   readonly members: readonly IrClassMember[];
   readonly isExported: boolean;

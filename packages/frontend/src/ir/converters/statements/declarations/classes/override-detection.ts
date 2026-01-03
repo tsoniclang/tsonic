@@ -1,9 +1,11 @@
 /**
  * Override detection for class members
+ *
+ * ALICE'S SPEC: Uses TypeSystem exclusively for declaration queries.
  */
 
 import * as ts from "typescript";
-import { getMetadataRegistry } from "../registry.js";
+import type { ProgramContext } from "../../../../program-context.js";
 
 export type OverrideInfo = {
   readonly isOverride: boolean;
@@ -11,46 +13,87 @@ export type OverrideInfo = {
 };
 
 /**
- * Check if a method/property should be marked as override based on base class metadata
+ * Check if a method/property should be marked as override based on base class metadata.
+ * DETERMINISTIC: Uses Binding API for symbol resolution.
  */
 export const detectOverride = (
   memberName: string,
   memberKind: "method" | "property",
   superClass: ts.ExpressionWithTypeArguments | undefined,
-  checker: ts.TypeChecker,
+  ctx: ProgramContext,
   parameterTypes?: readonly string[]
 ): OverrideInfo => {
   if (!superClass) {
     return { isOverride: false, isShadow: false };
   }
 
-  // Resolve the base class type
-  const baseType = checker.getTypeAtLocation(superClass.expression);
-  const baseSymbol = baseType.getSymbol();
+  // DETERMINISTIC: Get base class name directly from AST
+  // For simple identifiers, get the name; for qualified names, get the full path
+  const baseClassName = ts.isIdentifier(superClass.expression)
+    ? superClass.expression.text
+    : ts.isPropertyAccessExpression(superClass.expression)
+      ? getFullPropertyAccessName(superClass.expression)
+      : undefined;
 
-  if (!baseSymbol) {
+  if (!baseClassName) {
     return { isOverride: false, isShadow: false };
   }
 
-  // Get fully-qualified name for .NET types
-  const qualifiedName = checker.getFullyQualifiedName(baseSymbol);
+  // Try to resolve the identifier to get more context
+  const declId =
+    ts.isIdentifier(superClass.expression) &&
+    ctx.binding.resolveIdentifier(superClass.expression);
+
+  // Get qualified name from the resolved declaration if available
+  const qualifiedName = declId
+    ? ctx.typeSystem.getFQNameOfDecl(declId)
+    : baseClassName;
 
   // Check if this is a .NET type (starts with "System." or other .NET namespaces)
   const isDotNetType =
-    qualifiedName.startsWith("System.") ||
-    qualifiedName.startsWith("Microsoft.") ||
-    qualifiedName.startsWith("Tsonic.Runtime.");
+    qualifiedName?.startsWith("System.") ||
+    qualifiedName?.startsWith("Microsoft.") ||
+    qualifiedName?.startsWith("Tsonic.Runtime.");
 
-  if (isDotNetType) {
+  if (isDotNetType && qualifiedName) {
     return detectDotNetOverride(
       memberName,
       memberKind,
       qualifiedName,
+      ctx,
       parameterTypes
     );
-  } else {
-    return detectTypeScriptOverride(memberName, memberKind, baseSymbol);
+  } else if (declId) {
+    // ALICE'S SPEC (Phase 5): Use semantic method instead of getDeclInfo
+    return ctx.typeSystem.checkTsClassMemberOverride(
+      declId,
+      memberName,
+      memberKind
+    );
   }
+
+  return { isOverride: false, isShadow: false };
+};
+
+/**
+ * Get full property access name (e.g., "System.Collections.Generic.List")
+ */
+const getFullPropertyAccessName = (
+  expr: ts.PropertyAccessExpression
+): string => {
+  const parts: string[] = [expr.name.text];
+  let current: ts.Expression = expr.expression;
+
+  while (ts.isPropertyAccessExpression(current)) {
+    parts.unshift(current.name.text);
+    current = current.expression;
+  }
+
+  if (ts.isIdentifier(current)) {
+    parts.unshift(current.text);
+  }
+
+  return parts.join(".");
 };
 
 /**
@@ -60,56 +103,19 @@ const detectDotNetOverride = (
   memberName: string,
   memberKind: "method" | "property",
   qualifiedName: string,
+  ctx: ProgramContext,
   parameterTypes?: readonly string[]
 ): OverrideInfo => {
-  const metadata = getMetadataRegistry();
-
   if (memberKind === "method" && parameterTypes) {
     const signature = `${memberName}(${parameterTypes.join(",")})`;
-    const isVirtual = metadata.isVirtualMember(qualifiedName, signature);
-    const isSealed = metadata.isSealedMember(qualifiedName, signature);
+    const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, signature);
+    const isSealed = ctx.metadata.isSealedMember(qualifiedName, signature);
     return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
   } else if (memberKind === "property") {
     // For properties, check without parameters
-    const isVirtual = metadata.isVirtualMember(qualifiedName, memberName);
-    const isSealed = metadata.isSealedMember(qualifiedName, memberName);
+    const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, memberName);
+    const isSealed = ctx.metadata.isSealedMember(qualifiedName, memberName);
     return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
-  }
-
-  return { isOverride: false, isShadow: false };
-};
-
-/**
- * Detect override for TypeScript base classes
- */
-const detectTypeScriptOverride = (
-  memberName: string,
-  memberKind: "method" | "property",
-  baseSymbol: ts.Symbol
-): OverrideInfo => {
-  const baseDeclarations = baseSymbol.getDeclarations();
-
-  if (!baseDeclarations || baseDeclarations.length === 0) {
-    return { isOverride: false, isShadow: false };
-  }
-
-  for (const baseDecl of baseDeclarations) {
-    if (ts.isClassDeclaration(baseDecl)) {
-      // Check if base class has this member
-      const baseMember = baseDecl.members.find((m) => {
-        if (memberKind === "method" && ts.isMethodDeclaration(m)) {
-          return ts.isIdentifier(m.name) && m.name.text === memberName;
-        } else if (memberKind === "property" && ts.isPropertyDeclaration(m)) {
-          return ts.isIdentifier(m.name) && m.name.text === memberName;
-        }
-        return false;
-      });
-
-      if (baseMember) {
-        // In TypeScript, all methods can be overridden unless final (not supported in TS)
-        return { isOverride: true, isShadow: false };
-      }
-    }
   }
 
   return { isOverride: false, isShadow: false };

@@ -7,9 +7,11 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import * as ts from "typescript";
 import { buildIrModule } from "./builder.js";
+import { createProgramContext } from "./program-context.js";
 import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "../program/bindings.js";
 import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { createBinding } from "./binding/index.js";
 
 describe("Hierarchical Bindings End-to-End", () => {
   it("should resolve hierarchical bindings in IR for member access chain", () => {
@@ -84,9 +86,10 @@ describe("Hierarchical Bindings End-to-End", () => {
       }
     );
 
+    const checker = program.getTypeChecker();
     const testProgram = {
       program,
-      checker: program.getTypeChecker(),
+      checker,
       options: {
         projectRoot: "/test",
         sourceRoot: "/test",
@@ -94,16 +97,17 @@ describe("Hierarchical Bindings End-to-End", () => {
         strict: true,
       },
       sourceFiles: [sourceFile],
+      declarationSourceFiles: [],
       metadata: new DotnetMetadataRegistry(),
       bindings,
       clrResolver: createClrBindingsResolver("/test"),
+      binding: createBinding(checker),
     };
 
-    // Build IR
-    const irResult = buildIrModule(sourceFile, testProgram, {
-      sourceRoot: "/test",
-      rootNamespace: "TestApp",
-    });
+    // Build IR - Phase 5: Create ProgramContext and pass to buildIrModule
+    const options = { sourceRoot: "/test", rootNamespace: "TestApp" };
+    const ctx = createProgramContext(testProgram, options);
+    const irResult = buildIrModule(sourceFile, testProgram, options, ctx);
 
     // MUST succeed - this is a strict test
     if (!irResult.ok) {

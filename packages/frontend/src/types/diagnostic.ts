@@ -2,7 +2,15 @@
  * Diagnostic types for Tsonic compiler
  */
 
-export type DiagnosticSeverity = "error" | "warning" | "info";
+/**
+ * Diagnostic severity levels.
+ *
+ * - fatal: Unrecoverable error that aborts compilation (e.g., missing stdlib type)
+ * - error: Recoverable error that prevents code generation but allows continued analysis
+ * - warning: Non-blocking issue that should be addressed
+ * - info: Informational message
+ */
+export type DiagnosticSeverity = "fatal" | "error" | "warning" | "info";
 
 export type DiagnosticCode =
   | "TSN1001" // Local import missing .ts extension
@@ -99,6 +107,10 @@ export type DiagnosticCode =
   | "TSN5108" // Value exceeds JS safe integer range
   | "TSN5109" // Computed access kind not classified (compiler bug)
   | "TSN5110" // Integer literal cannot be implicitly converted to double
+  // Deterministic IR typing errors (TSN5201-TSN5299)
+  | "TSN5201" // Missing declared type annotation on target declaration required for deterministic typing
+  | "TSN5202" // Cannot infer required type arguments deterministically; user must supply explicit type arguments
+  | "TSN5203" // Member/property type cannot be recovered deterministically; user must add explicit type annotation
   // Yield lowering errors (TSN6101-TSN6199)
   | "TSN6101"; // Yield expression in unsupported position
 
@@ -135,7 +147,10 @@ export const createDiagnostic = (
 });
 
 export const isError = (diagnostic: Diagnostic): boolean =>
-  diagnostic.severity === "error";
+  diagnostic.severity === "error" || diagnostic.severity === "fatal";
+
+export const isFatal = (diagnostic: Diagnostic): boolean =>
+  diagnostic.severity === "fatal";
 
 export const formatDiagnostic = (diagnostic: Diagnostic): string => {
   const parts: string[] = [];
@@ -159,11 +174,13 @@ export const formatDiagnostic = (diagnostic: Diagnostic): string => {
 export type DiagnosticsCollector = {
   readonly diagnostics: readonly Diagnostic[];
   readonly hasErrors: boolean;
+  readonly hasFatalErrors: boolean;
 };
 
 export const createDiagnosticsCollector = (): DiagnosticsCollector => ({
   diagnostics: [],
   hasErrors: false,
+  hasFatalErrors: false,
 });
 
 export const addDiagnostic = (
@@ -172,6 +189,7 @@ export const addDiagnostic = (
 ): DiagnosticsCollector => ({
   diagnostics: [...collector.diagnostics, diagnostic],
   hasErrors: collector.hasErrors || isError(diagnostic),
+  hasFatalErrors: collector.hasFatalErrors || isFatal(diagnostic),
 });
 
 export const mergeDiagnostics = (
@@ -180,4 +198,5 @@ export const mergeDiagnostics = (
 ): DiagnosticsCollector => ({
   diagnostics: [...collector1.diagnostics, ...collector2.diagnostics],
   hasErrors: collector1.hasErrors || collector2.hasErrors,
+  hasFatalErrors: collector1.hasFatalErrors || collector2.hasFatalErrors,
 });

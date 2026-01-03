@@ -1,11 +1,14 @@
 /**
  * Statement converter - TypeScript AST to IR statements
  * Main dispatcher - delegates to specialized modules
+ *
+ * Phase 5 Step 4: Uses ProgramContext instead of global singletons.
  */
 
 import * as ts from "typescript";
-import { IrStatement } from "./types.js";
+import { IrStatement, IrType } from "./types.js";
 import { convertExpression } from "./expression-converter.js";
+import type { ProgramContext } from "./program-context.js";
 
 // Import converters from specialized modules
 import {
@@ -48,10 +51,15 @@ const isAmbientDeclaration = (node: ts.Node): boolean => {
 
 /**
  * Main statement converter dispatcher
+ *
+ * @param ctx - ProgramContext for TypeSystem and binding access
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
+ *                             Pass `undefined` explicitly when not inside a function.
  */
 export const convertStatement = (
   node: ts.Node,
-  checker: ts.TypeChecker
+  ctx: ProgramContext,
+  expectedReturnType: IrType | undefined
 ): ConvertStatementResult => {
   // Skip ambient (declare) declarations - they're type-only
   if (isAmbientDeclaration(node)) {
@@ -59,55 +67,56 @@ export const convertStatement = (
   }
 
   if (ts.isVariableStatement(node)) {
-    return convertVariableStatement(node, checker);
+    return convertVariableStatement(node, ctx);
   }
   if (ts.isFunctionDeclaration(node)) {
-    return convertFunctionDeclaration(node, checker);
+    return convertFunctionDeclaration(node, ctx);
   }
   if (ts.isClassDeclaration(node)) {
-    return convertClassDeclaration(node, checker);
+    return convertClassDeclaration(node, ctx);
   }
   if (ts.isInterfaceDeclaration(node)) {
-    return convertInterfaceDeclaration(node, checker);
+    return convertInterfaceDeclaration(node, ctx);
   }
   if (ts.isEnumDeclaration(node)) {
-    return convertEnumDeclaration(node, checker);
+    return convertEnumDeclaration(node, ctx);
   }
   // Type alias declarations may return multiple statements (synthetic interfaces + alias)
   if (ts.isTypeAliasDeclaration(node)) {
-    return convertTypeAliasDeclaration(node, checker);
+    return convertTypeAliasDeclaration(node, ctx);
   }
   if (ts.isExpressionStatement(node)) {
     return {
       kind: "expressionStatement",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, ctx, undefined),
     };
   }
   if (ts.isReturnStatement(node)) {
     return {
       kind: "returnStatement",
+      // Pass function return type for contextual typing of return expression
       expression: node.expression
-        ? convertExpression(node.expression, checker)
+        ? convertExpression(node.expression, ctx, expectedReturnType)
         : undefined,
     };
   }
   if (ts.isIfStatement(node)) {
-    return convertIfStatement(node, checker);
+    return convertIfStatement(node, ctx, expectedReturnType);
   }
   if (ts.isWhileStatement(node)) {
-    return convertWhileStatement(node, checker);
+    return convertWhileStatement(node, ctx, expectedReturnType);
   }
   if (ts.isForStatement(node)) {
-    return convertForStatement(node, checker);
+    return convertForStatement(node, ctx, expectedReturnType);
   }
   if (ts.isForOfStatement(node)) {
-    return convertForOfStatement(node, checker);
+    return convertForOfStatement(node, ctx, expectedReturnType);
   }
   if (ts.isForInStatement(node)) {
-    return convertForInStatement(node, checker);
+    return convertForInStatement(node, ctx, expectedReturnType);
   }
   if (ts.isSwitchStatement(node)) {
-    return convertSwitchStatement(node, checker);
+    return convertSwitchStatement(node, ctx, expectedReturnType);
   }
   if (ts.isThrowStatement(node)) {
     if (!node.expression) {
@@ -115,14 +124,14 @@ export const convertStatement = (
     }
     return {
       kind: "throwStatement",
-      expression: convertExpression(node.expression, checker),
+      expression: convertExpression(node.expression, ctx, undefined),
     };
   }
   if (ts.isTryStatement(node)) {
-    return convertTryStatement(node, checker);
+    return convertTryStatement(node, ctx, expectedReturnType);
   }
   if (ts.isBlock(node)) {
-    return convertBlockStatement(node, checker);
+    return convertBlockStatement(node, ctx, expectedReturnType);
   }
   if (ts.isBreakStatement(node)) {
     return {
@@ -163,12 +172,17 @@ export const flattenStatementResult = (
 /**
  * Convert a statement and return a single statement (for contexts where arrays not expected).
  * Type aliases inside control flow will return the first statement (usually the only one).
+ *
+ * @param ctx - ProgramContext for TypeSystem and binding access
+ * @param expectedReturnType - Return type from enclosing function for contextual typing.
+ *                             Must be passed through for return statements in nested blocks.
  */
 export const convertStatementSingle = (
   node: ts.Node,
-  checker: ts.TypeChecker
+  ctx: ProgramContext,
+  expectedReturnType?: IrType
 ): IrStatement | null => {
-  const result = convertStatement(node, checker);
+  const result = convertStatement(node, ctx, expectedReturnType);
   if (result === null) {
     return null;
   }
@@ -184,7 +198,3 @@ export const convertStatementSingle = (
 // Re-export commonly used functions for backward compatibility
 export { convertBlockStatement } from "./converters/statements/control.js";
 export { convertParameters } from "./converters/statements/helpers.js";
-export {
-  setMetadataRegistry,
-  setBindingRegistry,
-} from "./converters/statements/declarations.js";

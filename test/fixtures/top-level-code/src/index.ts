@@ -1,4 +1,4 @@
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Top-level code without explicit main function
 // This tests automatic Main() wrapping for entry points

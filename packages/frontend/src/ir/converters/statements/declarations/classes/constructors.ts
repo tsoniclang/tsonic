@@ -4,20 +4,20 @@
 
 import * as ts from "typescript";
 import { IrClassMember, IrStatement } from "../../../../types.js";
-import { convertType } from "../../../../type-converter.js";
 import { convertBlockStatement } from "../../control.js";
 import {
   hasReadonlyModifier,
   getAccessibility,
   convertParameters,
 } from "../../helpers.js";
+import type { ProgramContext } from "../../../../program-context.js";
 
 /**
  * Convert constructor declaration to IR
  */
 export const convertConstructor = (
   node: ts.ConstructorDeclaration,
-  checker: ts.TypeChecker,
+  ctx: ProgramContext,
   constructorParams?: ts.NodeArray<ts.ParameterDeclaration>
 ): IrClassMember => {
   // Build constructor body with parameter property assignments
@@ -44,7 +44,9 @@ export const convertConstructor = (
             operator: "=",
             left: {
               kind: "memberAccess",
-              object: { kind: "this" },
+              object: {
+                kind: "this",
+              },
               property: param.name.text,
               isComputed: false,
               isOptional: false,
@@ -61,13 +63,13 @@ export const convertConstructor = (
 
   // Add existing constructor body statements
   if (node.body) {
-    const existingBody = convertBlockStatement(node.body, checker);
+    const existingBody = convertBlockStatement(node.body, ctx, undefined);
     statements.push(...existingBody.statements);
   }
 
   return {
     kind: "constructorDeclaration",
-    parameters: convertParameters(node.parameters, checker),
+    parameters: convertParameters(node.parameters, ctx),
     body: { kind: "blockStatement", statements },
     accessibility: getAccessibility(node),
   };
@@ -78,7 +80,7 @@ export const convertConstructor = (
  */
 export const extractParameterProperties = (
   constructor: ts.ConstructorDeclaration | undefined,
-  checker: ts.TypeChecker
+  ctx: ProgramContext
 ): IrClassMember[] => {
   if (!constructor) {
     return [];
@@ -103,11 +105,16 @@ export const extractParameterProperties = (
 
     // Create a field declaration for this parameter property
     if (ts.isIdentifier(param.name)) {
+      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const accessibility = getAccessibility(param);
       parameterProperties.push({
         kind: "propertyDeclaration",
         name: param.name.text,
-        type: param.type ? convertType(param.type, checker) : undefined,
+        type: param.type
+          ? ctx.typeSystem.typeFromSyntax(
+              ctx.binding.captureTypeSyntax(param.type)
+            )
+          : undefined,
         initializer: undefined, // Will be assigned in constructor
         isStatic: false,
         isReadonly: hasReadonlyModifier(param),

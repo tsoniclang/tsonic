@@ -112,7 +112,8 @@ export const emitTypeAliasDeclaration = (
   }
 
   // For non-structural aliases, emit as comment (C# using aliases are limited)
-  const [typeName, newContext] = emitType(stmt.type, context);
+  // Use currentContext which has type parameters in scope
+  const [typeName, newContext] = emitType(stmt.type, currentContext);
   const code = `${ind}// type ${stmt.name} = ${typeName}`;
   return [code, newContext];
 };

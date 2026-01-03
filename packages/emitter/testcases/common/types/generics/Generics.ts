@@ -1,4 +1,4 @@
-import { out } from "@tsonic/core/types.js";
+import type { out } from "@tsonic/core/types.js";
 
 export function identity<T>(value: T): T {
   return value;

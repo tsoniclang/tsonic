@@ -125,6 +125,33 @@ const arrayIdent = (name: string): IrExpression => ({
   },
 });
 
+/**
+ * Helper to create a binary expression
+ */
+const binaryExpr = (
+  operator: "+" | "-" | "*" | "/",
+  left: IrExpression,
+  right: IrExpression
+): IrExpression => ({
+  kind: "binary",
+  operator,
+  left,
+  right,
+  inferredType: { kind: "primitiveType", name: "number" },
+});
+
+/**
+ * Helper to create an array expression
+ */
+const arrayExpr = (elements: IrExpression[]): IrExpression => ({
+  kind: "array",
+  elements,
+  inferredType: {
+    kind: "arrayType",
+    elementType: { kind: "primitiveType", name: "number" },
+  },
+});
+
 describe("Numeric Proof Invariants", () => {
   describe("INVARIANT 1: numericIntent ONLY from numericNarrowing", () => {
     it("should attach numericIntent to variable initialized via narrowing", () => {
@@ -156,13 +183,7 @@ describe("Numeric Proof Invariants", () => {
       // const y = x + 1;  // x should have Int32 intent
       const module = createModule([
         createVarDecl("x", narrowTo(numLiteral(42), "Int32")),
-        createVarDecl("y", {
-          kind: "binary",
-          operator: "+",
-          left: ident("x"),
-          right: numLiteral(1),
-          inferredType: { kind: "primitiveType", name: "number" },
-        }),
+        createVarDecl("y", binaryExpr("+", ident("x"), numLiteral(1))),
       ]);
 
       const result = runNumericProofPass([module]);
@@ -206,14 +227,10 @@ describe("Numeric Proof Invariants", () => {
       // const idx = 1 as int;
       // const x = arr[idx];
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("idx", narrowTo(numLiteral(1), "Int32")),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("idx"))),
       ]);
@@ -228,14 +245,10 @@ describe("Numeric Proof Invariants", () => {
       // const arr = [1, 2, 3];
       // const x = arr[1];  // 1 is valid Int32 literal
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), numLiteral(1))),
       ]);
 
@@ -250,14 +263,10 @@ describe("Numeric Proof Invariants", () => {
       // const idx = 1.5;
       // const x = arr[idx];  // ERROR: Double is not Int32
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("idx", numLiteral(1.5, "1.5")),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("idx"))),
       ]);
@@ -280,14 +289,10 @@ describe("Numeric Proof Invariants", () => {
       };
 
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), unknownIdent)),
       ]);
 
@@ -457,13 +462,11 @@ describe("Numeric Proof Invariants", () => {
         createVarDecl(
           "x",
           narrowTo(
-            {
-              kind: "binary",
-              operator: "+",
-              left: narrowTo(numLiteral(1), "Int32"),
-              right: narrowTo(numLiteral(2), "Int32"),
-              inferredType: { kind: "primitiveType", name: "number" },
-            },
+            binaryExpr(
+              "+",
+              narrowTo(numLiteral(1), "Int32"),
+              narrowTo(numLiteral(2), "Int32")
+            ),
             "Int32"
           )
         ),
@@ -481,13 +484,11 @@ describe("Numeric Proof Invariants", () => {
         createVarDecl(
           "x",
           narrowTo(
-            {
-              kind: "binary",
-              operator: "+",
-              left: narrowTo(numLiteral(1), "Int32"),
-              right: narrowTo(numLiteral(2.0, "2.0"), "Double"),
-              inferredType: { kind: "primitiveType", name: "number" },
-            },
+            binaryExpr(
+              "+",
+              narrowTo(numLiteral(1), "Int32"),
+              narrowTo(numLiteral(2.0, "2.0"), "Double")
+            ),
             "Int32"
           )
         ),
@@ -506,13 +507,11 @@ describe("Numeric Proof Invariants", () => {
         createVarDecl(
           "x",
           narrowTo(
-            {
-              kind: "binary",
-              operator: "+",
-              left: narrowTo(numLiteral(1), "Int32"),
-              right: narrowTo(numLiteral(2), "Int64"),
-              inferredType: { kind: "primitiveType", name: "number" },
-            },
+            binaryExpr(
+              "+",
+              narrowTo(numLiteral(1), "Int32"),
+              narrowTo(numLiteral(2), "Int64")
+            ),
             "Int64"
           )
         ),
@@ -565,14 +564,10 @@ describe("Numeric Proof Invariants", () => {
       // const a = arr[idx];
       // const b = arr[idx];  // idx should still be proven Int32
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("idx", narrowTo(numLiteral(0), "Int32")),
         createVarDecl("a", arrayAccess(arrayIdent("arr"), ident("idx"))),
         createVarDecl("b", arrayAccess(arrayIdent("arr"), ident("idx"))),
@@ -596,14 +591,10 @@ describe("Numeric Proof Invariants", () => {
       // const arr = [1, 2, 3];
       // const x = arr[0];  // 0 should get numericIntent:Int32 after proof pass
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), numLiteral(0))),
       ]);
 
@@ -636,14 +627,10 @@ describe("Numeric Proof Invariants", () => {
       // const x = arr[i];  // i should propagate Int32 to index
       const module = createModule([
         createVarDecl("i", numLiteral(0)),
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("i"))),
       ]);
 
@@ -675,14 +662,10 @@ describe("Numeric Proof Invariants", () => {
       // const x = arr[i];  // SHOULD FAIL: Double is not Int32
       const module = createModule([
         createVarDecl("i", numLiteral(0.0, "0.0")), // raw has decimal point
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), ident("i"))),
       ]);
 
@@ -697,14 +680,10 @@ describe("Numeric Proof Invariants", () => {
       // Simulates: for (let i = 0; i < arr.length; i++) { arr[i] }
       // The loop counter i, initialized from integer literal, should be Int32
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         // Simulate loop counter initialization
         createVarDecl("i", numLiteral(0), "let"),
         // Simulate arr[i] inside loop body
@@ -721,14 +700,10 @@ describe("Numeric Proof Invariants", () => {
     it("arr[1] - integer literal 1 gets numericIntent:Int32", () => {
       // Specifically test literal 1 (not just 0)
       const module = createModule([
-        createVarDecl("arr", {
-          kind: "array",
-          elements: [numLiteral(1), numLiteral(2), numLiteral(3)],
-          inferredType: {
-            kind: "arrayType",
-            elementType: { kind: "primitiveType", name: "number" },
-          },
-        }),
+        createVarDecl(
+          "arr",
+          arrayExpr([numLiteral(1), numLiteral(2), numLiteral(3)])
+        ),
         createVarDecl("x", arrayAccess(arrayIdent("arr"), numLiteral(1))),
       ]);
 
