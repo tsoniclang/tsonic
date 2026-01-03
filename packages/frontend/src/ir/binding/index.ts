@@ -363,8 +363,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     _node: ts.ElementAccessExpression
   ): MemberId | undefined => {
     // Element access member resolution requires type-level analysis
-    // For now, return undefined (member not resolved via handles)
-    // TODO: Implement when needed for specific cases
+    // Return undefined (member not resolved via handles)
     return undefined;
   };
 

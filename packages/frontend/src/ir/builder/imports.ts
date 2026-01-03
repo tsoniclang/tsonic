@@ -8,7 +8,7 @@ import * as ts from "typescript";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
 import type { Binding } from "../binding/index.js";
-import type { TypeSystem } from "../type-system/type-system.js";
+import type { TypeAuthority } from "../type-system/type-system.js";
 
 /**
  * Extract import declarations from source file.
@@ -81,7 +81,7 @@ export const extractImports = (
 export const extractImportSpecifiers = (
   node: ts.ImportDeclaration,
   binding: Binding,
-  typeSystem: TypeSystem
+  typeSystem: TypeAuthority
 ): readonly IrImportSpecifier[] => {
   const specifiers: IrImportSpecifier[] = [];
 
@@ -125,7 +125,7 @@ export const extractImportSpecifiers = (
 const isTypeImport = (
   spec: ts.ImportSpecifier,
   binding: Binding,
-  typeSystem: TypeSystem
+  typeSystem: TypeAuthority
 ): boolean => {
   try {
     // TypeScript's isTypeOnly flag on the specifier itself (for `import { type Foo }`)

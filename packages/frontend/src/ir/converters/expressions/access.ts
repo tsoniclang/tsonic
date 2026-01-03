@@ -2,11 +2,8 @@
  * Member access expression converters
  *
  * ALICE'S SPEC: All member type queries go through TypeSystem.typeOfMember().
- * Falls back to Binding for inherited members from external packages that
- * TypeRegistry/NominalEnv can't resolve (e.g., Array$instance.length).
- *
- * TODO(alice): Fix TypeRegistry to properly register inherited members so
- * the Binding fallback can be removed.
+ * Falls back to Binding-resolved MemberId only when the receiver type cannot
+ * be normalized nominally (e.g., tsbindgen `$instance & __views` intersections).
  */
 
 import * as ts from "typescript";

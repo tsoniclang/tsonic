@@ -418,7 +418,7 @@ export const convertObjectLiteral = (
         const syntheticRef: IrReferenceType = {
           kind: "referenceType",
           name: syntheticEntry.name,
-          typeArguments: undefined, // TODO: Add type args if capturing generic params
+          typeArguments: undefined,
         };
 
         contextualType = syntheticRef;

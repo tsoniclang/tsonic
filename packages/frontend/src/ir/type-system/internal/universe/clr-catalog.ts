@@ -67,26 +67,37 @@ const parseClrTypeString = (clrType: string): IrType => {
     string: { kind: "primitiveType", name: "string" },
     "System.Int32": { kind: "primitiveType", name: "int" },
     int: { kind: "primitiveType", name: "int" },
-    "System.Int64": { kind: "primitiveType", name: "int" }, // TODO: bigint?
-    long: { kind: "primitiveType", name: "int" },
-    "System.Int16": { kind: "primitiveType", name: "int" },
-    short: { kind: "primitiveType", name: "int" },
-    "System.Byte": { kind: "primitiveType", name: "int" },
-    byte: { kind: "primitiveType", name: "int" },
-    "System.SByte": { kind: "primitiveType", name: "int" },
-    sbyte: { kind: "primitiveType", name: "int" },
-    "System.UInt32": { kind: "primitiveType", name: "int" },
-    uint: { kind: "primitiveType", name: "int" },
-    "System.UInt64": { kind: "primitiveType", name: "int" },
-    ulong: { kind: "primitiveType", name: "int" },
-    "System.UInt16": { kind: "primitiveType", name: "int" },
-    ushort: { kind: "primitiveType", name: "int" },
+    // Distinct CLR numeric aliases from @tsonic/core
+    "System.SByte": { kind: "referenceType", name: "sbyte" },
+    sbyte: { kind: "referenceType", name: "sbyte" },
+    "System.Byte": { kind: "referenceType", name: "byte" },
+    byte: { kind: "referenceType", name: "byte" },
+    "System.Int16": { kind: "referenceType", name: "short" },
+    short: { kind: "referenceType", name: "short" },
+    "System.UInt16": { kind: "referenceType", name: "ushort" },
+    ushort: { kind: "referenceType", name: "ushort" },
+    "System.UInt32": { kind: "referenceType", name: "uint" },
+    uint: { kind: "referenceType", name: "uint" },
+    "System.Int64": { kind: "referenceType", name: "long" },
+    long: { kind: "referenceType", name: "long" },
+    "System.UInt64": { kind: "referenceType", name: "ulong" },
+    ulong: { kind: "referenceType", name: "ulong" },
+    "System.IntPtr": { kind: "referenceType", name: "nint" },
+    nint: { kind: "referenceType", name: "nint" },
+    "System.UIntPtr": { kind: "referenceType", name: "nuint" },
+    nuint: { kind: "referenceType", name: "nuint" },
+    "System.Int128": { kind: "referenceType", name: "int128" },
+    int128: { kind: "referenceType", name: "int128" },
+    "System.UInt128": { kind: "referenceType", name: "uint128" },
+    uint128: { kind: "referenceType", name: "uint128" },
     "System.Double": { kind: "primitiveType", name: "number" },
     double: { kind: "primitiveType", name: "number" },
-    "System.Single": { kind: "primitiveType", name: "number" },
-    float: { kind: "primitiveType", name: "number" },
-    "System.Decimal": { kind: "primitiveType", name: "number" },
-    decimal: { kind: "primitiveType", name: "number" },
+    "System.Single": { kind: "referenceType", name: "float" },
+    float: { kind: "referenceType", name: "float" },
+    "System.Half": { kind: "referenceType", name: "half" },
+    half: { kind: "referenceType", name: "half" },
+    "System.Decimal": { kind: "referenceType", name: "decimal" },
+    decimal: { kind: "referenceType", name: "decimal" },
     "System.Boolean": { kind: "primitiveType", name: "boolean" },
     bool: { kind: "primitiveType", name: "boolean" },
     "System.Char": { kind: "primitiveType", name: "char" },
@@ -674,11 +685,16 @@ const parseMethodSignature = (
     }
   }
 
+  const typeParameters =
+    method.arity > 0
+      ? Array.from({ length: method.arity }, (_, i) => ({ name: `T${i}` }))
+      : [];
+
   return {
     stableId: method.stableId,
     parameters,
     returnType,
-    typeParameters: [], // TODO: parse from arity
+    typeParameters,
     parameterCount: method.parameterCount,
     isStatic: method.isStatic,
     isExtensionMethod: method.isExtensionMethod,

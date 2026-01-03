@@ -10,7 +10,7 @@
 import * as path from "path";
 import * as ts from "typescript";
 import type { Binding, BindingInternal } from "./binding/index.js";
-import type { TypeSystem } from "./type-system/type-system.js";
+import type { TypeAuthority } from "./type-system/type-system.js";
 import type { IrType } from "./types.js";
 import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
@@ -47,7 +47,7 @@ export type ProgramContext = {
    * This is the ONLY source for type information. Converters should use
    * TypeSystem methods instead of accessing TypeRegistry/NominalEnv directly.
    */
-  readonly typeSystem: TypeSystem;
+  readonly typeSystem: TypeAuthority;
 
   /**
    * .NET metadata registry for imported types.

@@ -12,7 +12,6 @@
  * (DeclId, SignatureId, MemberId, TypeSyntaxId) that cross into this layer.
  */
 
-import type { IrType, IrReferenceType } from "../types/index.js";
 import type {
   DeclId,
   SignatureId,
@@ -54,6 +53,7 @@ export type {
 
 // Re-export semantic result types from Alice's TypeSystem
 export type {
+  TypeAuthority,
   MemberRef,
   CallQuery,
   ResolvedCall,
@@ -83,114 +83,6 @@ export {
   poisonedCall,
   createTypeSystem,
 } from "./type-system.js";
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TYPE AUTHORITY INTERFACE — The single source of truth for all type queries
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * TypeAuthority — the single source of truth for all type queries.
- *
- * ALICE'S SPEC: TypeAuthority returns semantic answers only.
- * No raw data structures. No escape hatches. Callers cannot rebuild
- * a parallel type system.
- *
- * All methods return semantic results (IrType, boolean, ResolvedCall).
- * The type field is ALWAYS present (unknownType if undeterminable).
- */
-export interface TypeAuthority {
-  // ───────────────────────────────────────────────────────────────────────────
-  // CORE QUERIES — All return IrType
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Get the type of a declaration by its handle.
-   */
-  getDeclType(decl: DeclId): TypeResult;
-
-  /**
-   * Get a function signature (parameters + return type).
-   */
-  getSignature(sig: SignatureId): SignatureResult;
-
-  /**
-   * Get the type of a member (property, method) on a type.
-   */
-  getMemberType(type: IrType, member: MemberId): TypeResult;
-
-  /**
-   * Apply type arguments to a generic type.
-   */
-  instantiate(type: IrType, args: readonly IrType[]): TypeResult;
-
-  /**
-   * Get the expected type at a syntactic position.
-   */
-  getExpectedType(position: SyntaxPosition): TypeResult;
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // UTILITY TYPE EXPANSION
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Expand a utility type (Partial, Pick, ReturnType, etc.).
-   */
-  expandUtilityType(
-    utilityName: UtilityTypeName,
-    typeArgs: readonly IrType[]
-  ): TypeResult;
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // STRUCTURAL OPERATIONS
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Get all members of a structural type (including inherited).
-   */
-  getStructuralMembers(type: IrType): readonly MemberResult[];
-
-  /**
-   * Resolve property access on a type.
-   */
-  resolvePropertyAccess(type: IrType, propertyName: string): TypeResult;
-
-  /**
-   * Synthesize an object type from property values.
-   */
-  synthesizeObjectType(properties: readonly PropertyInit[]): TypeResult;
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // SUBSTITUTION & INHERITANCE
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Substitute type parameters with concrete types.
-   */
-  substitute(type: IrType, substitutions: TypeSubstitution): IrType;
-
-  /**
-   * Get the inheritance chain for a nominal type.
-   */
-  getInheritanceChain(type: IrReferenceType): readonly IrType[];
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // TYPE COMPARISON
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Check if two types are structurally equal.
-   */
-  typesEqual(a: IrType, b: IrType): boolean;
-
-  /**
-   * Check if a type is assignable to another.
-   */
-  isAssignableTo(source: IrType, target: IrType): boolean;
-}
-
-// Re-export the legacy TypeSystem name for backwards compatibility during migration
-// TODO: Remove after all callers migrate to TypeAuthority
-export type { TypeSystem } from "./type-system.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // INTERNAL TYPES — NOT EXPORTED

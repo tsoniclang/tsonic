@@ -7,13 +7,9 @@
  */
 
 import { Console } from "@tsonic/dotnet/System.js";
-import { int } from "@tsonic/core/types.js";
+import { int, out, ref, inref } from "@tsonic/core/types.js";
 
 // Parameter passing modifiers
-// TODO: Import from @tsonic/core once published
-type out<T> = T;
-type ref<T> = T;
-type inref<T> = T;
 
 // Function with out parameter - caller uses `as out<T>` to pass
 function tryDouble(x: int, result: out<int>): boolean {

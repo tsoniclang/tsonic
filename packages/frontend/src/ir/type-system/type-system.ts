@@ -1,5 +1,5 @@
 /**
- * TypeSystem — Alice's 100% Specification
+ * TypeAuthority — Alice's 100% Specification
  *
  * The single, authoritative type facility for Tsonic. This is the ONLY place
  * where type information is computed or queried. All converters, validation,
@@ -7,7 +7,7 @@
  *
  * INVARIANTS (enforced by scripts/verify-invariants.sh):
  * - INV-0: No TS computed type APIs outside Binding
- * - INV-1: No convertType/getHandleRegistry outside TypeSystem
+ * - INV-1: No convertType/getHandleRegistry outside TypeAuthority
  * - INV-2: Deterministic type sources only
  * - INV-3: Poison-on-missing-types (return unknownType + emit diagnostic)
  */
@@ -42,15 +42,15 @@ import type {
 	import type { TypeId, UnifiedTypeCatalog } from "./internal/universe/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ALICE'S EXACT API — TypeSystem Interface
+// ALICE'S EXACT API — TypeAuthority Interface
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * TypeSystem interface — Alice's exact specification.
+ * TypeAuthority interface — Alice's exact specification.
  *
  * Key method: resolveCall(query) — single entry point for all call resolution.
  */
-export interface TypeSystem {
+export interface TypeAuthority {
   // ─────────────────────────────────────────────────────────────────────────
   // Type Syntax Conversion
   // ─────────────────────────────────────────────────────────────────────────
@@ -849,7 +849,9 @@ type NominalLookupResult = {
  * This is the single factory for TypeSystem. All type queries go through
  * the returned TypeSystem instance.
  */
-export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
+export const createTypeSystem = (
+  config: TypeSystemConfig
+): TypeAuthority => {
   const {
     handleRegistry,
     typeRegistry,

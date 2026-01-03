@@ -32,7 +32,7 @@ export { createProgramContext } from "../program-context.js";
  */
 export const createConverterContext = (params: {
   binding: import("../binding/index.js").Binding;
-  typeSystem: import("../type-system/type-system.js").TypeSystem;
+  typeSystem: import("../type-system/type-system.js").TypeAuthority;
   metadata: import("../../dotnet-metadata.js").DotnetMetadataRegistry;
   bindings: import("../../program/bindings.js").BindingRegistry;
   clrResolver: import("../../resolver/clr-bindings-resolver.js").ClrBindingsResolver;

@@ -8,7 +8,7 @@ import * as ts from "typescript";
 import { Diagnostic } from "../../types/diagnostic.js";
 import type { ProgramContext } from "../program-context.js";
 import type { DeclId } from "../type-system/types.js";
-import type { TypeSystem } from "../type-system/type-system.js";
+import type { TypeAuthority } from "../type-system/type-system.js";
 import type { Binding } from "../binding/index.js";
 
 /**
@@ -19,7 +19,7 @@ import type { Binding } from "../binding/index.js";
 const isStructMarker = (
   typeRef: ts.ExpressionWithTypeArguments,
   binding: Binding,
-  typeSystem: TypeSystem
+  typeSystem: TypeAuthority
 ): boolean => {
   if (!ts.isIdentifier(typeRef.expression)) {
     return false;
@@ -40,7 +40,7 @@ const isStructMarker = (
  */
 const isNominalizedInterface = (
   declId: DeclId | undefined,
-  typeSystem: TypeSystem
+  typeSystem: TypeAuthority
 ): boolean => {
   if (!declId) return false;
   return typeSystem.isInterfaceDecl(declId);
@@ -53,7 +53,7 @@ const isNominalizedInterface = (
  */
 const isNominalizedTypeAlias = (
   declId: DeclId | undefined,
-  typeSystem: TypeSystem
+  typeSystem: TypeAuthority
 ): boolean => {
   if (!declId) return false;
   return typeSystem.isTypeAliasToObjectLiteral(declId);

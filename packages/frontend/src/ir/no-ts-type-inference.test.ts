@@ -77,12 +77,9 @@ const IR_DIRECTORIES = [
 
 /**
  * Files to exclude from scanning (allowed to use banned patterns).
- * Should be empty once deterministic typing is complete.
+ * Intentionally empty — exclusions weaken enforcement.
  */
-const EXCLUDED_FILES: string[] = [
-  // TODO: Remove these exclusions as each file is fixed
-  // Currently tracking files that still need migration
-];
+const EXCLUDED_FILES: string[] = [];
 
 /**
  * Get all TypeScript files in a directory recursively.

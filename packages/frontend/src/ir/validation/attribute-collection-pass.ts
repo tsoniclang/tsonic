@@ -73,8 +73,31 @@ const tryExtractAttributeArg = (
       return { kind: "boolean", value: expr.value };
     }
   }
-  // TODO: Handle typeof expressions
-  // TODO: Handle enum member expressions
+
+  // typeof(SomeType) → C# typeof(SomeType) attribute argument
+  if (expr.kind === "unary" && expr.operator === "typeof") {
+    const targetType = expr.expression.inferredType;
+    if (targetType && targetType.kind !== "unknownType") {
+      return { kind: "typeof", type: targetType };
+    }
+  }
+
+  // Enum.Member → enum literal argument
+  if (
+    expr.kind === "memberAccess" &&
+    !expr.isComputed &&
+    typeof expr.property === "string"
+  ) {
+    const object = expr.object;
+    if (
+      object.kind === "identifier" &&
+      object.inferredType &&
+      object.inferredType.kind === "referenceType"
+    ) {
+      return { kind: "enum", type: object.inferredType, member: expr.property };
+    }
+  }
+
   return undefined;
 };
 
