@@ -15,6 +15,7 @@
 import type {
   IrType,
   IrFunctionType,
+  IrParameter,
   IrReferenceType,
   IrPrimitiveType,
   IrMethodSignature,
@@ -678,6 +679,7 @@ export type TypeParameterNode = {
  */
 export type MemberInfo = {
   readonly name: string;
+  readonly declNode?: unknown;
   readonly typeNode?: unknown;
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
@@ -3095,6 +3097,45 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeSystem => {
     // If the member has a type node, convert it
     if (memberInfo.typeNode) {
       return convertTypeNode(memberInfo.typeNode);
+    }
+
+    // Otherwise, attempt to recover type deterministically from the member declaration.
+    // This is required for namespace imports (`import * as X`) where members are
+    // function declarations / const declarations (no typeNode captured by Binding).
+    const decl = memberInfo.declNode as ts.Declaration | undefined;
+    if (decl) {
+      if (ts.isFunctionDeclaration(decl)) {
+        // Determinism: require explicit parameter + return annotations.
+        if (!decl.type) return unknownType;
+        if (decl.parameters.some((p) => p.type === undefined)) return unknownType;
+
+        const parameters: readonly IrParameter[] = decl.parameters.map((p) => ({
+          kind: "parameter",
+          pattern: {
+            kind: "identifierPattern",
+            name: ts.isIdentifier(p.name) ? p.name.text : "param",
+          },
+          type: p.type ? convertTypeNode(p.type) : undefined,
+          initializer: undefined,
+          isOptional: !!p.questionToken || !!p.initializer,
+          isRest: !!p.dotDotDotToken,
+          passing: "value",
+        }));
+
+        const returnType = convertTypeNode(decl.type);
+        const fnType: IrFunctionType = {
+          kind: "functionType",
+          parameters,
+          returnType,
+        };
+        return fnType;
+      }
+
+      if (ts.isVariableDeclaration(decl)) {
+        if (decl.type) return convertTypeNode(decl.type);
+        const inferred = tryInferTypeFromInitializer(decl);
+        return inferred ?? unknownType;
+      }
     }
 
     return unknownType;

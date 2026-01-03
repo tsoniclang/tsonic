@@ -126,6 +126,7 @@ export interface TypeParameterNode {
  */
 export interface MemberInfo {
   readonly name: string;
+  readonly declNode?: unknown; // ts.Declaration — INTERNAL ONLY
   readonly typeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly isOptional: boolean;
   readonly isReadonly: boolean;

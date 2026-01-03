@@ -338,12 +338,22 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   const resolvePropertyAccess = (
     node: ts.PropertyAccessExpression
   ): MemberId | undefined => {
-    const propSymbol = checker.getSymbolAtLocation(node.name);
-    if (!propSymbol) return undefined;
+    const rawPropSymbol = checker.getSymbolAtLocation(node.name);
+    if (!rawPropSymbol) return undefined;
+
+    const propSymbol =
+      rawPropSymbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(rawPropSymbol)
+        : rawPropSymbol;
 
     // Get owner type's declaration
-    const ownerSymbol = checker.getSymbolAtLocation(node.expression);
-    if (!ownerSymbol) return undefined;
+    const rawOwnerSymbol = checker.getSymbolAtLocation(node.expression);
+    if (!rawOwnerSymbol) return undefined;
+
+    const ownerSymbol =
+      rawOwnerSymbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(rawOwnerSymbol)
+        : rawOwnerSymbol;
 
     const ownerDeclId = getOrCreateDeclId(ownerSymbol);
     return getOrCreateMemberId(ownerDeclId, node.name.text, propSymbol);
@@ -506,6 +516,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       if (!entry) return undefined;
       return {
         name: entry.name,
+        declNode: entry.decl,
         typeNode: entry.typeNode,
         isOptional: entry.isOptional,
         isReadonly: entry.isReadonly,
