@@ -156,14 +156,21 @@ export const convertArrowFunction = (
 ): IrArrowFunctionExpression => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = ctx.typeSystem;
+  const expectedFnType =
+    expectedType?.kind === "functionType" ? expectedType : undefined;
+
   // Get return type from declared annotation, or from expectedType if available
   const declaredReturnType = node.type
     ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
     : undefined;
   // DETERMINISTIC: Use expectedType's return type if no explicit annotation
-  const expectedReturnType =
-    expectedType?.kind === "functionType" ? expectedType.returnType : undefined;
-  const returnType = declaredReturnType ?? expectedReturnType;
+  const expectedReturnType = expectedFnType?.returnType;
+
+  const contextualReturnType =
+    declaredReturnType ??
+    (expectedReturnType && expectedReturnType.kind !== "typeParameterType"
+      ? expectedReturnType
+      : undefined);
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
   const parameters = convertLambdaParameters(node, ctx, expectedType);
@@ -172,8 +179,17 @@ export const convertArrowFunction = (
   // - Block body: return statements get the expected type
   // - Expression body: the expression gets the expected type
   const body = ts.isBlock(node.body)
-    ? convertBlockStatement(node.body, ctx, returnType)
-    : convertExpression(node.body, ctx, returnType);
+    ? convertBlockStatement(node.body, ctx, declaredReturnType ?? expectedReturnType)
+    : convertExpression(node.body, ctx, contextualReturnType);
+
+  const returnType =
+    declaredReturnType ??
+    (expectedReturnType && expectedReturnType.kind !== "typeParameterType"
+      ? expectedReturnType
+      : !ts.isBlock(node.body)
+        ? (body as ReturnType<typeof convertExpression>).inferredType ??
+          ({ kind: "voidType" } as const)
+        : expectedReturnType);
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType
   const contextualType = expectedType;

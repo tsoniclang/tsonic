@@ -53,98 +53,6 @@ const extractArgumentPassing = (
 };
 
 /**
- * Extract type predicate narrowing metadata from a call expression.
- * Returns narrowing info if the callee is a type predicate function (x is T).
- *
- * ALICE'S SPEC: Uses TypeSystem.resolveCall() which includes typePredicate
- * extracted at Binding registration time.
- */
-const extractNarrowing = (
-  node: ts.CallExpression,
-  ctx: ProgramContext
-): IrCallExpression["narrowing"] => {
-  // Get the TypeSystem
-  const typeSystem = ctx.typeSystem;
-
-  const sigId = ctx.binding.resolveCallSignature(node);
-  if (!sigId) return undefined;
-
-  // Use TypeSystem.resolveCall() to get type predicate
-  const resolved = typeSystem.resolveCall({
-    sigId,
-    argumentCount: node.arguments.length,
-  });
-
-  // Check if resolved has a type predicate
-  const pred = resolved.typePredicate;
-  if (!pred) return undefined;
-
-  // We only handle "param is T" predicates for call narrowing
-  if (pred.kind === "param") {
-    return {
-      kind: "typePredicate",
-      argIndex: pred.parameterIndex,
-      targetType: pred.targetType,
-    };
-  }
-
-  // "this is T" predicates are not applicable to call expressions
-  return undefined;
-};
-
-/**
- * Extract parameter types from resolved signature.
- * Used for threading expectedType to array literal arguments etc.
- *
- * ALICE'S SPEC: Uses TypeSystem.resolveCall() exclusively.
- * TypeSystem is total - it always returns correct-arity arrays (filled with
- * unknownType on failure). No fallback paths.
- *
- * @param node - Call or new expression
- * @param ctx - ProgramContext for type system and binding access
- * @param receiverIrType - IR type of the receiver (for member method calls)
- */
-const extractParameterTypes = (
-  node: ts.CallExpression | ts.NewExpression,
-  ctx: ProgramContext,
-  receiverIrType?: IrType
-): readonly (IrType | undefined)[] | undefined => {
-  // Get the TypeSystem - required for all call resolution
-  const typeSystem = ctx.typeSystem;
-
-  // Handle both CallExpression and NewExpression
-  const sigId = ts.isCallExpression(node)
-    ? ctx.binding.resolveCallSignature(node)
-    : ctx.binding.resolveConstructorSignature(node);
-  if (!sigId) return undefined;
-
-  // Extract explicit type arguments from call site if any
-  // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const explicitTypeArgs = node.typeArguments
-    ? node.typeArguments.map((ta) =>
-        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-      )
-    : undefined;
-
-  // Get argument count for totality
-  const argumentCount = ts.isCallExpression(node)
-    ? node.arguments.length
-    : (node.arguments?.length ?? 0);
-
-  // Use TypeSystem.resolveCall() - guaranteed to return correct-arity result
-  const resolved = typeSystem.resolveCall({
-    sigId,
-    argumentCount,
-    receiverType: receiverIrType,
-    explicitTypeArgs,
-  });
-
-  // TypeSystem.resolveCall() always returns parameterTypes with correct arity
-  // (filled with unknownType on failure). Return directly - no fallback.
-  return resolved.parameterTypes;
-};
-
-/**
  * Get the declared return type from a call or new expression's signature.
  *
  * This function extracts the return type from the **signature declaration's TypeNode**,
@@ -381,7 +289,6 @@ export const convertCallExpression = (
   // Extract type arguments from the call signature
   const typeArguments = extractTypeArguments(node, ctx);
   const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
-  const narrowing = extractNarrowing(node, ctx);
 
   // Convert callee first so we can access memberBinding and receiver type
   const callee = convertExpression(node.expression, ctx, undefined);
@@ -390,43 +297,157 @@ export const convertCallExpression = (
   const receiverIrType =
     callee.kind === "memberAccess" ? callee.object.inferredType : undefined;
 
-  // Extract parameter types with receiver type for inheritance substitution
-  const parameterTypes = extractParameterTypes(node, ctx, receiverIrType);
+  // Resolve call (two-pass):
+  // 1) Resolve parameter types (for expectedType threading)
+  // 2) Convert arguments, then re-resolve with argTypes to infer generics deterministically
+  const typeSystem = ctx.typeSystem;
+  const sigId = ctx.binding.resolveCallSignature(node);
+  const argumentCount = node.arguments.length;
+
+  const explicitTypeArgs = node.typeArguments
+    ? node.typeArguments.map((ta) =>
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
+      )
+    : undefined;
+
+  const initialResolved = sigId
+    ? typeSystem.resolveCall({
+        sigId,
+        argumentCount,
+        receiverType: receiverIrType,
+        explicitTypeArgs,
+      })
+    : undefined;
+  const initialParameterTypes = initialResolved?.parameterTypes;
 
   // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
   // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
-  const argumentPassing =
-    extractArgumentPassingFromBinding(callee, node.arguments.length) ??
-    extractArgumentPassing(node, ctx);
+  const argumentPassingFromBinding = extractArgumentPassingFromBinding(
+    callee,
+    node.arguments.length
+  );
 
-  // DETERMINISTIC TYPING: Return type comes ONLY from declared TypeNodes.
-  // NO fallback to TS inference - that loses CLR type aliases.
-  // If getDeclaredReturnType returns undefined, use unknownType as poison
-  // so validation can emit TSN5201.
-  const declaredReturnType = getDeclaredReturnType(node, ctx, receiverIrType);
-  const inferredType = declaredReturnType ?? { kind: "unknownType" as const };
+  const isLambdaArg = (expr: ts.Expression): boolean => {
+    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return true;
+    if (ts.isParenthesizedExpression(expr)) return isLambdaArg(expr.expression);
+    return false;
+  };
+
+  // Pass 1: convert non-lambda arguments and infer type args from them.
+  const argsWorking: (
+    | IrCallExpression["arguments"][number]
+    | undefined
+  )[] = new Array(node.arguments.length);
+  const argTypesForInference: (IrType | undefined)[] = Array(
+    node.arguments.length
+  ).fill(undefined);
+
+  for (let index = 0; index < node.arguments.length; index++) {
+    const arg = node.arguments[index];
+    if (!arg) continue;
+
+    const expectedType = initialParameterTypes?.[index];
+
+    if (ts.isSpreadElement(arg)) {
+      const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+      argsWorking[index] = {
+        kind: "spread" as const,
+        expression: spreadExpr,
+        inferredType: spreadExpr.inferredType,
+        sourceSpan: getSourceSpan(arg),
+      };
+      continue;
+    }
+
+    if (isLambdaArg(arg)) {
+      // Defer lambda conversion until after we infer generic type args from
+      // non-lambda arguments. This prevents "T vs inferred T" conflicts.
+      continue;
+    }
+
+    const converted = convertExpression(arg, ctx, expectedType);
+    argsWorking[index] = converted;
+    argTypesForInference[index] = converted.inferredType;
+  }
+
+  const lambdaContextResolved = sigId
+    ? typeSystem.resolveCall({
+        sigId,
+        argumentCount,
+        receiverType: receiverIrType,
+        explicitTypeArgs,
+        argTypes: argTypesForInference,
+      })
+    : initialResolved;
+
+  const parameterTypesForLambdaContext =
+    lambdaContextResolved?.parameterTypes ?? initialParameterTypes;
+
+  // Pass 2: convert lambda arguments with inferred parameter types in scope.
+  for (let index = 0; index < node.arguments.length; index++) {
+    if (argsWorking[index]) continue;
+    const arg = node.arguments[index];
+    if (!arg) continue;
+    if (ts.isSpreadElement(arg)) continue;
+    if (!isLambdaArg(arg)) continue;
+
+    const expectedType = parameterTypesForLambdaContext?.[index];
+    const lambdaExpectedType =
+      expectedType?.kind === "functionType"
+        ? expectedType
+        : expectedType
+          ? typeSystem.delegateToFunctionType(expectedType) ?? expectedType
+          : undefined;
+
+    argsWorking[index] = convertExpression(arg, ctx, lambdaExpectedType);
+  }
+
+  const convertedArgs = argsWorking.map((a) => {
+    if (!a) {
+      throw new Error("ICE: call argument conversion produced a hole");
+    }
+    return a;
+  });
+
+  const argTypes = convertedArgs.map((a) =>
+    a.kind === "spread" ? undefined : a.inferredType
+  );
+
+  const finalResolved = sigId
+    ? typeSystem.resolveCall({
+        sigId,
+        argumentCount,
+        receiverType: receiverIrType,
+        explicitTypeArgs,
+        argTypes,
+      })
+    : lambdaContextResolved;
+
+  const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
+  const inferredType = finalResolved?.returnType ?? ({ kind: "unknownType" } as const);
+  const argumentPassing =
+    argumentPassingFromBinding ??
+    (finalResolved
+      ? finalResolved.parameterModes.slice(0, node.arguments.length)
+      : extractArgumentPassing(node, ctx));
+
+  const narrowing: IrCallExpression["narrowing"] = (() => {
+    const pred = finalResolved?.typePredicate;
+    if (!pred) return undefined;
+    if (pred.kind !== "param") return undefined;
+    return {
+      kind: "typePredicate",
+      argIndex: pred.parameterIndex,
+      targetType: pred.targetType,
+    };
+  })();
 
   return {
     kind: "call",
     callee,
     // Pass parameter types as expectedType for deterministic contextual typing
     // This ensures `spreadArray([1,2,3], [4,5,6])` with `number[]` params produces `double[]`
-    arguments: node.arguments.map((arg, index) => {
-      // Get expected type for this argument position
-      const expectedType = parameterTypes?.[index];
-
-      if (ts.isSpreadElement(arg)) {
-        // DETERMINISTIC: Use expression's inferredType directly
-        const spreadExpr = convertExpression(arg.expression, ctx, undefined);
-        return {
-          kind: "spread" as const,
-          expression: spreadExpr,
-          inferredType: spreadExpr.inferredType,
-          sourceSpan: getSourceSpan(arg),
-        };
-      }
-      return convertExpression(arg, ctx, expectedType);
-    }),
+    arguments: convertedArgs,
     isOptional: node.questionDotToken !== undefined,
     inferredType,
     sourceSpan: getSourceSpan(node),
@@ -438,103 +459,158 @@ export const convertCallExpression = (
   };
 };
 
-/**
- * Get the constructed type from a new expression.
- *
- * For `new Foo<int>()`, the type is `Foo<int>` - derived from the type reference
- * in the expression itself, NOT from any "return type" annotation.
- *
- * This is different from call expressions where we need declared return types.
- * Constructors don't have return type annotations - the constructed type IS
- * the class/type being instantiated.
- */
-const getConstructedType = (
-  node: ts.NewExpression,
-  ctx: ProgramContext
-): IrType | undefined => {
-  // The expression in `new Foo<T>()` is the type reference
-  // If type arguments are explicit, use them to build the type
-  if (node.typeArguments && node.typeArguments.length > 0) {
-    // Get the constructor name by walking the AST (not getText())
-    const typeName = buildQualifiedName(node.expression);
-
-    if (typeName) {
-      // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-      const typeSystem = ctx.typeSystem;
-      return {
-        kind: "referenceType",
-        name: typeName,
-        typeArguments: node.typeArguments.map((ta) =>
-          typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-        ),
-      };
-    }
-  }
-
-  // No explicit type arguments - check if the target is generic
-  // ALICE'S SPEC: Use TypeSystem to check if the type has type parameters
-  const typeSystem = ctx.typeSystem;
-  if (ts.isIdentifier(node.expression)) {
-    const declId = ctx.binding.resolveIdentifier(node.expression);
-    if (declId) {
-      // Use TypeSystem.hasTypeParameters() to check without accessing HandleRegistry
-      const hasTypeParams = typeSystem.hasTypeParameters(declId);
-      if (hasTypeParams) {
-        // Generic type without explicit type arguments - poison with unknownType
-        // Validation will emit TSN5202
-        return { kind: "unknownType" as const };
-      }
-    }
-  }
-
-  // Non-generic type - get the type from the expression
-  const typeName = buildQualifiedName(node.expression);
-  if (typeName) {
-    return {
-      kind: "referenceType",
-      name: typeName,
-    };
-  }
-
-  return undefined;
-};
+// DELETED: getConstructedType - Phase 15 uses resolveCall.returnType instead
 
 /**
  * Convert new expression
+ *
+ * Phase 15 (Alice's spec): Two-pass resolution for deterministic constructor typing.
+ * 1) Resolve once (without argTypes) to get parameter types for expected-type threading.
+ * 2) Convert non-lambda arguments first, collecting argTypes for inference.
+ * 3) Re-resolve with argTypes to infer constructor type parameters.
+ * 4) Convert lambda arguments using instantiated parameter types.
+ * 5) Final resolve with full argTypes.
+ * 6) inferredType MUST be finalResolved.returnType.
  */
 export const convertNewExpression = (
   node: ts.NewExpression,
   ctx: ProgramContext
 ): IrNewExpression => {
-  // Extract type arguments from the constructor signature
+  // Extract explicit type arguments (for IR output, not inference)
   const typeArguments = extractTypeArguments(node, ctx);
   const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
-  const parameterTypes = extractParameterTypes(node, ctx);
 
-  // For new expressions, the type is the constructed type from the type reference.
-  // Unlike function calls, constructors don't need "return type" annotations.
-  // The type is simply what we're instantiating: `new Foo<int>()` → `Foo<int>`.
-  const inferredType = getConstructedType(node, ctx);
+  // Convert callee (the constructor expression)
+  const callee = convertExpression(node.expression, ctx, undefined);
+
+  // Two-pass resolution (matching convertCallExpression pattern)
+  const typeSystem = ctx.typeSystem;
+  const sigId = ctx.binding.resolveConstructorSignature(node);
+  const argumentCount = node.arguments?.length ?? 0;
+
+  // Extract explicit type arguments from call site
+  const explicitTypeArgs = node.typeArguments
+    ? node.typeArguments.map((ta) =>
+        typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
+      )
+    : undefined;
+
+  // Initial resolution (without argTypes) for parameter type threading
+  const initialResolved = sigId
+    ? typeSystem.resolveCall({
+        sigId,
+        argumentCount,
+        explicitTypeArgs,
+      })
+    : undefined;
+  const initialParameterTypes = initialResolved?.parameterTypes;
+
+  const isLambdaArg = (expr: ts.Expression): boolean => {
+    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return true;
+    if (ts.isParenthesizedExpression(expr)) return isLambdaArg(expr.expression);
+    return false;
+  };
+
+  // Pass 1: convert non-lambda arguments and collect argTypes for inference
+  const argsWorking: (IrNewExpression["arguments"][number] | undefined)[] =
+    new Array(argumentCount);
+  const argTypesForInference: (IrType | undefined)[] = Array(argumentCount).fill(
+    undefined
+  );
+
+  const args = node.arguments ?? [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    const expectedType = initialParameterTypes?.[index];
+
+    if (ts.isSpreadElement(arg)) {
+      const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+      argsWorking[index] = {
+        kind: "spread" as const,
+        expression: spreadExpr,
+        inferredType: spreadExpr.inferredType,
+        sourceSpan: getSourceSpan(arg),
+      };
+      continue;
+    }
+
+    if (isLambdaArg(arg)) {
+      // Defer lambda conversion until after generic type arg inference
+      continue;
+    }
+
+    const converted = convertExpression(arg, ctx, expectedType);
+    argsWorking[index] = converted;
+    argTypesForInference[index] = converted.inferredType;
+  }
+
+  // Re-resolve with argTypes to infer constructor type parameters
+  const lambdaContextResolved = sigId
+    ? typeSystem.resolveCall({
+        sigId,
+        argumentCount,
+        explicitTypeArgs,
+        argTypes: argTypesForInference,
+      })
+    : initialResolved;
+
+  const parameterTypesForLambdaContext =
+    lambdaContextResolved?.parameterTypes ?? initialParameterTypes;
+
+  // Pass 2: convert lambda arguments with inferred parameter types
+  for (let index = 0; index < args.length; index++) {
+    if (argsWorking[index]) continue;
+    const arg = args[index];
+    if (!arg) continue;
+    if (ts.isSpreadElement(arg)) continue;
+    if (!isLambdaArg(arg)) continue;
+
+    const expectedType = parameterTypesForLambdaContext?.[index];
+    const lambdaExpectedType =
+      expectedType?.kind === "functionType"
+        ? expectedType
+        : expectedType
+          ? typeSystem.delegateToFunctionType(expectedType) ?? expectedType
+          : undefined;
+
+    argsWorking[index] = convertExpression(arg, ctx, lambdaExpectedType);
+  }
+
+  // Fill any remaining undefined slots (shouldn't happen, but be safe)
+  const convertedArgs = argsWorking.map((a, index) => {
+    if (a) return a;
+    const arg = args[index];
+    if (!arg) {
+      throw new Error("ICE: new expression argument conversion produced a hole");
+    }
+    return convertExpression(arg, ctx, undefined);
+  });
+
+  // Collect final argTypes
+  const argTypes = convertedArgs.map((a) =>
+    a.kind === "spread" ? undefined : a.inferredType
+  );
+
+  // Final resolution with full argTypes
+  const finalResolved = sigId
+    ? typeSystem.resolveCall({
+        sigId,
+        argumentCount,
+        explicitTypeArgs,
+        argTypes,
+      })
+    : lambdaContextResolved;
+
+  // Phase 15: inferredType MUST be finalResolved.returnType
+  // If sigId is missing, use unknownType (do not fabricate a nominal type)
+  const inferredType: IrType = finalResolved?.returnType ?? { kind: "unknownType" };
 
   return {
     kind: "new",
-    callee: convertExpression(node.expression, ctx, undefined),
-    // Pass parameter types as expectedType for deterministic contextual typing
-    arguments:
-      node.arguments?.map((arg, index) => {
-        const expectedType = parameterTypes?.[index];
-        if (ts.isSpreadElement(arg)) {
-          // DETERMINISTIC: Use expression's inferredType directly
-          const spreadExpr = convertExpression(arg.expression, ctx, undefined);
-          return {
-            kind: "spread" as const,
-            expression: spreadExpr,
-            inferredType: spreadExpr.inferredType,
-            sourceSpan: getSourceSpan(arg),
-          };
-        }
-        return convertExpression(arg, ctx, expectedType);
-      }) ?? [],
+    callee,
+    arguments: convertedArgs,
     inferredType,
     sourceSpan: getSourceSpan(node),
     typeArguments,

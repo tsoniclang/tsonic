@@ -231,22 +231,32 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
   /**
    * Get the inheritance chain for a nominal type.
    * Returns TypeIds in order from child to parent.
-   * Only follows "extends" edges (matches legacy behavior).
+   *
+   * Phase 6 (Alice's spec): This must be sufficient for nominal assignability and
+   * member lookup across both class inheritance and implemented interfaces.
    */
   const getInheritanceChain = (typeId: TypeId): readonly TypeId[] => {
     const cached = inheritanceChainCache.get(typeId.stableId);
     if (cached) return cached;
 
     const chain: TypeId[] = [typeId];
-    const visited = new Set<string>();
-    visited.add(typeId.stableId);
+    const visited = new Set<string>([typeId.stableId]);
 
-    const walkHeritage = (currentTypeId: TypeId): void => {
-      const heritage = catalog.getHeritage(currentTypeId);
+    const queue: TypeId[] = [typeId];
+
+    while (queue.length > 0) {
+      const currentTypeId = queue.shift();
+      if (!currentTypeId) continue;
+
+      const heritage = [...catalog.getHeritage(currentTypeId)].sort((a, b) => {
+        const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
+        const ra = rank(a.kind);
+        const rb = rank(b.kind);
+        if (ra !== rb) return ra - rb;
+        return a.targetStableId.localeCompare(b.targetStableId);
+      });
 
       for (const edge of heritage) {
-        // Only follow "extends" edges (not "implements")
-        if (edge.kind !== "extends") continue;
         if (visited.has(edge.targetStableId)) continue;
 
         const parentEntry = catalog.getByStableId(edge.targetStableId);
@@ -254,59 +264,12 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
 
         visited.add(edge.targetStableId);
         chain.push(parentEntry.typeId);
-        walkHeritage(parentEntry.typeId);
-      }
-    };
-
-    walkHeritage(typeId);
-    inheritanceChainCache.set(typeId.stableId, chain);
-    return chain;
-  };
-
-  /**
-   * Find the heritage edge from child to parent.
-   */
-  const findHeritageEdge = (
-    childTypeId: TypeId,
-    parentStableId: string
-  ): HeritageEdge | undefined => {
-    const heritage = catalog.getHeritage(childTypeId);
-    return heritage.find(
-      (edge) => edge.kind === "extends" && edge.targetStableId === parentStableId
-    );
-  };
-
-  /**
-   * Build substitution map for a specific step in the inheritance chain.
-   * Maps the parent type's type parameters to the concrete types from the heritage clause.
-   *
-   * Uses pure IR: HeritageEdge.typeArguments is already IrType[].
-   */
-  const buildStepSubstitution = (
-    childTypeId: TypeId,
-    parentTypeId: TypeId,
-    parentSubst: InstantiationEnv
-  ): InstantiationEnv => {
-    // Find the heritage edge from child to parent
-    const edge = findHeritageEdge(childTypeId, parentTypeId.stableId);
-    if (!edge) return new Map();
-
-    // Get the parent type's type parameters
-    const parentTypeParams = catalog.getTypeParameters(parentTypeId);
-
-    // Build substitution map: parent type param → concrete type
-    const subst = new Map<string, IrType>();
-    for (let i = 0; i < parentTypeParams.length; i++) {
-      const paramName = parentTypeParams[i]?.name;
-      const argType = edge.typeArguments[i];
-      if (paramName && argType) {
-        // Apply parent substitution (in case the arg contains type params from child)
-        const substitutedArgType = substituteIrType(argType, parentSubst);
-        subst.set(paramName, substitutedArgType);
+        queue.push(parentEntry.typeId);
       }
     }
 
-    return subst;
+    inheritanceChainCache.set(typeId.stableId, chain);
+    return chain;
   };
 
   /**
@@ -337,17 +300,7 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
       return subst;
     }
 
-    // Get inheritance chain
-    const chain = getInheritanceChain(receiverTypeId);
-
-    // Find target in chain by stableId
-    const targetIndex = chain.findIndex(
-      (t) => t.stableId === targetTypeId.stableId
-    );
-    if (targetIndex === -1) return undefined;
-
-    // Build substitution by walking the chain
-    // Start with receiver's type args
+    // Start with receiver's type args (receiver param → concrete type)
     const receiverTypeParams = catalog.getTypeParameters(receiverTypeId);
     let currentSubst = new Map<string, IrType>();
     for (let i = 0; i < receiverTypeParams.length; i++) {
@@ -358,24 +311,66 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
       }
     }
 
-    // Walk from receiver to target, accumulating substitutions
-    for (let i = 0; i < targetIndex; i++) {
-      const childTypeId = chain[i];
-      const parentTypeId = chain[i + 1];
-      if (!childTypeId || !parentTypeId) continue;
+    // Graph search through heritage edges (extends + implements), composing substitutions.
+    type State = { readonly typeId: TypeId; readonly subst: InstantiationEnv };
 
-      const stepSubst = buildStepSubstitution(
-        childTypeId,
-        parentTypeId,
-        currentSubst
-      );
+    const serializeSubst = (typeId: TypeId, subst: InstantiationEnv): string => {
+      const typeParams = catalog.getTypeParameters(typeId);
+      return typeParams
+        .map((tp) => JSON.stringify(subst.get(tp.name) ?? null))
+        .join(",");
+    };
 
-      // The step substitution maps parent's params to concrete types
-      currentSubst = new Map(stepSubst);
+    const visited = new Set<string>();
+    const queue: State[] = [
+      {
+        typeId: receiverTypeId,
+        subst: currentSubst,
+      },
+    ];
+
+    while (queue.length > 0) {
+      const state = queue.shift();
+      if (!state) continue;
+
+      if (state.typeId.stableId === targetTypeId.stableId) {
+        instantiationCache.set(cacheKey, state.subst);
+        return state.subst;
+      }
+
+      const heritage = [...catalog.getHeritage(state.typeId)].sort((a, b) => {
+        const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
+        const ra = rank(a.kind);
+        const rb = rank(b.kind);
+        if (ra !== rb) return ra - rb;
+        return a.targetStableId.localeCompare(b.targetStableId);
+      });
+
+      for (const edge of heritage) {
+        const parentEntry = catalog.getByStableId(edge.targetStableId);
+        if (!parentEntry) continue;
+
+        const parentTypeId = parentEntry.typeId;
+        const parentTypeParams = catalog.getTypeParameters(parentTypeId);
+
+        const nextSubst = new Map<string, IrType>();
+        for (let i = 0; i < parentTypeParams.length; i++) {
+          const paramName = parentTypeParams[i]?.name;
+          const argType = edge.typeArguments[i];
+          if (paramName && argType) {
+            nextSubst.set(paramName, substituteIrType(argType, state.subst));
+          }
+        }
+
+        const visitKey = `${parentTypeId.stableId}|${serializeSubst(parentTypeId, nextSubst)}`;
+        if (visited.has(visitKey)) continue;
+        visited.add(visitKey);
+
+        queue.push({ typeId: parentTypeId, subst: nextSubst });
+      }
     }
 
-    instantiationCache.set(cacheKey, currentSubst);
-    return currentSubst;
+    return undefined;
   };
 
   /**

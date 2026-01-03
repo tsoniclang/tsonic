@@ -371,9 +371,54 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     node: ts.NewExpression
   ): SignatureId | undefined => {
     const signature = checker.getResolvedSignature(node);
-    if (!signature || signature.declaration === undefined) return undefined;
+    if (!signature) return undefined;
 
-    return getOrCreateSignatureId(signature);
+    const sigId = getOrCreateSignatureId(signature);
+
+    // For implicit default constructors, TypeScript may return a signature with no declaration.
+    // We still need a SignatureEntry that identifies the constructed type so TypeSystem can
+    // synthesize the constructor return type deterministically.
+    const entry = signatureMap.get(sigId.id);
+    if (entry && !entry.decl) {
+      const expr = node.expression;
+
+      const symbol = (() => {
+        if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+        if (ts.isPropertyAccessExpression(expr)) {
+          return checker.getSymbolAtLocation(expr.name);
+        }
+        return undefined;
+      })();
+
+      const resolvedSymbol =
+        symbol && symbol.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(symbol)
+          : symbol;
+
+      const decl = resolvedSymbol?.getDeclarations()?.[0];
+
+      const declaringTypeTsName = (() => {
+        if (decl && ts.isClassDeclaration(decl) && decl.name) return decl.name.text;
+        if (resolvedSymbol) return resolvedSymbol.getName();
+        if (ts.isIdentifier(expr)) return expr.text;
+        if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+        return undefined;
+      })();
+
+      if (declaringTypeTsName) {
+        signatureMap.set(sigId.id, {
+          ...entry,
+          declaringTypeTsName,
+          declaringMemberName: "constructor",
+          typeParameters:
+            decl && ts.isClassDeclaration(decl)
+              ? convertTypeParameterDeclarations(decl.typeParameters)
+              : undefined,
+        });
+      }
+    }
+
+    return sigId;
   };
 
   const resolveImport = (node: ts.ImportSpecifier): DeclId | undefined => {
@@ -697,15 +742,35 @@ const normalizeParameterTypeNode = (
   return { mode: "value", typeNode };
 };
 
-const extractTypeParameterNodes = (
-  decl: ts.SignatureDeclaration | undefined
+const convertTypeParameterDeclarations = (
+  typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
 ): readonly TypeParameterNode[] | undefined => {
-  if (!decl?.typeParameters) return undefined;
-  return decl.typeParameters.map((tp) => ({
+  if (!typeParameters || typeParameters.length === 0) return undefined;
+  return typeParameters.map((tp) => ({
     name: tp.name.text,
     constraintNode: tp.constraint,
     defaultNode: tp.default,
   }));
+};
+
+const extractTypeParameterNodes = (
+  decl: ts.SignatureDeclaration | undefined
+): readonly TypeParameterNode[] | undefined => {
+  if (!decl) return undefined;
+
+  // Constructor declarations don't have their own type parameters in TS syntax,
+  // but the enclosing class may be generic (class Box<T> { constructor(x: T) {} }).
+  // For constructor signature typing/inference, the relevant type parameters are the
+  // class type parameters.
+  if (ts.isConstructorDeclaration(decl)) {
+    const parent = decl.parent;
+    if (ts.isClassDeclaration(parent)) {
+      return convertTypeParameterDeclarations(parent.typeParameters);
+    }
+    return undefined;
+  }
+
+  return convertTypeParameterDeclarations(decl.typeParameters);
 };
 
 /**

@@ -79,49 +79,65 @@ const deriveCallReturnType = (
 /**
  * Derive the constructed type from a new expression.
  *
- * For `new Foo<int>()`, returns `Foo<int>` as a reference type.
+ * Phase 15 (Alice's spec): Uses constructor-signature-based logic with resolveCall.
+ * This enables deterministic generic inference from argument types.
  */
 const deriveNewExpressionType = (
   node: ts.NewExpression,
   ctx: ProgramContext
 ): IrType | undefined => {
-  // Get the type name from the expression
-  const getTypeName = (expr: ts.Expression): string | undefined => {
-    if (ts.isIdentifier(expr)) {
-      return expr.text;
-    }
-    if (ts.isPropertyAccessExpression(expr)) {
-      const parts: string[] = [];
-      let current: ts.Expression = expr;
-      while (ts.isPropertyAccessExpression(current)) {
-        parts.unshift(current.name.text);
-        current = current.expression;
-      }
-      if (ts.isIdentifier(current)) {
-        parts.unshift(current.text);
-        return parts.join(".");
-      }
-    }
-    return undefined;
-  };
+  const typeSystem = ctx.typeSystem;
 
-  const typeName = getTypeName(node.expression);
-  if (!typeName) return undefined;
+  // Get constructor signature ID
+  const sigId = ctx.binding.resolveConstructorSignature(node);
+  if (!sigId) return undefined;
 
-  // If explicit type arguments, include them
-  if (node.typeArguments && node.typeArguments.length > 0) {
-    // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-    const typeSystem = ctx.typeSystem;
-    return {
-      kind: "referenceType",
-      name: typeName,
-      typeArguments: node.typeArguments.map((ta) =>
+  // Extract explicit type arguments
+  const explicitTypeArgs = node.typeArguments
+    ? node.typeArguments.map((ta) =>
         typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
-      ),
-    };
+      )
+    : undefined;
+
+  // Derive argTypes conservatively from syntax (similar to deriveTypeFromInitializer)
+  const argTypes: (IrType | undefined)[] = [];
+  const args = node.arguments ?? [];
+  for (const arg of args) {
+    if (ts.isSpreadElement(arg)) {
+      argTypes.push(undefined);
+    } else if (ts.isNumericLiteral(arg)) {
+      argTypes.push({ kind: "primitiveType", name: "number" });
+    } else if (ts.isStringLiteral(arg)) {
+      argTypes.push({ kind: "primitiveType", name: "string" });
+    } else if (
+      arg.kind === ts.SyntaxKind.TrueKeyword ||
+      arg.kind === ts.SyntaxKind.FalseKeyword
+    ) {
+      argTypes.push({ kind: "primitiveType", name: "boolean" });
+    } else if (ts.isIdentifier(arg)) {
+      argTypes.push(deriveIdentifierType(arg, ctx));
+    } else if (ts.isNewExpression(arg)) {
+      // Recursive call for nested new expressions
+      argTypes.push(deriveNewExpressionType(arg, ctx));
+    } else {
+      argTypes.push(undefined);
+    }
   }
 
-  return { kind: "referenceType", name: typeName };
+  // Resolve the constructor call with argTypes for inference
+  const resolved = typeSystem.resolveCall({
+    sigId,
+    argumentCount: args.length,
+    explicitTypeArgs,
+    argTypes,
+  });
+
+  // Return the resolved returnType (the constructed type)
+  if (resolved.returnType.kind === "unknownType") {
+    return undefined;
+  }
+
+  return resolved.returnType;
 };
 
 /**
