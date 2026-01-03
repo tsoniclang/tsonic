@@ -7,6 +7,7 @@
  * Phase 6: NominalEnv is now TypeId-based, using UnifiedTypeCatalog.
  */
 
+import * as fs from "node:fs";
 import * as path from "path";
 import * as ts from "typescript";
 import type { Binding, BindingInternal } from "./binding/index.js";
@@ -120,7 +121,63 @@ export const createProgramContext = (
     program.options.projectRoot,
     "node_modules"
   );
-  const assemblyCatalog = loadClrCatalog(nodeModulesPath);
+  const findSiblingTsonicPackage = (
+    startDir: string,
+    dirName: string,
+    expectedPackageName: string
+  ): string | undefined => {
+    let dir = startDir;
+    while (true) {
+      const candidateRoot = path.join(dir, dirName);
+      const pkgJson = path.join(candidateRoot, "package.json");
+      if (fs.existsSync(pkgJson)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
+            readonly name?: unknown;
+          };
+          if (parsed.name === expectedPackageName) {
+            return candidateRoot;
+          }
+        } catch {
+          // Ignore invalid package.json and keep searching.
+        }
+      }
+
+      const parent = path.dirname(dir);
+      if (parent === dir) return undefined;
+      dir = parent;
+    }
+  };
+
+  const extraPackageRoots: string[] = [];
+
+  // If the project doesn't have these packages installed, allow discovering them
+  // from sibling checkouts (common in a multi-repo workspace).
+  const jsInstalled = fs.existsSync(
+    path.join(nodeModulesPath, "@tsonic", "js", "package.json")
+  );
+  if (!jsInstalled) {
+    const jsRoot = findSiblingTsonicPackage(
+      program.options.projectRoot,
+      "js",
+      "@tsonic/js"
+    );
+    if (jsRoot) extraPackageRoots.push(jsRoot);
+  }
+
+  const nodejsInstalled = fs.existsSync(
+    path.join(nodeModulesPath, "@tsonic", "nodejs", "package.json")
+  );
+  if (!nodejsInstalled) {
+    const nodejsRoot = findSiblingTsonicPackage(
+      program.options.projectRoot,
+      "nodejs",
+      "@tsonic/nodejs"
+    );
+    if (nodejsRoot) extraPackageRoots.push(nodejsRoot);
+  }
+
+  const assemblyCatalog = loadClrCatalog(nodeModulesPath, extraPackageRoots);
   const aliasTable = buildAliasTable(assemblyCatalog);
 
   // Build unified catalog merging source and assembly types

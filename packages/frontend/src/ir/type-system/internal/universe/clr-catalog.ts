@@ -1002,7 +1002,8 @@ const findMetadataFiles = (packagePath: string): string[] => {
  * @returns AssemblyTypeCatalog with all loaded types
  */
 export const loadClrCatalog = (
-  nodeModulesPath: string
+  nodeModulesPath: string,
+  extraPackageRoots: readonly string[] = []
 ): AssemblyTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
   const tsNameToTypeId = new Map<string, TypeId>();
@@ -1011,9 +1012,12 @@ export const loadClrCatalog = (
   const dtsFiles = new Set<string>();
 
   // Find all @tsonic packages
-  const packages = findTsonicPackages(nodeModulesPath);
+  const packageRoots = new Set<string>(findTsonicPackages(nodeModulesPath));
+  for (const extra of extraPackageRoots) {
+    packageRoots.add(extra);
+  }
 
-  for (const packagePath of packages) {
+  for (const packagePath of Array.from(packageRoots).sort()) {
     // Find all metadata.json files
     const metadataFiles = findMetadataFiles(packagePath);
 
