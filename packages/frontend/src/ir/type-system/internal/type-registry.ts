@@ -297,6 +297,38 @@ const extractMembers = (
   const result = new Map<string, MemberInfo>();
 
   for (const member of members) {
+    // Constructor parameter properties (class)
+    // e.g., `constructor(public name: string, private password: string) {}`
+    if (ts.isConstructorDeclaration(member)) {
+      for (const param of member.parameters) {
+        const isParameterProperty =
+          param.modifiers?.some(
+            (m) =>
+              m.kind === ts.SyntaxKind.PublicKeyword ||
+              m.kind === ts.SyntaxKind.PrivateKeyword ||
+              m.kind === ts.SyntaxKind.ProtectedKeyword ||
+              m.kind === ts.SyntaxKind.ReadonlyKeyword
+          ) ?? false;
+
+        if (!isParameterProperty) continue;
+        if (!ts.isIdentifier(param.name)) continue;
+
+        const name = param.name.text;
+        const isOptional = !!param.questionToken || !!param.initializer;
+        const isReadonly =
+          param.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ??
+          false;
+
+        result.set(name, {
+          kind: "property",
+          name,
+          type: param.type ? convertType(param.type) : undefined,
+          isOptional,
+          isReadonly,
+        });
+      }
+    }
+
     // Property declarations (class)
     if (ts.isPropertyDeclaration(member)) {
       const name = member.name.getText();
