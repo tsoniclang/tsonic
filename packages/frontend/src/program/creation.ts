@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { Result, ok, error } from "../types/result.js";
 import { DiagnosticsCollector } from "../types/diagnostic.js";
 import { CompilerOptions, TsonicProgram } from "./types.js";
@@ -73,6 +74,7 @@ export const createProgram = (
   options: CompilerOptions
 ): Result<TsonicProgram, DiagnosticsCollector> => {
   const absolutePaths = filePaths.map((fp) => path.resolve(fp));
+  const compilerContainingFile = fileURLToPath(import.meta.url);
 
   // Mandatory, compiler-owned type root (never optional)
   // Resolved from installed @tsonic/globals package
@@ -227,6 +229,18 @@ export const createProgram = (
           resolvedFileName: resolvedFile,
           isExternalLibraryImport: true,
         };
+      }
+
+      // Compiler-owned @tsonic/* packages must resolve from the compiler install,
+      // not the user's project root, to keep stdlib typings + metadata coherent.
+      if (moduleName.startsWith("@tsonic/")) {
+        const result = ts.resolveModuleName(
+          moduleName,
+          compilerContainingFile,
+          tsOptions,
+          host
+        );
+        return result.resolvedModule;
       }
 
       // Use default resolution for other modules

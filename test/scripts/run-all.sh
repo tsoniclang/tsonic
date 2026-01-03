@@ -105,9 +105,11 @@ else
 
         cd "$fixture_dir"
 
-        # Install dependencies
-        if [ -f "package.json" ]; then
-            npm install --silent 2>/dev/null || true
+        # Optional per-fixture dependency install (off by default).
+        # E2E fixtures live inside the monorepo, so they can resolve @tsonic/*
+        # from the repo root node_modules without local installs.
+        if [ -f "package.json" ] && [ "${E2E_NPM_INSTALL:-0}" = "1" ]; then
+            npm install --silent --no-package-lock
         fi
 
         # Build and run - capture errors to file
@@ -236,8 +238,8 @@ else
 
         cd "$fixture_dir"
 
-        if [ -f "package.json" ]; then
-            npm install --silent 2>/dev/null || true
+        if [ -f "package.json" ] && [ "${E2E_NPM_INSTALL:-0}" = "1" ]; then
+            npm install --silent --no-package-lock
         fi
 
         # Build should FAIL
