@@ -34,6 +34,9 @@ export type TsonicConfig = {
   readonly rootNamespace: string;
   readonly entryPoint?: string;
   readonly sourceRoot?: string;
+  readonly namingPolicy?: {
+    readonly classes?: "default" | "PascalCase";
+  };
   readonly outputDirectory?: string;
   readonly outputName?: string;
   readonly rid?: string;
@@ -91,6 +94,9 @@ export type ResolvedConfig = {
   readonly entryPoint: string | undefined;
   readonly projectRoot: string; // Directory containing tsonic.json/package.json
   readonly sourceRoot: string;
+  readonly namingPolicy: {
+    readonly classes: "default" | "PascalCase";
+  };
   readonly outputDirectory: string;
   readonly outputName: string;
   readonly rid: string;

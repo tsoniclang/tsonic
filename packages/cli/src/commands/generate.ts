@@ -254,6 +254,7 @@ export const generateCommand = (
       rootNamespace,
       typeRoots: allTypeRoots,
       verbose: config.verbose,
+      namingPolicy: config.namingPolicy,
     };
     const graphResult = buildModuleDependencyGraph(entryPoint, compilerOptions);
 

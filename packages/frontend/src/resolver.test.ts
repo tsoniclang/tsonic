@@ -153,5 +153,17 @@ describe("Module Resolver", () => {
       );
       expect(getClassNameFromPath("index.ts")).to.equal("index");
     });
+
+    it("should support PascalCase class naming policy", () => {
+      // Default policy preserves legacy behavior: strip hyphens only.
+      expect(getClassNameFromPath("/src/todo-list.ts")).to.equal("todolist");
+
+      expect(getClassNameFromPath("/src/todo-list.ts", "PascalCase")).to.equal(
+        "TodoList"
+      );
+      expect(getClassNameFromPath("/src/todolist.ts", "PascalCase")).to.equal(
+        "Todolist"
+      );
+    });
   });
 });

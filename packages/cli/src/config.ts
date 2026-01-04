@@ -39,6 +39,19 @@ export const loadConfig = (
       };
     }
 
+    const classNamingPolicy = config.namingPolicy?.classes;
+    if (
+      classNamingPolicy !== undefined &&
+      classNamingPolicy !== "default" &&
+      classNamingPolicy !== "PascalCase"
+    ) {
+      return {
+        ok: false,
+        error:
+          "tsonic.json: 'namingPolicy.classes' must be one of: \"default\", \"PascalCase\"",
+      };
+    }
+
     return { ok: true, value: config };
   } catch (error) {
     return {
@@ -176,11 +189,16 @@ export const resolveConfig = (
   // Resolve output configuration
   const outputConfig = resolveOutputConfig(config, cliOptions, entryPoint);
 
+  const classNamingPolicy = config.namingPolicy?.classes ?? "default";
+
   return {
     rootNamespace: cliOptions.namespace ?? config.rootNamespace,
     entryPoint,
     projectRoot,
     sourceRoot,
+    namingPolicy: {
+      classes: classNamingPolicy,
+    },
     outputDirectory: config.outputDirectory ?? "generated",
     outputName: cliOptions.out ?? config.outputName ?? "app",
     rid: cliOptions.rid ?? config.rid ?? detectRid(),

@@ -36,7 +36,7 @@ import { validateClassImplements } from "./validation.js";
  */
 export const buildIrModule = (
   sourceFile: ts.SourceFile,
-  _program: TsonicProgram,
+  program: TsonicProgram,
   options: IrBuildOptions,
   ctx: ProgramContext
 ): Result<IrModule, Diagnostic> => {
@@ -46,7 +46,10 @@ export const buildIrModule = (
       options.sourceRoot,
       options.rootNamespace
     );
-    const className = getClassNameFromPath(sourceFile.fileName);
+    const className = getClassNameFromPath(
+      sourceFile.fileName,
+      program.options.namingPolicy?.classes
+    );
 
     const imports = extractImports(sourceFile, ctx);
     const exports = extractExportsWithContext(sourceFile, ctx);

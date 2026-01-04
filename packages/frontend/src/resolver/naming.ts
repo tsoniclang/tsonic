@@ -31,8 +31,20 @@ export const getNamespaceFromPath = (
 /**
  * Generate class name from file path
  */
-export const getClassNameFromPath = (filePath: string): string => {
+export const getClassNameFromPath = (
+  filePath: string,
+  classNamingPolicy: "default" | "PascalCase" = "default"
+): string => {
   const basename = path.basename(filePath, ".ts");
-  // Strip hyphens from file names (per spec: hyphens are ignored)
-  return basename.replace(/-/g, "");
+  // Default behavior: strip hyphens from file names (per spec: hyphens are ignored)
+  if (classNamingPolicy === "default") {
+    return basename.replace(/-/g, "");
+  }
+
+  // PascalCase: treat '-' and '_' as word separators; uppercase first char of each segment.
+  const parts = basename.split(/[-_]+/g).filter((p) => p.length > 0);
+  if (parts.length === 0) return "";
+  return parts
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join("");
 };

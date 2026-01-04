@@ -19,7 +19,11 @@ import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js"
 import { createBinding } from "./binding/index.js";
 
 describe("IR Builder", () => {
-  const createTestProgram = (source: string, fileName = "/test/test.ts") => {
+  const createTestProgram = (
+    source: string,
+    fileName = "/test/test.ts",
+    classNamingPolicy?: "default" | "PascalCase"
+  ) => {
     const sourceFile = ts.createSourceFile(
       fileName,
       source,
@@ -57,6 +61,11 @@ describe("IR Builder", () => {
         projectRoot: "/test",
         sourceRoot: "/test",
         rootNamespace: "TestApp",
+        namingPolicy: classNamingPolicy
+          ? {
+              classes: classNamingPolicy,
+            }
+          : undefined,
         strict: true,
       },
       sourceFiles: [sourceFile],
@@ -95,6 +104,27 @@ describe("IR Builder", () => {
         expect(module.namespace).to.equal("TestApp");
         expect(module.className).to.equal("test");
         expect(module.isStaticContainer).to.equal(true);
+      }
+    });
+
+    it("should apply class naming policy from program options", () => {
+      const source = `
+        export const x = 42;
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(
+        source,
+        "/test/todo-list.ts",
+        "PascalCase"
+      );
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        expect(result.value.className).to.equal("TodoList");
       }
     });
 

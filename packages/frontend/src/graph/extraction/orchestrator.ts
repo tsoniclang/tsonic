@@ -85,7 +85,10 @@ export const extractModuleInfo = (
     program.options.rootNamespace
   );
 
-  const className = getClassNameFromPath(sourceFile.fileName);
+  const className = getClassNameFromPath(
+    sourceFile.fileName,
+    program.options.namingPolicy?.classes
+  );
 
   return {
     filePath: sourceFile.fileName,

@@ -118,6 +118,27 @@ describe("Config", () => {
       expect(result.optimize).to.equal("speed");
     });
 
+    it("should default namingPolicy.classes to 'default'", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.namingPolicy.classes).to.equal("default");
+    });
+
+    it("should allow namingPolicy.classes override", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        namingPolicy: {
+          classes: "PascalCase",
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.namingPolicy.classes).to.equal("PascalCase");
+    });
+
     it("should default stripSymbols to true", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
