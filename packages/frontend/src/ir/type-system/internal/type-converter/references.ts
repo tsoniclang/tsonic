@@ -459,6 +459,14 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
+  // `thisarg<T>` is a TS-only marker used to declare C# extension method receivers.
+  // For IR typing it must erase to the underlying T so call resolution and generic
+  // inference operate on the real receiver type.
+  if (typeName === "thisarg" && node.typeArguments?.length === 1) {
+    const inner = node.typeArguments[0];
+    return inner ? convertType(inner, binding) : { kind: "unknownType" };
+  }
+
   // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
   // These are type aliases that should NOT be resolved - we preserve them
   // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.

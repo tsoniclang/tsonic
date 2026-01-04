@@ -1,5 +1,5 @@
 import type { thisarg } from "@tsonic/core/lang.js";
-import { int } from "@tsonic/core/types.js";
+import { int, ref } from "@tsonic/core/types.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";
@@ -9,6 +9,10 @@ type LinqSeq<T> = Linq<IEnumerable<T>>;
 
 export function inc(x: thisarg<int>): int {
   return x + 1;
+}
+
+export function addOne(x: thisarg<ref<int>>): void {
+  x = x + 1;
 }
 
 export function main(): void {
@@ -27,6 +31,10 @@ export function main(): void {
   let count: int = 0 as int;
   const ok = xs.tryGetNonEnumeratedCount(count);
   Console.writeLine(`TryGetNonEnumeratedCount: ${ok} ${count}`);
+
+  let n: int = 10 as int;
+  addOne(n);
+  Console.writeLine(`addOne(10): ${n}`);
 
   Console.writeLine(`inc(5): ${inc(5 as int)}`);
 }
