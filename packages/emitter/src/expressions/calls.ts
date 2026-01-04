@@ -98,8 +98,18 @@ const isGlobalJsonCall = (
  * to instance-style member accesses.
  */
 const isInstanceMemberAccess = (
-  expr: Extract<IrExpression, { kind: "memberAccess" }>
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext
 ): boolean => {
+  // Imported types (e.g., `Enumerable.Where(...)`) are static receiver expressions,
+  // even if TypeScript assigns them an inferredType.
+  if (expr.object.kind === "identifier") {
+    const importBinding = context.importBindings?.get(expr.object.name);
+    if (importBinding?.kind === "type") {
+      return false;
+    }
+  }
+
   const objectType = expr.object.inferredType;
   return (
     objectType?.kind === "referenceType" ||
@@ -311,7 +321,7 @@ export const emitCall = (
   if (
     expr.callee.kind === "memberAccess" &&
     expr.callee.memberBinding?.isExtensionMethod &&
-    isInstanceMemberAccess(expr.callee)
+    isInstanceMemberAccess(expr.callee, context)
   ) {
     let currentContext = context;
 
