@@ -328,6 +328,34 @@ declare module "@tsonic/core/attributes.js" {
       }
     }
 
+    // Patch Expression<TDelegate> so TS accepts lambdas in IQueryable APIs
+    // (Queryable/EF-style expression trees).
+    //
+    // TypeScript cannot model C#'s implicit lambda-to-Expression conversion directly,
+    // so we widen Expression_1<TDelegate> to also accept the delegate type itself.
+    if (
+      normalizedFileName.includes(
+        "/node_modules/@tsonic/dotnet/System.Linq.Expressions/internal/index.d.ts"
+      )
+    ) {
+      try {
+        const raw = fs.readFileSync(fileName, "utf-8");
+        const needle =
+          "export type Expression_1<TDelegate> = Expression_1$instance<TDelegate>;";
+        const patched = raw.includes("__tsonic_expression_delegate_union")
+          ? raw
+          : raw.replace(
+              needle,
+              `// __tsonic_expression_delegate_union: allow passing lambdas to Expression<TDelegate> parameters.
+export type Expression_1<TDelegate> = Expression_1$instance<TDelegate> | TDelegate;`
+            );
+
+        return ts.createSourceFile(fileName, patched, languageVersion, true);
+      } catch {
+        // Fall through to the default host behavior.
+      }
+    }
+
     // Check if this is a .NET namespace being imported
     const baseName = path.basename(fileName, path.extname(fileName));
     const declarationPath = namespaceFiles.get(baseName);

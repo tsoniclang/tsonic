@@ -1136,6 +1136,25 @@ export const createTypeSystem = (
    * (e.g., custom delegates from CLR metadata).
    */
   const delegateToFunctionType = (type: IrType): IrFunctionType | undefined => {
+    // Expression<TDelegate> is a wrapper around a delegate used by IQueryable APIs.
+    // For deterministic lambda contextual typing, unwrap it to the underlying delegate.
+    if (type.kind === "referenceType") {
+      const normalized = normalizeToNominal(type);
+      const expressionTypeId =
+        resolveTypeIdByName("System.Linq.Expressions.Expression`1") ??
+        resolveTypeIdByName("Expression_1");
+      if (
+        normalized &&
+        expressionTypeId &&
+        normalized.typeId.stableId === expressionTypeId.stableId
+      ) {
+        const inner = normalized.typeArgs[0];
+        if (!inner) return undefined;
+        if (inner.kind === "functionType") return inner;
+        return delegateToFunctionType(inner);
+      }
+    }
+
     const normalized = normalizeToNominal(type);
     if (!normalized) return undefined;
 
@@ -2188,6 +2207,38 @@ export const createTypeSystem = (
 
         // Conservative: ambiguous unions provide no deterministic signal.
         return true;
+      }
+
+      // Expression<TDelegate> ↔ lambda unification (Queryable/EF-style APIs)
+      //
+      // In C#, lambdas can be converted to Expression<Delegate>. For deterministic
+      // method type argument inference we treat a lambda (functionType) argument
+      // as unifiable with the underlying delegate type argument.
+      if (
+        parameterType.kind === "referenceType" &&
+        (argumentType.kind === "functionType" || argumentType.kind === "referenceType")
+      ) {
+        const paramNominal = normalizeToNominal(parameterType);
+        const expressionTypeId =
+          resolveTypeIdByName("System.Linq.Expressions.Expression`1") ??
+          resolveTypeIdByName("Expression_1");
+        if (
+          paramNominal &&
+          expressionTypeId &&
+          paramNominal.typeId.stableId === expressionTypeId.stableId
+        ) {
+          const delegateArg = parameterType.typeArguments?.[0];
+          if (delegateArg) {
+            if (argumentType.kind === "functionType") {
+              return tryUnify(delegateArg, argumentType);
+            }
+
+            const asFn = delegateToFunctionType(argumentType);
+            if (asFn) {
+              return tryUnify(delegateArg, asFn);
+            }
+          }
+        }
       }
 
       if (
