@@ -87,6 +87,10 @@ export type SimpleBindingFile = {
 export type TsbindgenMethod = {
   readonly clrName: string;
   readonly tsEmitName: string;
+  /** Normalized signature string (tsbindgen metadata, used for extension receiver inference) */
+  readonly normalizedSignature?: string;
+  /** Total parameter count in CLR signature (includes extension receiver) */
+  readonly parameterCount?: number;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
   // Parameter modifiers for ref/out/in parameters
@@ -213,6 +217,89 @@ export class BindingRegistry {
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
 
   /**
+   * Extension method index for instance-style calls.
+   *
+   * Keyed by:
+   * - declaring namespace key (CLR namespace with '.' replaced by '_', e.g. "System_Linq")
+   * - receiver TS type name (e.g. "IEnumerable_1")
+   * - method TS name (e.g. "where")
+   *
+   * Values are one or more candidates (overloads share the same target).
+   */
+  private readonly extensionMethods = new Map<
+    string,
+    Map<string, Map<string, MemberBinding[]>>
+  >();
+
+  private getExtensionMethodCandidates(
+    namespaceKey: string,
+    receiverTypeName: string,
+    methodTsName: string
+  ): readonly MemberBinding[] | undefined {
+    return this.extensionMethods
+      .get(namespaceKey)
+      ?.get(receiverTypeName)
+      ?.get(methodTsName);
+  }
+
+  /**
+   * Resolve an extension method binding target by extension interface name.
+   *
+   * @param extensionInterfaceName - e.g. "__Ext_System_Linq_IEnumerable_1"
+   * @param methodTsName - e.g. "where"
+   */
+  resolveExtensionMethod(
+    extensionInterfaceName: string,
+    methodTsName: string
+  ): MemberBinding | undefined {
+    const parsed = this.parseExtensionInterfaceName(extensionInterfaceName);
+    if (!parsed) return undefined;
+
+    const candidates = this.getExtensionMethodCandidates(
+      parsed.namespaceKey,
+      parsed.receiverTypeName,
+      methodTsName
+    );
+    if (!candidates || candidates.length === 0) return undefined;
+
+    // If multiple candidates map to different CLR targets, treat as unresolved (unsafe).
+    const first = candidates[0];
+    if (!first) return undefined;
+    const firstTarget = `${first.binding.type}::${first.binding.member}`;
+    for (const c of candidates) {
+      const target = `${c.binding.type}::${c.binding.member}`;
+      if (target !== firstTarget) {
+        return undefined;
+      }
+    }
+
+    return first;
+  }
+
+  private parseExtensionInterfaceName(
+    extensionInterfaceName: string
+  ): { readonly namespaceKey: string; readonly receiverTypeName: string } | undefined {
+    if (!extensionInterfaceName.startsWith("__Ext_")) return undefined;
+    const rest = extensionInterfaceName.slice("__Ext_".length);
+
+    // Find the longest namespaceKey prefix we have indexed.
+    let bestNamespaceKey: string | undefined;
+    for (const namespaceKey of this.extensionMethods.keys()) {
+      if (rest.startsWith(`${namespaceKey}_`)) {
+        if (!bestNamespaceKey || namespaceKey.length > bestNamespaceKey.length) {
+          bestNamespaceKey = namespaceKey;
+        }
+      }
+    }
+    if (!bestNamespaceKey) return undefined;
+
+    const receiverTypeName = rest.slice(bestNamespaceKey.length + 1);
+    if (!receiverTypeName) return undefined;
+
+    return { namespaceKey: bestNamespaceKey, receiverTypeName };
+  }
+
+  /**
    * Load a binding manifest file and add its bindings to the registry
    * Supports simple, full, and tsbindgen formats
    */
@@ -243,7 +330,7 @@ export class BindingRegistry {
         const members: MemberBinding[] = [];
 
         for (const method of tsbType.methods) {
-          members.push({
+          const memberBinding: MemberBinding = {
             kind: "method",
             name: method.clrName,
             // alias = tsEmitName (what TS code uses, e.g., "add")
@@ -257,7 +344,35 @@ export class BindingRegistry {
             // Include parameter modifiers for ref/out/in parameters
             parameterModifiers: method.parameterModifiers,
             isExtensionMethod: method.isExtensionMethod ?? false,
-          });
+          };
+
+          members.push(memberBinding);
+
+          // Index extension methods by (declaring namespace, receiver type, method name).
+          if (method.isExtensionMethod && method.normalizedSignature) {
+            const receiverTypeName =
+              extractExtensionReceiverType(method.normalizedSignature);
+            const namespaceKey = extractNamespaceKey(method.declaringClrType);
+            if (receiverTypeName && namespaceKey) {
+              const nsMap =
+                this.extensionMethods.get(namespaceKey) ??
+                new Map<string, Map<string, MemberBinding[]>>();
+              if (!this.extensionMethods.has(namespaceKey)) {
+                this.extensionMethods.set(namespaceKey, nsMap);
+              }
+
+              const receiverMap =
+                nsMap.get(receiverTypeName) ??
+                new Map<string, MemberBinding[]>();
+              if (!nsMap.has(receiverTypeName)) {
+                nsMap.set(receiverTypeName, receiverMap);
+              }
+
+              const list = receiverMap.get(memberBinding.alias) ?? [];
+              list.push(memberBinding);
+              receiverMap.set(memberBinding.alias, list);
+            }
+          }
         }
 
         for (const prop of tsbType.properties) {
@@ -403,8 +518,76 @@ export class BindingRegistry {
     this.namespaces.clear();
     this.types.clear();
     this.members.clear();
+    this.extensionMethods.clear();
   }
 }
+
+/**
+ * Extract CLR namespace key ('.' → '_') from a full CLR type name.
+ * Example: "System.Linq.Enumerable" → "System_Linq"
+ */
+const extractNamespaceKey = (clrType: string): string | undefined => {
+  const lastDot = clrType.lastIndexOf(".");
+  if (lastDot <= 0) return undefined;
+  return clrType.slice(0, lastDot).replace(/\./g, "_");
+};
+
+/**
+ * Extract the extension receiver TS type name from a tsbindgen normalized signature.
+ *
+ * Format: "Name|(ParamTypes):ReturnType|static=true"
+ * Example: "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true"
+ *
+ * Returns the first parameter type name (stripped of byref suffix and namespace prefix).
+ */
+const extractExtensionReceiverType = (
+  normalizedSignature: string
+): string | undefined => {
+  const paramsMatch = normalizedSignature.match(/\|\(([^)]*)\):/);
+  const paramsStr = paramsMatch?.[1]?.trim();
+  if (!paramsStr) return undefined;
+
+  const [first] = splitSignatureTypeList(paramsStr);
+  if (!first) return undefined;
+
+  let receiver = first.trim();
+  if (receiver.endsWith("&")) receiver = receiver.slice(0, -1);
+  if (receiver.endsWith("[]")) receiver = receiver.slice(0, -2);
+  const lastDot = receiver.lastIndexOf(".");
+  if (lastDot >= 0) receiver = receiver.slice(lastDot + 1);
+  return receiver || undefined;
+};
+
+/**
+ * Split a comma-delimited type list, respecting nested bracket depth.
+ * tsbindgen signatures use CLR-style nested generic brackets in some contexts.
+ */
+const splitSignatureTypeList = (str: string): string[] => {
+  const result: string[] = [];
+  let depth = 0;
+  let current = "";
+
+  for (const char of str) {
+    if (char === "[") {
+      depth++;
+      current += char;
+    } else if (char === "]") {
+      depth--;
+      current += char;
+    } else if (char === "," && depth === 0) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.trim()) {
+    result.push(current.trim());
+  }
+
+  return result;
+};
 
 /**
  * Recursively scan a directory for .d.ts files

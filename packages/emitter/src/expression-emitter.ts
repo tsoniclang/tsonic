@@ -12,6 +12,7 @@ import {
 } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import { substituteTypeArgs } from "./core/type-resolution.js";
 
 // Import expression emitters from specialized modules
 import { emitLiteral } from "./expressions/literals.js";
@@ -271,7 +272,61 @@ const emitTypeAssertion = (
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
   const [innerCode, ctx1] = emitExpression(expr.expression, context);
-  const [typeName, ctx2] = emitType(expr.targetType, ctx1);
+
+  const resolveRuntimeCastTarget = (
+    target: IrType,
+    ctx: EmitterContext
+  ): IrType => {
+    // 1) Resolve local type aliases for runtime casting.
+    //    TypeScript type aliases have no runtime representation in C#, except for
+    //    object-literal aliases which we synthesize as classes (`Foo__Alias`).
+    if (target.kind === "referenceType" && ctx.localTypes) {
+      const typeInfo = ctx.localTypes.get(target.name);
+      if (typeInfo?.kind === "typeAlias") {
+        if (typeInfo.type.kind !== "objectType") {
+          const substituted =
+            target.typeArguments && target.typeArguments.length > 0
+              ? substituteTypeArgs(
+                  typeInfo.type,
+                  typeInfo.typeParameters,
+                  target.typeArguments
+                )
+              : typeInfo.type;
+          return resolveRuntimeCastTarget(substituted, ctx);
+        }
+        // objectType aliases are emitted as `Name__Alias` by emitReferenceType
+        return target;
+      }
+    }
+
+    // 2) Erase tsbindgen extension-method wrapper types at runtime:
+    //    ExtensionMethods<TShape> is type-only; values are just TShape.
+    if (target.kind === "referenceType" && target.typeArguments?.length) {
+      const importBinding = ctx.importBindings?.get(target.name);
+      const clrName = importBinding?.kind === "type" ? importBinding.clrName : "";
+      if (clrName.endsWith(".ExtensionMethods")) {
+        const shape = target.typeArguments[0];
+        if (shape) return resolveRuntimeCastTarget(shape, ctx);
+      }
+    }
+
+    // 3) Intersection types have no C# cast target; cast to the first runtime-like constituent.
+    if (target.kind === "intersectionType") {
+      for (const part of target.types) {
+        const resolved = resolveRuntimeCastTarget(part, ctx);
+        if (resolved.kind !== "intersectionType" && resolved.kind !== "objectType") {
+          return resolved;
+        }
+      }
+      const fallback = target.types[0];
+      return fallback ? resolveRuntimeCastTarget(fallback, ctx) : target;
+    }
+
+    return target;
+  };
+
+  const runtimeTarget = resolveRuntimeCastTarget(expr.targetType, ctx1);
+  const [typeName, ctx2] = emitType(runtimeTarget, ctx1);
   return [{ text: `(${typeName})${innerCode.text}` }, ctx2];
 };
 

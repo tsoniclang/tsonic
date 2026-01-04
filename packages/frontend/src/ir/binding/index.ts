@@ -121,6 +121,14 @@ export interface Binding {
   ): DeclId | undefined;
 
   /**
+   * Get the declaring type name for a resolved member handle.
+   *
+   * This is used for features that depend on the syntactic container of a member
+   * declaration (e.g. tsbindgen extension-method interfaces like `__Ext_*`).
+   */
+  getDeclaringTypeNameOfMember(member: MemberId): string | undefined;
+
+  /**
    * Get the fully-qualified name for a declaration.
    * Used for override detection and .NET type identification.
    */
@@ -348,14 +356,18 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     // Get owner type's declaration
     const rawOwnerSymbol = checker.getSymbolAtLocation(node.expression);
-    if (!rawOwnerSymbol) return undefined;
 
-    const ownerSymbol =
-      rawOwnerSymbol.flags & ts.SymbolFlags.Alias
+    // Note: `getSymbolAtLocation(node.expression)` can be undefined for receivers
+    // that are not identifiers/member-accesses (e.g., `xs.where(...).select`).
+    // In that case we still want a stable MemberId for the member symbol itself,
+    // so we key the member entry off the member symbol's own DeclId.
+    const ownerSymbol = rawOwnerSymbol
+      ? rawOwnerSymbol.flags & ts.SymbolFlags.Alias
         ? checker.getAliasedSymbol(rawOwnerSymbol)
-        : rawOwnerSymbol;
+        : rawOwnerSymbol
+      : undefined;
 
-    const ownerDeclId = getOrCreateDeclId(ownerSymbol);
+    const ownerDeclId = getOrCreateDeclId(ownerSymbol ?? propSymbol);
     return getOrCreateMemberId(ownerDeclId, node.name.text, propSymbol);
   };
 
@@ -454,6 +466,19 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const symbol = checker.getShorthandAssignmentValueSymbol(node);
     if (!symbol) return undefined;
     return getOrCreateDeclId(symbol);
+  };
+
+  const getDeclaringTypeNameOfMember = (member: MemberId): string | undefined => {
+    const key = `${member.declId.id}:${member.name}`;
+    const entry = memberMap.get(key);
+    const decl = entry?.decl;
+    if (!decl) return undefined;
+
+    const parent = decl.parent;
+    if (ts.isInterfaceDeclaration(parent) && parent.name) return parent.name.text;
+    if (ts.isClassDeclaration(parent) && parent.name) return parent.name.text;
+    if (ts.isTypeAliasDeclaration(parent) && parent.name) return parent.name.text;
+    return undefined;
   };
 
   const getFullyQualifiedName = (declId: DeclId): string | undefined => {
@@ -578,6 +603,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolveConstructorSignature,
     resolveImport,
     resolveShorthandAssignment,
+    getDeclaringTypeNameOfMember,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
     // Type syntax capture (Phase 2: TypeSyntaxId)

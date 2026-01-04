@@ -1796,6 +1796,14 @@ export const createTypeSystem = (
 	    const init = node.initializer;
 	    if (!init) return undefined;
 
+    // Explicit type assertions are deterministic sources for variable typing.
+    // This supports patterns like:
+    //   const xs = numbers as unknown as LinqSeq<int>;
+    // where the user intentionally supplies the type at the assertion site.
+    if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
+      return convertTypeNode(init.type);
+    }
+
 		    if (ts.isCallExpression(init)) {
 		      return tryInferReturnTypeFromCallExpression(init, new Map());
 		    }

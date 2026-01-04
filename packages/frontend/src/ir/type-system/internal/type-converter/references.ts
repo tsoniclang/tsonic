@@ -94,6 +94,24 @@ const normalizeSystemInternalQualifiedName = (typeName: string): string => {
 };
 
 /**
+ * tsbindgen extension bucket files import namespaces as `System_Collections_Generic`, etc,
+ * then reference types via qualified names like `System_Collections_Generic.List_1`.
+ *
+ * For IR purposes we must canonicalize these to their simple TS export names
+ * (e.g., `List_1`) so they resolve through the binding registry.
+ */
+const normalizeNamespaceAliasQualifiedName = (typeName: string): string => {
+  const lastDot = typeName.lastIndexOf(".");
+  if (lastDot <= 0) return typeName;
+
+  const prefix = typeName.slice(0, lastDot);
+  // Only strip tsbindgen namespace-alias qualifiers (they contain underscores).
+  if (!prefix.includes("_")) return typeName;
+
+  return typeName.slice(lastDot + 1);
+};
+
+/**
  * Cache for structural member extraction to prevent infinite recursion
  * on recursive types like `type Node = { next: Node }`.
  *
@@ -349,7 +367,9 @@ export const convertTypeReference = (
   const rawTypeName = ts.isIdentifier(node.typeName)
     ? node.typeName.text
     : node.typeName.getText();
-  const typeName = normalizeSystemInternalQualifiedName(rawTypeName);
+  const typeName = normalizeNamespaceAliasQualifiedName(
+    normalizeSystemInternalQualifiedName(rawTypeName)
+  );
 
   // Check for primitive type names
   if (isPrimitiveTypeName(typeName)) {
@@ -479,6 +499,26 @@ export const convertTypeReference = (
       // e.g., `type NumberToNumber = (x: number) => number` should be converted
       // to a functionType, not a referenceType
       if (declInfo.kind === "typeAlias") {
+        // tsbindgen extension method wrapper types are type-only helpers.
+        //
+        // Example: ExtensionMethods_System_Linq<TShape> = TShape & (__Ext_* ...)
+        //
+        // For IR/runtime typing, this must erase to the underlying shape type:
+        // - Enables member binding on the real receiver type (e.g., List<T>.count → Count)
+        // - Prevents TS-only wrapper names from leaking into IR and confusing emit
+        //
+        // Extension method *member* discovery is handled via Binding + BindingRegistry,
+        // not by treating ExtensionMethods_* as a nominal CLR type.
+        if (
+          declNode &&
+          ts.isTypeAliasDeclaration(declNode) &&
+          declNode.name.text.startsWith("ExtensionMethods_") &&
+          node.typeArguments?.length === 1
+        ) {
+          const shape = node.typeArguments[0];
+          return shape ? convertType(shape, binding) : { kind: "unknownType" };
+        }
+
         if (
           declNode &&
           ts.isTypeAliasDeclaration(declNode) &&

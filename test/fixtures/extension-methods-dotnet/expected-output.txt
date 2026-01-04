@@ -1,0 +1,4 @@
+=== Extension Methods E2E ===
+Doubled count: 2
+TryGetNonEnumeratedCount: True 4
+inc(5): 6

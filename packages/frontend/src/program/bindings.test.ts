@@ -123,6 +123,44 @@ describe("Binding System", () => {
       expect(registry.getBinding("console")).not.to.equal(undefined);
       expect(registry.getBinding("fs")).not.to.equal(undefined);
     });
+
+    it("should resolve tsbindgen extension methods for instance-style calls", () => {
+      const registry = new BindingRegistry();
+
+      registry.addBindings("/test/System.Linq/bindings.json", {
+        namespace: "System.Linq",
+        types: [
+          {
+            clrName: "System.Linq.Enumerable",
+            tsEmitName: "Enumerable",
+            assemblyName: "System.Linq",
+            methods: [
+              {
+                clrName: "Where",
+                tsEmitName: "where",
+                normalizedSignature:
+                  "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true",
+                declaringClrType: "System.Linq.Enumerable",
+                declaringAssemblyName: "System.Linq",
+                isExtensionMethod: true,
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const resolved = registry.resolveExtensionMethod(
+        "__Ext_System_Linq_IEnumerable_1",
+        "where"
+      );
+
+      expect(resolved).to.not.equal(undefined);
+      expect(resolved?.binding.type).to.equal("System.Linq.Enumerable");
+      expect(resolved?.binding.member).to.equal("Where");
+      expect(resolved?.isExtensionMethod).to.equal(true);
+    });
   });
 
   describe("loadBindings", () => {

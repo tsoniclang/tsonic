@@ -569,4 +569,89 @@ describe("Binding Resolution in IR", () => {
       expect(memberExpr.memberBinding).to.equal(undefined);
     });
   });
+
+  describe("Extension Method Binding Resolution", () => {
+    it("should resolve instance-style tsbindgen extension methods via __Ext_* container", () => {
+      const source = `
+        interface IEnumerable_1<T> {}
+
+        interface __Ext_System_Linq_IEnumerable_1<T> {
+          // Signature shape doesn't matter for binding lookup; this is an extension marker surface.
+          tryGetNonEnumeratedCount(count: number): boolean;
+        }
+
+        type ExtensionMethods_System_Linq<TShape> =
+          TShape & (TShape extends IEnumerable_1<infer T0> ? __Ext_System_Linq_IEnumerable_1<T0> : {});
+
+        type LinqSeq<T> = ExtensionMethods_System_Linq<IEnumerable_1<T>>;
+
+        declare const xs: LinqSeq<number>;
+
+        export function test() {
+          let count = 0;
+          return xs.tryGetNonEnumeratedCount(count);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/System.Linq/bindings.json", {
+        namespace: "System.Linq",
+        types: [
+          {
+            clrName: "System.Linq.Enumerable",
+            tsEmitName: "Enumerable",
+            assemblyName: "System.Linq",
+            methods: [
+              {
+                clrName: "TryGetNonEnumeratedCount",
+                tsEmitName: "tryGetNonEnumeratedCount",
+                normalizedSignature:
+                  "TryGetNonEnumeratedCount|(IEnumerable_1,System.Int32&):System.Boolean|static=true",
+                declaringClrType: "System.Linq.Enumerable",
+                declaringAssemblyName: "System.Linq",
+                isExtensionMethod: true,
+                parameterModifiers: [{ index: 1, modifier: "out" }],
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[1];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) return;
+
+      const callExpr = returnStmt.expression;
+      if (callExpr.kind !== "call") return;
+
+      const callee = callExpr.callee;
+      if (callee.kind !== "memberAccess") return;
+
+      expect(callee.memberBinding).to.not.equal(undefined);
+      expect(callee.memberBinding?.isExtensionMethod).to.equal(true);
+      expect(callee.memberBinding?.type).to.equal("System.Linq.Enumerable");
+      expect(callee.memberBinding?.member).to.equal("TryGetNonEnumeratedCount");
+
+      // CRITICAL: parameterModifiers must be shifted for instance-style extension calls.
+      expect(callee.memberBinding?.parameterModifiers).to.deep.equal([
+        { index: 0, modifier: "out" },
+      ]);
+
+      // And the call itself must carry passing mode for the single argument.
+      expect(callExpr.argumentPassing).to.deep.equal(["out"]);
+    });
+  });
 });

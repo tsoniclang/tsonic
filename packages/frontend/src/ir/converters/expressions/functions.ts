@@ -48,22 +48,33 @@ const convertLambdaParameters = (
   return node.parameters.map((param, index) => {
     let passing: "value" | "ref" | "out" | "in" = "value";
     let actualType: ts.TypeNode | undefined = param.type;
+    let isExtensionReceiver = false;
 
-    // Detect ref<T>, out<T>, in<T> wrapper types (explicit annotation only)
-    if (
-      param.type &&
-      ts.isTypeReferenceNode(param.type) &&
-      ts.isIdentifier(param.type.typeName)
+    // Detect wrapper types (explicit annotation only):
+    // - thisarg<T> marks an extension-method receiver parameter (emits C# `this`)
+    // - ref<T>/out<T>/in<T> wrapper types mark passing mode (unwrap to T)
+    while (
+      actualType &&
+      ts.isTypeReferenceNode(actualType) &&
+      ts.isIdentifier(actualType.typeName) &&
+      actualType.typeArguments &&
+      actualType.typeArguments.length > 0
     ) {
-      const typeName = param.type.typeName.text;
-      if (
-        (typeName === "ref" || typeName === "out" || typeName === "in") &&
-        param.type.typeArguments &&
-        param.type.typeArguments.length > 0
-      ) {
-        passing = typeName === "in" ? "in" : typeName;
-        actualType = param.type.typeArguments[0];
+      const typeName = actualType.typeName.text;
+
+      if (typeName === "thisarg") {
+        isExtensionReceiver = true;
+        actualType = actualType.typeArguments[0];
+        continue;
       }
+
+      if (typeName === "ref" || typeName === "out" || typeName === "in") {
+        passing = typeName === "in" ? "in" : typeName;
+        actualType = actualType.typeArguments[0];
+        continue;
+      }
+
+      break;
     }
 
     // Determine the IrType for this parameter
@@ -94,6 +105,7 @@ const convertLambdaParameters = (
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
       passing,
+      isExtensionReceiver: isExtensionReceiver || undefined,
     };
   });
 };
