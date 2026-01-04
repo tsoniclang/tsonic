@@ -619,6 +619,17 @@ const validateExpression = (
       break;
     }
 
+    case "stackalloc": {
+      // stackalloc size must be Int32 (C# stackalloc array length uses int)
+      validateExpression(
+        expr.size,
+        { kind: "primitiveType", name: "int" },
+        ctx,
+        "in stackalloc size"
+      );
+      break;
+    }
+
     // Other expression kinds don't need recursive checking for this pass
   }
 };
@@ -654,6 +665,17 @@ const scanExpressionForCalls = (
           scanExpressionForCalls(arg, ctx);
         }
       });
+      break;
+    }
+
+    case "stackalloc": {
+      validateExpression(
+        expr.size,
+        { kind: "primitiveType", name: "int" },
+        ctx,
+        "in stackalloc size"
+      );
+      scanExpressionForCalls(expr.size, ctx);
       break;
     }
 

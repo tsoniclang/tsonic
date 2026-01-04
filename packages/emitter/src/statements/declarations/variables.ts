@@ -310,11 +310,23 @@ export const emitVariableDeclaration = (
     } else if (
       !context.isStatic &&
       decl.type &&
+      decl.initializer?.kind !== "stackalloc" &&
       needsExplicitLocalType(decl.type, currentContext)
     ) {
       // Local variable with type that has no C# literal suffix (byte, sbyte, short, ushort)
       // Must emit explicit type since `var x = 200;` would infer `int`
       const [typeName, newContext] = emitType(decl.type, currentContext);
+      currentContext = newContext;
+      varDecl += `${typeName} `;
+    } else if (!context.isStatic && decl.initializer?.kind === "stackalloc") {
+      // stackalloc expressions must be target-typed to produce Span<T> (otherwise they become T* and require unsafe).
+      const targetType = decl.type ?? decl.initializer.inferredType;
+      if (!targetType) {
+        throw new Error(
+          "ICE: stackalloc initializer missing target type (no decl.type and no inferredType)"
+        );
+      }
+      const [typeName, newContext] = emitType(targetType, currentContext);
       currentContext = newContext;
       varDecl += `${typeName} `;
     } else {

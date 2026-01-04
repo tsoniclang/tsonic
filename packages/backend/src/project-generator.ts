@@ -88,6 +88,7 @@ const generateExecutableProperties = (
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>${nativeAotSettings}
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>`;
 };
 
@@ -128,6 +129,7 @@ const generateLibraryProperties = (
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>${docSettings}${symbolSettings}
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>${libConfig.packable}</IsPackable>${packageSettings}
   </PropertyGroup>`;
 };
@@ -146,6 +148,7 @@ const generateConsoleAppProperties = (
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishSingleFile>${consoleConfig.singleFile}</PublishSingleFile>
     <SelfContained>${consoleConfig.selfContained}</SelfContained>
   </PropertyGroup>`;

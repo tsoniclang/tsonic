@@ -257,6 +257,18 @@ export const emitMemberAccess = (
     return [{ text }, newContext];
   }
 
+  // Span<T>.length → .Length (C# Span<T> uses .Length)
+  if (prop === "length" && objectType) {
+    const resolved = resolveTypeAlias(stripNullish(objectType), context);
+    if (
+      resolved.kind === "referenceType" &&
+      (resolved.name === "Span" || resolved.resolvedClrType?.endsWith("System.Span"))
+    ) {
+      const text = `${objectFrag.text}.Length`;
+      return [{ text }, newContext];
+    }
+  }
+
   // Handle explicit interface view properties (As_IInterface)
   if (isExplicitViewProperty(prop)) {
     const interfaceName = extractInterfaceNameFromView(prop);

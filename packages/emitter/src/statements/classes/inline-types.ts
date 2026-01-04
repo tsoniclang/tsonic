@@ -7,6 +7,7 @@ import { EmitterContext, getIndent, indent } from "../../types.js";
 import { capitalize } from "./helpers.js";
 import { emitInterfaceMemberAsProperty } from "./properties.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { typeUsesPointer } from "../../core/unsafe.js";
 
 /**
  * Extracted inline object type
@@ -53,7 +54,17 @@ export const emitExtractedType = (
 
   const parts: string[] = [];
   const escapedClassName = escapeCSharpIdentifier(extracted.className);
-  parts.push(`${ind}public class ${escapedClassName}`);
+  const needsUnsafe = extracted.members.some((m) => {
+    if (m.kind === "propertySignature") return typeUsesPointer(m.type);
+    if (m.kind === "methodSignature") {
+      return (
+        m.parameters.some((p) => typeUsesPointer(p.type)) ||
+        typeUsesPointer(m.returnType)
+      );
+    }
+    return false;
+  });
+  parts.push(`${ind}public${needsUnsafe ? " unsafe" : ""} class ${escapedClassName}`);
   parts.push(`${ind}{`);
 
   // Emit properties

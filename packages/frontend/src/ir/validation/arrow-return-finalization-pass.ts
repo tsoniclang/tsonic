@@ -419,6 +419,12 @@ const processExpression = (expr: IrExpression): IrExpression => {
         expression: processExpression(expr.expression),
       };
 
+    case "stackalloc":
+      return {
+        ...expr,
+        size: processExpression(expr.size),
+      };
+
     // Leaf expressions - no recursion needed
     case "literal":
     case "identifier":

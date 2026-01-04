@@ -448,6 +448,15 @@ const deriveElementType = (
     return { kind: "primitiveType", name: "string" };
   }
 
+  if (
+    objectType.kind === "referenceType" &&
+    objectType.name === "Span" &&
+    objectType.typeArguments &&
+    objectType.typeArguments.length === 1
+  ) {
+    return objectType.typeArguments[0];
+  }
+
   return undefined;
 };
 

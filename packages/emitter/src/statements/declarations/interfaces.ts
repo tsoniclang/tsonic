@@ -11,6 +11,7 @@ import {
   emitInterfaceMemberAsProperty,
 } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { statementUsesPointer } from "../../core/unsafe.js";
 
 /**
  * Emit an interface declaration (as C# class)
@@ -55,10 +56,12 @@ export const emitInterfaceDeclaration = (
   }
 
   const parts: string[] = [];
+  const needsUnsafe = statementUsesPointer(stmt);
 
   // Access modifier
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
+  if (needsUnsafe) parts.push("unsafe");
   // Emit as C# interface when methods exist; otherwise keep class/struct for object literals.
   parts.push(hasMethodSignatures ? "interface" : stmt.isStruct ? "struct" : "class");
   parts.push(escapeCSharpIdentifier(stmt.name));

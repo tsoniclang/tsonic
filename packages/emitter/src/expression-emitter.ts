@@ -9,6 +9,7 @@ import {
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,
   IrTryCastExpression,
+  IrStackAllocExpression,
 } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
 import { emitType } from "./type-emitter.js";
@@ -346,6 +347,23 @@ const emitTryCast = (
 };
 
 /**
+ * Emit a stackalloc expression.
+ *
+ * TypeScript `stackalloc<T>(n)` becomes C# `stackalloc T[n]`.
+ */
+const emitStackAlloc = (
+  expr: IrStackAllocExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const [elementTypeName, ctx1] = emitType(expr.elementType, context);
+  const [sizeFrag, ctx2] = emitExpression(expr.size, ctx1, {
+    kind: "primitiveType",
+    name: "int",
+  });
+  return [{ text: `stackalloc ${elementTypeName}[${sizeFrag.text}]` }, ctx2];
+};
+
+/**
  * Emit a C# expression from an IR expression
  * @param expr The IR expression to emit
  * @param context The emitter context
@@ -425,6 +443,9 @@ export const emitExpression = (
 
     case "trycast":
       return emitTryCast(expr, context);
+
+    case "stackalloc":
+      return emitStackAlloc(expr, context);
 
     default:
       throw new Error(

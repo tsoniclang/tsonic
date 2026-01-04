@@ -49,7 +49,8 @@ export type IrExpression =
   | IrYieldExpression
   | IrNumericNarrowingExpression
   | IrTypeAssertionExpression
-  | IrTryCastExpression;
+  | IrTryCastExpression
+  | IrStackAllocExpression;
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
@@ -430,6 +431,25 @@ export type IrTryCastExpression = {
   /** The target type for the cast */
   readonly targetType: IrType;
   /** Inferred type is T | null */
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
+/**
+ * Represents a stack allocation operation (stackalloc<T>(size)).
+ *
+ * Emits as C# stackalloc expression: `stackalloc T[size]`.
+ *
+ * Example:
+ * - `stackalloc<int>(256)` → `stackalloc int[256]` in C#
+ */
+export type IrStackAllocExpression = {
+  readonly kind: "stackalloc";
+  /** Element type allocated on the stack */
+  readonly elementType: IrType;
+  /** Number of elements to allocate */
+  readonly size: IrExpression;
+  /** Inferred type is Span<T> */
   readonly inferredType: IrType;
   readonly sourceSpan?: SourceLocation;
 };

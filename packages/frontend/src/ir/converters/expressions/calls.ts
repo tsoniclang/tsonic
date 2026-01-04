@@ -10,6 +10,7 @@ import {
   IrCallExpression,
   IrNewExpression,
   IrTryCastExpression,
+  IrStackAllocExpression,
 } from "../../types.js";
 import {
   getSourceSpan,
@@ -245,7 +246,7 @@ const extractArgumentPassingFromBinding = (
 export const convertCallExpression = (
   node: ts.CallExpression,
   ctx: ProgramContext
-): IrCallExpression | IrTryCastExpression => {
+): IrCallExpression | IrTryCastExpression | IrStackAllocExpression => {
   // Check for trycast<T>(x) - special intrinsic for safe casting
   // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
   if (
@@ -282,6 +283,45 @@ export const convertCallExpression = (
       expression: argExpr,
       targetType,
       inferredType: unionType,
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
+  // Check for stackalloc<T>(size) - language intrinsic for stack allocation.
+  // stackalloc<T>(size) compiles to C#: stackalloc T[size]
+  if (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "stackalloc" &&
+    node.typeArguments &&
+    node.typeArguments.length === 1 &&
+    node.arguments.length === 1
+  ) {
+    const elementTypeNode = node.typeArguments[0];
+    const sizeNode = node.arguments[0];
+    if (!elementTypeNode || !sizeNode) {
+      throw new Error(
+        "ICE: stackalloc requires exactly 1 type argument and 1 argument"
+      );
+    }
+
+    const typeSystem = ctx.typeSystem;
+    const elementType = typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(elementTypeNode)
+    );
+    const sizeExpr = convertExpression(sizeNode, ctx, {
+      kind: "primitiveType",
+      name: "int",
+    });
+
+    return {
+      kind: "stackalloc",
+      elementType,
+      size: sizeExpr,
+      inferredType: {
+        kind: "referenceType",
+        name: "Span",
+        typeArguments: [elementType],
+      },
       sourceSpan: getSourceSpan(node),
     };
   }

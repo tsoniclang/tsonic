@@ -1,0 +1,12 @@
+{
+  "name": "stackalloc-span",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@tsonic/core": "0.6.0",
+    "@tsonic/globals": "^0.3.3",
+    "@tsonic/dotnet": "^0.8.0"
+  }
+}
+
