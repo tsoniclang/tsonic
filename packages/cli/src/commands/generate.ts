@@ -116,6 +116,17 @@ const findRuntimeDlls = (
     }
   }
 
+  // Include Tsonic.JSRuntime.dll if JS runtime types are used
+  if (usedAssemblies.has("Tsonic.JSRuntime")) {
+    const jsRuntimeDll = findDll("Tsonic.JSRuntime.dll");
+    if (jsRuntimeDll) {
+      refs.push({
+        name: "Tsonic.JSRuntime",
+        hintPath: relative(outputDir, jsRuntimeDll),
+      });
+    }
+  }
+
   return refs;
 };
 

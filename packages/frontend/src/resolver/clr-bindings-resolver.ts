@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 /**
  * Result of resolving a CLR import
@@ -61,10 +62,13 @@ export class ClrBindingsResolver {
 
   // require function for Node resolution from the base directory
   private readonly require: ReturnType<typeof createRequire>;
+  // Fallback require for compiler-owned @tsonic/* packages
+  private readonly compilerRequire: ReturnType<typeof createRequire>;
 
   constructor(baseDir: string) {
     // Create a require function that resolves relative to baseDir
     this.require = createRequire(join(baseDir, "package.json"));
+    this.compilerRequire = createRequire(import.meta.url);
   }
 
   /**
@@ -174,38 +178,83 @@ export class ClrBindingsResolver {
       return cached;
     }
 
-    try {
-      // Try to resolve the package's package.json directly
-      const pkgJsonPath = this.require.resolve(`${packageName}/package.json`);
-      const pkgRoot = dirname(pkgJsonPath);
-      this.pkgRootCache.set(packageName, pkgRoot);
-      return pkgRoot;
-    } catch {
-      // package.json might not be exported - try finding package root via node_modules path
-      // This works by looking for node_modules/<package-name> in the require paths
+    const resolveViaRequire = (
+      req: ReturnType<typeof createRequire>
+    ): string | null => {
       try {
-        const paths = this.require.resolve.paths(packageName);
-        if (paths) {
-          for (const searchPath of paths) {
-            // For scoped packages, the path structure is node_modules/@scope/name
-            const pkgDir = packageName.startsWith("@")
-              ? join(searchPath, packageName)
-              : join(searchPath, packageName);
-
-            // Check if package.json exists at this location
-            if (existsSync(join(pkgDir, "package.json"))) {
-              this.pkgRootCache.set(packageName, pkgDir);
-              return pkgDir;
-            }
-          }
-        }
+        const pkgJsonPath = req.resolve(`${packageName}/package.json`);
+        return dirname(pkgJsonPath);
       } catch {
-        // Fallback failed
+        return null;
       }
+    };
 
-      this.pkgRootCache.set(packageName, null);
+    const resolveViaSearchPaths = (
+      paths: readonly string[] | null | undefined
+    ): string | null => {
+      if (!paths) return null;
+      for (const searchPath of paths) {
+        const pkgDir = join(searchPath, packageName);
+        if (existsSync(join(pkgDir, "package.json"))) {
+          return pkgDir;
+        }
+      }
       return null;
+    };
+
+    const resolveFromSiblingCheckout = (): string | null => {
+      if (!packageName.startsWith("@tsonic/")) return null;
+      const match = packageName.match(/^@tsonic\/([^/]+)$/);
+      if (!match) return null;
+
+      const pkgDirName = match[1];
+      if (!pkgDirName) return null;
+      const here = fileURLToPath(import.meta.url);
+      // <repoRoot>/packages/frontend/src/resolver/clr-bindings-resolver.ts
+      const repoRoot = dirname(dirname(dirname(dirname(dirname(here)))));
+      const siblingRoot = join(repoRoot, "..", pkgDirName);
+      if (!existsSync(join(siblingRoot, "package.json"))) return null;
+      return siblingRoot;
+    };
+
+    const direct = resolveViaRequire(this.require);
+    if (direct) {
+      this.pkgRootCache.set(packageName, direct);
+      return direct;
     }
+
+    if (packageName.startsWith("@tsonic/")) {
+      const compilerDirect = resolveViaRequire(this.compilerRequire);
+      if (compilerDirect) {
+        this.pkgRootCache.set(packageName, compilerDirect);
+        return compilerDirect;
+      }
+    }
+
+    const fromPaths = resolveViaSearchPaths(this.require.resolve.paths(packageName));
+    if (fromPaths) {
+      this.pkgRootCache.set(packageName, fromPaths);
+      return fromPaths;
+    }
+
+    if (packageName.startsWith("@tsonic/")) {
+      const fromCompilerPaths = resolveViaSearchPaths(
+        this.compilerRequire.resolve.paths(packageName)
+      );
+      if (fromCompilerPaths) {
+        this.pkgRootCache.set(packageName, fromCompilerPaths);
+        return fromCompilerPaths;
+      }
+    }
+
+    const sibling = resolveFromSiblingCheckout();
+    if (sibling) {
+      this.pkgRootCache.set(packageName, sibling);
+      return sibling;
+    }
+
+    this.pkgRootCache.set(packageName, null);
+    return null;
   }
 
   /**

@@ -3,7 +3,7 @@
  */
 
 import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, indent } from "../types.js";
+import { EmitterContext, CSharpFragment, indent, withStatic } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
 import { emitType } from "../type-emitter.js";
@@ -96,10 +96,13 @@ export const emitFunctionExpression = (
   );
 
   // Function expressions always have block bodies
-  const blockContext = paramContext.isStatic
+  const blockContextBase = paramContext.isStatic
     ? indent(paramContext)
     : paramContext;
-  const [blockCode] = emitStatement(expr.body, blockContext);
+  const [blockCode] = emitStatement(
+    expr.body,
+    withStatic(blockContextBase, false)
+  );
 
   const asyncPrefix = expr.isAsync ? "async " : "";
   const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
@@ -124,10 +127,13 @@ export const emitArrowFunction = (
   // Arrow function body can be block or expression
   if (expr.body.kind === "blockStatement") {
     // Block body: (params) => { ... }
-    const blockContext = paramContext.isStatic
+    const blockContextBase = paramContext.isStatic
       ? indent(paramContext)
       : paramContext;
-    const [blockCode] = emitStatement(expr.body, blockContext);
+    const [blockCode] = emitStatement(
+      expr.body,
+      withStatic(blockContextBase, false)
+    );
     const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
     return [{ text }, paramContext];
   } else {

@@ -1911,6 +1911,25 @@ export const createTypeSystem = (
       return sourceType.kind === "unknownType" ? undefined : sourceType;
     }
 
+    // Property access: const output = response.outputStream
+    // DETERMINISTIC: Infer via TypeSystem member lookup on a typed receiver identifier.
+    if (ts.isPropertyAccessExpression(init)) {
+      const receiver = init.expression;
+      if (ts.isIdentifier(receiver)) {
+        const receiverDeclId = resolveIdentifier(receiver);
+        if (!receiverDeclId) return undefined;
+        const receiverType = typeOfDecl(receiverDeclId);
+        if (receiverType.kind === "unknownType") return undefined;
+
+        const memberType = typeOfMember(receiverType, {
+          kind: "byName",
+          name: init.name.text,
+        });
+
+        return memberType.kind === "unknownType" ? undefined : memberType;
+      }
+    }
+
     return undefined;
   };
 
@@ -1983,15 +2002,26 @@ export const createTypeSystem = (
   ): IrType => {
     const memberName = member.kind === "byName" ? member.name : "unknown"; // MemberId.name not defined yet
 
+    // Common nullish unions (T | undefined | null) should behave like T for member lookup.
+    // This preserves deterministic typing for patterns like:
+    //   const url = request.url; if (!url) return; url.absolutePath
+    const effectiveReceiver =
+      receiver.kind === "unionType"
+        ? (() => {
+            const nonNullish = receiver.types.filter((t) => t && !isNullishPrimitive(t));
+            return nonNullish.length === 1 && nonNullish[0] ? nonNullish[0] : receiver;
+          })()
+        : receiver;
+
     // 1. Normalize receiver to nominal form
-    const normalized = normalizeToNominal(receiver);
+    const normalized = normalizeToNominal(effectiveReceiver);
     if (!normalized) {
       // Handle structural types (objectType)
       if (
-        receiver.kind === "objectType" ||
-        (receiver.kind === "referenceType" && receiver.structuralMembers)
+        effectiveReceiver.kind === "objectType" ||
+        (effectiveReceiver.kind === "referenceType" && effectiveReceiver.structuralMembers)
       ) {
-        return lookupStructuralMember(receiver, memberName, site);
+        return lookupStructuralMember(effectiveReceiver, memberName, site);
       }
       emitDiagnostic(
         "TSN5203",
@@ -2001,14 +2031,14 @@ export const createTypeSystem = (
       return unknownType;
     }
 
-	    // 2. Check cache (use clrName as key for compatibility)
-	    const cacheKey = makeMemberCacheKey(
-	      normalized.typeId.stableId,
-	      memberName,
-	      normalized.typeArgs
-	    );
-	    const cached = memberDeclaredTypeCache.get(cacheKey);
-	    if (cached) return cached;
+    // 2. Check cache (use clrName as key for compatibility)
+    const cacheKey = makeMemberCacheKey(
+      normalized.typeId.stableId,
+      memberName,
+      normalized.typeArgs
+    );
+    const cached = memberDeclaredTypeCache.get(cacheKey);
+    if (cached) return cached;
 
     // 3. Use NominalEnv to find declaring type + substitution (Phase 6: TypeId-based)
     const lookupResult = nominalEnv.findMemberDeclaringType(
@@ -2017,55 +2047,55 @@ export const createTypeSystem = (
       memberName
     );
 
-	    // 4a. If NominalEnv found the member, get its declared type from Universe
-	    if (lookupResult) {
-	      const memberEntry = unifiedCatalog.getMember(
-	        lookupResult.declaringTypeId,
-	        memberName
-	      );
+    // 4a. If NominalEnv found the member, get its declared type from Universe
+    if (lookupResult) {
+      const memberEntry = unifiedCatalog.getMember(
+        lookupResult.declaringTypeId,
+        memberName
+      );
 
-	      // Property/field member: return its declared type.
-	      const memberType = memberEntry?.type;
-	      if (memberType) {
-	        const result = irSubstitute(memberType, lookupResult.substitution);
-	        memberDeclaredTypeCache.set(cacheKey, result);
-	        return result;
-	      }
+      // Property/field member: return its declared type.
+      const memberType = memberEntry?.type;
+      if (memberType) {
+        const result = irSubstitute(memberType, lookupResult.substitution);
+        memberDeclaredTypeCache.set(cacheKey, result);
+        return result;
+      }
 
-	      // Method member: materialize a callable function type from the first signature.
-	      // Call resolution (resolveCall) uses SignatureId for overload selection; this
-	      // type is used only to keep member access expressions deterministic.
-	      const firstSig = memberEntry?.signatures?.[0];
-	      if (firstSig) {
-	        const funcType: IrFunctionType = {
-	          kind: "functionType",
-	          parameters: firstSig.parameters.map(
-	            (p): IrParameter => ({
-	              kind: "parameter",
-	              pattern: {
-	                kind: "identifierPattern",
-	                name: p.name,
-	              },
-	              type: p.type,
-	              initializer: undefined,
-	              isOptional: p.isOptional,
-	              isRest: p.isRest,
-	              passing: p.mode,
-	            })
-	          ),
-	          returnType: firstSig.returnType,
-	        };
+      // Method member: materialize a callable function type from the first signature.
+      // Call resolution (resolveCall) uses SignatureId for overload selection; this
+      // type is used only to keep member access expressions deterministic.
+      const firstSig = memberEntry?.signatures?.[0];
+      if (firstSig) {
+        const funcType: IrFunctionType = {
+          kind: "functionType",
+          parameters: firstSig.parameters.map(
+            (p): IrParameter => ({
+              kind: "parameter",
+              pattern: {
+                kind: "identifierPattern",
+                name: p.name,
+              },
+              type: p.type,
+              initializer: undefined,
+              isOptional: p.isOptional,
+              isRest: p.isRest,
+              passing: p.mode,
+            })
+          ),
+          returnType: firstSig.returnType,
+        };
 
-	        const result = irSubstitute(funcType, lookupResult.substitution);
-	        memberDeclaredTypeCache.set(cacheKey, result);
-	        return result;
-	      }
-	    }
+        const result = irSubstitute(funcType, lookupResult.substitution);
+        memberDeclaredTypeCache.set(cacheKey, result);
+        return result;
+      }
+    }
 
-	    // 5. Member not found anywhere
-	    emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
-	    return unknownType;
-	  };
+    // 5. Member not found anywhere
+    emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
+    return unknownType;
+  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // resolveCall — THE HEART OF DETERMINISM

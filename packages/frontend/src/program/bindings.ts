@@ -30,6 +30,9 @@ export type MemberBinding = {
   };
   // Parameter modifiers for ref/out/in parameters (from tsbindgen)
   readonly parameterModifiers?: readonly ParameterModifier[];
+  // Whether this member is an extension method (tsbindgen metadata).
+  // Used by the emitter to lower instance-style calls to explicit static calls.
+  readonly isExtensionMethod?: boolean;
 };
 
 /**
@@ -88,6 +91,7 @@ export type TsbindgenMethod = {
   readonly declaringAssemblyName: string;
   // Parameter modifiers for ref/out/in parameters
   readonly parameterModifiers?: readonly ParameterModifier[];
+  readonly isExtensionMethod?: boolean;
 };
 
 export type TsbindgenProperty = {
@@ -252,6 +256,7 @@ export class BindingRegistry {
             },
             // Include parameter modifiers for ref/out/in parameters
             parameterModifiers: method.parameterModifiers,
+            isExtensionMethod: method.isExtensionMethod ?? false,
           });
         }
 

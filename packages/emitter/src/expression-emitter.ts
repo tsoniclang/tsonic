@@ -101,6 +101,118 @@ const maybeCastNullishTypeParam = (
   return [{ text: `(${typeName})${fragment.text}` }, newContext];
 };
 
+const getNullableUnionBaseType = (type: IrType): IrType | undefined => {
+  if (type.kind !== "unionType") return undefined;
+
+  const nonNullTypes = type.types.filter(
+    (t) =>
+      !(
+        t.kind === "primitiveType" &&
+        (t.name === "null" || t.name === "undefined")
+      )
+  );
+  if (nonNullTypes.length !== 1) return undefined;
+  return nonNullTypes[0];
+};
+
+const isNonNullableValueType = (type: IrType): boolean => {
+  if (type.kind === "primitiveType") {
+    return (
+      type.name === "number" ||
+      type.name === "int" ||
+      type.name === "boolean" ||
+      type.name === "char"
+    );
+  }
+
+  if (type.kind === "referenceType") {
+    // C# primitive aliases represented as reference types via @tsonic/core.
+    // Keep this list strict — we only unwrap when `.Value` exists.
+    return (
+      type.name === "sbyte" ||
+      type.name === "short" ||
+      type.name === "int" ||
+      type.name === "long" ||
+      type.name === "nint" ||
+      type.name === "int128" ||
+      type.name === "byte" ||
+      type.name === "ushort" ||
+      type.name === "uint" ||
+      type.name === "ulong" ||
+      type.name === "nuint" ||
+      type.name === "uint128" ||
+      type.name === "half" ||
+      type.name === "float" ||
+      type.name === "double" ||
+      type.name === "decimal" ||
+      type.name === "bool" ||
+      type.name === "char"
+    );
+  }
+
+  return false;
+};
+
+const isSameTypeForNullableUnwrap = (base: IrType, expected: IrType): boolean => {
+  if (base.kind !== expected.kind) return false;
+
+  if (base.kind === "primitiveType" && expected.kind === "primitiveType") {
+    return base.name === expected.name;
+  }
+
+  if (base.kind === "referenceType" && expected.kind === "referenceType") {
+    // This unwrap is only for Nullable<T> value types, so keep matching strict.
+    return (
+      base.name === expected.name &&
+      (base.typeArguments?.length ?? 0) === 0 &&
+      (expected.typeArguments?.length ?? 0) === 0
+    );
+  }
+
+  return false;
+};
+
+const maybeUnwrapNullableValueType = (
+  expr: IrExpression,
+  fragment: CSharpFragment,
+  context: EmitterContext,
+  expectedType: IrType | undefined
+): [CSharpFragment, EmitterContext] => {
+  if (!expectedType) return [fragment, context];
+  if (!expr.inferredType) return [fragment, context];
+
+  // Only unwrap direct nullable values. For composite expressions (e.g. `a ?? b`)
+  // C# nullish coalescing already produces a non-nullable result when the
+  // fallback is non-nullable, so adding `.Value` is incorrect.
+  if (expr.kind !== "identifier" && expr.kind !== "memberAccess") {
+    return [fragment, context];
+  }
+
+  // If a narrowing pass already rewrote this identifier (e.g., `id` → `id.Value`
+  // or `id` → `id__n`), don't apply a second Nullable<T> unwrap.
+  if (
+    expr.kind === "identifier" &&
+    (context.narrowedBindings?.has(expr.name) ?? false)
+  ) {
+    return [fragment, context];
+  }
+
+  const nullableBase = getNullableUnionBaseType(expr.inferredType);
+  if (!nullableBase) return [fragment, context];
+
+  // Only unwrap when the expected type is a non-nullable value type and
+  // the expression is a nullable union of that exact base type.
+  if (!isNonNullableValueType(expectedType)) return [fragment, context];
+  if (!isSameTypeForNullableUnwrap(nullableBase, expectedType)) {
+    return [fragment, context];
+  }
+
+  const needsParens =
+    expr.kind !== "identifier" && expr.kind !== "memberAccess";
+  const inner = needsParens ? `(${fragment.text})` : fragment.text;
+  return [{ text: `${inner}.Value` }, context];
+};
+
 /**
  * Emit a numeric narrowing expression.
  *
@@ -266,7 +378,18 @@ export const emitExpression = (
     }
   })();
 
-  return maybeCastNullishTypeParam(expr, fragment, newContext, expectedType);
+  const [castedFrag, castedContext] = maybeCastNullishTypeParam(
+    expr,
+    fragment,
+    newContext,
+    expectedType
+  );
+  return maybeUnwrapNullableValueType(
+    expr,
+    castedFrag,
+    castedContext,
+    expectedType
+  );
 };
 
 // Re-export commonly used functions for backward compatibility

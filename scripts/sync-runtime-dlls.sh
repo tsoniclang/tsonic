@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 RUNTIME_REPO="$ROOT_DIR/../runtime"
 NODEJS_CLR_REPO="$ROOT_DIR/../nodejs-clr"
+JS_RUNTIME_REPO="$ROOT_DIR/../js-runtime"
 
 DEST_DIR="$ROOT_DIR/packages/cli/runtime"
 mkdir -p "$DEST_DIR"
@@ -26,3 +27,8 @@ if [[ -f "$NODEJS_DLL" ]]; then
   echo "Copied: packages/cli/runtime/nodejs.dll"
 fi
 
+JS_RUNTIME_DLL="$JS_RUNTIME_REPO/artifacts/bin/Tsonic.JSRuntime/Release/net10.0/Tsonic.JSRuntime.dll"
+if [[ -f "$JS_RUNTIME_DLL" ]]; then
+  cp "$JS_RUNTIME_DLL" "$DEST_DIR/Tsonic.JSRuntime.dll"
+  echo "Copied: packages/cli/runtime/Tsonic.JSRuntime.dll"
+fi

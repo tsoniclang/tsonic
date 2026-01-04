@@ -260,6 +260,12 @@ const dtsTypeNodeToIrType = (
     const rawName = getRightmostQualifiedNameText(node.typeName);
     const name = stripTsBindgenInstanceSuffix(rawName);
 
+    // tsbindgen imports CLR numeric aliases from @tsonic/core as type references.
+    // For IR purposes, `int` is a distinct primitive type (not referenceType).
+    if (name === "int" && !node.typeArguments?.length) {
+      return { kind: "primitiveType", name: "int" };
+    }
+
     // Type parameter reference: `T` (no type args) where T is in scope
     if (inScopeTypeParams.has(name) && !node.typeArguments?.length) {
       return { kind: "typeParameterType", name };
@@ -329,6 +335,7 @@ const dtsTypeNodeToIrType = (
 type TsBindgenDtsTypeInfo = {
   readonly typeParametersByTsName: ReadonlyMap<string, readonly string[]>;
   readonly heritageByTsName: ReadonlyMap<string, readonly HeritageEdge[]>;
+  readonly memberTypesByTsName: ReadonlyMap<string, ReadonlyMap<string, IrType>>;
 };
 
 const extractHeritageFromTsBindgenDts = (
@@ -338,6 +345,7 @@ const extractHeritageFromTsBindgenDts = (
 ): TsBindgenDtsTypeInfo => {
   const typeParametersByTsName = new Map<string, readonly string[]>();
   const heritageByTsName = new Map<string, HeritageEdge[]>();
+  const memberTypesByTsName = new Map<string, Map<string, IrType>>();
 
   const content = fs.readFileSync(dtsPath, "utf-8");
   const sf = ts.createSourceFile(dtsPath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -351,6 +359,51 @@ const extractHeritageFromTsBindgenDts = (
     const list = heritageByTsName.get(sourceTsName) ?? [];
     list.push(edge);
     heritageByTsName.set(sourceTsName, list);
+  };
+
+  const recordMemberType = (sourceTsName: string, memberName: string, type: IrType) => {
+    const map = memberTypesByTsName.get(sourceTsName) ?? new Map<string, IrType>();
+    // Prefer first-seen type for determinism; later duplicates are ignored.
+    if (!map.has(memberName)) {
+      map.set(memberName, type);
+      memberTypesByTsName.set(sourceTsName, map);
+    }
+  };
+
+  const getPropertyNameText = (name: ts.PropertyName): string | undefined => {
+    if (ts.isIdentifier(name)) return name.text;
+    if (ts.isStringLiteral(name)) return name.text;
+    if (ts.isNumericLiteral(name)) return name.text;
+    return undefined;
+  };
+
+  const extractMemberTypesFromInstanceDecl = (
+    baseTsName: string,
+    members: readonly ts.Node[],
+    inScopeTypeParams: ReadonlySet<string>
+  ): void => {
+    for (const member of members) {
+      if (ts.isPropertySignature(member)) {
+        const nameText = member.name ? getPropertyNameText(member.name) : undefined;
+        if (!nameText || !member.type) continue;
+        recordMemberType(baseTsName, nameText, dtsTypeNodeToIrType(member.type, inScopeTypeParams));
+        continue;
+      }
+
+      if (ts.isPropertyDeclaration(member)) {
+        const nameText = member.name ? getPropertyNameText(member.name) : undefined;
+        if (!nameText || !member.type) continue;
+        recordMemberType(baseTsName, nameText, dtsTypeNodeToIrType(member.type, inScopeTypeParams));
+        continue;
+      }
+
+      if (ts.isGetAccessorDeclaration(member)) {
+        const nameText = member.name ? getPropertyNameText(member.name) : undefined;
+        if (!nameText || !member.type) continue;
+        recordMemberType(baseTsName, nameText, dtsTypeNodeToIrType(member.type, inScopeTypeParams));
+        continue;
+      }
+    }
   };
 
   const computeEdgeKind = (
@@ -458,6 +511,12 @@ const extractHeritageFromTsBindgenDts = (
         inScopeTypeParams,
         stmt.heritageClauses
       );
+
+      extractMemberTypesFromInstanceDecl(
+        baseTsName,
+        stmt.members,
+        inScopeTypeParams
+      );
       continue;
     }
 
@@ -499,6 +558,12 @@ const extractHeritageFromTsBindgenDts = (
           }
         }
       }
+
+      extractMemberTypesFromInstanceDecl(
+        baseTsName,
+        stmt.members,
+        inScopeTypeParams
+      );
     }
   }
 
@@ -528,6 +593,7 @@ const extractHeritageFromTsBindgenDts = (
   return {
     typeParametersByTsName,
     heritageByTsName: dedupedHeritageByTsName,
+    memberTypesByTsName,
   };
 };
 
@@ -538,6 +604,7 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
 ): void => {
   const mergedTypeParams = new Map<string, readonly string[]>();
   const mergedHeritage = new Map<string, HeritageEdge[]>();
+  const mergedMemberTypes = new Map<string, Map<string, IrType>>();
 
   for (const dtsPath of dtsPaths) {
     try {
@@ -551,6 +618,16 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
         const list = mergedHeritage.get(tsName) ?? [];
         list.push(...edges);
         mergedHeritage.set(tsName, list);
+      }
+
+      for (const [tsName, memberTypes] of info.memberTypesByTsName) {
+        const merged = mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
+        for (const [memberName, type] of memberTypes) {
+          if (!merged.has(memberName)) {
+            merged.set(memberName, type);
+          }
+        }
+        mergedMemberTypes.set(tsName, merged);
       }
     } catch (e) {
       console.warn(`Failed to parse tsbindgen d.ts for heritage: ${dtsPath}`, e);
@@ -569,7 +646,24 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
         : entry.typeParameters;
 
     const extraHeritage = mergedHeritage.get(tsName) ?? [];
-    if (extraHeritage.length === 0 && updatedTypeParameters === entry.typeParameters) continue;
+    const memberTypes = mergedMemberTypes.get(tsName);
+    let updatedMembers: Map<string, MemberEntry> | undefined;
+    if (memberTypes) {
+      for (const [memberName, type] of memberTypes) {
+        const member = entry.members.get(memberName);
+        if (!member) continue;
+        if (!updatedMembers) {
+          updatedMembers = new Map(entry.members);
+        }
+        updatedMembers.set(memberName, { ...member, type });
+      }
+    }
+
+    const shouldSkip =
+      extraHeritage.length === 0 &&
+      updatedTypeParameters === entry.typeParameters &&
+      !updatedMembers;
+    if (shouldSkip) continue;
 
     const combined = [...entry.heritage, ...extraHeritage];
     const seen = new Set<string>();
@@ -594,6 +688,7 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
       ...entry,
       typeParameters: updatedTypeParameters,
       heritage: deduped,
+      ...(updatedMembers ? { members: updatedMembers } : {}),
     });
   }
 };
@@ -907,7 +1002,8 @@ const findMetadataFiles = (packagePath: string): string[] => {
  * @returns AssemblyTypeCatalog with all loaded types
  */
 export const loadClrCatalog = (
-  nodeModulesPath: string
+  nodeModulesPath: string,
+  extraPackageRoots: readonly string[] = []
 ): AssemblyTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
   const tsNameToTypeId = new Map<string, TypeId>();
@@ -916,9 +1012,12 @@ export const loadClrCatalog = (
   const dtsFiles = new Set<string>();
 
   // Find all @tsonic packages
-  const packages = findTsonicPackages(nodeModulesPath);
+  const packageRoots = new Set<string>(findTsonicPackages(nodeModulesPath));
+  for (const extra of extraPackageRoots) {
+    packageRoots.add(extra);
+  }
 
-  for (const packagePath of packages) {
+  for (const packagePath of Array.from(packageRoots).sort()) {
     // Find all metadata.json files
     const metadataFiles = findMetadataFiles(packagePath);
 
@@ -960,7 +1059,7 @@ export const loadClrCatalog = (
   enrichAssemblyEntriesFromTsBindgenDts(
     entries,
     tsNameToTypeId,
-    Array.from(dtsFiles)
+    Array.from(dtsFiles).sort()
   );
 
   return {

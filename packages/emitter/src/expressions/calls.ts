@@ -91,29 +91,69 @@ const isGlobalJsonCall = (
 };
 
 /**
+ * Heuristic: Determine if a member access is an instance-style access (receiver.value)
+ * vs a static type reference (Type.Member).
+ *
+ * This mirrors the logic in emitMemberAccess; extension-method lowering only applies
+ * to instance-style member accesses.
+ */
+const isInstanceMemberAccess = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext
+): boolean => {
+  // Imported types (e.g., `Enumerable.Where(...)`) are static receiver expressions,
+  // even if TypeScript assigns them an inferredType.
+  if (expr.object.kind === "identifier") {
+    const importBinding = context.importBindings?.get(expr.object.name);
+    if (importBinding?.kind === "type") {
+      return false;
+    }
+  }
+
+  const objectType = expr.object.inferredType;
+  return (
+    objectType?.kind === "referenceType" ||
+    objectType?.kind === "arrayType" ||
+    objectType?.kind === "intersectionType" ||
+    objectType?.kind === "unionType" ||
+    objectType?.kind === "primitiveType" ||
+    objectType?.kind === "literalType"
+  );
+};
+
+/**
+ * Whether a C# type string is a builtin/keyword type (optionally nullable).
+ *
+ * These must NOT be qualified with a namespace (e.g. `object`, not `MyNs.object`).
+ */
+const isCSharpBuiltinType = (typeStr: string): boolean => {
+  const base = typeStr.endsWith("?") ? typeStr.slice(0, -1) : typeStr;
+  return (
+    base === "string" ||
+    base === "int" ||
+    base === "long" ||
+    base === "short" ||
+    base === "byte" ||
+    base === "sbyte" ||
+    base === "uint" ||
+    base === "ulong" ||
+    base === "ushort" ||
+    base === "float" ||
+    base === "double" ||
+    base === "decimal" ||
+    base === "bool" ||
+    base === "char" ||
+    base === "object" ||
+    base === "void"
+  );
+};
+
+/**
  * Ensure a C# type string has global:: prefix for unambiguous resolution
  */
 const ensureGlobalPrefix = (typeStr: string): string => {
   // Skip primitives and already-prefixed types
-  if (
-    typeStr.startsWith("global::") ||
-    typeStr === "string" ||
-    typeStr === "int" ||
-    typeStr === "long" ||
-    typeStr === "short" ||
-    typeStr === "byte" ||
-    typeStr === "sbyte" ||
-    typeStr === "uint" ||
-    typeStr === "ulong" ||
-    typeStr === "ushort" ||
-    typeStr === "float" ||
-    typeStr === "double" ||
-    typeStr === "decimal" ||
-    typeStr === "bool" ||
-    typeStr === "char" ||
-    typeStr === "object" ||
-    typeStr === "void"
-  ) {
+  if (typeStr.startsWith("global::") || isCSharpBuiltinType(typeStr)) {
     return typeStr;
   }
 
@@ -135,12 +175,16 @@ const registerJsonAotType = (
   if (!context.options.jsonAotRegistry) return;
 
   const registry = context.options.jsonAotRegistry;
-  const [typeStr] = emitType(type, context);
+  const [rawTypeStr] = emitType(type, context);
+  const typeStr = rawTypeStr.endsWith("?")
+    ? rawTypeStr.slice(0, -1)
+    : rawTypeStr;
 
   // If type already has a namespace (contains '.') or is global::, use as-is
   // Otherwise, qualify with rootNamespace (it's a local type)
   let qualifiedType: string;
   if (
+    isCSharpBuiltinType(typeStr) ||
     typeStr.startsWith("global::") ||
     typeStr.includes(".") ||
     typeStr.includes("<") // Generic types handle their own qualification
@@ -270,6 +314,99 @@ export const emitCall = (
   const globalJsonCall = isGlobalJsonCall(expr.callee);
   if (globalJsonCall) {
     return emitJsonSerializerCall(expr, context, globalJsonCall.method);
+  }
+
+  // Extension method lowering: emit explicit static invocation with receiver as first arg.
+  // This avoids relying on C# `using` directives for extension method discovery.
+  if (
+    expr.callee.kind === "memberAccess" &&
+    expr.callee.memberBinding?.isExtensionMethod &&
+    isInstanceMemberAccess(expr.callee, context)
+  ) {
+    let currentContext = context;
+
+    const binding = expr.callee.memberBinding;
+    const receiverExpr = expr.callee.object;
+
+    const [receiverFrag, receiverContext] = emitExpression(
+      receiverExpr,
+      currentContext
+    );
+    currentContext = receiverContext;
+
+    let finalCalleeName = `global::${binding.type}.${binding.member}`;
+
+    // Handle generic type arguments
+    let typeArgsStr = "";
+    if (expr.typeArguments && expr.typeArguments.length > 0) {
+      if (expr.requiresSpecialization) {
+        const [specializedName, specContext] = generateSpecializedName(
+          finalCalleeName,
+          expr.typeArguments,
+          currentContext
+        );
+        finalCalleeName = specializedName;
+        currentContext = specContext;
+      } else {
+        const [typeArgs, typeContext] = emitTypeArguments(
+          expr.typeArguments,
+          currentContext
+        );
+        typeArgsStr = typeArgs;
+        currentContext = typeContext;
+      }
+    }
+
+    const parameterTypes = expr.parameterTypes ?? [];
+    const args: string[] = [receiverFrag.text];
+
+    for (let i = 0; i < expr.arguments.length; i++) {
+      const arg = expr.arguments[i];
+      if (!arg) continue;
+
+      const expectedType = parameterTypes[i];
+
+      if (arg.kind === "spread") {
+        const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
+        args.push(`params ${spreadFrag.text}`);
+        currentContext = ctx;
+      } else {
+        const castModifier = getPassingModifierFromCast(arg);
+        if (castModifier && isLValue(arg)) {
+          const [argFrag, ctx] = emitExpression(arg, currentContext);
+          args.push(`${castModifier} ${argFrag.text}`);
+          currentContext = ctx;
+        } else {
+          const [argFrag, ctx] = emitExpression(
+            arg,
+            currentContext,
+            expectedType
+          );
+          const passingMode = expr.argumentPassing?.[i];
+          const prefix =
+            passingMode && passingMode !== "value" && isLValue(arg)
+              ? `${passingMode} `
+              : "";
+          args.push(`${prefix}${argFrag.text}`);
+          currentContext = ctx;
+        }
+      }
+    }
+
+    const baseCallText = `${finalCalleeName}${typeArgsStr}(${args.join(", ")})`;
+
+    // JS runtime helpers often return List<T> for array-like results, while the IR
+    // models them as native CLR arrays. When the IR expects an array, coerce via
+    // Enumerable.ToArray to preserve the IR contract.
+    const callText =
+      expr.inferredType?.kind === "arrayType"
+        ? `global::System.Linq.Enumerable.ToArray(${baseCallText})`
+        : baseCallText;
+
+    const text = needsIntCast(expr, finalCalleeName)
+      ? `(int)${callText}`
+      : callText;
+    return [{ text }, currentContext];
   }
 
   // Regular function call

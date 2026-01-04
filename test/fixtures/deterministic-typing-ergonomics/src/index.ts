@@ -65,13 +65,19 @@ function testGenericInference(): void {
 function testGenericLong(): void {
   Console.writeLine("=== Test 3: Generic long ===");
 
-  const a: long = 1000000000 as long;
+  const a: long = 1000000000;
   const b: long = identity(a);
 
   Console.writeLine(`a = ${a}`);
   Console.writeLine(`identity(a) = ${b}`);
   Console.writeLine(`doubled = ${doubleLong(b)}`);
   Console.writeLine("");
+
+  let nextId: long = 1;
+  nextId = nextId + 1;
+  if (nextId === 0) {
+    throw new Error("unreachable");
+  }
 }
 
 // =============================================================================

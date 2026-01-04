@@ -524,6 +524,47 @@ describe("Numeric Proof Invariants", () => {
     });
   });
 
+  describe("Declared Numeric Types", () => {
+    it("should prefer explicit variable type over initializer literal kind", () => {
+      // let x: long = 1;
+      // const y = x;  // x must be treated as Int64, not Int32
+      const module = createModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "let",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "x" },
+              type: { kind: "referenceType", name: "long" },
+              initializer: numLiteral(1, "1"),
+            },
+          ],
+        },
+        createVarDecl("y", ident("x")),
+      ]);
+
+      const result = runNumericProofPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+
+      const yDecl = result.modules[0]?.body[1];
+      expect(yDecl?.kind).to.equal("variableDeclaration");
+      if (yDecl?.kind === "variableDeclaration") {
+        const init = yDecl.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("identifier");
+        if (init?.kind === "identifier") {
+          expect(init.inferredType).to.deep.equal({
+            kind: "referenceType",
+            name: "Int64",
+          });
+        }
+      }
+    });
+  });
+
   describe("Source Span Accuracy", () => {
     it("should include sourceSpan in diagnostic when available", () => {
       // Create a narrowing with explicit source span

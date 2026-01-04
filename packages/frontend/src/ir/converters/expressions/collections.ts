@@ -322,6 +322,16 @@ export const convertObjectLiteral = (
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
   let contextualType = expectedType ?? getContextualType(node, ctx);
 
+  // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
+  // Treat them as "no contextual type" so TSN7403 synthesis can produce a concrete shape type.
+  if (
+    contextualType?.kind === "anyType" ||
+    contextualType?.kind === "unknownType" ||
+    (contextualType?.kind === "referenceType" && contextualType.name === "object")
+  ) {
+    contextualType = undefined;
+  }
+
   // If no contextual type, check if eligible for synthesis
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis
   if (!contextualType) {
