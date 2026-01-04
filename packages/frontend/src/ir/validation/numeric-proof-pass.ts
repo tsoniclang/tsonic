@@ -943,25 +943,31 @@ const processStatement = <T extends IrStatement>(
 
         // Track proven variables from declarations with known numeric kind
         // This includes:
+        // 0. Explicit type annotations (authoritative)
         // 1. numericNarrowing with proof (explicit `as int`)
         // 2. Binary/unary expressions that produce known numeric kinds
         // 3. Identifiers with known numeric types
         // We track both const and let (let can be reassigned, but at init we know the type)
-        if (
-          d.name.kind === "identifierPattern" &&
-          processedInit !== undefined
-        ) {
-          // First check for explicit numericNarrowing
-          if (
-            processedInit.kind === "numericNarrowing" &&
-            processedInit.proof !== undefined
-          ) {
-            ctx.provenVariables.set(d.name.name, processedInit.proof.kind);
-          } else {
-            // Otherwise, try to infer the numeric kind from the expression
-            const inferredKind = inferNumericKind(processedInit, ctx);
-            if (inferredKind !== undefined) {
-              ctx.provenVariables.set(d.name.name, inferredKind);
+        if (d.name.kind === "identifierPattern") {
+          // If a variable has an explicit numeric type annotation, that type is authoritative.
+          // We must not "re-prove" it from the initializer, or we'll incorrectly treat
+          // `let x: long = 1;` as Int32 (because `1` is an Int32 literal by lexeme).
+          const declaredKind = getNumericKindFromType(d.type);
+          if (declaredKind !== undefined) {
+            ctx.provenVariables.set(d.name.name, declaredKind);
+          } else if (processedInit !== undefined) {
+            // First check for explicit numericNarrowing
+            if (
+              processedInit.kind === "numericNarrowing" &&
+              processedInit.proof !== undefined
+            ) {
+              ctx.provenVariables.set(d.name.name, processedInit.proof.kind);
+            } else {
+              // Otherwise, try to infer the numeric kind from the expression
+              const inferredKind = inferNumericKind(processedInit, ctx);
+              if (inferredKind !== undefined) {
+                ctx.provenVariables.set(d.name.name, inferredKind);
+              }
             }
           }
         }
