@@ -1,0 +1,9 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "ExtensionMethodsSystem",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "out",
+  "outputName": "extension-methods-system"
+}
+

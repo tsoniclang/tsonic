@@ -121,6 +121,14 @@ export interface Binding {
   ): DeclId | undefined;
 
   /**
+   * Get the declaring type name for a resolved member handle.
+   *
+   * This is used for features that depend on the syntactic container of a member
+   * declaration (e.g. tsbindgen extension-method interfaces like `__Ext_*`).
+   */
+  getDeclaringTypeNameOfMember(member: MemberId): string | undefined;
+
+  /**
    * Get the fully-qualified name for a declaration.
    * Used for override detection and .NET type identification.
    */
@@ -348,14 +356,18 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     // Get owner type's declaration
     const rawOwnerSymbol = checker.getSymbolAtLocation(node.expression);
-    if (!rawOwnerSymbol) return undefined;
 
-    const ownerSymbol =
-      rawOwnerSymbol.flags & ts.SymbolFlags.Alias
+    // Note: `getSymbolAtLocation(node.expression)` can be undefined for receivers
+    // that are not identifiers/member-accesses (e.g., `xs.where(...).select`).
+    // In that case we still want a stable MemberId for the member symbol itself,
+    // so we key the member entry off the member symbol's own DeclId.
+    const ownerSymbol = rawOwnerSymbol
+      ? rawOwnerSymbol.flags & ts.SymbolFlags.Alias
         ? checker.getAliasedSymbol(rawOwnerSymbol)
-        : rawOwnerSymbol;
+        : rawOwnerSymbol
+      : undefined;
 
-    const ownerDeclId = getOrCreateDeclId(ownerSymbol);
+    const ownerDeclId = getOrCreateDeclId(ownerSymbol ?? propSymbol);
     return getOrCreateMemberId(ownerDeclId, node.name.text, propSymbol);
   };
 
@@ -454,6 +466,19 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const symbol = checker.getShorthandAssignmentValueSymbol(node);
     if (!symbol) return undefined;
     return getOrCreateDeclId(symbol);
+  };
+
+  const getDeclaringTypeNameOfMember = (member: MemberId): string | undefined => {
+    const key = `${member.declId.id}:${member.name}`;
+    const entry = memberMap.get(key);
+    const decl = entry?.decl;
+    if (!decl) return undefined;
+
+    const parent = decl.parent;
+    if (ts.isInterfaceDeclaration(parent) && parent.name) return parent.name.text;
+    if (ts.isClassDeclaration(parent) && parent.name) return parent.name.text;
+    if (ts.isTypeAliasDeclaration(parent) && parent.name) return parent.name.text;
+    return undefined;
   };
 
   const getFullyQualifiedName = (declId: DeclId): string | undefined => {
@@ -578,6 +603,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolveConstructorSignature,
     resolveImport,
     resolveShorthandAssignment,
+    getDeclaringTypeNameOfMember,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
     // Type syntax capture (Phase 2: TypeSyntaxId)
@@ -742,24 +768,47 @@ const normalizeParameterTypeNode = (
     return { mode: "value", typeNode: undefined };
   }
 
-  // Check if it's a TypeReferenceNode with identifier name ref/out/in
-  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
-    const typeName = typeNode.typeName.text;
-    if (
-      (typeName === "ref" || typeName === "out" || typeName === "in") &&
-      typeNode.typeArguments &&
-      typeNode.typeArguments.length === 1
-    ) {
-      // Unwrap: ref<T> → T with mode="ref"
-      return {
-        mode: typeName,
-        typeNode: typeNode.typeArguments[0],
-      };
+  // Mirror IR conversion rules: wrappers may be nested and may appear in any order.
+  // - thisarg<T> marks an extension-method receiver parameter (erases for typing)
+  // - ref<T>/out<T>/in<T>/inref<T> set passing mode and erase to T for typing
+  let mode: ParameterMode = "value";
+  let current: ts.TypeNode | undefined = typeNode;
+
+  while (current) {
+    if (ts.isParenthesizedTypeNode(current)) {
+      current = current.type;
+      continue;
     }
+
+    if (!ts.isTypeReferenceNode(current)) break;
+    if (!ts.isIdentifier(current.typeName)) break;
+    if (!current.typeArguments || current.typeArguments.length !== 1) break;
+    const inner: ts.TypeNode | undefined = current.typeArguments[0];
+    if (!inner) break;
+
+    const wrapperName = current.typeName.text;
+    if (wrapperName === "thisarg") {
+      current = inner;
+      continue;
+    }
+
+    if (wrapperName === "ref" || wrapperName === "out") {
+      mode = wrapperName;
+      current = inner;
+      continue;
+    }
+
+    if (wrapperName === "in" || wrapperName === "inref") {
+      mode = "in";
+      current = inner;
+      continue;
+    }
+
+    break;
   }
 
   // No wrapper detected - regular parameter
-  return { mode: "value", typeNode };
+  return { mode, typeNode: current ?? typeNode };
 };
 
 const convertTypeParameterDeclarations = (

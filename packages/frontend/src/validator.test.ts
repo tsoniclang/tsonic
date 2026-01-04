@@ -81,6 +81,93 @@ const createTestProgram = (
 };
 
 describe("Generic Validation", () => {
+  describe("TSN7106 - Extension Method Receiver Marker", () => {
+    it("should allow thisarg<T> on first parameter of a top-level function declaration", () => {
+      const source = `
+        type thisarg<T> = T;
+
+        export function where(x: thisarg<number>, y: number): number {
+          return x + y;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
+      expect(diag).to.equal(undefined);
+    });
+
+    it("should reject thisarg<T> when not the first parameter", () => {
+      const source = `
+        type thisarg<T> = T;
+
+        export function where(y: number, x: thisarg<number>): number {
+          return x + y;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("must be the first parameter");
+    });
+
+    it("should reject thisarg<T> on class methods", () => {
+      const source = `
+        type thisarg<T> = T;
+
+        export class Extensions {
+          static where(x: thisarg<number>, y: number): number {
+            return x + y;
+          }
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("only valid on top-level function declarations");
+    });
+
+    it("should reject thisarg<T> on arrow functions", () => {
+      const source = `
+        type thisarg<T> = T;
+
+        export const where = (x: thisarg<number>, y: number): number => x + y;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("only valid on top-level function declarations");
+    });
+
+    it("should reject out receiver on thisarg<T> parameters", () => {
+      const source = `
+        type thisarg<T> = T;
+        type out<T> = T;
+
+        export function tryGetCount(xs: out<thisarg<number>>): number {
+          return xs;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("cannot be `out`");
+    });
+  });
+
   describe("TSN7203 - Symbol Index Signatures (still blocked)", () => {
     it("should detect symbol index signatures", () => {
       const source = `

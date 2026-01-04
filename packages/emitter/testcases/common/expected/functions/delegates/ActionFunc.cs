@@ -24,7 +24,7 @@ namespace TestCases.common.functions.delegates
 
             public static global::System.Func<A, C> compose<A, B, C>(global::System.Func<A, B> f, global::System.Func<B, C> g)
                 {
-                return (A a) => g(f(a));
+                return (a) => g(f(a));
                 }
         }
 }

@@ -71,30 +71,38 @@ export const convertParameters = (
   return parameters.map((param) => {
     let passing: "value" | "ref" | "out" | "in" = "value";
     let actualType: ts.TypeNode | undefined = param.type;
+    let isExtensionReceiver = false;
 
-    // Detect ref<T>, out<T>, in<T>, inref<T> wrapper types
-    if (
-      param.type &&
-      ts.isTypeReferenceNode(param.type) &&
-      ts.isIdentifier(param.type.typeName)
+    // Detect wrapper types:
+    // - thisarg<T> marks an extension-method receiver parameter (emits C# `this`)
+    // - ref<T>/out<T>/in<T>/inref<T> marks passing mode (unwraps to T)
+    //
+    // Wrappers may be nested; unwrap repeatedly.
+    while (
+      actualType &&
+      ts.isTypeReferenceNode(actualType) &&
+      ts.isIdentifier(actualType.typeName) &&
+      actualType.typeArguments &&
+      actualType.typeArguments.length > 0
     ) {
-      const typeName = param.type.typeName.text;
-      if (
-        (typeName === "ref" ||
-          typeName === "out" ||
-          typeName === "in" ||
-          typeName === "inref") &&
-        param.type.typeArguments &&
-        param.type.typeArguments.length > 0
-      ) {
-        // Set passing mode (both "in" and "inref" map to C# "in")
+      const typeName = actualType.typeName.text;
+
+      if (typeName === "thisarg") {
+        isExtensionReceiver = true;
+        actualType = actualType.typeArguments[0];
+        continue;
+      }
+
+      if (typeName === "ref" || typeName === "out" || typeName === "in" || typeName === "inref") {
         passing =
           typeName === "in" || typeName === "inref"
             ? "in"
             : (typeName as "ref" | "out");
-        // Extract wrapped type
-        actualType = param.type.typeArguments[0];
+        actualType = actualType.typeArguments[0];
+        continue;
       }
+
+      break;
     }
 
     // Get parameter type for contextual typing of default value
@@ -115,6 +123,7 @@ export const convertParameters = (
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
       passing,
+      isExtensionReceiver: isExtensionReceiver || undefined,
     };
   });
 };

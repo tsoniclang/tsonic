@@ -68,8 +68,15 @@ export const emitParametersWithDestructuring = (
     const isRest = param.isRest;
     const isOptional = param.isOptional;
 
+    const modifiers: string[] = [];
+    if (param.isExtensionReceiver) {
+      modifiers.push("this");
+    }
     // Use the passing mode from IR (frontend already unwrapped ref<T>/out<T>/in<T>)
-    const paramModifier = param.passing !== "value" ? param.passing : "";
+    if (param.passing !== "value") {
+      modifiers.push(param.passing);
+    }
+    const modifierPrefix = modifiers.length > 0 ? `${modifiers.join(" ")} ` : "";
     const actualType: IrType | undefined = param.type;
 
     // Parameter type
@@ -107,10 +114,8 @@ export const emitParametersWithDestructuring = (
       paramName = "param";
     }
 
-    // Construct parameter string with modifier if present
-    let paramStr = paramModifier
-      ? `${paramModifier} ${paramType} ${paramName}`
-      : `${paramType} ${paramName}`;
+    // Construct parameter string with modifiers if present
+    let paramStr = `${modifierPrefix}${paramType} ${paramName}`;
     if (param.initializer) {
       // Emit the default value directly
       const [defaultExpr, newContext] = emitExpression(
@@ -118,7 +123,7 @@ export const emitParametersWithDestructuring = (
         currentContext
       );
       currentContext = newContext;
-      paramStr = `${paramType} ${paramName} = ${defaultExpr.text}`;
+      paramStr = `${modifierPrefix}${paramType} ${paramName} = ${defaultExpr.text}`;
     } else if (isOptional && !isRest) {
       paramStr += " = default";
     }

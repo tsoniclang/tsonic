@@ -115,7 +115,8 @@ else
         # Build and run - capture errors to file
         if node "$cli_path" build src/index.ts --config tsonic.dotnet.json 2>"$error_file"; then
             # Find executable
-            exe_path=$(find out -type f -executable 2>/dev/null | head -1 || true)
+            # Some .NET publish outputs mark DLLs as executable; filter those out.
+            exe_path=$(find out -type f -executable 2>/dev/null | grep -v '\.dll$' | head -1 || true)
             if [ -z "$exe_path" ]; then
                 exe_path=$(find generated -type f -executable 2>/dev/null | grep -v '\.dll$' | head -1 || true)
             fi

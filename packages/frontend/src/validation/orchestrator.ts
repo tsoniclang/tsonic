@@ -12,6 +12,7 @@ import { validateImports } from "./imports.js";
 import { validateExports } from "./exports.js";
 import { validateUnsupportedFeatures } from "./features.js";
 import { validateGenerics } from "./generics.js";
+import { validateExtensionMethods } from "./extension-methods.js";
 import { validateStaticSafety } from "./static-safety.js";
 
 /**
@@ -41,6 +42,7 @@ export const validateSourceFile = (
     validateExports,
     validateUnsupportedFeatures,
     validateGenerics,
+    validateExtensionMethods,
     validateStaticSafety,
   ];
 

@@ -368,6 +368,62 @@ const resolveHierarchicalBinding = (
 };
 
 /**
+ * Resolve instance-style extension method bindings from tsbindgen's `ExtensionMethods` typing.
+ *
+ * tsbindgen emits extension methods as interface members on `__Ext_*` types, and users
+ * opt in via `ExtensionMethods<TShape>`. At runtime those members do not exist, so we
+ * must attach the underlying CLR binding so the emitter can lower the call to an
+ * explicit static invocation.
+ */
+const resolveExtensionMethodsBinding = (
+  node: ts.PropertyAccessExpression,
+  propertyName: string,
+  ctx: ProgramContext
+): IrMemberExpression["memberBinding"] => {
+  const memberId = ctx.binding.resolvePropertyAccess(node);
+  if (!memberId) return undefined;
+
+  const declaringTypeName = ctx.binding.getDeclaringTypeNameOfMember(memberId);
+  if (!declaringTypeName || !declaringTypeName.startsWith("__Ext_")) {
+    return undefined;
+  }
+
+  const callArgumentCount = (() => {
+    const parent = node.parent;
+    if (ts.isCallExpression(parent) && parent.expression === node) {
+      return parent.arguments.length;
+    }
+    return undefined;
+  })();
+
+  const resolved = ctx.bindings.resolveExtensionMethod(
+    declaringTypeName,
+    propertyName,
+    callArgumentCount
+  );
+  if (!resolved) return undefined;
+
+  // tsbindgen parameterModifiers indices include the extension receiver at index 0.
+  // For instance-style calls, our call-site arguments exclude the receiver, so shift by -1.
+  const shiftedModifiers = resolved.parameterModifiers
+    ? resolved.parameterModifiers
+        .map((m) => ({ index: m.index - 1, modifier: m.modifier }))
+        .filter((m) => m.index >= 0)
+    : undefined;
+
+  return {
+    assembly: resolved.binding.assembly,
+    type: resolved.binding.type,
+    member: resolved.binding.member,
+    parameterModifiers:
+      shiftedModifiers && shiftedModifiers.length > 0
+        ? shiftedModifiers
+        : undefined,
+    isExtensionMethod: resolved.isExtensionMethod,
+  };
+};
+
+/**
  * Derive element type from object type for element access.
  * - Array type → element type
  * - Dictionary type → value type
@@ -410,7 +466,9 @@ export const convertMemberExpression = (
     const propertyName = node.name.text;
 
     // Try to resolve hierarchical binding
-    const memberBinding = resolveHierarchicalBinding(object, propertyName, ctx);
+    const memberBinding =
+      resolveHierarchicalBinding(object, propertyName, ctx) ??
+      resolveExtensionMethodsBinding(node, propertyName, ctx);
 
     // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
     // user-defined types (including inherited members), with fallback to Binding layer

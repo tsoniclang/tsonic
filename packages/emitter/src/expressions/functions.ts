@@ -32,6 +32,21 @@ const unwrapParameterModifierType = (type: IrType): IrType | null => {
   return null;
 };
 
+const isTypeParameterLike = (
+  type: IrType,
+  context: EmitterContext
+): boolean => {
+  if (type.kind === "typeParameterType") return true;
+  if (
+    type.kind === "referenceType" &&
+    (context.typeParameters?.has(type.name) ?? false) &&
+    (!type.typeArguments || type.typeArguments.length === 0)
+  ) {
+    return true;
+  }
+  return false;
+};
+
 /**
  * Emit lambda parameters.
  * Rules:
@@ -48,7 +63,14 @@ const emitLambdaParameters = (
 
   // Check if ALL parameters have types - "all-or-nothing" rule
   // C# doesn't allow mixing typed and untyped lambda parameters
-  const allHaveTypes = parameters.every((p) => p.type !== undefined);
+  const allHaveConcreteTypes = parameters.every((p) => {
+    if (!p.type) return false;
+    const unwrapped = unwrapParameterModifierType(p.type);
+    const actualType = unwrapped ?? p.type;
+    // If the "type" is a type parameter (or references one), omit all types and let C# infer.
+    // This avoids emitting invalid C# like `(T x) => ...` in non-generic scopes.
+    return !isTypeParameterLike(actualType, currentContext);
+  });
 
   const parts: string[] = [];
 
@@ -62,7 +84,7 @@ const emitLambdaParameters = (
     // Get modifier (ref/out/in)
     const modifier = param.passing !== "value" ? `${param.passing} ` : "";
 
-    if (allHaveTypes && param.type) {
+    if (allHaveConcreteTypes && param.type) {
       // Emit typed parameter
       // Unwrap ref/out/in wrapper types if present
       const unwrapped = unwrapParameterModifierType(param.type);

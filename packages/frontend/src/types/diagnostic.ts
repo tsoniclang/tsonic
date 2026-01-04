@@ -35,6 +35,7 @@ export type DiagnosticCode =
   | "TSN7103" // `this` typing not supported
   | "TSN7104" // Generic constructor constraints with rest parameters not supported
   | "TSN7105" // Cannot determine required type specialisations
+  | "TSN7106" // Invalid extension method receiver marker
   | "TSN7201" // Recursive structural alias not supported
   | "TSN7202" // Conditional alias cannot be resolved
   | "TSN7203" // Symbol keys not supported
