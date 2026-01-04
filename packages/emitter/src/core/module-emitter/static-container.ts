@@ -7,6 +7,7 @@ import { EmitterContext, indent, getIndent, withStatic } from "../../types.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { emitExport } from "../exports.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { statementUsesPointer } from "../unsafe.js";
 
 export type StaticContainerResult = {
   readonly code: string;
@@ -43,6 +44,7 @@ export const emitStaticContainer = (
   const bodyContext = indent(classContext);
   const ind = getIndent(classContext);
   const bodyInd = getIndent(bodyContext);
+  const needsUnsafe = members.some((m) => statementUsesPointer(m));
 
   const containerParts: string[] = [];
   const escapedClassName = escapeCSharpIdentifier(module.className);
@@ -50,7 +52,9 @@ export const emitStaticContainer = (
   const containerName = useModuleSuffix
     ? `${escapedClassName}__Module`
     : escapedClassName;
-  containerParts.push(`${ind}public static class ${containerName}`);
+  containerParts.push(
+    `${ind}public static${needsUnsafe ? " unsafe" : ""} class ${containerName}`
+  );
   containerParts.push(`${ind}{`);
 
   // Separate declarations from executable statements

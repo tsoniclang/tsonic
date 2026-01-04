@@ -806,6 +806,14 @@ const lowerExpression = (
         targetType: lowerType(expr.targetType, ctx),
         inferredType: lowerType(expr.inferredType, ctx),
       };
+
+    case "stackalloc":
+      return {
+        ...expr,
+        elementType: lowerType(expr.elementType, ctx),
+        size: lowerExpression(expr.size, ctx),
+        inferredType: lowerType(expr.inferredType, ctx),
+      };
   }
 };
 

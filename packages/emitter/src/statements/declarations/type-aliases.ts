@@ -6,6 +6,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { typeUsesPointer } from "../../core/unsafe.js";
 
 /**
  * Emit a type alias declaration
@@ -37,9 +38,11 @@ export const emitTypeAliasDeclaration = (
   if (stmt.type.kind === "objectType") {
     // Generate a sealed class (or struct) for structural type alias
     const parts: string[] = [];
+    const needsUnsafe = typeUsesPointer(stmt.type);
 
     const accessibility = stmt.isExported ? "public" : "internal";
     parts.push(accessibility);
+    if (needsUnsafe) parts.push("unsafe");
     // Emit struct or sealed class based on isStruct flag
     if (stmt.isStruct) {
       parts.push("struct");

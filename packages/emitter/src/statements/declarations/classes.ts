@@ -14,6 +14,7 @@ import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/attributes.js";
 import { substituteType } from "../../specialization/substitution.js";
+import { statementUsesPointer } from "../../core/unsafe.js";
 
 /**
  * Emit a class declaration
@@ -24,6 +25,7 @@ export const emitClassDeclaration = (
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
   const parts: string[] = [];
+  const needsUnsafe = statementUsesPointer(stmt);
 
   const hasTypeParameters = (stmt.typeParameters?.length ?? 0) > 0;
   const staticMembers = hasTypeParameters
@@ -129,6 +131,7 @@ export const emitClassDeclaration = (
   // Access modifiers
   const accessibility = stmt.isExported ? "public" : "internal";
   parts.push(accessibility);
+  if (needsUnsafe) parts.push("unsafe");
 
   // Emit struct or class based on isStruct flag (escape C# keywords)
   parts.push(stmt.isStruct ? "struct" : "class");
@@ -218,7 +221,9 @@ export const emitClassDeclaration = (
   // Emit static members into a non-generic companion static class (same name, different arity).
   if (staticMembers.length > 0) {
     const staticClassParts: string[] = [];
-    staticClassParts.push(accessibility, "static class", escapedClassName);
+    staticClassParts.push(accessibility, "static");
+    if (needsUnsafe) staticClassParts.push("unsafe");
+    staticClassParts.push("class", escapedClassName);
 
     const companionBaseContext = withClassName(
       indent(context),

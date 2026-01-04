@@ -871,6 +871,12 @@ const processExpression = (
         arguments: expr.arguments.map((a) => processExpression(a, ctx)),
       };
 
+    case "stackalloc":
+      return {
+        ...expr,
+        size: processExpression(expr.size, ctx),
+      };
+
     case "templateLiteral":
       return {
         ...expr,

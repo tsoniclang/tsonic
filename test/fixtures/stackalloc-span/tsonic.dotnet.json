@@ -1,0 +1,9 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "StackAllocSpan",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "stackalloc-span"
+}
+

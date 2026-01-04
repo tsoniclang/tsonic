@@ -238,6 +238,37 @@ export const emitReferenceType = (
     return ["global::System.Threading.Tasks.Task", context];
   }
 
+  // Map core Span<T> to System.Span<T>.
+  // This is used by stackalloc<T>(n) and other span-based APIs.
+  if (name === "Span") {
+    if (!typeArguments || typeArguments.length !== 1) {
+      throw new Error(
+        `ICE: Span must have exactly 1 type argument, got ${typeArguments?.length ?? 0}`
+      );
+    }
+    const inner = typeArguments[0];
+    if (!inner) {
+      throw new Error("ICE: Span<T> missing type argument");
+    }
+    const [innerType, newContext] = emitType(inner, context);
+    return [`global::System.Span<${innerType}>`, newContext];
+  }
+
+  // Map core ptr<T> to C# unsafe pointer type: T*
+  if (name === "ptr") {
+    if (!typeArguments || typeArguments.length !== 1) {
+      throw new Error(
+        `ICE: ptr must have exactly 1 type argument, got ${typeArguments?.length ?? 0}`
+      );
+    }
+    const inner = typeArguments[0];
+    if (!inner) {
+      throw new Error("ICE: ptr<T> missing type argument");
+    }
+    const [innerType, newContext] = emitType(inner, context);
+    return [`${innerType}*`, newContext];
+  }
+
   // NOTE: Map and Set must be explicitly imported (not ambient)
 
   // Map PromiseLike to Task
