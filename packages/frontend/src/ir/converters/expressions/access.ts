@@ -388,9 +388,18 @@ const resolveExtensionMethodsBinding = (
     return undefined;
   }
 
+  const callArgumentCount = (() => {
+    const parent = node.parent;
+    if (ts.isCallExpression(parent) && parent.expression === node) {
+      return parent.arguments.length;
+    }
+    return undefined;
+  })();
+
   const resolved = ctx.bindings.resolveExtensionMethod(
     declaringTypeName,
-    propertyName
+    propertyName,
+    callArgumentCount
   );
   if (!resolved) return undefined;
 

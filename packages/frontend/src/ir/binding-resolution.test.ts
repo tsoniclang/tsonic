@@ -653,5 +653,92 @@ describe("Binding Resolution in IR", () => {
       // And the call itself must carry passing mode for the single argument.
       expect(callExpr.argumentPassing).to.deep.equal(["out"]);
     });
+
+    it("should pick the correct extension method overload for out/ref modifiers based on call arity", () => {
+      const source = `
+        interface ReadOnlySpan_1<T> {}
+
+        interface __Ext_System_ReadOnlySpan_1<T> {
+          overlaps(other: ReadOnlySpan_1<T>): boolean;
+          overlaps(other: ReadOnlySpan_1<T>, elementOffset: number): boolean;
+        }
+
+        type ExtensionMethods_System<TShape> =
+          TShape & (TShape extends ReadOnlySpan_1<infer T0> ? __Ext_System_ReadOnlySpan_1<T0> : {});
+
+        type Seq<T> = ExtensionMethods_System<ReadOnlySpan_1<T>>;
+
+        declare const xs: Seq<number>;
+
+        export function test() {
+          let off = 0;
+          xs.overlaps(xs);
+          return xs.overlaps(xs, off);
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/System/bindings.json", {
+        namespace: "System",
+        types: [
+          {
+            clrName: "System.MemoryExtensions",
+            tsEmitName: "MemoryExtensions",
+            assemblyName: "System",
+            methods: [
+              {
+                clrName: "Overlaps",
+                tsEmitName: "overlaps",
+                normalizedSignature:
+                  "Overlaps|(ReadOnlySpan_1,ReadOnlySpan_1):System.Boolean|static=true",
+                parameterCount: 2,
+                declaringClrType: "System.MemoryExtensions",
+                declaringAssemblyName: "System",
+                isExtensionMethod: true,
+              },
+              {
+                clrName: "Overlaps",
+                tsEmitName: "overlaps",
+                normalizedSignature:
+                  "Overlaps|(ReadOnlySpan_1,ReadOnlySpan_1,System.Int32&):System.Boolean|static=true",
+                parameterCount: 3,
+                declaringClrType: "System.MemoryExtensions",
+                declaringAssemblyName: "System",
+                isExtensionMethod: true,
+                parameterModifiers: [{ index: 2, modifier: "out" }],
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const exprStmt = funcDecl.body.statements[1];
+      if (exprStmt?.kind !== "expressionStatement") return;
+      if (exprStmt.expression.kind !== "call") return;
+
+      // Call 1: overlaps(other) - no out
+      expect(exprStmt.expression.argumentPassing).to.deep.equal(["value"]);
+
+      const returnStmt = funcDecl.body.statements[2];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) return;
+      if (returnStmt.expression.kind !== "call") return;
+
+      // Call 2: overlaps(other, off) - second arg must be out after receiver shift
+      expect(returnStmt.expression.argumentPassing).to.deep.equal(["value", "out"]);
+    });
   });
 });

@@ -21,6 +21,8 @@ export type ParameterModifier = {
 export type MemberBinding = {
   readonly kind: "method" | "property";
   readonly signature?: string; // Optional TS signature for diagnostics
+  /** Total CLR parameter count (includes extension receiver for extension methods). */
+  readonly parameterCount?: number;
   readonly name: string; // CLR member name (e.g., "SelectMany")
   readonly alias: string; // TS identifier (e.g., "selectMany")
   readonly binding: {
@@ -250,7 +252,8 @@ export class BindingRegistry {
    */
   resolveExtensionMethod(
     extensionInterfaceName: string,
-    methodTsName: string
+    methodTsName: string,
+    callArgumentCount?: number
   ): MemberBinding | undefined {
     const parsed = this.parseExtensionInterfaceName(extensionInterfaceName);
     if (!parsed) return undefined;
@@ -262,13 +265,72 @@ export class BindingRegistry {
     );
     if (!candidates || candidates.length === 0) return undefined;
 
+    const getParameterCount = (binding: MemberBinding): number | undefined => {
+      if (typeof binding.parameterCount === "number") {
+        return binding.parameterCount;
+      }
+
+      const sig = binding.signature;
+      if (!sig) return undefined;
+      const paramsMatch = sig.match(/\|\(([^)]*)\):/);
+      const paramsStr = paramsMatch?.[1]?.trim();
+      if (!paramsStr) return undefined;
+      return splitSignatureTypeList(paramsStr).length;
+    };
+
+    const getModifiersKey = (
+      binding: MemberBinding
+    ): string => {
+      const mods = (binding.parameterModifiers ?? []) as readonly ParameterModifier[];
+      if (!Array.isArray(mods) || mods.length === 0) return "";
+      return [...mods]
+        .slice()
+        .sort((a, b) => a.index - b.index)
+        .map((m) => `${m.index}:${m.modifier}`)
+        .join(",");
+    };
+
+    let filteredCandidates: readonly MemberBinding[] = candidates;
+    if (typeof callArgumentCount === "number") {
+      const desiredParamCount = callArgumentCount + 1;
+
+      const exact = candidates.filter(
+        (c) => getParameterCount(c) === desiredParamCount
+      );
+
+      if (exact.length > 0) {
+        filteredCandidates = exact;
+      } else {
+        // Optional-parameter safety: if no exact arity match, choose the smallest
+        // candidate arity that can still accept the provided arguments.
+        const larger = candidates
+          .map((c) => ({ c, count: getParameterCount(c) }))
+          .filter(
+            (x): x is { c: MemberBinding; count: number } =>
+              typeof x.count === "number" && x.count > desiredParamCount
+          );
+
+        if (larger.length === 0) return undefined;
+
+        const minCount = Math.min(...larger.map((x) => x.count));
+        filteredCandidates = larger
+          .filter((x) => x.count === minCount)
+          .map((x) => x.c);
+      }
+    }
+
     // If multiple candidates map to different CLR targets, treat as unresolved (unsafe).
-    const first = candidates[0];
+    const first = filteredCandidates[0];
     if (!first) return undefined;
     const firstTarget = `${first.binding.type}::${first.binding.member}`;
-    for (const c of candidates) {
+    const firstModsKey = getModifiersKey(first);
+    for (const c of filteredCandidates) {
       const target = `${c.binding.type}::${c.binding.member}`;
       if (target !== firstTarget) {
+        return undefined;
+      }
+
+      if (getModifiersKey(c) !== firstModsKey) {
         return undefined;
       }
     }
@@ -335,6 +397,8 @@ export class BindingRegistry {
             name: method.clrName,
             // alias = tsEmitName (what TS code uses, e.g., "add")
             alias: method.tsEmitName,
+            signature: method.normalizedSignature,
+            parameterCount: method.parameterCount,
             binding: {
               assembly: method.declaringAssemblyName,
               type: method.declaringClrType,
