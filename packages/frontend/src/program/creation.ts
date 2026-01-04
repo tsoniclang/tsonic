@@ -150,13 +150,63 @@ declare module "@tsonic/core/attributes.js" {
     }
   })();
 
+  // creation.ts lives at: <repoRoot>/packages/frontend/src/program/creation.ts
+  // repoRoot is 4 levels up from this file's directory.
+  const repoRoot = path.resolve(
+    path.join(path.dirname(compilerContainingFile), "../../../..")
+  );
+
+  const resolveTsonicPackageRoot = (pkgDirName: string): string | undefined => {
+    // Prefer compiler-owned installation (keeps stdlib typings coherent)
+    try {
+      const pkgJson = require.resolve(`@tsonic/${pkgDirName}/package.json`);
+      return path.dirname(pkgJson);
+    } catch {
+      // Fall back to sibling checkouts for local monorepo development.
+    }
+
+    const siblingRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
+    const pkgJson = path.join(siblingRoot, "package.json");
+    if (!fs.existsSync(pkgJson)) return undefined;
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
+        readonly name?: unknown;
+      };
+      if (parsed.name === `@tsonic/${pkgDirName}`) return siblingRoot;
+    } catch {
+      // Ignore invalid package.json.
+    }
+
+    return undefined;
+  };
+
   // Get declaration files from type roots
   // Inject mandatory type root first, then user-provided roots
   const userTypeRoots = options.typeRoots ?? [];
+  const resolvedUserTypeRoots = userTypeRoots.map((typeRoot) => {
+    const absoluteRoot = path.isAbsolute(typeRoot)
+      ? typeRoot
+      : path.resolve(options.projectRoot, typeRoot);
+
+    if (fs.existsSync(absoluteRoot)) return absoluteRoot;
+
+    // If the typeRoot points at a missing @tsonic package under node_modules,
+    // try to resolve it from the compiler install or a sibling checkout.
+    const match = typeRoot.match(
+      /(?:^|[/\\\\])node_modules[/\\\\]@tsonic[/\\\\]([^/\\\\]+)[/\\\\]?$/
+    );
+    if (!match) return absoluteRoot;
+
+    const pkgDirName = match[1];
+    if (!pkgDirName) return absoluteRoot;
+
+    return resolveTsonicPackageRoot(pkgDirName) ?? absoluteRoot;
+  });
   const typeRoots = mandatoryTypeRoot
-    ? Array.from(new Set([mandatoryTypeRoot, ...userTypeRoots]))
-    : userTypeRoots.length > 0
-      ? userTypeRoots
+    ? Array.from(new Set([mandatoryTypeRoot, ...resolvedUserTypeRoots]))
+    : resolvedUserTypeRoots.length > 0
+      ? resolvedUserTypeRoots
       : ["node_modules/@tsonic/globals"];
 
   // Debug log typeRoots
@@ -354,11 +404,6 @@ declare module "@tsonic/core/attributes.js" {
           const subpath = match[2];
           if (!pkgDirName || !subpath) return undefined;
 
-          // creation.ts lives at: <repoRoot>/packages/frontend/src/program/creation.ts
-          // repoRoot is 4 levels up from this file's directory.
-          const repoRoot = path.resolve(
-            path.join(path.dirname(compilerContainingFile), "../../../..")
-          );
           const siblingRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
 
           const jsPath = path.join(siblingRoot, subpath);

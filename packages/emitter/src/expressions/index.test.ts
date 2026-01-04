@@ -258,6 +258,92 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("using System.Linq");
   });
 
+  it("should lower extension method calls to explicit static invocation", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "path",
+                inferredType: { kind: "primitiveType", name: "string" },
+              },
+              property: "split",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                assembly: "Tsonic.JSRuntime",
+                type: "Tsonic.JSRuntime.String",
+                member: "split",
+                isExtensionMethod: true,
+              },
+            },
+            arguments: [{ kind: "literal", value: "/" }],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include(
+      "global::Tsonic.JSRuntime.String.split(path, \"/\")"
+    );
+    expect(result).not.to.include("path.split");
+  });
+
+  it("should unwrap nullable value types when a non-nullable value is expected", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "useLong" },
+            arguments: [
+              {
+                kind: "identifier",
+                name: "id",
+                inferredType: {
+                  kind: "unionType",
+                  types: [
+                    { kind: "referenceType", name: "long" },
+                    { kind: "primitiveType", name: "null" },
+                  ],
+                },
+              },
+            ],
+            isOptional: false,
+            parameterTypes: [{ kind: "referenceType", name: "long" }],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("useLong(id.Value)");
+  });
+
   it("should emit hierarchical member bindings without emitting intermediate objects", () => {
     const module: IrModule = {
       kind: "module",

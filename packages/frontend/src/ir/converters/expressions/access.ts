@@ -314,6 +314,7 @@ const resolveHierarchicalBinding = (
           type: member.binding.type,
           member: member.binding.member,
           parameterModifiers: member.parameterModifiers,
+          isExtensionMethod: member.isExtensionMethod,
         };
       }
     }
@@ -337,6 +338,7 @@ const resolveHierarchicalBinding = (
               type: member.binding.type,
               member: member.binding.member,
               parameterModifiers: member.parameterModifiers,
+              isExtensionMethod: member.isExtensionMethod,
             };
           }
         }
@@ -357,6 +359,7 @@ const resolveHierarchicalBinding = (
         type: member.binding.type,
         member: member.binding.member,
         parameterModifiers: member.parameterModifiers,
+        isExtensionMethod: member.isExtensionMethod,
       };
     }
   }
