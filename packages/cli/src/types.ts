@@ -32,6 +32,9 @@ export type TsonicOutputConfig = {
 export type TsonicConfig = {
   readonly $schema?: string;
   readonly rootNamespace: string;
+  readonly namingPolicy?: {
+    readonly classes?: "PascalCase";
+  };
   readonly entryPoint?: string;
   readonly sourceRoot?: string;
   readonly outputDirectory?: string;
@@ -47,6 +50,13 @@ export type TsonicConfig = {
   readonly dotnet?: {
     readonly typeRoots?: readonly string[];
     readonly libraries?: readonly string[]; // External library paths for .NET interop
+    /** Additional shared frameworks (FrameworkReference) */
+    readonly frameworkReferences?: readonly string[];
+    /** Additional NuGet packages (PackageReference) */
+    readonly packageReferences?: ReadonlyArray<{
+      readonly id: string;
+      readonly version: string;
+    }>;
   };
 };
 
@@ -88,6 +98,9 @@ export type CliOptions = {
  */
 export type ResolvedConfig = {
   readonly rootNamespace: string;
+  readonly namingPolicy?: {
+    readonly classes?: "PascalCase";
+  };
   readonly entryPoint: string | undefined;
   readonly projectRoot: string; // Directory containing tsonic.json/package.json
   readonly sourceRoot: string;
@@ -104,6 +117,11 @@ export type ResolvedConfig = {
   readonly quiet: boolean;
   readonly typeRoots: readonly string[];
   readonly libraries: readonly string[]; // External library paths for .NET interop
+  readonly frameworkReferences: readonly string[];
+  readonly packageReferences: ReadonlyArray<{
+    readonly id: string;
+    readonly version: string;
+  }>;
 };
 
 /**

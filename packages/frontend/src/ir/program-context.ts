@@ -99,12 +99,147 @@ export const createProgramContext = (
   // PHASE 4 (Alice's spec): Use buildSourceCatalog with two-pass build.
   // Pass A: Register all type names (skeleton)
   // Pass B: Convert all type annotations (with stable resolution)
+  const packageRootCache = new Map<string, string | undefined>();
+  const packageInfoCache = new Map<
+    string,
+    | {
+        readonly name: string | undefined;
+        readonly keywords: readonly string[];
+        readonly peerDependencies: Readonly<Record<string, string>>;
+      }
+    | undefined
+  >();
+  const packageHasMetadataCache = new Map<string, boolean>();
+
+  const findPackageRootForFile = (fileName: string): string | undefined => {
+    const normalized = fileName.replace(/\\/g, "/");
+    if (packageRootCache.has(normalized)) return packageRootCache.get(normalized);
+
+    let dir = path.dirname(fileName);
+    while (true) {
+      const pkgJson = path.join(dir, "package.json");
+      if (fs.existsSync(pkgJson)) {
+        packageRootCache.set(normalized, dir);
+        return dir;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) {
+        packageRootCache.set(normalized, undefined);
+        return undefined;
+      }
+      dir = parent;
+    }
+  };
+
+  const getPackageInfo = (
+    pkgRoot: string
+  ):
+    | {
+        readonly name: string | undefined;
+        readonly keywords: readonly string[];
+        readonly peerDependencies: Readonly<Record<string, string>>;
+      }
+    | undefined => {
+    if (packageInfoCache.has(pkgRoot)) return packageInfoCache.get(pkgRoot);
+
+    try {
+      const raw = fs.readFileSync(path.join(pkgRoot, "package.json"), "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (typeof parsed !== "object" || parsed === null) {
+        packageInfoCache.set(pkgRoot, undefined);
+        return undefined;
+      }
+
+      const name =
+        typeof (parsed as { readonly name?: unknown }).name === "string"
+          ? (parsed as { readonly name: string }).name
+          : undefined;
+
+      const keywordsRaw = (parsed as { readonly keywords?: unknown }).keywords;
+      const keywords: readonly string[] = Array.isArray(keywordsRaw)
+        ? keywordsRaw.filter((k): k is string => typeof k === "string")
+        : [];
+
+      const peerDepsRaw = (parsed as { readonly peerDependencies?: unknown })
+        .peerDependencies;
+      const peerDependencies: Readonly<Record<string, string>> =
+        peerDepsRaw && typeof peerDepsRaw === "object" && !Array.isArray(peerDepsRaw)
+          ? Object.fromEntries(
+              Object.entries(peerDepsRaw as Record<string, unknown>).filter(
+                (entry): entry is [string, string] =>
+                  typeof entry[0] === "string" && typeof entry[1] === "string"
+              )
+            )
+          : {};
+
+      const info = { name, keywords, peerDependencies };
+      packageInfoCache.set(pkgRoot, info);
+      return info;
+    } catch {
+      packageInfoCache.set(pkgRoot, undefined);
+      return undefined;
+    }
+  };
+
+  const isTsonicClrPackage = (pkgRoot: string): boolean => {
+    const info = getPackageInfo(pkgRoot);
+    if (!info) return false;
+
+    if (info.name?.startsWith("@tsonic/")) return true;
+    if (info.keywords.includes("tsonic")) return true;
+    if (Object.prototype.hasOwnProperty.call(info.peerDependencies, "@tsonic/core")) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const packageHasClrMetadata = (pkgRoot: string): boolean => {
+    // Only treat explicitly marked Tsonic packages as CLR metadata packages.
+    // Many third-party npm packages ship random `metadata.json` files; scanning and
+    // excluding them would incorrectly drop their declaration files from SourceCatalog.
+    if (!isTsonicClrPackage(pkgRoot)) return false;
+
+    const cached = packageHasMetadataCache.get(pkgRoot);
+    if (cached !== undefined) return cached;
+
+    let found = false;
+    const stack: string[] = [pkgRoot];
+
+    while (stack.length > 0 && !found) {
+      const currentDir = stack.pop();
+      if (!currentDir) continue;
+
+      try {
+        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+          const fullPath = path.join(currentDir, entry.name);
+          if (entry.isFile() && entry.name === "metadata.json") {
+            found = true;
+            break;
+          }
+          if (entry.isDirectory()) {
+            // Avoid descending into nested node_modules if present.
+            if (entry.name === "node_modules") continue;
+            stack.push(fullPath);
+          }
+        }
+      } catch {
+        // Ignore unreadable directories.
+      }
+    }
+
+    packageHasMetadataCache.set(pkgRoot, found);
+    return found;
+  };
+
   const declarationSourceFiles = program.declarationSourceFiles.filter((sf) => {
-    const fileName = sf.fileName.replace(/\\/g, "/");
-    // tsbindgen-generated CLR declarations live under @tsonic/dotnet and are already
-    // represented in the CLR catalog (metadata.json). Including them in SourceCatalog
+    const pkgRoot = findPackageRootForFile(sf.fileName);
+    if (!pkgRoot) return true;
+
+    // tsbindgen-generated CLR declarations live in packages that include metadata.json
+    // and are already represented in the CLR catalog. Including them in SourceCatalog
     // creates tsName collisions (e.g., `IEnumerable_1`) that break nominal resolution.
-    return !fileName.includes("/node_modules/@tsonic/dotnet/");
+    return !packageHasClrMetadata(pkgRoot);
   });
 
   const allSourceFiles = [...program.sourceFiles, ...declarationSourceFiles];
@@ -216,6 +351,28 @@ export const createProgramContext = (
   if (!coreInstalled) {
     const coreRoot = resolveTsonicPackageRoot("core", "@tsonic/core");
     if (coreRoot) extraPackageRoots.push(coreRoot);
+  }
+
+  // Include any additional CLR packages discovered via imports (e.g., efcore, aspnetcore).
+  // The CLR catalog loader scans node_modules/@tsonic by default; when developing in a
+  // multi-repo workspace (or running E2E fixtures without local node_modules),
+  // imports can resolve from sibling checkouts. Those package roots must be added
+  // explicitly so metadata.json files are discovered and loaded into the Universe.
+  const resolvePackageRootFromBindingsPath = (
+    bindingsPath: string
+  ): string | undefined => {
+    let dir = path.dirname(bindingsPath);
+    while (true) {
+      if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+      const parent = path.dirname(dir);
+      if (parent === dir) return undefined;
+      dir = parent;
+    }
+  };
+
+  for (const bindingsPath of program.clrResolver.getDiscoveredBindingPaths()) {
+    const pkgRoot = resolvePackageRootFromBindingsPath(bindingsPath);
+    if (pkgRoot) extraPackageRoots.push(pkgRoot);
   }
 
   const assemblyCatalog = loadClrCatalog(nodeModulesPath, extraPackageRoots);

@@ -1,0 +1,4 @@
+=== ASP.NET Core E2E ===
+GET /hello ?x=1&y=2
+Status: 204
+

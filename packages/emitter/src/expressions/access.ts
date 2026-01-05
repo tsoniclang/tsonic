@@ -63,8 +63,21 @@ const hasInt32Proof = (expr: IrExpression): boolean => {
  * Static type references are: namespace.Type or direct Type identifiers that resolve to types
  */
 const isStaticTypeReference = (
-  expr: Extract<IrExpression, { kind: "memberAccess" }>
+  expr: Extract<IrExpression, { kind: "memberAccess" }>,
+  context: EmitterContext
 ): boolean => {
+  // Imported CLR types/modules are always static receivers in emitted C#.
+  // This is true even when the frontend did not attach an inferredType for the identifier.
+  if (expr.object.kind === "identifier") {
+    const importBinding = context.importBindings?.get(expr.object.name);
+    if (importBinding) return true;
+
+    // If this isn't an import and we don't have a receiver type, default to instance.
+    // This prevents CLR-bound instance property accesses (e.g. `x.expression`) from
+    // incorrectly becoming `Type.Expression`.
+    if (!expr.object.inferredType) return false;
+  }
+
   // If the object is an identifier that's a type name (e.g., Console, Enumerable)
   // we need to check if the member binding's type matches what would be
   // accessed statically. For instance access, the object would be a variable.
@@ -116,7 +129,7 @@ export const emitMemberAccess = (
     const { type, member } = expr.memberBinding;
 
     // Determine if this is a static or instance member access
-    if (isStaticTypeReference(expr)) {
+    if (isStaticTypeReference(expr, context)) {
       // Static access: emit full CLR type and member with global:: prefix
       const text = `global::${type}.${member}`;
       return [{ text }, context];

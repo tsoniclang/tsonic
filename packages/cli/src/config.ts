@@ -39,6 +39,52 @@ export const loadConfig = (
       };
     }
 
+    const classNamingPolicy = config.namingPolicy?.classes;
+    if (classNamingPolicy !== undefined && classNamingPolicy !== "PascalCase") {
+      return {
+        ok: false,
+        error: `tsonic.json: 'namingPolicy.classes' must be 'PascalCase' (got '${classNamingPolicy}')`,
+      };
+    }
+
+    const frameworkReferences = config.dotnet?.frameworkReferences;
+    if (
+      frameworkReferences !== undefined &&
+      (!Array.isArray(frameworkReferences) ||
+        frameworkReferences.some((r) => typeof r !== "string"))
+    ) {
+      return {
+        ok: false,
+        error: "tsonic.json: 'dotnet.frameworkReferences' must be an array of strings",
+      };
+    }
+
+    const packageReferences = config.dotnet?.packageReferences;
+    if (packageReferences !== undefined) {
+      if (!Array.isArray(packageReferences)) {
+        return {
+          ok: false,
+          error:
+            "tsonic.json: 'dotnet.packageReferences' must be an array of { id, version }",
+        };
+      }
+
+      for (const entry of packageReferences as unknown[]) {
+        if (
+          entry === null ||
+          typeof entry !== "object" ||
+          typeof (entry as { readonly id?: unknown }).id !== "string" ||
+          typeof (entry as { readonly version?: unknown }).version !== "string"
+        ) {
+          return {
+            ok: false,
+            error:
+              "tsonic.json: 'dotnet.packageReferences' entries must be { id: string, version: string }",
+          };
+        }
+      }
+    }
+
     return { ok: true, value: config };
   } catch (error) {
     return {
@@ -173,11 +219,15 @@ export const resolveConfig = (
   const cliLibraries = cliOptions.lib ?? [];
   const libraries = [...configLibraries, ...cliLibraries];
 
+  const frameworkReferences = config.dotnet?.frameworkReferences ?? [];
+  const packageReferences = config.dotnet?.packageReferences ?? [];
+
   // Resolve output configuration
   const outputConfig = resolveOutputConfig(config, cliOptions, entryPoint);
 
   return {
     rootNamespace: cliOptions.namespace ?? config.rootNamespace,
+    namingPolicy: config.namingPolicy,
     entryPoint,
     projectRoot,
     sourceRoot,
@@ -196,5 +246,7 @@ export const resolveConfig = (
     quiet: cliOptions.quiet ?? false,
     typeRoots,
     libraries,
+    frameworkReferences,
+    packageReferences,
   };
 };

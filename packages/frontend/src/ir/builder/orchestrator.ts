@@ -46,7 +46,10 @@ export const buildIrModule = (
       options.sourceRoot,
       options.rootNamespace
     );
-    const className = getClassNameFromPath(sourceFile.fileName);
+    const className = getClassNameFromPath(
+      sourceFile.fileName,
+      options.namingPolicy?.classes
+    );
 
     const imports = extractImports(sourceFile, ctx);
     const exports = extractExportsWithContext(sourceFile, ctx);

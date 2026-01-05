@@ -92,6 +92,58 @@ describe("Project Generator", () => {
       expect(result).to.include("<StripSymbols>false</StripSymbols>");
     });
 
+    it("should include framework references when provided", () => {
+      const config: BuildConfig = {
+        rootNamespace: "TestApp",
+        outputName: "test",
+        dotnetVersion: "net10.0",
+        frameworkReferences: ["Microsoft.AspNetCore.App"],
+        outputConfig: {
+          type: "executable",
+          nativeAot: false,
+          singleFile: true,
+          trimmed: false,
+          stripSymbols: false,
+          optimization: "Speed",
+          invariantGlobalization: true,
+          selfContained: false,
+        },
+      };
+
+      const result = generateCsproj(config);
+
+      expect(result).to.include(
+        '<FrameworkReference Include="Microsoft.AspNetCore.App" />'
+      );
+    });
+
+    it("should include NuGet package references when provided", () => {
+      const config: BuildConfig = {
+        rootNamespace: "TestApp",
+        outputName: "test",
+        dotnetVersion: "net10.0",
+        packageReferences: [
+          { id: "Microsoft.EntityFrameworkCore", version: "10.0.1" },
+        ],
+        outputConfig: {
+          type: "executable",
+          nativeAot: false,
+          singleFile: true,
+          trimmed: false,
+          stripSymbols: false,
+          optimization: "Speed",
+          invariantGlobalization: true,
+          selfContained: false,
+        },
+      };
+
+      const result = generateCsproj(config);
+
+      expect(result).to.include(
+        '<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.1" />'
+      );
+    });
+
     it("should generate library .csproj", () => {
       const config: BuildConfig = {
         rootNamespace: "TestLib",

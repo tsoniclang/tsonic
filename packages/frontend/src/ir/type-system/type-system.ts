@@ -39,7 +39,11 @@ import type {
 	import { getBinaryResultKind, TSONIC_TO_NUMERIC_KIND } from "../types/numeric-kind.js";
 	import type { NumericKind } from "../types/numeric-kind.js";
 	import type { AliasTable } from "./internal/universe/alias-table.js";
-	import type { TypeId, UnifiedTypeCatalog } from "./internal/universe/types.js";
+	import type {
+	  MethodSignatureEntry,
+	  TypeId,
+	  UnifiedTypeCatalog,
+	} from "./internal/universe/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ALICE'S EXACT API — TypeAuthority Interface
@@ -1136,6 +1140,23 @@ export const createTypeSystem = (
    * (e.g., custom delegates from CLR metadata).
    */
   const delegateToFunctionType = (type: IrType): IrFunctionType | undefined => {
+    // Expression<TDelegate> wrapper: treat as its underlying delegate type for
+    // deterministic lambda contextual typing.
+    //
+    // This models C#'s implicit lambda conversion to Expression<Func<...>>:
+    // the TypeScript surface uses Expression<TDelegate>, but lambdas should be
+    // typed against the delegate shape.
+    if (
+      type.kind === "referenceType" &&
+      type.name === "Expression_1" &&
+      (type.typeArguments?.length ?? 0) === 1
+    ) {
+      const inner = type.typeArguments?.[0];
+      if (!inner) return undefined;
+      if (inner.kind === "functionType") return inner;
+      return delegateToFunctionType(inner);
+    }
+
     const normalized = normalizeToNominal(type);
     if (!normalized) return undefined;
 
@@ -2159,6 +2180,17 @@ export const createTypeSystem = (
         return true;
       }
 
+      // Expression<TDelegate> wrapper: infer through the underlying delegate shape.
+      // This is required for Queryable APIs that use Expression<Func<...>>.
+      if (
+        parameterType.kind === "referenceType" &&
+        parameterType.name === "Expression_1" &&
+        (parameterType.typeArguments?.length ?? 0) === 1
+      ) {
+        const inner = parameterType.typeArguments?.[0];
+        return inner ? tryUnify(inner, argumentType) : true;
+      }
+
       // Array<T> ↔ T[] unification
       if (
         parameterType.kind === "referenceType" &&
@@ -2391,6 +2423,262 @@ export const createTypeSystem = (
     return false;
   };
 
+  const normalizeCatalogTsName = (name: string): string => {
+    if (name.endsWith("$instance")) return name.slice(0, -"$instance".length);
+    if (name.startsWith("__") && name.endsWith("$views")) {
+      return name.slice("__".length, -"$views".length);
+    }
+    return name;
+  };
+
+  const isArityCompatible = (
+    signature: MethodSignatureEntry,
+    argumentCount: number
+  ): boolean => {
+    const params = signature.parameters;
+    if (params.length === 0) return argumentCount === 0;
+
+    // Rest parameter can absorb any extra args.
+    const restIndex = params.findIndex((p) => p.isRest);
+    if (restIndex >= 0) {
+      // Only support `...rest` in the last position.
+      if (restIndex !== params.length - 1) return false;
+
+      // Must supply all non-rest parameters.
+      if (argumentCount < restIndex) return false;
+      return true;
+    }
+
+    // Too many args for non-rest signature.
+    if (argumentCount > params.length) return false;
+
+    // Missing args must correspond to optional parameters.
+    for (let i = argumentCount; i < params.length; i++) {
+      const p = params[i];
+      if (!p || !p.isOptional) return false;
+    }
+
+    return true;
+  };
+
+  const scoreSignatureMatch = (
+    parameterTypes: readonly (IrType | undefined)[],
+    argTypes: readonly (IrType | undefined)[],
+    argumentCount: number
+  ): number => {
+    let score = 0;
+    const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
+    for (let i = 0; i < pairs; i++) {
+      const pt = parameterTypes[i];
+      const at = argTypes[i];
+      if (!pt || !at) continue;
+
+      if (typesEqual(pt, at)) {
+        score += 3;
+        continue;
+      }
+
+      const pNom = normalizeToNominal(pt);
+      const aNom = normalizeToNominal(at);
+      if (!pNom || !aNom) continue;
+
+      if (pNom.typeId.stableId === aNom.typeId.stableId) {
+        score += 2;
+        continue;
+      }
+
+      const inst = nominalEnv.getInstantiation(
+        aNom.typeId,
+        aNom.typeArgs,
+        pNom.typeId
+      );
+      if (inst) score += 1;
+    }
+
+    return score;
+  };
+
+  const tryResolveCallFromUnifiedCatalog = (
+    declaringTypeTsName: string,
+    declaringMemberName: string,
+    query: CallQuery
+  ): ResolvedCall | undefined => {
+    const {
+      argumentCount,
+      receiverType,
+      explicitTypeArgs,
+      argTypes,
+    } = query;
+
+    if (!argTypes) return undefined;
+    if (argTypes.length < argumentCount) return undefined;
+    for (let i = 0; i < argumentCount; i++) {
+      if (!argTypes[i]) return undefined;
+    }
+
+    const catalogTypeName = normalizeCatalogTsName(declaringTypeTsName);
+    const declaringTypeId = resolveTypeIdByName(catalogTypeName);
+    if (!declaringTypeId) return undefined;
+
+    const entry = unifiedCatalog.getByTypeId(declaringTypeId);
+    if (!entry || entry.origin !== "assembly") return undefined;
+
+    const member =
+      unifiedCatalog.getMember(declaringTypeId, declaringMemberName) ??
+      unifiedCatalog.getMember(
+        declaringTypeId,
+        declaringMemberName.charAt(0).toUpperCase() + declaringMemberName.slice(1)
+      );
+    const candidates = member?.signatures;
+    if (!candidates || candidates.length === 0) return undefined;
+
+    type Candidate = {
+      readonly resolved: ResolvedCall;
+      readonly score: number;
+      readonly typeParamCount: number;
+      readonly parameterCount: number;
+      readonly stableId: string;
+    };
+
+    const resolveCandidate = (
+      signature: MethodSignatureEntry
+    ): ResolvedCall | undefined => {
+      if (!isArityCompatible(signature, argumentCount)) return undefined;
+
+      let workingParams = signature.parameters.map((p) => p.type);
+      let workingReturn = signature.returnType;
+
+      // Receiver substitution (class type params) for instance calls.
+      if (receiverType) {
+        const receiverSubst = computeReceiverSubstitution(
+          receiverType,
+          catalogTypeName,
+          declaringMemberName
+        );
+        if (receiverSubst && receiverSubst.size > 0) {
+          workingParams = workingParams.map((p) => irSubstitute(p, receiverSubst));
+          workingReturn = irSubstitute(workingReturn, receiverSubst);
+        }
+      }
+
+      // Method type parameter substitution.
+      const methodTypeParams: TypeParameterInfo[] = signature.typeParameters.map(
+        (tp) => ({
+          name: tp.name,
+          constraint: tp.constraint,
+          defaultType: tp.defaultType,
+        })
+      );
+
+      if (methodTypeParams.length > 0) {
+        const callSubst = new Map<string, IrType>();
+
+        if (explicitTypeArgs) {
+          for (
+            let i = 0;
+            i < Math.min(explicitTypeArgs.length, methodTypeParams.length);
+            i++
+          ) {
+            const param = methodTypeParams[i];
+            const arg = explicitTypeArgs[i];
+            if (param && arg) {
+              callSubst.set(param.name, arg);
+            }
+          }
+        }
+
+        const paramsForInference =
+          callSubst.size > 0
+            ? workingParams.map((p) => irSubstitute(p, callSubst))
+            : workingParams;
+
+        const inferred = inferMethodTypeArgsFromArguments(
+          methodTypeParams,
+          paramsForInference,
+          argTypes
+        );
+        if (!inferred) return undefined;
+
+        for (const [name, inferredType] of inferred) {
+          const existing = callSubst.get(name);
+          if (existing) {
+            if (!typesEqual(existing, inferredType)) return undefined;
+            continue;
+          }
+          callSubst.set(name, inferredType);
+        }
+
+        for (const tp of methodTypeParams) {
+          if (!callSubst.has(tp.name) && tp.defaultType) {
+            callSubst.set(tp.name, tp.defaultType);
+          }
+        }
+
+        if (callSubst.size > 0) {
+          workingParams = workingParams.map((p) => irSubstitute(p, callSubst));
+          workingReturn = irSubstitute(workingReturn, callSubst);
+        }
+
+        const unresolved = new Set(
+          methodTypeParams
+            .map((tp) => tp.name)
+            .filter((name) => !callSubst.has(name))
+        );
+        if (
+          unresolved.size > 0 &&
+          containsMethodTypeParameter(workingReturn, unresolved)
+        ) {
+          return undefined;
+        }
+      }
+
+      return {
+        parameterTypes: workingParams,
+        parameterModes: signature.parameters.map((p) => p.mode),
+        returnType: workingReturn,
+        typePredicate: undefined,
+        diagnostics: [],
+      };
+    };
+
+    let best: Candidate | undefined;
+
+    for (const sig of candidates) {
+      const resolved = resolveCandidate(sig);
+      if (!resolved) continue;
+      if (resolved.returnType.kind === "unknownType") continue;
+
+      const candidate: Candidate = {
+        resolved,
+        score: scoreSignatureMatch(resolved.parameterTypes, argTypes, argumentCount),
+        typeParamCount: sig.typeParameters.length,
+        parameterCount: sig.parameters.length,
+        stableId: sig.stableId,
+      };
+
+      if (!best) {
+        best = candidate;
+        continue;
+      }
+
+      const better =
+        candidate.score > best.score ||
+        (candidate.score === best.score &&
+          candidate.typeParamCount < best.typeParamCount) ||
+        (candidate.score === best.score &&
+          candidate.typeParamCount === best.typeParamCount &&
+          candidate.parameterCount < best.parameterCount) ||
+        (candidate.score === best.score &&
+          candidate.typeParamCount === best.typeParamCount &&
+          candidate.parameterCount === best.parameterCount &&
+          candidate.stableId < best.stableId);
+
+      if (better) best = candidate;
+    }
+
+    return best?.resolved;
+  };
+
   const resolveCall = (query: CallQuery): ResolvedCall => {
     const {
       sigId,
@@ -2560,6 +2848,19 @@ export const createTypeSystem = (
           .filter((name) => !callSubst.has(name))
       );
       if (unresolved.size > 0 && containsMethodTypeParameter(workingReturn, unresolved)) {
+        const fallback =
+          argTypes && rawSig.declaringTypeTsName && rawSig.declaringMemberName
+            ? tryResolveCallFromUnifiedCatalog(
+                rawSig.declaringTypeTsName,
+                rawSig.declaringMemberName,
+                query
+              )
+            : undefined;
+
+        if (fallback) {
+          return fallback;
+        }
+
         emitDiagnostic(
           "TSN5202",
           "Return type contains unresolved type parameters - explicit type arguments required",
