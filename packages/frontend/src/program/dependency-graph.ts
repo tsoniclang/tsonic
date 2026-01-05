@@ -291,6 +291,7 @@ export const buildModuleDependencyGraph = (
   const irResult = buildIr(tsonicProgram, {
     sourceRoot: sourceRootAbs,
     rootNamespace: options.rootNamespace,
+    namingPolicy: options.namingPolicy,
   });
 
   if (!irResult.ok) {

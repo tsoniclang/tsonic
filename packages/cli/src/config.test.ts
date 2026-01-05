@@ -53,6 +53,46 @@ describe("Config", () => {
       expect(result.optimize).to.equal("size");
     });
 
+    it("should preserve namingPolicy from config", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        namingPolicy: {
+          classes: "PascalCase",
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.namingPolicy).to.deep.equal({ classes: "PascalCase" });
+    });
+
+    it("should default frameworkReferences and packageReferences to empty arrays", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.frameworkReferences).to.deep.equal([]);
+      expect(result.packageReferences).to.deep.equal([]);
+    });
+
+    it("should preserve frameworkReferences and packageReferences from config.dotnet", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        dotnet: {
+          frameworkReferences: ["Microsoft.AspNetCore.App"],
+          packageReferences: [
+            { id: "Microsoft.EntityFrameworkCore", version: "10.0.1" },
+          ],
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.frameworkReferences).to.deep.equal(["Microsoft.AspNetCore.App"]);
+      expect(result.packageReferences).to.deep.equal([
+        { id: "Microsoft.EntityFrameworkCore", version: "10.0.1" },
+      ]);
+    });
+
     it("should use entry file parameter over config", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",

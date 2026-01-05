@@ -216,9 +216,12 @@ export const generateCommand = (
     entryPoint,
     outputDirectory,
     rootNamespace,
+    namingPolicy,
     projectRoot,
     sourceRoot,
     typeRoots,
+    frameworkReferences,
+    packageReferences,
   } = config;
 
   // For libraries, entry point is optional
@@ -252,6 +255,7 @@ export const generateCommand = (
       projectRoot,
       sourceRoot,
       rootNamespace,
+      namingPolicy,
       typeRoots: allTypeRoots,
       verbose: config.verbose,
     };
@@ -418,6 +422,8 @@ export const generateCommand = (
         dotnetVersion: config.dotnetVersion,
         runtimePath,
         assemblyReferences,
+        frameworkReferences,
+        packageReferences,
         outputConfig,
       };
 

@@ -21,10 +21,10 @@ describe("Program Generator", () => {
       const result = generateProgramCs(entryInfo);
 
       expect(result).to.include("public static void Main(string[] args)");
-      expect(result).to.include("main.start();");
+      expect(result).to.include("global::MyApp.main.start();");
       expect(result).to.not.include("await");
       expect(result).to.not.include("async");
-      expect(result).to.include("using MyApp;");
+      expect(result).to.not.include("using MyApp;");
     });
 
     it("should generate async Main method", () => {
@@ -39,8 +39,8 @@ describe("Program Generator", () => {
       const result = generateProgramCs(entryInfo);
 
       expect(result).to.include("public static async Task Main(string[] args)");
-      expect(result).to.include("await main.run();");
-      expect(result).to.include("using MyApp.Services;");
+      expect(result).to.include("await global::MyApp.Services.main.run();");
+      expect(result).to.not.include("using MyApp.Services;");
       expect(result).to.include("using System.Threading.Tasks;");
     });
 
@@ -56,7 +56,7 @@ describe("Program Generator", () => {
       const result = generateProgramCs(entryInfo);
 
       expect(result).to.include("using System;");
-      expect(result).to.include("using Test;");
+      expect(result).to.not.include("using Test;");
       // No Tsonic.Runtime using - we use native CLR types only
       expect(result).not.to.include("using Tsonic.Runtime;");
     });

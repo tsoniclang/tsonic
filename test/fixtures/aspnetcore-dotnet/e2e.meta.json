@@ -1,0 +1,5 @@
+{
+  "modes": ["dotnet"],
+  "description": "ASP.NET Core shared framework types + csproj FrameworkReference"
+}
+

@@ -1,0 +1,5 @@
+{
+  "modes": ["dotnet"],
+  "description": "EF Core: csproj PackageReference + sqlite provider API surface"
+}
+

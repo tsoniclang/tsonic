@@ -12,6 +12,9 @@ export type CompilerOptions = {
   readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
   readonly sourceRoot: string;
   readonly rootNamespace: string;
+  readonly namingPolicy?: {
+    readonly classes?: "PascalCase";
+  };
   readonly strict?: boolean;
   readonly typeRoots?: readonly string[];
   readonly verbose?: boolean;

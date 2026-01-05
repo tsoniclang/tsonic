@@ -70,6 +70,14 @@ export type AssemblyReference = {
 };
 
 /**
+ * NuGet package reference (PackageReference)
+ */
+export type PackageReference = {
+  readonly id: string;
+  readonly version: string;
+};
+
+/**
  * Build configuration options
  */
 export type BuildConfig = {
@@ -78,6 +86,10 @@ export type BuildConfig = {
   readonly dotnetVersion: string;
   readonly runtimePath?: string;
   readonly assemblyReferences?: readonly AssemblyReference[];
+  /** Optional shared framework references (FrameworkReference) */
+  readonly frameworkReferences?: readonly string[];
+  /** Optional NuGet package references (PackageReference) */
+  readonly packageReferences?: readonly PackageReference[];
   readonly outputConfig: OutputConfig;
 };
 

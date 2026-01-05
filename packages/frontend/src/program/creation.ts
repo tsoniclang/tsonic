@@ -157,25 +157,25 @@ declare module "@tsonic/core/attributes.js" {
   );
 
   const resolveTsonicPackageRoot = (pkgDirName: string): string | undefined => {
-    // Prefer compiler-owned installation (keeps stdlib typings coherent)
-    try {
-      const pkgJson = require.resolve(`@tsonic/${pkgDirName}/package.json`);
-      return path.dirname(pkgJson);
-    } catch {
-      // Fall back to sibling checkouts for local monorepo development.
-    }
-
     const siblingRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
     const pkgJson = path.join(siblingRoot, "package.json");
-    if (!fs.existsSync(pkgJson)) return undefined;
+    if (fs.existsSync(pkgJson)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
+          readonly name?: unknown;
+        };
+        if (parsed.name === `@tsonic/${pkgDirName}`) return siblingRoot;
+      } catch {
+        // Ignore invalid package.json.
+      }
+    }
 
+    // Fall back to compiler-owned installation (keeps stdlib typings coherent)
     try {
-      const parsed = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as {
-        readonly name?: unknown;
-      };
-      if (parsed.name === `@tsonic/${pkgDirName}`) return siblingRoot;
+      const installedPkgJson = require.resolve(`@tsonic/${pkgDirName}/package.json`);
+      return path.dirname(installedPkgJson);
     } catch {
-      // Ignore invalid package.json.
+      // Package not found.
     }
 
     return undefined;
@@ -315,7 +315,10 @@ declare module "@tsonic/core/attributes.js" {
 
     // Patch @tsonic/core struct marker to be usable with object literals.
     // The marker must NOT force an impossible required property on values.
-    if (normalizedFileName.includes("/node_modules/@tsonic/core/types.d.ts")) {
+    if (
+      normalizedFileName.includes("/node_modules/@tsonic/core/types.d.ts") ||
+      normalizedFileName.endsWith("/core/types.d.ts")
+    ) {
       try {
         const raw = fs.readFileSync(fileName, "utf-8");
         const patched = raw.replace(
@@ -385,19 +388,8 @@ declare module "@tsonic/core/attributes.js" {
       // Compiler-owned @tsonic/* packages must resolve from the compiler install,
       // not the user's project root, to keep stdlib typings + metadata coherent.
       if (moduleName.startsWith("@tsonic/")) {
-        const result = ts.resolveModuleName(
-          moduleName,
-          compilerContainingFile,
-          tsOptions,
-          host
-        );
-        if (result.resolvedModule) return result.resolvedModule;
-
         // Development fallback: allow resolving from sibling checkouts
-        // (e.g. ../js, ../nodejs) when the package isn't installed in node_modules.
-        //
-        // This keeps local monorepo-style checkouts working while preserving the
-        // compiler-owned resolution rule when packages are installed.
+        // (e.g. ../dotnet, ../core) when present.
         const match = moduleName.match(/^@tsonic\/([^/]+)\/(.+)$/);
         if (match) {
           const pkgDirName = match[1];
@@ -426,6 +418,14 @@ declare module "@tsonic/core/attributes.js" {
             };
           }
         }
+
+        const result = ts.resolveModuleName(
+          moduleName,
+          compilerContainingFile,
+          tsOptions,
+          host
+        );
+        if (result.resolvedModule) return result.resolvedModule;
 
         return undefined;
       }

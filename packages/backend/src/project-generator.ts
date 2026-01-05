@@ -10,6 +10,7 @@ import {
   ConsoleAppConfig,
   PackageMetadata,
   AssemblyReference,
+  PackageReference,
 } from "./types.js";
 
 /**
@@ -34,6 +35,42 @@ const formatAssemblyReferences = (
   return `
   <ItemGroup>
 ${refElements}
+  </ItemGroup>`;
+};
+
+/**
+ * Generate framework references XML (FrameworkReference)
+ */
+const formatFrameworkReferences = (
+  refs: readonly string[]
+): string => {
+  if (refs.length === 0) return "";
+
+  const elements = refs
+    .map((ref) => `    <FrameworkReference Include="${ref}" />`)
+    .join("\n");
+
+  return `
+  <ItemGroup>
+${elements}
+  </ItemGroup>`;
+};
+
+/**
+ * Generate NuGet package references XML (PackageReference)
+ */
+const formatPackageReferences = (
+  refs: readonly PackageReference[]
+): string => {
+  if (refs.length === 0) return "";
+
+  const elements = refs
+    .map((ref) => `    <PackageReference Include="${ref.id}" Version="${ref.version}" />`)
+    .join("\n");
+
+  return `
+  <ItemGroup>
+${elements}
   </ItemGroup>`;
 };
 
@@ -178,6 +215,12 @@ export const generateCsproj = (config: BuildConfig): string => {
   const assemblyRefs = formatAssemblyReferences(
     config.assemblyReferences ?? []
   );
+  const frameworkRefs = formatFrameworkReferences(
+    config.frameworkReferences ?? []
+  );
+  const packageRefs = formatPackageReferences(
+    config.packageReferences ?? []
+  );
   const runtimeRef = config.runtimePath
     ? `
   <ItemGroup>
@@ -189,6 +232,7 @@ export const generateCsproj = (config: BuildConfig): string => {
 
   return `<Project Sdk="Microsoft.NET.Sdk">
 ${propertyGroup}${assemblyRefs}${runtimeRef}
+${frameworkRefs}${packageRefs}
 </Project>
 `;
 };

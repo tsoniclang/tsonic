@@ -105,6 +105,10 @@ const normalizeNamespaceAliasQualifiedName = (typeName: string): string => {
   if (lastDot <= 0) return typeName;
 
   const prefix = typeName.slice(0, lastDot);
+  // Strip facade-local internal namespace alias: `Internal.Foo` → `Foo`.
+  if (prefix === "Internal") {
+    return typeName.slice(lastDot + 1);
+  }
   // Only strip tsbindgen namespace-alias qualifiers (they contain underscores).
   if (!prefix.includes("_")) return typeName;
 
@@ -560,6 +564,76 @@ export const convertTypeReference = (
           }
 
           return fnType;
+        }
+
+        // tsbindgen facade type families use conditional type aliases to map:
+        //   Foo<T = __> → Foo (non-generic) or Foo_N<T> (generic)
+        //
+        // Example:
+        //   export type IQueryable<T1 = __> =
+        //     [T1] extends [__] ? Internal.IQueryable : Internal.IQueryable_1<T1>;
+        //
+        // When callers reference `Foo<T>` (including with type parameters), we must
+        // deterministically lower it to the arity-qualified CLR surface type name
+        // (Foo_1/Foo_2/...) so TypeSystem can resolve it nominally via metadata.
+        if (
+          declNode &&
+          ts.isTypeAliasDeclaration(declNode) &&
+          node.typeArguments &&
+          node.typeArguments.length > 0 &&
+          declNode.typeParameters &&
+          declNode.typeParameters.length === 1
+        ) {
+          const param = declNode.typeParameters[0];
+          const hasTsbindgenDefaultSentinel =
+            !!param &&
+            !!param.default &&
+            ts.isTypeReferenceNode(param.default) &&
+            (ts.isIdentifier(param.default.typeName)
+              ? param.default.typeName.text
+              : param.default.typeName.getText()) === "__";
+
+          if (hasTsbindgenDefaultSentinel && ts.isConditionalTypeNode(declNode.type)) {
+            const expected = `${typeName}_${node.typeArguments.length}`;
+            let found: string | undefined;
+
+            const visit = (t: ts.TypeNode): void => {
+              if (found) return;
+
+              if (ts.isTypeReferenceNode(t)) {
+                const raw = ts.isIdentifier(t.typeName)
+                  ? t.typeName.text
+                  : t.typeName.getText();
+                const normalized = normalizeNamespaceAliasQualifiedName(
+                  normalizeSystemInternalQualifiedName(raw)
+                );
+                if (normalized === expected) {
+                  found = normalized;
+                }
+                return;
+              }
+
+              if (ts.isConditionalTypeNode(t)) {
+                visit(t.trueType);
+                visit(t.falseType);
+                return;
+              }
+
+              if (ts.isParenthesizedTypeNode(t)) {
+                visit(t.type);
+              }
+            };
+
+            visit(declNode.type);
+
+            if (found) {
+              return {
+                kind: "referenceType",
+                name: found,
+                typeArguments: node.typeArguments.map((t) => convertType(t, binding)),
+              };
+            }
+          }
         }
       }
     }

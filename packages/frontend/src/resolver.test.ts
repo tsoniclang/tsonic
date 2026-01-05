@@ -153,5 +153,14 @@ describe("Module Resolver", () => {
       );
       expect(getClassNameFromPath("index.ts")).to.equal("index");
     });
+
+    it("should support PascalCase class naming policy", () => {
+      expect(getClassNameFromPath("/src/todo-list.ts", "PascalCase")).to.equal(
+        "TodoList"
+      );
+      expect(getClassNameFromPath("/src/todolist.ts", "PascalCase")).to.equal(
+        "Todolist"
+      );
+    });
   });
 });

@@ -368,6 +368,47 @@ const resolveHierarchicalBinding = (
 };
 
 /**
+ * Resolve hierarchical binding for a member access using Binding-resolved MemberId.
+ *
+ * This is a fallback for cases where the receiver's inferredType is unavailable
+ * (e.g., local variable typing inferred from a complex initializer), but TS can
+ * still resolve the member symbol deterministically.
+ *
+ * Critical use case: CLR property casing (e.g., `.expression` → `.Expression`).
+ */
+const resolveHierarchicalBindingFromMemberId = (
+  node: ts.PropertyAccessExpression,
+  propertyName: string,
+  ctx: ProgramContext
+): IrMemberExpression["memberBinding"] => {
+  const memberId = ctx.binding.resolvePropertyAccess(node);
+  if (!memberId) return undefined;
+
+  const declaringTypeName = ctx.binding.getDeclaringTypeNameOfMember(memberId);
+  if (!declaringTypeName) return undefined;
+
+  const normalizeDeclaringType = (name: string): string => {
+    if (name.endsWith("$instance")) return name.slice(0, -"$instance".length);
+    if (name.startsWith("__") && name.endsWith("$views")) {
+      return name.slice("__".length, -"$views".length);
+    }
+    return name;
+  };
+
+  const typeAlias = normalizeDeclaringType(declaringTypeName);
+  const member = ctx.bindings.getMember(typeAlias, propertyName);
+  if (!member) return undefined;
+
+  return {
+    assembly: member.binding.assembly,
+    type: member.binding.type,
+    member: member.binding.member,
+    parameterModifiers: member.parameterModifiers,
+    isExtensionMethod: member.isExtensionMethod,
+  };
+};
+
+/**
  * Resolve instance-style extension method bindings from tsbindgen's `ExtensionMethods` typing.
  *
  * tsbindgen emits extension methods as interface members on `__Ext_*` types, and users
@@ -477,7 +518,8 @@ export const convertMemberExpression = (
     // Try to resolve hierarchical binding
     const memberBinding =
       resolveHierarchicalBinding(object, propertyName, ctx) ??
-      resolveExtensionMethodsBinding(node, propertyName, ctx);
+      resolveExtensionMethodsBinding(node, propertyName, ctx) ??
+      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx);
 
     // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
     // user-defined types (including inherited members), with fallback to Binding layer

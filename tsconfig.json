@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/frontend" },
+    { "path": "./packages/emitter" },
+    { "path": "./packages/backend" },
+    { "path": "./packages/cli" }
+  ]
+}
+

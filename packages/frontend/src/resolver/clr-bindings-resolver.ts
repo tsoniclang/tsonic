@@ -99,26 +99,45 @@ export class ClrBindingsResolver {
       return { isClr: false };
     }
 
-    // Strip .js extension from subpath (e.g., "nodejs.js" -> "nodejs")
-    // This allows imports like "@tsonic/nodejs/nodejs.js" to find "nodejs/bindings.json"
-    const namespaceDir = subpath.endsWith(".js")
+    // Strip .js extension from subpath (e.g., "System.js" -> "System")
+    // This allows imports like "@tsonic/dotnet/System.js" to find "System/bindings.json".
+    //
+    // NOTE: Users (and generated facades) may import deep subpaths such as:
+    //   "@tsonic/efcore/Microsoft.EntityFrameworkCore/internal/index.js"
+    // In that case, the CLR namespace directory is the nearest ancestor directory
+    // that contains bindings.json (e.g., "Microsoft.EntityFrameworkCore").
+    const namespaceSubpath = subpath.endsWith(".js")
       ? subpath.slice(0, -3)
       : subpath;
 
-    // Check if bindings.json exists in the namespace directory
-    const bindingsPath = join(pkgRoot, namespaceDir, "bindings.json");
-    if (!this.hasBindings(bindingsPath)) {
+    const findBindingsDir = (candidate: string): string | null => {
+      let current = candidate;
+      while (true) {
+        const bindingsPath = join(pkgRoot, current, "bindings.json");
+        if (this.hasBindings(bindingsPath)) return current;
+
+        // Walk up one path segment.
+        const idx = Math.max(current.lastIndexOf("/"), current.lastIndexOf("\\"));
+        if (idx <= 0) return null;
+        current = current.slice(0, idx);
+      }
+    };
+
+    const bindingsDir = findBindingsDir(namespaceSubpath);
+    if (!bindingsDir) {
       return { isClr: false };
     }
 
+    const bindingsPath = join(pkgRoot, bindingsDir, "bindings.json");
+
     // Extract namespace from bindings.json (tsbindgen format)
     // This is the authoritative namespace, not the subpath
-    const resolvedNamespace = this.extractNamespace(bindingsPath, namespaceDir);
+    const resolvedNamespace = this.extractNamespace(bindingsPath, bindingsDir);
 
     // Check for optional metadata.json
     const metadataPath = join(
       pkgRoot,
-      namespaceDir,
+      bindingsDir,
       "internal",
       "metadata.json"
     );

@@ -1,0 +1,7 @@
+=== LINQ Operations Test ===
+Even numbers count: 5
+Doubled numbers count: 10
+Sum: 55
+Has numbers > 5: True
+All positive: True
+First even: 2
