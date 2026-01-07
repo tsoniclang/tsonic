@@ -64,15 +64,15 @@ Resolves import specifiers to actual files:
 
 ```typescript
 // Local import
-"./utils/math.ts" -> "/project/src/utils/math.ts"
+"./utils/math.js" -> "/project/src/utils/math.ts"
 
 // .NET import
-"@tsonic/dotnet/System.IO" -> CLR type resolution
+"@tsonic/dotnet/System.IO.js" -> CLR type resolution
 ```
 
 Rules:
 
-- Local imports MUST have `.ts` extension
+- Local imports MUST have a `.js` or `.ts` extension (`.js` recommended)
 - .NET imports map to CLR namespaces
 - Relative paths resolved from importing file
 - Barrel re-exports followed
@@ -86,7 +86,7 @@ Validates TypeScript code against Tsonic constraints:
 
 ### Import Validation
 
-- `.ts` extension required for local imports
+- `.js` or `.ts` extension required for local imports
 - No dynamic imports
 - No `import type` syntax
 

@@ -5,26 +5,33 @@ TypeScript to C# to NativeAOT compiler.
 ## Installation
 
 ```bash
+npm install -g tsonic
+```
+
+Or in a project:
+
+```bash
 npm install -D tsonic
 ```
 
 ## Usage
 
 ```bash
-# Initialize a new project
-npx tsonic init --runtime dotnet
+# Initialize a new project (creates tsonic.json, src/App.ts, etc.)
+tsonic project init
 
 # Build TypeScript to native binary
-npx tsonic build src/main.ts
+tsonic build src/App.ts
 
-# Emit C# only (no compilation)
-npx tsonic emit src/main.ts
+# Generate C# only (no compilation)
+tsonic generate src/App.ts
 ```
 
-## Runtime Modes
+If installed as a dev dependency, use `npx`:
 
-- `dotnet` - Pure .NET BCL, minimal helpers
-- `js` - JavaScript-compatible semantics via Tsonic.JSRuntime
+```bash
+npx tsonic build src/App.ts
+```
 
 ## Requirements
 

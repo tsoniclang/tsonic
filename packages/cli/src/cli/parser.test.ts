@@ -187,11 +187,6 @@ describe("CLI Parser", () => {
         expect(result.options.nodejs).to.equal(true);
       });
 
-      it("should parse --js option", () => {
-        const result = parseArgs(["project", "init", "--js"]);
-        expect(result.options.js).to.equal(true);
-      });
-
       it("should parse --pure option", () => {
         const result = parseArgs(["project", "init", "--pure"]);
         expect(result.options.pure).to.equal(true);

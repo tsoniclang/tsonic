@@ -13,138 +13,217 @@ Tsonic provides full access to .NET Base Class Library (BCL) and third-party NuG
 Import .NET types using the `@tsonic/dotnet` package:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
-import { File, Path } from "@tsonic/dotnet/System.IO";
-import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Console } from "@tsonic/dotnet/System.js";
+import { File, Path } from "@tsonic/dotnet/System.IO.js";
+import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 ```
 
 ### Import Pattern
 
 ```
-@tsonic/dotnet/<Namespace>
+@tsonic/dotnet/<Namespace>.js
 ```
 
 Maps directly to .NET namespaces:
 
 | Import                                      | .NET Namespace               |
 | ------------------------------------------- | ---------------------------- |
-| `@tsonic/dotnet/System`                     | `System`                     |
-| `@tsonic/dotnet/System.IO`                  | `System.IO`                  |
-| `@tsonic/dotnet/System.Collections.Generic` | `System.Collections.Generic` |
+| `@tsonic/dotnet/System.js`                     | `System`                     |
+| `@tsonic/dotnet/System.IO.js`                  | `System.IO`                  |
+| `@tsonic/dotnet/System.Collections.Generic.js` | `System.Collections.Generic` |
+
+### Other CLR Packages
+
+Tsonic can also consume **tsbindgen-generated** bindings packages besides the BCL.
+
+Two common examples:
+
+- `@tsonic/nodejs` — Node.js-style APIs implemented in .NET.
+- `@tsonic/js` — JavaScript runtime APIs (JS semantics implemented in C#).
+
+These are regular CLR bindings: you install them and import them like any other package.
 
 ## Common APIs
 
 ### Console
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
-Console.WriteLine("Hello!");
-Console.Write("No newline");
-const input = Console.ReadLine();
-Console.Error.WriteLine("Error message");
+Console.writeLine("Hello!");
+Console.write("No newline");
+const input = Console.readLine();
+Console.error.writeLine("Error message");
 ```
 
 ### File I/O
 
 ```typescript
-import { File, Path, Directory } from "@tsonic/dotnet/System.IO";
+import { File, Path, Directory } from "@tsonic/dotnet/System.IO.js";
 
 // Read files
-const text = File.ReadAllText("./data.txt");
-const lines = File.ReadAllLines("./data.txt");
-const bytes = File.ReadAllBytes("./image.png");
+const text = File.readAllText("./data.txt");
+const lines = File.readAllLines("./data.txt");
+const bytes = File.readAllBytes("./image.png");
 
 // Write files
-File.WriteAllText("./output.txt", "content");
-File.WriteAllLines("./output.txt", ["line1", "line2"]);
-File.WriteAllBytes("./output.bin", bytes);
+File.writeAllText("./output.txt", "content");
+File.writeAllLines("./output.txt", ["line1", "line2"]);
+File.writeAllBytes("./output.bin", bytes);
 
 // Check existence
-if (File.Exists("./data.txt")) {
+if (File.exists("./data.txt")) {
   // ...
 }
 
 // Paths
-const full = Path.Combine(".", "data", "file.txt");
-const dir = Path.GetDirectoryName(full);
-const ext = Path.GetExtension(full);
+const full = Path.combine(".", "data", "file.txt");
+const dir = Path.getDirectoryName(full);
+const ext = Path.getExtension(full);
 
 // Directories
-Directory.CreateDirectory("./output");
-const files = Directory.GetFiles("./data");
+Directory.createDirectory("./output");
+const files = Directory.getFiles("./data");
 ```
 
 ### Collections
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 import {
   List,
   Dictionary,
   HashSet,
-} from "@tsonic/dotnet/System.Collections.Generic";
+} from "@tsonic/dotnet/System.Collections.Generic.js";
 
 // List<T>
 const list = new List<number>();
-list.Add(1);
-list.Add(2);
-list.AddRange([3, 4, 5]);
-Console.WriteLine(list.Count);
+list.add(1);
+list.add(2);
+list.addRange([3, 4, 5]);
+Console.writeLine(list.count);
 const first = list[0];
 
 // Dictionary<K,V>
 const dict = new Dictionary<string, number>();
-dict.Add("one", 1);
+dict.add("one", 1);
 dict["two"] = 2;
-if (dict.ContainsKey("one")) {
-  Console.WriteLine(dict["one"]);
+if (dict.containsKey("one")) {
+  Console.writeLine(dict["one"]);
 }
 
 // HashSet<T>
 const set = new HashSet<string>();
-set.Add("a");
-set.Add("b");
-Console.WriteLine(set.Contains("a"));
+set.add("a");
+set.add("b");
+Console.writeLine(set.contains("a"));
 ```
 
 ### LINQ
 
 ```typescript
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers = [1, 2, 3, 4, 5];
 
 // Query operations
-const doubled = Enumerable.Select(numbers, (n) => n * 2);
-const filtered = Enumerable.Where(numbers, (n) => n > 2);
-const sum = Enumerable.Sum(numbers);
-const first = Enumerable.First(numbers);
-const any = Enumerable.Any(numbers, (n) => n > 10);
+const doubled = Enumerable.select(numbers, (n) => n * 2);
+const filtered = Enumerable.where(numbers, (n) => n > 2);
+const sum = Enumerable.sum(numbers);
+const first = Enumerable.first(numbers);
+const any = Enumerable.any(numbers, (n) => n > 10);
 ```
+
+### JavaScript Runtime APIs (`@tsonic/js`)
+
+Tsonic ships as a .NET compiler, but you can opt into JavaScript-style APIs by importing `@tsonic/js`
+(bindings for `Tsonic.JSRuntime.dll`).
+
+```typescript
+import { console, JSON, Math, Date, Timers } from "@tsonic/js";
+
+export function main(): void {
+  console.log("Hello from JSRuntime!");
+
+  const now = new Date();
+  console.log(now.toISOString());
+
+  const value = JSON.parse<{ x: number }>("{\"x\": 1}");
+  console.log(JSON.stringify(value));
+
+  console.log(Math.max(1, 2, 3));
+
+  Timers.setTimeout(() => console.log("tick"), 250);
+}
+```
+
+Some APIs use a `_` suffix when a member name would collide with a TypeScript keyword.
+For example, `Map.get_()` / `Map.set_()` / `Map.delete_()`.
+
+### Extension Methods (LINQ-style `xs.where(...).select(...)`)
+
+tsbindgen-generated packages expose **type-only** `ExtensionMethods` helpers that model C# `using` semantics.
+
+Bring a namespace’s extension methods into scope by wrapping the receiver type:
+
+```typescript
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
+
+type LinqList<T> = Linq<List<T>>;
+
+const numbers = new List<number>() as unknown as LinqList<number>;
+numbers.add(1);
+numbers.add(2);
+numbers.add(3);
+
+const doubled = numbers.where((x) => x % 2 === 0).select((x) => x * 2).toList();
+```
+
+The same pattern works for `IEnumerable<T>` and `IQueryable<T>` (for example when using EF Core):
+
+```typescript
+import type { ExtensionMethods as Linq, IQueryable } from "@tsonic/dotnet/System.Linq.js";
+
+type LinqQuery<T> = Linq<IQueryable<T>>;
+declare const query: LinqQuery<number>;
+
+query.where((x) => x > 0).select((x) => x * 2);
+```
+
+Compose multiple extension namespaces by nesting:
+
+```typescript
+import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
+import type { ExtensionMethods as Xml } from "@tsonic/dotnet/System.Xml.Linq.js";
+
+type Ext<T> = Linq<Xml<T>>;
+```
+
+To write your own extension methods, see [Language Intrinsics](lang-intrinsics.md) (`thisarg<T>`).
 
 ### DateTime
 
 ```typescript
-import { Console, DateTime, TimeSpan } from "@tsonic/dotnet/System";
+import { Console, DateTime, TimeSpan } from "@tsonic/dotnet/System.js";
 
-const now = DateTime.Now;
-const utc = DateTime.UtcNow;
+const now = DateTime.now;
+const utc = DateTime.utcNow;
 const date = new DateTime(2024, 1, 15);
 
-Console.WriteLine(now.Year);
-Console.WriteLine(now.ToString("yyyy-MM-dd"));
+Console.writeLine(now.year);
+Console.writeLine(now.toString("yyyy-MM-dd"));
 
-const duration = TimeSpan.FromHours(2);
-const later = now.Add(duration);
+const duration = TimeSpan.fromHours(2);
+const later = now.add(duration);
 ```
 
 ### JSON Serialization
 
 ```typescript
-import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 interface User {
   id: number;
@@ -153,16 +232,16 @@ interface User {
 
 // Serialize object to JSON
 const user: User = { id: 1, name: "Alice" };
-const json = JsonSerializer.Serialize(user);
+const json = JsonSerializer.serialize(user);
 
 // Deserialize JSON to object
-const parsed = JsonSerializer.Deserialize<User>(json);
+const parsed = JsonSerializer.deserialize<User>(json);
 
 // Works with collections too
 const users = new List<User>();
-users.Add({ id: 1, name: "Alice" });
-users.Add({ id: 2, name: "Bob" });
-const usersJson = JsonSerializer.Serialize(users);
+users.add({ id: 1, name: "Alice" });
+users.add({ id: 2, name: "Bob" });
+const usersJson = JsonSerializer.serialize(users);
 ```
 
 **NativeAOT Support**: Tsonic automatically generates the required `JsonSerializerContext`
@@ -171,11 +250,11 @@ for NativeAOT compatibility. No additional configuration needed.
 ### String Operations
 
 ```typescript
-import { String } from "@tsonic/dotnet/System";
+import { String } from "@tsonic/dotnet/System.js";
 
-const result = String.IsNullOrEmpty(input);
-const joined = String.Join(", ", ["a", "b", "c"]);
-const formatted = String.Format("Hello, {0}!", name);
+const result = String.isNullOrEmpty(input);
+const joined = String.join(", ", ["a", "b", "c"]);
+const formatted = String.format("Hello, {0}!", name);
 ```
 
 ## NuGet Packages
@@ -187,9 +266,9 @@ In `tsonic.json`:
 ```json
 {
   "dotnet": {
-    "packages": [
-      { "name": "Newtonsoft.Json", "version": "13.0.3" },
-      { "name": "System.Net.Http.Json", "version": "8.0.0" }
+    "packageReferences": [
+      { "id": "Newtonsoft.Json", "version": "13.0.3" },
+      { "id": "System.Net.Http.Json", "version": "8.0.0" }
     ]
   }
 }
@@ -197,14 +276,15 @@ In `tsonic.json`:
 
 ### Using NuGet Types
 
-After adding to config, import and use:
+After adding to config, install (or generate) a matching TypeScript bindings package and import from that package's namespaces:
 
 ```typescript
-// Assuming you have type declarations
-import { JsonConvert } from "Newtonsoft.Json";
+// Example: a tsbindgen-generated bindings package for Newtonsoft.Json
+// (the package name is up to you)
+import { JsonConvert } from "@my-org/newtonsoft-json/Newtonsoft.Json.js";
 
-const json = JsonConvert.SerializeObject({ name: "Alice" });
-const obj = JsonConvert.DeserializeObject(json);
+const json = JsonConvert.serializeObject({ name: "Alice" });
+const obj = JsonConvert.deserializeObject(json);
 ```
 
 ## External Libraries
@@ -276,11 +356,11 @@ export declare class MyService {
 .NET async methods map to TypeScript async:
 
 ```typescript
-import { File } from "@tsonic/dotnet/System.IO";
+import { File } from "@tsonic/dotnet/System.IO.js";
 
 export async function main(): Promise<void> {
-  const content = await File.ReadAllTextAsync("./data.txt");
-  await File.WriteAllTextAsync("./output.txt", content);
+  const content = await File.readAllTextAsync("./data.txt");
+  await File.writeAllTextAsync("./output.txt", content);
 }
 ```
 
@@ -289,13 +369,13 @@ export async function main(): Promise<void> {
 .NET exceptions work with TypeScript try/catch:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
-import { File } from "@tsonic/dotnet/System.IO";
+import { Console } from "@tsonic/dotnet/System.js";
+import { File } from "@tsonic/dotnet/System.IO.js";
 
 try {
-  const content = File.ReadAllText("./missing.txt");
+  const content = File.readAllText("./missing.txt");
 } catch (error) {
-  Console.WriteLine("File not found");
+  Console.writeLine("File not found");
 }
 ```
 
@@ -362,18 +442,19 @@ public class LegacyService
 .NET methods with `out`, `ref`, or `in` parameters work automatically when using tsbindgen-generated bindings:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
 import { int } from "@tsonic/core/types.js";
 
-// Dictionary.TryGetValue has an 'out' parameter
-import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
+// Dictionary.tryGetValue has an 'out' parameter
+import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const dict = new Dictionary<string, int>();
-dict.Add("key", 42);
+dict.add("key", 42);
 
 // The 'out' parameter is handled automatically
-let value: int;
-if (dict.TryGetValue("key", value)) {
-  console.log(value); // 42
+let value: int = 0;
+if (dict.tryGetValue("key", value)) {
+  Console.writeLine(value); // 42
 }
 ```
 

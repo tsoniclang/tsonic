@@ -52,10 +52,13 @@ Both `T[]` and `Array<T>` syntax emit as native arrays.
 Use `List<T>` when you need add/remove operations:
 
 ```typescript
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
-const list = new List<number>([1, 2, 3]);
-list.Add(4);
+const list = new List<number>();
+list.add(1);
+list.add(2);
+list.add(3);
+list.add(4);
 ```
 
 ## Tuple Types
@@ -72,19 +75,21 @@ ValueTuple<string, double, bool> record = ("name", 42, true);
 
 Tuples with 8+ elements use nested ValueTuple with TRest.
 
-## Map and Set Types
+## Dictionary and HashSet Types
+
+Tsonic does not include JavaScript `Map`/`Set` in the default globals. Use .NET collections:
 
 ```typescript
+import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
+
 // TypeScript
-const map = new Map<string, number>();
-const set = new Set<number>();
+const map = new Dictionary<string, number>();
+const set = new HashSet<number>();
 
 // C#
 var map = new Dictionary<string, double>();
 var set = new HashSet<double>();
 ```
-
-Map generates `Dictionary<TKey, TValue>`, Set generates `HashSet<T>`.
 
 ## Generic Types
 

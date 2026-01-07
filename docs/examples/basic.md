@@ -5,34 +5,33 @@ Simple Tsonic programs to get started.
 ## Hello World
 
 ```typescript
-// hello.ts
-export function main(): void {
-  console.log("Hello, Tsonic!");
-}
-```
+import { Console } from "@tsonic/dotnet/System.js";
 
-```bash
-tsonic build hello.ts
-./hello
-# Output: Hello, Tsonic!
+export function main(): void {
+  Console.writeLine("Hello, Tsonic!");
+}
 ```
 
 ## Variables
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 export function main(): void {
   const name = "Alice";
   const age = 30;
   const active = true;
 
-  console.log(`${name} is ${age} years old`);
-  console.log(`Active: ${active}`);
+  Console.writeLine(`${name} is ${age} years old`);
+  Console.writeLine(`Active: ${active}`);
 }
 ```
 
 ## Functions
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function greet(name: string): string {
   return `Hello, ${name}!`;
 }
@@ -42,14 +41,16 @@ function add(a: number, b: number): number {
 }
 
 export function main(): void {
-  console.log(greet("Bob"));
-  console.log(add(5, 3));
+  Console.writeLine(greet("Bob"));
+  Console.writeLine(add(5, 3));
 }
 ```
 
 ## Classes
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 class Person {
   private name: string;
   private age: number;
@@ -66,13 +67,15 @@ class Person {
 
 export function main(): void {
   const person = new Person("Alice", 30);
-  console.log(person.greet());
+  Console.writeLine(person.greet());
 }
 ```
 
 ## Interfaces
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 interface User {
   id: number;
   name: string;
@@ -80,9 +83,9 @@ interface User {
 }
 
 function displayUser(user: User): void {
-  console.log(`User: ${user.name} (${user.id})`);
+  Console.writeLine(`User: ${user.name} (${user.id})`);
   if (user.email) {
-    console.log(`Email: ${user.email}`);
+    Console.writeLine(`Email: ${user.email}`);
   }
 }
 
@@ -99,30 +102,32 @@ export function main(): void {
 ## Control Flow
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 export function main(): void {
   // If/else
   const x = 10;
   if (x > 5) {
-    console.log("Greater than 5");
+    Console.writeLine("Greater than 5");
   } else {
-    console.log("5 or less");
+    Console.writeLine("5 or less");
   }
 
   // For loop
   for (let i = 0; i < 5; i++) {
-    console.log(i);
+    Console.writeLine(i);
   }
 
   // For-of loop
   const items = ["a", "b", "c"];
   for (const item of items) {
-    console.log(item);
+    Console.writeLine(item);
   }
 
   // While loop
   let count = 0;
   while (count < 3) {
-    console.log(count);
+    Console.writeLine(count);
     count++;
   }
 
@@ -130,13 +135,13 @@ export function main(): void {
   const value = 2;
   switch (value) {
     case 1:
-      console.log("one");
+      Console.writeLine("one");
       break;
     case 2:
-      console.log("two");
+      Console.writeLine("two");
       break;
     default:
-      console.log("other");
+      Console.writeLine("other");
   }
 }
 ```
@@ -144,6 +149,8 @@ export function main(): void {
 ## Enums
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 enum Status {
   Pending,
   Active,
@@ -158,16 +165,18 @@ enum Color {
 
 export function main(): void {
   const status = Status.Active;
-  console.log(status); // 1
+  Console.writeLine(status); // 1
 
   const color = Color.Green;
-  console.log(color); // "green"
+  Console.writeLine(color); // "green"
 }
 ```
 
 ## Generics
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function identity<T>(value: T): T {
   return value;
 }
@@ -189,48 +198,56 @@ export function main(): void {
   const str = identity("hello");
 
   const box = new Container("contents");
-  console.log(box.get());
+  Console.writeLine(box.get());
 }
 ```
 
 ## Tuples
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 // Fixed-length typed arrays
 const point: [number, number] = [10, 20];
 const record: [string, number, boolean] = ["Alice", 30, true];
 
 export function main(): void {
   const [x, y] = point;
-  console.log(`Point: ${x}, ${y}`);
+  Console.writeLine(`Point: ${x}, ${y}`);
 
   const [name, age, active] = record;
-  console.log(`${name} is ${age} years old`);
+  Console.writeLine(`${name} is ${age} years old`);
 }
 ```
 
-## Map and Set
+## Dictionary and HashSet
 
 ```typescript
-export function main(): void {
-  // Map - key-value pairs
-  const scores = new Map<string, number>();
-  scores.set("Alice", 100);
-  scores.set("Bob", 85);
-  console.log(scores.get("Alice")); // 100
+import { Console } from "@tsonic/dotnet/System.js";
+import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
 
-  // Set - unique values
-  const tags = new Set<string>();
+export function main(): void {
+  // Dictionary<TKey, TValue> - key-value pairs
+  const scores = new Dictionary<string, number>();
+  scores.add("Alice", 100);
+  scores.add("Bob", 85);
+  Console.writeLine(scores.containsKey("Alice")); // true
+  Console.writeLine(scores.count); // 2
+
+  // HashSet<T> - unique values
+  const tags = new HashSet<string>();
   tags.add("typescript");
   tags.add("native");
   tags.add("typescript"); // Ignored (duplicate)
-  console.log(tags.size); // 2
+  Console.writeLine(tags.count); // 2
 }
 ```
 
 ## Anonymous Objects
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 // Simple objects auto-synthesize types
 const point = { x: 10, y: 20 };
 const config = { name: "app", debug: true };
@@ -242,14 +259,16 @@ const handler = {
 };
 
 export function main(): void {
-  console.log(point.x);
-  console.log(handler.process(5)); // 10
+  Console.writeLine(point.x);
+  Console.writeLine(handler.process(5)); // 10
 }
 ```
 
 ## Type Guards
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 interface Dog {
   bark(): void;
 }
@@ -263,7 +282,7 @@ function isDog(pet: Dog | Cat): pet is Dog {
 }
 
 export function main(): void {
-  const pet: Dog | Cat = { bark: (): void => console.log("Woof!") };
+  const pet: Dog | Cat = { bark: (): void => Console.writeLine("Woof!") };
 
   if (isDog(pet)) {
     pet.bark(); // TypeScript knows pet is Dog here
@@ -274,8 +293,11 @@ export function main(): void {
 ## Async/Await
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
 async function delay(ms: number): Promise<void> {
-  // Simulated delay
+  await Task.delay(ms);
 }
 
 async function fetchData(): Promise<string> {
@@ -285,24 +307,26 @@ async function fetchData(): Promise<string> {
 
 export async function main(): Promise<void> {
   const data = await fetchData();
-  console.log(data);
+  Console.writeLine(data);
 }
 ```
 
 ## Error Handling
 
 ```typescript
+import { Console, Exception } from "@tsonic/dotnet/System.js";
+
 function riskyOperation(): void {
-  throw new Error("Something went wrong");
+  throw new Exception("Something went wrong");
 }
 
 export function main(): void {
   try {
     riskyOperation();
   } catch (error) {
-    console.log("Caught error");
+    Console.writeLine("Caught error");
   } finally {
-    console.log("Cleanup");
+    Console.writeLine("Cleanup");
   }
 }
 ```
@@ -311,6 +335,7 @@ export function main(): void {
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function sumRange(start: int, end: int): int {
   let total: int = 0;
@@ -325,13 +350,13 @@ export function main(): void {
   const b: int = 20;
   const sum: int = a + b; // Integer arithmetic
 
-  console.log(`Sum: ${sum}`);
-  console.log(`Range sum 1-10: ${sumRange(1, 10)}`);
+  Console.writeLine(`Sum: ${sum}`);
+  Console.writeLine(`Range sum 1-10: ${sumRange(1, 10)}`);
 
   // Integer division truncates
   const x: int = 10;
   const y: int = 3;
-  console.log(`10 / 3 = ${x / y}`); // 3 (not 3.333...)
+  Console.writeLine(`10 / 3 = ${x / y}`); // 3 (not 3.333...)
 }
 ```
 
@@ -341,6 +366,7 @@ export function main(): void {
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Action<T> - no return value
 function forEach(items: int[], action: (item: int) => void): void {
@@ -363,12 +389,12 @@ export function main(): void {
 
   // Inline callback
   forEach(nums, (n: int) => {
-    console.log(`Item: ${n}`);
+    Console.writeLine(`Item: ${n}`);
   });
 
   // Transform callback
   const doubled = map(nums, (n: int) => n * 2);
-  console.log(`Doubled: ${doubled}`);
+  Console.writeLine(`Doubled: ${doubled}`);
 }
 ```
 

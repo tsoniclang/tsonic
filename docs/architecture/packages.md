@@ -146,6 +146,8 @@ backend/src/
 
 Command-line interface.
 
+> **Note:** End users typically install the published `tsonic` package, which bundles the CLI binary. `@tsonic/cli` is the internal workspace package that produces it.
+
 ### Responsibilities
 
 - Parse CLI arguments
@@ -172,9 +174,10 @@ cli/src/
 │   └── help.ts       # Help text
 ├── commands/         # Command implementations
 │   ├── init.ts       # project init
-│   ├── emit.ts       # emit command
+│   ├── generate.ts   # generate command
 │   ├── build.ts      # build command
 │   ├── run.ts        # run command
+│   ├── add-package.ts # add package command
 │   └── pack.ts       # pack command
 ├── config.ts         # Config loading
 └── types.ts          # Type definitions

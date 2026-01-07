@@ -4,7 +4,7 @@ Module imports and exports in Tsonic.
 
 ## Local Imports
 
-Local imports **must** use the `.ts` extension:
+Local imports **must** use the `.js` extension:
 
 ```typescript
 // models/User.ts
@@ -22,12 +22,13 @@ export class UserService {
 
 ```typescript
 // App.ts
+import { Console } from "@tsonic/dotnet/System.js";
 import { User, UserService } from "./models/User.js";
 
 export function main(): void {
   const service = new UserService();
   const user = service.getUser(1);
-  console.log(user.name);
+  Console.writeLine(user.name);
 }
 ```
 
@@ -38,7 +39,7 @@ export function main(): void {
 import { helper } from "./helper.js";
 
 // Parent directory
-import { config } from "../config.ts";
+import { config } from "../config.js";
 
 // Nested path
 import { utils } from "./lib/utils/index.js";
@@ -66,11 +67,12 @@ export interface Point {
 
 ```typescript
 // App.ts
+import { Console } from "@tsonic/dotnet/System.js";
 import { PI, add, Point } from "./utils.js";
 
 const point: Point = { x: 10, y: 20 };
-console.log(add(1, 2));
-console.log(PI);
+Console.writeLine(add(1, 2));
+Console.writeLine(PI);
 ```
 
 ## Namespace Import
@@ -87,10 +89,11 @@ export function add(a: number, b: number): number {
 
 ```typescript
 // App.ts
+import { Console } from "@tsonic/dotnet/System.js";
 import * as utils from "./utils.js";
 
-console.log(utils.PI);
-console.log(utils.add(1, 2));
+Console.writeLine(utils.PI);
+Console.writeLine(utils.add(1, 2));
 ```
 
 ## Re-exports (Barrel Files)
@@ -143,25 +146,25 @@ function loadConfig(): Config {
 
 ## .NET Imports
 
-.NET imports do **not** use the `.ts` extension:
+.NET imports use the `.js` extension (and do **not** use `.ts`):
 
 ```typescript
 // System namespace
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // System.IO namespace
-import { File, Directory } from "@tsonic/dotnet/System.IO";
+import { File, Directory } from "@tsonic/dotnet/System.IO.js";
 
 // System.Collections.Generic
-import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
+import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
 ```
 
 ```typescript
 export function main(): void {
-  Console.WriteLine("Hello from .NET!");
+  Console.writeLine("Hello from .NET!");
 
-  const exists = File.Exists("config.json");
-  const files = Directory.GetFiles(".");
+  const exists = File.exists("config.json");
+  const files = Directory.getFiles(".");
 }
 ```
 
@@ -183,7 +186,7 @@ When importing across directories:
 
 ```typescript
 // src/services/api.ts
-import { User } from "../models/User.ts";
+  import { User } from "../models/User.js";
 // Resolves to namespace MyApp.src.models
 
 export function getUser(): User {
@@ -201,7 +204,7 @@ export interface User {
 }
 
 // src/services/UserService.ts
-import { User } from "../models/User.ts";
+import { User } from "../models/User.js";
 
 export class UserService {
   private users: User[] = [];
@@ -221,6 +224,7 @@ export class UserService {
 }
 
 // src/App.ts
+import { Console } from "@tsonic/dotnet/System.js";
 import { User } from "./models/User.js";
 import { UserService } from "./services/UserService.js";
 
@@ -232,7 +236,7 @@ export function main(): void {
 
   const user = service.find(1);
   if (user) {
-    console.log(user.name);
+    Console.writeLine(user.name);
   }
 }
 ```

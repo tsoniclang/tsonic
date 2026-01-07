@@ -21,6 +21,9 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
   "rootNamespace": "MyApp",
+  "namingPolicy": {
+    "classes": "PascalCase"
+  },
   "entryPoint": "src/App.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
@@ -44,7 +47,8 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
   },
   "dotnet": {
     "typeRoots": ["node_modules/@tsonic/globals"],
-    "packages": [{ "name": "Newtonsoft.Json", "version": "13.0.3" }],
+    "packageReferences": [{ "id": "Newtonsoft.Json", "version": "13.0.3" }],
+    "frameworkReferences": ["Microsoft.AspNetCore.App"],
     "libraries": ["./libs/MyLib"]
   }
 }
@@ -68,6 +72,25 @@ Generated file `src/utils/Math.ts` becomes:
 
 ```csharp
 namespace MyApp.src.utils { ... }
+```
+
+#### namingPolicy
+
+Optional overrides for how Tsonic derives generated names.
+
+##### namingPolicy.classes
+
+Controls how Tsonic derives the generated C# class name from the source filename.
+
+- Default: strip hyphens only (`todo-list.ts` → `todolist`)
+- `"PascalCase"`: split on `-` and `_` and capitalize parts (`todo-list.ts` → `TodoList`)
+
+```json
+{
+  "namingPolicy": {
+    "classes": "PascalCase"
+  }
+}
 ```
 
 #### entryPoint
@@ -274,16 +297,16 @@ Paths to type declaration directories.
 
 **Default:** `["node_modules/@tsonic/globals"]`
 
-#### dotnet.packages
+#### dotnet.packageReferences
 
-NuGet package dependencies.
+Additional NuGet package dependencies (emitted as `PackageReference` in the generated `.csproj`).
 
 ```json
 {
   "dotnet": {
-    "packages": [
-      { "name": "Newtonsoft.Json", "version": "13.0.3" },
-      { "name": "System.Text.Json", "version": "8.0.0" }
+    "packageReferences": [
+      { "id": "Newtonsoft.Json", "version": "13.0.3" },
+      { "id": "System.Text.Json", "version": "8.0.0" }
     ]
   }
 }
@@ -368,9 +391,9 @@ Paths to external .NET library bindings.
   "rootNamespace": "WebClient",
   "entryPoint": "src/App.ts",
   "dotnet": {
-    "packages": [
-      { "name": "System.Net.Http.Json", "version": "8.0.0" },
-      { "name": "Newtonsoft.Json", "version": "13.0.3" }
+    "packageReferences": [
+      { "id": "System.Net.Http.Json", "version": "8.0.0" },
+      { "id": "Newtonsoft.Json", "version": "13.0.3" }
     ]
   }
 }

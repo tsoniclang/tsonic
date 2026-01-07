@@ -40,26 +40,26 @@ const last = items[items.length - 1];
 For dynamic collections with add/remove operations, use `List<T>`:
 
 ```typescript
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
-import { Console } from "@tsonic/dotnet/System";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Console } from "@tsonic/dotnet/System.js";
 
 // Create list with collection initializer
 const numbers = new List<number>([1, 2, 3]);
 
 // Or create empty and add items
 const names = new List<string>();
-names.Add("Alice");
-names.Add("Bob");
+names.add("Alice");
+names.add("Bob");
 
 // List properties and methods
-Console.WriteLine(names.Count); // 2
-const hasAlice = names.Contains("Alice"); // true
+Console.writeLine(names.count); // 2
+const hasAlice = names.contains("Alice"); // true
 
 // Remove items
-names.Remove("Alice");
+names.remove("Alice");
 
 // Clear all
-names.Clear();
+names.clear();
 ```
 
 ### Collection Initializer Syntax
@@ -67,7 +67,7 @@ names.Clear();
 Use `new List<T>([...])` to initialize with values:
 
 ```typescript
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 // Initialize with array literal
 const numbers = new List<number>([1, 2, 3, 4, 5]);
@@ -85,47 +85,43 @@ const empty = new List<string>();
 Use LINQ for functional-style array processing:
 
 ```typescript
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers = [1, 2, 3, 4, 5];
 
 // Select = map
-const doubled = Enumerable.Select(numbers, (n: number): number => n * 2);
+const doubled = Enumerable.select(numbers, (n) => n * 2);
 
 // Where = filter
-const evens = Enumerable.Where(numbers, (n: number): boolean => n % 2 === 0);
+const evens = Enumerable.where(numbers, (n) => n % 2 === 0);
 
 // Aggregate = reduce
-const sum = Enumerable.Aggregate(
-  numbers,
-  0,
-  (acc: number, n: number): number => acc + n
-);
+const sum = Enumerable.aggregate(numbers, 0, (acc, n) => acc + n);
 
 // First, Last
-const first = Enumerable.First(numbers);
-const last = Enumerable.Last(numbers);
+const first = Enumerable.first(numbers);
+const last = Enumerable.last(numbers);
 
 // Any, All
-const anyEven = Enumerable.Any(numbers, (n: number): boolean => n % 2 === 0);
-const allPositive = Enumerable.All(numbers, (n: number): boolean => n > 0);
+const anyEven = Enumerable.any(numbers, (n) => n % 2 === 0);
+const allPositive = Enumerable.all(numbers, (n) => n > 0);
 ```
 
 ## Iterating Arrays
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 const items = ["a", "b", "c"];
 
 // For-of loop (preferred)
 for (const item of items) {
-  Console.WriteLine(item);
+  Console.writeLine(item);
 }
 
 // Index-based for loop
 for (let i = 0; i < items.length; i++) {
-  Console.WriteLine(items[i]);
+  Console.writeLine(items[i]);
 }
 ```
 
@@ -150,7 +146,7 @@ const [head, ...tail] = numbers;
 ## Multi-dimensional Arrays
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 const matrix: number[][] = [
   [1, 2, 3],
@@ -164,7 +160,7 @@ const value = matrix[1][2]; // 6
 // Iterate
 for (const row of matrix) {
   for (const cell of row) {
-    Console.WriteLine(cell.toString());
+    Console.writeLine(cell.toString());
   }
 }
 ```
@@ -172,7 +168,7 @@ for (const row of matrix) {
 ## Type-safe Arrays
 
 ```typescript
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 interface User {
   id: number;
@@ -185,13 +181,10 @@ const users: User[] = [
 ];
 
 // Find user by id
-const found = Enumerable.FirstOrDefault(
-  users,
-  (u: User): boolean => u.id === 1
-);
+const found = Enumerable.firstOrDefault(users, (u) => u.id === 1);
 
 // Map to names
-const names = Enumerable.Select(users, (u: User): string => u.name);
+const names = Enumerable.select(users, (u) => u.name);
 ```
 
 ## Spread Operator
@@ -224,10 +217,10 @@ const index: int = 1;
 const item = items[index]; // "b"
 
 // LINQ operations require int for indexing
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers: int[] = [10, 20, 30];
-const first = Enumerable.ElementAt(numbers, 0);
+const first = Enumerable.elementAt(numbers, 0);
 ```
 
 ### Long Arrays

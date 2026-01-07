@@ -19,16 +19,19 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 8. [Callbacks](callbacks.md) - Action and Func patterns
 9. [Async Patterns](async-patterns.md) - Async/await and for-await
 10. [.NET Interop](dotnet-interop.md) - Using .NET BCL
+11. [Language Intrinsics](lang-intrinsics.md) - stackalloc, trycast, thisarg, etc.
+12. [JavaScript Runtime](dotnet-interop.md#javascript-runtime-apis-tsonicjs) - Optional JS-style APIs via `@tsonic/js`
 
 ### Build
 
-12. [Build Output](build-output.md) - Pipeline and output
-13. [Diagnostics](diagnostics.md) - Error codes reference
+13. [Build Output](build-output.md) - Pipeline and output
+14. [Diagnostics](diagnostics.md) - Error codes reference
 
 ### Reference
 
-14. [Examples](examples/README.md) - Code examples
-15. [Troubleshooting](troubleshooting.md) - Common issues
+15. [Examples](examples/README.md) - Code examples
+16. [Troubleshooting](troubleshooting.md) - Common issues
+17. [Limitations](limitations.md) - What Tsonic can’t do (yet)
 
 ## Quick Links
 
@@ -62,14 +65,14 @@ TypeScript → IR → C# → NativeAOT → Native Binary
 
 ## Prerequisites
 
-- **Node.js 18+**: For the CLI and type packages
+- **Node.js 22+**: For the CLI and type packages
 - **.NET 10 SDK**: For compilation
 - **npm**: For package management
 
 Verify installation:
 
 ```bash
-node --version   # v18.0.0 or higher
+node --version   # v22.0.0 or higher
 dotnet --version # 10.0.x
 ```
 

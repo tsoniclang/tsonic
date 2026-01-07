@@ -127,15 +127,15 @@ Many .NET APIs require integer parameters:
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const list = new List<string>();
 list.add("one");
 list.add("two");
 
-// List.get() requires int index
+// List indexers require an int index
 const idx: int = 0;
-const item = list.get(idx);
+const item = list[idx];
 ```
 
 ### Required: LINQ Operations
@@ -144,8 +144,8 @@ Some LINQ methods require integer return values:
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers = new List<int>();
 // ... populate list
@@ -436,7 +436,7 @@ Use integer types for LINQ operations that expect them:
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const nums = new List<int>();
 nums.add(1);

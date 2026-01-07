@@ -62,7 +62,7 @@ Command-line interface and orchestration:
 
 - Argument parsing
 - Configuration loading
-- Command dispatch (init, emit, build, run)
+- Command dispatch (project init, generate, build, run)
 - Error reporting
 
 Entry point for all user interactions.

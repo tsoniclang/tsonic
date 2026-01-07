@@ -4,14 +4,14 @@ This guide walks you through installing Tsonic and building your first program.
 
 ## Prerequisites
 
-### Node.js 18+
+### Node.js 22+
 
 Download from [nodejs.org](https://nodejs.org/) or use a version manager:
 
 ```bash
 # Using nvm
-nvm install 18
-nvm use 18
+nvm install 22
+nvm use 22
 
 # Verify
 node --version
@@ -37,7 +37,7 @@ dotnet --version
 ### Global Installation (Recommended)
 
 ```bash
-npm install -g @tsonic/cli
+npm install -g tsonic
 ```
 
 Verify:
@@ -51,7 +51,7 @@ tsonic --version
 For project-specific usage:
 
 ```bash
-npm install --save-dev @tsonic/cli
+npm install --save-dev tsonic
 npx tsonic --version
 ```
 
@@ -106,17 +106,17 @@ If you prefer manual setup:
 2. Create `src/App.ts`:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
-  Console.WriteLine("Hello!");
+  Console.writeLine("Hello!");
 }
 ```
 
 3. Install type packages:
 
 ```bash
-npm install --save-dev @tsonic/cli @tsonic/core @tsonic/globals @tsonic/dotnet
+npm install --save-dev tsonic @tsonic/core @tsonic/globals
 ```
 
 ## Building and Running
@@ -168,10 +168,10 @@ my-app/
 Your TypeScript:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
-  Console.WriteLine("Hello!");
+  Console.writeLine("Hello!");
 }
 ```
 

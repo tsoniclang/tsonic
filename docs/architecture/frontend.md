@@ -52,8 +52,8 @@ const resolveLocalImport = (
   importingFile: string,
   sourceRoot: string
 ): Result<string, Diagnostic> => {
-  // Must have .ts extension
-  if (!specifier.endsWith(".ts")) {
+  // Must have .js or .ts extension
+  if (!specifier.endsWith(".js") && !specifier.endsWith(".ts")) {
     return error(createDiagnostic("TSN1001", ...));
   }
   // Resolve to absolute path
@@ -67,8 +67,8 @@ const resolveLocalImport = (
 .NET imports map to CLR namespaces:
 
 ```typescript
-"@tsonic/dotnet/System" -> clrNamespace: "System"
-"@tsonic/dotnet/System.IO" -> clrNamespace: "System.IO"
+"@tsonic/dotnet/System.js" -> clrNamespace: "System"
+"@tsonic/dotnet/System.IO.js" -> clrNamespace: "System.IO"
 ```
 
 Resolution via `clrResolver`:
@@ -80,6 +80,7 @@ const resolveClrImport = (
   // Extract namespace from specifier
   const namespace = specifier
     .replace("@tsonic/dotnet/", "")
+    .replace(/\.js$/, "")
     .replace(/\//g, ".");
   return ok({ clrNamespace: namespace, isLocal: false });
 };
@@ -92,6 +93,7 @@ const resolveClrImport = (
 `validation/imports.ts`:
 
 - Verify `.ts` extension on local imports
+- Verify `.js` or `.ts` extension on local imports
 - No dynamic imports
 - Resolve all import specifiers
 - Check module existence
@@ -395,9 +397,9 @@ import { createDiagnostic, addDiagnostic } from "./types/diagnostic.js";
 const diagnostic = createDiagnostic(
   "TSN1001",
   "error",
-  "Local imports must use .ts extension",
+  "Local imports must use .js or .ts extension",
   { file: sourceFile.fileName, line: 10, column: 5, length: 20 },
-  "Add .ts extension to import path"
+  "Add a .js extension to the import path (recommended)"
 );
 
 collector = addDiagnostic(collector, diagnostic);
@@ -407,7 +409,7 @@ collector = addDiagnostic(collector, diagnostic);
 
 | Code    | Category | Description           |
 | ------- | -------- | --------------------- |
-| TSN1001 | Module   | Missing .ts extension |
+| TSN1001 | Module   | Missing file extension |
 | TSN1002 | Module   | Cannot resolve module |
 | TSN2001 | Feature  | Unsupported feature   |
 | TSN3001 | Type     | Type error            |

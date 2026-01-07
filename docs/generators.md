@@ -7,6 +7,8 @@ Tsonic supports JavaScript generator functions with full bidirectional communica
 Generator functions are declared with `function*` and use `yield` to produce values:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* counter(): Generator<number> {
   yield 1;
   yield 2;
@@ -14,7 +16,7 @@ function* counter(): Generator<number> {
 }
 
 for (const n of counter()) {
-  console.log(n); // 1, 2, 3
+  Console.writeLine(n); // 1, 2, 3
 }
 ```
 
@@ -75,6 +77,8 @@ function* accumulator(start: number): Generator<number, void, number> {
 Use `for...of` to iterate over yielded values:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* fibonacci(): Generator<number> {
   let a = 0,
     b = 1;
@@ -85,7 +89,7 @@ function* fibonacci(): Generator<number> {
 }
 
 for (const n of fibonacci()) {
-  console.log(n); // 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89
+  Console.writeLine(n); // 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89
 }
 ```
 
@@ -94,6 +98,8 @@ for (const n of fibonacci()) {
 Use `.next()` for manual control:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* counter(): Generator<number> {
   yield 1;
   yield 2;
@@ -101,10 +107,10 @@ function* counter(): Generator<number> {
 }
 
 const gen = counter();
-console.log(gen.next()); // { value: 1, done: false }
-console.log(gen.next()); // { value: 2, done: false }
-console.log(gen.next()); // { value: 3, done: false }
-console.log(gen.next()); // { value: undefined, done: true }
+Console.writeLine(gen.next().value); // 1
+Console.writeLine(gen.next().value); // 2
+Console.writeLine(gen.next().value); // 3
+Console.writeLine(gen.next().done); // true
 ```
 
 ### IteratorResult
@@ -128,7 +134,7 @@ interface IteratorResult<T> {
 Pass values into the generator using `next(value)`:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function* accumulator(start: number): Generator<number, void, number> {
   let total = start;
@@ -173,7 +179,7 @@ gen.next("hello"); // "hello" is received
 ### Practical Example: Data Processor
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 function* dataProcessor(): Generator<string, number, number> {
   let sum = 0;
@@ -219,6 +225,8 @@ const result2 = gen.next(42); // Resume with value 42
 Terminates the generator with a specified return value:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* counter(): Generator<number, string> {
   let i = 0;
   while (true) {
@@ -227,10 +235,10 @@ function* counter(): Generator<number, string> {
 }
 
 const gen = counter();
-console.log(gen.next().value); // 0
-console.log(gen.next().value); // 1
+Console.writeLine(gen.next().value); // 0
+Console.writeLine(gen.next().value); // 1
 gen.return("done"); // Terminates generator
-console.log(gen.next().done); // true
+Console.writeLine(gen.next().done); // true
 ```
 
 **Note:** The value passed to `return()` becomes the generator's return value but does NOT appear in the `IteratorResult.value`. Access it via the `returnValue` property (Tsonic extension).
@@ -279,12 +287,14 @@ function* countdown(n: number): Generator<number, string, number> {
 The return value is available after the generator completes:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 const gen = countdown(3);
-console.log(gen.next().value); // 3
-console.log(gen.next(1).value); // 2
-console.log(gen.next(1).value); // 1
+Console.writeLine(gen.next().value); // 3
+Console.writeLine(gen.next(1).value); // 2
+Console.writeLine(gen.next(1).value); // 1
 const final = gen.next(1);
-console.log(final.done); // true
+Console.writeLine(final.done); // true
 // final.value in JS would be "Liftoff!"
 ```
 
@@ -301,6 +311,8 @@ const returnValue = gen.returnValue; // "Liftoff!"
 Use `async function*` for asynchronous generators:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 async function* fetchPages(): AsyncGenerator<string> {
   for (let page = 1; page <= 3; page++) {
     await delay(100);
@@ -310,7 +322,7 @@ async function* fetchPages(): AsyncGenerator<string> {
 
 export async function main(): Promise<void> {
   for await (const page of fetchPages()) {
-    console.log(page);
+    Console.writeLine(page);
   }
 }
 ```
@@ -320,7 +332,7 @@ export async function main(): Promise<void> {
 Async generators also support bidirectional communication:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 async function* asyncAccumulator(
   start: number
@@ -351,6 +363,8 @@ export async function main(): Promise<void> {
 Use `for await...of` to iterate over async generators:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 async function* asyncRange(start: number, end: number): AsyncGenerator<number> {
   for (let i = start; i <= end; i++) {
     await delay(100);
@@ -360,7 +374,7 @@ async function* asyncRange(start: number, end: number): AsyncGenerator<number> {
 
 export async function main(): Promise<void> {
   for await (const n of asyncRange(1, 5)) {
-    console.log(n); // 1, 2, 3, 4, 5 (with delays)
+    Console.writeLine(n); // 1, 2, 3, 4, 5 (with delays)
   }
 }
 ```
@@ -370,6 +384,8 @@ export async function main(): Promise<void> {
 Use `yield*` to delegate to another generator:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* inner(): Generator<number> {
   yield 1;
   yield 2;
@@ -382,7 +398,7 @@ function* outer(): Generator<number> {
 }
 
 for (const n of outer()) {
-  console.log(n); // 0, 1, 2, 3
+  Console.writeLine(n); // 0, 1, 2, 3
 }
 ```
 
@@ -466,6 +482,8 @@ public sealed class accumulator_Generator
 ### Infinite Sequence
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* naturals(): Generator<number> {
   let n = 0;
   while (true) {
@@ -476,7 +494,7 @@ function* naturals(): Generator<number> {
 // Take first 5
 const gen = naturals();
 for (let i = 0; i < 5; i++) {
-  console.log(gen.next().value);
+  Console.writeLine(gen.next().value);
 }
 ```
 

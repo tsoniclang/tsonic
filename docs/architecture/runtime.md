@@ -259,9 +259,12 @@ int[] arr = [1, 2, 3];
 For dynamic collections, use List<T> explicitly:
 
 ```typescript
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
-const list = new List<number>([1, 2, 3]);
-list.Add(4);
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+const list = new List<number>();
+list.add(1);
+list.add(2);
+list.add(3);
+list.add(4);
 ```
 
 ## NativeAOT Compatibility
