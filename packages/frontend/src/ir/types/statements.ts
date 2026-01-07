@@ -111,6 +111,15 @@ export type IrPropertyDeclaration = {
   /** Type from annotation or inferred. Always set for class fields (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
+  /** Getter body for accessor properties (`get foo() { ... }`). */
+  readonly getterBody?: IrBlockStatement;
+  /**
+   * Setter body for accessor properties (`set foo(v) { ... }`).
+   * The implicit C# setter parameter is named `value`; use setterParamName to bridge naming.
+   */
+  readonly setterBody?: IrBlockStatement;
+  /** Original TypeScript parameter name for setter body, if present. */
+  readonly setterParamName?: string;
   readonly isStatic: boolean;
   readonly isReadonly: boolean;
   readonly accessibility: IrAccessibility;

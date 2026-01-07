@@ -6,8 +6,14 @@
  */
 
 import * as ts from "typescript";
-import { IrClassMember, IrExpression, IrType } from "../../../../types.js";
+import {
+  IrBlockStatement,
+  IrClassMember,
+  IrExpression,
+  IrType,
+} from "../../../../types.js";
 import { convertExpression } from "../../../../expression-converter.js";
+import { convertBlockStatement } from "../../control.js";
 import {
   hasStaticModifier,
   hasReadonlyModifier,
@@ -50,6 +56,17 @@ const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
   }
 
   // Cannot determine type - return undefined (no TypeScript fallback)
+  return undefined;
+};
+
+const deriveTypeFromGetterBody = (
+  body: IrBlockStatement
+): IrType | undefined => {
+  for (const stmt of body.statements) {
+    if (stmt.kind === "returnStatement" && stmt.expression) {
+      return deriveTypeFromExpression(stmt.expression);
+    }
+  }
   return undefined;
 };
 
@@ -97,6 +114,78 @@ export const convertProperty = (
     isStatic: hasStaticModifier(node),
     isReadonly: hasReadonlyModifier(node),
     accessibility: getAccessibility(node),
+    isOverride: overrideInfo.isOverride ? true : undefined,
+    isShadow: overrideInfo.isShadow ? true : undefined,
+  };
+};
+
+export const convertAccessorProperty = (
+  memberName: string,
+  getter: ts.GetAccessorDeclaration | undefined,
+  setter: ts.SetAccessorDeclaration | undefined,
+  ctx: ProgramContext,
+  superClass: ts.ExpressionWithTypeArguments | undefined
+): IrClassMember => {
+  const overrideInfo = detectOverride(memberName, "property", superClass, ctx);
+
+  const getterType = getter?.type
+    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(getter.type))
+    : undefined;
+
+  const setterValueParam = setter?.parameters[0];
+  const setterType =
+    setterValueParam?.type !== undefined
+      ? ctx.typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(setterValueParam.type)
+        )
+      : undefined;
+
+  const explicitType = getterType ?? setterType;
+
+  const getterBody = getter?.body
+    ? convertBlockStatement(getter.body, ctx, explicitType)
+    : undefined;
+
+  const setterBody = setter?.body
+    ? convertBlockStatement(setter.body, ctx, undefined)
+    : undefined;
+
+  const inferredFromGetter = getterBody
+    ? deriveTypeFromGetterBody(getterBody)
+    : undefined;
+
+  const propertyType = explicitType ?? inferredFromGetter;
+
+  const isStatic = getter
+    ? hasStaticModifier(getter)
+    : setter
+      ? hasStaticModifier(setter)
+      : false;
+
+  const accessibility = getter
+    ? getAccessibility(getter)
+    : setter
+      ? getAccessibility(setter)
+      : "public";
+
+  const setterParamName = (() => {
+    if (!setterBody) return undefined;
+    const param = setter?.parameters[0];
+    if (!param) return undefined;
+    return ts.isIdentifier(param.name) ? param.name.text : undefined;
+  })();
+
+  return {
+    kind: "propertyDeclaration",
+    name: memberName,
+    type: propertyType,
+    getterBody,
+    setterBody,
+    setterParamName,
+    initializer: undefined,
+    isStatic,
+    isReadonly: false,
+    accessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,
   };

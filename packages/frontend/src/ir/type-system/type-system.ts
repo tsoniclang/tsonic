@@ -1630,14 +1630,21 @@ export const createTypeSystem = (
 	      return deriveTypeFromNumericKind(numericKind);
 	    }
 
-	    if (init.kind === ts.SyntaxKind.StringLiteral) {
-	      return { kind: "primitiveType", name: "string" };
-	    }
+		    if (init.kind === ts.SyntaxKind.StringLiteral) {
+		      return { kind: "primitiveType", name: "string" };
+		    }
 
-	    if (
-	      init.kind === ts.SyntaxKind.TrueKeyword ||
-	      init.kind === ts.SyntaxKind.FalseKeyword
-	    ) {
+        if (
+          init.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+          init.kind === ts.SyntaxKind.TemplateExpression
+        ) {
+          return { kind: "primitiveType", name: "string" };
+        }
+
+		    if (
+		      init.kind === ts.SyntaxKind.TrueKeyword ||
+		      init.kind === ts.SyntaxKind.FalseKeyword
+		    ) {
 	      return { kind: "primitiveType", name: "boolean" };
 	    }
 

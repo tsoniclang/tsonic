@@ -651,10 +651,20 @@ export const convertTypeReference = (
     convertType
   );
 
+  // tsbindgen facade exports often re-export arity-qualified CLR types under
+  // ergonomic names (e.g., `DbSet` → `DbSet_1`). Binding.resolveTypeReference()
+  // already follows aliases, so use the resolved symbol name to keep IR nominal
+  // identity stable for member lookup and generic substitution.
+  const resolvedName = (() => {
+    if (!declId) return typeName;
+    const declInfo = (binding as BindingInternal)._getHandleRegistry().getDecl(declId);
+    return declInfo?.fqName ?? typeName;
+  })();
+
   // Reference type (user-defined or library)
   return {
     kind: "referenceType",
-    name: typeName,
+    name: resolvedName,
     typeArguments: node.typeArguments?.map((t) => convertType(t, binding)),
     structuralMembers,
   };

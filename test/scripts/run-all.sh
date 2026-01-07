@@ -116,9 +116,20 @@ else
         if node "$cli_path" build src/index.ts --config tsonic.dotnet.json 2>"$error_file"; then
             # Find executable
             # Some .NET publish outputs mark DLLs as executable; filter those out.
-            exe_path=$(find out -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | head -1 || true)
+            exe_path=""
+            # Prefer the top-level binary matching the fixture name when present.
+            if [ -f "out/$fixture_name" ] && [ -x "out/$fixture_name" ]; then
+                exe_path="out/$fixture_name"
+            else
+                exe_path=$(find out -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | grep -v '\.so$' | grep -v '\.dylib$' | head -1 || true)
+            fi
+
             if [ -z "$exe_path" ]; then
-                exe_path=$(find generated -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | head -1 || true)
+                if [ -f "generated/$fixture_name" ] && [ -x "generated/$fixture_name" ]; then
+                    exe_path="generated/$fixture_name"
+                else
+                    exe_path=$(find generated -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | grep -v '\.so$' | grep -v '\.dylib$' | head -1 || true)
+                fi
             fi
 
             if [ -n "$exe_path" ] && [ -x "$exe_path" ]; then

@@ -699,6 +699,14 @@ const getMemberTypeAnnotation = (
     // For methods, we could return a function type node if needed
     return decl.type;
   }
+  if (ts.isGetAccessorDeclaration(decl)) {
+    return decl.type;
+  }
+  if (ts.isSetAccessorDeclaration(decl)) {
+    // Setter declarations have no return type; use the value parameter type.
+    const valueParam = decl.parameters[0];
+    return valueParam?.type;
+  }
   return undefined;
 };
 
@@ -711,6 +719,8 @@ const getDeclKind = (decl: ts.Declaration): DeclKind => {
   if (ts.isEnumDeclaration(decl)) return "enum";
   if (ts.isParameter(decl)) return "parameter";
   if (ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl))
+    return "property";
+  if (ts.isGetAccessorDeclaration(decl) || ts.isSetAccessorDeclaration(decl))
     return "property";
   if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl))
     return "method";
@@ -937,6 +947,16 @@ const extractDeclaringIdentity = (
 ): { typeTsName: string; memberName: string } | undefined => {
   if (!decl) return undefined;
 
+  const normalizeTsbindgenTypeName = (name: string): string => {
+    if (name.endsWith("$instance")) {
+      return name.slice(0, -"$instance".length);
+    }
+    if (name.startsWith("__") && name.endsWith("$views")) {
+      return name.slice(2, -"$views".length);
+    }
+    return name;
+  };
+
   // Check if this is a method (class or interface member)
   if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) {
     const parent = decl.parent;
@@ -950,7 +970,7 @@ const extractDeclaringIdentity = (
     if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
       if (parent.name) {
         // Use the simple identifier text, not checker.getFullyQualifiedName
-        const typeTsName = parent.name.text;
+        const typeTsName = normalizeTsbindgenTypeName(parent.name.text);
         return { typeTsName, memberName };
       }
     }
@@ -967,7 +987,7 @@ const extractDeclaringIdentity = (
     const parent = decl.parent;
     if (ts.isClassDeclaration(parent) && parent.name) {
       // Use the simple identifier text
-      const typeTsName = parent.name.text;
+      const typeTsName = normalizeTsbindgenTypeName(parent.name.text);
       return { typeTsName, memberName: "constructor" };
     }
   }
@@ -982,7 +1002,7 @@ const extractDeclaringIdentity = (
     if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
       if (parent.name) {
         // Use the simple identifier text
-        const typeTsName = parent.name.text;
+        const typeTsName = normalizeTsbindgenTypeName(parent.name.text);
         return { typeTsName, memberName };
       }
     }
