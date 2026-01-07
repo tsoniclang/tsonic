@@ -8,17 +8,18 @@ Tsonic is a TypeScript to C# compiler that produces native executables via .NET 
 - **Direct .NET Access**: Full access to .NET BCL with native performance
 - **NativeAOT Compilation**: Single-file, self-contained executables
 - **Full .NET Interop**: Import and use any .NET library
-- **ESM Module System**: Standard ES modules with `.ts` extensions
+- **ESM Module System**: Standard ES modules with `.js` import specifiers
+- **Optional JSRuntime**: Use JavaScript-style APIs via `@tsonic/js`
 
 ## Installation
 
 ```bash
-npm install -g @tsonic/cli
+npm install -g tsonic
 ```
 
 **Prerequisites:**
 
-- Node.js 18+
+- Node.js 22+
 - .NET 10 SDK
 
 ## Quick Start
@@ -50,32 +51,35 @@ npm run dev
 
 ```typescript
 // src/App.ts
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
   const message = "Hello from Tsonic!";
-  Console.WriteLine(message);
+  Console.writeLine(message);
 
   const numbers = [1, 2, 3, 4, 5];
-  Console.WriteLine(`Numbers: ${numbers.length}`);
+  Console.writeLine(`Numbers: ${numbers.length}`);
 }
 ```
 
 ### Using .NET APIs
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
-import { File } from "@tsonic/dotnet/System.IO";
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { Console } from "@tsonic/dotnet/System.js";
+import { File } from "@tsonic/dotnet/System.IO.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 export function main(): void {
   // File I/O
-  const content = File.ReadAllText("./README.md");
-  Console.WriteLine(content);
+  const content = File.readAllText("./README.md");
+  Console.writeLine(content);
 
   // .NET collections
-  const list = new List<number>([1, 2, 3]);
-  Console.WriteLine(`Count: ${list.Count}`);
+  const list = new List<number>();
+  list.add(1);
+  list.add(2);
+  list.add(3);
+  Console.writeLine(`Count: ${list.count}`);
 }
 ```
 
@@ -84,9 +88,11 @@ export function main(): void {
 | Command                | Description             |
 | ---------------------- | ----------------------- |
 | `tsonic project init`  | Initialize new project  |
-| `tsonic emit <entry>`  | Generate C# code only   |
+| `tsonic generate <entry>` | Generate C# code only |
 | `tsonic build <entry>` | Build native executable |
 | `tsonic run <entry>`   | Build and run           |
+| `tsonic add package <dll> <types>` | Add a CLR package |
+| `tsonic pack`          | Create a NuGet package  |
 
 ### Common Options
 
@@ -106,15 +112,7 @@ export function main(): void {
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
   "rootNamespace": "MyApp",
-  "entryPoint": "src/App.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "app",
-  "optimize": "speed",
-  "buildOptions": {
-    "stripSymbols": true,
-    "invariantGlobalization": true
-  }
+  "entryPoint": "src/App.ts"
 }
 ```
 

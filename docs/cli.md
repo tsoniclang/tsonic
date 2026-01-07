@@ -22,7 +22,6 @@ tsonic project init [options]
 
 | Option                  | Description                                               | Default |
 | ----------------------- | --------------------------------------------------------- | ------- |
-| `--js`                  | Enable JS stdlib (installs @tsonic/js)                    | `false` |
 | `--nodejs`              | Enable Node.js interop (installs @tsonic/nodejs)          | `false` |
 | `--pure`                | Use PascalCase CLR naming (installs @tsonic/globals-pure) | `false` |
 | `--skip-types`          | Skip installing type declarations                         | `false` |
@@ -33,9 +32,6 @@ tsonic project init [options]
 ```bash
 # Initialize a new project
 tsonic project init
-
-# Enable JS stdlib (setTimeout, Date, etc.)
-tsonic project init --js
 
 # Enable Node.js interop (fs, path, etc.)
 tsonic project init --nodejs
@@ -58,12 +54,11 @@ tsonic project init --types-version <ver>
 - `.gitignore` - Ignores build artifacts
 - `README.md` - Project readme
 
-### emit / generate
+### generate
 
-Generate C# code from TypeScript without compiling. Both `emit` and `generate` are aliases for the same command.
+Generate C# code from TypeScript without compiling.
 
 ```bash
-tsonic emit <entry> [options]
 tsonic generate <entry> [options]
 ```
 
@@ -79,7 +74,7 @@ tsonic generate <entry> [options]
 | ------------------ | ----- | --------------------- | ------------- |
 | `--config <file>`  | `-c`  | Config file path      | `tsonic.json` |
 | `--src <dir>`      | `-s`  | Source root directory | From config   |
-| `--out <path>`     | `-o`  | Output directory      | `generated`   |
+| `--out <name>`     | `-o`  | Output name (assembly/binary) | From config   |
 | `--namespace <ns>` | `-n`  | Root namespace        | From config   |
 | `--verbose`        | `-V`  | Verbose output        | `false`       |
 | `--quiet`          | `-q`  | Suppress output       | `false`       |
@@ -88,14 +83,14 @@ tsonic generate <entry> [options]
 **Examples:**
 
 ```bash
-# Basic emit
-tsonic emit src/App.ts
+# Basic generate
+tsonic generate src/App.ts
 
-# Custom output directory
-tsonic emit src/App.ts --out build
+# Override output name (assembly/binary)
+tsonic generate src/App.ts --out my-app
 
 # With external library
-tsonic emit src/App.ts --lib ./libs/MyLib
+tsonic generate src/App.ts --lib ./libs/MyLib
 ```
 
 **Output:**
@@ -128,7 +123,7 @@ tsonic build <entry> [options]
 | -------------------- | ----- | ------------------------------- | ------------- |
 | `--config <file>`    | `-c`  | Config file path                | `tsonic.json` |
 | `--src <dir>`        | `-s`  | Source root directory           | From config   |
-| `--out <path>`       | `-o`  | Output file name                | From config   |
+| `--out <name>`       | `-o`  | Output name (binary/assembly)   | From config   |
 | `--namespace <ns>`   | `-n`  | Root namespace                  | From config   |
 | `--rid <rid>`        | `-r`  | Runtime identifier              | Auto-detected |
 | `--optimize <level>` | `-O`  | Optimization: `size` or `speed` | `speed`       |
@@ -167,7 +162,7 @@ tsonic build src/App.ts --keep-temp --no-strip
 
 **Build Steps:**
 
-1. **Step 1/3**: Generate C# code (same as `emit`)
+1. **Step 1/3**: Generate C# code (same as `generate`)
 2. **Step 2/3**: Run `dotnet publish` with NativeAOT
 3. **Step 3/3**: Copy output to `out/`
 
@@ -306,7 +301,7 @@ These options work with all commands:
 | 1    | Generic error        |
 | 2    | Unknown command      |
 | 3    | No tsonic.json found |
-| 5    | Generate/emit failed |
+| 5    | Generate failed      |
 | 6    | Build failed         |
 | 7    | Run failed           |
 | 8    | .NET SDK not found   |

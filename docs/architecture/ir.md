@@ -18,7 +18,7 @@ Top-level structure representing a TypeScript file:
 ```typescript
 type IrModule = {
   readonly filePath: string; // Relative path: "src/utils/math.ts"
-  readonly namespace: string; // C# namespace: "MyApp.src.utils"
+  readonly namespace: string; // C# namespace: "MyApp.utils"
   readonly className: string; // C# class name: "math"
   readonly imports: readonly IrImport[];
   readonly exports: readonly IrExport[];
@@ -33,7 +33,7 @@ type IrModule = {
 ```typescript
 type IrImport = {
   readonly kind: "import";
-  readonly moduleSpecifier: string; // "./utils.ts" or "@tsonic/dotnet/System"
+  readonly moduleSpecifier: string; // "./utils.js" or "@tsonic/dotnet/System.js"
   readonly specifiers: readonly IrImportSpecifier[];
   readonly isTypeOnly: boolean;
   readonly resolved?: {

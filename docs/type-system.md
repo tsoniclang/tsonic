@@ -69,14 +69,17 @@ const strings: Array<string> = ["a", "b"];
 For collections that need add/remove operations, use `List<T>`:
 
 ```typescript
-import { List } from "@tsonic/dotnet/System.Collections.Generic";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
-const list = new List<number>([1, 2, 3]);
-// Generated: new List<double>([1, 2, 3])
+const list = new List<number>();
+list.add(1);
+list.add(2);
+list.add(3);
+// Generated: var list = new List<double>(); list.Add(...);
 
 // Or create empty and add items
 const names = new List<string>();
-names.Add("Alice");
+names.add("Alice");
 ```
 
 ## Tuples
@@ -136,35 +139,31 @@ public string required { get; set; }
 public double? optional { get; set; }
 ```
 
-## Map and Set
+## Dictionary and HashSet
 
-### Map<K, V>
+Tsonic does not include JavaScript `Map`/`Set` in the default globals. Use .NET collections:
 
 ```typescript
-const userMap = new Map<string, User>();
-userMap.set("alice", alice);
-const user = userMap.get("alice");
-userMap.has("bob"); // boolean
-userMap.delete("alice");
+import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
+
+const userMap = new Dictionary<string, User>();
+userMap.add("alice", alice);
+userMap.containsKey("bob"); // boolean
+userMap.remove("alice");
 userMap.clear();
-console.log(userMap.size);
-```
+const dictSize = userMap.count;
 
-Generates `Dictionary<TKey, TValue>` in C#.
-
-### Set<T>
-
-```typescript
-const ids = new Set<number>();
+const ids = new HashSet<number>();
 ids.add(1);
 ids.add(2);
-const hasOne = ids.has(1); // true
-ids.delete(1);
+const hasOne = ids.contains(1); // true
+ids.remove(1);
 ids.clear();
-console.log(ids.size);
-```
+const setSize = ids.count;
 
-Generates `HashSet<T>` in C#.
+void dictSize;
+void setSize;
+```
 
 ## Dictionary Types
 
@@ -439,6 +438,8 @@ double doubleValue = 1.5;
 Downcast reference types:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 class Animal {
   name!: string;
 }
@@ -490,7 +491,7 @@ function tryGetDog(animal: Animal): Dog | null {
 function process(animal: Animal): void {
   const dog = trycast<Dog>(animal);
   if (dog !== null) {
-    console.log(dog.breed);
+    Console.writeLine(dog.breed);
   }
 }
 ```
@@ -535,12 +536,14 @@ Tsonic automatically synthesizes nominal classes for anonymous object type liter
 When you use object type literals inline, Tsonic generates named classes:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function createPoint(): { x: number; y: number } {
   return { x: 10, y: 20 };
 }
 
 function processData(data: { id: number; name: string }): void {
-  console.log(data.name);
+  Console.writeLine(data.name);
 }
 ```
 

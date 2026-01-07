@@ -64,9 +64,9 @@ import { createDiagnostic } from "./types/diagnostic.js";
 const diagnostic = createDiagnostic(
   "TSN1001",
   "error",
-  "Local import must have .ts extension",
+  "Local import must have .js or .ts extension",
   { file: "src/main.ts", line: 5, column: 20, length: 15 },
-  'Add .ts extension: "./utils.ts"'
+  'Add an extension (recommended): "./utils.js"'
 );
 ```
 
@@ -131,15 +131,15 @@ const compile = (entryPoint: string): Result<BuildOutput, Diagnostic[]> => {
 ```typescript
 // Import validation
 const validateImport = (specifier: string): Result<void, Diagnostic> => {
-  if (!specifier.endsWith(".ts")) {
+  if (!specifier.endsWith(".js") && !specifier.endsWith(".ts")) {
     return {
       ok: false,
       error: createDiagnostic(
         "TSN1001",
         "error",
-        "Local import must have .ts extension",
+        "Local import must have .js or .ts extension",
         location,
-        `Change "${specifier}" to "${specifier}.ts"`
+        `Change "${specifier}" to "${specifier}.js" (recommended)`
       ),
     };
   }
@@ -217,8 +217,8 @@ const formatDiagnostic = (diagnostic: Diagnostic): string => {
 Example output:
 
 ```
-src/main.ts:5:20 error TSN1001: Local import must have .ts extension
-  Hint: Change "./utils" to "./utils.ts"
+src/main.ts:5:20 error TSN1001: Local import must have .js or .ts extension
+  Hint: Change "./utils" to "./utils.js" (recommended)
 ```
 
 ## Related Locations
@@ -257,7 +257,7 @@ const createCircularDepError = (cycle: string[]): Diagnostic => ({
 
 ```typescript
 // Error - stops compilation
-const error = createDiagnostic("TSN1001", "error", "Missing .ts extension");
+const error = createDiagnostic("TSN1001", "error", "Missing file extension");
 
 // Warning - compilation continues
 const warning = createDiagnostic(

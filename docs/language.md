@@ -113,6 +113,8 @@ export class Container<T> {
 ### Control Flow
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 // If/else
 if (condition) {
   doSomething();
@@ -136,7 +138,7 @@ switch (value) {
 
 // Loops
 for (let i = 0; i < 10; i++) {
-  console.log(i);
+  Console.writeLine(i);
 }
 
 for (const item of items) {
@@ -151,10 +153,12 @@ while (condition) {
 ### Error Handling
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 try {
   riskyOperation();
 } catch (error) {
-  console.log("Error:", error);
+  Console.writeLine("Error");
 } finally {
   cleanup();
 }
@@ -165,14 +169,15 @@ throw new Error("Something went wrong");
 ### Arrays
 
 ```typescript
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
+
 const numbers: number[] = [1, 2, 3];
 const mixed: Array<number | string> = [1, "two", 3];
 
 // Arrays emit as native C# arrays (T[])
 // Use LINQ for functional-style operations
-import { Enumerable } from "@tsonic/dotnet/System.Linq";
-const doubled = Enumerable.Select(numbers, (n: number): number => n * 2);
-const filtered = Enumerable.Where(numbers, (n: number): boolean => n > 1);
+const doubled = Enumerable.select(numbers, (n: number): number => n * 2);
+const filtered = Enumerable.where(numbers, (n: number): boolean => n > 1);
 ```
 
 ### Tuples
@@ -190,22 +195,24 @@ const y = point[1]; // 20
 
 Generates `ValueTuple<T1, T2, ...>` in C#.
 
-### Map and Set
+### Dictionary and HashSet
+
+Tsonic does not include JavaScript `Map`/`Set` in the default globals (see `@tsonic/dotnet` + `System.Collections.Generic` instead).
 
 ```typescript
-// Map<K, V> - key-value pairs
-const userMap = new Map<string, User>();
-userMap.set("alice", alice);
-const user = userMap.get("alice");
+import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
 
-// Set<T> - unique values
-const ids = new Set<number>();
+// Dictionary<TKey, TValue> - key-value pairs
+const userMap = new Dictionary<string, User>();
+userMap.add("alice", alice);
+const hasAlice = userMap.containsKey("alice");
+
+// HashSet<T> - unique values
+const ids = new HashSet<number>();
 ids.add(1);
 ids.add(2);
-const hasOne = ids.has(1); // true
+const hasOne = ids.contains(1); // true
 ```
-
-Map generates `Dictionary<TKey, TValue>`, Set generates `HashSet<T>`.
 
 ### Objects
 
@@ -314,28 +321,32 @@ const {
 #### For-of Destructuring
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 // Destructure in for-of loops
 const entries = [
   ["a", 1],
   ["b", 2],
 ];
 for (const [key, value] of entries) {
-  console.log(`${key}: ${value}`);
+  Console.writeLine(`${key}: ${value}`);
 }
 
 // Object destructuring in for-of
 const users = [{ name: "Alice" }, { name: "Bob" }];
 for (const { name } of users) {
-  console.log(name);
+  Console.writeLine(name);
 }
 ```
 
 #### Parameter Destructuring
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 // Function parameter destructuring
 function greet({ name, age }: Person): void {
-  console.log(`Hello ${name}, you are ${age}`);
+  Console.writeLine(`Hello ${name}, you are ${age}`);
 }
 
 // Array parameter destructuring
@@ -368,14 +379,14 @@ const displayName = name ?? "Anonymous";
 
 ## Module System
 
-Tsonic uses ESM (ECMAScript Modules) with **mandatory `.ts` extensions** for local imports.
+Tsonic uses ESM (ECMAScript Modules). Local imports must include a file extension (`.js` is recommended; `.ts` is also accepted).
 
 ### Local Imports
 
 ```typescript
-// ✅ Correct - with .ts extension
+// ✅ Correct - with extension
 import { User } from "./models/User.js";
-import { formatDate } from "../utils/date.ts";
+import { formatDate } from "../utils/date.js";
 
 // ❌ Wrong - missing extension
 import { User } from "./models/User"; // ERROR
@@ -410,20 +421,22 @@ import { User, Product } from "./models/index.js";
 
 ```typescript
 import * as utils from "./utils.js";
-console.log(utils.PI);
+import { Console } from "@tsonic/dotnet/System.js";
+Console.writeLine(utils.PI);
 utils.add(1, 2);
 ```
 
 ### .NET Imports
 
-.NET imports do NOT use `.ts` extension:
+.NET imports are ESM too; use `.js` module specifiers:
 
 ```typescript
 // ✅ Correct
-import { Console } from "@tsonic/dotnet/System";
-import { File } from "@tsonic/dotnet/System.IO";
+import { Console } from "@tsonic/dotnet/System.js";
+import { File } from "@tsonic/dotnet/System.IO.js";
 
 // ❌ Wrong
+import { Console } from "@tsonic/dotnet/System";
 import { Console } from "@tsonic/dotnet/System.ts";
 ```
 
@@ -434,26 +447,32 @@ Every executable needs a `main()` function exported from the entry point.
 ### Basic Entry Point
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 export function main(): void {
-  console.log("Hello!");
+  Console.writeLine("Hello!");
 }
 ```
 
 ### Async Entry Point
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 export async function main(): Promise<void> {
   const data = await fetchData();
-  console.log(data);
+  Console.writeLine(data);
 }
 ```
 
 ### Command-Line Arguments
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 export function main(args: string[]): void {
   for (const arg of args) {
-    console.log(arg);
+    Console.writeLine(arg);
   }
 }
 ```
@@ -481,19 +500,22 @@ export function main(): int {
 
 ### Library Output
 
-For libraries without an entry point, use `--output-type library`:
+For libraries, set `output.type` to `"library"` in `tsonic.json` (or a separate config), then run `tsonic build`.
 
-```bash
-tsonic build src/index.ts --output-type library
+```json
+{
+  "rootNamespace": "MyLib",
+  "output": { "type": "library" }
+}
 ```
-
-This produces a `.dll` instead of an executable.
 
 ## Generators
 
 Generator functions compile to C# iterators:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* counter(): Generator<number> {
   let i = 0;
   while (i < 5) {
@@ -503,7 +525,7 @@ function* counter(): Generator<number> {
 
 export function main(): void {
   for (const n of counter()) {
-    console.log(n);
+    Console.writeLine(n);
   }
 }
 ```
@@ -515,6 +537,8 @@ export function main(): void {
 Generators can receive values via `next(value)`:
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function* accumulator(start: number): Generator<number, void, number> {
   let total = start;
   while (true) {
@@ -525,15 +549,17 @@ function* accumulator(start: number): Generator<number, void, number> {
 
 export function main(): void {
   const gen = accumulator(10);
-  console.log(gen.next().value); // 10
-  console.log(gen.next(5).value); // 15
-  console.log(gen.next(3).value); // 18
+  Console.writeLine(gen.next().value); // 10
+  Console.writeLine(gen.next(5).value); // 15
+  Console.writeLine(gen.next(3).value); // 18
 }
 ```
 
 ### Async Generators
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 async function* fetchItems(): AsyncGenerator<string> {
   for (let i = 0; i < 5; i++) {
     await delay(100);
@@ -543,7 +569,7 @@ async function* fetchItems(): AsyncGenerator<string> {
 
 export async function main(): Promise<void> {
   for await (const item of fetchItems()) {
-    console.log(item);
+    Console.writeLine(item);
   }
 }
 ```
@@ -582,15 +608,17 @@ Tsonic supports type narrowing through type guards and predicates.
 ### Type Predicates
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
 function process(value: string | number): void {
   if (isString(value)) {
-    console.log(value.toUpperCase()); // value is string here
+    Console.writeLine(value.toUpperCase()); // value is string here
   } else {
-    console.log(value * 2); // value is number here
+    Console.writeLine(value * 2); // value is number here
   }
 }
 ```
@@ -598,13 +626,15 @@ function process(value: string | number): void {
 ### typeof Guards
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function handle(value: string | number | boolean): void {
   if (typeof value === "string") {
-    console.log(value.length);
+    Console.writeLine(value.length);
   } else if (typeof value === "number") {
-    console.log(value.toFixed(2));
+    Console.writeLine(value.toFixed(2));
   } else {
-    console.log(value ? "yes" : "no");
+    Console.writeLine(value ? "yes" : "no");
   }
 }
 ```
@@ -612,12 +642,14 @@ function handle(value: string | number | boolean): void {
 ### Negated Guards
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 function process(value: string | null): void {
   if (value === null) {
     return;
   }
   // value is string here (null eliminated)
-  console.log(value.toUpperCase());
+  Console.writeLine(value.toUpperCase());
 }
 
 function handleOptional(value?: string): void {
@@ -625,7 +657,7 @@ function handleOptional(value?: string): void {
     return;
   }
   // value is string here
-  console.log(value.length);
+  Console.writeLine(value.length);
 }
 ```
 
@@ -671,12 +703,17 @@ The following TypeScript/JavaScript features are not supported:
 ### Promise Chaining
 
 ```typescript
-// ❌ Not supported
-promise.then((result) => doSomething(result));
+declare const promise: Promise<number>;
+declare function doSomething(result: number): void;
 
-// ✅ Use async/await
-const result = await promise;
-doSomething(result);
+export async function main(): Promise<void> {
+  // ❌ Not supported
+  // promise.then((result) => doSomething(result));
+
+  // ✅ Use async/await
+  const result = await promise;
+  doSomething(result);
+}
 ```
 
 ## Type Annotations
@@ -685,14 +722,16 @@ Explicit type annotations are recommended and sometimes required:
 
 ```typescript
 // Function parameters must be typed
-function greet(name: string): void {
+import { Console } from "@tsonic/dotnet/System.js";
+
+function greetOk(name: string): void {
   // ✅
-  console.log(name);
+  Console.writeLine(name);
 }
 
-function greet(name) {
+function greetBad(name) {
   // ❌ Error: parameter needs type
-  console.log(name);
+  Console.writeLine(name);
 }
 
 // Return types are inferred but can be explicit
@@ -710,8 +749,8 @@ Tsonic maps your directory structure directly to C# namespaces.
 **Directory path = C# namespace (case-preserved)**
 
 ```
-src/models/User.ts  ->  namespace MyApp.src.models { class User {} }
-src/api/v1/handlers.ts  ->  namespace MyApp.src.api.v1 { class handlers {} }
+src/models/User.ts  ->  namespace MyApp.models { class User {} }
+src/api/v1/handlers.ts  ->  namespace MyApp.api.v1 { class handlers {} }
 ```
 
 ### Root Namespace
@@ -719,7 +758,7 @@ src/api/v1/handlers.ts  ->  namespace MyApp.src.api.v1 { class handlers {} }
 Set via CLI or config:
 
 ```bash
-tsonic build src/main.ts --namespace MyApp
+tsonic build src/App.ts --namespace MyApp
 ```
 
 Or in `tsonic.json`:
@@ -738,7 +777,9 @@ The file name (without `.ts`) becomes the C# class name:
 | ---------------- | ----------------------------------------- |
 | `App.ts`         | `class App`                               |
 | `UserService.ts` | `class UserService`                       |
-| `my-utils.ts`    | `class my_utils` (hyphens to underscores) |
+| `my-utils.ts`    | `class myutils` (hyphens removed)         |
+
+To override class naming, use `namingPolicy.classes` in `tsonic.json` (for example, `"PascalCase"` turns `todo-list.ts` into `TodoList`).
 
 ### Directory to Namespace Mapping
 
@@ -758,8 +799,8 @@ MyApp/              (root namespace)
 Directory names keep their exact case:
 
 ```
-src/Models/User.ts   -> MyApp.src.Models.User  (capital M)
-src/models/User.ts   -> MyApp.src.models.User  (lowercase m)
+src/Models/User.ts   -> MyApp.Models.User  (capital M)
+src/models/User.ts   -> MyApp.models.User  (lowercase m)
 ```
 
 Be consistent with casing across your project.
@@ -798,7 +839,7 @@ TypeScript imports resolve to C# namespace references:
 
 ```typescript
 // src/services/UserService.ts
-import { User } from "../models/User.ts";
+import { User } from "../models/User.js";
 
 export class UserService {
   getUser(): User {
@@ -810,13 +851,13 @@ export class UserService {
 Becomes:
 
 ```csharp
-namespace MyApp.src.services
+namespace MyApp.services
 {
     public class UserService
     {
-        public MyApp.src.models.User getUser()
+        public MyApp.models.User getUser()
         {
-            return new MyApp.src.models.User("John");
+            return new MyApp.models.User("John");
         }
     }
 }

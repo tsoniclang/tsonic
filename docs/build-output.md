@@ -216,7 +216,7 @@ tsonic build src/App.ts --keep-temp
 Or inspect manually:
 
 ```bash
-tsonic emit src/App.ts  # Generate C# only
+tsonic generate src/App.ts  # Generate C# only
 cd generated
 dotnet build            # Build manually
 ```
@@ -261,7 +261,7 @@ node_modules/
 ### Check Generated C#
 
 ```bash
-tsonic emit src/App.ts
+tsonic generate src/App.ts
 cat generated/src/App.cs
 ```
 

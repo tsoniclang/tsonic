@@ -12,7 +12,7 @@ Common issues and solutions.
 
 ```bash
 # Reinstall globally
-npm install -g @tsonic/cli
+npm install -g tsonic
 
 # Or use npx
 npx tsonic --version
@@ -96,7 +96,7 @@ Error TSN1001: Cannot resolve module './User'
 
 **Solutions**:
 
-Add `.ts` extension to local imports:
+Add a file extension to local imports (`.js` is recommended):
 
 ```typescript
 // ✅ Correct
@@ -113,11 +113,11 @@ import { User } from "./User";
 1. Check TypeScript errors in output
 2. Ensure type packages are installed:
    ```bash
-   npm install --save-dev @tsonic/cli @tsonic/core @tsonic/globals @tsonic/dotnet
+   npm install --save-dev tsonic @tsonic/core @tsonic/globals
    ```
-3. Run emit only to see generated C#:
+3. Run generate only to see generated C#:
    ```bash
-   tsonic emit src/App.ts --verbose
+   tsonic generate src/App.ts --verbose
    ```
 
 ### "dotnet publish failed"
@@ -155,7 +155,7 @@ import { User } from "./User";
 1. Use absolute paths
 2. Use `Path.Combine` for cross-platform paths:
    ```typescript
-   import { Path, File } from "@tsonic/dotnet/System.IO";
+   import { Path, File } from "@tsonic/dotnet/System.IO.js";
    const path = Path.Combine(".", "data", "file.txt");
    ```
 
@@ -188,11 +188,17 @@ Replace `any` with specific types:
 
 ```typescript
 // ❌ Wrong
-function process(data: any): any { ... }
+function process(data: any): any {
+  return data;
+}
 
 // ✅ Correct
-function process(data: unknown): string { ... }
-function process<T>(data: T): T { ... }
+function process(data: unknown): string {
+  return String(data);
+}
+function process<T>(data: T): T {
+  return data;
+}
 ```
 
 ### "Promise.then is not supported"
@@ -202,15 +208,20 @@ function process<T>(data: T): T { ... }
 Use async/await instead of promise chaining:
 
 ```typescript
-// ❌ Wrong
-fetch(url)
-  .then((r) => r.json())
-  .then((data) => console.log(data));
+import { Console } from "@tsonic/dotnet/System.js";
 
-// ✅ Correct
-const response = await fetch(url);
-const data = await response.json();
-console.log(data);
+declare function getData(): Promise<string>;
+
+export async function main(): Promise<void> {
+  // ❌ Wrong
+  getData().then((data) => {
+    Console.writeLine(data);
+  });
+
+  // ✅ Correct
+  const data = await getData();
+  Console.writeLine(data);
+}
 ```
 
 ### Nullable Generics
@@ -314,7 +325,7 @@ const result = item !== null ? getValue(item, defaultItem) : defaultItem;
 ### View generated C#
 
 ```bash
-tsonic emit src/App.ts
+tsonic generate src/App.ts
 cat generated/src/App.cs
 ```
 

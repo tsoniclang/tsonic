@@ -26,25 +26,34 @@ public static async Task<string> fetchData()
 ### Basic Async Function
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+async function delay(ms: number): Promise<void> {
+  await Task.delay(ms);
+}
 
 export async function main(): Promise<void> {
   Console.writeLine("Starting...");
   await delay(1000);
   Console.writeLine("Done!");
 }
-
-async function delay(ms: number): Promise<void> {
-  // Implementation
-}
 ```
 
 ### Returning Values
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+type User = {
+  id: number;
+  name: string;
+};
+
 async function fetchUser(id: number): Promise<User> {
-  const response = await fetch(`/users/${id}`);
-  return response as User;
+  await Task.delay(10);
+  return { id, name: "Alice" };
 }
 
 export async function main(): Promise<void> {
@@ -58,8 +67,8 @@ export async function main(): Promise<void> {
 Use try/catch with async/await:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
-import { Exception } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
+import { Exception } from "@tsonic/dotnet/System.js";
 
 async function riskyOperation(): Promise<string> {
   throw new Exception("Something failed");
@@ -82,11 +91,12 @@ Use `for await...of` to iterate over async iterables.
 ### Basic For-Await
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 
 async function* asyncNumbers(): AsyncGenerator<number> {
   for (let i = 0; i < 5; i++) {
-    await delay(100);
+    await Task.delay(100);
     yield i;
   }
 }
@@ -112,9 +122,10 @@ await foreach (var n in asyncNumbers())
 .NET's `IAsyncEnumerable<T>` works with for-await:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
-// Assuming getItemsAsync returns IAsyncEnumerable<string>
+declare function getItemsAsync(): AsyncIterable<string>;
+
 export async function main(): Promise<void> {
   const items = getItemsAsync();
   for await (const item of items) {
@@ -126,6 +137,16 @@ export async function main(): Promise<void> {
 ### Collecting Async Results
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+type Page = { index: number };
+
+async function fetchPage(index: number): Promise<Page> {
+  await Task.delay(10);
+  return { index };
+}
+
 async function* fetchPages(): AsyncGenerator<Page> {
   for (let i = 1; i <= 10; i++) {
     yield await fetchPage(i);
@@ -146,9 +167,12 @@ export async function main(): Promise<void> {
 ### Basic Async Generator
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
 async function* countdown(n: number): AsyncGenerator<number> {
   while (n > 0) {
-    await delay(1000);
+    await Task.delay(1000);
     yield n;
     n--;
   }
@@ -167,7 +191,7 @@ export async function main(): Promise<void> {
 Async generators support bidirectional communication:
 
 ```typescript
-import { Console } from "@tsonic/dotnet/System";
+import { Console } from "@tsonic/dotnet/System.js";
 
 async function* asyncAccumulator(
   start: number
@@ -237,7 +261,7 @@ async function fetchAllUsers(ids: number[]): Promise<User[]> {
 For true parallelism, use .NET's Task APIs:
 
 ```typescript
-import { Task } from "@tsonic/dotnet/System.Threading.Tasks";
+import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 
 // Use Task.WhenAll for parallel execution
 ```
@@ -266,7 +290,7 @@ async function withRetry<T>(
 ### Timeout Pattern
 
 ```typescript
-import { CancellationTokenSource } from "@tsonic/dotnet/System.Threading";
+import { CancellationTokenSource } from "@tsonic/dotnet/System.Threading.js";
 
 async function withTimeout<T>(
   operation: () => Promise<T>,
@@ -332,6 +356,10 @@ When calling async from sync code, use `.Result` or `.Wait()`:
 
 ```typescript
 // In TypeScript, this would be at the entry point
+import { Console } from "@tsonic/dotnet/System.js";
+
+declare function syncWrapper(): string;
+
 export function main(): void {
   const result = syncWrapper();
   Console.writeLine(result);
@@ -348,30 +376,35 @@ Tsonic does not support `.then()`, `.catch()`, or `.finally()`:
 
 ```typescript
 // NOT SUPPORTED
-promise.then(result => { ... });
-promise.catch(error => { ... });
+declare const promise: Promise<number>;
+
+promise.then((result) => result + 1);
+promise.catch(() => 0);
 
 // USE INSTEAD
-try {
-  const result = await promise;
-  // ...
-} catch (error) {
-  // ...
+export async function usePromise(): Promise<number> {
+  try {
+    const result = await promise;
+    return result + 1;
+  } catch {
+    return 0;
+  }
 }
 ```
 
 This is a deliberate design choice to ensure clean async/await code.
 
-### No Dynamic Promise Creation
+### Avoid Promise Constructors
 
 ```typescript
-// NOT SUPPORTED
-const promise = new Promise((resolve, reject) => { ... });
+// Avoid Promise executor-style construction when targeting .NET tasks.
+const promise = new Promise<number>((resolve) => {
+  resolve(123);
+});
 
-// USE INSTEAD
-async function myOperation(): Promise<T> {
-  // Async implementation
-  return result;
+// Prefer async functions that return Promise<T>.
+export async function myOperation(): Promise<number> {
+  return 123;
 }
 ```
 
@@ -401,6 +434,8 @@ export async function main(): Promise<void> {
 ### Handle Errors at Boundaries
 
 ```typescript
+import { Console } from "@tsonic/dotnet/System.js";
+
 export async function main(): Promise<void> {
   try {
     await application();
@@ -414,14 +449,31 @@ export async function main(): Promise<void> {
 ### Avoid Mixing Patterns
 
 ```typescript
+declare function fetchA(): Promise<number>;
+declare function fetchB(): Promise<number>;
+declare function fetchC(): Promise<number>;
+
 // Good - consistent async/await
-const a = await fetchA();
-const b = await fetchB();
-const c = await fetchC();
+export async function good(): Promise<void> {
+  const a = await fetchA();
+  const b = await fetchB();
+  const c = await fetchC();
+
+  void a;
+  void b;
+  void c;
+}
 
 // Avoid - mixing patterns
-const a = await fetchA();
-fetchB().then(b => { ... }); // Don't mix
+export async function bad(): Promise<void> {
+  const a = await fetchA();
+  void a;
+
+  // Don't mix (also: Promise.then/catch/finally is not supported in Tsonic)
+  fetchB().then(() => {
+    // ...
+  });
+}
 ```
 
 ## See Also
