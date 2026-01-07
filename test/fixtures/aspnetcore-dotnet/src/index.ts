@@ -1,4 +1,3 @@
-import { int } from "@tsonic/core/types.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import {
   DefaultHttpContext,
@@ -14,11 +13,10 @@ export function main(): void {
   ctx.request.path = new PathString("/hello");
   ctx.request.queryString = new QueryString("?x=1&y=2");
 
-  ctx.response.statusCode = 204 as int;
+  ctx.response.statusCode = 204;
 
   Console.writeLine(
     `${ctx.request.method} ${ctx.request.path.toString()} ${ctx.request.queryString.toString()}`
   );
   Console.writeLine(`Status: ${ctx.response.statusCode}`);
 }
-

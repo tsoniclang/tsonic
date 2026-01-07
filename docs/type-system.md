@@ -408,28 +408,27 @@ Use the `as` keyword to perform type conversions.
 
 ### Numeric Type Assertions
 
-Convert between numeric types explicitly:
+Prefer numeric type annotations to control emitted CLR numeric types:
 
 ```typescript
 import { int, byte, short, long, float } from "@tsonic/core/types.js";
 
-// Literal to specific numeric type
-const intValue = 1000 as int;
-const byteValue = 255 as byte;
-const shortValue = 1000 as short;
-const longValue = 1000000 as long;
-const floatValue = 1.5 as float;
-const doubleValue = 1.5 as number;
+const intValue: int = 1000;
+const byteValue: byte = 255;
+const shortValue: short = 1000;
+const longValue: long = 1000000;
+const floatValue: float = 1.5;
+const doubleValue: number = 1.5;
 ```
 
-Generates C# casts:
+Generates CLR numeric declarations:
 
 ```csharp
-int intValue = (int)1000;
-byte byteValue = (byte)255;
-short shortValue = (short)1000;
-long longValue = (long)1000000;
-float floatValue = (float)1.5;
+int intValue = 1000;
+byte byteValue = 255;
+short shortValue = 1000;
+long longValue = 1000000L;
+float floatValue = 1.5f;
 double doubleValue = 1.5;
 ```
 
@@ -612,7 +611,7 @@ function processValue(value: int | null): int {
   if (value !== null) {
     return value * 2; // Narrowed to int
   }
-  return 0 as int;
+  return 0;
 }
 ```
 

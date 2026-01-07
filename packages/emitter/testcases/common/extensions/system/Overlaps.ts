@@ -8,9 +8,9 @@ export function run(): void {
   const s = "hello";
 
   const a = (s as unknown as Ext<string>).asSpan();
-  const b = (s as unknown as Ext<string>).asSpan(1 as int);
+  const b = (s as unknown as Ext<string>).asSpan(1);
 
-  let off: int = 0 as int;
+  let off: int = 0;
 
   const ok1 = a.overlaps(b);
   const ok2 = a.overlaps(b, off);
@@ -18,4 +18,3 @@ export function run(): void {
   Console.writeLine(`ok1: ${ok1}`);
   Console.writeLine(`ok2: ${ok2} off: ${off}`);
 }
-

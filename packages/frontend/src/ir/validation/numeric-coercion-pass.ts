@@ -24,7 +24,7 @@
  *
  * Examples that still FAIL (narrowing):
  * - `const x: int = 1.5` ✗ (Double → Int32 is narrowing)
- * - Must use: `const x: int = 1.5 as int` ✓
+ * - `const x: int = 3.14 as int` ✗ (`as int` is proof-checked; float→int truncation is not allowed)
  *
  * This pass runs AFTER the IR is built, BEFORE emission.
  * It is a HARD GATE - any errors prevent emission.

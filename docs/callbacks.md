@@ -25,16 +25,16 @@ import { int } from "@tsonic/core/types.js";
 
 function forEach(items: List<int>, callback: (item: int) => void): void {
   const len = items.count;
-  for (let i = 0; i < len; i++) {
+  for (let i: int = 0; i < len; i++) {
     callback(items[i]);
   }
 }
 
 export function main(): void {
   const numbers = new List<int>();
-  numbers.add(1 as int);
-  numbers.add(2 as int);
-  numbers.add(3 as int);
+  numbers.add(1);
+  numbers.add(2);
+  numbers.add(3);
 
   forEach(numbers, (n: int) => {
     Console.writeLine(`Item: ${n}`);
@@ -65,8 +65,8 @@ function forEachWithIndex(
   callback: (item: int, index: int) => void
 ): void {
   const len = items.count;
-  for (let i = 0; i < len; i++) {
-    callback(items[i], i as int);
+  for (let i: int = 0; i < len; i++) {
+    callback(items[i], i);
   }
 }
 
@@ -94,14 +94,14 @@ import { int } from "@tsonic/core/types.js";
 function map(items: List<int>, transform: (item: int) => int): List<int> {
   const result = new List<int>();
   const len = items.count;
-  for (let i = 0; i < len; i++) {
+  for (let i: int = 0; i < len; i++) {
     result.add(transform(items[i]));
   }
   return result;
 }
 
 // Usage
-const doubled = map(numbers, (n: int) => (n * 2) as int);
+const doubled = map(numbers, (n: int) => n * 2);
 ```
 
 Generated C#:
@@ -121,7 +121,7 @@ function filter(
 ): List<int> {
   const result = new List<int>();
   const len = items.count;
-  for (let i = 0; i < len; i++) {
+  for (let i: int = 0; i < len; i++) {
     const item = items[i];
     if (predicate(item)) {
       result.add(item);
@@ -152,14 +152,14 @@ function reduce(
 ): int {
   let result = initial;
   const len = items.count;
-  for (let i = 0; i < len; i++) {
+  for (let i: int = 0; i < len; i++) {
     result = reducer(result, items[i]);
   }
   return result;
 }
 
 // Usage
-const sum = reduce(numbers, (acc: int, n: int) => (acc + n) as int, 0 as int);
+const sum = reduce(numbers, (acc: int, n: int) => acc + n, 0);
 ```
 
 Generated C#:
@@ -198,9 +198,9 @@ import { List } from "@tsonic/dotnet/System.Collections.Generic";
 import { int } from "@tsonic/core/types.js";
 
 const numbers = new List<int>();
-numbers.add(1 as int);
-numbers.add(2 as int);
-numbers.add(3 as int);
+numbers.add(1);
+numbers.add(2);
+numbers.add(3);
 
 // Inline Action
 numbers.forEach((n: int) => {
@@ -208,7 +208,7 @@ numbers.forEach((n: int) => {
 });
 
 // Inline Func with return
-const doubled = map(numbers, (n: int) => (n * 2) as int);
+const doubled = map(numbers, (n: int) => n * 2);
 ```
 
 ## Higher-Order Functions
@@ -219,14 +219,14 @@ const doubled = map(numbers, (n: int) => (n * 2) as int);
 import { int } from "@tsonic/core/types.js";
 
 function createMultiplier(factor: int): (n: int) => int {
-  return (n: int) => (n * factor) as int;
+  return (n: int) => n * factor;
 }
 
-const double = createMultiplier(2 as int);
-const triple = createMultiplier(3 as int);
+const double = createMultiplier(2);
+const triple = createMultiplier(3);
 
-Console.writeLine(`${double(5 as int)}`); // 10
-Console.writeLine(`${triple(5 as int)}`); // 15
+Console.writeLine(`${double(5)}`); // 10
+Console.writeLine(`${triple(5)}`); // 15
 ```
 
 ### Function Composition
@@ -238,11 +238,11 @@ function compose(f: (x: int) => int, g: (x: int) => int): (x: int) => int {
   return (x: int) => f(g(x));
 }
 
-const addOne = (x: int) => (x + 1) as int;
-const double = (x: int) => (x * 2) as int;
+const addOne = (x: int) => x + 1;
+const double = (x: int) => x * 2;
 
 const addThenDouble = compose(double, addOne);
-Console.writeLine(`${addThenDouble(5 as int)}`); // 12
+Console.writeLine(`${addThenDouble(5)}`); // 12
 ```
 
 ## Async Callbacks
@@ -298,7 +298,7 @@ function sort(items: List<int>, compare: (a: int, b: int) => int): void {
 }
 
 // Usage with comparison
-sort(numbers, (a: int, b: int) => (a - b) as int);
+sort(numbers, (a: int, b: int) => a - b);
 ```
 
 ### Factory Functions
@@ -324,23 +324,23 @@ import { List } from "@tsonic/dotnet/System.Collections.Generic";
 import { Enumerable } from "@tsonic/dotnet/System.Linq";
 
 const numbers = new List<int>();
-numbers.add(1 as int);
-numbers.add(2 as int);
-numbers.add(3 as int);
-numbers.add(4 as int);
-numbers.add(5 as int);
+numbers.add(1);
+numbers.add(2);
+numbers.add(3);
+numbers.add(4);
+numbers.add(5);
 
 // LINQ Where with predicate
 const evens = Enumerable.where(numbers, (n: int) => n % 2 === 0);
 
 // LINQ Select with transform
-const doubled = Enumerable.select(numbers, (n: int) => (n * 2) as int);
+const doubled = Enumerable.select(numbers, (n: int) => n * 2);
 
 // LINQ Aggregate with reducer
 const sum = Enumerable.aggregate(
   numbers,
-  0 as int,
-  (acc: int, n: int) => (acc + n) as int
+  0,
+  (acc: int, n: int) => acc + n
 );
 ```
 
@@ -364,12 +364,12 @@ For single-expression returns, use concise syntax:
 
 ```typescript
 // Concise return
-const doubled = map(numbers, (n: int) => (n * 2) as int);
+const doubled = map(numbers, (n: int) => n * 2);
 
 // Block return
 const processed = map(numbers, (n: int) => {
   const result = n * 2;
-  return result as int;
+  return result;
 });
 ```
 
