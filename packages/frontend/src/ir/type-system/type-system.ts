@@ -31,19 +31,19 @@ import type {
   UtilityTypeName,
   ParameterMode,
 } from "./types.js";
-	import {
-	  substituteIrType as irSubstitute,
-	  TypeSubstitutionMap as IrSubstitutionMap,
-	} from "../types/ir-substitution.js";
-	import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
-	import { getBinaryResultKind, TSONIC_TO_NUMERIC_KIND } from "../types/numeric-kind.js";
-	import type { NumericKind } from "../types/numeric-kind.js";
-	import type { AliasTable } from "./internal/universe/alias-table.js";
-	import type {
-	  MethodSignatureEntry,
-	  TypeId,
-	  UnifiedTypeCatalog,
-	} from "./internal/universe/types.js";
+import {
+  substituteIrType as irSubstitute,
+  TypeSubstitutionMap as IrSubstitutionMap,
+} from "../types/ir-substitution.js";
+import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
+import { getBinaryResultKind, TSONIC_TO_NUMERIC_KIND } from "../types/numeric-kind.js";
+import type { NumericKind } from "../types/numeric-kind.js";
+import type { AliasTable } from "./internal/universe/alias-table.js";
+import type {
+  MethodSignatureEntry,
+  TypeId,
+  UnifiedTypeCatalog,
+} from "./internal/universe/types.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ALICE'S EXACT API — TypeAuthority Interface

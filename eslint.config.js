@@ -82,6 +82,7 @@ export default [
       "**/type-system/types.ts",
       "**/ir/binding/**/*.ts", // Binding creates HandleRegistry
       "**/ir/builder/orchestrator.ts", // Orchestrator wires everything
+      "**/ir/program-context.ts", // ProgramContext wires everything (per-compilation)
     ],
     rules: {
       "no-restricted-imports": "off",
