@@ -152,7 +152,7 @@ Recovers numeric intent from declarations:
 - Enables clean integer emission without cosmetic casts
 
 ```typescript
-// const x = 10 as int;
+// const x: int = 10;
 // Proof: x has numeric kind 'int32'
 ```
 

@@ -4,15 +4,27 @@ Tsonic provides precise control over numeric types through the `@tsonic/core` pa
 
 ## Overview
 
-By default, TypeScript's `number` type maps to C#'s `double` (64-bit floating point). However, many .NET APIs require integer types. Tsonic provides branded types to emit proper C# integers.
+When you *annotate* a value as TypeScript `number`, Tsonic emits a C# `double`.
+
+Tsonic also applies C#-style **numeric literal inference**:
+
+- Integer-looking literals default to `int` (or `long` if out of 32-bit range)
+- Floating-point literals default to `double`
 
 ```typescript
-// Default: number → double
-const x = 42; // C#: double x = 42.0;
+import { int, long } from "@tsonic/core/types.js";
+
+// Integer literal → int
+const i = 42; // C#: int i = 42;
+
+// Large integer literal → long
+const big = 2147483648; // C#: long big = 2147483648L;
+
+// Force double: annotate as number
+const d: number = 42; // C#: double d = 42.0;
 
 // Integer: int → System.Int32
-import { int } from "@tsonic/core/types.js";
-const y = 42 as int; // C#: int y = 42;
+const count: int = 42; // C#: int count = 42;
 ```
 
 ## Available Integer Types
@@ -31,61 +43,48 @@ Import from `@tsonic/core`:
 | `ulong`    | `ulong`  | 0 to 18Q          | Large unsigned integers   |
 | `float`    | `float`  | ±3.4e38           | Single precision floats   |
 
-## Type Assertions for All Numeric Types
+## Type Annotations (Preferred)
 
-The `as` keyword works with all numeric types, not just `int`:
+Prefer type annotations for numeric types (especially for integers):
 
 ```typescript
 import { int, byte, short, long, float } from "@tsonic/core/types.js";
 
-// Integer types
-const intValue = 1000 as int; // C#: int intValue = 1000;
-const byteValue = 255 as byte; // C#: byte byteValue = 255;
-const shortValue = 1000 as short; // C#: short shortValue = 1000;
-const longValue = 1000000 as long; // C#: long longValue = 1000000L;
+const intValue: int = 1000; // C#: int intValue = 1000;
+const byteValue: byte = 255; // C#: byte byteValue = 255;
+const shortValue: short = 1000; // C#: short shortValue = 1000;
+const longValue: long = 1000000; // C#: long longValue = 1000000L;
 
-// Floating point
-const floatValue = 1.5 as float; // C#: float floatValue = 1.5f;
-const doubleValue = 1.5 as number; // C#: double doubleValue = 1.5;
+const floatValue: float = 1.5; // C#: float floatValue = 1.5f;
+const doubleValue: number = 1.5; // C#: double doubleValue = 1.5;
 ```
 
-### Expression Casting
-
-Cast expressions to specific types:
-
-```typescript
-import { int, byte } from "@tsonic/core/types.js";
-
-const x = 100;
-const y = 50;
-
-// Cast result to specific type
-const intSum = (x + y) as int; // C#: (int)(x + y)
-const byteVal = (x - y) as byte; // C#: (byte)(x - y)
-```
-
-> **See also:** [Type Assertions in Type System](type-system.md#type-assertions) for reference type casting.
+Numeric type assertions (`as int`, `as byte`, etc.) exist, but they are **proof-checked** and are not meant for everyday typing. Prefer annotations and contextual typing; see [Explicit Narrowing](#explicit-narrowing-as-int).
 
 ## Basic Usage
 
 ### Declaring Integer Variables
 
-Use `as int` to narrow a number to an integer:
+Use a type annotation when you need an `int`:
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const count = 10 as int;
-const index = 0 as int;
-const max = 100 as int;
+const count: int = 10;
+const index: int = 0;
+const max: int = 100;
 ```
 
-Or use type annotations:
+Or rely on expected types (no cast required):
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const count: int = 10 as int;
+function takesInt(x: int): void {
+  // ...
+}
+
+takesInt(10);
 ```
 
 ### Integer Arithmetic
@@ -95,8 +94,8 @@ Integer operations produce integer results:
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const x = 10 as int;
-const y = 20 as int;
+const x: int = 10;
+const y: int = 20;
 
 // All produce int results
 const sum = x + y; // 30
@@ -111,12 +110,12 @@ Integer division truncates toward zero (unlike JavaScript):
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const a = 10 as int;
-const b = 3 as int;
+const a: int = 10;
+const b: int = 3;
 const result = a / b; // 3 (not 3.333...)
 
-const c = 100 as int;
-const d = 33 as int;
+const c: int = 100;
+const d: int = 33;
 const quotient = c / d; // 3
 ```
 
@@ -135,7 +134,7 @@ list.add("one");
 list.add("two");
 
 // List.get() requires int index
-const idx = 0 as int;
+const idx: int = 0;
 const item = list.get(idx);
 ```
 
@@ -163,7 +162,7 @@ Use integers for array access to avoid floating-point issues:
 import { int } from "@tsonic/core/types.js";
 
 const items: string[] = ["a", "b", "c", "d"];
-const idx = 2 as int;
+const idx: int = 2;
 const item = items[idx]; // "c"
 
 // Arithmetic works naturally
@@ -178,8 +177,8 @@ Use integers for loop counters:
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const max = 10 as int;
-for (let i = 0 as int; (i as int) < max; i = (i + 1) as int) {
+const max: int = 10;
+for (let i: int = 0; i < max; i = i + 1) {
   // i is int throughout
 }
 ```
@@ -195,62 +194,21 @@ const tax = price * 0.08;
 const total = price + tax;
 ```
 
-## Integer Narrowing
+## Explicit Narrowing (`as int`)
 
-### The `as int` Pattern
-
-Use `as int` to convert a number expression to integer:
+You generally **don't** need `as int` when an `int` is already expected (variable type annotation, function parameter, indexer, etc.).
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const x = 10 as int;
-const y = 3 as int;
+const a: int = 10;
+const b: int = 3;
 
-// Result needs explicit narrowing for assignment
-const result: int = ((x + y) * 2) as int;
+// No cast needed: int context drives typing
+const result: int = (a + b) * 2;
 ```
 
-### Redundant Narrowing is Safe
-
-Multiple `as int` on the same expression produces clean code:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const x = 10 as int;
-const y = 20 as int;
-
-// Redundant but harmless - no extra casts in output
-const sum = (x as int) + (y as int);
-const redundant: int = (((x + y) as int) + 5) as int;
-```
-
-The compiler optimizes away redundant casts.
-
-### Mixed Arithmetic
-
-When mixing int and number, the result promotes to number:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const intVal = 10 as int;
-const numVal = 3.5;
-
-const result = intVal + numVal; // double result: 13.5
-```
-
-To get an integer result, narrow explicitly:
-
-```typescript
-import { int } from "@tsonic/core/types.js";
-
-const intVal = 10 as int;
-const numVal = 3.5;
-
-const intResult = (intVal + numVal) as int; // int result: 13
-```
+`as int` is proof-checked and cannot be used as a general-purpose float→int truncation. In most code, prefer `: int` and let expected types drive typing.
 
 ## Function Signatures
 
@@ -262,11 +220,11 @@ Declare function parameters with integer types:
 import { int } from "@tsonic/core/types.js";
 
 function factorial(n: int): int {
-  if (n <= 1) return 1 as int;
-  return (n * factorial((n - 1) as int)) as int;
+  if (n <= 1) return 1;
+  return n * factorial(n - 1);
 }
 
-const result = factorial(5 as int); // 120
+const result = factorial(5); // 120
 ```
 
 ### Integer Return Types
@@ -277,9 +235,9 @@ Functions can return integer types:
 import { int } from "@tsonic/core/types.js";
 
 function sumRange(start: int, end: int): int {
-  let total = 0 as int;
-  for (let i = start; (i as int) <= end; i = (i + 1) as int) {
-    total = (total + i) as int;
+  let total: int = 0;
+  for (let i: int = start; i <= end; i = i + 1) {
+    total = total + i;
   }
   return total;
 }
@@ -292,8 +250,8 @@ function sumRange(start: int, end: int): int {
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-let count = 0 as int;
-count = (count + 1) as int;
+let count: int = 0;
+count = count + 1;
 ```
 
 ### Array Length Access
@@ -302,8 +260,8 @@ count = (count + 1) as int;
 import { int } from "@tsonic/core/types.js";
 
 const items: string[] = ["a", "b", "c"];
-const len = items.length as int;
-const lastIdx = (len - 1) as int;
+const len: int = items.length;
+const lastIdx: int = len - 1;
 const lastItem = items[lastIdx];
 ```
 
@@ -312,8 +270,8 @@ const lastItem = items[lastIdx];
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const value = 17 as int;
-const divisor = 5 as int;
+const value: int = 17;
+const divisor: int = 5;
 const remainder = value % divisor; // 2
 ```
 
@@ -324,8 +282,8 @@ Integer types support all bitwise operations:
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const a = 0b1010 as int; // 10
-const b = 0b1100 as int; // 12
+const a: int = 0b1010; // 10
+const b: int = 0b1100; // 12
 
 const and = a & b; // 8 (0b1000)
 const or = a | b; // 14 (0b1110)
@@ -421,8 +379,8 @@ Tsonic generates clean C# without unnecessary casts:
 ```typescript
 import { int } from "@tsonic/core/types.js";
 
-const x = 10 as int;
-const y = 20 as int;
+const x: int = 10;
+const y: int = 20;
 const sum = x + y;
 ```
 
@@ -446,15 +404,18 @@ var sum = (int)(x + y); // Wrong - unnecessary casts
 
 ### "Cannot assign number to int"
 
-You need to narrow the expression:
+Use `int`-typed values (or an explicit narrowing) when you need an integer:
 
 ```typescript
-// Error
-const x: int = 10 + 5;
-
-// Fix
 import { int } from "@tsonic/core/types.js";
-const x: int = (10 + 5) as int;
+
+// OK: integer literal in int context
+const a: int = 10;
+const b: int = 5;
+const x: int = a + b;
+
+// Error: floating-point literal is not an integer value
+const y: int = 10.5;
 ```
 
 ### Array Index Errors
@@ -465,7 +426,7 @@ Ensure array indices are integers:
 import { int } from "@tsonic/core/types.js";
 
 const items: string[] = ["a", "b", "c"];
-const idx = 1 as int;
+const idx: int = 1;
 const item = items[idx]; // OK
 ```
 
@@ -478,8 +439,8 @@ import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic";
 
 const nums = new List<int>();
-nums.add(1 as int);
-nums.add(2 as int);
+nums.add(1);
+nums.add(2);
 // Now LINQ operations work correctly
 ```
 

@@ -313,24 +313,24 @@ export function main(): void {
 import { int } from "@tsonic/core/types.js";
 
 function sumRange(start: int, end: int): int {
-  let total = 0 as int;
-  for (let i = start; (i as int) <= end; i = (i + 1) as int) {
-    total = (total + i) as int;
+  let total: int = 0;
+  for (let i: int = start; i <= end; i = i + 1) {
+    total = total + i;
   }
   return total;
 }
 
 export function main(): void {
-  const a = 10 as int;
-  const b = 20 as int;
-  const sum = (a + b) as int; // Integer arithmetic
+  const a: int = 10;
+  const b: int = 20;
+  const sum: int = a + b; // Integer arithmetic
 
   console.log(`Sum: ${sum}`);
-  console.log(`Range sum 1-10: ${sumRange(1 as int, 10 as int)}`);
+  console.log(`Range sum 1-10: ${sumRange(1, 10)}`);
 
   // Integer division truncates
-  const x = 10 as int;
-  const y = 3 as int;
+  const x: int = 10;
+  const y: int = 3;
   console.log(`10 / 3 = ${x / y}`); // 3 (not 3.333...)
 }
 ```
@@ -359,7 +359,7 @@ function map(items: int[], transform: (item: int) => int): int[] {
 }
 
 export function main(): void {
-  const nums: int[] = [1 as int, 2 as int, 3 as int];
+  const nums: int[] = [1, 2, 3];
 
   // Inline callback
   forEach(nums, (n: int) => {
@@ -367,7 +367,7 @@ export function main(): void {
   });
 
   // Transform callback
-  const doubled = map(nums, (n: int) => (n * 2) as int);
+  const doubled = map(nums, (n: int) => n * 2);
   console.log(`Doubled: ${doubled}`);
 }
 ```

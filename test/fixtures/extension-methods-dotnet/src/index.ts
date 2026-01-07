@@ -29,13 +29,13 @@ export function main(): void {
     .toList();
   Console.writeLine(`Doubled count: ${doubled.count}`);
 
-  let count: int = 0 as int;
+  let count: int = 0;
   const ok = numbers.tryGetNonEnumeratedCount(count);
   Console.writeLine(`TryGetNonEnumeratedCount: ${ok} ${count}`);
 
-  let n: int = 10 as int;
+  let n: int = 10;
   addOne(n);
   Console.writeLine(`addOne(10): ${n}`);
 
-  Console.writeLine(`inc(5): ${inc(5 as int)}`);
+  Console.writeLine(`inc(5): ${inc(5)}`);
 }

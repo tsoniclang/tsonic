@@ -461,7 +461,7 @@ In TypeScript, `[]` is inferred as `any[]` or contextually typed. In Tsonic, we 
 
 ```typescript
 // Non-empty arrays infer the type from elements
-const numbers = [1, 2, 3]; // Inferred as int[]
+const numbers = [1, 2, 3]; // Tsonic infers: int[]
 const mixed = [1, 2.5, 3]; // Inferred as double[]
 const largeNumbers = [1, 2147483648]; // Inferred as long[] (element exceeds int range)
 

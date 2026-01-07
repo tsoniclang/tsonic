@@ -368,7 +368,7 @@ import { int } from "@tsonic/core/types.js";
 import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic";
 
 const dict = new Dictionary<string, int>();
-dict.Add("key", 42 as int);
+dict.Add("key", 42);
 
 // The 'out' parameter is handled automatically
 let value: int;
@@ -407,7 +407,7 @@ function processValue(value: int | null): int {
     // value is narrowed to 'int' here
     return value * 2;
   }
-  return 0 as int;
+  return 0;
 }
 
 // Compound conditions also work
@@ -416,7 +416,7 @@ function processMultiple(a: int | null, b: int | null): int {
     // Both a and b are narrowed to 'int'
     return a + b;
   }
-  return 0 as int;
+  return 0;
 }
 ```
 

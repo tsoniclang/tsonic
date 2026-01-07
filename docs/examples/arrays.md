@@ -220,14 +220,14 @@ const counts: int[] = [1, 2, 3];
 
 // Array indexing with integers
 const items = ["a", "b", "c"];
-const index = 1 as int;
+const index: int = 1;
 const item = items[index]; // "b"
 
 // LINQ operations require int for indexing
 import { Enumerable } from "@tsonic/dotnet/System.Linq";
 
-const numbers = [10, 20, 30];
-const first = Enumerable.ElementAt(numbers, 0 as int);
+const numbers: int[] = [10, 20, 30];
+const first = Enumerable.ElementAt(numbers, 0);
 ```
 
 ### Long Arrays
