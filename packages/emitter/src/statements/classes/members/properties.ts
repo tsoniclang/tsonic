@@ -3,11 +3,18 @@
  */
 
 import { IrClassMember } from "@tsonic/frontend";
-import { EmitterContext, getIndent } from "../../../types.js";
+import {
+  EmitterContext,
+  dedent,
+  getIndent,
+  indent,
+  withScoped,
+} from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitType } from "../../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
+import { emitBlockStatement } from "../../blocks.js";
 
 /**
  * Emit a property declaration
@@ -19,6 +26,7 @@ export const emitPropertyMember = (
   const ind = getIndent(context);
   let currentContext = context;
   const parts: string[] = [];
+  const hasAccessors = !!(member.getterBody || member.setterBody);
 
   // Access modifier
   const accessibility = member.accessibility ?? "public";
@@ -38,7 +46,7 @@ export const emitPropertyMember = (
     parts.push("required");
   }
 
-  if (member.isReadonly) {
+  if (!hasAccessors && member.isReadonly) {
     parts.push("readonly");
   }
 
@@ -62,16 +70,81 @@ export const emitPropertyMember = (
   );
   currentContext = attrContext;
 
-  // Emit as field (TypeScript class fields map to C# fields, not properties)
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-  let code = `${attrPrefix}${ind}${parts.join(" ")}`;
-  if (member.initializer) {
-    const [initFrag, finalContext] = emitExpression(
-      member.initializer,
-      currentContext
-    );
-    code += ` = ${initFrag.text}`;
-    currentContext = finalContext;
+
+  if (!hasAccessors) {
+    // Emit as field (TypeScript class fields map to C# fields, not properties)
+    let code = `${attrPrefix}${ind}${parts.join(" ")}`;
+    if (member.initializer) {
+      const [initFrag, finalContext] = emitExpression(
+        member.initializer,
+        currentContext
+      );
+      code += ` = ${initFrag.text}`;
+      currentContext = finalContext;
+    }
+    return [`${code};`, currentContext];
   }
-  return [`${code};`, currentContext];
+
+  const lines: string[] = [];
+  lines.push(`${attrPrefix}${ind}${parts.join(" ")}`);
+
+  // Property body scope (indentation + locals)
+  let bodyContext = indent(currentContext);
+  const bodyInd = getIndent(bodyContext);
+  lines.push(`${bodyInd}{`);
+
+  if (member.getterBody) {
+    lines.push(`${bodyInd}get`);
+    const getterBodyContext = indent(bodyContext);
+    const [getterBlock, getterCtx] = withScoped(
+      getterBodyContext,
+      { returnType: member.type },
+      (scopedCtx) => emitBlockStatement(member.getterBody!, scopedCtx)
+    );
+    lines.push(getterBlock);
+    bodyContext = dedent(getterCtx);
+  }
+
+  if (member.setterBody) {
+    lines.push(`${bodyInd}set`);
+    const setterBodyContext = indent(bodyContext);
+    const setterParamName = member.setterParamName;
+
+    const [rawSetterBlock, setterCtx] = withScoped(
+      setterBodyContext,
+      {
+        localNameMap:
+          setterParamName && setterParamName !== "value"
+            ? new Map([
+                ...(setterBodyContext.localNameMap ?? []),
+                [setterParamName, escapeCSharpIdentifier(setterParamName)],
+              ])
+            : setterBodyContext.localNameMap,
+      },
+      (scopedCtx) => emitBlockStatement(member.setterBody!, scopedCtx)
+    );
+
+    const setterBlock = (() => {
+      if (!setterParamName || setterParamName === "value") return rawSetterBlock;
+
+      const escapedParam = escapeCSharpIdentifier(setterParamName);
+      const stmtInd = getIndent(setterBodyContext);
+      const injectLine = `${stmtInd}var ${escapedParam} = value;`;
+
+      const blockLines = rawSetterBlock.split("\n");
+      if (blockLines.length > 1) {
+        blockLines.splice(1, 0, injectLine, "");
+        return blockLines.join("\n");
+      }
+      return rawSetterBlock;
+    })();
+
+    lines.push(setterBlock);
+    bodyContext = dedent(setterCtx);
+  }
+
+  lines.push(`${bodyInd}}`);
+
+  return [lines.join("\n"), dedent(bodyContext)];
 };

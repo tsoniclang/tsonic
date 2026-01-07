@@ -310,6 +310,44 @@ export const emitVariableDeclaration = (
     } else if (
       !context.isStatic &&
       decl.type &&
+      decl.initializer &&
+      ((decl.initializer.kind === "literal" &&
+        (decl.initializer.value === undefined ||
+          decl.initializer.value === null)) ||
+        (decl.initializer.kind === "identifier" &&
+          (decl.initializer.name === "undefined" ||
+            decl.initializer.name === "null")))
+    ) {
+      // `var x = default;` / `var x = null;` is invalid because there is no target type.
+      // When the TypeScript source has an explicit type annotation, emit the explicit C# type.
+      const [typeName, newContext] = emitType(decl.type, currentContext);
+      currentContext = newContext;
+      varDecl += `${typeName} `;
+    } else if (
+      !context.isStatic &&
+      !decl.type &&
+      decl.initializer &&
+      ((decl.initializer.kind === "literal" &&
+        (decl.initializer.value === undefined ||
+          decl.initializer.value === null)) ||
+        (decl.initializer.kind === "identifier" &&
+          (decl.initializer.name === "undefined" ||
+            decl.initializer.name === "null")))
+    ) {
+      // Nullish initializer without an explicit annotation cannot be emitted with `var`.
+      // Prefer the initializer's inferred type if it is explicitly nameable in C#,
+      // otherwise fall back to object? to keep emission valid.
+      const fallbackType = decl.initializer.inferredType;
+      if (fallbackType && canEmitTypeExplicitly(fallbackType)) {
+        const [typeName, newContext] = emitType(fallbackType, currentContext);
+        currentContext = newContext;
+        varDecl += `${typeName} `;
+      } else {
+        varDecl += "object? ";
+      }
+    } else if (
+      !context.isStatic &&
+      decl.type &&
       decl.initializer?.kind !== "stackalloc" &&
       needsExplicitLocalType(decl.type, currentContext)
     ) {

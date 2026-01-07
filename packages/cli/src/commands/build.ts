@@ -4,7 +4,14 @@
 
 import { spawnSync } from "node:child_process";
 import { join, relative } from "node:path";
-import { copyFileSync, chmodSync, existsSync, mkdirSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+} from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
 
@@ -78,7 +85,18 @@ const buildExecutable = (
     if (!existsSync(outDir)) {
       mkdirSync(outDir, { recursive: true });
     }
-    copyFileSync(sourceBinary, targetBinary);
+
+    // Copy the entire publish output so native/runtime dependencies (e.g. SQLite)
+    // are available alongside the executable. This keeps `./out/<app>` runnable.
+    const publishEntries = readdirSync(publishDir, { withFileTypes: true });
+    for (const entry of publishEntries) {
+      // When stripSymbols is enabled, avoid copying NativeAOT .dbg sidecar files.
+      if (config.stripSymbols && entry.name.endsWith(".dbg")) continue;
+
+      const src = join(publishDir, entry.name);
+      const dst = join(outDir, entry.name);
+      cpSync(src, dst, { recursive: entry.isDirectory(), force: true });
+    }
 
     // Make executable on Unix
     if (process.platform !== "win32") {

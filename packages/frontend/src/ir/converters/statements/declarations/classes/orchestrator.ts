@@ -5,7 +5,7 @@
 import * as ts from "typescript";
 import { IrClassDeclaration, IrClassMember } from "../../../../types.js";
 import { hasExportModifier, convertTypeParameters } from "../../helpers.js";
-import { convertProperty } from "./properties.js";
+import { convertAccessorProperty, convertProperty } from "./properties.js";
 import { convertMethod } from "./methods.js";
 import {
   convertConstructor,
@@ -125,9 +125,53 @@ export const convertClassDeclaration = (
   // Filter to only include members declared directly on this class (not inherited)
   const ownMembers = filterOwnMembers(node);
 
-  const convertedMembers = ownMembers
-    .map((m) => convertClassMember(m, ctx, superClass, constructor?.parameters))
-    .filter((m): m is IrClassMember => m !== null);
+  const accessorPairs = new Map<
+    string,
+    { getter?: ts.GetAccessorDeclaration; setter?: ts.SetAccessorDeclaration }
+  >();
+  for (const member of ownMembers) {
+    if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+      const name = ts.isIdentifier(member.name) ? member.name.text : "[computed]";
+      const entry = accessorPairs.get(name) ?? {};
+      if (ts.isGetAccessorDeclaration(member)) {
+        entry.getter = member;
+      } else {
+        entry.setter = member;
+      }
+      accessorPairs.set(name, entry);
+    }
+  }
+
+  const convertedMembers: IrClassMember[] = [];
+  const seenAccessors = new Set<string>();
+  for (const member of ownMembers) {
+    if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+      const name = ts.isIdentifier(member.name) ? member.name.text : "[computed]";
+      if (seenAccessors.has(name)) continue;
+      seenAccessors.add(name);
+      const pair = accessorPairs.get(name);
+      convertedMembers.push(
+        convertAccessorProperty(
+          name,
+          pair?.getter,
+          pair?.setter,
+          ctx,
+          superClass
+        )
+      );
+      continue;
+    }
+
+    const converted = convertClassMember(
+      member,
+      ctx,
+      superClass,
+      constructor?.parameters
+    );
+    if (converted) {
+      convertedMembers.push(converted);
+    }
+  }
 
   // Deduplicate members by name (keep first occurrence)
   // Parameter properties should take precedence over regular properties with same name
