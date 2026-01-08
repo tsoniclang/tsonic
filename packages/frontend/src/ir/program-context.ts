@@ -22,10 +22,12 @@ import type { IrBuildOptions } from "./builder/types.js";
 import { buildNominalEnv } from "./type-system/internal/nominal-env.js";
 import { convertCapturedTypeNode } from "./type-system/internal/type-converter.js";
 import { createTypeSystem } from "./type-system/type-system.js";
-import { buildAliasTable } from "./type-system/internal/universe/alias-table.js";
-import { loadClrCatalog } from "./type-system/internal/universe/clr-catalog.js";
-import { buildUnifiedUniverse } from "./type-system/internal/universe/unified-universe.js";
-import { buildSourceCatalog } from "./type-system/internal/universe/source-catalog.js";
+import {
+  buildAliasTable,
+  buildSourceCatalog,
+  buildUnifiedUniverse,
+  loadClrCatalog,
+} from "./type-system/internal/universe/index.js";
 
 /**
  * ProgramContext — Per-compilation context owning all semantic state.
