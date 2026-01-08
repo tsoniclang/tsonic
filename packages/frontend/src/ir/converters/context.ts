@@ -7,6 +7,11 @@
  */
 
 import type { ProgramContext } from "../program-context.js";
+import type { Binding } from "../binding/index.js";
+import type { TypeAuthority } from "../type-system/type-system.js";
+import type { DotnetMetadataRegistry } from "../../dotnet-metadata.js";
+import type { BindingRegistry } from "../../program/bindings.js";
+import type { ClrBindingsResolver } from "../../resolver/clr-bindings-resolver.js";
 
 /**
  * ConverterContext is an alias for ProgramContext.
@@ -31,11 +36,11 @@ export { createProgramContext } from "../program-context.js";
  * @deprecated Use createProgramContext instead.
  */
 export const createConverterContext = (params: {
-  binding: import("../binding/index.js").Binding;
-  typeSystem: import("../type-system/type-system.js").TypeAuthority;
-  metadata: import("../../dotnet-metadata.js").DotnetMetadataRegistry;
-  bindings: import("../../program/bindings.js").BindingRegistry;
-  clrResolver: import("../../resolver/clr-bindings-resolver.js").ClrBindingsResolver;
+  binding: Binding;
+  typeSystem: TypeAuthority;
+  metadata: DotnetMetadataRegistry;
+  bindings: BindingRegistry;
+  clrResolver: ClrBindingsResolver;
 }): ConverterContext => ({
   binding: params.binding,
   typeSystem: params.typeSystem,

@@ -16,6 +16,8 @@ import type {
   IrType,
   IrFunctionType,
   IrParameter,
+  IrInterfaceMember,
+  IrPropertySignature,
   IrReferenceType,
   IrPrimitiveType,
   IrMethodSignature,
@@ -3081,9 +3083,9 @@ export const createTypeSystem = (
    * Transform members for Partial/Required/Readonly
    */
   const transformMembers = (
-    members: readonly import("../types/index.js").IrInterfaceMember[],
+    members: readonly IrInterfaceMember[],
     mode: "optional" | "required" | "readonly"
-  ): import("../types/index.js").IrInterfaceMember[] => {
+  ): IrInterfaceMember[] => {
     return members.map((m) => {
       if (m.kind === "propertySignature") {
         return {
@@ -3106,7 +3108,7 @@ export const createTypeSystem = (
    */
   const getStructuralMembersForType = (
     type: IrReferenceType
-  ): readonly import("../types/index.js").IrInterfaceMember[] => {
+  ): readonly IrInterfaceMember[] => {
     if (type.structuralMembers) {
       return type.structuralMembers;
     }
@@ -3118,7 +3120,7 @@ export const createTypeSystem = (
     if (!entry) return [];
 
     // Convert registry members to IR members
-    const members: import("../types/index.js").IrInterfaceMember[] = [];
+    const members: IrInterfaceMember[] = [];
     entry.members.forEach((info, name) => {
       if (info.kind === "property" && info.type) {
         members.push({
@@ -3154,7 +3156,7 @@ export const createTypeSystem = (
     }
 
     // Get members from type
-    let members: readonly import("../types/index.js").IrInterfaceMember[];
+    let members: readonly IrInterfaceMember[];
     if (type.kind === "objectType") {
       members = type.members;
     } else if (type.kind === "referenceType") {
@@ -3313,7 +3315,7 @@ export const createTypeSystem = (
     }
 
     // Build object type with a property for each key
-    const members: import("../types/index.js").IrPropertySignature[] =
+    const members: IrPropertySignature[] =
       Array.from(keys).map((key) => ({
         kind: "propertySignature" as const,
         name: key,
