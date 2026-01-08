@@ -279,6 +279,25 @@ if [ "$NEED_BRANCH" = true ]; then
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
     "
 
+    # Update internal dependencies in emitter/package.json
+    node -e "
+        const fs = require('fs');
+        const path = './packages/emitter/package.json';
+        const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+        pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+    "
+
+    # Update internal dependencies in backend/package.json
+    node -e "
+        const fs = require('fs');
+        const path = './packages/backend/package.json';
+        const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+        pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
+        pkg.dependencies['@tsonic/emitter'] = '$NEW_VERSION';
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+    "
+
     echo "=== Committing version changes ==="
     git add packages/*/package.json
     git commit -m "chore: bump version to $NEW_VERSION"
