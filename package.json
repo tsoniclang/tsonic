@@ -58,8 +58,8 @@
   "license": "MIT",
   "dependencies": {
     "@tsonic/cli": "^0.0.1",
-    "@tsonic/core": "0.6.1",
-    "@tsonic/dotnet": "^0.8.4",
-    "@tsonic/globals": "*"
+    "@tsonic/core": "0.6.2",
+    "@tsonic/dotnet": "0.8.8",
+    "@tsonic/globals": "0.3.7"
   }
 }
