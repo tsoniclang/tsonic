@@ -60,6 +60,9 @@ export class ClrBindingsResolver {
   // Cache: absolute bindingsPath -> assembly (extracted from bindings.json types)
   private readonly assemblyCache = new Map<string, string | null>();
 
+  // Cache: module specifier -> resolved absolute path (or null if not found)
+  private readonly resolvedPathCache = new Map<string, string | null>();
+
   // require function for Node resolution from the base directory
   private readonly require: ReturnType<typeof createRequire>;
   // Fallback require for compiler-owned @tsonic/* packages
@@ -93,67 +96,177 @@ export class ClrBindingsResolver {
       return { isClr: false };
     }
 
-    // Resolve package root using Node resolution
+    // Extract the namespace key from the import subpath.
+    // Examples:
+    // - "System.Linq.js" -> "System.Linq"
+    // - "Microsoft.EntityFrameworkCore/internal/index.js" -> "Microsoft.EntityFrameworkCore"
+    const namespaceKey = this.extractNamespaceKey(subpath);
+    if (!namespaceKey) return { isClr: false };
+
+    // Prefer exports-aware resolution:
+    // - Resolve the namespace facade "@pkg/<Namespace>.js" via Node resolution (honors package.json exports).
+    // - Find bindings.json relative to the resolved facade path.
+    //
+    // This supports bindings packages that keep generated artifacts under dist/ (not committed),
+    // while keeping ergonomic imports like "@pkg/System.Linq.js".
+    const facadeSpecifier = `${packageName}/${namespaceKey}.js`;
+    const resolvedFacadePath = this.resolveModulePath(
+      packageName,
+      facadeSpecifier
+    );
+
+    // Resolve package root using Node resolution (for bounding searches).
     const pkgRoot = this.resolvePkgRoot(packageName);
     if (!pkgRoot) {
       return { isClr: false };
     }
 
-    // Strip .js extension from subpath (e.g., "System.js" -> "System")
-    // This allows imports like "@tsonic/dotnet/System.js" to find "System/bindings.json".
-    //
-    // NOTE: Users (and generated facades) may import deep subpaths such as:
-    //   "@tsonic/efcore/Microsoft.EntityFrameworkCore/internal/index.js"
-    // In that case, the CLR namespace directory is the nearest ancestor directory
-    // that contains bindings.json (e.g., "Microsoft.EntityFrameworkCore").
-    const namespaceSubpath = subpath.endsWith(".js")
-      ? subpath.slice(0, -3)
-      : subpath;
+    const bindingsPath =
+      resolvedFacadePath &&
+      this.findBindingsPathFromFacade({
+        pkgRoot,
+        namespaceKey,
+        resolvedFacadePath,
+      });
 
-    const findBindingsDir = (candidate: string): string | null => {
-      let current = candidate;
-      while (true) {
-        const bindingsPath = join(pkgRoot, current, "bindings.json");
-        if (this.hasBindings(bindingsPath)) return current;
+    // Fallback for packages that do not provide a resolvable facade stub.
+    // This preserves legacy behavior where bindings are discovered purely by
+    // "<pkgRoot>/<subpath>/bindings.json" without consulting exports.
+    const legacyBindingsPath =
+      bindingsPath ?? this.findBindingsPathLegacy(pkgRoot, subpath);
 
-        // Walk up one path segment.
-        const idx = Math.max(current.lastIndexOf("/"), current.lastIndexOf("\\"));
-        if (idx <= 0) return null;
-        current = current.slice(0, idx);
-      }
-    };
-
-    const bindingsDir = findBindingsDir(namespaceSubpath);
-    if (!bindingsDir) {
+    if (!legacyBindingsPath) {
       return { isClr: false };
     }
 
-    const bindingsPath = join(pkgRoot, bindingsDir, "bindings.json");
+    const bindingsDirAbs = dirname(legacyBindingsPath);
 
     // Extract namespace from bindings.json (tsbindgen format)
     // This is the authoritative namespace, not the subpath
-    const resolvedNamespace = this.extractNamespace(bindingsPath, bindingsDir);
+    const resolvedNamespace = this.extractNamespace(
+      legacyBindingsPath,
+      namespaceKey
+    );
 
     // Check for optional metadata.json
-    const metadataPath = join(
-      pkgRoot,
-      bindingsDir,
-      "internal",
-      "metadata.json"
-    );
+    const metadataPath = join(bindingsDirAbs, "internal", "metadata.json");
     const hasMetadata = this.fileExists(metadataPath);
 
     // Extract assembly name from bindings.json types
-    const assembly = this.extractAssembly(bindingsPath);
+    const assembly = this.extractAssembly(legacyBindingsPath);
 
     return {
       isClr: true,
       packageName,
       resolvedNamespace,
-      bindingsPath,
+      bindingsPath: legacyBindingsPath,
       metadataPath: hasMetadata ? metadataPath : undefined,
       assembly,
     };
+  }
+
+  private extractNamespaceKey(subpath: string): string | null {
+    const slashIdx = subpath.indexOf("/");
+    const backslashIdx = subpath.indexOf("\\");
+    const firstSep =
+      slashIdx === -1
+        ? backslashIdx
+        : backslashIdx === -1
+          ? slashIdx
+          : Math.min(slashIdx, backslashIdx);
+    const firstSeg = (firstSep === -1 ? subpath : subpath.slice(0, firstSep)).trim();
+    if (!firstSeg) return null;
+
+    return firstSeg.endsWith(".js") ? firstSeg.slice(0, -3) : firstSeg;
+  }
+
+  private resolveModulePath(
+    packageName: string,
+    specifier: string
+  ): string | null {
+    const cached = this.resolvedPathCache.get(specifier);
+    if (cached !== undefined) return cached;
+
+    const resolveViaRequire = (
+      req: ReturnType<typeof createRequire>
+    ): string | null => {
+      try {
+        return req.resolve(specifier);
+      } catch {
+        return null;
+      }
+    };
+
+    const direct = resolveViaRequire(this.require);
+    if (direct) {
+      this.resolvedPathCache.set(specifier, direct);
+      return direct;
+    }
+
+    if (packageName.startsWith("@tsonic/")) {
+      const compilerDirect = resolveViaRequire(this.compilerRequire);
+      if (compilerDirect) {
+        this.resolvedPathCache.set(specifier, compilerDirect);
+        return compilerDirect;
+      }
+    }
+
+    // Last-resort fallback for sibling checkouts of compiler-owned packages
+    // (used in local development when packages are not installed).
+    const pkgRoot = this.resolvePkgRoot(packageName);
+    if (pkgRoot) {
+      const subpath = specifier.slice(packageName.length + 1);
+      const candidate = join(pkgRoot, subpath);
+      if (existsSync(candidate)) {
+        this.resolvedPathCache.set(specifier, candidate);
+        return candidate;
+      }
+    }
+
+    this.resolvedPathCache.set(specifier, null);
+    return null;
+  }
+
+  private findBindingsPathFromFacade(opts: {
+    readonly pkgRoot: string;
+    readonly namespaceKey: string;
+    readonly resolvedFacadePath: string;
+  }): string | null {
+    const { pkgRoot, namespaceKey, resolvedFacadePath } = opts;
+
+    let currentDir = dirname(resolvedFacadePath);
+    while (true) {
+      // Case 1: bindings.json is directly in this directory (e.g. "<ns>/bindings.json").
+      const direct = join(currentDir, "bindings.json");
+      if (this.hasBindings(direct)) return direct;
+
+      // Case 2: facade stub "<ns>.js" sits next to "<ns>/bindings.json".
+      const sibling = join(currentDir, namespaceKey, "bindings.json");
+      if (this.hasBindings(sibling)) return sibling;
+
+      if (currentDir === pkgRoot) return null;
+
+      const parent = dirname(currentDir);
+      if (parent === currentDir) return null;
+      currentDir = parent;
+    }
+  }
+
+  private findBindingsPathLegacy(pkgRoot: string, subpath: string): string | null {
+    // Strip .js extension from the full subpath and walk up segments until a directory
+    // containing bindings.json is found under pkgRoot.
+    const namespaceSubpath = subpath.endsWith(".js") ? subpath.slice(0, -3) : subpath;
+
+    let current = namespaceSubpath;
+    while (true) {
+      const bindingsPath = join(pkgRoot, current, "bindings.json");
+      if (this.hasBindings(bindingsPath)) return bindingsPath;
+
+      // Walk up one path segment.
+      const idx = Math.max(current.lastIndexOf("/"), current.lastIndexOf("\\"));
+      if (idx <= 0) return null;
+      current = current.slice(0, idx);
+    }
   }
 
   /**

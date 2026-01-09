@@ -44,6 +44,61 @@ Two common examples:
 
 These are regular CLR bindings: you install them and import them like any other package.
 
+## Authoring CLR Bindings Packages (tsbindgen)
+
+Tsonic detects CLR namespace imports by discovering `bindings.json` files (tsbindgen format).
+This works for any package — not just `@tsonic/*`.
+
+### Keep Generated Bindings Under `dist/` (Recommended)
+
+For your own bindings packages (including npm workspaces), keep generated files out of git by
+writing them under `dist/` and exporting them via npm `exports`.
+
+Directory layout (example):
+
+```txt
+packages/domain/
+  src/...
+  dist/tsonic/bindings/
+    System.Linq.js
+    System.Linq.d.ts
+    System.Linq/
+      bindings.json
+      internal/metadata.json
+```
+
+`packages/domain/.gitignore`:
+
+```txt
+dist/
+```
+
+`packages/domain/package.json` (exports map ergonomic imports to `dist/`):
+
+```json
+{
+  "name": "@acme/domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./*.js": {
+      "types": "./dist/tsonic/bindings/*.d.ts",
+      "default": "./dist/tsonic/bindings/*.js"
+    }
+  }
+}
+```
+
+Then consumers can import namespaces normally:
+
+```ts
+import { Enumerable } from "@acme/domain/System.Linq.js";
+```
+
+Tsonic resolves the import using npm’s module resolution (including `exports`) and then locates
+the nearest `bindings.json` for CLR metadata discovery.
+
 ## Common APIs
 
 ### Console
