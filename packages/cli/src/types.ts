@@ -75,6 +75,7 @@ export type CliOptions = {
   keepTemp?: boolean;
   noStrip?: boolean;
   lib?: string[]; // External library paths for .NET interop
+  deps?: string[]; // Additional directories to probe for referenced assemblies/DLLs
   // Project init options
   skipTypes?: boolean;
   typesVersion?: string;

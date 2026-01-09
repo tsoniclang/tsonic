@@ -11,15 +11,13 @@ export const parseArgs = (
   args: string[]
 ): {
   command: string;
-  entryFile?: string;
-  secondArg?: string; // For commands that take two positional args
+  positionals: string[]; // Positional args after command
   options: CliOptions;
   programArgs?: string[];
 } => {
   const options: CliOptions = {};
   let command = "";
-  let entryFile: string | undefined;
-  let secondArg: string | undefined;
+  const positionals: string[] = [];
   const programArgs: string[] = [];
   let captureProgramArgs = false;
 
@@ -48,22 +46,24 @@ export const parseArgs = (
         i++;
       }
       // Handle "add package" as two-word command
-      if (command === "add" && nextArg === "package") {
-        command = "add:package";
-        i++;
+      if (command === "add") {
+        if (nextArg === "package") {
+          command = "add:package";
+          i++;
+        } else if (nextArg === "nuget") {
+          command = "add:nuget";
+          i++;
+        } else if (nextArg === "framework") {
+          command = "add:framework";
+          i++;
+        }
       }
       continue;
     }
 
-    // First positional arg after command (entry file or dll path)
-    if (command && !entryFile && !arg.startsWith("-")) {
-      entryFile = arg;
-      continue;
-    }
-
-    // Second positional arg (for commands that take two args like add:package)
-    if (command && entryFile && !secondArg && !arg.startsWith("-")) {
-      secondArg = arg;
+    // Positional args after command
+    if (command && !arg.startsWith("-")) {
+      positionals.push(arg);
       continue;
     }
 
@@ -72,10 +72,10 @@ export const parseArgs = (
       case "-h":
       case "--help":
         options.verbose = true; // reuse for help flag
-        return { command: "help", options: {} };
+        return { command: "help", positionals: [], options: {}, programArgs };
       case "-v":
       case "--version":
-        return { command: "version", options: {} };
+        return { command: "version", positionals: [], options: {}, programArgs };
       case "-V":
       case "--verbose":
         options.verbose = true;
@@ -137,8 +137,17 @@ export const parseArgs = (
           }
         }
         break;
+      case "--deps":
+        {
+          const depDir = args[++i] ?? "";
+          if (depDir) {
+            options.deps = options.deps || [];
+            options.deps.push(depDir);
+          }
+        }
+        break;
     }
   }
 
-  return { command, entryFile, secondArg, options, programArgs };
+  return { command, positionals, options, programArgs };
 };

@@ -1,6 +1,6 @@
 {
   "name": "tsonic",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "TypeScript to C# to NativeAOT compiler",
   "type": "module",
   "bin": {
@@ -13,6 +13,7 @@
     "README.md"
   ],
   "dependencies": {
+    "@tsonic/tsbindgen": "0.7.20",
     "typescript": "5.9.2"
   },
   "engines": {

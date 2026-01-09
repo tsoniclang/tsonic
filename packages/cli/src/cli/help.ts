@@ -16,7 +16,9 @@ USAGE:
 
 COMMANDS:
   project init              Initialize a new Tsonic project
-  add package <dll> <types> Add a CLR package to the project
+  add package <dll> [types] Add a local DLL (and optional bindings) to the project
+  add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the project
+  add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the project
   generate [entry]          Generate C# code only
   build [entry]             Build native executable
   run [entry] [-- args...]  Build and run executable
@@ -42,12 +44,16 @@ PROJECT INIT OPTIONS:
   --pure                    Use PascalCase CLR naming
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
+  --deps <dir>              Additional directory to probe for referenced assemblies (repeatable)
 
 EXAMPLES:
   tsonic project init
   tsonic project init --nodejs
   tsonic project init --pure
   tsonic add package ./lib/MyLib.dll @company/mylib-types
+  tsonic add package ./path/MyLib.dll                  # auto-generate types (tsbindgen)
+  tsonic add nuget Microsoft.Extensions.Logging 10.0.0  # auto-generate types (tsbindgen)
+  tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
   tsonic generate src/App.ts
   tsonic build src/App.ts --rid linux-x64
   tsonic run src/App.ts -- --arg1 value1

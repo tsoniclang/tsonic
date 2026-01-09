@@ -37,8 +37,40 @@ describe("CLI Parser", () => {
           "@scope/types",
         ]);
         expect(result.command).to.equal("add:package");
-        expect(result.entryFile).to.equal("/path/to/lib.dll");
-        expect(result.secondArg).to.equal("@scope/types");
+        expect(result.positionals).to.deep.equal([
+          "/path/to/lib.dll",
+          "@scope/types",
+        ]);
+      });
+
+      it("should parse add:nuget as two-word command", () => {
+        const result = parseArgs([
+          "add",
+          "nuget",
+          "My.Package",
+          "1.2.3",
+          "@scope/my-package-types",
+        ]);
+        expect(result.command).to.equal("add:nuget");
+        expect(result.positionals).to.deep.equal([
+          "My.Package",
+          "1.2.3",
+          "@scope/my-package-types",
+        ]);
+      });
+
+      it("should parse add:framework as two-word command", () => {
+        const result = parseArgs([
+          "add",
+          "framework",
+          "Microsoft.AspNetCore.App",
+          "@tsonic/aspnetcore",
+        ]);
+        expect(result.command).to.equal("add:framework");
+        expect(result.positionals).to.deep.equal([
+          "Microsoft.AspNetCore.App",
+          "@tsonic/aspnetcore",
+        ]);
       });
 
       it("should parse help command from --help", () => {
@@ -66,18 +98,18 @@ describe("CLI Parser", () => {
       it("should parse entry file after command", () => {
         const result = parseArgs(["run", "index.ts"]);
         expect(result.command).to.equal("run");
-        expect(result.entryFile).to.equal("index.ts");
+        expect(result.positionals).to.deep.equal(["index.ts"]);
       });
 
       it("should parse entry file with path", () => {
         const result = parseArgs(["build", "src/main.ts"]);
         expect(result.command).to.equal("build");
-        expect(result.entryFile).to.equal("src/main.ts");
+        expect(result.positionals).to.deep.equal(["src/main.ts"]);
       });
 
       it("should handle no entry file", () => {
         const result = parseArgs(["build"]);
-        expect(result.entryFile).to.equal(undefined);
+        expect(result.positionals).to.deep.equal([]);
       });
     });
 
@@ -191,6 +223,21 @@ describe("CLI Parser", () => {
         const result = parseArgs(["project", "init", "--pure"]);
         expect(result.options.pure).to.equal(true);
       });
+
+      it("should parse --deps option (repeatable)", () => {
+        const result = parseArgs([
+          "add",
+          "package",
+          "./lib/MyLib.dll",
+          "--deps",
+          "./deps1",
+          "--deps",
+          "./deps2",
+        ]);
+        expect(result.command).to.equal("add:package");
+        expect(result.positionals).to.deep.equal(["./lib/MyLib.dll"]);
+        expect(result.options.deps).to.deep.equal(["./deps1", "./deps2"]);
+      });
     });
 
     describe("Program Arguments", () => {
@@ -229,7 +276,7 @@ describe("CLI Parser", () => {
           "--verbose",
         ]);
         expect(result.command).to.equal("build");
-        expect(result.entryFile).to.equal("src/main.ts");
+        expect(result.positionals).to.deep.equal(["src/main.ts"]);
         expect(result.options.namespace).to.equal("MyApp");
         expect(result.options.out).to.equal("dist");
         expect(result.options.verbose).to.equal(true);
@@ -245,7 +292,7 @@ describe("CLI Parser", () => {
           "programArg2",
         ]);
         expect(result.command).to.equal("run");
-        expect(result.entryFile).to.equal("index.ts");
+        expect(result.positionals).to.deep.equal(["index.ts"]);
         expect(result.options.verbose).to.equal(true);
         expect(result.programArgs).to.deep.equal([
           "programArg1",
@@ -256,7 +303,7 @@ describe("CLI Parser", () => {
       it("should handle empty args array", () => {
         const result = parseArgs([]);
         expect(result.command).to.equal("");
-        expect(result.entryFile).to.equal(undefined);
+        expect(result.positionals).to.deep.equal([]);
         expect(result.options).to.deep.equal({});
         expect(result.programArgs).to.deep.equal([]);
       });
