@@ -130,6 +130,16 @@ my-app/
 └── out/                 # Output executable (gitignored)
 ```
 
+## Npm Workspaces (Multi-Assembly Repos)
+
+Tsonic projects are plain npm packages, so you can use **npm workspaces** to build multi-assembly repos (e.g. `@acme/domain` + `@acme/api`).
+
+- Each workspace package has its own `tsonic.json` and produces its own output (`dist/` for libraries, `out/` for executables).
+- Build workspace dependencies first (via `npm run -w <pkg> ...`) before building dependents.
+- For library packages, you can generate **tsbindgen** CLR bindings under `dist/` and expose them via npm `exports`; Tsonic resolves imports using Node resolution (including `exports`) and locates the nearest `bindings.json`.
+
+See `docs/dotnet-interop.md` for the recommended `dist/` + `exports` layout.
+
 ## Documentation
 
 - **[User Guide](docs/README.md)** - Complete user documentation
