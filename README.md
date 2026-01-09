@@ -91,7 +91,9 @@ export function main(): void {
 | `tsonic generate <entry>` | Generate C# code only |
 | `tsonic build <entry>` | Build native executable |
 | `tsonic run <entry>`   | Build and run           |
-| `tsonic add package <dll> <types>` | Add a CLR package |
+| `tsonic add package <dll> [types]` | Add a local DLL + bindings |
+| `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings |
+| `tsonic add framework <ref> [types]` | Add a FrameworkReference + bindings |
 | `tsonic pack`          | Create a NuGet package  |
 
 ### Common Options

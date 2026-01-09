@@ -1,162 +1,269 @@
 /**
- * tsonic add package command - Add a CLR package (DLL + types) to the project
+ * tsonic add package - add a local DLL to the project, plus bindings.
  *
- * Usage: tsonic add package /path/to/library.dll @scope/types
+ * Usage:
+ *   tsonic add package ./path/to/MyLib.dll [typesPackage]
  *
- * This command:
- * 1. Copies the DLL to project's lib/ directory
- * 2. Installs the npm types package
- * 3. Updates tsonic.json to register the library
+ * Airplane-grade rules:
+ * - DLL dependencies are copied by transitive closure (no "copy everything" modes)
+ * - If typesPackage is omitted, bindings are auto-generated via tsbindgen
+ * - Any unresolved dependency is a hard failure with actionable diagnostics
  */
 
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
-  copyFileSync,
   readFileSync,
-  writeFileSync,
 } from "node:fs";
-import { join, basename } from "node:path";
-import { spawnSync } from "node:child_process";
-import type { Result } from "../types.js";
+import { basename, join } from "node:path";
+import { createHash } from "node:crypto";
+import type { Result, TsonicConfig } from "../types.js";
+import {
+  defaultBindingsPackageNameForDll,
+  detectTsbindgenNaming,
+  ensurePackageJson,
+  listDotnetRuntimes,
+  npmInstallDevDependency,
+  readTsonicJson,
+  resolveFromProjectRoot,
+  resolveTsbindgenDllPath,
+  tsbindgenGenerate,
+  tsbindgenResolveClosure,
+  type AddCommandOptions,
+  writeTsonicJson,
+} from "./add-common.js";
 
-/**
- * Options for add package command
- */
-export type AddPackageOptions = {
-  readonly verbose?: boolean;
-  readonly quiet?: boolean;
+export type AddPackageOptions = AddCommandOptions;
+
+const sha256File = (path: string): string => {
+  const data = readFileSync(path);
+  // crypto.update's types are stricter than Buffer's ArrayBufferLike surface.
+  // Convert to a standard Uint8Array backed by ArrayBuffer.
+  return createHash("sha256").update(new Uint8Array(data)).digest("hex");
 };
 
-/**
- * Add a CLR package to the project
- */
+const addUnique = (arr: string[], value: string): void => {
+  if (!arr.includes(value)) arr.push(value);
+};
+
+const isValidTypesPackageName = (name: string): boolean => {
+  if (!name.startsWith("@") && !name.includes("/")) return true;
+  return /^@[a-z0-9-]+\/[a-z0-9-]+$/i.test(name);
+};
+
+const pathIsWithin = (path: string, dir: string): boolean => {
+  const normalizedDir = dir.endsWith("/") ? dir : `${dir}/`;
+  const normalizedPath = path.replace(/\\/g, "/");
+  const normalizedBase = normalizedDir.replace(/\\/g, "/");
+  return normalizedPath.startsWith(normalizedBase);
+};
+
 export const addPackageCommand = (
   dllPath: string,
-  typesPackage: string,
+  typesPackage: string | undefined,
   projectRoot: string,
   options: AddPackageOptions = {}
-): Result<{ dllName: string; libPath: string }, string> => {
-  const { verbose, quiet } = options;
+): Result<{ dllsCopied: number; bindings: string }, string> => {
+  const dllAbs = resolveFromProjectRoot(projectRoot, dllPath);
 
-  // Validate DLL path
-  if (!existsSync(dllPath)) {
+  if (!existsSync(dllAbs)) {
+    return { ok: false, error: `DLL not found: ${dllAbs}` };
+  }
+  if (!dllAbs.toLowerCase().endsWith(".dll")) {
     return {
       ok: false,
-      error: `DLL not found: ${dllPath}`,
+      error: `Invalid DLL path: ${dllAbs} (must end with .dll)`,
     };
   }
 
-  if (!dllPath.endsWith(".dll")) {
-    return {
-      ok: false,
-      error: `Invalid DLL path: ${dllPath} (must end with .dll)`,
-    };
+  if (typesPackage !== undefined && !isValidTypesPackageName(typesPackage)) {
+    return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const dllName = basename(dllPath);
-  const assemblyName = dllName.replace(/\.dll$/, "");
+  const tsonicConfigResult = readTsonicJson(projectRoot);
+  if (!tsonicConfigResult.ok) return tsonicConfigResult;
+  const { path: configPath, config } = tsonicConfigResult.value;
 
-  // Validate types package format
-  if (!typesPackage.startsWith("@") && !typesPackage.includes("/")) {
-    // Simple package name is ok
-  } else if (!typesPackage.match(/^@[a-z0-9-]+\/[a-z0-9-]+$/i)) {
-    return {
-      ok: false,
-      error: `Invalid types package name: ${typesPackage}`,
-    };
+  const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
+  if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
+  const tsbindgenDll = tsbindgenDllResult.value;
+
+  const runtimesResult = listDotnetRuntimes(projectRoot);
+  if (!runtimesResult.ok) return runtimesResult;
+  const runtimeDirs = runtimesResult.value;
+
+  const userDeps = (options.deps ?? []).map((d) =>
+    resolveFromProjectRoot(projectRoot, d)
+  );
+
+  const refDirs = [
+    ...runtimeDirs.map((r) => r.dir),
+    join(projectRoot, "lib"),
+    ...userDeps,
+  ];
+
+  const closureResult = tsbindgenResolveClosure(
+    projectRoot,
+    tsbindgenDll,
+    [dllAbs],
+    refDirs
+  );
+  if (!closureResult.ok) return closureResult;
+
+  const closure = closureResult.value;
+  const hasErrors = closure.diagnostics.some((d) => d.severity === "Error");
+  if (hasErrors) {
+    const details = closure.diagnostics
+      .filter((d) => d.severity === "Error")
+      .map((d) => `${d.code}: ${d.message}`)
+      .join("\n");
+    return { ok: false, error: `Failed to resolve DLL dependency closure:\n${details}` };
   }
 
-  // Step 1: Create lib/ directory and copy DLL
+  const requiredFrameworkRefs = new Set<string>();
+  const dllsToCopy: string[] = [];
+
+  for (const asm of closure.resolvedAssemblies) {
+    const runtimeDir = runtimeDirs.find((rt) => pathIsWithin(asm.path, rt.dir));
+    if (runtimeDir) {
+      if (runtimeDir.name !== "Microsoft.NETCore.App") {
+        requiredFrameworkRefs.add(runtimeDir.name);
+      }
+      continue; // framework-provided
+    }
+    dllsToCopy.push(asm.path);
+  }
+
   const libDir = join(projectRoot, "lib");
-  const destDllPath = join(libDir, dllName);
-
-  if (!quiet) {
-    console.log(`Step 1/3: Copying DLL to lib/...`);
-  }
-
   mkdirSync(libDir, { recursive: true });
-  copyFileSync(dllPath, destDllPath);
 
-  if (verbose) {
-    console.log(`  Copied: ${dllPath} -> ${destDllPath}`);
+  let copiedCount = 0;
+  const copiedRelPaths: string[] = [];
+  for (const srcPath of dllsToCopy) {
+    const fileName = basename(srcPath);
+    const destPath = join(libDir, fileName);
+
+    if (existsSync(destPath)) {
+      const a = sha256File(srcPath);
+      const b = sha256File(destPath);
+      if (a !== b) {
+        return {
+          ok: false,
+          error:
+            `Conflict: lib/${fileName} already exists and differs from the resolved dependency closure.\n` +
+            `Resolve this conflict (remove/rename the existing DLL) and retry.`,
+        };
+      }
+    } else {
+      copyFileSync(srcPath, destPath);
+      copiedCount++;
+    }
+
+    copiedRelPaths.push(`lib/${fileName}`);
   }
 
-  // Step 2: Install npm types package
-  if (!quiet) {
-    console.log(`Step 2/3: Installing types package...`);
+  const dotnet = config.dotnet ?? {};
+  const libraries = [...(dotnet.libraries ?? [])];
+  for (const rel of copiedRelPaths) {
+    addUnique(libraries, rel);
   }
 
-  const npmArgs = ["install", "--save-dev", typesPackage];
-  if (quiet) {
-    npmArgs.push("--silent");
+  const frameworkRefs = [...(dotnet.frameworkReferences ?? [])];
+  for (const fr of requiredFrameworkRefs) {
+    addUnique(frameworkRefs, fr);
   }
 
-  const npmResult = spawnSync("npm", npmArgs, {
-    cwd: projectRoot,
-    stdio: verbose ? "inherit" : "pipe",
-    encoding: "utf-8",
-  });
+  const nextConfig: TsonicConfig = {
+    ...config,
+    dotnet: {
+      ...dotnet,
+      libraries,
+      frameworkReferences: frameworkRefs,
+    },
+  };
 
-  if (npmResult.status !== 0) {
-    const errorMsg = npmResult.stderr || npmResult.stdout || "Unknown error";
+  const writeResult = writeTsonicJson(configPath, nextConfig);
+  if (!writeResult.ok) return writeResult;
+
+  // Install or generate bindings.
+  if (typesPackage) {
+    const installResult = npmInstallDevDependency(projectRoot, typesPackage, options);
+    if (!installResult.ok) return installResult;
     return {
-      ok: false,
-      error: `npm install failed:\n${errorMsg}`,
+      ok: true,
+      value: { dllsCopied: copiedCount, bindings: typesPackage },
     };
   }
 
-  if (verbose) {
-    console.log(`  Installed: ${typesPackage}`);
-  }
+  const naming = detectTsbindgenNaming(nextConfig);
+  const generatedPackage = defaultBindingsPackageNameForDll(dllAbs);
+  const bindingsDir = join(projectRoot, "bindings", generatedPackage);
 
-  // Step 3: Update tsonic.json to register the library
-  if (!quiet) {
-    console.log(`Step 3/3: Updating tsonic.json...`);
-  }
+  const packageJsonResult = ensurePackageJson(bindingsDir, generatedPackage);
+  if (!packageJsonResult.ok) return packageJsonResult;
 
-  const configPath = join(projectRoot, "tsonic.json");
-  if (!existsSync(configPath)) {
+  const dotnetLib = join(projectRoot, "node_modules/@tsonic/dotnet");
+  const coreLib = join(projectRoot, "node_modules/@tsonic/core");
+  if (!existsSync(join(dotnetLib, "package.json"))) {
     return {
       ok: false,
-      error: `tsonic.json not found in ${projectRoot}`,
+      error:
+        "Missing @tsonic/dotnet in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
+    };
+  }
+  if (!existsSync(join(coreLib, "package.json"))) {
+    return {
+      ok: false,
+      error:
+        "Missing @tsonic/core in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
     };
   }
 
-  const configContent = readFileSync(configPath, "utf-8");
-  const config = JSON.parse(configContent) as Record<string, unknown>;
-
-  // Ensure dotnet section exists
-  const dotnet = (config.dotnet as Record<string, unknown>) ?? {};
-  config.dotnet = dotnet;
-
-  // Add to dotnet.libraries array
-  const libraries = (dotnet.libraries as string[]) ?? [];
-  const libPath = `lib/${dllName}`;
-
-  if (!libraries.includes(libPath)) {
-    libraries.push(libPath);
-    dotnet.libraries = libraries;
+  const rootDllName = basename(dllAbs);
+  const rootDllInLib = join(libDir, rootDllName);
+  if (!existsSync(rootDllInLib)) {
+    return {
+      ok: false,
+      error: `Internal error: expected ${rootDllInLib} to exist after copy.`,
+    };
   }
 
-  // Pretty print with 2-space indent
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-
-  if (verbose) {
-    console.log(`  Added library: ${libPath}`);
+  const generateArgs: string[] = [
+    "-a",
+    rootDllInLib,
+    "-o",
+    bindingsDir,
+    "--naming",
+    naming,
+    "--lib",
+    dotnetLib,
+    "--lib",
+    coreLib,
+  ];
+  for (const dir of runtimeDirs) {
+    generateArgs.push("--ref-dir", dir.dir);
   }
-
-  if (!quiet) {
-    console.log(`\n✓ Added package: ${assemblyName}`);
-    console.log(`  DLL: lib/${dllName}`);
-    console.log(`  Types: ${typesPackage}`);
+  for (const dep of userDeps) {
+    generateArgs.push("--ref-dir", dep);
   }
+  generateArgs.push("--ref-dir", libDir);
+
+  const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+  if (!genResult.ok) return genResult;
+
+  const ensurePkg = ensurePackageJson(bindingsDir, generatedPackage);
+  if (!ensurePkg.ok) return ensurePkg;
+
+  const installLocal = npmInstallDevDependency(
+    projectRoot,
+    `file:bindings/${generatedPackage}`,
+    options
+  );
+  if (!installLocal.ok) return installLocal;
 
   return {
     ok: true,
-    value: {
-      dllName,
-      libPath: destDllPath,
-    },
+    value: { dllsCopied: copiedCount, bindings: generatedPackage },
   };
 };

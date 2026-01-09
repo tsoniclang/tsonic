@@ -11,6 +11,8 @@ import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
 import { addPackageCommand } from "../commands/add-package.js";
+import { addNugetCommand } from "../commands/add-nuget.js";
+import { addFrameworkCommand } from "../commands/add-framework.js";
 import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
@@ -54,39 +56,6 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 0;
   }
 
-  // Handle add package (needs tsonic.json but not full config)
-  if (parsed.command === "add:package") {
-    if (!parsed.entryFile) {
-      console.error("Error: DLL path required");
-      console.error(
-        "Usage: tsonic add package /path/to/library.dll @scope/types"
-      );
-      return 1;
-    }
-    if (!parsed.secondArg) {
-      console.error("Error: Types package name required");
-      console.error(
-        "Usage: tsonic add package /path/to/library.dll @scope/types"
-      );
-      return 1;
-    }
-
-    const result = addPackageCommand(
-      parsed.entryFile,
-      parsed.secondArg,
-      process.cwd(),
-      {
-        verbose: parsed.options.verbose,
-        quiet: parsed.options.quiet,
-      }
-    );
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
   // Check for dotnet
   const dotnetResult = checkDotnetInstalled();
   if (!dotnetResult.ok) {
@@ -115,12 +84,77 @@ export const runCli = async (args: string[]): Promise<number> => {
   // Project root is the directory containing tsonic.json
   const projectRoot = dirname(configPath);
 
-  const config = resolveConfig(
-    configResult.value,
-    parsed.options,
-    projectRoot,
-    parsed.entryFile
-  );
+  // Add commands operate on tsonic.json itself (not ResolvedConfig).
+  if (parsed.command === "add:package") {
+    const dllPath = parsed.positionals[0];
+    const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
+    if (!dllPath) {
+      console.error("Error: DLL path required");
+      console.error("Usage: tsonic add package <path/to/library.dll> [types]");
+      return 1;
+    }
+
+    const result = addPackageCommand(dllPath, typesPackage, projectRoot, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+      deps: parsed.options.deps,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "add:nuget") {
+    const packageId = parsed.positionals[0];
+    const version = parsed.positionals[1];
+    const typesPackage = parsed.positionals[2]; // optional: omitted => auto-generate
+    if (!packageId || !version) {
+      console.error("Error: Package id and version required");
+      console.error(
+        "Usage: tsonic add nuget <PackageId> <Version> [types]"
+      );
+      return 1;
+    }
+
+    const result = addNugetCommand(packageId, version, typesPackage, projectRoot, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+      deps: parsed.options.deps,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "add:framework") {
+    const frameworkRef = parsed.positionals[0];
+    const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
+    if (!frameworkRef) {
+      console.error("Error: Framework reference required");
+      console.error(
+        "Usage: tsonic add framework <FrameworkReference> [types]"
+      );
+      return 1;
+    }
+
+    const result = addFrameworkCommand(frameworkRef, typesPackage, projectRoot, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+      deps: parsed.options.deps,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  const entryFile = parsed.positionals[0];
+  const config = resolveConfig(configResult.value, parsed.options, projectRoot, entryFile);
 
   // Dispatch to command handlers
   switch (parsed.command) {

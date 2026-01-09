@@ -200,10 +200,10 @@ tsonic run src/App.ts --verbose -- --debug
 
 ### add package
 
-Add a CLR package (DLL + types) to the project.
+Add a local DLL (and bindings) to the project.
 
 ```bash
-tsonic add package <dll-path> <types-package>
+tsonic add package <dll-path> [types-package]
 ```
 
 **Arguments:**
@@ -211,7 +211,7 @@ tsonic add package <dll-path> <types-package>
 | Argument          | Description                 | Required |
 | ----------------- | --------------------------- | -------- |
 | `<dll-path>`      | Path to the .NET DLL file   | Yes      |
-| `<types-package>` | npm package with type decls | Yes      |
+| `[types-package]` | npm package with type decls | No (auto-generated if omitted) |
 
 **Options:**
 
@@ -219,6 +219,7 @@ tsonic add package <dll-path> <types-package>
 | ----------- | ----- | --------------- | ------- |
 | `--verbose` | `-V`  | Verbose output  | `false` |
 | `--quiet`   | `-q`  | Suppress output | `false` |
+| `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
 
 **Examples:**
 
@@ -226,15 +227,65 @@ tsonic add package <dll-path> <types-package>
 # Add a custom library
 tsonic add package ./libs/MyLib.dll @myorg/mylib-types
 
-# Add with verbose output
-tsonic add package ./libs/MyLib.dll @myorg/mylib-types --verbose
+# Auto-generate bindings (tsbindgen) when types are omitted
+tsonic add package ./libs/MyLib.dll
+
+# If the DLL references other DLLs in a custom folder
+tsonic add package ./libs/MyLib.dll --deps ./libs/deps
 ```
 
 **What it does:**
 
-1. Copies the DLL to `lib/` directory
-2. Installs the npm types package
-3. Updates `tsonic.json` to register the library
+1. Resolves the DLL dependency closure and copies non-framework DLLs to `lib/` (no "copy-all" behavior)
+2. Updates `tsonic.json`:
+   - Adds copied DLLs to `dotnet.libraries`
+   - Adds any required shared frameworks to `dotnet.frameworkReferences`
+3. If `types-package` is provided: installs it via npm
+4. If `types-package` is omitted: runs tsbindgen and installs a local package under `bindings/<name>-types`
+
+### add nuget
+
+Add a NuGet package reference (and bindings) to the project.
+
+```bash
+tsonic add nuget <package-id> <version> [types-package]
+```
+
+**Arguments:**
+
+| Argument | Description | Required |
+| --- | --- | --- |
+| `<package-id>` | NuGet package id | Yes |
+| `<version>` | Exact NuGet version | Yes |
+| `[types-package]` | npm package with type decls | No (auto-generated if omitted) |
+
+**Examples:**
+
+```bash
+# Add and auto-generate bindings
+tsonic add nuget Microsoft.Extensions.Logging 10.0.0
+
+# Add but use published bindings instead
+tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
+```
+
+### add framework
+
+Add a FrameworkReference (and bindings) to the project.
+
+```bash
+tsonic add framework <framework-reference> [types-package]
+```
+
+**Examples:**
+
+```bash
+# Add shared framework and use published bindings
+tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
+
+# Auto-generate bindings from installed shared framework assemblies
+tsonic add framework Microsoft.AspNetCore.App
+```
 
 ### pack
 

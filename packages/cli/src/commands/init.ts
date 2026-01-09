@@ -33,6 +33,9 @@ out/
 
 # Dependencies
 node_modules/
+
+# Internal tooling artifacts (restore scratch, caches)
+.tsonic/
 `;
 
 const SAMPLE_MAIN_TS = `import { Console } from "@tsonic/dotnet/System.js";
