@@ -44,10 +44,10 @@ namespace TestCases.common.types.variabledecls
                 var localInferredInt = 42;
                 var localInferredString = "local";
                 var localInferredBool = true;
-                var localExplicitInt = 100;
+                int localExplicitInt = 100;
                 byte localExplicitByte = 200;
-                var localExplicitFloat = 3.14f;
-                var localExplicitString = "explicit";
+                float localExplicitFloat = 3.14f;
+                string localExplicitString = "explicit";
                 var localAssertedInt = 200;
                 var localAssertedFloat = 3.14f;
                 var localAssertedDouble = 100;

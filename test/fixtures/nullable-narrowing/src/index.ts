@@ -77,6 +77,26 @@ function handleCompoundEquals(method: string, id: int | undefined): int {
   }
 }
 
+// Test Case 9: Assignment inside a narrowed branch must write the original nullable variable
+// (and still read via `.Value` when needed).
+function bumpAssign(id: int | undefined): int {
+  if (id !== undefined) {
+    id = id + 1;
+    return id;
+  }
+  return -1;
+}
+
+// Test Case 10: Update operators inside a narrowed branch must not rewrite the target identifier
+// to `.Value` (writes), and reads after the update must still use `.Value`.
+function bumpUpdate(id: int | undefined): int {
+  if (id !== undefined) {
+    id++;
+    return id;
+  }
+  return -1;
+}
+
 export function main(): void {
   // Test Case 1: Basic narrowing
   const r1 = handleInt(42);
@@ -118,6 +138,14 @@ export function main(): void {
   // Test Case 8: Compound with === undefined
   const r8 = handleCompoundEquals("DELETE", undefined);
   Console.writeLine("Test 8: " + (r8 === -999 ? "PASS" : "FAIL"));
+
+  // Test Case 9: Assignment in narrowed branch
+  const r9 = bumpAssign(5);
+  Console.writeLine("Test 9: " + (r9 === 6 ? "PASS" : "FAIL"));
+
+  // Test Case 10: Update in narrowed branch
+  const r10 = bumpUpdate(5);
+  Console.writeLine("Test 10: " + (r10 === 6 ? "PASS" : "FAIL"));
 
   Console.writeLine("All tests complete!");
 }

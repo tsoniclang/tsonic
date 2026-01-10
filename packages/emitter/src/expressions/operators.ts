@@ -350,7 +350,24 @@ export const emitUpdate = (
   expr: Extract<IrExpression, { kind: "update" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  const [operandFrag, newContext] = emitExpression(expr.expression, context);
+  // Narrowing maps (instanceof / nullable / union) apply to *reads*, not writes.
+  // For update operators, the operand is written, so we must not rewrite the target
+  // identifier to a narrowed binding (e.g., C# pattern var).
+  const operandCtx: EmitterContext =
+    expr.expression.kind === "identifier" &&
+    context.narrowedBindings?.has(expr.expression.name)
+      ? (() => {
+          const next = new Map(context.narrowedBindings);
+          next.delete(expr.expression.name);
+          return { ...context, narrowedBindings: next };
+        })()
+      : context;
+
+  const [operandFrag, ctx] = emitExpression(expr.expression, operandCtx);
+  const newContext: EmitterContext =
+    operandCtx !== context
+      ? { ...ctx, narrowedBindings: context.narrowedBindings }
+      : ctx;
 
   const text = expr.prefix
     ? `${expr.operator}${operandFrag.text}`
@@ -448,9 +465,26 @@ export const emitAssignment = (
     }
   } else {
     const leftExpr = expr.left as IrExpression;
-    const [leftFrag, ctx] = emitExpression(leftExpr, context);
+    // Narrowing maps (instanceof / nullable / union) apply to *reads*, not writes.
+    // For assignment, the LHS is written, so we must not rewrite identifier targets
+    // to narrowed bindings (e.g., C# pattern vars).
+    const leftCtx: EmitterContext =
+      leftExpr.kind === "identifier" &&
+      context.narrowedBindings?.has(leftExpr.name)
+        ? (() => {
+            const next = new Map(context.narrowedBindings);
+            next.delete(leftExpr.name);
+            return { ...context, narrowedBindings: next };
+          })()
+        : context;
+
+    const [leftFrag, ctx] = emitExpression(leftExpr, leftCtx);
     leftText = leftFrag.text;
-    leftContext = ctx;
+    // Restore narrowing for RHS emission (reads) when we suppressed it for the LHS.
+    leftContext =
+      leftCtx !== context
+        ? { ...ctx, narrowedBindings: context.narrowedBindings }
+        : ctx;
     leftType = leftExpr.inferredType;
   }
 

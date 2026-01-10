@@ -19,7 +19,7 @@ namespace TestCases.common.types.expectedtypethreading
 
             public static int nullishInVar(int? value)
                 {
-                var result = value ?? 42;
+                int result = value ?? 42;
                 return result;
                 }
 

@@ -4,7 +4,7 @@ namespace TestCases.common.arrays.doublearray
         {
             public static double[] createDoubleArray()
                 {
-                var arr = new double[] { 1, 2, 3 };
+                double[] arr = new double[] { 1, 2, 3 };
                 return arr;
                 }
 

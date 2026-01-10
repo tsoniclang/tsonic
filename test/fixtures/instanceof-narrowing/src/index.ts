@@ -40,4 +40,21 @@ export function main(): void {
   } else {
     Console.writeLine(456);
   }
+
+  let m: TemplateValue = new BoolValue(false);
+  if (m instanceof BoolValue) {
+    Console.writeLine(m.value);
+    m = new StrValue("x");
+  }
+
+  let n: TemplateValue = new BoolValue(true);
+  if (!(n instanceof BoolValue)) {
+    Console.writeLine(0);
+  } else {
+    Console.writeLine(n.value);
+    n = new StrValue("y");
+  }
+
+  Console.writeLine(888);
+  Console.writeLine(999);
 }
