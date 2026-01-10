@@ -37,6 +37,23 @@ type GuardInfo = {
 };
 
 /**
+ * Information extracted from an `instanceof` condition.
+ * Used to generate C# pattern variables for narrowing:
+ *   if (x is Foo x__is_1) { ... }
+ */
+type InstanceofGuardInfo = {
+  readonly originalName: string;
+  readonly rhsTypeText: string;
+  readonly ctxWithId: EmitterContext;
+  readonly ctxAfterRhs: EmitterContext;
+  readonly narrowedName: string;
+  readonly escapedOrig: string;
+  readonly escapedNarrow: string;
+  readonly narrowedMap: Map<string, NarrowedBinding>;
+  readonly targetType?: IrType;
+};
+
+/**
  * Try to extract guard info from a predicate call expression.
  * Returns GuardInfo if:
  * - call.narrowing is typePredicate
@@ -97,6 +114,56 @@ const tryResolvePredicateGuard = (
     escapedOrig,
     escapedNarrow,
     narrowedMap,
+  };
+};
+
+/**
+ * Try to extract guard info from an `instanceof` binary expression.
+ * Returns guard info if:
+ * - condition is `binary` with operator `instanceof`
+ * - lhs is identifier
+ *
+ * Note: rhs is emitted as a type name (C# pattern).
+ */
+const tryResolveInstanceofGuard = (
+  condition: IrExpression,
+  context: EmitterContext
+): InstanceofGuardInfo | undefined => {
+  if (condition.kind !== "binary") return undefined;
+  if (condition.operator !== "instanceof") return undefined;
+  if (condition.left.kind !== "identifier") return undefined;
+
+  const originalName = condition.left.name;
+  const escapedOrig = escapeCSharpIdentifier(originalName);
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+
+  // Emit RHS as a type name (e.g., global::System.String)
+  const [rhsFrag, ctxAfterRhs] = emitExpression(condition.right, ctxWithId);
+  const rhsTypeText = rhsFrag.text;
+
+  // Pattern variable name for the narrowed value.
+  const narrowedName = `${originalName}__is_${nextId}`;
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
+
+  const narrowedMap = new Map(ctxAfterRhs.narrowedBindings ?? []);
+  narrowedMap.set(originalName, {
+    kind: "rename",
+    name: narrowedName,
+    type: condition.right.inferredType ?? undefined,
+  });
+
+  return {
+    originalName,
+    rhsTypeText,
+    ctxWithId,
+    ctxAfterRhs,
+    narrowedName,
+    escapedOrig,
+    escapedNarrow,
+    narrowedMap,
+    targetType: condition.right.inferredType ?? undefined,
   };
 };
 
@@ -416,6 +483,42 @@ export const emitIfStatement = (
     }
   }
 
+  // Case A2: if (x instanceof Foo) { ... }
+  // C# pattern var narrowing → if (x is Foo x__is_k) { ... } (then-branch sees narrowed x)
+  const instanceofGuard = tryResolveInstanceofGuard(stmt.condition, context);
+  if (instanceofGuard) {
+    const {
+      ctxAfterRhs,
+      escapedOrig,
+      escapedNarrow,
+      rhsTypeText,
+      narrowedMap,
+    } = instanceofGuard;
+
+    const condText = `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`;
+
+    const thenCtx: EmitterContext = {
+      ...indent(ctxAfterRhs),
+      narrowedBindings: narrowedMap,
+    };
+    const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
+
+    let code = `${ind}if (${condText})\n${thenCode}`;
+    let finalContext = dedent(thenCtxAfter);
+    finalContext = { ...finalContext, narrowedBindings: ctxAfterRhs.narrowedBindings };
+
+    if (stmt.elseStatement) {
+      const [elseCode, elseCtx] = emitStatement(
+        stmt.elseStatement,
+        indent(finalContext)
+      );
+      code += `\n${ind}else\n${elseCode}`;
+      finalContext = dedent(elseCtx);
+    }
+
+    return [code, finalContext];
+  }
+
   // Case B: if (!isUser(account)) { ... } else { ... }
   // Negated guard → for 2-member unions, narrow THEN to OTHER member, ELSE to guard's target
   if (
@@ -505,6 +608,44 @@ export const emitIfStatement = (
     }
   }
 
+  // Case B2: if (!(x instanceof Foo)) { ... } else { ... }
+  // Swap branches so ELSE runs under the narrowed pattern var.
+  if (
+    stmt.condition.kind === "unary" &&
+    stmt.condition.operator === "!" &&
+    stmt.elseStatement
+  ) {
+    const inner = stmt.condition.expression;
+    const guard = tryResolveInstanceofGuard(inner, context);
+    if (guard) {
+      const {
+        ctxAfterRhs,
+        escapedOrig,
+        escapedNarrow,
+        rhsTypeText,
+        narrowedMap,
+      } = guard;
+
+      const condText = `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`;
+
+      // THEN branch is the original ELSE (narrowed)
+      const thenCtx: EmitterContext = {
+        ...indent(ctxAfterRhs),
+        narrowedBindings: narrowedMap,
+      };
+      const [thenCode, thenCtxAfter] = emitStatement(stmt.elseStatement, thenCtx);
+
+      // ELSE branch is the original THEN (not narrowed)
+      const [elseCode, elseCtxAfter] = emitStatement(
+        stmt.thenStatement,
+        indent({ ...dedent(thenCtxAfter), narrowedBindings: ctxAfterRhs.narrowedBindings })
+      );
+
+      const code = `${ind}if (${condText})\n${thenCode}\n${ind}else\n${elseCode}`;
+      return [code, dedent(elseCtxAfter)];
+    }
+  }
+
   // Case C: if (isUser(account) && account.foo) { ... }
   // Logical AND with predicate guard on left → nested-if lowering (preserves short-circuit)
   if (stmt.condition.kind === "logical" && stmt.condition.operator === "&&") {
@@ -573,6 +714,56 @@ export const emitIfStatement = (
           );
           code += `\n${ind}else\n${outerElseCode}`;
           finalContext = dedent(outerElseCtx);
+        }
+
+        return [code, finalContext];
+      }
+    }
+
+    // Case C2: if (x instanceof Foo && x.foo) { ... }
+    // Preserve short-circuit and expose narrowed x in RHS and THEN.
+    if (left.kind === "binary" && left.operator === "instanceof") {
+      const guard = tryResolveInstanceofGuard(left, context);
+      if (guard) {
+        const {
+          ctxAfterRhs,
+          escapedOrig,
+          escapedNarrow,
+          rhsTypeText,
+          narrowedMap,
+        } = guard;
+
+        const rhsCtx: EmitterContext = {
+          ...ctxAfterRhs,
+          narrowedBindings: narrowedMap,
+        };
+
+        const [rhsFrag, rhsCtxAfterEmit] = emitExpression(right, rhsCtx);
+        const [rhsCondText, rhsCtxAfterCond] = toBooleanCondition(
+          right,
+          rhsFrag.text,
+          rhsCtxAfterEmit
+        );
+
+        const condText = `(${escapedOrig} is ${rhsTypeText} ${escapedNarrow} && ${rhsCondText})`;
+
+        const thenCtx: EmitterContext = {
+          ...indent(rhsCtxAfterCond),
+          narrowedBindings: narrowedMap,
+        };
+        const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
+
+        let code = `${ind}if (${condText})\n${thenCode}`;
+        let finalContext = dedent(thenCtxAfter);
+        finalContext = { ...finalContext, narrowedBindings: ctxAfterRhs.narrowedBindings };
+
+        if (stmt.elseStatement) {
+          const [elseCode, elseCtx] = emitStatement(
+            stmt.elseStatement,
+            indent(finalContext)
+          );
+          code += `\n${ind}else\n${elseCode}`;
+          finalContext = dedent(elseCtx);
         }
 
         return [code, finalContext];

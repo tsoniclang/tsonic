@@ -38,7 +38,6 @@ import {
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
 import {
-  deriveIdentifierType,
   getSourceSpan,
 } from "./converters/expressions/helpers.js";
 
@@ -169,14 +168,23 @@ export const convertExpression = (
     };
   }
   if (ts.isIdentifier(node)) {
-    // DETERMINISTIC: Derive type from declaration TypeNode
-    const identifierType =
-      deriveIdentifierType(node, ctx) ?? ctx.lambdaTypeEnv?.get(node.text);
+    const declId = ctx.binding.resolveIdentifier(node);
+
+    // DETERMINISTIC: Prefer lexical flow type (narrowing / lambda params), then decl type.
+    const fromEnv = declId ? ctx.typeEnv?.get(declId.id) : undefined;
+    const fromDecl =
+      declId && !fromEnv
+        ? (() => {
+            const t = ctx.typeSystem.typeOfDecl(declId);
+            return t.kind === "unknownType" ? undefined : t;
+          })()
+        : undefined;
+
+    const identifierType = fromEnv ?? fromDecl;
 
     // Check if this identifier is an aliased import (e.g., import { String as ClrString })
     // ALICE'S SPEC: Use TypeSystem.getFQNameOfDecl() to get the original name
     let originalName: string | undefined;
-    const declId = ctx.binding.resolveIdentifier(node);
     if (declId) {
       const fqName = ctx.typeSystem.getFQNameOfDecl(declId);
       // If the fqName differs from the identifier text, it's an aliased import

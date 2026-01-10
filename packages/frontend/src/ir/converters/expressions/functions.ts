@@ -131,13 +131,19 @@ export const convertFunctionExpression = (
   const parameters = convertLambdaParameters(node, ctx, expectedType);
 
   const bodyCtx: ProgramContext = (() => {
-    const env = new Map<string, IrType>(ctx.lambdaTypeEnv ?? []);
-    for (const p of parameters) {
-      if (p.pattern.kind === "identifierPattern" && p.type) {
-        env.set(p.pattern.name, p.type);
-      }
+    const env = new Map<number, IrType>(ctx.typeEnv ?? []);
+    for (let i = 0; i < parameters.length; i++) {
+      const p = parameters[i];
+      const paramDecl = node.parameters[i];
+      if (!p || !paramDecl) continue;
+      if (p.pattern.kind !== "identifierPattern" || !p.type) continue;
+      if (!ts.isIdentifier(paramDecl.name)) continue;
+
+      const declId = ctx.binding.resolveIdentifier(paramDecl.name);
+      if (!declId) continue;
+      env.set(declId.id, p.type);
     }
-    return { ...ctx, lambdaTypeEnv: env };
+    return { ...ctx, typeEnv: env };
   })();
 
   // DETERMINISTIC: Build function type from declared parameters and return type
@@ -201,13 +207,19 @@ export const convertArrowFunction = (
   const parameters = convertLambdaParameters(node, ctx, expectedType);
 
   const bodyCtx: ProgramContext = (() => {
-    const env = new Map<string, IrType>(ctx.lambdaTypeEnv ?? []);
-    for (const p of parameters) {
-      if (p.pattern.kind === "identifierPattern" && p.type) {
-        env.set(p.pattern.name, p.type);
-      }
+    const env = new Map<number, IrType>(ctx.typeEnv ?? []);
+    for (let i = 0; i < parameters.length; i++) {
+      const p = parameters[i];
+      const paramDecl = node.parameters[i];
+      if (!p || !paramDecl) continue;
+      if (p.pattern.kind !== "identifierPattern" || !p.type) continue;
+      if (!ts.isIdentifier(paramDecl.name)) continue;
+
+      const declId = ctx.binding.resolveIdentifier(paramDecl.name);
+      if (!declId) continue;
+      env.set(declId.id, p.type);
     }
-    return { ...ctx, lambdaTypeEnv: env };
+    return { ...ctx, typeEnv: env };
   })();
 
   // Pass return type to body for contextual typing:

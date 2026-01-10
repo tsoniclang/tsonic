@@ -19,6 +19,10 @@ import {
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import {
+  collectInstanceofNarrowingsInTruthyExpr,
+  withAppliedNarrowings,
+} from "../flow-narrowing.js";
+import {
   NumericKind,
   getBinaryResultKind,
   NUMERIC_KIND_TO_CSHARP,
@@ -226,7 +230,14 @@ export const convertBinaryExpression = (
     const rhsExpectedType =
       operator === "??" || operator === "||" ? expectedType : undefined;
     const leftExpr = convertExpression(node.left, ctx, undefined);
-    const rightExpr = convertExpression(node.right, ctx, rhsExpectedType);
+    const rhsCtx =
+      operator === "&&"
+        ? withAppliedNarrowings(
+            ctx,
+            collectInstanceofNarrowingsInTruthyExpr(node.left, ctx)
+          )
+        : ctx;
+    const rightExpr = convertExpression(node.right, rhsCtx, rhsExpectedType);
 
     return {
       kind: "logical",

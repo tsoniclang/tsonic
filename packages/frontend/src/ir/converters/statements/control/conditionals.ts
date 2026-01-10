@@ -18,6 +18,10 @@ import {
   convertStatement,
 } from "../../../statement-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
+import {
+  collectInstanceofNarrowingsInTruthyExpr,
+  withAppliedNarrowings,
+} from "../../flow-narrowing.js";
 
 /**
  * Convert if statement
@@ -30,13 +34,41 @@ export const convertIfStatement = (
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrIfStatement => {
+  const thenCtx = withAppliedNarrowings(
+    ctx,
+    collectInstanceofNarrowingsInTruthyExpr(node.expression, ctx)
+  );
+
+  const elseCtx = (() => {
+    if (!node.elseStatement) return ctx;
+
+    let unwrapped: ts.Expression = node.expression;
+    while (ts.isParenthesizedExpression(unwrapped)) {
+      unwrapped = unwrapped.expression;
+    }
+
+    // Else branch runs when the inner condition is truthy.
+    // This supports idiomatic `if (!(x instanceof T)) { ... } else { x.tMember }`.
+    if (
+      ts.isPrefixUnaryExpression(unwrapped) &&
+      unwrapped.operator === ts.SyntaxKind.ExclamationToken
+    ) {
+      return withAppliedNarrowings(
+        ctx,
+        collectInstanceofNarrowingsInTruthyExpr(unwrapped.operand, ctx)
+      );
+    }
+
+    return ctx;
+  })();
+
   const thenStmt = convertStatementSingle(
     node.thenStatement,
-    ctx,
+    thenCtx,
     expectedReturnType
   );
   const elseStmt = node.elseStatement
-    ? convertStatementSingle(node.elseStatement, ctx, expectedReturnType)
+    ? convertStatementSingle(node.elseStatement, elseCtx, expectedReturnType)
     : undefined;
 
   return {
