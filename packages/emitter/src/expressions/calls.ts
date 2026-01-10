@@ -503,13 +503,24 @@ export const emitCall = (
 const isListConstructorWithArrayLiteral = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): boolean => {
-  // Check if callee is identifier "List"
-  if (expr.callee.kind !== "identifier" || expr.callee.name !== "List") {
+  // Only apply to BCL List<T> so the rewrite is semantics-safe.
+  // (We rely on List<T> having a parameterless ctor + Add for collection initializer.)
+  const inferredType = expr.inferredType;
+  if (inferredType?.kind !== "referenceType") {
+    return false;
+  }
+  const typeId = inferredType.typeId;
+  if (!typeId || !typeId.clrName.startsWith("System.Collections.Generic.List")) {
     return false;
   }
 
   // Must have exactly one type argument
   if (!expr.typeArguments || expr.typeArguments.length !== 1) {
+    return false;
+  }
+
+  // Check if callee is identifier "List"
+  if (expr.callee.kind !== "identifier" || expr.callee.name !== "List") {
     return false;
   }
 
@@ -519,12 +530,18 @@ const isListConstructorWithArrayLiteral = (
   }
 
   const arg = expr.arguments[0];
-  if (!arg || arg.kind === "spread") {
+  if (!arg || arg.kind === "spread" || arg.kind !== "array") {
     return false;
   }
 
-  // The argument must be an array literal
-  return arg.kind === "array";
+  // Collection initializers don't support spreads/holes, so reject them here.
+  for (const element of arg.elements) {
+    if (!element || element.kind === "spread") {
+      return false;
+    }
+  }
+
+  return true;
 };
 
 /**
@@ -541,14 +558,30 @@ const emitListCollectionInitializer = (
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
 
-  // Get the element type (verified by isListConstructorWithArrayLiteral)
-  const typeArgs = expr.typeArguments;
-  const elementType = typeArgs?.[0];
-  if (!elementType) {
-    return [{ text: "new List<object>()" }, currentContext];
+  const [calleeFrag, calleeContext] = emitExpression(expr.callee, currentContext);
+  currentContext = calleeContext;
+
+  // Handle generic type arguments consistently with emitNew()
+  let typeArgsStr = "";
+  let finalClassName = calleeFrag.text;
+  if (expr.typeArguments && expr.typeArguments.length > 0) {
+    if (expr.requiresSpecialization) {
+      const [specializedName, specContext] = generateSpecializedName(
+        calleeFrag.text,
+        expr.typeArguments,
+        currentContext
+      );
+      finalClassName = specializedName;
+      currentContext = specContext;
+    } else {
+      const [typeArgs, typeContext] = emitTypeArguments(
+        expr.typeArguments,
+        currentContext
+      );
+      typeArgsStr = typeArgs;
+      currentContext = typeContext;
+    }
   }
-  const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
-  currentContext = typeContext;
 
   // Get the array literal argument
   const arrayLiteral = expr.arguments[0] as Extract<
@@ -563,14 +596,9 @@ const emitListCollectionInitializer = (
       continue; // Skip undefined slots (sparse arrays)
     }
     if (element.kind === "spread") {
-      // Spread in collection initializer - not supported, fall back to constructor
-      // This shouldn't happen in well-formed code, but handle gracefully
-      const [spreadFrag, ctx] = emitExpression(
-        element.expression,
-        currentContext
-      );
-      elements.push(`..${spreadFrag.text}`);
-      currentContext = ctx;
+      // Not supported (guarded by isListConstructorWithArrayLiteral)
+      const [fallbackFrag, fallbackContext] = emitNew(expr, currentContext);
+      return [fallbackFrag, fallbackContext];
     } else {
       const [elemFrag, ctx] = emitExpression(element, currentContext);
       elements.push(elemFrag.text);
@@ -581,8 +609,8 @@ const emitListCollectionInitializer = (
   // Use collection initializer syntax
   const text =
     elements.length === 0
-      ? `new List<${elementTypeStr}>()`
-      : `new List<${elementTypeStr}> { ${elements.join(", ")} }`;
+      ? `new ${finalClassName}${typeArgsStr}()`
+      : `new ${finalClassName}${typeArgsStr} { ${elements.join(", ")} }`;
 
   return [{ text }, currentContext];
 };

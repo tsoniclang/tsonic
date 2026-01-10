@@ -27,6 +27,8 @@ UNIT_PASSED=0
 UNIT_FAILED=0
 GOLDEN_PASSED=0
 GOLDEN_FAILED=0
+TSC_PASSED=0
+TSC_FAILED=0
 E2E_DOTNET_PASSED=0
 E2E_DOTNET_FAILED=0
 E2E_NEGATIVE_PASSED=0
@@ -68,6 +70,25 @@ while IFS= read -r line; do
         UNIT_FAILED=$((UNIT_FAILED + count))
     fi
 done < <(grep -E "passing|failing" "$LOG_FILE" || true)
+
+echo "" | tee -a "$LOG_FILE"
+
+# ============================================================
+# 1.25 TypeScript typecheck (fixtures must pass vanilla tsc)
+# ============================================================
+echo -e "${BLUE}--- Running TypeScript Typecheck (E2E fixtures) ---${NC}" | tee -a "$LOG_FILE"
+if bash "$ROOT_DIR/test/scripts/typecheck-fixtures.sh" 2>&1 | tee -a "$LOG_FILE"; then
+    TSC_STATUS="passed"
+else
+    TSC_STATUS="failed"
+fi
+
+# Extract tsc pass/fail counts from script output
+tsc_summary_line=$(grep -E "Typecheck summary:" "$LOG_FILE" | tail -1 || true)
+if [[ "$tsc_summary_line" =~ Typecheck\ summary:\ ([0-9]+)\ passed,\ ([0-9]+)\ failed ]]; then
+    TSC_PASSED="${BASH_REMATCH[1]}"
+    TSC_FAILED="${BASH_REMATCH[2]}"
+fi
 
 echo "" | tee -a "$LOG_FILE"
 
@@ -325,13 +346,22 @@ echo "           TEST SUMMARY REPORT          " | tee -a "$LOG_FILE"
 echo "========================================" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
-TOTAL_PASSED=$((UNIT_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
-TOTAL_FAILED=$((UNIT_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
+TOTAL_PASSED=$((UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASSED))
+TOTAL_FAILED=$((UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
 
 echo "Unit & Golden Tests:" | tee -a "$LOG_FILE"
 echo -e "  ${GREEN}Passed: $UNIT_PASSED${NC}" | tee -a "$LOG_FILE"
 if [ $UNIT_FAILED -gt 0 ]; then
     echo -e "  ${RED}Failed: $UNIT_FAILED${NC}" | tee -a "$LOG_FILE"
+else
+    echo "  Failed: 0" | tee -a "$LOG_FILE"
+fi
+echo "" | tee -a "$LOG_FILE"
+
+echo "TypeScript Typecheck:" | tee -a "$LOG_FILE"
+echo -e "  ${GREEN}Passed: $TSC_PASSED${NC}" | tee -a "$LOG_FILE"
+if [ $TSC_FAILED -gt 0 ]; then
+    echo -e "  ${RED}Failed: $TSC_FAILED${NC}" | tee -a "$LOG_FILE"
 else
     echo "  Failed: 0" | tee -a "$LOG_FILE"
 fi

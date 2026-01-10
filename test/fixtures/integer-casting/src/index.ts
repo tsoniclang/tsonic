@@ -20,9 +20,9 @@ export function main(): void {
   // ============================================================
   Console.writeLine("--- Section 1: Basic int declarations ---");
 
-  const x = 10;
-  const y = 20;
-  const z = 30;
+  const x: int = 10;
+  const y: int = 20;
+  const z: int = 30;
 
   Console.writeLine(`x = ${x}`); // 10
   Console.writeLine(`y = ${y}`); // 20
