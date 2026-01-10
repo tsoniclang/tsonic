@@ -69,12 +69,15 @@ export type ProgramContext = {
   readonly clrResolver: ClrBindingsResolver;
 
   /**
-   * Lexical type environment for lambda bodies.
+   * Lexical type environment for deterministic flow typing.
    *
-   * Used to type unannotated lambda parameters inside their body expressions
-   * deterministically, without consulting TypeScript inference.
+   * Used for:
+   * - Typing unannotated lambda parameters within their body (deterministic, TS-free)
+   * - Flow narrowing (e.g. `instanceof`) within control-flow branches
+   *
+   * Keyed by DeclId.id (not by identifier text) so shadowing is always correct.
    */
-  readonly lambdaTypeEnv?: ReadonlyMap<string, IrType>;
+  readonly typeEnv?: ReadonlyMap<number, IrType>;
 };
 
 /**
