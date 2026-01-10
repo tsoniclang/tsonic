@@ -94,9 +94,29 @@ export interface Binding {
   resolveCallSignature(node: ts.CallExpression): SignatureId | undefined;
 
   /**
+   * Return candidate overload signatures for a call expression, filtered by arity.
+   *
+   * This is used when TypeScript overload selection is ambiguous due to
+   * erased types in the TS layer (e.g., `char` is `string` in TypeScript).
+   *
+   * IMPORTANT: This returns *candidates*, not the final selection.
+   * The TypeSystem remains the authority for semantic selection.
+   */
+  resolveCallSignatureCandidates(
+    node: ts.CallExpression
+  ): readonly SignatureId[] | undefined;
+
+  /**
    * Resolve new expression constructor signature.
    */
   resolveConstructorSignature(node: ts.NewExpression): SignatureId | undefined;
+
+  /**
+   * Return candidate overload signatures for a constructor call, filtered by arity.
+   */
+  resolveConstructorSignatureCandidates(
+    node: ts.NewExpression
+  ): readonly SignatureId[] | undefined;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // IMPORT RESOLUTION
@@ -398,6 +418,52 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     return getOrCreateSignatureId(signature);
   };
 
+  const resolveCallSignatureCandidates = (
+    node: ts.CallExpression
+  ): readonly SignatureId[] | undefined => {
+    const expr = node.expression;
+    const symbol = (() => {
+      if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+      if (ts.isPropertyAccessExpression(expr)) {
+        return checker.getSymbolAtLocation(expr.name);
+      }
+      return undefined;
+    })();
+    if (!symbol) return undefined;
+
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+
+    const decls = resolvedSymbol.getDeclarations();
+    if (!decls || decls.length === 0) return undefined;
+
+    const argCount = node.arguments.length;
+    const candidates: SignatureId[] = [];
+
+    for (const decl of decls) {
+      if (!ts.isFunctionLike(decl)) continue;
+      // Exclude construct signatures / constructors for call expressions.
+      if (ts.isConstructSignatureDeclaration(decl) || ts.isConstructorDeclaration(decl)) {
+        continue;
+      }
+
+      // Arity filtering (optional/rest aware)
+      const params = extractParameterNodes(decl);
+      const required = params.filter((p) => !p.isOptional && !p.isRest).length;
+      const hasRest = params.some((p) => p.isRest);
+      if (argCount < required) continue;
+      if (!hasRest && argCount > params.length) continue;
+
+      const sig = checker.getSignatureFromDeclaration(decl);
+      if (!sig) continue;
+      candidates.push(getOrCreateSignatureId(sig));
+    }
+
+    return candidates.length > 0 ? candidates : undefined;
+  };
+
   const resolveConstructorSignature = (
     node: ts.NewExpression
   ): SignatureId | undefined => {
@@ -450,6 +516,51 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     }
 
     return sigId;
+  };
+
+  const resolveConstructorSignatureCandidates = (
+    node: ts.NewExpression
+  ): readonly SignatureId[] | undefined => {
+    const expr = node.expression;
+    const symbol = (() => {
+      if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+      if (ts.isPropertyAccessExpression(expr)) {
+        return checker.getSymbolAtLocation(expr.name);
+      }
+      return undefined;
+    })();
+    if (!symbol) return undefined;
+
+    const resolvedSymbol =
+      symbol.flags & ts.SymbolFlags.Alias
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+
+    const decls = resolvedSymbol.getDeclarations();
+    if (!decls || decls.length === 0) return undefined;
+
+    const argCount = node.arguments?.length ?? 0;
+    const candidates: SignatureId[] = [];
+
+    for (const decl of decls) {
+      if (!ts.isFunctionLike(decl)) continue;
+      // Only include construct signatures / constructors for new expressions.
+      if (!ts.isConstructSignatureDeclaration(decl) && !ts.isConstructorDeclaration(decl)) {
+        continue;
+      }
+
+      const params = extractParameterNodes(decl);
+      const required = params.filter((p) => !p.isOptional && !p.isRest).length;
+      const hasRest = params.some((p) => p.isRest);
+      if (argCount < required) continue;
+      if (!hasRest && argCount > params.length) continue;
+
+      const sig = checker.getSignatureFromDeclaration(decl);
+      if (!sig) continue;
+      candidates.push(getOrCreateSignatureId(sig));
+    }
+
+    return candidates.length > 0 ? candidates : undefined;
   };
 
   const resolveImport = (node: ts.ImportSpecifier): DeclId | undefined => {
@@ -600,7 +711,9 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolvePropertyAccess,
     resolveElementAccess,
     resolveCallSignature,
+    resolveCallSignatureCandidates,
     resolveConstructorSignature,
+    resolveConstructorSignatureCandidates,
     resolveImport,
     resolveShorthandAssignment,
     getDeclaringTypeNameOfMember,

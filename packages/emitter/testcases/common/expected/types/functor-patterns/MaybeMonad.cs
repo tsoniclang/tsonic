@@ -20,7 +20,7 @@ namespace TestCases.common.types.functorpatterns
         public static Maybe<T> nothing<T>()
             where T : class
             {
-            return new Maybe<T>(null);
+            return new Maybe<T>(default);
             }
     }
     public class Maybe<T> : Functor<T>

@@ -16,6 +16,10 @@ import {
   stripNullish,
   getAllPropertySignatures,
 } from "../core/type-resolution.js";
+import {
+  formatCastOperandText,
+  formatPostfixExpressionText,
+} from "./parentheses.js";
 
 // ============================================================================
 // CONTRACT: Emitter ONLY consumes proof markers.
@@ -137,12 +141,17 @@ export const emitMemberAccess = (
       // Instance access: emit object.ClrMemberName
       const [objectFrag, newContext] = emitExpression(expr.object, context);
       const accessor = expr.isOptional ? "?." : ".";
-      const text = `${objectFrag.text}${accessor}${member}`;
+      const receiverText = formatPostfixExpressionText(
+        expr.object,
+        objectFrag.text
+      );
+      const text = `${receiverText}${accessor}${member}`;
       return [{ text }, newContext];
     }
   }
 
   const [objectFrag, newContext] = emitExpression(expr.object, context);
+  const receiverText = formatPostfixExpressionText(expr.object, objectFrag.text);
 
   if (expr.isComputed) {
     // Check if this is array index access
@@ -170,7 +179,7 @@ export const emitMemberAccess = (
       }
 
       // Use native CLR indexer
-      const text = `${objectFrag.text}${expr.isOptional ? "?[" : "["}${propFrag.text}]`;
+      const text = `${receiverText}${expr.isOptional ? "?[" : "["}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 
@@ -188,7 +197,7 @@ export const emitMemberAccess = (
 
     if (isDictionaryType) {
       // Dictionary: use key as-is (double for number keys, string for string keys)
-      const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
+      const text = `${receiverText}${accessor}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 
@@ -210,11 +219,11 @@ export const emitMemberAccess = (
       objectType?.kind === "primitiveType" && objectType.name === "string";
 
     if (isStringIndexer) {
-      const text = `${objectFrag.text}${accessor}${propFrag.text}].ToString()`;
+      const text = `${receiverText}${accessor}${propFrag.text}].ToString()`;
       return [{ text }, finalContext];
     }
 
-    const text = `${objectFrag.text}${accessor}${propFrag.text}]`;
+    const text = `${receiverText}${accessor}${propFrag.text}]`;
     return [{ text }, finalContext];
   }
 
@@ -247,7 +256,7 @@ export const emitMemberAccess = (
           const lambdas = members.map(
             (_, i) => `__m${i + 1} => __m${i + 1}.${escapedProp}`
           );
-          const text = `${objectFrag.text}.Match(${lambdas.join(", ")})`;
+          const text = `${receiverText}.Match(${lambdas.join(", ")})`;
           return [{ text }, newContext];
         }
       }
@@ -256,7 +265,7 @@ export const emitMemberAccess = (
 
   // Array.length → .Length (C# arrays use .Length property)
   if (isArrayType && prop === "length") {
-    const text = `${objectFrag.text}.Length`;
+    const text = `${receiverText}.Length`;
     return [{ text }, newContext];
   }
 
@@ -266,7 +275,7 @@ export const emitMemberAccess = (
 
   // String.length → .Length (C# strings use .Length property)
   if (isStringType && prop === "length") {
-    const text = `${objectFrag.text}.Length`;
+    const text = `${receiverText}.Length`;
     return [{ text }, newContext];
   }
 
@@ -277,7 +286,7 @@ export const emitMemberAccess = (
       resolved.kind === "referenceType" &&
       (resolved.name === "Span" || resolved.resolvedClrType?.endsWith("System.Span"))
     ) {
-      const text = `${objectFrag.text}.Length`;
+      const text = `${receiverText}.Length`;
       return [{ text }, newContext];
     }
   }
@@ -292,13 +301,14 @@ export const emitMemberAccess = (
         interfaceType,
         newContext
       );
-      const text = `((${interfaceTypeStr})${objectFrag.text})`;
+      const operandText = formatCastOperandText(expr.object, objectFrag.text);
+      const text = `((${interfaceTypeStr})${operandText})`;
       return [{ text }, ctxAfterType];
     }
   }
 
   // Regular property access
   const accessor = expr.isOptional ? "?." : ".";
-  const text = `${objectFrag.text}${accessor}${escapeCSharpIdentifier(prop)}`;
+  const text = `${receiverText}${accessor}${escapeCSharpIdentifier(prop)}`;
   return [{ text }, newContext];
 };

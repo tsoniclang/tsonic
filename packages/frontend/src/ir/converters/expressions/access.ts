@@ -210,6 +210,8 @@ const extractTypeName = (
         return "Double"; // System.Double (TS number is double)
       case "boolean":
         return "Boolean"; // System.Boolean
+      case "char":
+        return "Char"; // System.Char
       default:
         return undefined;
     }

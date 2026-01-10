@@ -7,6 +7,7 @@ import { EmitterContext, CSharpFragment } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
 import { emitType } from "../type-emitter.js";
+import { formatPostfixExpressionText } from "./parentheses.js";
 
 /**
  * Ref/out/in parameter handling:
@@ -485,8 +486,13 @@ export const emitCall = (
     }
   }
 
+  const calleeText = formatPostfixExpressionText(
+    expr.callee,
+    `${finalCalleeName}${typeArgsStr}`
+  );
+
   const callOp = expr.isOptional ? "?." : "";
-  const callText = `${finalCalleeName}${typeArgsStr}${callOp}(${args.join(", ")})`;
+  const callText = `${calleeText}${callOp}(${args.join(", ")})`;
 
   // Add cast if needed (e.g., Math.floor returning double but asserted as int)
   const text = needsIntCast(expr, finalCalleeName)
@@ -722,13 +728,17 @@ export const emitNew = (
   }
 
   const args: string[] = [];
-  for (const arg of expr.arguments) {
+  const parameterTypes = expr.parameterTypes ?? [];
+  for (let i = 0; i < expr.arguments.length; i++) {
+    const arg = expr.arguments[i];
+    if (!arg) continue;
     if (arg.kind === "spread") {
       const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
       args.push(`params ${spreadFrag.text}`);
       currentContext = ctx;
     } else {
-      const [argFrag, ctx] = emitExpression(arg, currentContext);
+      const expectedType = parameterTypes[i];
+      const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
       args.push(argFrag.text);
       currentContext = ctx;
     }

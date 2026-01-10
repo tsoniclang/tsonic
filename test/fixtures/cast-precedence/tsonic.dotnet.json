@@ -1,0 +1,9 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "CastPrecedence",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "out",
+  "outputName": "cast-precedence"
+}
+

@@ -1427,35 +1427,71 @@ export const createTypeSystem = (
     return ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped);
   };
 
-  const getNumericKindFromIrType = (type: IrType): NumericKind | undefined => {
-    if (type.kind === "primitiveType" && type.name === "number") return "Double";
-    if (type.kind === "primitiveType") {
-      return TSONIC_TO_NUMERIC_KIND.get(type.name);
-    }
-    if (type.kind === "referenceType") {
-      return TSONIC_TO_NUMERIC_KIND.get(type.name);
-    }
-    return undefined;
-  };
+	  const getNumericKindFromIrType = (type: IrType): NumericKind | undefined => {
+	    if (type.kind === "primitiveType" && type.name === "number") return "Double";
+	    if (type.kind === "primitiveType") {
+	      return TSONIC_TO_NUMERIC_KIND.get(type.name);
+	    }
+	    if (type.kind === "referenceType") {
+	      return TSONIC_TO_NUMERIC_KIND.get(type.name);
+	    }
+	    return undefined;
+	  };
 
-  /**
-   * Deterministically infer an expression's type using only:
-   * - local lambda parameter environment
-   * - declaration types (typeOfDecl)
+	  const stripNullishForInference = (type: IrType): IrType | undefined => {
+	    if (isNullishPrimitive(type)) return undefined;
+	    if (type.kind !== "unionType") return type;
+	    const filtered = type.types.filter((t) => !isNullishPrimitive(t));
+	    if (filtered.length === 0) return undefined;
+	    if (filtered.length === 1 && filtered[0]) return filtered[0];
+	    return { kind: "unionType", types: filtered };
+	  };
+
+	  const unwrapAwaitedForInference = (type: IrType): IrType => {
+	    if (
+	      type.kind === "referenceType" &&
+	      (type.name === "Promise" || type.name === "PromiseLike")
+	    ) {
+	      const inner = type.typeArguments?.[0];
+	      if (inner) return unwrapAwaitedForInference(inner);
+	    }
+	    return type;
+	  };
+
+	  /**
+	   * Deterministically infer an expression's type using only:
+	   * - local lambda parameter environment
+	   * - declaration types (typeOfDecl)
    * - numeric literal lexeme rules
    *
    * This is intentionally small: it's used only to type lambda bodies for
    * initializer-driven generic inference (e.g., `Enumerable.select(..., x => x * 2)`).
    */
-  const inferExpressionType = (
-    expr: ts.Expression,
-    env: ReadonlyMap<string, IrType>
-  ): IrType | undefined => {
-    const unwrapped = unwrapParens(expr);
+	  const inferExpressionType = (
+	    expr: ts.Expression,
+	    env: ReadonlyMap<string, IrType>
+	  ): IrType | undefined => {
+	    const unwrapped = unwrapParens(expr);
 
-    if (ts.isCallExpression(unwrapped)) {
-      return tryInferReturnTypeFromCallExpression(unwrapped, env);
-    }
+	    if (ts.isAsExpression(unwrapped) || ts.isTypeAssertionExpression(unwrapped)) {
+	      return convertTypeNode(unwrapped.type);
+	    }
+
+	    if (ts.isNonNullExpression(unwrapped)) {
+	      const inner = inferExpressionType(unwrapped.expression, env);
+	      if (!inner || inner.kind === "unknownType") return undefined;
+	      return stripNullishForInference(inner);
+	    }
+
+	    if (ts.isAwaitExpression(unwrapped)) {
+	      const inner = inferExpressionType(unwrapped.expression, env);
+	      if (!inner || inner.kind === "unknownType") return undefined;
+	      return unwrapAwaitedForInference(inner);
+	    }
+
+	    if (ts.isCallExpression(unwrapped)) {
+	      return tryInferReturnTypeFromCallExpression(unwrapped, env);
+	    }
 
     if (ts.isNewExpression(unwrapped)) {
       const sigId = resolveConstructorSignature(unwrapped);
@@ -1539,14 +1575,21 @@ export const createTypeSystem = (
       return deriveTypeFromNumericKind(numericKind);
     }
 
-    if (ts.isStringLiteral(unwrapped)) {
-      return { kind: "primitiveType", name: "string" };
-    }
+	    if (ts.isStringLiteral(unwrapped)) {
+	      return { kind: "primitiveType", name: "string" };
+	    }
 
-    if (
-      unwrapped.kind === ts.SyntaxKind.TrueKeyword ||
-      unwrapped.kind === ts.SyntaxKind.FalseKeyword
-    ) {
+	    if (
+	      ts.isNoSubstitutionTemplateLiteral(unwrapped) ||
+	      ts.isTemplateExpression(unwrapped)
+	    ) {
+	      return { kind: "primitiveType", name: "string" };
+	    }
+
+	    if (
+	      unwrapped.kind === ts.SyntaxKind.TrueKeyword ||
+	      unwrapped.kind === ts.SyntaxKind.FalseKeyword
+	    ) {
       return { kind: "primitiveType", name: "boolean" };
     }
 
@@ -1770,27 +1813,24 @@ export const createTypeSystem = (
    * - new expressions with explicit type arguments (or best-effort nominal type)
    * - identifier initializers (propagate deterministically)
    */
-  const tryInferReturnTypeFromCallExpression = (
-    call: ts.CallExpression,
-    env: ReadonlyMap<string, IrType>
-  ): IrType | undefined => {
-    const sigId = resolveCallSignature(call);
-    if (!sigId) return undefined;
+	  const tryInferReturnTypeFromCallExpression = (
+	    call: ts.CallExpression,
+	    env: ReadonlyMap<string, IrType>
+	  ): IrType | undefined => {
+	    const sigId = resolveCallSignature(call);
+	    if (!sigId) return undefined;
 
     const explicitTypeArgs =
       call.typeArguments && call.typeArguments.length > 0
         ? call.typeArguments.map((ta) => convertTypeNode(ta))
         : undefined;
 
-    const receiverType = (() => {
-      if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
-      const receiverExpr = call.expression.expression;
-      if (!ts.isIdentifier(receiverExpr)) return undefined;
-      const receiverDeclId = resolveIdentifier(receiverExpr);
-      if (!receiverDeclId) return undefined;
-      const receiver = typeOfDecl(receiverDeclId);
-      return receiver.kind === "unknownType" ? undefined : receiver;
-    })();
+	    const receiverType = (() => {
+	      if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
+	      const receiverExpr = call.expression.expression;
+	      const receiver = inferExpressionType(receiverExpr, env);
+	      return receiver && receiver.kind !== "unknownType" ? receiver : undefined;
+	    })();
 
     const argumentCount = call.arguments.length;
 
@@ -1921,28 +1961,44 @@ export const createTypeSystem = (
       : finalResolved.returnType;
   };
 
-  const tryInferTypeFromInitializer = (declNode: unknown): IrType | undefined => {
-    const literalType = tryInferTypeFromLiteralInitializer(declNode);
-    if (literalType) return literalType;
+	  const tryInferTypeFromInitializer = (declNode: unknown): IrType | undefined => {
+	    const literalType = tryInferTypeFromLiteralInitializer(declNode);
+	    if (literalType) return literalType;
 
     if (!declNode || typeof declNode !== "object") return undefined;
 
     const node = declNode as ts.Node;
 	    if (!ts.isVariableDeclaration(node)) return undefined;
-	    const init = node.initializer;
-	    if (!init) return undefined;
+		    let init = node.initializer;
+		    if (!init) return undefined;
 
-    // Explicit type assertions are deterministic sources for variable typing.
-    // This supports patterns like:
-    //   const xs = numbers as unknown as LinqSeq<int>;
-    // where the user intentionally supplies the type at the assertion site.
-    if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
-      return convertTypeNode(init.type);
-    }
-
-		    if (ts.isCallExpression(init)) {
-		      return tryInferReturnTypeFromCallExpression(init, new Map());
+		    while (ts.isParenthesizedExpression(init)) {
+		      init = init.expression;
 		    }
+
+	    // Explicit type assertions are deterministic sources for variable typing.
+	    // This supports patterns like:
+	    //   const xs = numbers as unknown as LinqSeq<int>;
+	    // where the user intentionally supplies the type at the assertion site.
+	    if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
+	      return convertTypeNode(init.type);
+	    }
+
+	    if (ts.isNonNullExpression(init)) {
+	      const inner = inferExpressionType(init.expression, new Map());
+	      if (!inner || inner.kind === "unknownType") return undefined;
+	      return stripNullishForInference(inner);
+	    }
+
+	    if (ts.isAwaitExpression(init)) {
+	      const inner = inferExpressionType(init.expression, new Map());
+	      if (!inner || inner.kind === "unknownType") return undefined;
+	      return unwrapAwaitedForInference(inner);
+	    }
+
+			    if (ts.isCallExpression(init)) {
+			      return tryInferReturnTypeFromCallExpression(init, new Map());
+			    }
 
     if (ts.isArrayLiteralExpression(init)) {
       // Deterministic array literal typing for variable declarations:
@@ -2055,27 +2111,22 @@ export const createTypeSystem = (
       return sourceType.kind === "unknownType" ? undefined : sourceType;
     }
 
-    // Property access: const output = response.outputStream
-    // DETERMINISTIC: Infer via TypeSystem member lookup on a typed receiver identifier.
-    if (ts.isPropertyAccessExpression(init)) {
-      const receiver = init.expression;
-      if (ts.isIdentifier(receiver)) {
-        const receiverDeclId = resolveIdentifier(receiver);
-        if (!receiverDeclId) return undefined;
-        const receiverType = typeOfDecl(receiverDeclId);
-        if (receiverType.kind === "unknownType") return undefined;
+	    // Property access: const output = response.outputStream
+	    // DETERMINISTIC: Infer via TypeSystem member lookup on a deterministically typed receiver.
+	    if (ts.isPropertyAccessExpression(init)) {
+	      const receiverType = inferExpressionType(init.expression, new Map());
+	      if (!receiverType || receiverType.kind === "unknownType") return undefined;
 
-        const memberType = typeOfMember(receiverType, {
-          kind: "byName",
-          name: init.name.text,
-        });
+	      const memberType = typeOfMember(receiverType, {
+	        kind: "byName",
+	        name: init.name.text,
+	      });
 
-        return memberType.kind === "unknownType" ? undefined : memberType;
-      }
-    }
+	      return memberType.kind === "unknownType" ? undefined : memberType;
+	    }
 
-    return undefined;
-  };
+	    return undefined;
+	  };
 
   const typeOfDecl = (declId: DeclId): IrType => {
     // Check cache first
@@ -2985,13 +3036,63 @@ export const createTypeSystem = (
       }
     }
 
-    return {
+    const resolved: ResolvedCall = {
       parameterTypes: workingParams,
       parameterModes: rawSig.parameterModes,
       returnType: workingReturn,
       typePredicate: workingPredicate,
       diagnostics: [],
     };
+
+    // CLR overload correction (airplane-grade determinism):
+    //
+    // TypeScript cannot always select the correct overload for CLR APIs because some
+    // Tsonic surface types intentionally erase to TS primitives (e.g., `char` is `string`
+    // in @tsonic/core for TSC compatibility). This can cause TS to resolve calls like
+    // Console.writeLine("Hello") to a `char` overload, which is semantically invalid.
+    //
+    // When we have full argument types, and the call targets an assembly-origin type,
+    // prefer the best matching overload from the UnifiedTypeCatalog if it scores higher
+    // than the TS-selected signature.
+    if (
+      !resolved.typePredicate &&
+      argTypes &&
+      rawSig.declaringTypeTsName &&
+      rawSig.declaringMemberName
+    ) {
+      const hasAllArgTypes =
+        argTypes.length >= argumentCount &&
+        Array.from({ length: argumentCount }, (_, i) => argTypes[i]).every(
+          (t) => t !== undefined
+        );
+
+      if (hasAllArgTypes) {
+        const catalogResolved = tryResolveCallFromUnifiedCatalog(
+          rawSig.declaringTypeTsName,
+          rawSig.declaringMemberName,
+          query
+        );
+
+        if (catalogResolved) {
+          const currentScore = scoreSignatureMatch(
+            resolved.parameterTypes,
+            argTypes,
+            argumentCount
+          );
+          const catalogScore = scoreSignatureMatch(
+            catalogResolved.parameterTypes,
+            argTypes,
+            argumentCount
+          );
+
+          if (catalogScore > currentScore) {
+            return catalogResolved;
+          }
+        }
+      }
+    }
+
+    return resolved;
   };
 
   // ─────────────────────────────────────────────────────────────────────────

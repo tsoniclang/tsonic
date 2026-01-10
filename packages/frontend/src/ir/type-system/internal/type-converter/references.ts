@@ -296,7 +296,7 @@ const extractStructuralMembersFromDeclarations = (
                 members.push({
                   kind: "propertySignature",
                   name: propName,
-                  type: getClrPrimitiveType(typeName as "int"),
+                  type: getClrPrimitiveType(typeName as "int" | "char"),
                   isOptional,
                   isReadonly,
                 });

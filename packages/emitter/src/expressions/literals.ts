@@ -41,6 +41,37 @@ const getNumericSuffix = (typeName: string): string => {
   }
 };
 
+const isCharExpectedType = (
+  expectedType: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!expectedType) return false;
+  const effective = resolveTypeAlias(stripNullish(expectedType), context);
+  return (
+    (effective.kind === "primitiveType" && effective.name === "char") ||
+    (effective.kind === "referenceType" && effective.name === "char")
+  );
+};
+
+const escapeCSharpChar = (char: string): string => {
+  switch (char) {
+    case "'":
+      return "\\'";
+    case "\\":
+      return "\\\\";
+    case "\n":
+      return "\\n";
+    case "\r":
+      return "\\r";
+    case "\t":
+      return "\\t";
+    case "\0":
+      return "\\0";
+    default:
+      return char;
+  }
+};
+
 /**
  * Emit a literal value (string, number, boolean, null, undefined)
  *
@@ -78,6 +109,16 @@ export const emitLiteral = (
   }
 
   if (typeof value === "string") {
+    if (isCharExpectedType(expectedType, context)) {
+      if (value.length !== 1) {
+        throw new Error(
+          `ICE: char literal must be length-1, got '${value}' (len=${value.length}). ` +
+            `Frontend validation should have rejected this.`
+        );
+      }
+      return [{ text: `'${escapeCSharpChar(value)}'` }, context];
+    }
+
     // Escape the string for C#
     const escaped = value
       .replace(/\\/g, "\\\\")
