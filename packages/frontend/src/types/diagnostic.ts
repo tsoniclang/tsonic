@@ -55,6 +55,7 @@ export type DiagnosticCode =
   | "TSN7415" // Nullable union with unconstrained generic type parameter
   | "TSN7416" // new Array() requires explicit type argument
   | "TSN7417" // Empty array literal requires type annotation
+  | "TSN7418" // Invalid char value
   | "TSN7420" // ref/out/In are parameter modifiers, not types
   | "TSN7421" // Anonymous object type not lowered (ICE)
   // Destructuring validation (TSN7422-TSN7429)

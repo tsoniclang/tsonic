@@ -34,6 +34,11 @@ E2E_DOTNET_FAILED=0
 E2E_NEGATIVE_PASSED=0
 E2E_NEGATIVE_FAILED=0
 
+# Step status (some failures don't produce mocha "failing" lines)
+UNIT_STATUS="unknown"
+TSC_STATUS="unknown"
+RUNTIME_SYNC_STATUS="unknown"
+
 QUICK_MODE=false
 if [ "${1:-}" = "--quick" ]; then
     QUICK_MODE=true
@@ -71,6 +76,11 @@ while IFS= read -r line; do
     fi
 done < <(grep -E "passing|failing" "$LOG_FILE" || true)
 
+# Ensure failures are surfaced even when a workspace fails to build before running mocha.
+if [ "$UNIT_STATUS" = "failed" ] && [ "$UNIT_FAILED" -eq 0 ]; then
+    UNIT_FAILED=1
+fi
+
 echo "" | tee -a "$LOG_FILE"
 
 # ============================================================
@@ -90,6 +100,11 @@ if [[ "$tsc_summary_line" =~ Typecheck\ summary:\ ([0-9]+)\ passed,\ ([0-9]+)\ f
     TSC_FAILED="${BASH_REMATCH[2]}"
 fi
 
+# Ensure failures are surfaced even when the typecheck script fails before printing a summary.
+if [ "$TSC_STATUS" = "failed" ] && [ "$TSC_FAILED" -eq 0 ]; then
+    TSC_FAILED=1
+fi
+
 echo "" | tee -a "$LOG_FILE"
 
 if [ "$QUICK_MODE" = true ]; then
@@ -99,7 +114,14 @@ else
     # 1.5 Runtime DLL sync (required for generator runtime)
     # ============================================================
     echo -e "${BLUE}--- Syncing Runtime DLLs ---${NC}" | tee -a "$LOG_FILE"
-    "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"
+    if "$ROOT_DIR/scripts/sync-runtime-dlls.sh" 2>&1 | tee -a "$LOG_FILE"; then
+        RUNTIME_SYNC_STATUS="passed"
+    else
+        RUNTIME_SYNC_STATUS="failed"
+        # Count as an E2E failure so the overall run fails.
+        E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+        echo -e "${RED}FAIL: runtime DLL sync failed${NC}" | tee -a "$LOG_FILE"
+    fi
     echo "" | tee -a "$LOG_FILE"
 
     # ============================================================

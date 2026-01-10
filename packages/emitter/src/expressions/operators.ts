@@ -80,8 +80,9 @@ const getPrecedence = (operator: string): number => {
  */
 const isCharTyped = (expr: IrExpression): boolean => {
   return (
-    expr.inferredType?.kind === "primitiveType" &&
-    expr.inferredType.name === "char"
+    (expr.inferredType?.kind === "primitiveType" &&
+      expr.inferredType.name === "char") ||
+    (expr.inferredType?.kind === "referenceType" && expr.inferredType.name === "char")
   );
 };
 

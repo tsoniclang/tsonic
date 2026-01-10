@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "Invalid char values must be rejected: char requires a single-character string literal or a value typed as char (TSN7418).",
+  "expectedErrors": ["TSN7418"],
+  "diagnosticCodes": ["TSN7418"]
+}
+

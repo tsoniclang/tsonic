@@ -16,6 +16,7 @@ import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
 import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-finalization-pass.js";
 import { runNumericCoercionPass } from "../ir/validation/numeric-coercion-pass.js";
+import { runCharValidationPass } from "../ir/validation/char-validation-pass.js";
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
@@ -333,9 +334,16 @@ export const buildModuleDependencyGraph = (
     return error(coercionResult.diagnostics);
   }
 
+  // Run char validation pass - validates char literals and char-typed positions.
+  // This prevents emitter ICEs for invalid char literals (length != 1).
+  const charResult = runCharValidationPass(coercionResult.modules);
+  if (!charResult.ok) {
+    return error(charResult.diagnostics);
+  }
+
   // Run yield lowering pass - transforms yield expressions in generators
   // into IrYieldStatement nodes for the emitter
-  const yieldResult = runYieldLoweringPass(coercionResult.modules);
+  const yieldResult = runYieldLoweringPass(charResult.modules);
   if (!yieldResult.ok) {
     return error(yieldResult.diagnostics);
   }

@@ -38,6 +38,7 @@ import {
   emitSpread,
   emitAwait,
 } from "./expressions/other.js";
+import { formatCastOperandText } from "./expressions/parentheses.js";
 
 const getBareTypeParameterName = (
   type: IrType,
@@ -248,7 +249,8 @@ const emitNumericNarrowing = (
     // ambiguous without an explicit cast (e.g., choosing between `int` and `long`).
     const [innerCode, ctx1] = emitExpression(expr.expression, context);
     const [typeName, ctx2] = emitType(expr.inferredType, ctx1);
-    return [{ text: `(${typeName})${innerCode.text}` }, ctx2];
+    const operandText = formatCastOperandText(expr.expression, innerCode.text);
+    return [{ text: `(${typeName})${operandText}` }, ctx2];
   }
 
   // HARD GATE: No proof means the proof pass failed to catch an unprovable narrowing.
@@ -272,7 +274,7 @@ const emitTypeAssertion = (
   expr: IrTypeAssertionExpression,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  const [innerCode, ctx1] = emitExpression(expr.expression, context);
+  const [innerCode, ctx1] = emitExpression(expr.expression, context, expr.targetType);
 
   const resolveRuntimeCastTarget = (
     target: IrType,
@@ -328,7 +330,8 @@ const emitTypeAssertion = (
 
   const runtimeTarget = resolveRuntimeCastTarget(expr.targetType, ctx1);
   const [typeName, ctx2] = emitType(runtimeTarget, ctx1);
-  return [{ text: `(${typeName})${innerCode.text}` }, ctx2];
+  const operandText = formatCastOperandText(expr.expression, innerCode.text);
+  return [{ text: `(${typeName})${operandText}` }, ctx2];
 };
 
 /**
@@ -343,7 +346,8 @@ const emitTryCast = (
 ): [CSharpFragment, EmitterContext] => {
   const [innerCode, ctx1] = emitExpression(expr.expression, context);
   const [typeName, ctx2] = emitType(expr.targetType, ctx1);
-  return [{ text: `${innerCode.text} as ${typeName}` }, ctx2];
+  const operandText = formatCastOperandText(expr.expression, innerCode.text);
+  return [{ text: `${operandText} as ${typeName}` }, ctx2];
 };
 
 /**

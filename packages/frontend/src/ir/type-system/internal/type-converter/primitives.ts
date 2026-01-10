@@ -14,10 +14,10 @@ import { IrType, IrPrimitiveType } from "../../../types.js";
  * CLR numeric type names from @tsonic/core.
  * When user writes `: int`, it becomes primitiveType(name="int"), NOT referenceType.
  *
- * Note: Only "int" is currently supported as a distinct primitive.
+ * Note: `int` and `char` are supported as distinct primitives.
  * Other CLR numerics remain as referenceType for now and are handled by the emitter.
  */
-export const CLR_PRIMITIVE_TYPE_SET = new Set(["int"]);
+export const CLR_PRIMITIVE_TYPE_SET = new Set(["int", "char"]);
 
 /**
  * Convert TypeScript primitive keyword to IR type
@@ -67,7 +67,9 @@ export const isPrimitiveTypeName = (
  * Check if a type name is a CLR primitive type (int)
  * These come from @tsonic/core and are compiler-known primitives.
  */
-export const isClrPrimitiveTypeName = (typeName: string): typeName is "int" => {
+export const isClrPrimitiveTypeName = (
+  typeName: string
+): typeName is "int" | "char" => {
   return CLR_PRIMITIVE_TYPE_SET.has(typeName);
 };
 
@@ -86,7 +88,9 @@ export const getPrimitiveType = (
 /**
  * Get primitive type IR representation for a CLR primitive type name
  */
-export const getClrPrimitiveType = (typeName: "int"): IrPrimitiveType => {
+export const getClrPrimitiveType = (
+  typeName: "int" | "char"
+): IrPrimitiveType => {
   return {
     kind: "primitiveType",
     name: typeName,
