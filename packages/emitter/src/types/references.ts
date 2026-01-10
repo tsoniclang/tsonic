@@ -130,7 +130,7 @@ export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  const { name, typeArguments, resolvedClrType } = type;
+  const { name, typeArguments, resolvedClrType, typeId } = type;
 
   // Check if this is a local type alias for a tuple type - must resolve since C# has no type alias for ValueTuple
   // Tuple type aliases: RESOLVE to ValueTuple<...> (C# has no equivalent type alias syntax)
@@ -319,6 +319,26 @@ export const emitReferenceType = (
     }
 
     return [csharpName, context];
+  }
+
+  // Canonical nominal identity from the UnifiedUniverse.
+  // When present, this is the authoritative source for CLR emission and
+  // avoids relying on emitter-side registry plumbing for basic type names.
+  if (typeId) {
+    const qualified = toGlobalClr(clrTypeNameToCSharp(typeId.clrName));
+
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+    }
+
+    return [qualified, context];
   }
 
   // Resolve external types via binding registry (must be fully qualified)

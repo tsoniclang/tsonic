@@ -21,6 +21,7 @@ import type {
   IrReferenceType,
   IrPrimitiveType,
   IrMethodSignature,
+  IrTypeParameter,
 } from "../types/index.js";
 import * as ts from "typescript";
 import type { Diagnostic, DiagnosticCode } from "../../types/diagnostic.js";
@@ -862,7 +863,7 @@ export const createTypeSystem = (
     handleRegistry,
     typeRegistry,
     nominalEnv,
-    convertTypeNode,
+    convertTypeNode: convertTypeNodeRaw,
     unifiedCatalog,
     aliasTable,
     resolveIdentifier,
@@ -1102,6 +1103,110 @@ export const createTypeSystem = (
 	  };
 
 	  /**
+	   * Attach canonical TypeIds to IR types where possible.
+	   *
+	   * This keeps nominal identity stable throughout the pipeline and enables
+	   * emit-time resolution without relying on string name matching.
+	   */
+	  const attachParameterTypeIds = (p: IrParameter): IrParameter => ({
+	    ...p,
+	    type: p.type ? attachTypeIds(p.type) : undefined,
+	  });
+
+	  const attachTypeParameterTypeIds = (tp: IrTypeParameter): IrTypeParameter => ({
+	    ...tp,
+	    constraint: tp.constraint ? attachTypeIds(tp.constraint) : undefined,
+	    default: tp.default ? attachTypeIds(tp.default) : undefined,
+	    structuralMembers: tp.structuralMembers?.map(attachInterfaceMemberTypeIds),
+	  });
+
+	  const attachInterfaceMemberTypeIds = (
+	    m: IrInterfaceMember
+	  ): IrInterfaceMember => {
+	    if (m.kind === "propertySignature") {
+	      return { ...m, type: attachTypeIds(m.type) };
+	    }
+
+	    return {
+	      ...m,
+	      typeParameters: m.typeParameters?.map(attachTypeParameterTypeIds),
+	      parameters: m.parameters.map(attachParameterTypeIds),
+	      returnType: m.returnType ? attachTypeIds(m.returnType) : undefined,
+	    };
+	  };
+
+	  const attachTypeIds = (type: IrType): IrType => {
+	    switch (type.kind) {
+	      case "referenceType": {
+	        const typeId =
+	          type.typeId ??
+	          resolveTypeIdByName(type.resolvedClrType ?? type.name);
+
+	        return {
+	          ...type,
+	          ...(type.typeArguments
+	            ? { typeArguments: type.typeArguments.map(attachTypeIds) }
+	            : {}),
+	          ...(type.structuralMembers
+	            ? {
+	                structuralMembers:
+	                  type.structuralMembers.map(attachInterfaceMemberTypeIds),
+	              }
+	            : {}),
+	          ...(typeId ? { typeId } : {}),
+	        };
+	      }
+
+	      case "arrayType":
+	        return { ...type, elementType: attachTypeIds(type.elementType) };
+
+	      case "tupleType":
+	        return {
+	          ...type,
+	          elementTypes: type.elementTypes.map(attachTypeIds),
+	        };
+
+	      case "functionType":
+	        return {
+	          ...type,
+	          parameters: type.parameters.map(attachParameterTypeIds),
+	          returnType: attachTypeIds(type.returnType),
+	        };
+
+	      case "objectType":
+	        return {
+	          ...type,
+	          members: type.members.map(attachInterfaceMemberTypeIds),
+	        };
+
+	      case "dictionaryType":
+	        return {
+	          ...type,
+	          keyType: attachTypeIds(type.keyType),
+	          valueType: attachTypeIds(type.valueType),
+	        };
+
+	      case "unionType":
+	      case "intersectionType":
+	        return { ...type, types: type.types.map(attachTypeIds) };
+
+	      default:
+	        return type;
+	    }
+	  };
+
+	  /**
+	   * Deterministic type syntax conversion with canonical TypeId attachment.
+	   *
+	   * The underlying converter is syntax-only; this wrapper re-attaches the
+	   * nominal identity from the UnifiedUniverse so downstream passes (including
+	   * the emitter) can resolve CLR types without re-driving a parallel lookup.
+	   */
+	  const convertTypeNode = (node: unknown): IrType => {
+	    return attachTypeIds(convertTypeNodeRaw(node));
+	  };
+
+	  /**
 	   * Normalize a receiver type to nominal form for member lookup.
 	   *
 	   * Phase 6: Returns TypeId + typeArgs for TypeId-based NominalEnv.
@@ -1113,6 +1218,7 @@ export const createTypeSystem = (
 	  ): { typeId: TypeId; typeArgs: readonly IrType[] } | undefined => {
 	    if (type.kind === "referenceType") {
 	      const typeId =
+	        type.typeId ??
 	        (type.resolvedClrType
 	          ? resolveTypeIdByName(type.resolvedClrType)
 	          : undefined) ?? resolveTypeIdByName(type.name);
