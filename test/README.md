@@ -30,9 +30,10 @@ test/
 The unified test runner:
 
 1. Runs `npm test` (unit tests + golden tests across all packages)
-2. Runs E2E dotnet tests (compile and execute each fixture)
-3. Runs negative tests (verify expected compilation failures)
-4. Prints a summary report with pass/fail counts
+2. Runs a vanilla TypeScript typecheck of E2E fixtures (`tsc`) to ensure all fixtures are valid TS
+3. Runs E2E dotnet tests (compile and execute each fixture)
+4. Runs negative tests (verify expected compilation failures)
+5. Prints a summary report with pass/fail counts
 
 ## Test Fixtures
 
