@@ -501,7 +501,9 @@ export const convertTypeReference = (
       // Check for type parameter declaration (class type params, method type params, etc.)
       // CRITICAL: Check the AST node directly - do NOT rely on declInfo.kind.
       // Binding's DeclKind may not label TypeParameterDeclaration as "parameter".
-      const declNode = declInfo.declNode as ts.Declaration | undefined;
+      const declNode = (declInfo.typeDeclNode ?? declInfo.declNode) as
+        | ts.Declaration
+        | undefined;
       if (declNode && ts.isTypeParameterDeclaration(declNode)) {
         return { kind: "typeParameterType", name: typeName };
       }
@@ -510,7 +512,7 @@ export const convertTypeReference = (
       // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
       // e.g., `type NumberToNumber = (x: number) => number` should be converted
       // to a functionType, not a referenceType
-      if (declInfo.kind === "typeAlias") {
+      if (declNode && ts.isTypeAliasDeclaration(declNode)) {
         // tsbindgen extension method wrapper types are type-only helpers.
         //
         // Example: ExtensionMethods_System_Linq<TShape> = TShape & (__Ext_* ...)
@@ -522,8 +524,6 @@ export const convertTypeReference = (
         // Extension method *member* discovery is handled via Binding + BindingRegistry,
         // not by treating ExtensionMethods_* as a nominal CLR type.
         if (
-          declNode &&
-          ts.isTypeAliasDeclaration(declNode) &&
           declNode.name.text.startsWith("ExtensionMethods_") &&
           node.typeArguments?.length === 1
         ) {
@@ -531,11 +531,7 @@ export const convertTypeReference = (
           return shape ? convertType(shape, binding) : { kind: "unknownType" };
         }
 
-        if (
-          declNode &&
-          ts.isTypeAliasDeclaration(declNode) &&
-          ts.isFunctionTypeNode(declNode.type)
-        ) {
+        if (ts.isFunctionTypeNode(declNode.type)) {
           const fnType = convertFunctionType(declNode.type, binding, convertType);
 
           // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
@@ -577,8 +573,6 @@ export const convertTypeReference = (
         // deterministically lower it to the arity-qualified CLR surface type name
         // (Foo_1/Foo_2/...) so TypeSystem can resolve it nominally via metadata.
         if (
-          declNode &&
-          ts.isTypeAliasDeclaration(declNode) &&
           node.typeArguments &&
           node.typeArguments.length > 0 &&
           declNode.typeParameters &&

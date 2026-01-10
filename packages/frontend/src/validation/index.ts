@@ -9,4 +9,5 @@ export { validateUnsupportedFeatures } from "./features.js";
 export { validateGenerics } from "./generics.js";
 export { validateExtensionMethods } from "./extension-methods.js";
 export { validateStaticSafety } from "./static-safety.js";
+export { validateCoreIntrinsics } from "./core-intrinsics.js";
 export { hasExportModifier, getNodeLocation } from "./helpers.js";

@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "Core intrinsics (int, stackalloc, etc.) must come from @tsonic/core. Spoofed or locally declared versions are forbidden to avoid silent miscompilation.",
+  "expectedErrors": ["TSN7440"],
+  "diagnosticCodes": ["TSN7440"]
+}
+

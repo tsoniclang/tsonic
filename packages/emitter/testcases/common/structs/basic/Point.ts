@@ -1,7 +1,4 @@
-// Define struct marker inline for testing
-interface struct {
-  readonly __brand: "struct";
-}
+import type { struct } from "@tsonic/core/types.js";
 
 export interface Point extends struct {
   x: number;

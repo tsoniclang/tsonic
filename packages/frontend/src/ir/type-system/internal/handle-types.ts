@@ -62,6 +62,13 @@ export interface DeclInfo {
   readonly kind: DeclKind;
   readonly fqName?: string;
   readonly declNode?: unknown; // ts.Declaration — INTERNAL ONLY
+  /**
+   * When a symbol merges a value and a type declaration under the same name
+   * (common in tsbindgen facades), Binding stores both so type conversion can
+   * prefer the correct declaration in type contexts.
+   */
+  readonly typeDeclNode?: unknown; // ts.Declaration — INTERNAL ONLY
+  readonly valueDeclNode?: unknown; // ts.Declaration — INTERNAL ONLY
   readonly classMemberNames?: ClassMemberNames; // For class declarations only
 }
 
