@@ -16,9 +16,9 @@ How TypeScript types are converted to C# types.
 | `any`       | N/A      | Not supported         |
 | `unknown`   | `object` | Base object type      |
 
-## Explicit Numeric Types
+## Explicit CLR Types
 
-From `@tsonic/core`:
+From `@tsonic/core` (numeric + other CLR primitives):
 
 | TypeScript | C#        | .NET Type      |
 | ---------- | --------- | -------------- |
@@ -30,6 +30,7 @@ From `@tsonic/core`:
 | `uint`     | `uint`    | System.UInt32  |
 | `ulong`    | `ulong`   | System.UInt64  |
 | `decimal`  | `decimal` | System.Decimal |
+| `char`     | `char`    | System.Char    |
 
 ## Array Types
 

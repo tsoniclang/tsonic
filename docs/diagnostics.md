@@ -471,6 +471,30 @@ function getNumbers(): number[] {
 }
 ```
 
+### TSN7418: Invalid char Value
+
+`char` represents the CLR type `System.Char` (imported from `@tsonic/core/types.js`).
+
+TypeScript models `char` as `string` for compatibility, so Tsonic validates `char` **during compilation**:
+
+- A `char` value must be a **single-character string literal** (including escapes like `"\\n"`), or
+- A value that is already typed as `char` (for example, from APIs that return `char`).
+
+```typescript
+import { char } from "@tsonic/core/types.js";
+
+function takesChar(c: char): void {}
+
+takesChar("A"); // OK
+// takesChar("AB"); // TSN7418 (multi-character literal)
+
+const s = "hello";
+// takesChar(s);    // TSN7418 (not a literal / not char-typed)
+takesChar(s[0]);    // OK (context expects char)
+```
+
+**Fix:** Use a single-character literal in a `char` position, or obtain a `char` from an API returning `char` (for example `System.Char.parse("Q")`).
+
 ### TSN7420: ref/out/In Are Parameter Modifiers
 
 `ref`, `out`, and `In` are parameter passing modifiers, not types.

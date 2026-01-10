@@ -23,16 +23,46 @@ How TypeScript types map to C# types in Tsonic.
 Use `@tsonic/core` for precise numeric control:
 
 ```typescript
-import { int, float, long, byte, short } from "@tsonic/core/types.js";
+import { int, float, long, byte, short, char } from "@tsonic/core/types.js";
 
 const count: int = 42; // System.Int32
 const ratio: float = 3.14; // System.Single
 const big: long = 9999999999; // System.Int64
 const small: byte = 255; // System.Byte
 const medium: short = 32000; // System.Int16
+const letter: char = "A"; // System.Char
 ```
 
 > **See also:** [Numeric Types Guide](numeric-types.md) for complete coverage of integer types, narrowing patterns, and when to use integers vs numbers.
+
+### char (System.Char)
+
+Tsonic supports `char` (a distinct CLR primitive: `System.Char`) via `@tsonic/core`.
+
+TypeScript represents `char` as `string` for TSC compatibility, so Tsonic enforces **char validity** during compilation:
+
+- A `char` value must be a **single-character string literal** (`"A"`, `"\\n"`, `"'"`, etc.), or
+- A value that is already typed as `char` (e.g., from an API returning `char`).
+
+If you pass a non-literal `string` (or a multi-character literal) where `char` is expected, Tsonic emits `TSN7418`.
+
+```ts
+import { char, int } from "@tsonic/core/types.js";
+import { Console, Char } from "@tsonic/dotnet/System.js";
+
+function takesChar(c: char): void {
+  Console.writeLine(c);
+}
+
+takesChar("Z"); // OK
+// takesChar("ZZ"); // TSN7418
+
+const s = "hello";
+const c: char = s[0]; // OK (context expects char)
+
+const parsed: char = Char.parse("Q"); // Use parsing for dynamic strings
+void parsed;
+```
 
 ### Number Handling
 
