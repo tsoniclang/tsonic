@@ -1,3 +1,7 @@
 True
 5
 123
+False
+True
+888
+999

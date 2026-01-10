@@ -310,6 +310,17 @@ export const emitVariableDeclaration = (
     } else if (
       !context.isStatic &&
       decl.type &&
+      canEmitTypeExplicitly(decl.type)
+    ) {
+      // Local variables with an explicit TypeScript annotation must preserve that type in C#.
+      // Using `var` would re-infer from the initializer and can break semantics (e.g. base-typed
+      // variables that are reassigned to different derived instances).
+      const [typeName, newContext] = emitType(decl.type, currentContext);
+      currentContext = newContext;
+      varDecl += `${typeName} `;
+    } else if (
+      !context.isStatic &&
+      decl.type &&
       decl.initializer &&
       ((decl.initializer.kind === "literal" &&
         (decl.initializer.value === undefined ||
