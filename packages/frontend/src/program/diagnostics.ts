@@ -41,13 +41,6 @@ export const convertTsDiagnostic = (
     return null; // Ignore suggestions
   }
 
-  // Ignore TS2367 ("types have no overlap") - this is a TypeScript-only
-  // control-flow/soundness warning that does not affect Tsonic IR lowering.
-  // Example: comparisons between distinct const numeric literals in E2E fixtures.
-  if (tsDiag.code === 2367) {
-    return null;
-  }
-
   const message = ts.flattenDiagnosticMessageText(tsDiag.messageText, "\n");
 
   // Ignore "type used as value" errors for .NET types
