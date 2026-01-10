@@ -2,7 +2,7 @@ namespace TestCases.common.lang.stackalloc
 {
         public static class StackAlloc
         {
-            public static void run()
+            public static void Run()
                 {
                 global::System.Span<int> buffer = stackalloc int[256];
                 buffer[0] = 42;

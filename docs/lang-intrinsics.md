@@ -114,7 +114,7 @@ export function inc(x: thisarg<int>): int {
 This emits C# like:
 
 ```csharp
-public static int inc(this int x) => x + 1;
+public static int Inc(this int x) => x + 1;
 ```
 
 ## ptr (unsafe pointers)

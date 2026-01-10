@@ -2,7 +2,7 @@ namespace TestCases.common.types.expectedtypethreading
 {
         public static class ReturnInControlFlow
         {
-            public static int getInIf(bool condition)
+            public static int GetInIf(bool condition)
                 {
                 if (condition)
                     {
@@ -11,7 +11,7 @@ namespace TestCases.common.types.expectedtypethreading
                 return 200;
                 }
 
-            public static int getInElse(bool condition)
+            public static int GetInElse(bool condition)
                 {
                 if (condition)
                     {
@@ -23,7 +23,7 @@ namespace TestCases.common.types.expectedtypethreading
                     }
                 }
 
-            public static int getInWhile(int count)
+            public static int GetInWhile(int count)
                 {
                 while (count > 0)
                     {
@@ -32,7 +32,7 @@ namespace TestCases.common.types.expectedtypethreading
                 return 0;
                 }
 
-            public static int getInSwitch(int key)
+            public static int GetInSwitch(int key)
                 {
                 switch (key)
                 {

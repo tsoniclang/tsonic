@@ -2,26 +2,26 @@ namespace TestCases.common.operators.optionalchaining
 {
     public class User
     {
-        public string? name { get; set; }
+        public string? Name { get; set; }
 
-        public Address? address { get; set; }
+        public Address? Address { get; set; }
     }
     public class Address
     {
-        public string? street { get; set; }
-        public string? city { get; set; }
+        public string? Street { get; set; }
+        public string? City { get; set; }
     }
 
             public static class OptionalChaining
             {
-                public static string? getCity(User? user)
+                public static string? GetCity(User? user)
                     {
-                    return user?.address?.city;
+                    return user?.Address?.City;
                     }
 
-                public static double getNameLength(User? user)
+                public static double GetNameLength(User? user)
                     {
-                    return user?.name?.Length ?? 0;
+                    return user?.Name?.Length ?? 0;
                     }
             }
 }

@@ -9,6 +9,7 @@ import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 const computeLocalName = (
   originalName: string,
@@ -386,7 +387,10 @@ export const emitVariableDeclaration = (
     // Handle different pattern types
     if (decl.name.kind === "identifierPattern") {
       // Simple identifier pattern (escape C# keywords)
-      const localNameInfo = computeLocalName(decl.name.name, currentContext);
+      const originalName = decl.name.name;
+      const localNameInfo = context.isStatic
+        ? { emittedName: emitCSharpName(originalName, "fields", context), updatedContext: currentContext }
+        : computeLocalName(originalName, currentContext);
       const localName = localNameInfo.emittedName;
       currentContext = localNameInfo.updatedContext;
       varDecl += localName;
@@ -402,8 +406,11 @@ export const emitVariableDeclaration = (
         varDecl += ` = ${initFrag.text}`;
       }
 
-      // Register the name after emitting the initializer (C# scoping rules).
-      currentContext = registerLocalName(decl.name.name, localName, currentContext);
+      // Register local names after emitting the initializer (C# scoping rules).
+      // Static fields are not locals and must not participate in shadowing logic.
+      if (!context.isStatic) {
+        currentContext = registerLocalName(originalName, localName, currentContext);
+      }
       declarations.push(`${ind}${varDecl};`);
     } else {
       // Unknown pattern kind - emit placeholder

@@ -2,7 +2,7 @@ namespace TestCases.common.edgecases.shadowing
 {
         public static class Shadowing
         {
-            public static double shadowedVariable()
+            public static double ShadowedVariable()
                 {
                 var x = 10;
                 {
@@ -11,7 +11,7 @@ namespace TestCases.common.edgecases.shadowing
                 }
                 }
 
-            public static double shadowInFunction()
+            public static double ShadowInFunction()
                 {
                 var value = 5;
                 var inner = () =>

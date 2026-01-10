@@ -2,24 +2,24 @@ namespace TestCases.common.types.interfaces
 {
     public class User
     {
-        public required string name { get; set; }
+        public required string Name { get; set; }
 
-        public required string email { get; set; }
+        public required string Email { get; set; }
 
-        public required double age { get; set; }
+        public required double Age { get; set; }
     }
     public class Point
     {
-        public required double x { get; }
+        public required double X { get; }
 
-        public required double y { get; }
+        public required double Y { get; }
     }
 
             public static class Interfaces
             {
-                public static string greetUser(User user)
+                public static string GreetUser(User user)
                     {
-                    return $"Hello {user.name}, age {user.age}";
+                    return $"Hello {user.Name}, age {user.Age}";
                     }
             }
 }

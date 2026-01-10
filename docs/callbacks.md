@@ -45,7 +45,7 @@ export function main(): void {
 Generated C#:
 
 ```csharp
-public static void forEach(List<int> items, Action<int> callback)
+public static void ForEach(List<int> items, Action<int> callback)
 {
     var len = items.Count;
     for (var i = 0; i < len; i++)
@@ -79,7 +79,7 @@ forEachWithIndex(numbers, (item: int, index: int) => {
 Generated C#:
 
 ```csharp
-public static void forEachWithIndex(List<int> items, Action<int, int> callback)
+public static void ForEachWithIndex(List<int> items, Action<int, int> callback)
 ```
 
 ## Func Callbacks
@@ -107,7 +107,7 @@ const doubled = map(numbers, (n: int) => n * 2);
 Generated C#:
 
 ```csharp
-public static List<int> map(List<int> items, Func<int, int> transform)
+public static List<int> Map(List<int> items, Func<int, int> transform)
 ```
 
 ### Predicate Functions
@@ -137,7 +137,7 @@ const evens = filter(numbers, (n: int) => n % 2 === 0);
 Generated C#:
 
 ```csharp
-public static List<int> filter(List<int> items, Func<int, bool> predicate)
+public static List<int> Filter(List<int> items, Func<int, bool> predicate)
 ```
 
 ### Reducer Functions
@@ -165,7 +165,7 @@ const sum = reduce(numbers, (acc: int, n: int) => acc + n, 0);
 Generated C#:
 
 ```csharp
-public static int reduce(List<int> items, Func<int, int, int> reducer, int initial)
+public static int Reduce(List<int> items, Func<int, int, int> reducer, int initial)
 ```
 
 ## Type Mappings
@@ -265,7 +265,7 @@ await processAsync(async () => {
 Generated C#:
 
 ```csharp
-public static async Task processAsync(Func<Task<string>> callback)
+public static async Task ProcessAsync(Func<Task<string>> callback)
 {
     var result = await callback();
     Console.WriteLine(result);

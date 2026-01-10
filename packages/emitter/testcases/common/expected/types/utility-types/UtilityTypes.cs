@@ -2,127 +2,127 @@ namespace TestCases.common.types.utilitytypes
 {
     public class Person
     {
-        public required string name { get; set; }
+        public required string Name { get; set; }
 
-        public required double age { get; set; }
+        public required double Age { get; set; }
 
-        public required string email { get; set; }
+        public required string Email { get; set; }
     }
     public class OptionalPerson
     {
-        public string? name { get; set; }
+        public string? Name { get; set; }
 
-        public double? age { get; set; }
+        public double? Age { get; set; }
     }
     public class MixedPerson
     {
-        public required string name { get; set; }
+        public required string Name { get; set; }
 
-        public double? age { get; set; }
+        public double? Age { get; set; }
 
-        public string? email { get; set; }
+        public string? Email { get; set; }
     }
     public interface WithMethods
     {
-        string name { get; set; }
+        string Name { get; set; }
 
-        string greet(string greeting);
+        string Greet(string greeting);
 
-        double calculate(double a, double b);
+        double Calculate(double a, double b);
     }
 
         public static class UtilityTypes
         {
             public sealed class PartialPerson__Alias
             {
-                public string? name { get; set; }
-                public double? age { get; set; }
-                public string? email { get; set; }
+                public string? Name { get; set; }
+                public double? Age { get; set; }
+                public string? Email { get; set; }
             }
 
             public sealed class RequiredOptionalPerson__Alias
             {
-                public required string name { get; set; }
-                public required double age { get; set; }
+                public required string Name { get; set; }
+                public required double Age { get; set; }
             }
 
             public sealed class ReadonlyPerson__Alias
             {
-                public required string name { get; }
-                public required double age { get; }
-                public required string email { get; }
+                public required string Name { get; }
+                public required double Age { get; }
+                public required string Email { get; }
             }
 
             public sealed class PersonName__Alias
             {
-                public required string name { get; set; }
+                public required string Name { get; set; }
             }
 
             public sealed class PersonContact__Alias
             {
-                public required string name { get; set; }
-                public required string email { get; set; }
+                public required string Name { get; set; }
+                public required string Email { get; set; }
             }
 
             public sealed class PersonWithoutEmail__Alias
             {
-                public required string name { get; set; }
-                public required double age { get; set; }
+                public required string Name { get; set; }
+                public required double Age { get; set; }
             }
 
             public sealed class PersonNameOnly__Alias
             {
-                public required string name { get; set; }
+                public required string Name { get; set; }
             }
 
             public sealed class PartialReadonly__Alias
             {
-                public string? name { get; }
-                public double? age { get; }
-                public string? email { get; }
+                public string? Name { get; }
+                public double? Age { get; }
+                public string? Email { get; }
             }
 
             public sealed class ReadonlyPartial__Alias
             {
-                public string? name { get; }
-                public double? age { get; }
-                public string? email { get; }
+                public string? Name { get; }
+                public double? Age { get; }
+                public string? Email { get; }
             }
 
             public sealed class FullMixedPerson__Alias
             {
-                public required string name { get; set; }
-                public required double age { get; set; }
-                public required string email { get; set; }
+                public required string Name { get; set; }
+                public required double Age { get; set; }
+                public required string Email { get; set; }
             }
 
             public sealed class PartialMixedPerson__Alias
             {
-                public string? name { get; set; }
-                public double? age { get; set; }
-                public string? email { get; set; }
+                public string? Name { get; set; }
+                public double? Age { get; set; }
+                public string? Email { get; set; }
             }
 
             public sealed class PickFromPartial__Alias
             {
-                public string? name { get; set; }
-                public double? age { get; set; }
+                public string? Name { get; set; }
+                public double? Age { get; set; }
             }
 
             public sealed class OmitFromReadonly__Alias
             {
-                public required string name { get; }
-                public required double age { get; }
+                public required string Name { get; }
+                public required double Age { get; }
             }
 
             public sealed class PartialWithMethods__Alias
             {
-                public string? name { get; set; }
+                public string? Name { get; set; }
             }
 
             public sealed class ReadonlyWithMethods__Alias
             {
-                public required string name { get; }
+                public required string Name { get; }
             }
 
             // type MaybeString = string?
@@ -149,16 +149,16 @@ namespace TestCases.common.types.utilitytypes
 
             public sealed class StatusMap__Alias
             {
-                public required bool pending { get; set; }
-                public required bool active { get; set; }
-                public required bool done { get; set; }
+                public required bool Pending { get; set; }
+                public required bool Active { get; set; }
+                public required bool Done { get; set; }
             }
 
             public sealed class NumericKeys__Alias
             {
-                public required string _1 { get; set; }
-                public required string _2 { get; set; }
-                public required string _3 { get; set; }
+                public required string 1 { get; set; }
+                public required string 2 { get; set; }
+                public required string 3 { get; set; }
             }
         }
 }

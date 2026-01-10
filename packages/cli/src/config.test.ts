@@ -57,12 +57,12 @@ describe("Config", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
         namingPolicy: {
-          classes: "PascalCase",
+          classes: "none",
         },
       };
 
       const result = resolveConfig(config, {}, "/project");
-      expect(result.namingPolicy).to.deep.equal({ classes: "PascalCase" });
+      expect(result.namingPolicy).to.deep.equal({ classes: "none" });
     });
 
     it("should default frameworkReferences and packageReferences to empty arrays", () => {

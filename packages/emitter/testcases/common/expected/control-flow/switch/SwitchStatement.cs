@@ -2,7 +2,7 @@ namespace TestCases.common.controlflow.switch
 {
         public static class SwitchStatement
         {
-            public static string getDayType(double day)
+            public static string GetDayType(double day)
                 {
                 switch (day)
                 {

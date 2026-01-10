@@ -178,11 +178,11 @@ export function main(): void {
 Becomes:
 
 ```csharp
-namespace MyApp.src
+namespace MyApp
 {
     public static class App
     {
-        public static void main()
+        public static void Main()
         {
             global::System.Console.WriteLine("Hello!");
         }

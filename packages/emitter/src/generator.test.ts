@@ -14,7 +14,7 @@ describe("Generator Emission", () => {
       kind: "module",
       filePath: "/test/counter.ts",
       namespace: "Test",
-      className: "counter",
+      className: "Counter",
       isStaticContainer: true,
       imports: [],
       exports: [],
@@ -86,18 +86,18 @@ describe("Generator Emission", () => {
     const code = emitModule(module);
 
     // Should contain exchange class
-    expect(code).to.include("public sealed class counter_exchange");
+    expect(code).to.include("public sealed class Counter_exchange");
     expect(code).to.include("public object? Input { get; set; }");
     expect(code).to.include("public double Output { get; set; }");
 
     // Should have IEnumerable return type with fully-qualified name
-    expect(code).to.include("counter_exchange> counter()");
+    expect(code).to.include("Counter_exchange> Counter()");
 
     // Should NOT use using directives - all types use global:: FQN
     expect(code).to.not.include("using System.Collections.Generic");
 
     // Should initialize exchange variable
-    expect(code).to.include("var exchange = new counter_exchange()");
+    expect(code).to.include("var exchange = new Counter_exchange()");
 
     // Should emit yield with exchange object pattern
     expect(code).to.include("exchange.Output = i");
@@ -109,7 +109,7 @@ describe("Generator Emission", () => {
       kind: "module",
       filePath: "/test/asyncCounter.ts",
       namespace: "Test",
-      className: "asyncCounter",
+      className: "AsyncCounter",
       isStaticContainer: true,
       imports: [],
       exports: [],
@@ -181,11 +181,11 @@ describe("Generator Emission", () => {
     const code = emitModule(module);
 
     // Should contain exchange class
-    expect(code).to.include("public sealed class asyncCounter_exchange");
+    expect(code).to.include("public sealed class AsyncCounter_exchange");
 
     // Should have IAsyncEnumerable return type with async and global:: FQN
     expect(code).to.include(
-      "public static async global::System.Collections.Generic.IAsyncEnumerable<asyncCounter_exchange> asyncCounter()"
+      "public static async global::System.Collections.Generic.IAsyncEnumerable<AsyncCounter_exchange> AsyncCounter()"
     );
   });
 
@@ -195,7 +195,7 @@ describe("Generator Emission", () => {
         kind: "module",
         filePath: "/test/accumulator.ts",
         namespace: "Test",
-        className: "accumulator",
+        className: "Accumulator",
         isStaticContainer: true,
         imports: [],
         exports: [],
@@ -286,14 +286,14 @@ describe("Generator Emission", () => {
       // Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
 
       // Should generate exchange class
-      expect(code).to.include("public sealed class accumulator_exchange");
+      expect(code).to.include("public sealed class Accumulator_exchange");
       expect(code).to.include("public double? Input { get; set; }");
       expect(code).to.include("public double Output { get; set; }");
 
       // Should generate wrapper class
-      expect(code).to.include("public sealed class accumulator_Generator");
-      expect(code).to.include("IEnumerator<accumulator_exchange> _enumerator");
-      expect(code).to.include("accumulator_exchange _exchange");
+      expect(code).to.include("public sealed class Accumulator_Generator");
+      expect(code).to.include("IEnumerator<Accumulator_exchange> _enumerator");
+      expect(code).to.include("Accumulator_exchange _exchange");
 
       // next() method with nullable parameter
       expect(code).to.include(
@@ -311,12 +311,12 @@ describe("Generator Emission", () => {
       );
 
       // Function should return wrapper type
-      expect(code).to.include("accumulator_Generator accumulator(");
+      expect(code).to.include("Accumulator_Generator Accumulator(");
 
       // Should use local iterator pattern
       expect(code).to.include("__iterator()");
       expect(code).to.include(
-        "return new accumulator_Generator(__iterator(), exchange)"
+        "return new Accumulator_Generator(__iterator(), exchange)"
       );
     });
 
@@ -325,7 +325,7 @@ describe("Generator Emission", () => {
         kind: "module",
         filePath: "/test/receiver.ts",
         namespace: "Test",
-        className: "receiver",
+        className: "Receiver",
         isStaticContainer: true,
         imports: [],
         exports: [],
@@ -377,7 +377,7 @@ describe("Generator Emission", () => {
         kind: "module",
         filePath: "/test/unidirectional.ts",
         namespace: "Test",
-        className: "unidirectional",
+        className: "Unidirectional",
         isStaticContainer: true,
         imports: [],
         exports: [],
@@ -418,14 +418,14 @@ describe("Generator Emission", () => {
       const code = emitModule(module);
 
       // Should NOT generate wrapper class for unidirectional
-      expect(code).to.not.include("range_Generator");
+      expect(code).to.not.include("Range_Generator");
       expect(code).to.not.include("IteratorResult<");
 
       // Should use IEnumerable return type
-      expect(code).to.include("IEnumerable<range_exchange> range()");
+      expect(code).to.include("IEnumerable<Range_exchange> Range()");
 
       // Should generate exchange class
-      expect(code).to.include("public sealed class range_exchange");
+      expect(code).to.include("public sealed class Range_exchange");
     });
 
     it("should handle async bidirectional generator", () => {
@@ -433,7 +433,7 @@ describe("Generator Emission", () => {
         kind: "module",
         filePath: "/test/asyncBidir.ts",
         namespace: "Test",
-        className: "asyncBidir",
+        className: "AsyncBidir",
         isStaticContainer: true,
         imports: [],
         exports: [],
@@ -472,8 +472,8 @@ describe("Generator Emission", () => {
       const code = emitModule(module);
 
       // Should generate async wrapper
-      expect(code).to.include("asyncAccumulator_Generator");
-      expect(code).to.include("IAsyncEnumerator<asyncAccumulator_exchange>");
+      expect(code).to.include("AsyncAccumulator_Generator");
+      expect(code).to.include("IAsyncEnumerator<AsyncAccumulator_exchange>");
       expect(code).to.include(
         "async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
       );
@@ -487,7 +487,7 @@ describe("Generator Emission", () => {
           kind: "module",
           filePath: "/test/stringNext.ts",
           namespace: "Test",
-          className: "stringNext",
+          className: "StringNext",
           isStaticContainer: true,
           imports: [],
           exports: [],
@@ -537,7 +537,7 @@ describe("Generator Emission", () => {
           kind: "module",
           filePath: "/test/asyncYieldStar.ts",
           namespace: "Test",
-          className: "asyncYieldStar",
+          className: "AsyncYieldStar",
           isStaticContainer: true,
           imports: [],
           exports: [],
@@ -587,7 +587,7 @@ describe("Generator Emission", () => {
           kind: "module",
           filePath: "/test/arrayPattern.ts",
           namespace: "Test",
-          className: "arrayPattern",
+          className: "ArrayPattern",
           isStaticContainer: true,
           imports: [],
           exports: [],
@@ -650,7 +650,7 @@ describe("Generator Emission", () => {
           kind: "module",
           filePath: "/test/objectPattern.ts",
           namespace: "Test",
-          className: "objectPattern",
+          className: "ObjectPattern",
           isStaticContainer: true,
           imports: [],
           exports: [],
@@ -727,7 +727,7 @@ describe("Generator Emission", () => {
           kind: "module",
           filePath: "/test/generatorReturn.ts",
           namespace: "Test",
-          className: "generatorReturn",
+          className: "GeneratorReturn",
           isStaticContainer: true,
           imports: [],
           exports: [],
@@ -786,7 +786,7 @@ describe("Generator Emission", () => {
           kind: "module",
           filePath: "/test/bareReturn.ts",
           namespace: "Test",
-          className: "bareReturn",
+          className: "BareReturn",
           isStaticContainer: true,
           imports: [],
           exports: [],

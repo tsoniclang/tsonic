@@ -17,6 +17,7 @@ import type { IrType } from "./types.js";
 import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
+import { resolveNamingPolicy } from "../resolver/naming-policy.js";
 import type { TsonicProgram } from "../program.js";
 import type { IrBuildOptions } from "./builder/types.js";
 import { buildNominalEnv } from "./type-system/internal/nominal-env.js";
@@ -253,6 +254,7 @@ export const createProgramContext = (
     checker: program.checker,
     sourceRoot: options.sourceRoot,
     rootNamespace: options.rootNamespace,
+    namespaceNamingPolicy: resolveNamingPolicy(options.namingPolicy, "namespaces"),
     binding: program.binding,
   });
 

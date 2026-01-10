@@ -108,7 +108,7 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(source);
 
       // Should emit generic function signature
-      expect(csharp).to.match(/public\s+static\s+T\s+identity\s*<T>/);
+      expect(csharp).to.match(/public\s+static\s+T\s+Identity\s*<T>/);
       expect(csharp).to.include("(T value)");
       expect(csharp).to.include("return value;");
     });
@@ -126,13 +126,13 @@ describe("End-to-End Integration", () => {
 
       // Should emit type alias as class
       expect(csharp).to.include("class HasId__Alias");
-      expect(csharp).to.match(/required\s+double\s+id\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(/required\s+double\s+Id\s*\{\s*get;\s*set;/);
 
       // Should use type alias as constraint
       expect(csharp).to.include("where T : HasId");
 
       // Should have function
-      expect(csharp).to.match(/public\s+static\s+double\s+getId<T>/);
+      expect(csharp).to.match(/public\s+static\s+double\s+GetId<T>/);
     });
   });
 
@@ -154,14 +154,14 @@ describe("End-to-End Integration", () => {
 
       // Should have auto-properties (required for non-optional)
       expect(csharp).to.match(
-        /public\s+required\s+double\s+id\s*\{\s*get;\s*set;/
+        /public\s+required\s+double\s+Id\s*\{\s*get;\s*set;/
       );
       expect(csharp).to.match(
-        /public\s+required\s+string\s+name\s*\{\s*get;\s*set;/
+        /public\s+required\s+string\s+Name\s*\{\s*get;\s*set;/
       );
 
       // Optional property should be nullable
-      expect(csharp).to.match(/public\s+string\?\s+email\s*\{\s*get;\s*set;/);
+      expect(csharp).to.match(/public\s+string\?\s+Email\s*\{\s*get;\s*set;/);
     });
 
     it("should compile structural type alias to sealed class", () => {
@@ -177,10 +177,10 @@ describe("End-to-End Integration", () => {
       // Should emit sealed class with __Alias suffix
       expect(csharp).to.match(/public\s+sealed\s+class\s+Point__Alias/);
       expect(csharp).to.match(
-        /public\s+required\s+double\s+x\s*\{\s*get;\s*set;/
+        /public\s+required\s+double\s+X\s*\{\s*get;\s*set;/
       );
       expect(csharp).to.match(
-        /public\s+required\s+double\s+y\s*\{\s*get;\s*set;/
+        /public\s+required\s+double\s+Y\s*\{\s*get;\s*set;/
       );
     });
 
@@ -196,8 +196,8 @@ describe("End-to-End Integration", () => {
 
       // Should emit generic class
       expect(csharp).to.match(/public\s+class\s+Result\s*<T>/);
-      expect(csharp).to.match(/public\s+required\s+bool\s+ok/);
-      expect(csharp).to.match(/public\s+required\s+T\s+value/);
+      expect(csharp).to.match(/public\s+required\s+bool\s+Ok/);
+      expect(csharp).to.match(/public\s+required\s+T\s+Value/);
     });
   });
 
@@ -223,9 +223,9 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.match(/public\s+class\s+Container\s*<T>/);
 
       // Should have generic methods
-      expect(csharp).to.match(/public\s+T\s+getValue\s*\(\s*\)/);
+      expect(csharp).to.match(/public\s+T\s+GetValue\s*\(\s*\)/);
       expect(csharp).to.match(
-        /public\s+void\s+setValue\s*\(\s*T\s+newValue\s*\)/
+        /public\s+void\s+SetValue\s*\(\s*T\s+newValue\s*\)/
       );
     });
   });
@@ -270,7 +270,7 @@ describe("End-to-End Integration", () => {
 
       // Should generate constraint adapter
       expect(csharp).to.match(/public\s+interface\s+__Constraint_T/);
-      expect(csharp).to.match(/double\s+id\s*\{\s*get;\s*\}/);
+      expect(csharp).to.match(/double\s+Id\s*\{\s*get;\s*\}/);
     });
   });
 
@@ -342,7 +342,7 @@ describe("End-to-End Integration", () => {
 
       // Type predicate (animal is Dog) should emit as bool return type
       expect(csharp).to.match(
-        /public\s+static\s+bool\s+isDog\s*\(\s*Animal\s+animal\s*\)/
+        /public\s+static\s+bool\s+IsDog\s*\(\s*Animal\s+animal\s*\)/
       );
       // Should not emit 'dynamic' (old broken behavior)
       expect(csharp).not.to.include("dynamic isDog");
@@ -405,11 +405,11 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("class UserRepository");
 
       // Should have the generic function with native array return type
-      expect(csharp).to.match(/public\s+static\s+U\[\]\s+transform\s*<T,\s*U>/);
+      expect(csharp).to.match(/public\s+static\s+U\[\]\s+Transform\s*<T,\s*U>/);
 
       // Should have proper namespace structure
       expect(csharp).to.include("namespace Test");
-      expect(csharp).to.include("public static class test");
+      expect(csharp).to.include("public static class Test");
     });
   });
 });

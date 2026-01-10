@@ -83,12 +83,11 @@ const csproj = generateCsproj({
 
 ```typescript
 const programCs = generateProgramCs({
-  namespace: "MyApp.src",
+  namespace: "MyApp",
   className: "App",
   methodName: "main",
   isAsync: false,
   needsProgram: true,
-  runtime: "js",
 });
 ```
 
@@ -97,11 +96,11 @@ const programCs = generateProgramCs({
 Sync main:
 
 ```csharp
-public class Program
+public static class Program
 {
     public static void Main(string[] args)
     {
-        MyApp.src.App.main();
+        global::MyApp.App.main();
     }
 }
 ```
@@ -109,24 +108,11 @@ public class Program
 Async main:
 
 ```csharp
-public class Program
+public static class Program
 {
     public static async Task Main(string[] args)
     {
-        await MyApp.src.App.main();
-    }
-}
-```
-
-With JS runtime initialization:
-
-```csharp
-public class Program
-{
-    public static void Main(string[] args)
-    {
-        Tsonic.Runtime.Runtime.Initialize();
-        MyApp.src.App.main();
+        await global::MyApp.App.main();
     }
 }
 ```

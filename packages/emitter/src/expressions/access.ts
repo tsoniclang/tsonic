@@ -9,13 +9,13 @@ import {
   isExplicitViewProperty,
   extractInterfaceNameFromView,
 } from "@tsonic/frontend/types/explicit-views.js";
-import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitType } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
   getAllPropertySignatures,
 } from "../core/type-resolution.js";
+import { emitCSharpName } from "../naming-policy.js";
 import {
   formatCastOperandText,
   formatPostfixExpressionText,
@@ -60,6 +60,144 @@ const hasInt32Proof = (expr: IrExpression): boolean => {
   }
 
   return false;
+};
+
+type MemberAccessUsage = "value" | "call";
+
+type MemberAccessBucket = "methods" | "properties" | "fields" | "enumMembers";
+
+const bucketFromMemberKind = (kind: string): MemberAccessBucket => {
+  switch (kind) {
+    case "method":
+      return "methods";
+    case "field":
+      return "fields";
+    case "enumMember":
+      return "enumMembers";
+    default:
+      return "properties";
+  }
+};
+
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const lookupMemberKindFromLocalTypes = (
+  receiverTypeName: string,
+  memberName: string,
+  context: EmitterContext
+): string | undefined => {
+  const local = context.localTypes?.get(receiverTypeName);
+  if (!local) return undefined;
+
+  if (local.kind === "enum") {
+    return local.members.includes(memberName) ? "enumMember" : undefined;
+  }
+
+  if (local.kind === "typeAlias") {
+    if (local.type.kind !== "objectType") return undefined;
+    const found = local.type.members.find((m) => m.name === memberName);
+    if (!found) return undefined;
+    return found.kind === "methodSignature" ? "method" : "property";
+  }
+
+  const members = local.members;
+  for (const m of members) {
+    if (!("name" in m) || m.name !== memberName) continue;
+    if (m.kind === "methodDeclaration" || m.kind === "methodSignature") {
+      return "method";
+    }
+    if (m.kind === "propertySignature") return "property";
+    if (m.kind === "propertyDeclaration") {
+      const hasAccessors = !!(m.getterBody || m.setterBody);
+      return hasAccessors ? "property" : "field";
+    }
+  }
+
+  return undefined;
+};
+
+const lookupMemberKindFromIndex = (
+  receiverTypeFqn: string,
+  memberName: string,
+  context: EmitterContext
+): string | undefined => {
+  const perType = context.options.typeMemberIndex?.get(receiverTypeFqn);
+  return perType?.get(memberName);
+};
+
+const resolveReceiverTypeFqn = (
+  receiverExpr: IrExpression,
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  if (receiverType?.kind === "referenceType" && receiverType.resolvedClrType) {
+    return receiverType.resolvedClrType;
+  }
+
+  if (receiverExpr.kind === "identifier") {
+    const binding = context.importBindings?.get(receiverExpr.name);
+    if (binding?.kind === "type") {
+      return stripGlobalPrefix(binding.clrName);
+    }
+  }
+
+  return undefined;
+};
+
+const emitMemberName = (
+  receiverExpr: IrExpression,
+  receiverType: IrType | undefined,
+  memberName: string,
+  context: EmitterContext,
+  usage: MemberAccessUsage
+): string => {
+  if (usage === "call") {
+    return emitCSharpName(memberName, "methods", context);
+  }
+
+  // Namespace imports (import * as M): treat property access as value access to the module container.
+  // For non-call usage, prefer "fields" because `M.value` denotes a value export.
+  if (receiverExpr.kind === "identifier") {
+    const binding = context.importBindings?.get(receiverExpr.name);
+    if (binding?.kind === "namespace") {
+      return emitCSharpName(memberName, "fields", context);
+    }
+  }
+
+  const receiverTypeName =
+    receiverType?.kind === "referenceType" ? receiverType.name : undefined;
+  if (receiverTypeName) {
+    const localKind = lookupMemberKindFromLocalTypes(
+      receiverTypeName,
+      memberName,
+      context
+    );
+    if (localKind) {
+      return emitCSharpName(memberName, bucketFromMemberKind(localKind), context);
+    }
+  }
+
+  if (receiverExpr.kind === "identifier") {
+    const localKind = lookupMemberKindFromLocalTypes(
+      receiverExpr.name,
+      memberName,
+      context
+    );
+    if (localKind) {
+      return emitCSharpName(memberName, bucketFromMemberKind(localKind), context);
+    }
+  }
+
+  const receiverFqn = resolveReceiverTypeFqn(receiverExpr, receiverType, context);
+  if (receiverFqn) {
+    const indexedKind = lookupMemberKindFromIndex(receiverFqn, memberName, context);
+    if (indexedKind) {
+      return emitCSharpName(memberName, bucketFromMemberKind(indexedKind), context);
+    }
+  }
+
+  return emitCSharpName(memberName, "properties", context);
 };
 
 /**
@@ -126,7 +264,8 @@ const isStaticTypeReference = (
  */
 export const emitMemberAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  usage: MemberAccessUsage = "value"
 ): [CSharpFragment, EmitterContext] => {
   // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
@@ -252,7 +391,13 @@ export const emitMemberAccess = (
 
         if (allHaveProp) {
           // Emit: object.Match(__m1 => __m1.prop, __m2 => __m2.prop, ...)
-          const escapedProp = escapeCSharpIdentifier(prop);
+          const escapedProp = emitMemberName(
+            expr.object,
+            objectType,
+            prop,
+            context,
+            usage
+          );
           const lambdas = members.map(
             (_, i) => `__m${i + 1} => __m${i + 1}.${escapedProp}`
           );
@@ -309,6 +454,12 @@ export const emitMemberAccess = (
 
   // Regular property access
   const accessor = expr.isOptional ? "?." : ".";
-  const text = `${receiverText}${accessor}${escapeCSharpIdentifier(prop)}`;
+  const text = `${receiverText}${accessor}${emitMemberName(
+    expr.object,
+    objectType,
+    prop,
+    context,
+    usage
+  )}`;
   return [{ text }, newContext];
 };

@@ -559,7 +559,7 @@ function processMultiple(a: int | null, b: int | null): int {
 Generated C#:
 
 ```csharp
-public static int processValue(int? value)
+public static int ProcessValue(int? value)
 {
     if (value != null)
     {
@@ -568,7 +568,7 @@ public static int processValue(int? value)
     return 0;
 }
 
-public static int processMultiple(int? a, int? b)
+public static int ProcessMultiple(int? a, int? b)
 {
     if (a != null && b != null)
     {

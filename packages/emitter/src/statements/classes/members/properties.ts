@@ -15,6 +15,7 @@ import { emitType } from "../../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
 import { emitBlockStatement } from "../../blocks.js";
+import { emitCSharpName } from "../../../naming-policy.js";
 
 /**
  * Emit a property declaration
@@ -61,7 +62,9 @@ export const emitPropertyMember = (
   }
 
   // Property name (escape C# keywords)
-  parts.push(escapeCSharpIdentifier(member.name));
+  parts.push(
+    emitCSharpName(member.name, hasAccessors ? "properties" : "fields", context)
+  );
 
   // Emit attributes before the property declaration
   const [attributesCode, attrContext] = emitAttributes(

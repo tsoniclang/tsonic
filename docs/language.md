@@ -746,11 +746,11 @@ Tsonic maps your directory structure directly to C# namespaces.
 
 ### The Mapping Rule
 
-**Directory path = C# namespace (case-preserved)**
+**Directory path = C# namespace (default: `namingPolicy.namespaces = "clr"`)**
 
 ```
-src/models/User.ts  ->  namespace MyApp.models { class User {} }
-src/api/v1/handlers.ts  ->  namespace MyApp.api.v1 { class handlers {} }
+src/models/User.ts  ->  namespace MyApp.Models { class User {} }
+src/api/v1/handlers.ts  ->  namespace MyApp.Api.V1 { class Handlers {} }
 ```
 
 ### Root Namespace
@@ -777,9 +777,9 @@ The file name (without `.ts`) becomes the C# class name:
 | ---------------- | ----------------------------------------- |
 | `App.ts`         | `class App`                               |
 | `UserService.ts` | `class UserService`                       |
-| `my-utils.ts`    | `class myutils` (hyphens removed)         |
+| `my-utils.ts`    | `class MyUtils`                           |
 
-To override class naming, use `namingPolicy.classes` in `tsonic.json` (for example, `"PascalCase"` turns `todo-list.ts` into `TodoList`).
+To override naming, set `namingPolicy` in `tsonic.json`. For example, `namingPolicy.all = "none"` disables CLR-style renaming (only hyphens are removed).
 
 ### Directory to Namespace Mapping
 
@@ -787,16 +787,16 @@ Each directory becomes a namespace segment:
 
 ```
 MyApp/              (root namespace)
-├── models/         -> MyApp.models
-│   ├── User.ts     -> MyApp.models.User
-│   └── Product.ts  -> MyApp.models.Product
-└── services/       -> MyApp.services
-    └── api.ts      -> MyApp.services.api
+├── models/         -> MyApp.Models
+│   ├── User.ts     -> MyApp.Models.User
+│   └── Product.ts  -> MyApp.Models.Product
+└── services/       -> MyApp.Services
+    └── api.ts      -> MyApp.Services.Api
 ```
 
 ### Case Preservation
 
-Directory names keep their exact case:
+To preserve directory casing, set `namingPolicy.namespaces` to `"none"`:
 
 ```
 src/Models/User.ts   -> MyApp.Models.User  (capital M)
@@ -811,7 +811,7 @@ Files with top-level exports become static classes:
 
 ```typescript
 // math.ts
-export const PI = 3.14159;
+export const pi = 3.14159;
 export function add(a: number, b: number): number {
   return a + b;
 }
@@ -822,10 +822,10 @@ Becomes:
 ```csharp
 namespace MyApp
 {
-    public static class math
+    public static class Math
     {
-        public static readonly double PI = 3.14159;
-        public static double add(double a, double b)
+        public static readonly double Pi = 3.14159;
+        public static double Add(double a, double b)
         {
             return a + b;
         }
@@ -851,13 +851,13 @@ export class UserService {
 Becomes:
 
 ```csharp
-namespace MyApp.services
+namespace MyApp.Services
 {
     public class UserService
     {
-        public MyApp.models.User getUser()
+        public MyApp.Models.User getUser()
         {
-            return new MyApp.models.User("John");
+            return new MyApp.Models.User("John");
         }
     }
 }

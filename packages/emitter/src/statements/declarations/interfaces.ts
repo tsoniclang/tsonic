@@ -12,6 +12,7 @@ import {
 } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { statementUsesPointer } from "../../core/unsafe.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 /**
  * Emit an interface declaration (as C# class)
@@ -43,7 +44,7 @@ export const emitInterfaceDeclaration = (
   };
 
   // Extract inline object types and emit them as separate classes
-  const extractedTypes = extractInlineObjectTypes(stmt.members);
+  const extractedTypes = extractInlineObjectTypes(stmt.members, currentContext);
   const extractedClassCodes: string[] = [];
 
   for (const extracted of extractedTypes) {
@@ -127,7 +128,7 @@ export const emitInterfaceDeclaration = (
       const typeStr = member.isOptional ? `${typeName}?` : typeName;
       const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
       members.push(
-        `${getIndent(bodyContext)}${typeStr} ${escapeCSharpIdentifier(member.name)} ${accessors}`
+        `${getIndent(bodyContext)}${typeStr} ${emitCSharpName(member.name, "properties", context)} ${accessors}`
       );
       continue;
     }
@@ -158,7 +159,7 @@ export const emitInterfaceDeclaration = (
         .join(", ");
 
       members.push(
-        `${getIndent(bodyContext)}${returnType} ${escapeCSharpIdentifier(member.name)}(${params});`
+        `${getIndent(bodyContext)}${returnType} ${emitCSharpName(member.name, "methods", context)}(${params});`
       );
       continue;
     }

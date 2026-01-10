@@ -6,12 +6,12 @@ namespace TestCases.common.classes.staticmembers
 
         public static double E = 2.71828;
 
-        public static double square(double x)
+        public static double Square(double x)
             {
             return x * x;
             }
 
-        public static double cube(double x)
+        public static double Cube(double x)
             {
             return x * x * x;
             }

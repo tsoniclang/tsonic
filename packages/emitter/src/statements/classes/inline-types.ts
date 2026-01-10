@@ -4,10 +4,10 @@
 
 import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
-import { capitalize } from "./helpers.js";
 import { emitInterfaceMemberAsProperty } from "./properties.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/unsafe.js";
+import { getCSharpName } from "../../naming-policy.js";
 
 /**
  * Extracted inline object type
@@ -21,7 +21,8 @@ export type ExtractedType = {
  * Extract inline object types from interface members and generate class declarations
  */
 export const extractInlineObjectTypes = (
-  members: readonly IrInterfaceMember[]
+  members: readonly IrInterfaceMember[],
+  context: EmitterContext
 ): readonly ExtractedType[] => {
   const extracted: ExtractedType[] = [];
 
@@ -30,8 +31,8 @@ export const extractInlineObjectTypes = (
       member.kind === "propertySignature" &&
       member.type?.kind === "objectType"
     ) {
-      // Generate class name from property name (capitalize)
-      const className = capitalize(member.name);
+      // Generated type name uses naming policy for classes
+      const className = getCSharpName(member.name, "classes", context);
       extracted.push({
         className,
         members: member.type.members,

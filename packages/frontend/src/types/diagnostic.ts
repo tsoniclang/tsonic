@@ -24,6 +24,7 @@ export type DiagnosticCode =
   | "TSN2003" // File name conflicts with exported member name
   | "TSN3001" // C# reserved keyword used
   | "TSN3002" // Invalid C# identifier
+  | "TSN3003" // C# identifier collision after naming policy
   | "TSN3011" // Promise chaining (.then/.catch/.finally) not supported
   | "TSN4001" // .NET interop error
   | "TSN4002" // Missing .NET type declaration

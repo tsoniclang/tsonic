@@ -2,28 +2,28 @@ namespace TestCases.common.classes.inheritance
 {
     public class Animal
     {
-        public string name;
+        public string Name;
 
         public Animal(string name)
             {
-            this.name = name;
+            this.Name = name;
             }
 
-        public string makeSound()
+        public string MakeSound()
             {
             return "Some sound";
             }
     }
     public class Dog : Animal
     {
-        public string breed;
+        public string Breed;
 
         public Dog(string name, string breed) : base(name)
             {
-            this.breed = breed;
+            this.Breed = breed;
             }
 
-        public override string makeSound()
+        public override string MakeSound()
             {
             return "Woof!";
             }

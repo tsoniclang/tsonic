@@ -2,18 +2,18 @@ namespace TestCases.common.classes.basic
 {
     public class Person
     {
-        public string name;
+        public string Name;
 
-        public double age;
+        public double Age;
 
-        public string greet()
+        public string Greet()
             {
-            return $"Hello, I'm {this.name}";
+            return $"Hello, I'm {this.Name}";
             }
 
-        public void birthday()
+        public void Birthday()
             {
-            this.age++;
+            this.Age++;
             }
     }
 }

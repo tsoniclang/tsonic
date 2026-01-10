@@ -260,7 +260,7 @@ export function identity<T>(value: T): T {
 Generates:
 
 ```csharp
-public static T identity<T>(T value)
+public static T Identity<T>(T value)
 {
     return value;
 }
@@ -341,7 +341,7 @@ export async function fetchData(): Promise<string> {
 Generates:
 
 ```csharp
-public static async Task<string> fetchData()
+public static async Task<string> FetchData()
 {
     return "data";
 }
@@ -490,12 +490,12 @@ function castFromObject(obj: object): Animal {
 Generates C# casts:
 
 ```csharp
-public static Dog getDog(Animal animal)
+public static Dog GetDog(Animal animal)
 {
     return (Dog)animal;
 }
 
-public static Animal castFromObject(object obj)
+public static Animal CastFromObject(object obj)
 {
     return (Animal)obj;
 }
@@ -529,12 +529,12 @@ function process(animal: Animal): void {
 Generates C# `as` operator:
 
 ```csharp
-public static Dog? tryGetDog(Animal animal)
+public static Dog? TryGetDog(Animal animal)
 {
     return animal as Dog;
 }
 
-public static void process(Animal animal)
+public static void Process(Animal animal)
 {
     var dog = animal as Dog;
     if (dog != null)
@@ -581,18 +581,18 @@ Generates synthesized classes:
 
 ```csharp
 // Auto-generated record class
-public record createPoint_Return(double x, double y);
+public record CreatePoint_Return(double X, double Y);
 
-public record processData_data(double id, string name);
+public record ProcessData_data(double Id, string Name);
 
-public static createPoint_Return createPoint()
+public static CreatePoint_Return CreatePoint()
 {
-    return new createPoint_Return(10, 20);
+    return new CreatePoint_Return(10, 20);
 }
 
-public static void processData(processData_data data)
+public static void ProcessData(ProcessData_data data)
 {
-    Console.WriteLine(data.name);
+    Console.WriteLine(data.Name);
 }
 ```
 
@@ -651,7 +651,7 @@ function processValue(value: int | null): int {
 Generates:
 
 ```csharp
-public static int processValue(int? value)
+public static int ProcessValue(int? value)
 {
     if (value != null)
     {

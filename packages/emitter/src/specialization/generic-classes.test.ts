@@ -54,6 +54,6 @@ describe("Generic Classes (spec/15 §3-5)", () => {
     const result = emitModule(module);
 
     expect(result).to.include("public class Box<T>");
-    expect(result).to.include("public T value");
+    expect(result).to.include("public T Value");
   });
 });

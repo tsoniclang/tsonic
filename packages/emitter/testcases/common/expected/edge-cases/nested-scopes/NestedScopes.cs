@@ -2,7 +2,7 @@ namespace TestCases.common.edgecases.nestedscopes
 {
         public static class NestedScopes
         {
-            public static double nestedScopes(double x)
+            public static double NestedScopes(double x)
                 {
                 var a = 10;
                 {

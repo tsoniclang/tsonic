@@ -15,6 +15,8 @@ import {
   type Diagnostic,
   type IrModule,
   type CompilerOptions,
+  applyNamingPolicy,
+  resolveNamingPolicy,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/emitter";
 import {
@@ -171,7 +173,15 @@ const collectProjectLibraries = (
 /**
  * Extract entry point information from IR module
  */
-const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
+const extractEntryInfo = (
+  entryModule: IrModule,
+  namingPolicy: ResolvedConfig["namingPolicy"]
+): EntryInfo | null => {
+  const methodName = applyNamingPolicy(
+    "main",
+    resolveNamingPolicy(namingPolicy, "methods")
+  );
+
   // Look for exported 'main' function
   for (const exp of entryModule.exports) {
     if (exp.kind === "declaration") {
@@ -180,7 +190,7 @@ const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
         return {
           namespace: entryModule.namespace,
           className: entryModule.className,
-          methodName: "main",
+          methodName,
           isAsync: decl.isAsync,
           needsProgram: true,
         };
@@ -193,7 +203,7 @@ const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
           return {
             namespace: entryModule.namespace,
             className: entryModule.className,
-            methodName: "main",
+            methodName,
             isAsync: stmt.isAsync,
             needsProgram: true,
           };
@@ -288,6 +298,7 @@ export const generateCommand = (
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)
       clrBindings: bindings, // Pass bindings from frontend for Action/Func resolution
+      namingPolicy,
     });
 
     if (!emitResult.ok) {
@@ -328,7 +339,7 @@ export const generateCommand = (
         entryModule;
 
       if (foundEntryModule) {
-        const entryInfo = extractEntryInfo(foundEntryModule);
+        const entryInfo = extractEntryInfo(foundEntryModule, namingPolicy);
         if (entryInfo) {
           const programCs = generateProgramCs(entryInfo);
           const programPath = join(outputDir, "Program.cs");

@@ -190,18 +190,18 @@ describe("Generator Wrapper", () => {
       const [code] = generateWrapperClass(func, context);
 
       // Class declaration
-      expect(code).to.include("public sealed class counter_Generator");
+      expect(code).to.include("public sealed class Counter_Generator");
 
       // Private fields
       expect(code).to.include("private readonly");
-      expect(code).to.include("IEnumerator<counter_exchange>");
+      expect(code).to.include("IEnumerator<Counter_exchange>");
       expect(code).to.include("_enumerator");
-      expect(code).to.include("counter_exchange _exchange");
+      expect(code).to.include("Counter_exchange _exchange");
       expect(code).to.include("bool _done = false");
 
       // Constructor
-      expect(code).to.include("public counter_Generator(");
-      expect(code).to.include("IEnumerable<counter_exchange> enumerable");
+      expect(code).to.include("public Counter_Generator(");
+      expect(code).to.include("IEnumerable<Counter_exchange> enumerable");
       expect(code).to.include("GetEnumerator()");
 
       // next() method
@@ -245,11 +245,11 @@ describe("Generator Wrapper", () => {
       const [code] = generateWrapperClass(func, context);
 
       // Async class
-      expect(code).to.include("public sealed class asyncCounter_Generator");
+      expect(code).to.include("public sealed class AsyncCounter_Generator");
 
       // Async enumerator
-      expect(code).to.include("IAsyncEnumerator<asyncCounter_exchange>");
-      expect(code).to.include("IAsyncEnumerable<asyncCounter_exchange>");
+      expect(code).to.include("IAsyncEnumerator<AsyncCounter_exchange>");
+      expect(code).to.include("IAsyncEnumerable<AsyncCounter_exchange>");
       expect(code).to.include("GetAsyncEnumerator()");
 
       // Async next() method

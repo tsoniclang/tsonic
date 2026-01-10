@@ -14,6 +14,7 @@
 import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import { getCSharpName } from "./naming-policy.js";
 
 /**
  * Extract Generator type arguments from a return type
@@ -149,8 +150,9 @@ export const generateWrapperClass = (
   const parts: string[] = [];
   let currentContext = context;
 
-  const wrapperName = `${func.name}_Generator`;
-  const exchangeName = `${func.name}_exchange`;
+  const csharpBaseName = getCSharpName(func.name, "methods", context);
+  const wrapperName = `${csharpBaseName}_Generator`;
+  const exchangeName = `${csharpBaseName}_exchange`;
 
   // Extract type arguments
   const { yieldType, returnType, nextType, hasNextType, newContext } =

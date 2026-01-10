@@ -54,8 +54,8 @@ describe("Struct Emission", () => {
 
     const result = emitCSharpFile(module);
     expect(result).to.include("public struct Point");
-    expect(result).to.include("public required double x");
-    expect(result).to.include("public required double y");
+    expect(result).to.include("public required double X");
+    expect(result).to.include("public required double Y");
     expect(result).not.to.include("class Point");
   });
 
@@ -139,9 +139,9 @@ describe("Struct Emission", () => {
 
     const result = emitCSharpFile(module);
     expect(result).to.include("public struct Vector3D");
-    expect(result).to.include("public required double x");
-    expect(result).to.include("public required double y");
-    expect(result).to.include("public required double z");
+    expect(result).to.include("public required double X");
+    expect(result).to.include("public required double Y");
+    expect(result).to.include("public required double Z");
     expect(result).not.to.include("class Vector3D");
   });
 

@@ -174,12 +174,12 @@ File paths map to C# namespaces:
 
 ```
 src/
-├── App.ts           → MyApp.src.App
+├── App.ts           → MyApp.App
 ├── models/
-│   ├── User.ts      → MyApp.src.models.User
-│   └── Product.ts   → MyApp.src.models.Product
+│   ├── User.ts      → MyApp.Models.User
+│   └── Product.ts   → MyApp.Models.Product
 └── services/
-    └── api.ts       → MyApp.src.services.api
+    └── api.ts       → MyApp.Services.Api
 ```
 
 When importing across directories:
@@ -187,7 +187,7 @@ When importing across directories:
 ```typescript
 // src/services/api.ts
   import { User } from "../models/User.js";
-// Resolves to namespace MyApp.src.models
+// Resolves to namespace MyApp.Models
 
 export function getUser(): User {
   return { id: 1, name: "Alice" };

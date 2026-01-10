@@ -7,6 +7,7 @@ import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/unsafe.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 /**
  * Emit a type alias declaration
@@ -95,7 +96,7 @@ export const emitTypeAliasDeclaration = (
             propParts.push(member.isOptional ? "object?" : "object");
           }
 
-          propParts.push(escapeCSharpIdentifier(member.name));
+          propParts.push(emitCSharpName(member.name, "properties", context));
 
           // Readonly uses get-only, writable uses get; set;
           const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";

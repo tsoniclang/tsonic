@@ -3,16 +3,16 @@ namespace TestCases.common.types.genericconstraints
     public class RefWrapper<T>
         where T : class
     {
-        public T? value;
+        public T? Value;
 
         public RefWrapper(T? value)
             {
-            this.value = value;
+            this.Value = value;
             }
 
-        public bool isNull()
+        public bool IsNull()
             {
-            return this.value is null;
+            return this.Value is null;
             }
     }
 }

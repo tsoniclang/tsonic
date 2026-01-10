@@ -2,20 +2,20 @@ namespace TestCases.common.types.genericinterfaceinheritance
 {
     public class Identifiable<T>
     {
-        public T id;
+        public T Id;
 
         public Identifiable(T id)
             {
-            this.id = id;
+            this.Id = id;
             }
     }
     public class Named<T> : Identifiable<T>
     {
-        public string name;
+        public string Name;
 
         public Named(T id, string name) : base(id)
             {
-            this.name = name;
+            this.Name = name;
             }
     }
     public class Person : Named<int>

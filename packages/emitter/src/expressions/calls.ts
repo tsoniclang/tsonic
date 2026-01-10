@@ -8,6 +8,7 @@ import { emitExpression } from "../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
 import { emitType } from "../type-emitter.js";
 import { formatPostfixExpressionText } from "./parentheses.js";
+import { emitMemberAccess } from "./access.js";
 
 /**
  * Ref/out/in parameter handling:
@@ -411,7 +412,10 @@ export const emitCall = (
   }
 
   // Regular function call
-  const [calleeFrag, newContext] = emitExpression(expr.callee, context);
+  const [calleeFrag, newContext] =
+    expr.callee.kind === "memberAccess"
+      ? emitMemberAccess(expr.callee, context, "call")
+      : emitExpression(expr.callee, context);
   let currentContext = newContext;
 
   // Handle generic type arguments

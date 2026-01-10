@@ -2,7 +2,7 @@ namespace TestCases.common.arrays.destructuring
 {
         public static class ArrayDestructure
         {
-            public static double destructure(double[] arr)
+            public static double Destructure(double[] arr)
                 {
                 var __arr0 = arr;
                 double first = __arr0[0];

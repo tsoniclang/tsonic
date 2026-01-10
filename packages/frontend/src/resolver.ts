@@ -12,3 +12,10 @@ export {
   ClrBindingsResolver,
   createClrBindingsResolver,
 } from "./resolver/index.js";
+
+export type {
+  NamingPolicy,
+  NamingPolicyConfig,
+  NamingPolicyBucket,
+} from "./resolver/naming-policy.js";
+export { applyNamingPolicy, resolveNamingPolicy } from "./resolver/naming-policy.js";

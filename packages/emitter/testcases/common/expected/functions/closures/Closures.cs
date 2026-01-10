@@ -2,7 +2,7 @@ namespace TestCases.common.functions.closures
 {
         public static class Closures
         {
-            public static global::System.Func<double> makeCounter()
+            public static global::System.Func<double> MakeCounter()
                 {
                 var count = 0;
                 return () =>
@@ -12,7 +12,7 @@ namespace TestCases.common.functions.closures
                 };
                 }
 
-            public static global::System.Func<double, double> makeAdder(double x)
+            public static global::System.Func<double, double> MakeAdder(double x)
                 {
                 return (double y) => x + y;
                 }

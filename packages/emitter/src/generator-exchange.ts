@@ -10,6 +10,7 @@ import {
   needsBidirectionalSupport,
   generateWrapperClass,
 } from "./generator-wrapper.js";
+import { getCSharpName } from "./naming-policy.js";
 
 /**
  * Collect all generator functions from a module
@@ -50,7 +51,8 @@ const generateExchangeClass = (
   const parts: string[] = [];
   let currentContext = context;
 
-  const exchangeName = `${func.name}_exchange`;
+  const csharpBaseName = getCSharpName(func.name, "methods", context);
+  const exchangeName = `${csharpBaseName}_exchange`;
 
   parts.push(`${ind}public sealed class ${exchangeName}`);
   parts.push(`${ind}{`);

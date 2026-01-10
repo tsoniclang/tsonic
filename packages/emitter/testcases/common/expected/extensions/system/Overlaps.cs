@@ -4,7 +4,7 @@ namespace TestCases.common.extensions.system
         {
             // type Ext = T
 
-            public static void run()
+            public static void Run()
                 {
                 var s = "hello";
                 var a = global::System.MemoryExtensions.AsSpan((string)s);

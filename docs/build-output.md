@@ -77,11 +77,11 @@ Entry point wrapper that calls your `main()`:
 
 ```csharp
 // Program.cs
-public class Program
+public static class Program
 {
     public static void Main(string[] args)
     {
-        MyApp.src.App.main();
+        global::MyApp.App.main();
     }
 }
 ```
@@ -89,11 +89,11 @@ public class Program
 For async main:
 
 ```csharp
-public class Program
+public static class Program
 {
     public static async Task Main(string[] args)
     {
-        await MyApp.src.App.main();
+        await global::MyApp.App.main();
     }
 }
 ```

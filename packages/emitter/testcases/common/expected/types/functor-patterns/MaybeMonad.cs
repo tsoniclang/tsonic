@@ -3,7 +3,7 @@ namespace TestCases.common.types.functorpatterns
     public class Functor<T>
         where T : class
     {
-        public Functor<U> map<U>(global::System.Func<T, U> fn)
+        public Functor<U> Map<U>(global::System.Func<T, U> fn)
             where U : class
             {
             throw "Not implemented";
@@ -11,13 +11,13 @@ namespace TestCases.common.types.functorpatterns
     }
     public static class Maybe
     {
-        public static Maybe<T> just<T>(T value)
+        public static Maybe<T> Just<T>(T value)
             where T : class
             {
             return new Maybe<T>(value);
             }
 
-        public static Maybe<T> nothing<T>()
+        public static Maybe<T> Nothing<T>()
             where T : class
             {
             return new Maybe<T>(default);
@@ -26,36 +26,36 @@ namespace TestCases.common.types.functorpatterns
     public class Maybe<T> : Functor<T>
         where T : class
     {
-        private T? value;
+        private T? Value;
 
         public Maybe(T? value) : base()
             {
-            this.value = value;
+            this.Value = value;
             }
 
-        public override Maybe<U> map<U>(global::System.Func<T, U> fn)
+        public override Maybe<U> Map<U>(global::System.Func<T, U> fn)
             where U : class
             {
-            if (this.value is null)
+            if (this.Value is null)
                 {
-                return Maybe.nothing<U>();
+                return Maybe.Nothing<U>();
                 }
-            return Maybe.just(fn(this.value));
+            return Maybe.Just(fn(this.Value));
             }
 
-        public Maybe<U> flatMap<U>(global::System.Func<T, Maybe<U>> fn)
+        public Maybe<U> FlatMap<U>(global::System.Func<T, Maybe<U>> fn)
             where U : class
             {
-            if (this.value is null)
+            if (this.Value is null)
                 {
-                return Maybe.nothing<U>();
+                return Maybe.Nothing<U>();
                 }
-            return fn(this.value);
+            return fn(this.Value);
             }
 
-        public T getOrElse(T defaultValue)
+        public T GetOrElse(T defaultValue)
             {
-            return this.value is not null ? this.value : defaultValue;
+            return this.Value is not null ? this.Value : defaultValue;
             }
     }
 }

@@ -55,7 +55,7 @@ describe("Extension Method Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("addOne(this int x)");
+    expect(result).to.include("AddOne(this int x)");
   });
 
   it("should emit `this ref` for ref receivers", () => {
@@ -110,6 +110,6 @@ describe("Extension Method Emission", () => {
     };
 
     const result = emitModule(module);
-    expect(result).to.include("inc(this ref int x)");
+    expect(result).to.include("Inc(this ref int x)");
   });
 });

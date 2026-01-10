@@ -12,9 +12,13 @@ export type {
   ModuleMap,
   ExportSource,
   ExportMap,
+  TypeMemberIndex,
+  TypeMemberKind,
   JsonAotRegistry,
   LocalTypeInfo,
   NarrowedBinding,
+  ValueSymbolKind,
+  ValueSymbolInfo,
 } from "./core.js";
 export type {
   CSharpAccessModifier,
