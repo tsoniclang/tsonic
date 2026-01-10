@@ -16,7 +16,7 @@ import { createClrBindingsResolver } from "../resolver/clr-bindings-resolver.js"
 import { createBinding } from "./binding/index.js";
 
 describe("thisarg<T> typing", () => {
-  const createTestProgram = (source: string, fileName = "/test/sample.ts") => {
+  const createTestProgram = (source: string, fileName = "sample.ts") => {
     const sourceFile = ts.createSourceFile(
       fileName,
       source,
@@ -25,34 +25,42 @@ describe("thisarg<T> typing", () => {
       ts.ScriptKind.TS
     );
 
-    const program = ts.createProgram(
-      [fileName],
-      {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ES2022,
-      },
-      {
-        getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
-        writeFile: () => {},
-        getCurrentDirectory: () => "/test",
-        getDirectories: () => [],
-        fileExists: () => true,
-        readFile: () => source,
-        getCanonicalFileName: (f) => f,
-        useCaseSensitiveFileNames: () => true,
-        getNewLine: () => "\n",
-        getDefaultLibFileName: (_options) => "lib.d.ts",
-      }
-    );
+    const compilerOptions: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      strict: true,
+      noEmit: true,
+    };
 
+    const host = ts.createCompilerHost(compilerOptions);
+    const originalGetSourceFile = host.getSourceFile;
+    host.getSourceFile = (
+      name: string,
+      languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
+      onError?: (message: string) => void,
+      shouldCreateNewSourceFile?: boolean
+    ) => {
+      if (name === fileName) {
+        return sourceFile;
+      }
+      return originalGetSourceFile.call(
+        host,
+        name,
+        languageVersionOrOptions,
+        onError,
+        shouldCreateNewSourceFile
+      );
+    };
+
+    const program = ts.createProgram([fileName], compilerOptions, host);
     const checker = program.getTypeChecker();
 
     const testProgram = {
       program,
       checker,
       options: {
-        projectRoot: "/test",
-        sourceRoot: "/test",
+        projectRoot: process.cwd(),
+        sourceRoot: process.cwd(),
         rootNamespace: "TestApp",
         strict: true,
       },
@@ -72,7 +80,7 @@ describe("thisarg<T> typing", () => {
 
   it("erases thisarg<T> so generic call inference succeeds", () => {
     const source = `
-      type thisarg<T> = T;
+      import type { thisarg } from "@tsonic/core/lang.js";
 
       export function id<T>(x: thisarg<T>): T {
         return x;

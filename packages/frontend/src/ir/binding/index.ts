@@ -248,8 +248,39 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const id = makeDeclId(nextDeclId.value++);
     symbolToDeclId.set(symbol, id);
 
-    // Get declaration info
-    const decl = symbol.getDeclarations()?.[0];
+    // Get declaration info.
+    //
+    // IMPORTANT:
+    // Some symbols (notably tsbindgen facades) intentionally merge a value export
+    // and a type export under the same name, e.g.:
+    //   export const Task: typeof Internal.Task;
+    //   export type Task<T1 = __> = ... Internal.Task_1<T1> ...
+    //
+    // For expression identifiers we want the value declaration, while for type
+    // references we must be able to access the type declaration. We capture both.
+    const decls = symbol.getDeclarations() ?? [];
+
+    const valueDecl = decls.find(
+      (d) =>
+        ts.isVariableDeclaration(d) ||
+        ts.isFunctionDeclaration(d) ||
+        ts.isParameter(d) ||
+        ts.isPropertyDeclaration(d) ||
+        ts.isPropertySignature(d) ||
+        ts.isMethodDeclaration(d) ||
+        ts.isMethodSignature(d)
+    );
+
+    const typeDecl = decls.find(
+      (d) =>
+        ts.isTypeAliasDeclaration(d) ||
+        ts.isInterfaceDeclaration(d) ||
+        ts.isClassDeclaration(d) ||
+        ts.isEnumDeclaration(d) ||
+        ts.isTypeParameterDeclaration(d)
+    );
+
+    const decl = valueDecl ?? typeDecl ?? decls[0];
 
     // Capture class member names for override detection (TS-version safe)
     const classMemberNames =
@@ -260,6 +291,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const entry: DeclEntry = {
       symbol,
       decl,
+      typeDeclNode: typeDecl,
+      valueDeclNode: valueDecl,
       typeNode: decl ? getTypeNodeFromDeclaration(decl) : undefined,
       kind: decl ? getDeclKind(decl) : "variable",
       fqName: symbol.getName(),
@@ -410,12 +443,187 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     // no explicit constructor). We still want a SignatureId so TypeSystem can
     // treat this call deterministically as `void`.
     if (signature.declaration === undefined) {
-      return node.expression.kind === ts.SyntaxKind.SuperKeyword
-        ? getOrCreateSignatureId(signature)
-        : undefined;
+      // Special case: `super()` implicit base constructor
+      if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
+        return getOrCreateSignatureId(signature);
+      }
+
+      // Recovery: calls through variables/properties typed as functions can
+      // yield signatures without declarations. Attempt to re-anchor to a
+      // function-like declaration we can capture syntactically.
+      const symbol = (() => {
+        const expr = node.expression;
+        if (ts.isIdentifier(expr)) return checker.getSymbolAtLocation(expr);
+        if (ts.isPropertyAccessExpression(expr)) {
+          return checker.getSymbolAtLocation(expr.name);
+        }
+        return undefined;
+      })();
+
+      const resolvedSymbol =
+        symbol && symbol.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(symbol)
+          : symbol;
+
+      const decls = resolvedSymbol?.getDeclarations() ?? [];
+      for (const decl of decls) {
+        // Direct function-like declarations (function/method/signature)
+        if (ts.isFunctionLike(decl)) {
+          const sig = checker.getSignatureFromDeclaration(decl);
+          if (sig) return getOrCreateSignatureId(sig);
+          continue;
+        }
+
+        // Variable initializers: const f = (x) => ...
+        if (ts.isVariableDeclaration(decl)) {
+          const init = decl.initializer;
+          if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+            const sig = checker.getSignatureFromDeclaration(init);
+            if (sig) return getOrCreateSignatureId(sig);
+          }
+        }
+      }
+
+      return undefined;
     }
 
-    return getOrCreateSignatureId(signature);
+    const resolvedId = getOrCreateSignatureId(signature);
+
+    // Airplane-grade overload selection for erased TS types:
+    // In TypeScript, `char` is `string`, so overload sets that differ only by
+    // `char` vs `string` can be resolved "wrong" due to declaration order
+    // (e.g., string.split("/") picking the `char` overload).
+    //
+    // We apply a deterministic, syntax-driven tie-breaker:
+    // - Prefer `string` parameters for non-charish arguments (string literals, etc.)
+    // - Prefer `char` parameters only when the argument is explicitly marked char
+    //   (e.g., `expr as char`, or identifier declared `: char`).
+    const candidates = resolveCallSignatureCandidates(node);
+    if (!candidates || candidates.length < 2) return resolvedId;
+
+    const stripParens = (expr: ts.Expression): ts.Expression => {
+      let current = expr;
+      while (ts.isParenthesizedExpression(current)) {
+        current = current.expression;
+      }
+      return current;
+    };
+
+    const isCharTypeNode = (typeNode: ts.TypeNode): boolean => {
+      if (ts.isTypeReferenceNode(typeNode)) {
+        const tn = typeNode.typeName;
+        if (ts.isIdentifier(tn)) return tn.text === "char";
+        return tn.right.text === "char";
+      }
+      return false;
+    };
+
+    const isCharishArgument = (arg: ts.Expression): boolean => {
+      const expr = stripParens(arg);
+
+      // Explicit `as char` / `<char>` assertions.
+      if (ts.isAsExpression(expr) || ts.isTypeAssertionExpression(expr)) {
+        return isCharTypeNode(expr.type);
+      }
+
+      // Identifier declared with `: char`.
+      if (ts.isIdentifier(expr)) {
+        const sym = checker.getSymbolAtLocation(expr);
+        if (!sym) return false;
+        const resolvedSym =
+          sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+        const decls = resolvedSym.getDeclarations() ?? [];
+        for (const decl of decls) {
+          const typeNode = getTypeNodeFromDeclaration(decl);
+          if (typeNode && isCharTypeNode(typeNode)) return true;
+        }
+      }
+
+      return false;
+    };
+
+    const prefersStringOverChar = (arg: ts.Expression): boolean => {
+      const expr = stripParens(arg);
+      if (isCharishArgument(expr)) return false;
+      return ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr);
+    };
+
+    type ParamClass = "char" | "string" | "other";
+
+    const classifyParamTypeNode = (typeNode: unknown): ParamClass => {
+      if (!typeNode) return "other";
+      const node = typeNode as ts.TypeNode;
+      if (node.kind === ts.SyntaxKind.StringKeyword) return "string";
+      if (isCharTypeNode(node)) return "char";
+      if (ts.isArrayTypeNode(node)) {
+        return isCharTypeNode(node.elementType) ? "char" : "other";
+      }
+      return "other";
+    };
+
+    const paramClassForArgIndex = (
+      entry: SignatureEntry,
+      argIndex: number
+    ): ParamClass => {
+      const params = entry.parameters;
+      const direct = params[argIndex];
+      if (direct) return classifyParamTypeNode(direct.typeNode);
+
+      // Rest parameter: map extra args to last param if it is rest.
+      const last = params[params.length - 1];
+      if (last && last.isRest) return classifyParamTypeNode(last.typeNode);
+      return "other";
+    };
+
+    const args = node.arguments;
+    const wantsStringAt: number[] = [];
+    const wantsCharAt: number[] = [];
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (!arg) continue;
+      if (ts.isSpreadElement(arg)) continue;
+
+      if (isCharishArgument(arg)) {
+        wantsCharAt.push(i);
+      } else if (prefersStringOverChar(arg)) {
+        wantsStringAt.push(i);
+      }
+    }
+
+    if (wantsStringAt.length === 0 && wantsCharAt.length === 0) return resolvedId;
+
+    const scoreSignature = (sigId: SignatureId): number => {
+      const entry = signatureMap.get(sigId.id);
+      if (!entry) return 0;
+
+      let score = 0;
+      for (const i of wantsStringAt) {
+        const pc = paramClassForArgIndex(entry, i);
+        if (pc === "string") score += 2;
+        if (pc === "char") score -= 2;
+      }
+      for (const i of wantsCharAt) {
+        const pc = paramClassForArgIndex(entry, i);
+        if (pc === "char") score += 2;
+        if (pc === "string") score -= 2;
+      }
+      return score;
+    };
+
+    const resolvedScore = scoreSignature(resolvedId);
+    let bestId = resolvedId;
+    let bestScore = resolvedScore;
+
+    for (const candidate of candidates) {
+      const s = scoreSignature(candidate);
+      if (s > bestScore) {
+        bestScore = s;
+        bestId = candidate;
+      }
+    }
+
+    return bestId;
   };
 
   const resolveCallSignatureCandidates = (
@@ -635,6 +843,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         kind: entry.kind,
         fqName: entry.fqName,
         declNode: entry.decl,
+        typeDeclNode: entry.typeDeclNode,
+        valueDeclNode: entry.valueDeclNode,
         classMemberNames: entry.classMemberNames,
       };
     },
@@ -734,6 +944,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 interface DeclEntry {
   readonly symbol: ts.Symbol;
   readonly decl?: ts.Declaration;
+  readonly typeDeclNode?: ts.Declaration;
+  readonly valueDeclNode?: ts.Declaration;
   readonly typeNode?: ts.TypeNode;
   readonly kind: DeclKind;
   readonly fqName?: string;

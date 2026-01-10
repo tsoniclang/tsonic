@@ -84,7 +84,7 @@ describe("Generic Validation", () => {
   describe("TSN7106 - Extension Method Receiver Marker", () => {
     it("should allow thisarg<T> on first parameter of a top-level function declaration", () => {
       const source = `
-        type thisarg<T> = T;
+        import type { thisarg } from "@tsonic/core/lang.js";
 
         export function where(x: thisarg<number>, y: number): number {
           return x + y;
@@ -100,7 +100,7 @@ describe("Generic Validation", () => {
 
     it("should reject thisarg<T> when not the first parameter", () => {
       const source = `
-        type thisarg<T> = T;
+        import type { thisarg } from "@tsonic/core/lang.js";
 
         export function where(y: number, x: thisarg<number>): number {
           return x + y;
@@ -117,7 +117,7 @@ describe("Generic Validation", () => {
 
     it("should reject thisarg<T> on class methods", () => {
       const source = `
-        type thisarg<T> = T;
+        import type { thisarg } from "@tsonic/core/lang.js";
 
         export class Extensions {
           static where(x: thisarg<number>, y: number): number {
@@ -136,7 +136,7 @@ describe("Generic Validation", () => {
 
     it("should reject thisarg<T> on arrow functions", () => {
       const source = `
-        type thisarg<T> = T;
+        import type { thisarg } from "@tsonic/core/lang.js";
 
         export const where = (x: thisarg<number>, y: number): number => x + y;
       `;
@@ -151,8 +151,8 @@ describe("Generic Validation", () => {
 
     it("should reject out receiver on thisarg<T> parameters", () => {
       const source = `
-        type thisarg<T> = T;
-        type out<T> = T;
+        import type { thisarg } from "@tsonic/core/lang.js";
+        import type { out } from "@tsonic/core/types.js";
 
         export function tryGetCount(xs: out<thisarg<number>>): number {
           return xs;
@@ -165,6 +165,61 @@ describe("Generic Validation", () => {
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
       expect(diag).not.to.equal(undefined);
       expect(diag?.message).to.include("cannot be `out`");
+    });
+  });
+
+  describe("TSN7440 - Core Intrinsic Provenance", () => {
+    it("should reject locally declared core numeric aliases (int)", () => {
+      const source = `
+        type int = number;
+
+        export const x: int = 1 as int;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7440");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Core intrinsic 'int'");
+    });
+
+    it("should reject locally declared core lang intrinsics (stackalloc)", () => {
+      const source = `
+        function stackalloc<T>(size: number): T {
+          throw new Error("not implemented");
+        }
+
+        export function main(): void {
+          stackalloc<number>(123);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7440");
+      expect(diag).not.to.equal(undefined);
+      expect(diag?.message).to.include("Core intrinsic 'stackalloc'");
+    });
+
+    it("should allow core intrinsics when imported from @tsonic/core", () => {
+      const source = `
+        import type { int } from "@tsonic/core/types.js";
+        import { stackalloc } from "@tsonic/core/lang.js";
+
+        export const x: int = 1 as int;
+
+        export function main(): void {
+          stackalloc<int>(10 as int);
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7440");
+      expect(diag).to.equal(undefined);
     });
   });
 

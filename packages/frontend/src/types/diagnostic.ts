@@ -64,6 +64,7 @@ export type DiagnosticCode =
   // Arrow function inference (TSN7430-TSN7439)
   | "TSN7430" // Arrow function requires explicit types (escape hatch)
   | "TSN7431" // Cannot infer arrow return type
+  | "TSN7440" // Core intrinsic must resolve to @tsonic/core
   // Metadata loading errors (TSN9001-TSN9018)
   | "TSN9001" // Metadata file not found
   | "TSN9002" // Failed to read metadata file

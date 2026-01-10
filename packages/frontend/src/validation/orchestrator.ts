@@ -14,6 +14,7 @@ import { validateUnsupportedFeatures } from "./features.js";
 import { validateGenerics } from "./generics.js";
 import { validateExtensionMethods } from "./extension-methods.js";
 import { validateStaticSafety } from "./static-safety.js";
+import { validateCoreIntrinsics } from "./core-intrinsics.js";
 
 /**
  * Validate an entire Tsonic program
@@ -38,6 +39,7 @@ export const validateSourceFile = (
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
   const validationFns = [
+    validateCoreIntrinsics,
     validateImports,
     validateExports,
     validateUnsupportedFeatures,

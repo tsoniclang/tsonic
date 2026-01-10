@@ -350,6 +350,59 @@ export const convertCallExpression = (
       )
     : undefined;
 
+  // If we can't resolve a signature handle (common for calls through function-typed
+  // variables), fall back to the callee's inferred function type.
+  const calleeFunctionType = (() => {
+    const t = callee.inferredType;
+    if (!t) return undefined;
+    if (t.kind === "functionType") return t;
+    return typeSystem.delegateToFunctionType(t) ?? undefined;
+  })();
+
+  if (!sigId && calleeFunctionType) {
+    const params = calleeFunctionType.parameters;
+    const paramTypesForArgs: (IrType | undefined)[] = [];
+    const hasRest = params.some((p) => p.isRest);
+
+    for (let i = 0; i < node.arguments.length; i++) {
+      const p = params[i] ?? (hasRest ? params[params.length - 1] : undefined);
+      paramTypesForArgs[i] = p?.type;
+    }
+
+    const args: IrCallExpression["arguments"][number][] = [];
+    for (let i = 0; i < node.arguments.length; i++) {
+      const arg = node.arguments[i];
+      if (!arg) continue;
+
+      const expectedType = paramTypesForArgs[i];
+      if (ts.isSpreadElement(arg)) {
+        const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+        args.push({
+          kind: "spread",
+          expression: spreadExpr,
+          inferredType: spreadExpr.inferredType,
+          sourceSpan: getSourceSpan(arg),
+        });
+        continue;
+      }
+
+      args.push(convertExpression(arg, ctx, expectedType));
+    }
+
+    return {
+      kind: "call",
+      callee,
+      arguments: args,
+      isOptional: node.questionDotToken !== undefined,
+      inferredType: calleeFunctionType.returnType,
+      sourceSpan: getSourceSpan(node),
+      typeArguments,
+      requiresSpecialization,
+      argumentPassing: extractArgumentPassing(node, ctx),
+      parameterTypes: paramTypesForArgs,
+    };
+  }
+
   const initialResolved = sigId
     ? typeSystem.resolveCall({
         sigId,
