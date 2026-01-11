@@ -805,6 +805,20 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     if (ts.isInterfaceDeclaration(parent) && parent.name) return parent.name.text;
     if (ts.isClassDeclaration(parent) && parent.name) return parent.name.text;
     if (ts.isTypeAliasDeclaration(parent) && parent.name) return parent.name.text;
+
+    // tsbindgen static containers can be emitted as:
+    //   export const Foo: { bar(...): ... }
+    //
+    // In this case, member declarations live under a TypeLiteralNode whose parent
+    // is the VariableDeclaration for `Foo`. We treat `Foo` as the declaring "type"
+    // name for binding disambiguation purposes.
+    if (ts.isTypeLiteralNode(parent)) {
+      const container = parent.parent;
+      if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
+        return container.name.text;
+      }
+    }
+
     return undefined;
   };
 
