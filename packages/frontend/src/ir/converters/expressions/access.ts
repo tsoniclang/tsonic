@@ -11,6 +11,7 @@ import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
+import type { MemberBinding } from "../../../program/bindings.js";
 
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
@@ -287,6 +288,47 @@ const resolveHierarchicalBinding = (
 ): IrMemberExpression["memberBinding"] => {
   const registry = ctx.bindings;
 
+  const toIrMemberBinding = (
+    overloads: readonly MemberBinding[]
+  ): IrMemberExpression["memberBinding"] => {
+    const first = overloads[0];
+    if (!first) return undefined;
+
+    const getTargetKey = (m: MemberBinding): string =>
+      `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`;
+    const targetKey = getTargetKey(first);
+    if (overloads.some((m) => getTargetKey(m) !== targetKey)) {
+      // Unsafe: overloads map to different CLR targets.
+      return undefined;
+    }
+
+    const getModifiersKey = (m: MemberBinding): string => {
+      const mods = m.parameterModifiers ?? [];
+      if (mods.length === 0) return "";
+      return [...mods]
+        .slice()
+        .sort((a, b) => a.index - b.index)
+        .map((mod) => `${mod.index}:${mod.modifier}`)
+        .join(",");
+    };
+
+    const modsKey = getModifiersKey(first);
+    const modsConsistent = overloads.every((m) => getModifiersKey(m) === modsKey);
+
+    return {
+      assembly: first.binding.assembly,
+      type: first.binding.type,
+      member: first.binding.member,
+      // IMPORTANT: Only attach parameterModifiers if consistent across all overloads.
+      // Overloads can differ in ref/out/in, and those must be selected at call time.
+      parameterModifiers:
+        modsConsistent && first.parameterModifiers && first.parameterModifiers.length > 0
+          ? first.parameterModifiers
+          : undefined,
+      isExtensionMethod: first.isExtensionMethod,
+    };
+  };
+
   // Case 1: object is identifier → check if it's a namespace, then check if property is a type
   if (object.kind === "identifier") {
     const namespace = registry.getNamespace(object.name);
@@ -308,17 +350,9 @@ const resolveHierarchicalBinding = (
       registry.getType(object.name) ??
       (object.originalName ? registry.getType(object.originalName) : undefined);
     if (directType) {
-      const member = directType.members.find((m) => m.alias === propertyName);
-      if (member) {
-        // Found a member binding for direct type import!
-        return {
-          assembly: member.binding.assembly,
-          type: member.binding.type,
-          member: member.binding.member,
-          parameterModifiers: member.parameterModifiers,
-          isExtensionMethod: member.isExtensionMethod,
-        };
-      }
+      const overloads = registry.getMemberOverloads(directType.alias, propertyName);
+      if (!overloads || overloads.length === 0) return undefined;
+      return toIrMemberBinding(overloads);
     }
   }
 
@@ -332,17 +366,9 @@ const resolveHierarchicalBinding = (
         const type = namespace.types.find((t) => t.alias === object.property);
         if (type) {
           // The object is a type reference (namespace.type), now check if property is a member
-          const member = type.members.find((m) => m.alias === propertyName);
-          if (member) {
-            // Found a member binding!
-            return {
-              assembly: member.binding.assembly,
-              type: member.binding.type,
-              member: member.binding.member,
-              parameterModifiers: member.parameterModifiers,
-              isExtensionMethod: member.isExtensionMethod,
-            };
-          }
+          const overloads = registry.getMemberOverloads(type.alias, propertyName);
+          if (!overloads || overloads.length === 0) return undefined;
+          return toIrMemberBinding(overloads);
         }
       }
     }
@@ -354,16 +380,9 @@ const resolveHierarchicalBinding = (
 
   if (objectTypeName) {
     // Look up member by type alias and property name
-    const member = registry.getMember(objectTypeName, propertyName);
-    if (member) {
-      return {
-        assembly: member.binding.assembly,
-        type: member.binding.type,
-        member: member.binding.member,
-        parameterModifiers: member.parameterModifiers,
-        isExtensionMethod: member.isExtensionMethod,
-      };
-    }
+    const overloads = registry.getMemberOverloads(objectTypeName, propertyName);
+    if (!overloads || overloads.length === 0) return undefined;
+    return toIrMemberBinding(overloads);
   }
 
   return undefined;
@@ -398,15 +417,43 @@ const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
-  const member = ctx.bindings.getMember(typeAlias, propertyName);
-  if (!member) return undefined;
+  const overloads = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+  if (!overloads || overloads.length === 0) return undefined;
+
+  const first = overloads[0];
+  if (!first) return undefined;
+
+  const targetKey = `${first.binding.assembly}:${first.binding.type}::${first.binding.member}`;
+  if (
+    overloads.some(
+      (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !== targetKey
+    )
+  ) {
+    return undefined;
+  }
+
+  const getModifiersKey = (m: MemberBinding): string => {
+    const mods = m.parameterModifiers ?? [];
+    if (mods.length === 0) return "";
+    return [...mods]
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .map((mod) => `${mod.index}:${mod.modifier}`)
+      .join(",");
+  };
+
+  const modsKey = getModifiersKey(first);
+  const modsConsistent = overloads.every((m) => getModifiersKey(m) === modsKey);
 
   return {
-    assembly: member.binding.assembly,
-    type: member.binding.type,
-    member: member.binding.member,
-    parameterModifiers: member.parameterModifiers,
-    isExtensionMethod: member.isExtensionMethod,
+    assembly: first.binding.assembly,
+    type: first.binding.type,
+    member: first.binding.member,
+    parameterModifiers:
+      modsConsistent && first.parameterModifiers && first.parameterModifiers.length > 0
+        ? first.parameterModifiers
+        : undefined,
+    isExtensionMethod: first.isExtensionMethod,
   };
 };
 

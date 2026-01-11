@@ -202,10 +202,23 @@ export type EmitterContext = {
   readonly typeParameters?: ReadonlySet<string>;
   /** Type parameter constraint kinds in current scope (for nullable emission decisions) */
   readonly typeParamConstraints?: ReadonlyMap<string, "class" | "struct" | "unconstrained">;
+  /**
+   * Map from source type-parameter names to their emitted C# identifiers.
+   *
+   * Used to deterministically avoid CLR naming collisions between type parameters and members
+   * after namingPolicy transforms (e.g. `interface Triple<A> { a: A }` → property `A`).
+   */
+  readonly typeParameterNameMap?: ReadonlyMap<string, string>;
   /** Return type of current function/method (for contextual typing in return statements) */
   readonly returnType?: IrType;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
+  /** Current module namespace (used for fully qualifying local types when required) */
+  readonly moduleNamespace?: string;
+  /** Name of the module's static container class, when one is emitted */
+  readonly moduleStaticClassName?: string;
+  /** When true, fully qualify local types with module namespace/container */
+  readonly qualifyLocalTypes?: boolean;
   /** Map of module static members (functions/fields) by original TS name */
   readonly valueSymbols?: ReadonlyMap<string, ValueSymbolInfo>;
   /** Scoped identifier remaps for union narrowing */

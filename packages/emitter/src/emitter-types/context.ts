@@ -112,7 +112,11 @@ export const withClassName = (
  */
 type ScopedFields = Pick<
   EmitterContext,
-  "typeParameters" | "typeParamConstraints" | "returnType" | "localNameMap"
+  | "typeParameters"
+  | "typeParamConstraints"
+  | "typeParameterNameMap"
+  | "returnType"
+  | "localNameMap"
 >;
 
 /**
@@ -146,6 +150,7 @@ export const withScoped = <T>(
   const saved: ScopedFields = {
     typeParameters: context.typeParameters,
     typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
   };

@@ -237,6 +237,7 @@ const interfaceMembersToClassMembers = (
         name: m.name,
         type: m.type,
         initializer: undefined,
+        emitAsAutoProperty: true,
         isStatic: false,
         isReadonly: m.isReadonly ?? false,
         accessibility: "public",

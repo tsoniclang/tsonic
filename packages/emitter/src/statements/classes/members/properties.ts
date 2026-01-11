@@ -28,6 +28,8 @@ export const emitPropertyMember = (
   let currentContext = context;
   const parts: string[] = [];
   const hasAccessors = !!(member.getterBody || member.setterBody);
+  const isAutoProperty = member.emitAsAutoProperty === true;
+  const emitsProperty = hasAccessors || isAutoProperty;
 
   // Access modifier
   const accessibility = member.accessibility ?? "public";
@@ -63,7 +65,7 @@ export const emitPropertyMember = (
 
   // Property name (escape C# keywords)
   parts.push(
-    emitCSharpName(member.name, hasAccessors ? "properties" : "fields", context)
+    emitCSharpName(member.name, emitsProperty ? "properties" : "fields", context)
   );
 
   // Emit attributes before the property declaration
@@ -75,7 +77,7 @@ export const emitPropertyMember = (
 
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
 
-  if (!hasAccessors) {
+  if (!emitsProperty) {
     // Emit as field (TypeScript class fields map to C# fields, not properties)
     let code = `${attrPrefix}${ind}${parts.join(" ")}`;
     if (member.initializer) {
@@ -87,6 +89,18 @@ export const emitPropertyMember = (
       currentContext = finalContext;
     }
     return [`${code};`, currentContext];
+  }
+
+  if (!hasAccessors) {
+    const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
+
+    let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
+    if (member.initializer) {
+      const [initFrag, finalContext] = emitExpression(member.initializer, currentContext);
+      currentContext = finalContext;
+      code += ` = ${initFrag.text};`;
+    }
+    return [code, currentContext];
   }
 
   const lines: string[] = [];

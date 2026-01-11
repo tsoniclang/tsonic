@@ -32,6 +32,14 @@ export const emitConstructorMember = (
   member: IrClassMember & { kind: "constructorDeclaration" },
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const savedScoped = {
+    typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
+    returnType: context.returnType,
+    localNameMap: context.localNameMap,
+  };
+
   const ind = getIndent(context);
   let currentContext = context;
   const parts: string[] = [];
@@ -57,7 +65,7 @@ export const emitConstructorMember = (
     // Abstract or interface constructor without body
     const signature = parts.join(" ");
     const code = `${ind}${signature}(${paramsResult.parameterList});`;
-    return [code, currentContext];
+    return [code, { ...currentContext, ...savedScoped }];
   }
 
   // Check for super() call - MUST be the first statement if present
@@ -116,7 +124,8 @@ export const emitConstructorMember = (
   const signature = parts.join(" ");
   const code = `${ind}${signature}(${paramsResult.parameterList})${baseCall}\n${finalBodyCode}`;
 
-  return [code, dedent(finalContext)];
+  const returnedContext = dedent(finalContext);
+  return [code, { ...returnedContext, ...savedScoped }];
 };
 
 /**

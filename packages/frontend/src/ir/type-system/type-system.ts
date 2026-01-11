@@ -3054,6 +3054,7 @@ export const createTypeSystem = (
     // When we have full argument types, and the call targets an assembly-origin type,
     // prefer the best matching overload from the UnifiedTypeCatalog if it scores higher
     // than the TS-selected signature.
+
     if (
       !resolved.typePredicate &&
       argTypes &&

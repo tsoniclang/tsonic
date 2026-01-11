@@ -1300,6 +1300,20 @@ const extractDeclaringIdentity = (
       }
     }
 
+    // tsbindgen static containers are commonly emitted as:
+    //   export const Foo: { bar(...): ... }
+    //
+    // In this case, method signatures live under a TypeLiteralNode whose parent is
+    // the variable declaration for `Foo`. We still need declaring identity so
+    // TypeSystem can apply airplane-grade overload correction using CLR metadata.
+    if (ts.isTypeLiteralNode(parent)) {
+      const container = parent.parent;
+      if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
+        const typeTsName = normalizeTsbindgenTypeName(container.name.text);
+        return { typeTsName, memberName };
+      }
+    }
+
     // Object literal method - use parent context
     if (ts.isObjectLiteralExpression(parent)) {
       // For object literals, we don't have a named type

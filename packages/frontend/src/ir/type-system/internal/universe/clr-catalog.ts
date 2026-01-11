@@ -519,7 +519,8 @@ const extractHeritageFromTsBindgenDts = (
   const extractMethodSignatureOptionalsFromMembers = (
     baseTsName: string,
     members: readonly ts.Node[],
-    typeTypeParams: readonly string[]
+    typeTypeParams: readonly string[],
+    staticOverride?: boolean
   ): void => {
     const typeScope = new Set<string>(typeTypeParams);
 
@@ -561,9 +562,10 @@ const extractHeritageFromTsBindgenDts = (
         : ({ kind: "voidType" } as const);
 
       const isStatic =
-        ts.isMethodDeclaration(member) &&
-        (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ??
-          false);
+        staticOverride ??
+        (ts.isMethodDeclaration(member) &&
+          (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ??
+            false));
 
       const signatureKey = makeMethodSignatureKey({
         isStatic,
@@ -792,6 +794,26 @@ const extractHeritageFromTsBindgenDts = (
         stmt.members,
         typeParams
       );
+    }
+
+    // tsbindgen emits static members and constructors as top-level const containers:
+    //   export const JsonValue: { create(...): JsonValue; new<T>(...): List_1<T>; ... }
+    //
+    // CLR metadata lacks optional parameter flags, so we hydrate them from the d.ts
+    // surface to support deterministic arity checks (and thus overload correction).
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name)) continue;
+        if (!decl.type || !ts.isTypeLiteralNode(decl.type)) continue;
+
+        const baseTsName = stripTsBindgenInstanceSuffix(decl.name.text);
+        extractMethodSignatureOptionalsFromMembers(
+          baseTsName,
+          decl.type.members,
+          [],
+          true
+        );
+      }
     }
   }
 

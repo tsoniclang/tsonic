@@ -20,6 +20,7 @@ import {
 import { convertExpression } from "../../expression-converter.js";
 import { IrType } from "../../types.js";
 import type { ProgramContext } from "../../program-context.js";
+import type { MemberBinding } from "../../../program/bindings.js";
 
 /**
  * Extract argument passing modes from resolved signature.
@@ -205,39 +206,228 @@ export const getDeclaredReturnType = (
   return resolved.returnType;
 };
 
-/**
- * Extract argument passing modes from member binding's parameter modifiers.
- * Converts parameterModifiers to the argumentPassing array format.
- * Returns undefined if no modifiers are present.
- */
-const extractArgumentPassingFromBinding = (
-  callee: ReturnType<typeof convertExpression>,
+const extractArgumentPassingFromParameterModifiers = (
+  modifiers: readonly { readonly index: number; readonly modifier: "ref" | "out" | "in" }[],
   argCount: number
 ): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
-  // Check if callee is a member access with parameter modifiers
-  if (
-    callee.kind !== "memberAccess" ||
-    !callee.memberBinding?.parameterModifiers
-  ) {
-    return undefined;
-  }
+  if (modifiers.length === 0) return undefined;
 
-  const modifiers = callee.memberBinding.parameterModifiers;
-  if (modifiers.length === 0) {
-    return undefined;
-  }
-
-  // Build the argumentPassing array
-  // Initialize all as "value", then override based on modifiers
-  const passing: ("value" | "ref" | "out" | "in")[] =
-    Array(argCount).fill("value");
+  const passing: ("value" | "ref" | "out" | "in")[] = Array(argCount).fill("value");
   for (const mod of modifiers) {
     if (mod.index >= 0 && mod.index < argCount) {
       passing[mod.index] = mod.modifier;
     }
   }
-
   return passing;
+};
+
+/**
+ * Extract argument passing modes from CLR bindings for the *selected overload*.
+ *
+ * CRITICAL: Methods can be overloaded, and overloads can differ in ref/out/in modifiers.
+ * We must not attach a single overload's modifiers to the member access itself.
+ *
+ * This resolver selects the best-matching binding overload using the call's argument
+ * types, then applies that overload's parameterModifiers.
+ */
+const extractArgumentPassingFromBinding = (
+  callee: ReturnType<typeof convertExpression>,
+  argCount: number,
+  ctx: ProgramContext,
+  parameterTypes: readonly (IrType | undefined)[] | undefined,
+  argTypes: readonly (IrType | undefined)[] | undefined
+): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+  if (callee.kind !== "memberAccess" || !callee.memberBinding) return undefined;
+
+  // Fast path: already-resolved modifiers (extension methods or non-overloaded members).
+  const directMods = callee.memberBinding.parameterModifiers;
+  if (directMods && directMods.length > 0) {
+    return extractArgumentPassingFromParameterModifiers(directMods, argCount);
+  }
+
+  // No member binding → no CLR parameter modifiers.
+  const binding = callee.memberBinding;
+  const overloadsAll = ctx.bindings.getClrMemberOverloads(
+    binding.assembly,
+    binding.type,
+    binding.member
+  );
+  if (!overloadsAll || overloadsAll.length === 0) return undefined;
+
+  const calledName = typeof callee.property === "string" ? callee.property : undefined;
+  const overloads = calledName
+    ? overloadsAll.filter((m) => m.alias === calledName || m.name === calledName)
+    : overloadsAll;
+  if (overloads.length === 0) return undefined;
+
+  const matchTypes = parameterTypes ?? argTypes;
+  const hasMatchTypes = matchTypes && matchTypes.some((t) => t !== undefined);
+
+  const splitSignatureTypeList = (str: string): string[] => {
+    const result: string[] = [];
+    let depth = 0;
+    let current = "";
+
+    for (const char of str) {
+      if (char === "[") {
+        depth++;
+        current += char;
+      } else if (char === "]") {
+        depth--;
+        current += char;
+      } else if (char === "," && depth === 0) {
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+
+    if (current.trim()) result.push(current.trim());
+    return result;
+  };
+
+  const parseParameterTypes = (sig: string | undefined): readonly string[] => {
+    if (!sig) return [];
+    const paramsMatch = sig.match(/\|\(([^)]*)\):/);
+    const paramsStr = paramsMatch?.[1]?.trim();
+    if (!paramsStr) return [];
+    return splitSignatureTypeList(paramsStr).map((s) => s.trim());
+  };
+
+  const extractSimpleClrName = (typeName: string): string => {
+    let t = typeName.trim();
+    if (t.endsWith("&")) t = t.slice(0, -1);
+    if (t.endsWith("[]")) t = t.slice(0, -2);
+    const bracket = t.indexOf("[");
+    if (bracket >= 0) t = t.slice(0, bracket);
+    const lastDot = t.lastIndexOf(".");
+    if (lastDot >= 0) t = t.slice(lastDot + 1);
+    return t;
+  };
+
+  const primitiveToClrSimpleName = (name: string): string | undefined => {
+    switch (name) {
+      case "string":
+        return "String";
+      case "boolean":
+      case "bool":
+        return "Boolean";
+      case "char":
+        return "Char";
+      case "byte":
+        return "Byte";
+      case "sbyte":
+        return "SByte";
+      case "short":
+        return "Int16";
+      case "ushort":
+        return "UInt16";
+      case "int":
+        return "Int32";
+      case "uint":
+        return "UInt32";
+      case "long":
+        return "Int64";
+      case "ulong":
+        return "UInt64";
+      case "float":
+        return "Single";
+      case "double":
+        return "Double";
+      case "decimal":
+        return "Decimal";
+      default:
+        return undefined;
+    }
+  };
+
+  const collectMatchNames = (t: IrType): readonly string[] => {
+    switch (t.kind) {
+      case "primitiveType": {
+        const mapped = primitiveToClrSimpleName(t.name);
+        return mapped ? [mapped] : [];
+      }
+      case "referenceType": {
+        const lastDot = t.name.lastIndexOf(".");
+        const simple = lastDot >= 0 ? t.name.slice(lastDot + 1) : t.name;
+        return [simple.replace(/\$instance$/, "").replace(/^\_\_/, "").replace(/\$views$/, "")];
+      }
+      case "unionType":
+        return Array.from(new Set(t.types.flatMap((x) => collectMatchNames(x))));
+      case "intersectionType":
+        return Array.from(new Set(t.types.flatMap((x) => collectMatchNames(x))));
+      default:
+        return [];
+    }
+  };
+
+  const modifiersKey = (m: MemberBinding): string => {
+    const mods = m.parameterModifiers ?? [];
+    if (mods.length === 0) return "";
+    return [...mods]
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .map((mod) => `${mod.index}:${mod.modifier}`)
+      .join(",");
+  };
+
+  const scoreCandidate = (m: MemberBinding): number => {
+    if (!hasMatchTypes) return 0;
+    const paramTypes = parseParameterTypes(m.signature);
+    let score = 0;
+    for (let i = 0; i < argCount; i++) {
+      const expected = matchTypes?.[i];
+      if (!expected) continue;
+
+      const expectedNames = collectMatchNames(expected);
+      if (expectedNames.length === 0) continue;
+
+      const paramType = paramTypes[i];
+      if (!paramType) continue;
+      const paramName = extractSimpleClrName(paramType);
+
+      if (expectedNames.includes(paramName)) {
+        score += 10;
+      } else {
+        score -= 3;
+      }
+    }
+    return score;
+  };
+
+  // Discard candidates that can't accept the provided arguments (best-effort, arity only).
+  const candidates = overloads.filter((m) => {
+    if (typeof m.parameterCount !== "number") return true;
+    return m.parameterCount >= argCount;
+  });
+  if (candidates.length === 0) return undefined;
+
+  let bestScore = Number.NEGATIVE_INFINITY;
+  let best: MemberBinding[] = [];
+  for (const c of candidates) {
+    const score = scoreCandidate(c);
+    if (score > bestScore) {
+      bestScore = score;
+      best = [c];
+    } else if (score === bestScore) {
+      best.push(c);
+    }
+  }
+
+  if (best.length === 0) return undefined;
+
+  // If ambiguous, only accept when all best candidates agree on modifiers.
+  const first = best[0];
+  if (!first) return undefined;
+  const key = modifiersKey(first);
+  if (best.some((m) => modifiersKey(m) !== key)) {
+    return undefined;
+  }
+
+  const chosenMods = first.parameterModifiers;
+  if (!chosenMods || chosenMods.length === 0) return undefined;
+  return extractArgumentPassingFromParameterModifiers(chosenMods, argCount);
 };
 
 /**
@@ -413,13 +603,6 @@ export const convertCallExpression = (
     : undefined;
   const initialParameterTypes = initialResolved?.parameterTypes;
 
-  // Try to get argument passing from binding's parameter modifiers first (tsbindgen format),
-  // then fall back to TypeScript declaration analysis (ref<T>/out<T>/in<T> wrapper types)
-  const argumentPassingFromBinding = extractArgumentPassingFromBinding(
-    callee,
-    node.arguments.length
-  );
-
   const isLambdaArg = (expr: ts.Expression): boolean => {
     if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return true;
     if (ts.isParenthesizedExpression(expr)) return isLambdaArg(expr.expression);
@@ -536,6 +719,13 @@ export const convertCallExpression = (
 
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
   const inferredType = finalResolved?.returnType ?? ({ kind: "unknownType" } as const);
+  const argumentPassingFromBinding = extractArgumentPassingFromBinding(
+    callee,
+    node.arguments.length,
+    ctx,
+    parameterTypes,
+    argTypes
+  );
   const argumentPassing =
     argumentPassingFromBinding ??
     (finalResolved

@@ -111,6 +111,15 @@ export type IrPropertyDeclaration = {
   /** Type from annotation or inferred. Always set for class fields (C# requires explicit type). */
   readonly type?: IrType;
   readonly initializer?: IrExpression;
+  /**
+   * Emit as an auto-property (`{ get; set; }`) even when no accessor bodies are present.
+   *
+   * By default, property declarations without accessors are emitted as C# fields
+   * to match TypeScript class field semantics. Synthetic DTO-like declarations
+   * (e.g., anonymous type lowering) set this flag so they interop cleanly with
+   * reflection-based libraries like System.Text.Json.
+   */
+  readonly emitAsAutoProperty?: boolean;
   /** Getter body for accessor properties (`get foo() { ... }`). */
   readonly getterBody?: IrBlockStatement;
   /**

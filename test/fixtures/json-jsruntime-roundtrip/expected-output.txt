@@ -1,0 +1,7 @@
+PARSE.displayName=Alice
+PARSE.tagsLen=2
+PARSE.nested.ok=True
+STRINGIFY={"id":1,"displayName":"Alice","tags":["x","y"],"nested":{"count":2,"ok":true}}
+ESCAPES={"text":"He said \u0022hi\u0022\nline2 \\ end"}
+PRIMITIVE.number=123
+PRIMITIVE.bool=True

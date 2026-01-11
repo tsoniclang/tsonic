@@ -177,28 +177,10 @@ const registerJsonAotType = (
   if (!context.options.jsonAotRegistry) return;
 
   const registry = context.options.jsonAotRegistry;
-  const [rawTypeStr] = emitType(type, context);
-  const typeStr = rawTypeStr.endsWith("?")
-    ? rawTypeStr.slice(0, -1)
-    : rawTypeStr;
+  const [rawTypeStr] = emitType(type, { ...context, qualifyLocalTypes: true });
+  const typeStr = rawTypeStr.endsWith("?") ? rawTypeStr.slice(0, -1) : rawTypeStr;
 
-  // If type already has a namespace (contains '.') or is global::, use as-is
-  // Otherwise, qualify with rootNamespace (it's a local type)
-  let qualifiedType: string;
-  if (
-    isCSharpBuiltinType(typeStr) ||
-    typeStr.startsWith("global::") ||
-    typeStr.includes(".") ||
-    typeStr.includes("<") // Generic types handle their own qualification
-  ) {
-    qualifiedType = ensureGlobalPrefix(typeStr);
-  } else {
-    // Local type - qualify with rootNamespace
-    const rootNs = context.options.rootNamespace;
-    qualifiedType = `global::${rootNs}.${typeStr}`;
-  }
-
-  registry.rootTypes.add(qualifiedType);
+  registry.rootTypes.add(ensureGlobalPrefix(typeStr));
   registry.needsJsonAot = true;
 };
 

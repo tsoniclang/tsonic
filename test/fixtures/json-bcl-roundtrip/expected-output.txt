@@ -1,0 +1,7 @@
+SERIALIZE={"id":123,"displayName":"Alice \u0022The Great\u0022","isAdmin":false,"tags":["a","b"],"note":"line1\nline2 \\ end \u2603"}
+DESERIALIZE.displayName=Bob
+DESERIALIZE.isAdmin=True
+DESERIALIZE.tags0=x
+DOCUMENT.displayName=Alice "The Great"
+DICTIONARY={"postId":2,"userId":1}
+NODE={"id":123,"displayName":"Alice \u0022The Great\u0022","isAdmin":false,"tags":["a","b"],"note":"line1\nline2 \\ end \u2603","extraValue":42}
