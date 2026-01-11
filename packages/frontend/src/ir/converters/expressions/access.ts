@@ -7,10 +7,13 @@
  */
 
 import * as ts from "typescript";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
+import type { MemberId } from "../../type-system/index.js";
 import type { MemberBinding } from "../../../program/bindings.js";
 
 /**
@@ -388,6 +391,55 @@ const resolveHierarchicalBinding = (
   return undefined;
 };
 
+const findNearestBindingsJson = (filePath: string): string | undefined => {
+  let currentDir = dirname(filePath);
+  while (true) {
+    const candidate = join(currentDir, "bindings.json");
+    if (existsSync(candidate)) return candidate;
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) return undefined;
+    currentDir = parentDir;
+  }
+};
+
+const disambiguateOverloadsByDeclaringType = (
+  overloads: readonly MemberBinding[],
+  memberId: MemberId,
+  declaringTypeTsName: string,
+  ctx: ProgramContext
+): readonly MemberBinding[] | undefined => {
+  const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+  if (!declSourceFilePath) return undefined;
+
+  const bindingsPath = findNearestBindingsJson(declSourceFilePath);
+  if (!bindingsPath) return undefined;
+
+  const raw = (() => {
+    try {
+      return JSON.parse(readFileSync(bindingsPath, "utf8")) as unknown;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  if (!raw || typeof raw !== "object") return undefined;
+  const types = (raw as { readonly types?: unknown }).types;
+  if (!Array.isArray(types)) return undefined;
+
+  const typeEntry = types.find((t) => {
+    if (!t || typeof t !== "object") return false;
+    const tsEmitName = (t as { readonly tsEmitName?: unknown }).tsEmitName;
+    return tsEmitName === declaringTypeTsName;
+  }) as { readonly clrName?: unknown } | undefined;
+
+  const expectedClrType =
+    typeEntry && typeof typeEntry.clrName === "string" ? typeEntry.clrName : undefined;
+  if (!expectedClrType) return undefined;
+
+  const filtered = overloads.filter((m) => m.binding.type === expectedClrType);
+  return filtered.length > 0 ? filtered : undefined;
+};
+
 /**
  * Resolve hierarchical binding for a member access using Binding-resolved MemberId.
  *
@@ -417,8 +469,24 @@ const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
-  const overloads = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
-  if (!overloads || overloads.length === 0) return undefined;
+  const overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+  if (!overloadsAll || overloadsAll.length === 0) return undefined;
+
+  let overloads: readonly MemberBinding[] = overloadsAll;
+  const targetKeys = new Set(
+    overloads.map((m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`)
+  );
+  if (targetKeys.size > 1) {
+    const disambiguated = disambiguateOverloadsByDeclaringType(
+      overloads,
+      memberId,
+      typeAlias,
+      ctx
+    );
+    if (disambiguated) {
+      overloads = disambiguated;
+    }
+  }
 
   const first = overloads[0];
   if (!first) return undefined;

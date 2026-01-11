@@ -149,6 +149,14 @@ export interface Binding {
   getDeclaringTypeNameOfMember(member: MemberId): string | undefined;
 
   /**
+   * Get the absolute source file path where a resolved member is declared.
+   *
+   * Used to disambiguate tsbindgen bindings when multiple CLR types share the same
+   * TS alias (e.g., `Server.listen` exists on both `nodejs.Server` and `nodejs.Http.Server`).
+   */
+  getSourceFilePathOfMember(member: MemberId): string | undefined;
+
+  /**
    * Get the fully-qualified name for a declaration.
    * Used for override detection and .NET type identification.
    */
@@ -800,6 +808,14 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     return undefined;
   };
 
+  const getSourceFilePathOfMember = (member: MemberId): string | undefined => {
+    const key = `${member.declId.id}:${member.name}`;
+    const entry = memberMap.get(key);
+    const decl = entry?.decl;
+    if (!decl) return undefined;
+    return decl.getSourceFile().fileName;
+  };
+
   const getFullyQualifiedName = (declId: DeclId): string | undefined => {
     const entry = declMap.get(declId.id);
     if (!entry) return undefined;
@@ -927,6 +943,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolveImport,
     resolveShorthandAssignment,
     getDeclaringTypeNameOfMember,
+    getSourceFilePathOfMember,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
     // Type syntax capture (Phase 2: TypeSyntaxId)
