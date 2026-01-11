@@ -206,7 +206,7 @@ describe("Generator Wrapper", () => {
 
       // next() method
       expect(code).to.include(
-        "public global::Tsonic.Runtime.IteratorResult<double> next("
+        "public global::Tsonic.Runtime.IteratorResult<double> Next("
       );
       expect(code).to.include("double? value = default");
       expect(code).to.include("_exchange.Input = value");
@@ -215,13 +215,13 @@ describe("Generator Wrapper", () => {
 
       // return() method - takes object when TReturn is void
       expect(code).to.include(
-        "public global::Tsonic.Runtime.IteratorResult<double> @return("
+        "public global::Tsonic.Runtime.IteratorResult<double> Return("
       );
       expect(code).to.include("Dispose()");
 
       // throw() method
       expect(code).to.include(
-        "public global::Tsonic.Runtime.IteratorResult<double> @throw(object e)"
+        "public global::Tsonic.Runtime.IteratorResult<double> Throw(object e)"
       );
       expect(code).to.include("System.Exception");
     });
@@ -254,7 +254,7 @@ describe("Generator Wrapper", () => {
 
       // Async next() method
       expect(code).to.include(
-        "public async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
+        "public async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> Next("
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
 

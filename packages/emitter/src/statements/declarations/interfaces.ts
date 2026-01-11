@@ -21,6 +21,14 @@ export const emitInterfaceDeclaration = (
   stmt: Extract<IrStatement, { kind: "interfaceDeclaration" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const savedScoped = {
+    typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
+    returnType: context.returnType,
+    localNameMap: context.localNameMap,
+  };
+
   // Per spec/16-types-and-interfaces.md §2.1:
   // - Property-only TS interfaces map to C# classes (instantiable for object literals).
   // - Interfaces with method signatures map to C# interfaces so classes can implement
@@ -69,9 +77,22 @@ export const emitInterfaceDeclaration = (
 
   // Type parameters (if any)
   if (stmt.typeParameters && stmt.typeParameters.length > 0) {
+    const reservedTypeParamNames = new Set<string>();
+    for (const member of stmt.members) {
+      if (member.kind === "methodSignature") {
+        reservedTypeParamNames.add(emitCSharpName(member.name, "methods", context));
+        continue;
+      }
+      if (member.kind === "propertySignature") {
+        reservedTypeParamNames.add(
+          emitCSharpName(member.name, "properties", context)
+        );
+      }
+    }
     const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
       stmt.typeParameters,
-      currentContext
+      currentContext,
+      reservedTypeParamNames
     );
     parts.push(typeParamsStr);
     currentContext = typeParamContext;
@@ -178,5 +199,5 @@ export const emitInterfaceDeclaration = (
 
   const code = allParts.join("\n");
 
-  return [code, currentContext];
+  return [code, { ...currentContext, ...savedScoped }];
 };

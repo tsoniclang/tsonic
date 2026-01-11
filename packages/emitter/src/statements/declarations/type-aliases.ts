@@ -16,6 +16,14 @@ export const emitTypeAliasDeclaration = (
   stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const savedScoped = {
+    typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
+    returnType: context.returnType,
+    localNameMap: context.localNameMap,
+  };
+
   // Per spec/16-types-and-interfaces.md §3:
   // - Structural type aliases generate C# classes with __Alias suffix
   // - Simple aliases (primitives, references) emit as comments or using aliases
@@ -55,8 +63,13 @@ export const emitTypeAliasDeclaration = (
 
     // Type parameters (if any)
     if (stmt.typeParameters && stmt.typeParameters.length > 0) {
+      const reservedTypeParamNames = new Set<string>();
+      for (const member of stmt.type.members) {
+        if (member.kind !== "propertySignature") continue;
+        reservedTypeParamNames.add(emitCSharpName(member.name, "properties", context));
+      }
       const [typeParamsStr, whereClauses, typeParamContext] =
-        emitTypeParameters(stmt.typeParameters, currentContext);
+        emitTypeParameters(stmt.typeParameters, currentContext, reservedTypeParamNames);
       parts.push(typeParamsStr);
       currentContext = typeParamContext;
 
@@ -112,12 +125,12 @@ export const emitTypeAliasDeclaration = (
     const propsCode = properties.join("\n");
     const code = `${ind}${signature}\n${ind}{\n${propsCode}\n${ind}}`;
 
-    return [code, currentContext];
+    return [code, { ...currentContext, ...savedScoped }];
   }
 
   // For non-structural aliases, emit as comment (C# using aliases are limited)
   // Use currentContext which has type parameters in scope
   const [typeName, newContext] = emitType(stmt.type, currentContext);
   const code = `${ind}// type ${stmt.name} = ${typeName}`;
-  return [code, newContext];
+  return [code, { ...newContext, ...savedScoped }];
 };

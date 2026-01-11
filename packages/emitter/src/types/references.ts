@@ -284,7 +284,7 @@ export const emitReferenceType = (
 
   // Type parameters in scope can be emitted directly
   if (context.typeParameters?.has(name)) {
-    return [name, context];
+    return [context.typeParameterNameMap?.get(name) ?? name, context];
   }
 
   // IMPORTANT: Check local types BEFORE binding registry.
@@ -315,10 +315,37 @@ export const emitReferenceType = (
         currentContext = newContext;
       }
 
-      return [`${csharpName}<${typeParams.join(", ")}>`, currentContext];
+      const generic = `${csharpName}<${typeParams.join(", ")}>`;
+      if (!context.qualifyLocalTypes) {
+        return [generic, currentContext];
+      }
+
+      const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+      const container = context.moduleStaticClassName;
+      const isNestedInStaticContainer =
+        localTypeInfo.kind === "typeAlias" || localTypeInfo.kind === "enum";
+      const qualifiedPrefix =
+        isNestedInStaticContainer && container
+          ? `${moduleNamespace}.${container}`
+          : moduleNamespace;
+
+      return [`global::${qualifiedPrefix}.${generic}`, currentContext];
     }
 
-    return [csharpName, context];
+    if (!context.qualifyLocalTypes) {
+      return [csharpName, context];
+    }
+
+    const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+    const container = context.moduleStaticClassName;
+    const isNestedInStaticContainer =
+      localTypeInfo.kind === "typeAlias" || localTypeInfo.kind === "enum";
+    const qualifiedPrefix =
+      isNestedInStaticContainer && container
+        ? `${moduleNamespace}.${container}`
+        : moduleNamespace;
+
+    return [`global::${qualifiedPrefix}.${csharpName}`, context];
   }
 
   // Canonical nominal identity from the UnifiedUniverse.

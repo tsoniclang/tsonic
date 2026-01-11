@@ -30,8 +30,9 @@ export const emitType = (
       return emitReferenceType(type, context);
 
     case "typeParameterType":
-      // Type parameters emit as their name (e.g., T)
-      return [type.name, context];
+      // Type parameters emit as their mapped name (e.g., A -> TA) when needed to avoid
+      // CLR naming collisions with members after namingPolicy transforms.
+      return [context.typeParameterNameMap?.get(type.name) ?? type.name, context];
 
     case "arrayType":
       return emitArrayType(type, context);

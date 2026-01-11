@@ -41,6 +41,14 @@ export const emitMethodMember = (
   member: IrClassMember & { kind: "methodDeclaration" },
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const savedScoped = {
+    typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
+    returnType: context.returnType,
+    localNameMap: context.localNameMap,
+  };
+
   const ind = getIndent(context);
   let currentContext = context;
   const parts: string[] = [];
@@ -224,5 +232,6 @@ export const emitMethodMember = (
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
   const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
 
-  return [code, dedent(attrContext)];
+  const returnedContext = dedent(attrContext);
+  return [code, { ...returnedContext, ...savedScoped }];
 };

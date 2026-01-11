@@ -22,6 +22,7 @@ import {
   hasMatchingClassName,
 } from "./static-container.js";
 import { assembleOutput, type AssemblyParts } from "./assembly.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit C# code from an IR module
@@ -67,10 +68,27 @@ export const emitModule = (
   const { namespaceLevelDecls, staticContainerMembers, hasInheritance } =
     separateStatements(module);
 
+  const hasCollision =
+    staticContainerMembers.length > 0 &&
+    hasMatchingClassName(namespaceLevelDecls, module.className);
+  const escapedModuleClassName = escapeCSharpIdentifier(module.className);
+  const moduleStaticClassName =
+    staticContainerMembers.length > 0
+      ? hasCollision
+        ? `${escapedModuleClassName}__Module`
+        : escapedModuleClassName
+      : undefined;
+
+  const moduleContext = {
+    ...exchangesContext,
+    moduleNamespace: module.namespace,
+    moduleStaticClassName,
+  };
+
   // Emit namespace-level declarations (classes, interfaces)
   const namespaceResult = emitNamespaceDeclarations(
     namespaceLevelDecls,
-    exchangesContext,
+    moduleContext,
     hasInheritance
   );
 
@@ -80,10 +98,6 @@ export const emitModule = (
   let finalContext = namespaceResult.context;
 
   if (staticContainerMembers.length > 0) {
-    const hasCollision = hasMatchingClassName(
-      namespaceLevelDecls,
-      module.className
-    );
     const containerResult = emitStaticContainer(
       module,
       staticContainerMembers,

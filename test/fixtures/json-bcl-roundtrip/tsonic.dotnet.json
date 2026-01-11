@@ -1,0 +1,9 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "JsonBclRoundtrip",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "out",
+  "outputName": "json-bcl-roundtrip"
+}
+

@@ -217,6 +217,8 @@ export class BindingRegistry {
   private readonly namespaces = new Map<string, NamespaceBinding>();
   private readonly types = new Map<string, TypeBinding>(); // Flat lookup by TS name
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
+  private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
+  private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
 
   /**
    * Extension method index for instance-style calls.
@@ -366,6 +368,25 @@ export class BindingRegistry {
    * Supports simple, full, and tsbindgen formats
    */
   addBindings(_filePath: string, manifest: BindingFile): void {
+    const addMemberOverload = (key: string, member: MemberBinding): void => {
+      const existing = this.memberOverloads.get(key) ?? [];
+      existing.push(member);
+      this.memberOverloads.set(key, existing);
+    };
+
+    const addClrMemberOverload = (member: MemberBinding): void => {
+      if (member.kind !== "method") return;
+
+      const clrTargetKey = makeClrMemberKey(
+        member.binding.assembly,
+        member.binding.type,
+        member.binding.member
+      );
+      const existing = this.clrMemberOverloads.get(clrTargetKey) ?? [];
+      existing.push(member);
+      this.clrMemberOverloads.set(clrTargetKey, existing);
+    };
+
     if (isFullBindingManifest(manifest)) {
       // Full format: hierarchical namespace/type/member structure
       // Index by alias (TS identifier) for quick lookup
@@ -380,6 +401,8 @@ export class BindingRegistry {
           for (const member of type.members) {
             const key = `${type.alias}.${member.alias}`;
             this.members.set(key, member);
+            addMemberOverload(key, member);
+            addClrMemberOverload(member);
           }
         }
       }
@@ -411,6 +434,8 @@ export class BindingRegistry {
           };
 
           members.push(memberBinding);
+
+          addClrMemberOverload(memberBinding);
 
           // Index extension methods by (declaring namespace, receiver type, method name).
           if (method.isExtensionMethod && method.normalizedSignature) {
@@ -497,20 +522,24 @@ export class BindingRegistry {
           // Key by tsEmitName (e.g., "List_1.add")
           const tsKey = `${typeBinding.alias}.${member.alias}`;
           this.members.set(tsKey, member);
+          addMemberOverload(tsKey, member);
 
           // Also key by simple alias if applicable (e.g., "List.add")
           if (simpleAlias) {
             const simpleKey = `${simpleAlias}.${member.alias}`;
             this.members.set(simpleKey, member);
+            addMemberOverload(simpleKey, member);
           }
 
           // Also key by clrName if different (e.g., "List_1.Add" and "List.Add")
           if (member.alias !== member.name) {
             const clrKey = `${typeBinding.alias}.${member.name}`;
             this.members.set(clrKey, member);
+            addMemberOverload(clrKey, member);
             if (simpleAlias) {
               const simpleClrKey = `${simpleAlias}.${member.name}`;
               this.members.set(simpleClrKey, member);
+              addMemberOverload(simpleClrKey, member);
             }
           }
         }
@@ -553,6 +582,34 @@ export class BindingRegistry {
   }
 
   /**
+   * Look up all member bindings for a TS type alias + member alias.
+   *
+   * IMPORTANT: Methods can be overloaded, and overloads can differ in ref/out/in
+   * modifiers (tsbindgen provides these via `parameterModifiers`). This accessor
+   * preserves overload sets so the call converter can select the correct one.
+   */
+  getMemberOverloads(
+    typeAlias: string,
+    memberAlias: string
+  ): readonly MemberBinding[] | undefined {
+    const key = `${typeAlias}.${memberAlias}`;
+    return this.memberOverloads.get(key);
+  }
+
+  /**
+   * Look up all member bindings for a CLR member target.
+   *
+   * Keyed by declaring assembly, CLR type, and CLR member name.
+   */
+  getClrMemberOverloads(
+    assembly: string,
+    clrType: string,
+    clrMember: string
+  ): readonly MemberBinding[] | undefined {
+    return this.clrMemberOverloads.get(makeClrMemberKey(assembly, clrType, clrMember));
+  }
+
+  /**
    * Get all loaded simple bindings
    */
   getAllBindings(): readonly [string, SimpleBindingDescriptor][] {
@@ -582,9 +639,17 @@ export class BindingRegistry {
     this.namespaces.clear();
     this.types.clear();
     this.members.clear();
+    this.memberOverloads.clear();
+    this.clrMemberOverloads.clear();
     this.extensionMethods.clear();
   }
 }
+
+const makeClrMemberKey = (
+  assembly: string,
+  clrType: string,
+  clrMember: string
+): string => `${assembly}:${clrType}::${clrMember}`;
 
 /**
  * Extract CLR namespace key ('.' → '_') from a full CLR type name.

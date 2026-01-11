@@ -46,6 +46,14 @@ export const emitFunctionDeclaration = (
   stmt: Extract<IrStatement, { kind: "functionDeclaration" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const savedScoped = {
+    typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
+    returnType: context.returnType,
+    localNameMap: context.localNameMap,
+  };
+
   const ind = getIndent(context);
   const parts: string[] = [];
   const csharpBaseName = getCSharpName(stmt.name, "methods", context);
@@ -293,5 +301,5 @@ export const emitFunctionDeclaration = (
   const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
 
   // Return context - no usings tracking needed with global:: FQN approach
-  return [code, currentContext];
+  return [code, { ...currentContext, ...savedScoped }];
 };

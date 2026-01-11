@@ -15,6 +15,7 @@ import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/attributes.js";
 import { substituteType } from "../../specialization/substitution.js";
 import { statementUsesPointer } from "../../core/unsafe.js";
+import { emitCSharpName } from "../../naming-policy.js";
 
 /**
  * Emit a class declaration
@@ -23,6 +24,14 @@ export const emitClassDeclaration = (
   stmt: Extract<IrStatement, { kind: "classDeclaration" }>,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const savedScoped = {
+    typeParameters: context.typeParameters,
+    typeParamConstraints: context.typeParamConstraints,
+    typeParameterNameMap: context.typeParameterNameMap,
+    returnType: context.returnType,
+    localNameMap: context.localNameMap,
+  };
+
   const ind = getIndent(context);
   const parts: string[] = [];
   const needsUnsafe = statementUsesPointer(stmt);
@@ -139,9 +148,24 @@ export const emitClassDeclaration = (
   parts.push(escapedClassName);
 
   // Type parameters
+  const reservedTypeParamNames = new Set<string>();
+  for (const member of membersToEmit) {
+    if (member.kind === "methodDeclaration") {
+      reservedTypeParamNames.add(emitCSharpName(member.name, "methods", context));
+      continue;
+    }
+    if (member.kind === "propertyDeclaration") {
+      const hasAccessors = !!(member.getterBody || member.setterBody);
+      const emitsProperty = hasAccessors || member.emitAsAutoProperty === true;
+      reservedTypeParamNames.add(
+        emitCSharpName(member.name, emitsProperty ? "properties" : "fields", context)
+      );
+    }
+  }
   const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
     stmt.typeParameters,
-    currentContext
+    currentContext,
+    reservedTypeParamNames
   );
   currentContext = typeParamContext;
 
@@ -248,10 +272,10 @@ export const emitClassDeclaration = (
     const staticClassCode = `${ind}${staticSignature}\n${ind}{\n${staticBody}\n${ind}}`;
 
     const code = `${staticClassCode}\n${mainClassCode}`;
-    return [code, currentContext];
+    return [code, { ...currentContext, ...savedScoped }];
   }
 
   const code = mainClassCode;
 
-  return [code, currentContext];
+  return [code, { ...currentContext, ...savedScoped }];
 };

@@ -14,7 +14,7 @@
 import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
-import { getCSharpName } from "./naming-policy.js";
+import { emitCSharpName, getCSharpName } from "./naming-policy.js";
 
 /**
  * Extract Generator type arguments from a return type
@@ -153,6 +153,14 @@ export const generateWrapperClass = (
   const csharpBaseName = getCSharpName(func.name, "methods", context);
   const wrapperName = `${csharpBaseName}_Generator`;
   const exchangeName = `${csharpBaseName}_exchange`;
+  const nextMethodName = emitCSharpName("next", "methods", context);
+  const returnMethodName = emitCSharpName("return", "methods", context);
+  const throwMethodName = emitCSharpName("throw", "methods", context);
+  const returnValuePropertyName = emitCSharpName(
+    "returnValue",
+    "properties",
+    context
+  );
 
   // Extract type arguments
   const { yieldType, returnType, nextType, hasNextType, newContext } =
@@ -216,7 +224,7 @@ export const generateWrapperClass = (
   const moveNextMethod = func.isAsync ? "MoveNextAsync()" : "MoveNext()";
 
   parts.push(
-    `${bodyInd}public ${asyncKeyword}${nextReturnType} next(${nextParamType} value = default)`
+    `${bodyInd}public ${asyncKeyword}${nextReturnType} ${nextMethodName}(${nextParamType} value = default)`
   );
   parts.push(`${bodyInd}{`);
   // When already done, return cached result (with TReturn value if available)
@@ -252,14 +260,14 @@ export const generateWrapperClass = (
       `${bodyInd}/// Only valid after the generator is done (next() returned done=true).`
     );
     parts.push(
-      `${bodyInd}/// If terminated via @return(value), returns that value.`
+      `${bodyInd}/// If terminated via return(value), returns that value.`
     );
     parts.push(
       `${bodyInd}/// Otherwise, returns the value from the generator's return statement.`
     );
     parts.push(`${bodyInd}/// </summary>`);
     parts.push(
-      `${bodyInd}public ${returnType} returnValue => _wasExternallyTerminated ? _returnValue : _getReturnValue();`
+      `${bodyInd}public ${returnType} ${returnValuePropertyName} => _wasExternallyTerminated ? _returnValue : _getReturnValue();`
     );
     parts.push("");
   }
@@ -298,7 +306,7 @@ export const generateWrapperClass = (
   );
   parts.push(`${bodyInd}/// </remarks>`);
   parts.push(
-    `${bodyInd}public ${asyncKeyword}${returnReturnType} @return(${returnParamType} value = default!)`
+    `${bodyInd}public ${asyncKeyword}${returnReturnType} ${returnMethodName}(${returnParamType} value = default!)`
   );
   parts.push(`${bodyInd}{`);
   parts.push(`${innerInd}_done = true;`);
@@ -343,7 +351,7 @@ export const generateWrapperClass = (
     `${bodyInd}/// disposing the enumerator. This is a limitation of C# iterators.`
   );
   parts.push(`${bodyInd}/// </summary>`);
-  parts.push(`${bodyInd}public ${throwReturnType} @throw(object e)`);
+  parts.push(`${bodyInd}public ${throwReturnType} ${throwMethodName}(object e)`);
   parts.push(`${bodyInd}{`);
   parts.push(`${innerInd}_done = true;`);
   if (func.isAsync) {

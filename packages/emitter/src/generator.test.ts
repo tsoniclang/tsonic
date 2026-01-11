@@ -297,17 +297,17 @@ describe("Generator Emission", () => {
 
       // next() method with nullable parameter
       expect(code).to.include(
-        "global::Tsonic.Runtime.IteratorResult<double> next(double? value"
+        "global::Tsonic.Runtime.IteratorResult<double> Next(double? value"
       );
       expect(code).to.include("_exchange.Input = value");
       expect(code).to.include("MoveNext()");
 
       // return() and throw() methods
       expect(code).to.include(
-        "global::Tsonic.Runtime.IteratorResult<double> @return("
+        "global::Tsonic.Runtime.IteratorResult<double> Return("
       );
       expect(code).to.include(
-        "global::Tsonic.Runtime.IteratorResult<double> @throw(object e)"
+        "global::Tsonic.Runtime.IteratorResult<double> Throw(object e)"
       );
 
       // Function should return wrapper type
@@ -475,7 +475,7 @@ describe("Generator Emission", () => {
       expect(code).to.include("AsyncAccumulator_Generator");
       expect(code).to.include("IAsyncEnumerator<AsyncAccumulator_exchange>");
       expect(code).to.include(
-        "async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
+        "async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> Next("
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
     });
@@ -528,7 +528,7 @@ describe("Generator Emission", () => {
         // Should generate wrapper with string? Input
         expect(code).to.include("public string? Input { get; set; }");
         // next() method should accept string?
-        expect(code).to.include("next(string? value = default)");
+        expect(code).to.include("Next(string? value = default)");
       });
 
       it("should use await foreach for async yield* delegation", () => {
