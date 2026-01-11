@@ -471,7 +471,38 @@ const resolveHierarchicalBindingFromMemberId = (
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
   const overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
-  if (!overloadsAll || overloadsAll.length === 0) return undefined;
+  if (!overloadsAll || overloadsAll.length === 0) {
+    const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+    const bindingsPath =
+      declSourceFilePath !== undefined
+        ? findNearestBindingsJson(declSourceFilePath)
+        : undefined;
+
+    // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
+    // we MUST have a CLR binding; we must never guess member names via naming policy.
+    //
+    // We treat it as CLR-bound if:
+    // - The declaring type is a tsbindgen extension interface (`__Ext_*`), OR
+    // - We can locate a bindings.json near the declaration source file.
+    const isClrBound =
+      declaringTypeName.startsWith("__Ext_") || bindingsPath !== undefined;
+
+    if (isClrBound) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN4004",
+          "error",
+          `Missing CLR binding for '${typeAlias}.${propertyName}'.`,
+          getSourceSpan(node),
+          bindingsPath
+            ? `No matching member binding was found in the loaded bindings for this tsbindgen declaration. (bindings.json: ${bindingsPath})`
+            : "No matching member binding was found for this tsbindgen extension interface member."
+        )
+      );
+    }
+
+    return undefined;
+  }
 
   let overloads: readonly MemberBinding[] = overloadsAll;
   const targetKeys = new Set(
