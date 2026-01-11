@@ -2,7 +2,7 @@
   "runtime": "dotnet",
   "rootNamespace": "LinqQueryableDotnet",
   "namingPolicy": {
-    "classes": "PascalCase"
+    "classes": "clr"
   },
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",
