@@ -41,7 +41,7 @@ GENERATE/BUILD/RUN OPTIONS:
 
 PROJECT INIT OPTIONS:
   --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
-  --pure                    Use PascalCase CLR naming
+  --pure                    Use PascalCase .NET bindings
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
   --deps <dir>              Additional directory to probe for referenced assemblies (repeatable)
