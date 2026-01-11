@@ -3,37 +3,37 @@ namespace TestCases.common.edgecases.genericnulldefault
     public class Result <T> 
         where T : class
     {
-        public required T? value { get; set; }
+        public required T? Value { get; set; }
 
-        public required string? error { get; set; }
+        public required string? Error { get; set; }
     }
     internal class StringWrapper
     {
-        public string value;
+        public string Value;
 
         public StringWrapper(string value)
             {
-            this.value = value;
+            this.Value = value;
             }
     }
 
             public static class GenericNullDefault
             {
-                public static Result<T> wrapError<T>(string error)
+                public static Result<T> WrapError<T>(string error)
                     where T : class
                     {
-                    return new Result<T> { value = default, error = error };
+                    return new Result<T> { Value = default, Error = error };
                     }
 
-                public static Result<T> wrapValue<T>(T value)
+                public static Result<T> WrapValue<T>(T value)
                     where T : class
                     {
-                    return new Result<T> { value = value, error = null };
+                    return new Result<T> { Value = value, Error = null };
                     }
 
-                public static Result<StringWrapper> getConcreteNull()
+                public static Result<StringWrapper> GetConcreteNull()
                     {
-                    return new Result<StringWrapper> { value = null, error = null };
+                    return new Result<StringWrapper> { Value = null, Error = null };
                     }
             }
 }

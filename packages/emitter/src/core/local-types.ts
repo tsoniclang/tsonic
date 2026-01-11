@@ -10,6 +10,7 @@ import type {
   IrStatement,
   IrClassDeclaration,
   IrInterfaceDeclaration,
+  IrEnumDeclaration,
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
 import type { LocalTypeInfo } from "../types.js";
@@ -52,6 +53,12 @@ const extractLocalTypeInfo = (
         info: buildClassInfo(stmt),
       };
 
+    case "enumDeclaration":
+      return {
+        name: stmt.name,
+        info: buildEnumInfo(stmt),
+      };
+
     case "interfaceDeclaration":
       return {
         name: stmt.name,
@@ -87,6 +94,14 @@ const buildInterfaceInfo = (stmt: IrInterfaceDeclaration): LocalTypeInfo => ({
   typeParameters: stmt.typeParameters?.map((tp) => tp.name) ?? [],
   members: stmt.members,
   extends: stmt.extends,
+});
+
+/**
+ * Build LocalTypeInfo for an enum declaration
+ */
+const buildEnumInfo = (stmt: IrEnumDeclaration): LocalTypeInfo => ({
+  kind: "enum",
+  members: stmt.members.map((m) => m.name),
 });
 
 /**

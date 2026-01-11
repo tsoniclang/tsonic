@@ -8,6 +8,8 @@ import { IrModule, Diagnostic } from "@tsonic/frontend";
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
 import { emitModule } from "./core/module-emitter.js";
 import { buildModuleMap } from "./core/module-map.js";
+import { buildTypeMemberIndex } from "./core/type-member-index.js";
+import { validateNamingPolicyCollisions } from "./core/naming-collisions.js";
 
 /**
  * Result of batch emission
@@ -34,6 +36,14 @@ export const emitCSharpFiles = (
   modules: readonly IrModule[],
   options: Partial<EmitterOptions> = {}
 ): EmitResult => {
+  const namingErrors = validateNamingPolicyCollisions(
+    modules,
+    options.namingPolicy
+  );
+  if (namingErrors.length > 0) {
+    return { ok: false, errors: namingErrors };
+  }
+
   // Build module map for cross-file import resolution
   const moduleMapResult = buildModuleMap(modules);
 
@@ -44,6 +54,7 @@ export const emitCSharpFiles = (
   const moduleMap = moduleMapResult.value;
   const exportMap = moduleMapResult.exportMap;
   const results = new Map<string, string>();
+  const typeMemberIndex = buildTypeMemberIndex(modules);
 
   // Create JSON AOT registry (shared across all modules)
   const jsonAotRegistry: JsonAotRegistry = {
@@ -72,6 +83,7 @@ export const emitCSharpFiles = (
       isEntryPoint,
       moduleMap, // Pass module map to each module emission
       exportMap, // Pass export map for re-export resolution
+      typeMemberIndex, // Pass type member index for member naming policy
       jsonAotRegistry, // Pass JSON AOT registry for type collection
     };
     const code = emitModule(module, moduleOptions);
@@ -125,7 +137,10 @@ ${attributes}
     {
         internal static readonly global::System.Text.Json.JsonSerializerOptions Options = new global::System.Text.Json.JsonSerializerOptions
         {
-            TypeInfoResolver = __TsonicJsonContext.Default
+            TypeInfoResolver = __TsonicJsonContext.Default,
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = global::System.Text.Json.JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = global::System.Text.Json.JsonNamingPolicy.CamelCase
         };
     }
 }

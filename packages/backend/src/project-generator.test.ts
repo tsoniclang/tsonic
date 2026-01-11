@@ -32,6 +32,7 @@ describe("Project Generator", () => {
       expect(result).to.include("<TargetFramework>net10.0</TargetFramework>");
       expect(result).to.include("<RootNamespace>TestApp</RootNamespace>");
       expect(result).to.include("<AssemblyName>test</AssemblyName>");
+      expect(result).to.include("<StartupObject>Program</StartupObject>");
       expect(result).to.include("<PublishAot>true</PublishAot>");
       expect(result).to.include(
         "<OptimizationPreference>Speed</OptimizationPreference>"

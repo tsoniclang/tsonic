@@ -70,7 +70,7 @@ Each module generates:
 
 ```csharp
 // Generated structure
-namespace MyApp.src.utils
+namespace MyApp.Utils
 {
     public static class Math
     {
@@ -83,25 +83,18 @@ namespace MyApp.src.utils
 
 ```typescript
 // src/utils/math.ts with rootNamespace "MyApp"
-// -> namespace: MyApp.src.utils
-
-const generateNamespace = (filePath: string, rootNamespace: string): string => {
-  const dir = path.dirname(filePath);
-  const parts = dir.split("/").filter((p) => p && p !== ".");
-  return [rootNamespace, ...parts].join(".");
-};
+// -> namespace: MyApp.Utils
+//
+// See `getNamespaceFromPath()` in `@tsonic/frontend` (supports namingPolicy).
 ```
 
 ### Class Name Generation
 
 ```typescript
 // math.ts -> class Math
-// user-service.ts -> class user_service (hyphens to underscores)
-
-const generateClassName = (filePath: string): string => {
-  const name = path.basename(filePath, ".ts");
-  return name.replace(/-/g, "_");
-};
+// todo-list.ts -> class TodoList (default)
+//
+// See `getClassNameFromPath()` in `@tsonic/frontend` (supports namingPolicy).
 ```
 
 ## Type Emission
@@ -641,7 +634,7 @@ Used to resolve imports:
 
 ```typescript
 // import { foo } from "./utils.js"
-// -> MyApp.src.utils.foo
+// -> global::MyApp.Utils.foo
 ```
 
 ## Golden Tests
@@ -693,7 +686,7 @@ export function add(a: number, b: number): number {
 
 ```csharp
 // TestName.golden.cs
-public static double add(double a, double b)
+public static double Add(double a, double b)
 {
     return a + b;
 }

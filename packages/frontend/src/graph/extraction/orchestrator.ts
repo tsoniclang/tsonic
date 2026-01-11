@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import { TsonicProgram } from "../../program.js";
 import { ModuleInfo, Import, Export } from "../../types/module.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
+import { resolveNamingPolicy } from "../../resolver/naming-policy.js";
 import { hasExportModifier, isTopLevelCode } from "../helpers.js";
 import { extractImport } from "./imports.js";
 import { extractExport } from "./exports.js";
@@ -82,12 +83,13 @@ export const extractModuleInfo = (
   const namespace = getNamespaceFromPath(
     sourceFile.fileName,
     program.options.sourceRoot,
-    program.options.rootNamespace
+    program.options.rootNamespace,
+    resolveNamingPolicy(program.options.namingPolicy, "namespaces")
   );
 
   const className = getClassNameFromPath(
     sourceFile.fileName,
-    program.options.namingPolicy?.classes
+    resolveNamingPolicy(program.options.namingPolicy, "classes")
   );
 
   return {

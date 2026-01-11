@@ -112,11 +112,53 @@ export const buildModuleMap = (
         stmt.name === module.className
     );
 
+    const exportedValueKinds = (() => {
+      const kinds = new Map<string, "function" | "variable">();
+
+      const findLocalValueKind = (localName: string): "function" | "variable" | undefined => {
+        for (const stmt of module.body) {
+          if (stmt.kind === "functionDeclaration" && stmt.name === localName) {
+            return "function";
+          }
+          if (stmt.kind === "variableDeclaration") {
+            for (const decl of stmt.declarations) {
+              if (decl.name.kind !== "identifierPattern") continue;
+              if (decl.name.name === localName) return "variable";
+            }
+          }
+        }
+        return undefined;
+      };
+
+      for (const exp of module.exports) {
+        if (exp.kind === "declaration") {
+          const decl = exp.declaration;
+          if (decl.kind === "functionDeclaration") {
+            kinds.set(decl.name, "function");
+          } else if (decl.kind === "variableDeclaration") {
+            for (const d of decl.declarations) {
+              if (d.name.kind !== "identifierPattern") continue;
+              kinds.set(d.name.name, "variable");
+            }
+          }
+          continue;
+        }
+
+        if (exp.kind === "named") {
+          const kind = findLocalValueKind(exp.localName);
+          if (kind) kinds.set(exp.name, kind);
+        }
+      }
+
+      return kinds;
+    })();
+
     map.set(canonicalPath, {
       namespace: module.namespace,
       className: module.className,
       filePath: canonicalPath,
       hasTypeCollision,
+      exportedValueKinds,
     });
   }
 

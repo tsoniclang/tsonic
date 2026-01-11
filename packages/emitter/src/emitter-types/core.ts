@@ -10,6 +10,7 @@ import type {
   IrInterfaceMember,
   IrClassMember,
 } from "@tsonic/frontend";
+import type { NamingPolicyConfig } from "@tsonic/frontend";
 
 /**
  * Module identity for import resolution
@@ -23,6 +24,11 @@ export type ModuleIdentity = {
    * When true, value imports should target ClassName__Module instead of ClassName.
    */
   readonly hasTypeCollision: boolean;
+  /**
+   * Exported value kind index for this module (by exported name).
+   * Used to select namingPolicy bucket for value imports.
+   */
+  readonly exportedValueKinds?: ReadonlyMap<string, "function" | "variable">;
 };
 
 /**
@@ -47,12 +53,26 @@ export type ExportSource = {
  */
 export type ExportMap = ReadonlyMap<string, ExportSource>;
 
+export type TypeMemberKind = "method" | "property" | "field" | "enumMember";
+
+/**
+ * Index of member kinds for locally-emitted types.
+ *
+ * Key: fully-qualified type name (without global::), e.g. "MyApp.Models.User"
+ * Value: map from original TS member name to its kind ("method" | "property" | "field" | "enumMember")
+ */
+export type TypeMemberIndex = ReadonlyMap<string, ReadonlyMap<string, TypeMemberKind>>;
+
 /**
  * Options for C# code generation
  */
 export type EmitterOptions = {
   /** Root namespace for the application */
   readonly rootNamespace: string;
+  /** Naming policy (CLR-style vs preserve source names) */
+  readonly namingPolicy?: NamingPolicyConfig;
+  /** Member-kind index for locally-emitted types (populated during batch emission) */
+  readonly typeMemberIndex?: TypeMemberIndex;
   /** Whether to include source map comments */
   readonly includeSourceMaps?: boolean;
   /** Indentation style (spaces) */
@@ -121,6 +141,10 @@ export type LocalTypeInfo =
       readonly implements: readonly IrType[];
     }
   | {
+      readonly kind: "enum";
+      readonly members: readonly string[];
+    }
+  | {
       readonly kind: "typeAlias";
       readonly typeParameters: readonly string[];
       readonly type: IrType;
@@ -138,6 +162,13 @@ export type NarrowedBinding =
       readonly exprText: string;
       readonly type?: IrType;
     };
+
+export type ValueSymbolKind = "function" | "variable";
+
+export type ValueSymbolInfo = {
+  readonly kind: ValueSymbolKind;
+  readonly csharpName: string;
+};
 
 /**
  * Context passed through emission process
@@ -175,6 +206,8 @@ export type EmitterContext = {
   readonly returnType?: IrType;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
+  /** Map of module static members (functions/fields) by original TS name */
+  readonly valueSymbols?: ReadonlyMap<string, ValueSymbolInfo>;
   /** Scoped identifier remaps for union narrowing */
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */

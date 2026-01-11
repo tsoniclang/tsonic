@@ -2,7 +2,7 @@ namespace TestCases.common.types.expectedtypethreading
 {
         public static class NullishCoalescing
         {
-            public static int getOrDefault(int? value)
+            public static int GetOrDefault(int? value)
                 {
                 return value ?? 100;
                 }

@@ -123,6 +123,7 @@ const generateExecutableProperties = (
     <TargetFramework>${config.dotnetVersion}</TargetFramework>
     <RootNamespace>${config.rootNamespace}</RootNamespace>
     <AssemblyName>${config.outputName}</AssemblyName>
+    <StartupObject>Program</StartupObject>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>${nativeAotSettings}
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -183,6 +184,7 @@ const generateConsoleAppProperties = (
     <TargetFramework>${consoleConfig.targetFramework}</TargetFramework>
     <RootNamespace>${config.rootNamespace}</RootNamespace>
     <AssemblyName>${config.outputName}</AssemblyName>
+    <StartupObject>Program</StartupObject>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

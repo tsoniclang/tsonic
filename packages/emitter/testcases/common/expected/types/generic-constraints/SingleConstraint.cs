@@ -2,21 +2,21 @@ namespace TestCases.common.types.genericconstraints
 {
     public interface Printable
     {
-        string toString();
+        string ToString();
     }
     public class Printer<T>
         where T : Printable
     {
-        public T value;
+        public T Value;
 
         public Printer(T value)
             {
-            this.value = value;
+            this.Value = value;
             }
 
-        public string print()
+        public string Print()
             {
-            return this.value.toString();
+            return this.Value.ToString();
             }
     }
 }

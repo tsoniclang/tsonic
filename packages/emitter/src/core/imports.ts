@@ -11,6 +11,7 @@
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
 import { EmitterContext, ImportBinding } from "../types.js";
 import { resolveImportPath } from "./module-map.js";
+import { emitCSharpName } from "../naming-policy.js";
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.
@@ -72,7 +73,9 @@ export const processImports = (
               targetModule.namespace,
               targetModule.className,
               actualExportName,
-              targetModule.hasTypeCollision
+              targetModule.hasTypeCollision,
+              targetModule.exportedValueKinds,
+              ctx
             );
             if (binding) {
               importBindings.set(binding.localName, binding.importBinding);
@@ -163,7 +166,9 @@ const createImportBinding = (
   namespace: string,
   containerClassName: string,
   resolvedExportName: string,
-  hasTypeCollision: boolean = false
+  hasTypeCollision: boolean = false,
+  exportedValueKinds: ReadonlyMap<string, "function" | "variable"> | undefined,
+  context: EmitterContext
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
   // Value exports live in ClassName__Module when there's a type collision, otherwise in ClassName
@@ -187,13 +192,15 @@ const createImportBinding = (
         },
       };
     } else {
+      const valueKind = exportedValueKinds?.get(resolvedExportName);
+      const bucket = valueKind === "variable" ? "fields" : "methods";
       // Value import: clrName is the value container, member is the export name
       return {
         localName,
         importBinding: {
           kind: "value",
           clrName: valueContainerFqn,
-          member: resolvedExportName,
+          member: emitCSharpName(resolvedExportName, bucket, context),
         },
       };
     }

@@ -17,9 +17,13 @@ export type {
   ModuleMap,
   ExportSource,
   ExportMap,
+  TypeMemberIndex,
+  TypeMemberKind,
   JsonAotRegistry,
   LocalTypeInfo,
   NarrowedBinding,
+  ValueSymbolKind,
+  ValueSymbolInfo,
 } from "./emitter-types/index.js";
 export {
   createContext,

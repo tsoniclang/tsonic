@@ -51,7 +51,7 @@ export type IrReferenceType = {
   readonly kind: "referenceType";
   readonly name: string;
   readonly typeArguments?: readonly IrType[];
-  /** Fully-qualified CLR type for imported types (e.g., "MyApp.models.User") */
+  /** Fully-qualified CLR type for imported types (e.g., "MyApp.Models.User") */
   readonly resolvedClrType?: string;
   /**
    * Canonical type identity from UnifiedTypeCatalog.

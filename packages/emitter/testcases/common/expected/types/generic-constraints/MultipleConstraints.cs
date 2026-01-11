@@ -2,47 +2,47 @@ namespace TestCases.common.types.genericconstraints
 {
     public class ComparableShowable<T>
     {
-        public int compareTo(T other)
+        public int CompareTo(T other)
             {
             return 0;
             }
 
-        public string show()
+        public string Show()
             {
             return "";
             }
     }
     public class NumberValue : ComparableShowable<NumberValue>
     {
-        public int value;
+        public int Value;
 
         public NumberValue(int value) : base()
             {
-            this.value = value;
+            this.Value = value;
             }
 
-        public override int compareTo(NumberValue other)
+        public override int CompareTo(NumberValue other)
             {
-            return this.value - other.value;
+            return this.Value - other.Value;
             }
 
-        public override string show()
+        public override string Show()
             {
-            return $"Value: {this.value}";
+            return $"Value: {this.Value}";
             }
     }
 
             public static class MultipleConstraints
             {
-                public static string maxAndShow<T>(T a, T b)
+                public static string MaxAndShow<T>(T a, T b)
                     where T : ComparableShowable<T>
                     {
-                    var comparison = a.compareTo(b);
+                    var comparison = a.CompareTo(b);
                     if (comparison >= 0)
                         {
-                        return a.show();
+                        return a.Show();
                         }
-                    return b.show();
+                    return b.Show();
                     }
             }
 }

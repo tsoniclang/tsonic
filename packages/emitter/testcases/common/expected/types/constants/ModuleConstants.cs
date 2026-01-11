@@ -8,6 +8,6 @@ namespace TestCases.common.types.constants
 
             public static readonly int COUNT = 42;
 
-            public static readonly bool IS_ENABLED = true;
+            public static readonly bool ISENABLED = true;
         }
 }

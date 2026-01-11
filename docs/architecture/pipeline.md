@@ -191,7 +191,7 @@ IrModule (src/utils/Math.ts)
     |
     v
 C# File:
-  namespace MyApp.src.utils {
+  namespace MyApp.Utils {
     public static class Math {
       // declarations
     }

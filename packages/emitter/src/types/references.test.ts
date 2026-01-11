@@ -21,7 +21,7 @@ const createModuleWithType = (varType: IrType): IrModule => ({
   kind: "module",
   filePath: "/src/test.ts",
   namespace: "Test",
-  className: "test",
+  className: "Test",
   isStaticContainer: true,
   imports: [],
   body: [
@@ -52,7 +52,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("int x");
+      expect(result).to.include("int X");
     });
 
     it("should emit long without qualification", () => {
@@ -63,7 +63,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("long x");
+      expect(result).to.include("long X");
     });
 
     it("should emit double without qualification", () => {
@@ -74,7 +74,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("double x");
+      expect(result).to.include("double X");
     });
 
     it("should emit decimal without qualification", () => {
@@ -85,7 +85,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("decimal x");
+      expect(result).to.include("decimal X");
     });
 
     it("should emit bool without qualification", () => {
@@ -96,7 +96,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("bool x");
+      expect(result).to.include("bool X");
     });
 
     it("should emit nint (native int) without qualification", () => {
@@ -107,7 +107,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("nint x");
+      expect(result).to.include("nint X");
     });
   });
 
@@ -217,7 +217,7 @@ describe("Reference Type Emission", () => {
         kind: "module",
         filePath: "/src/test.ts",
         namespace: "Test",
-        className: "test",
+        className: "Test",
         isStaticContainer: true,
         imports: [],
         body: [
@@ -251,7 +251,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("User user");
+      expect(result).to.include("User User");
     });
 
     it("should emit local interface types without qualification", () => {
@@ -259,7 +259,7 @@ describe("Reference Type Emission", () => {
         kind: "module",
         filePath: "/src/test.ts",
         namespace: "Test",
-        className: "test",
+        className: "Test",
         isStaticContainer: true,
         imports: [],
         body: [
@@ -293,7 +293,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("IUser user");
+      expect(result).to.include("IUser User");
     });
   });
 

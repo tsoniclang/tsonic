@@ -3,11 +3,18 @@
  */
 
 import { IrModule, IrStatement, isExecutableStatement } from "@tsonic/frontend";
-import { EmitterContext, indent, getIndent, withStatic } from "../../types.js";
+import {
+  EmitterContext,
+  type ValueSymbolInfo,
+  indent,
+  getIndent,
+  withStatic,
+} from "../../types.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { emitExport } from "../exports.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { statementUsesPointer } from "../unsafe.js";
+import { getCSharpName } from "../../naming-policy.js";
 
 export type StaticContainerResult = {
   readonly code: string;
@@ -40,7 +47,30 @@ export const emitStaticContainer = (
   hasInheritance: boolean,
   useModuleSuffix: boolean = false
 ): StaticContainerResult => {
-  const classContext = withStatic(indent(baseContext), true);
+  const valueSymbols = new Map<string, ValueSymbolInfo>();
+  for (const member of members) {
+    if (member.kind === "functionDeclaration") {
+      valueSymbols.set(member.name, {
+        kind: "function",
+        csharpName: getCSharpName(member.name, "methods", baseContext),
+      });
+      continue;
+    }
+    if (member.kind === "variableDeclaration") {
+      for (const decl of member.declarations) {
+        if (decl.name.kind !== "identifierPattern") continue;
+        valueSymbols.set(decl.name.name, {
+          kind: "variable",
+          csharpName: getCSharpName(decl.name.name, "fields", baseContext),
+        });
+      }
+    }
+  }
+
+  const classContext = {
+    ...withStatic(indent(baseContext), true),
+    valueSymbols,
+  };
   const bodyContext = indent(classContext);
   const ind = getIndent(classContext);
   const bodyInd = getIndent(bodyContext);
@@ -106,7 +136,7 @@ export const emitStaticContainer = (
   // Wrap statements in Main method if this is an entry point with top-level code
   if (mainBodyStmts.length > 0 && baseContext.options.isEntryPoint) {
     const mainParts: string[] = [];
-    mainParts.push(`${bodyInd}public static void Main()`);
+    mainParts.push(`${bodyInd}public static void __TopLevel()`);
     mainParts.push(`${bodyInd}{`);
 
     const mainBodyContext = indent(bodyCurrentContext);

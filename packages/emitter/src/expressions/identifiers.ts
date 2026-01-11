@@ -55,6 +55,13 @@ export const emitIdentifier = (
     }
   }
 
+  // Static module members (functions/fields) in the current file's container class.
+  // These are emitted with namingPolicy (e.g., `main` → `Main` under `clr`).
+  const valueSymbol = context.valueSymbols?.get(expr.name);
+  if (valueSymbol) {
+    return [{ text: escapeCSharpIdentifier(valueSymbol.csharpName) }, context];
+  }
+
   // Use custom C# name from binding if specified (with global:: prefix)
   if (expr.csharpName && expr.resolvedAssembly) {
     const fqn = `global::${expr.resolvedAssembly}.${expr.csharpName}`;

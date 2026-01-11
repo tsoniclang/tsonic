@@ -147,7 +147,7 @@ describe("Hierarchical Bindings - Full Pipeline", () => {
 
     // Verify function structure (may be void if return type not inferred)
     expect(csharpCode).to.match(
-      /public static (void|object) processData\(/,
+      /public static (void|object) ProcessData\(/,
       "C# should have processData function"
     );
   });

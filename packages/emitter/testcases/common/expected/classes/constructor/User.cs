@@ -2,22 +2,22 @@ namespace TestCases.common.classes.constructor
 {
     public class User
     {
-        public string name;
+        public string Name;
 
-        public string email;
+        public string Email;
 
-        private string password;
+        private string Password;
 
         public User(string name, string email, string password)
             {
-            this.name = name;
-            this.email = email;
-            this.password = password;
+            this.Name = name;
+            this.Email = email;
+            this.Password = password;
             }
 
-        public bool authenticate(string input)
+        public bool Authenticate(string input)
             {
-            return input == this.password;
+            return input == this.Password;
             }
     }
 }

@@ -24,6 +24,7 @@ import {
   extractGeneratorTypeArgs,
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/attributes.js";
+import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -47,6 +48,7 @@ export const emitFunctionDeclaration = (
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
   const parts: string[] = [];
+  const csharpBaseName = getCSharpName(stmt.name, "methods", context);
 
   // Build type parameter names set FIRST - needed when emitting return type and parameters
   // Type parameters must be in scope before we emit types that reference them
@@ -88,11 +90,11 @@ export const emitFunctionDeclaration = (
   if (stmt.isGenerator) {
     if (isBidirectional) {
       // Bidirectional generators return the wrapper class
-      const wrapperName = `${stmt.name}_Generator`;
+      const wrapperName = `${csharpBaseName}_Generator`;
       parts.push(wrapperName);
     } else {
       // Unidirectional generators return IEnumerable<exchange> or IAsyncEnumerable<exchange>
-      const exchangeName = `${stmt.name}_exchange`;
+      const exchangeName = `${csharpBaseName}_exchange`;
       if (stmt.isAsync) {
         parts.push(
           `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
@@ -126,7 +128,7 @@ export const emitFunctionDeclaration = (
   }
 
   // Function name
-  parts.push(escapeCSharpIdentifier(stmt.name));
+  parts.push(emitCSharpName(stmt.name, "methods", context));
 
   // Parameters (with destructuring support)
   const paramsResult = emitParametersWithDestructuring(
@@ -189,8 +191,8 @@ export const emitFunctionDeclaration = (
 
   // Handle bidirectional generators specially
   if (stmt.isGenerator && isBidirectional) {
-    const exchangeName = `${stmt.name}_exchange`;
-    const wrapperName = `${stmt.name}_Generator`;
+    const exchangeName = `${csharpBaseName}_exchange`;
+    const wrapperName = `${csharpBaseName}_Generator`;
     const enumerableType = stmt.isAsync
       ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
       : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
@@ -252,7 +254,7 @@ export const emitFunctionDeclaration = (
   } else {
     // Add generator exchange initialization for unidirectional generators
     if (stmt.isGenerator) {
-      const exchangeName = `${stmt.name}_exchange`;
+      const exchangeName = `${csharpBaseName}_exchange`;
       injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
     }
 

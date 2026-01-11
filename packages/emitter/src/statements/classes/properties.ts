@@ -5,9 +5,8 @@
 import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitType } from "../../type-emitter.js";
-import { capitalize } from "./helpers.js";
 import { emitParameters } from "./parameters.js";
-import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 
 /**
  * Emit interface member as C# auto-property (for classes)
@@ -36,8 +35,8 @@ export const emitInterfaceMemberAsProperty = (
         // If this is an inline object type, use the extracted class name
         let typeName: string;
         if (member.type.kind === "objectType") {
-          // Use capitalized property name as the class name
-          typeName = capitalize(member.name);
+          // Use naming policy for generated type names
+          typeName = getCSharpName(member.name, "classes", context);
         } else {
           const [emittedType, newContext] = emitType(
             member.type,
@@ -55,7 +54,7 @@ export const emitInterfaceMemberAsProperty = (
       }
 
       // Property name (escape C# keywords)
-      parts.push(escapeCSharpIdentifier(member.name));
+      parts.push(emitCSharpName(member.name, "properties", context));
 
       // Getter/setter (readonly is get-only)
       const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
@@ -82,7 +81,7 @@ export const emitInterfaceMemberAsProperty = (
       }
 
       // Method name (escape C# keywords)
-      parts.push(escapeCSharpIdentifier(member.name));
+      parts.push(emitCSharpName(member.name, "methods", context));
 
       // Parameters
       const params = emitParameters(member.parameters, currentContext);

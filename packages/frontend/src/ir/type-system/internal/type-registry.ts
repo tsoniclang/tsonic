@@ -14,6 +14,7 @@
 import * as ts from "typescript";
 import type { IrType, IrMethodSignature } from "../../types/index.js";
 import { getNamespaceFromPath } from "../../../resolver/namespace.js";
+import type { NamingPolicy } from "../../../resolver/naming-policy.js";
 import { GLOBALS_TO_CLR_FQ } from "./universe/alias-table.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -179,6 +180,11 @@ export type TypeRegistry = {
  */
 export type ConvertTypeFn = (typeNode: ts.TypeNode) => IrType;
 
+export type BuildTypeRegistryOptions = {
+  readonly convertType?: ConvertTypeFn;
+  readonly namespaceNamingPolicy?: NamingPolicy;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -232,7 +238,8 @@ const resolveHeritageTypeName = (
   typeNode: ts.ExpressionWithTypeArguments,
   checker: ts.TypeChecker,
   sourceRoot: string,
-  rootNamespace: string
+  rootNamespace: string,
+  namespaceNamingPolicy: NamingPolicy | undefined
 ): string | undefined => {
   const expr = typeNode.expression;
 
@@ -281,7 +288,12 @@ const resolveHeritageTypeName = (
   // Source-authored types use namespace-based FQ names.
   const ns =
     sourceFile && !sourceFile.isDeclarationFile
-      ? getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace)
+      ? getNamespaceFromPath(
+          sourceFile.fileName,
+          sourceRoot,
+          rootNamespace,
+          namespaceNamingPolicy
+        )
       : undefined;
 
   return ns ? `${ns}.${simpleName}` : simpleName;
@@ -536,6 +548,7 @@ const extractHeritage = (
   checker: ts.TypeChecker,
   sourceRoot: string,
   rootNamespace: string,
+  namespaceNamingPolicy: NamingPolicy | undefined,
   convertType: ConvertTypeFn,
   canonicalize?: (name: string) => string
 ): readonly HeritageInfo[] => {
@@ -550,7 +563,8 @@ const extractHeritage = (
         type,
         checker,
         sourceRoot,
-        rootNamespace
+        rootNamespace,
+        namespaceNamingPolicy
       );
       const rawTypeName = resolvedName ?? getTypeNodeName(type);
       if (rawTypeName) {
@@ -585,7 +599,7 @@ export const buildTypeRegistry = (
   checker: ts.TypeChecker,
   sourceRoot: string,
   rootNamespace: string,
-  convertType?: ConvertTypeFn
+  options: BuildTypeRegistryOptions = {}
 ): TypeRegistry => {
   // Map from FQ name to pure IR entry
   const entries = new Map<string, TypeRegistryEntry>();
@@ -594,7 +608,8 @@ export const buildTypeRegistry = (
 
   // Default converter returns unknownType (used during bootstrap)
   const convert: ConvertTypeFn =
-    convertType ?? (() => ({ kind: "unknownType" }));
+    options.convertType ?? (() => ({ kind: "unknownType" }));
+  const namespaceNamingPolicy = options.namespaceNamingPolicy;
 
   // Helper function to process a declaration node
   const processDeclaration = (
@@ -646,6 +661,7 @@ export const buildTypeRegistry = (
 	          checker,
 	          sourceRoot,
 	          rootNamespace,
+	          namespaceNamingPolicy,
 	          convert,
 	          canonicalize
 	        ),
@@ -681,6 +697,7 @@ export const buildTypeRegistry = (
               checker,
               sourceRoot,
               rootNamespace,
+              namespaceNamingPolicy,
               convert,
               canonicalize
             ),
@@ -698,6 +715,7 @@ export const buildTypeRegistry = (
             checker,
             sourceRoot,
             rootNamespace,
+            namespaceNamingPolicy,
             convert,
             canonicalize
           ),
@@ -745,7 +763,12 @@ export const buildTypeRegistry = (
   for (const sourceFile of sourceFiles) {
     const namespace = sourceFile.isDeclarationFile
       ? undefined
-      : getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace);
+      : getNamespaceFromPath(
+          sourceFile.fileName,
+          sourceRoot,
+          rootNamespace,
+          namespaceNamingPolicy
+        );
 
     ts.forEachChild(sourceFile, (node) => {
       processDeclaration(node, sourceFile, namespace);

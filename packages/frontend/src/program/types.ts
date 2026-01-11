@@ -7,14 +7,13 @@ import { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import { BindingRegistry } from "./bindings.js";
 import { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import type { Binding } from "../ir/binding/index.js";
+import type { NamingPolicyConfig } from "../resolver/naming-policy.js";
 
 export type CompilerOptions = {
   readonly projectRoot: string; // Directory containing package.json (for node_modules resolution)
   readonly sourceRoot: string;
   readonly rootNamespace: string;
-  readonly namingPolicy?: {
-    readonly classes?: "PascalCase";
-  };
+  readonly namingPolicy?: NamingPolicyConfig;
   readonly strict?: boolean;
   readonly typeRoots?: readonly string[];
   readonly verbose?: boolean;

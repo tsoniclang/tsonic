@@ -22,6 +22,7 @@ import type { Binding } from "../../../binding/index.js";
 import { buildTypeRegistry } from "../type-registry.js";
 import type { TypeRegistry } from "../type-registry.js";
 import { convertType } from "../type-converter.js";
+import type { NamingPolicy } from "../../../../resolver/naming-policy.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -35,6 +36,7 @@ export type SourceCatalogConfig = {
   readonly checker: ts.TypeChecker;
   readonly sourceRoot: string;
   readonly rootNamespace: string;
+  readonly namespaceNamingPolicy?: NamingPolicy;
   readonly binding: Binding;
 };
 
@@ -91,8 +93,11 @@ export const buildSourceCatalog = (
     config.sourceFiles,
     config.checker,
     config.sourceRoot,
-    config.rootNamespace
-    // No convertType — uses default (() => unknownType)
+    config.rootNamespace,
+    {
+      namespaceNamingPolicy: config.namespaceNamingPolicy,
+    }
+    // No convertType — uses default (() => unknownType).
   );
 
   // At this point, all type names are registered and can be resolved.
@@ -116,7 +121,10 @@ export const buildSourceCatalog = (
     config.checker,
     config.sourceRoot,
     config.rootNamespace,
-    boundConvertType
+    {
+      namespaceNamingPolicy: config.namespaceNamingPolicy,
+      convertType: boundConvertType,
+    }
   );
 
   return { typeRegistry };

@@ -2,25 +2,25 @@ namespace TestCases.common.types.genericsubstitution
 {
     public class Wrapper<T>
     {
-        public T inner;
+        public T Inner;
 
         public Wrapper(T inner)
             {
-            this.inner = inner;
+            this.Inner = inner;
             }
     }
     public class Container<T>
     {
-        public Wrapper<T> wrapped;
+        public Wrapper<T> Wrapped;
 
         public Container(T value)
             {
-            this.wrapped = new Wrapper<T>(value);
+            this.Wrapped = new Wrapper<T>(value);
             }
 
-        public T getInner()
+        public T GetInner()
             {
-            return this.wrapped.inner;
+            return this.Wrapped.Inner;
             }
     }
     public class IntContainer : Container<int>
@@ -30,9 +30,9 @@ namespace TestCases.common.types.genericsubstitution
 
             }
 
-        public int addOne()
+        public int AddOne()
             {
-            return this.getInner() + 1;
+            return this.GetInner() + 1;
             }
     }
 }

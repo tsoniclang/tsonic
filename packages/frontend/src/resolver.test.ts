@@ -121,7 +121,7 @@ describe("Module Resolver", () => {
         "MyApp"
       );
 
-      expect(namespace).to.equal("MyApp.models.auth");
+      expect(namespace).to.equal("MyApp.Models.Auth");
     });
 
     it("should use root namespace for files in source root", () => {
@@ -146,21 +146,20 @@ describe("Module Resolver", () => {
   });
 
   describe("getClassNameFromPath", () => {
-    it("should extract class name from file name", () => {
+    it("should extract class name from file name (default clr)", () => {
       expect(getClassNameFromPath("/src/User.ts")).to.equal("User");
       expect(getClassNameFromPath("/src/models/UserProfile.ts")).to.equal(
         "UserProfile"
       );
-      expect(getClassNameFromPath("index.ts")).to.equal("index");
+      expect(getClassNameFromPath("index.ts")).to.equal("Index");
+      expect(getClassNameFromPath("/src/todo-list.ts")).to.equal("TodoList");
     });
 
-    it("should support PascalCase class naming policy", () => {
-      expect(getClassNameFromPath("/src/todo-list.ts", "PascalCase")).to.equal(
-        "TodoList"
+    it("should support alternate naming policies", () => {
+      expect(getClassNameFromPath("/src/todo-list.ts", "none")).to.equal(
+        "todolist"
       );
-      expect(getClassNameFromPath("/src/todolist.ts", "PascalCase")).to.equal(
-        "Todolist"
-      );
+      expect(getClassNameFromPath("/src/todolist.ts", "clr")).to.equal("Todolist");
     });
   });
 });

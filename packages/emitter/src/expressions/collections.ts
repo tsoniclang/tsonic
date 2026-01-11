@@ -12,6 +12,134 @@ import {
   resolveTypeAlias,
   selectUnionMemberForObjectLiteral,
 } from "../core/type-resolution.js";
+import { emitCSharpName } from "../naming-policy.js";
+
+type ObjectMemberKind = "method" | "property" | "field" | "enumMember";
+
+type ObjectMemberBucket = "methods" | "properties" | "fields" | "enumMembers";
+
+const bucketFromMemberKind = (kind: ObjectMemberKind | undefined): ObjectMemberBucket => {
+  switch (kind) {
+    case "method":
+      return "methods";
+    case "field":
+      return "fields";
+    case "enumMember":
+      return "enumMembers";
+    default:
+      return "properties";
+  }
+};
+
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
+
+const lookupMemberKindFromLocalTypes = (
+  receiverTypeName: string,
+  memberName: string,
+  context: EmitterContext
+): ObjectMemberKind | undefined => {
+  const local = context.localTypes?.get(receiverTypeName);
+  if (!local) return undefined;
+
+  if (local.kind === "enum") {
+    return local.members.includes(memberName) ? "enumMember" : undefined;
+  }
+
+  if (local.kind === "typeAlias") {
+    if (local.type.kind !== "objectType") return undefined;
+    const found = local.type.members.find((m) => m.name === memberName);
+    if (!found) return undefined;
+    return found.kind === "methodSignature" ? "method" : "property";
+  }
+
+  // class/interface
+  const members = local.members;
+  for (const m of members) {
+    if (!("name" in m) || m.name !== memberName) continue;
+
+    if (m.kind === "methodDeclaration" || m.kind === "methodSignature") {
+      return "method";
+    }
+
+    if (m.kind === "propertySignature") return "property";
+
+    if (m.kind === "propertyDeclaration") {
+      const hasAccessors = !!(m.getterBody || m.setterBody);
+      return hasAccessors ? "property" : "field";
+    }
+  }
+
+  return undefined;
+};
+
+const resolveReceiverTypeFqn = (
+  receiverType: IrType | undefined,
+  context: EmitterContext
+): string | undefined => {
+  if (!receiverType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+  if (resolved.kind !== "referenceType") return undefined;
+
+  if (resolved.resolvedClrType) {
+    return stripGlobalPrefix(resolved.resolvedClrType);
+  }
+
+  const binding = context.importBindings?.get(resolved.name);
+  if (binding?.kind === "type") {
+    return stripGlobalPrefix(binding.clrName);
+  }
+
+  return undefined;
+};
+
+const lookupMemberKindFromIndex = (
+  receiverTypeFqn: string,
+  memberName: string,
+  context: EmitterContext
+): ObjectMemberKind | undefined => {
+  const perType = context.options.typeMemberIndex?.get(receiverTypeFqn);
+  const kind = perType?.get(memberName) as ObjectMemberKind | undefined;
+  return kind;
+};
+
+const getMemberKind = (
+  receiverType: IrType | undefined,
+  memberName: string,
+  context: EmitterContext
+): ObjectMemberKind | undefined => {
+  if (!receiverType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(receiverType), context);
+
+  if (resolved.kind === "objectType") {
+    const found = resolved.members.find((m) => m.name === memberName);
+    if (!found) return undefined;
+    return found.kind === "methodSignature" ? "method" : "property";
+  }
+
+  if (resolved.kind === "referenceType") {
+    const localKind = lookupMemberKindFromLocalTypes(resolved.name, memberName, context);
+    if (localKind) return localKind;
+
+    const receiverFqn = resolveReceiverTypeFqn(resolved, context);
+    if (receiverFqn) {
+      return lookupMemberKindFromIndex(receiverFqn, memberName, context);
+    }
+  }
+
+  return undefined;
+};
+
+const emitObjectMemberName = (
+  receiverType: IrType | undefined,
+  memberName: string,
+  context: EmitterContext
+): string => {
+  const kind = getMemberKind(receiverType, memberName, context);
+  return emitCSharpName(memberName, bucketFromMemberKind(kind), context);
+};
 
 /**
  * Escape a string for use in a C# string literal.
@@ -317,7 +445,8 @@ export const emitObject = (
       expr,
       currentContext,
       effectiveType,
-      safeTypeName
+      safeTypeName,
+      instantiationType
     );
   }
 
@@ -329,7 +458,10 @@ export const emitObject = (
       // Should not reach here if hasSpreads is correctly set
       throw new Error("ICE: Spread in object literal but hasSpreads is false");
     } else {
-      const key = typeof prop.key === "string" ? prop.key : "/* computed */";
+      const key =
+        typeof prop.key === "string"
+          ? emitObjectMemberName(instantiationType, prop.key, currentContext)
+          : "/* computed */";
       // Resolve property type from contextual type for generic null→default handling
       const propertyExpectedType =
         typeof prop.key === "string"
@@ -362,7 +494,8 @@ const emitObjectWithSpreads = (
   expr: Extract<IrExpression, { kind: "object" }>,
   context: EmitterContext,
   effectiveType: IrType | undefined,
-  typeName: string
+  typeName: string,
+  targetType: IrType | undefined
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
   const assignments: string[] = [];
@@ -371,6 +504,7 @@ const emitObjectWithSpreads = (
     if (prop.kind === "spread") {
       // Spread: copy all properties from spread source
       const [spreadAssignments, newContext] = emitSpreadPropertyCopies(
+        targetType,
         prop.expression,
         currentContext
       );
@@ -378,7 +512,10 @@ const emitObjectWithSpreads = (
       currentContext = newContext;
     } else {
       // Explicit property assignment
-      const key = typeof prop.key === "string" ? prop.key : "/* computed */";
+      const key =
+        typeof prop.key === "string"
+          ? emitObjectMemberName(targetType, prop.key, currentContext)
+          : "/* computed */";
       const propertyExpectedType =
         typeof prop.key === "string"
           ? getPropertyType(effectiveType, prop.key, currentContext)
@@ -411,6 +548,7 @@ const emitObjectWithSpreads = (
  * Returns ["__tmp.x = base.x", "__tmp.y = base.y"]
  */
 const emitSpreadPropertyCopies = (
+  targetType: IrType | undefined,
   spreadExpr: IrExpression,
   context: EmitterContext
 ): [string[], EmitterContext] => {
@@ -439,7 +577,9 @@ const emitSpreadPropertyCopies = (
   const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
 
   for (const propName of propertyNames) {
-    assignments.push(`__tmp.${propName} = ${sourceExpr}.${propName}`);
+    const targetMember = emitObjectMemberName(targetType, propName, currentContext);
+    const sourceMember = emitObjectMemberName(spreadType, propName, currentContext);
+    assignments.push(`__tmp.${targetMember} = ${sourceExpr}.${sourceMember}`);
   }
 
   return [assignments, currentContext];
@@ -453,9 +593,11 @@ const getObjectTypePropertyNames = (
   type: IrType,
   context: EmitterContext
 ): readonly string[] => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
   // Direct object type
-  if (type.kind === "objectType") {
-    return type.members
+  if (resolved.kind === "objectType") {
+    return resolved.members
       .filter(
         (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
           m.kind === "propertySignature"
@@ -464,18 +606,9 @@ const getObjectTypePropertyNames = (
   }
 
   // Reference type - check type aliases registry
-  if (type.kind === "referenceType") {
-    const resolved = resolveTypeAlias(type, context);
-    if (resolved.kind === "objectType") {
-      return resolved.members
-        .filter(
-          (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
-            m.kind === "propertySignature"
-        )
-        .map((m) => m.name);
-    }
-    // Check localTypes for interface members
-    const localType = context.localTypes?.get(type.name);
+  if (resolved.kind === "referenceType") {
+    // Check localTypes for class/interface/typeAlias members
+    const localType = context.localTypes?.get(resolved.name);
     if (localType?.kind === "interface") {
       return localType.members
         .filter(
@@ -483,6 +616,39 @@ const getObjectTypePropertyNames = (
             m.kind === "propertySignature"
         )
         .map((m) => m.name);
+    }
+
+    if (localType?.kind === "class") {
+      return localType.members
+        .filter(
+          (m): m is Extract<typeof m, { kind: "propertyDeclaration" }> =>
+            m.kind === "propertyDeclaration" && !m.isStatic
+        )
+        .map((m) => m.name);
+    }
+
+    if (localType?.kind === "typeAlias" && localType.type.kind === "objectType") {
+      return localType.type.members
+        .filter(
+          (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
+            m.kind === "propertySignature"
+        )
+        .map((m) => m.name);
+    }
+
+    // Cross-module: fall back to global member kind index when available
+    const receiverFqn = resolveReceiverTypeFqn(resolved, context);
+    if (receiverFqn) {
+      const perType = context.options.typeMemberIndex?.get(receiverFqn);
+      if (perType) {
+        const names: string[] = [];
+        for (const [memberName, kind] of perType.entries()) {
+          if (kind === "property" || kind === "field") {
+            names.push(memberName);
+          }
+        }
+        return names;
+      }
     }
   }
 

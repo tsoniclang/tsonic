@@ -2,15 +2,15 @@ namespace TestCases.common.classes.fieldinference
 {
     public class Counter
     {
-        public int count = 0;
+        public int Count = 0;
 
-        public string name = "default";
+        public string Name = "default";
 
-        public bool active = true;
+        public bool Active = true;
 
-        public void increment()
+        public void Increment()
             {
-            this.count++;
+            this.Count++;
             }
     }
 }

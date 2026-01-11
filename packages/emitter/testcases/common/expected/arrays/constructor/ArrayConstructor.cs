@@ -2,60 +2,60 @@ namespace TestCases.common.arrays.constructor
 {
     internal class User
     {
-        public required string name { get; set; }
+        public required string Name { get; set; }
 
-        public required int age { get; set; }
+        public required int Age { get; set; }
     }
 
             public static class ArrayConstructor
             {
-                public static int[] createIntArray(int size)
+                public static int[] CreateIntArray(int size)
                     {
                     return new int[size];
                     }
 
-                public static string[] createStringArray(int size)
+                public static string[] CreateStringArray(int size)
                     {
                     return new string[size];
                     }
 
-                public static bool[] createBooleanArray(int size)
+                public static bool[] CreateBooleanArray(int size)
                     {
                     return new bool[size];
                     }
 
-                public static double[] createDoubleArray(int size)
+                public static double[] CreateDoubleArray(int size)
                     {
                     return new double[size];
                     }
 
-                public static int[] createFixedArray()
+                public static int[] CreateFixedArray()
                     {
                     return new int[10];
                     }
 
-                public static int[] createEmptyArray()
+                public static int[] CreateEmptyArray()
                     {
                     return new int[0];
                     }
 
-                public static string?[] createNullableArray(int size)
+                public static string?[] CreateNullableArray(int size)
                     {
                     return new string?[size];
                     }
 
-                public static int[] createDynamicArray(int count)
+                public static int[] CreateDynamicArray(int count)
                     {
                     var size = count * 2;
                     return new int[size];
                     }
 
-                public static int[] createExpressionSizeArray(int a, int b)
+                public static int[] CreateExpressionSizeArray(int a, int b)
                     {
                     return new int[a + b];
                     }
 
-                public static User[] createObjectArray(int size)
+                public static User[] CreateObjectArray(int size)
                     {
                     return new User[size];
                     }

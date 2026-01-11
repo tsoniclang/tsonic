@@ -225,7 +225,7 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should call push method on array instance - integer literal emits as-is
-    expect(code).to.include("arr.push(3)");
+    expect(code).to.include("Arr.Push(3)");
   });
 
   it("should handle array element access", () => {
@@ -289,6 +289,6 @@ describe("Array Emission", () => {
     const code = emitModule(module);
 
     // Should use native indexer for array access
-    expect(code).to.include("arr[0]");
+    expect(code).to.include("Arr[0]");
   });
 });

@@ -2,16 +2,16 @@ namespace TestCases.common.classes.genericinheritance
 {
     public class Container<T>
     {
-        public T value;
+        public T Value;
 
         public Container(T value)
             {
-            this.value = value;
+            this.Value = value;
             }
 
-        public T getValue()
+        public T GetValue()
             {
-            return this.value;
+            return this.Value;
             }
     }
     public class IntContainer : Container<int>
@@ -21,9 +21,9 @@ namespace TestCases.common.classes.genericinheritance
 
             }
 
-        public int @double()
+        public int Double()
             {
-            return this.getValue() * 2;
+            return this.GetValue() * 2;
             }
     }
     public class StringContainer : Container<string>
@@ -33,9 +33,9 @@ namespace TestCases.common.classes.genericinheritance
 
             }
 
-        public int getLength()
+        public int GetLength()
             {
-            return this.getValue().Length;
+            return this.GetValue().Length;
             }
     }
 }

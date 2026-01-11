@@ -19,6 +19,7 @@ import {
 } from "../parameters.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
+import { emitCSharpName } from "../../../naming-policy.js";
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -114,7 +115,7 @@ export const emitMethodMember = (
   }
 
   // Method name (escape C# keywords)
-  parts.push(escapeCSharpIdentifier(member.name));
+  parts.push(emitCSharpName(member.name, "methods", context));
 
   // Parameters (with destructuring support) - use signatureContext for type parameter scope
   const paramsResult = emitParametersWithDestructuring(

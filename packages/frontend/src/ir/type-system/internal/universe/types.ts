@@ -26,7 +26,7 @@ import type { IrType } from "../../../types/index.js";
  *
  * Uses stableId as the primary key:
  * - Assembly types: "{assemblyName}:{clrName}" e.g., "System.Private.CoreLib:System.String"
- * - Source types: "{projectName}:{fullyQualifiedName}" e.g., "myapp:MyApp.models.User"
+ * - Source types: "{projectName}:{fullyQualifiedName}" e.g., "myapp:MyApp.Models.User"
  *
  * The distinction matters for:
  * - Collisions across assemblies

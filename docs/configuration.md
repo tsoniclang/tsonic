@@ -21,9 +21,6 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
 {
   "$schema": "https://tsonic.dev/schema/v1.json",
   "rootNamespace": "MyApp",
-  "namingPolicy": {
-    "classes": "PascalCase"
-  },
   "entryPoint": "src/App.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
@@ -71,24 +68,66 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
 Generated file `src/utils/Math.ts` becomes:
 
 ```csharp
-namespace MyApp.src.utils { ... }
+namespace MyApp.Utils { ... }
 ```
 
 #### namingPolicy
 
 Optional overrides for how Tsonic derives generated names.
 
-##### namingPolicy.classes
+Naming policies:
 
-Controls how Tsonic derives the generated C# class name from the source filename.
+- `"clr"` (default): CLR/C# conventions (PascalCase)
+- `"none"`: preserve original casing and separators, only removing hyphens (`-`)
 
-- Default: strip hyphens only (`todo-list.ts` → `todolist`)
-- `"PascalCase"`: split on `-` and `_` and capitalize parts (`todo-list.ts` → `TodoList`)
+Buckets:
+
+- `namingPolicy.all`: apply to all buckets (overrides all other settings)
+- `namingPolicy.namespaces`: directory-derived namespace segments
+- `namingPolicy.classes`: file-derived module container class name
+- `namingPolicy.methods`: method names
+- `namingPolicy.properties`: property names
+- `namingPolicy.fields`: field names
+- `namingPolicy.enumMembers`: enum member names
+
+##### namingPolicy.all
+
+Disable all CLR renaming:
 
 ```json
 {
   "namingPolicy": {
-    "classes": "PascalCase"
+    "all": "none"
+  }
+}
+```
+
+##### namingPolicy.classes
+
+Controls how Tsonic derives the generated C# class name from the source filename.
+
+- Default: `"clr"` (`todo-list.ts` → `TodoList`, `todolist.ts` → `Todolist`)
+- `"none"`: strip hyphens only (`todo-list.ts` → `todolist`)
+
+```json
+{
+  "namingPolicy": {
+    "classes": "none"
+  }
+}
+```
+
+##### namingPolicy.namespaces
+
+Controls how Tsonic derives C# namespace segments from directory names.
+
+- Default: `"clr"` (`src/models/auth/User.ts` → `MyApp.Models.Auth`)
+- `"none"`: preserve directory casing and underscores, only removing hyphens (`src/models/auth/User.ts` → `MyApp.models.auth`)
+
+```json
+{
+  "namingPolicy": {
+    "namespaces": "none"
   }
 }
 ```

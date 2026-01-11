@@ -2,27 +2,27 @@ namespace TestCases.common.types.generics
 {
     public class Box<T>
     {
-        public T value;
+        public T Value;
 
         public Box(T value)
             {
-            this.value = value;
+            this.Value = value;
             }
 
-        public T getValue()
+        public T GetValue()
             {
-            return this.value;
+            return this.Value;
             }
     }
 
             public static class Generics
             {
-                public static T identity<T>(T value)
+                public static T Identity<T>(T value)
                     {
                     return value;
                     }
 
-                public static bool tryFirstElement<T>(T[] arr, out T result)
+                public static bool TryFirstElement<T>(T[] arr, out T result)
                     {
                     result = default;
 

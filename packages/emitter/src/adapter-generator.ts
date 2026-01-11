@@ -6,7 +6,7 @@
 import { IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
-import { escapeCSharpIdentifier } from "./emitter-types/index.js";
+import { emitCSharpName } from "./naming-policy.js";
 
 /**
  * Generate adapter interface and wrapper class for a structural constraint
@@ -51,7 +51,7 @@ export const generateStructuralAdapter = (
 
       const optional = member.isOptional ? "?" : "";
       parts.push(
-        `${bodyInd}${memberType}${optional} ${escapeCSharpIdentifier(member.name)} { get; }`
+        `${bodyInd}${memberType}${optional} ${emitCSharpName(member.name, "properties", context)} { get; }`
       );
     }
   }
@@ -70,7 +70,7 @@ export const generateStructuralAdapter = (
 
       const optional = member.isOptional ? "?" : "";
       parts.push(
-        `${bodyInd}public ${memberType}${optional} ${escapeCSharpIdentifier(member.name)} { get; set; }`
+        `${bodyInd}public ${memberType}${optional} ${emitCSharpName(member.name, "properties", context)} { get; set; }`
       );
     }
   }
