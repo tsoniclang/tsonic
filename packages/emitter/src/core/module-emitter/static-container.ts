@@ -136,7 +136,7 @@ export const emitStaticContainer = (
   // Wrap statements in Main method if this is an entry point with top-level code
   if (mainBodyStmts.length > 0 && baseContext.options.isEntryPoint) {
     const mainParts: string[] = [];
-    mainParts.push(`${bodyInd}public static void Main()`);
+    mainParts.push(`${bodyInd}public static void __TopLevel()`);
     mainParts.push(`${bodyInd}{`);
 
     const mainBodyContext = indent(bodyCurrentContext);

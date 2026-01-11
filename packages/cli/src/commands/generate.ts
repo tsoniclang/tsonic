@@ -15,6 +15,7 @@ import {
   type Diagnostic,
   type IrModule,
   type CompilerOptions,
+  isExecutableStatement,
   applyNamingPolicy,
   resolveNamingPolicy,
 } from "@tsonic/frontend";
@@ -243,6 +244,8 @@ export const generateCommand = (
   }
 
   try {
+    const outputType = config.outputConfig.type ?? "executable";
+
     // For libraries without entry point, we need a different approach
     // For now, require entry point (library multi-file support can be added later)
     if (!entryPoint) {
@@ -327,7 +330,7 @@ export const generateCommand = (
     }
 
     // Generate Program.cs entry point wrapper (only for executables)
-    if (absoluteEntryPoint) {
+    if (absoluteEntryPoint && outputType !== "library") {
       // entryModule is already provided by buildDependencyGraph
       // But double-check by comparing relative paths
       const entryRelative = relative(sourceRoot, absoluteEntryPoint).replace(
@@ -339,12 +342,41 @@ export const generateCommand = (
         entryModule;
 
       if (foundEntryModule) {
-        const entryInfo = extractEntryInfo(foundEntryModule, namingPolicy);
-        if (entryInfo) {
-          const programCs = generateProgramCs(entryInfo);
-          const programPath = join(outputDir, "Program.cs");
-          writeFileSync(programPath, programCs, "utf-8");
+        const hasTopLevelCode = foundEntryModule.body.some(isExecutableStatement);
+        const mainExport = extractEntryInfo(foundEntryModule, namingPolicy);
+
+        if (mainExport && hasTopLevelCode) {
+          return {
+            ok: false,
+            error:
+              "Entry point module exports main() and also contains top-level executable statements. " +
+              "Remove the top-level code or remove the main export to make program startup deterministic.",
+          };
         }
+
+        const entryInfo =
+          mainExport ??
+          (hasTopLevelCode
+            ? {
+                namespace: foundEntryModule.namespace,
+                className: foundEntryModule.className,
+                methodName: "__TopLevel",
+                isAsync: false,
+                needsProgram: true,
+              }
+            : null);
+
+        if (!entryInfo) {
+          return {
+            ok: false,
+            error:
+              "Entry point module must either export main() or contain top-level executable statements.",
+          };
+        }
+
+        const programCs = generateProgramCs(entryInfo);
+        const programPath = join(outputDir, "Program.cs");
+        writeFileSync(programPath, programCs, "utf-8");
       }
     }
 
@@ -402,7 +434,6 @@ export const generateCommand = (
           ];
 
       // Build output configuration
-      const outputType = config.outputConfig.type ?? "executable";
       const outputConfig: ExecutableConfig | LibraryConfig =
         outputType === "library"
           ? {

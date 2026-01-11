@@ -137,7 +137,10 @@ ${attributes}
     {
         internal static readonly global::System.Text.Json.JsonSerializerOptions Options = new global::System.Text.Json.JsonSerializerOptions
         {
-            TypeInfoResolver = __TsonicJsonContext.Default
+            TypeInfoResolver = __TsonicJsonContext.Default,
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = global::System.Text.Json.JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = global::System.Text.Json.JsonNamingPolicy.CamelCase
         };
     }
 }
