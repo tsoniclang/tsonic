@@ -183,6 +183,12 @@ export const buildIr = (
     }
   }
 
+  // Merge any diagnostics emitted during IR conversion (from converters).
+  // These are deterministic failures where emitting code would require guessing.
+  if (ctx.diagnostics.length > 0) {
+    diagnostics.push(...ctx.diagnostics);
+  }
+
   if (diagnostics.length > 0) {
     return error(diagnostics);
   }

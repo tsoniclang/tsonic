@@ -47,4 +47,5 @@ export const createConverterContext = (params: {
   metadata: params.metadata,
   bindings: params.bindings,
   clrResolver: params.clrResolver,
+  diagnostics: [],
 });

@@ -28,6 +28,7 @@ export type DiagnosticCode =
   | "TSN3011" // Promise chaining (.then/.catch/.finally) not supported
   | "TSN4001" // .NET interop error
   | "TSN4002" // Missing .NET type declaration
+  | "TSN4003" // Ambiguous CLR binding
   | "TSN5001" // NativeAOT limitation
   | "TSN5002" // Runtime implementation missing
   | "TSN6001" // Internal compiler error

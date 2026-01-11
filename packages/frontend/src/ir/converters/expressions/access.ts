@@ -15,6 +15,7 @@ import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
 import type { MemberId } from "../../type-system/index.js";
 import type { MemberBinding } from "../../../program/bindings.js";
+import { createDiagnostic } from "../../../types/diagnostic.js";
 
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
@@ -497,6 +498,30 @@ const resolveHierarchicalBindingFromMemberId = (
       (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !== targetKey
     )
   ) {
+    const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+    const bindingsPath =
+      declSourceFilePath !== undefined
+        ? findNearestBindingsJson(declSourceFilePath)
+        : undefined;
+
+    // Only treat this as a CLR ambiguity when we can locate a bindings.json near the
+    // TS declaration source (tsbindgen packages). Otherwise, fall back to "no binding"
+    // and let local codepaths handle naming policy.
+    if (bindingsPath) {
+      const targets = [...new Set(overloads.map((m) => `${m.binding.type}.${m.binding.member}`))]
+        .sort()
+        .join(", ");
+
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN4003",
+          "error",
+          `Ambiguous CLR binding for '${typeAlias}.${propertyName}'. Multiple CLR targets found: ${targets}.`,
+          getSourceSpan(node),
+          `This usually indicates multiple tsbindgen packages export the same TS type/member alias. Ensure the correct package is imported, or regenerate bindings to avoid collisions. (bindings.json: ${bindingsPath})`
+        )
+      );
+    }
     return undefined;
   }
 

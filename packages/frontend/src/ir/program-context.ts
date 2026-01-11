@@ -20,6 +20,7 @@ import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
 import { resolveNamingPolicy } from "../resolver/naming-policy.js";
 import type { TsonicProgram } from "../program.js";
 import type { IrBuildOptions } from "./builder/types.js";
+import type { Diagnostic } from "../types/diagnostic.js";
 import { buildNominalEnv } from "./type-system/internal/nominal-env.js";
 import { convertCapturedTypeNode } from "./type-system/internal/type-converter.js";
 import { createTypeSystem } from "./type-system/type-system.js";
@@ -79,6 +80,16 @@ export type ProgramContext = {
    * Keyed by DeclId.id (not by identifier text) so shadowing is always correct.
    */
   readonly typeEnv?: ReadonlyMap<number, IrType>;
+
+  /**
+   * IR conversion diagnostics emitted by converters (non-TypeSystem).
+   *
+   * Converters should record deterministic, airplane-grade failures here
+   * instead of guessing (e.g., ambiguous CLR bindings).
+   *
+   * Collected by `buildIr()` and treated as compilation errors.
+   */
+  readonly diagnostics: Diagnostic[];
 };
 
 /**
@@ -429,5 +440,6 @@ export const createProgramContext = (
     metadata: program.metadata,
     bindings: program.bindings,
     clrResolver: program.clrResolver,
+    diagnostics: [],
   };
 };
