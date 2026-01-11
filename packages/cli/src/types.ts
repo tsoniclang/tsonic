@@ -89,7 +89,7 @@ export type CliOptions = {
   skipTypes?: boolean;
   typesVersion?: string;
   nodejs?: boolean; // Enable Node.js interop (installs @tsonic/nodejs)
-  pure?: boolean; // Use PascalCase CLR naming (installs @tsonic/globals-pure)
+  pure?: boolean; // Use PascalCase .NET bindings (installs @tsonic/globals-pure)
   // Output type options
   type?: OutputType;
   targetFramework?: string;

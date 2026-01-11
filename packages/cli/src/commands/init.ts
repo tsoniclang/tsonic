@@ -17,7 +17,7 @@ type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
   readonly nodejs?: boolean; // Enable Node.js interop
-  readonly pure?: boolean; // Use PascalCase CLR naming
+  readonly pure?: boolean; // Use PascalCase .NET bindings
 };
 
 const DEFAULT_GITIGNORE = `# .NET build artifacts

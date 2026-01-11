@@ -23,7 +23,7 @@ tsonic project init [options]
 | Option                  | Description                                               | Default |
 | ----------------------- | --------------------------------------------------------- | ------- |
 | `--nodejs`              | Enable Node.js interop (installs @tsonic/nodejs)          | `false` |
-| `--pure`                | Use PascalCase CLR naming (installs @tsonic/globals-pure) | `false` |
+| `--pure`                | Use PascalCase .NET bindings (installs @tsonic/globals-pure) | `false` |
 | `--skip-types`          | Skip installing type declarations                         | `false` |
 | `--types-version <ver>` | Version of type declarations                              | Latest  |
 
