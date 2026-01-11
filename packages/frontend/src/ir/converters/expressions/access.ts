@@ -7,11 +7,15 @@
  */
 
 import * as ts from "typescript";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { IrMemberExpression, IrType, ComputedAccessKind } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
+import type { MemberId } from "../../type-system/index.js";
 import type { MemberBinding } from "../../../program/bindings.js";
+import { createDiagnostic } from "../../../types/diagnostic.js";
 
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
@@ -388,6 +392,55 @@ const resolveHierarchicalBinding = (
   return undefined;
 };
 
+const findNearestBindingsJson = (filePath: string): string | undefined => {
+  let currentDir = dirname(filePath);
+  while (true) {
+    const candidate = join(currentDir, "bindings.json");
+    if (existsSync(candidate)) return candidate;
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) return undefined;
+    currentDir = parentDir;
+  }
+};
+
+const disambiguateOverloadsByDeclaringType = (
+  overloads: readonly MemberBinding[],
+  memberId: MemberId,
+  declaringTypeTsName: string,
+  ctx: ProgramContext
+): readonly MemberBinding[] | undefined => {
+  const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+  if (!declSourceFilePath) return undefined;
+
+  const bindingsPath = findNearestBindingsJson(declSourceFilePath);
+  if (!bindingsPath) return undefined;
+
+  const raw = (() => {
+    try {
+      return JSON.parse(readFileSync(bindingsPath, "utf8")) as unknown;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  if (!raw || typeof raw !== "object") return undefined;
+  const types = (raw as { readonly types?: unknown }).types;
+  if (!Array.isArray(types)) return undefined;
+
+  const typeEntry = types.find((t) => {
+    if (!t || typeof t !== "object") return false;
+    const tsEmitName = (t as { readonly tsEmitName?: unknown }).tsEmitName;
+    return tsEmitName === declaringTypeTsName;
+  }) as { readonly clrName?: unknown } | undefined;
+
+  const expectedClrType =
+    typeEntry && typeof typeEntry.clrName === "string" ? typeEntry.clrName : undefined;
+  if (!expectedClrType) return undefined;
+
+  const filtered = overloads.filter((m) => m.binding.type === expectedClrType);
+  return filtered.length > 0 ? filtered : undefined;
+};
+
 /**
  * Resolve hierarchical binding for a member access using Binding-resolved MemberId.
  *
@@ -417,8 +470,55 @@ const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
-  const overloads = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
-  if (!overloads || overloads.length === 0) return undefined;
+  const overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+  if (!overloadsAll || overloadsAll.length === 0) {
+    const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+    const bindingsPath =
+      declSourceFilePath !== undefined
+        ? findNearestBindingsJson(declSourceFilePath)
+        : undefined;
+
+    // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
+    // we MUST have a CLR binding; we must never guess member names via naming policy.
+    //
+    // We treat it as CLR-bound if:
+    // - The declaring type is a tsbindgen extension interface (`__Ext_*`), OR
+    // - We can locate a bindings.json near the declaration source file.
+    const isClrBound =
+      declaringTypeName.startsWith("__Ext_") || bindingsPath !== undefined;
+
+    if (isClrBound) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN4004",
+          "error",
+          `Missing CLR binding for '${typeAlias}.${propertyName}'.`,
+          getSourceSpan(node),
+          bindingsPath
+            ? `No matching member binding was found in the loaded bindings for this tsbindgen declaration. (bindings.json: ${bindingsPath})`
+            : "No matching member binding was found for this tsbindgen extension interface member."
+        )
+      );
+    }
+
+    return undefined;
+  }
+
+  let overloads: readonly MemberBinding[] = overloadsAll;
+  const targetKeys = new Set(
+    overloads.map((m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`)
+  );
+  if (targetKeys.size > 1) {
+    const disambiguated = disambiguateOverloadsByDeclaringType(
+      overloads,
+      memberId,
+      typeAlias,
+      ctx
+    );
+    if (disambiguated) {
+      overloads = disambiguated;
+    }
+  }
 
   const first = overloads[0];
   if (!first) return undefined;
@@ -429,6 +529,30 @@ const resolveHierarchicalBindingFromMemberId = (
       (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !== targetKey
     )
   ) {
+    const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
+    const bindingsPath =
+      declSourceFilePath !== undefined
+        ? findNearestBindingsJson(declSourceFilePath)
+        : undefined;
+
+    // Only treat this as a CLR ambiguity when we can locate a bindings.json near the
+    // TS declaration source (tsbindgen packages). Otherwise, fall back to "no binding"
+    // and let local codepaths handle naming policy.
+    if (bindingsPath) {
+      const targets = [...new Set(overloads.map((m) => `${m.binding.type}.${m.binding.member}`))]
+        .sort()
+        .join(", ");
+
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN4003",
+          "error",
+          `Ambiguous CLR binding for '${typeAlias}.${propertyName}'. Multiple CLR targets found: ${targets}.`,
+          getSourceSpan(node),
+          `This usually indicates multiple tsbindgen packages export the same TS type/member alias. Ensure the correct package is imported, or regenerate bindings to avoid collisions. (bindings.json: ${bindingsPath})`
+        )
+      );
+    }
     return undefined;
   }
 
