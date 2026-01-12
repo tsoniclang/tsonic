@@ -4,8 +4,5 @@
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",
   "outputDirectory": "generated",
-  "outputName": "namespace-imports",
-  "dotnet": {
-    "libraries": ["/home/jeswin/repos/tsoniclang/tsbindgen/.tests/validate"]
-  }
+  "outputName": "namespace-imports"
 }

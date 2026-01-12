@@ -166,7 +166,7 @@ Automated scripts break syntax in unpredictable ways and destroy codebases.
 
 - **NEVER** use `npx tsonic`
 - **NEVER** use `npx` for any Tsonic-related commands
-- **ALWAYS** use the local CLI directly: `/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js`
+- **ALWAYS** use the local CLI build from this repo: `node ./packages/cli/dist/index.js` (run from the repo root)
 
 **Why this matters:**
 
@@ -178,12 +178,12 @@ Automated scripts break syntax in unpredictable ways and destroy codebases.
 **Correct usage:**
 
 ```bash
-# ALWAYS use the local CLI
-/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js generate src/App.ts
-/home/jeswin/repos/tsoniclang/tsonic/packages/cli/dist/index.js build src/App.ts
+# ALWAYS use the local CLI (from this repo)
+node ./packages/cli/dist/index.js generate src/App.ts
+node ./packages/cli/dist/index.js build src/App.ts
 
 # Or from proof-is-in-the-pudding projects:
-../../../../tsonic/packages/cli/dist/index.js build src/App.ts
+node ../../../../tsonic/packages/cli/dist/index.js build src/App.ts
 ```
 
 **NEVER do this:**
