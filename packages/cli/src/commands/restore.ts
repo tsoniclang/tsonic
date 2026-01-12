@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Result, TsonicConfig } from "../types.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
+import { loadConfig } from "../config.js";
 import {
   bindingsStoreDir,
   defaultBindingsPackageNameForDll,
@@ -26,8 +27,8 @@ import {
   ensureGeneratedBindingsPackageJson,
   installGeneratedBindingsPackage,
   listDotnetRuntimes,
-  readTsonicJson,
   resolveFromProjectRoot,
+  resolvePackageRoot,
   resolveTsbindgenDllPath,
   tsbindgenGenerate,
   tsbindgenResolveClosure,
@@ -40,6 +41,15 @@ import {
 export type RestoreOptions = AddCommandOptions;
 
 type PackageReference = { readonly id: string; readonly version: string };
+type PackageReferenceConfig = {
+  readonly id: string;
+  readonly version: string;
+  readonly types?: string;
+};
+
+type FrameworkReferenceConfig =
+  | string
+  | { readonly id: string; readonly types?: string };
 
 type ProjectAssets = {
   readonly targets?: Record<string, unknown>;
@@ -182,8 +192,18 @@ const dotnetRestore = (
   return { ok: true, value: assetsPath };
 };
 
-const addUnique = (arr: string[], value: string): void => {
-  if (!arr.includes(value)) arr.push(value);
+const addUniqueFrameworkReference = (
+  arr: FrameworkReferenceConfig[],
+  value: string
+): void => {
+  if (
+    !arr.some(
+      (r) =>
+        (typeof r === "string" ? r : r.id).toLowerCase() === value.toLowerCase()
+    )
+  ) {
+    arr.push(value);
+  }
 };
 
 const pathIsWithin = (path: string, dir: string): boolean => {
@@ -194,12 +214,13 @@ const pathIsWithin = (path: string, dir: string): boolean => {
 };
 
 export const restoreCommand = (
-  projectRoot: string,
+  configPath: string,
   options: RestoreOptions = {}
 ): Result<void, string> => {
-  const tsonicConfigResult = readTsonicJson(projectRoot);
-  if (!tsonicConfigResult.ok) return tsonicConfigResult;
-  const { path: configPath, config: rawConfig } = tsonicConfigResult.value;
+  const configResult = loadConfig(configPath);
+  if (!configResult.ok) return configResult;
+  const projectRoot = dirname(configPath);
+  const rawConfig = configResult.value;
   let config = rawConfig;
 
   const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
@@ -210,22 +231,12 @@ export const restoreCommand = (
   if (!runtimesResult.ok) return runtimesResult;
   const runtimes = runtimesResult.value;
 
-  const dotnetLib = join(projectRoot, "node_modules/@tsonic/dotnet");
-  const coreLib = join(projectRoot, "node_modules/@tsonic/core");
-  if (!existsSync(join(dotnetLib, "package.json"))) {
-    return {
-      ok: false,
-      error:
-        "Missing @tsonic/dotnet in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-    };
-  }
-  if (!existsSync(join(coreLib, "package.json"))) {
-    return {
-      ok: false,
-      error:
-        "Missing @tsonic/core in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-    };
-  }
+  const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
+  if (!dotnetRoot.ok) return dotnetRoot;
+  const coreRoot = resolvePackageRoot(projectRoot, "@tsonic/core");
+  if (!coreRoot.ok) return coreRoot;
+  const dotnetLib = dotnetRoot.value;
+  const coreLib = coreRoot.value;
 
   let dotnet = config.dotnet ?? {};
   const originalLibraries = dotnet.libraries ?? [];
@@ -242,7 +253,14 @@ export const restoreCommand = (
   const naming = detectTsbindgenNaming(config);
 
   // 1) FrameworkReferences bindings
-  for (const frameworkRef of dotnet.frameworkReferences ?? []) {
+  for (const entry of (dotnet.frameworkReferences ??
+    []) as FrameworkReferenceConfig[]) {
+    const frameworkRef = typeof entry === "string" ? entry : entry.id;
+    const typesPackage = typeof entry === "string" ? undefined : entry.types;
+    if (typesPackage) {
+      continue; // bindings supplied externally; do not auto-generate.
+    }
+
     const runtime = runtimes.find((r) => r.name === frameworkRef);
     if (!runtime) {
       const available = runtimes.map((r) => `${r.name} ${r.version}`).join("\n");
@@ -288,11 +306,16 @@ export const restoreCommand = (
   }
 
   // 2) NuGet PackageReferences bindings (including transitive deps)
-  const packageReferences = dotnet.packageReferences ?? [];
-  if (packageReferences.length > 0) {
+  const packageReferencesAll = (dotnet.packageReferences ??
+    []) as PackageReferenceConfig[];
+  if (packageReferencesAll.length > 0) {
     const targetFramework = config.dotnetVersion ?? "net10.0";
     const restoreDir = join(projectRoot, ".tsonic", "nuget");
-    const restoreProject = writeRestoreProject(restoreDir, targetFramework, packageReferences);
+    const restoreProject = writeRestoreProject(
+      restoreDir,
+      targetFramework,
+      packageReferencesAll.map((p) => ({ id: p.id, version: p.version }))
+    );
     if (!restoreProject.ok) return restoreProject;
 
     const assetsPathResult = dotnetRestore(restoreProject.value, options);
@@ -341,8 +364,11 @@ export const restoreCommand = (
       libKeyByPkgId.set(norm, node.libKey);
     }
 
+    const shouldAutoGenerate = (p: PackageReferenceConfig): boolean =>
+      p.types === undefined || p.types.trim().length === 0;
+
     const roots: string[] = [];
-    for (const pr of packageReferences) {
+    for (const pr of packageReferencesAll.filter(shouldAutoGenerate)) {
       const root = libKeyByPkgId.get(normalizePkgId(pr.id));
       if (!root) {
         return {
@@ -355,6 +381,14 @@ export const restoreCommand = (
       roots.push(root);
     }
 
+    // If all direct package references have explicit types packages, we only
+    // perform dotnet restore here (for early error detection) and skip local
+    // bindings generation entirely.
+    if (roots.length === 0) {
+      // Still continue to DLL/framework binding sections if present.
+      // (They are independent dependency kinds.)
+      // eslint-disable-next-line no-empty
+    } else {
     const closure = new Set<string>();
     const queue: string[] = [...roots];
     while (queue.length > 0) {
@@ -409,18 +443,40 @@ export const restoreCommand = (
       for (const dll of node.dlls) compileDirs.add(dirname(dll));
     }
 
-    const isGenerated = (libKey: string): boolean =>
-      (packagesByLibKey.get(libKey)?.dlls.length ?? 0) > 0;
+    const typesPackageByPkgId = new Map<string, string>();
+    for (const pr of packageReferencesAll) {
+      if (pr.types && pr.types.trim().length > 0) {
+        typesPackageByPkgId.set(normalizePkgId(pr.id), pr.types);
+      }
+    }
 
-    const transitiveGeneratedDeps = new Map<string, Set<string>>();
+    const typesLibDirByPkgId = new Map<string, string>();
+
+    const resolveTypesLibDir = (packageId: string): Result<string, string> => {
+      const norm = normalizePkgId(packageId);
+      const existing = typesLibDirByPkgId.get(norm);
+      if (existing) return { ok: true, value: existing };
+
+      const typesPkg = typesPackageByPkgId.get(norm);
+      if (!typesPkg) {
+        return { ok: false, error: `Internal error: missing types package for ${packageId}` };
+      }
+
+      const root = resolvePackageRoot(projectRoot, typesPkg);
+      if (!root.ok) return root;
+      typesLibDirByPkgId.set(norm, root.value);
+      return { ok: true, value: root.value };
+    };
+
+    const transitiveDeps = new Map<string, Set<string>>();
     for (const libKey of topo) {
       const set = new Set<string>();
       for (const dep of depsByLibKey.get(libKey) ?? []) {
-        if (isGenerated(dep)) set.add(dep);
-        const depTrans = transitiveGeneratedDeps.get(dep);
+        set.add(dep);
+        const depTrans = transitiveDeps.get(dep);
         if (depTrans) for (const t of depTrans) set.add(t);
       }
-      transitiveGeneratedDeps.set(libKey, set);
+      transitiveDeps.set(libKey, set);
     }
 
     const bindingsDirByLibKey = new Map<string, string>();
@@ -430,6 +486,13 @@ export const restoreCommand = (
       if (!node) continue;
       const seedDlls = [...node.dlls];
       if (seedDlls.length === 0) continue; // meta-package
+
+      const declared = packageReferencesAll.find(
+        (p) => normalizePkgId(p.id) === normalizePkgId(node.packageId)
+      );
+      if (declared?.types) {
+        continue; // bindings supplied externally; do not auto-generate.
+      }
 
       const packageName = defaultBindingsPackageNameForNuget(node.packageId);
       const outDir = bindingsStoreDir(projectRoot, "nuget", packageName);
@@ -453,11 +516,26 @@ export const restoreCommand = (
         coreLib,
       ];
 
-      const deps = Array.from(transitiveGeneratedDeps.get(libKey) ?? [])
-        .map((depKey) => bindingsDirByLibKey.get(depKey))
-        .filter((p): p is string => typeof p === "string")
-        .sort((a, b) => a.localeCompare(b));
-      for (const depDir of deps) generateArgs.push("--lib", depDir);
+      const libDirs = new Set<string>();
+      for (const depKey of transitiveDeps.get(libKey) ?? []) {
+        const depNode = packagesByLibKey.get(depKey);
+        if (!depNode) continue;
+
+        const depPkgNorm = normalizePkgId(depNode.packageId);
+        const typesPkg = typesPackageByPkgId.get(depPkgNorm);
+        if (typesPkg) {
+          const dirRes = resolveTypesLibDir(depNode.packageId);
+          if (!dirRes.ok) return dirRes;
+          libDirs.add(dirRes.value);
+          continue;
+        }
+
+        const generated = bindingsDirByLibKey.get(depKey);
+        if (generated) libDirs.add(generated);
+      }
+      for (const depDir of Array.from(libDirs).sort((a, b) => a.localeCompare(b))) {
+        generateArgs.push("--lib", depDir);
+      }
 
       for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
       for (const d of compileDirs) generateArgs.push("--ref-dir", d);
@@ -470,6 +548,7 @@ export const restoreCommand = (
 
       const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
       if (!installResult.ok) return installResult;
+    }
     }
   }
 
@@ -510,8 +589,12 @@ export const restoreCommand = (
     });
 
     if (requiredFrameworkRefs.size > 0) {
-      const nextFrameworkRefs = [...(dotnet.frameworkReferences ?? [])];
-      for (const fr of requiredFrameworkRefs) addUnique(nextFrameworkRefs, fr);
+      const nextFrameworkRefs: FrameworkReferenceConfig[] = [
+        ...((dotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[]),
+      ];
+      for (const fr of requiredFrameworkRefs) {
+        addUniqueFrameworkReference(nextFrameworkRefs, fr);
+      }
       const nextConfig: TsonicConfig = {
         ...config,
         dotnet: { ...dotnet, frameworkReferences: nextFrameworkRefs },

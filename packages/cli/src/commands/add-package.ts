@@ -30,6 +30,7 @@ import {
   npmInstallDevDependency,
   readTsonicJson,
   resolveFromProjectRoot,
+  resolvePackageRoot,
   resolveTsbindgenDllPath,
   tsbindgenGenerate,
   tsbindgenResolveClosure,
@@ -49,6 +50,18 @@ const sha256File = (path: string): string => {
 const addUnique = (arr: string[], value: string): void => {
   if (!arr.includes(value)) arr.push(value);
 };
+
+type FrameworkReferenceConfig =
+  | string
+  | { readonly id: string; readonly types?: string };
+
+const hasFrameworkReference = (
+  arr: readonly FrameworkReferenceConfig[],
+  value: string
+): boolean =>
+  arr.some(
+    (r) => (typeof r === "string" ? r : r.id).toLowerCase() === value.toLowerCase()
+  );
 
 const isValidTypesPackageName = (name: string): boolean => {
   if (!name.startsWith("@") && !name.includes("/")) return true;
@@ -180,9 +193,13 @@ export const addPackageCommand = (
     addUnique(libraries, rel);
   }
 
-  const frameworkRefs = [...(dotnet.frameworkReferences ?? [])];
+  const frameworkRefs: FrameworkReferenceConfig[] = [
+    ...((dotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[]),
+  ];
   for (const fr of requiredFrameworkRefs) {
-    addUnique(frameworkRefs, fr);
+    if (!hasFrameworkReference(frameworkRefs, fr)) {
+      frameworkRefs.push(fr);
+    }
   }
 
   const nextConfig: TsonicConfig = {
@@ -209,22 +226,12 @@ export const addPackageCommand = (
 
   const naming = detectTsbindgenNaming(nextConfig);
 
-  const dotnetLib = join(projectRoot, "node_modules/@tsonic/dotnet");
-  const coreLib = join(projectRoot, "node_modules/@tsonic/core");
-  if (!existsSync(join(dotnetLib, "package.json"))) {
-    return {
-      ok: false,
-      error:
-        "Missing @tsonic/dotnet in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-    };
-  }
-  if (!existsSync(join(coreLib, "package.json"))) {
-    return {
-      ok: false,
-      error:
-        "Missing @tsonic/core in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-      };
-  }
+  const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
+  if (!dotnetRoot.ok) return dotnetRoot;
+  const coreRoot = resolvePackageRoot(projectRoot, "@tsonic/core");
+  if (!coreRoot.ok) return coreRoot;
+  const dotnetLib = dotnetRoot.value;
+  const coreLib = coreRoot.value;
 
   const nonFramework = closure.resolvedAssemblies.filter((asm) => {
     const runtimeDir = runtimeDirs.find((rt) => pathIsWithin(asm.path, rt.dir));

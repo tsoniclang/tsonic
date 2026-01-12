@@ -198,6 +198,31 @@ export const resolveTsbindgenDllPath = (
   };
 };
 
+export const resolvePackageRoot = (
+  projectRoot: string,
+  packageName: string
+): Result<string, string> => {
+  const projectPkgJson = join(projectRoot, "package.json");
+  const req = createRequire(
+    existsSync(projectPkgJson)
+      ? projectPkgJson
+      : join(projectRoot, "__tsonic_require__.js")
+  );
+
+  try {
+    const pkgJson = req.resolve(`${packageName}/package.json`);
+    return { ok: true, value: dirname(pkgJson) };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        `Missing ${packageName} in node_modules.\n` +
+        `Install it (recommended: 'tsonic project init') and retry.\n` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
 export type DotnetRuntime = {
   readonly name: string;
   readonly version: string;
@@ -363,14 +388,7 @@ export const installGeneratedBindingsPackage = (
   fromDir: string
 ): Result<void, string> => {
   const nodeModulesDir = join(projectRoot, "node_modules");
-  if (!existsSync(nodeModulesDir)) {
-    return {
-      ok: false,
-      error:
-        `node_modules not found in ${projectRoot}.\n` +
-        `Run 'npm install' first so the compiler and standard bindings are available.`,
-    };
-  }
+  mkdirSync(nodeModulesDir, { recursive: true });
 
   const targetDir = join(nodeModulesDir, packageName);
   if (existsSync(targetDir)) {

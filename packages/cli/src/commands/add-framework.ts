@@ -8,8 +8,6 @@
  * installed shared framework assemblies.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type { Result, TsonicConfig } from "../types.js";
 import {
   bindingsStoreDir,
@@ -21,6 +19,7 @@ import {
   npmInstallDevDependency,
   readTsonicJson,
   resolveFromProjectRoot,
+  resolvePackageRoot,
   resolveTsbindgenDllPath,
   tsbindgenGenerate,
   type AddCommandOptions,
@@ -29,9 +28,12 @@ import {
 
 export type AddFrameworkOptions = AddCommandOptions;
 
-const addUnique = (arr: string[], value: string): void => {
-  if (!arr.includes(value)) arr.push(value);
-};
+type FrameworkReferenceConfig =
+  | string
+  | { readonly id: string; readonly types?: string };
+
+const normalizeFrameworkRefId = (value: FrameworkReferenceConfig): string =>
+  typeof value === "string" ? value : value.id;
 
 const isValidTypesPackageName = (name: string): boolean => {
   if (!name.startsWith("@") && !name.includes("/")) return true;
@@ -56,8 +58,40 @@ export const addFrameworkCommand = (
   const { path: configPath, config } = tsonicConfigResult.value;
 
   const dotnet = config.dotnet ?? {};
-  const frameworkRefs = [...(dotnet.frameworkReferences ?? [])];
-  addUnique(frameworkRefs, frameworkReference);
+  const frameworkRefs: FrameworkReferenceConfig[] = [
+    ...((dotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[]),
+  ];
+
+  const idx = frameworkRefs.findIndex(
+    (r) =>
+      normalizeFrameworkRefId(r).toLowerCase() ===
+      frameworkReference.toLowerCase()
+  );
+
+  if (idx >= 0) {
+    const existing = frameworkRefs[idx] as FrameworkReferenceConfig;
+    if (typesPackage) {
+      if (typeof existing === "string") {
+        frameworkRefs[idx] = { id: existing, types: typesPackage };
+      } else if (existing.types && existing.types !== typesPackage) {
+        return {
+          ok: false,
+          error:
+            `Framework reference already present with a different types package:\n` +
+            `- ${frameworkReference}\n` +
+            `- existing: ${existing.types}\n` +
+            `- requested: ${typesPackage}\n` +
+            `Refusing to change automatically (airplane-grade). Update tsonic.json manually if intended.`,
+        };
+      } else {
+        frameworkRefs[idx] = { ...existing, types: typesPackage };
+      }
+    }
+  } else {
+    frameworkRefs.push(
+      typesPackage ? { id: frameworkReference, types: typesPackage } : frameworkReference
+    );
+  }
 
   const nextConfig: TsonicConfig = {
     ...config,
@@ -98,22 +132,12 @@ export const addFrameworkCommand = (
     };
   }
 
-  const dotnetLib = join(projectRoot, "node_modules/@tsonic/dotnet");
-  const coreLib = join(projectRoot, "node_modules/@tsonic/core");
-  if (!existsSync(join(dotnetLib, "package.json"))) {
-    return {
-      ok: false,
-      error:
-        "Missing @tsonic/dotnet in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-    };
-  }
-  if (!existsSync(join(coreLib, "package.json"))) {
-    return {
-      ok: false,
-      error:
-        "Missing @tsonic/core in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-    };
-  }
+  const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
+  if (!dotnetRoot.ok) return dotnetRoot;
+  const coreRoot = resolvePackageRoot(projectRoot, "@tsonic/core");
+  if (!coreRoot.ok) return coreRoot;
+  const dotnetLib = dotnetRoot.value;
+  const coreLib = coreRoot.value;
 
   const naming = detectTsbindgenNaming(nextConfig);
   const generatedPackage = defaultBindingsPackageNameForFramework(frameworkReference);

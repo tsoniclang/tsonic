@@ -60,11 +60,20 @@ export type TsonicConfig = {
     readonly typeRoots?: readonly string[];
     readonly libraries?: readonly string[]; // External library paths for .NET interop
     /** Additional shared frameworks (FrameworkReference) */
-    readonly frameworkReferences?: readonly string[];
+    readonly frameworkReferences?: ReadonlyArray<
+      | string
+      | {
+          readonly id: string;
+          /** If provided, bindings are expected from this npm package (no auto-generation). */
+          readonly types?: string;
+        }
+    >;
     /** Additional NuGet packages (PackageReference) */
     readonly packageReferences?: ReadonlyArray<{
       readonly id: string;
       readonly version: string;
+      /** If provided, bindings are expected from this npm package (no auto-generation). */
+      readonly types?: string;
     }>;
   };
 };
