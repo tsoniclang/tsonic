@@ -160,6 +160,9 @@ export const parseArgs = (
           }
         }
         break;
+      case "--strict":
+        options.strict = true;
+        break;
     }
   }
 

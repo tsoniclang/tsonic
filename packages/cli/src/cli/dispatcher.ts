@@ -103,6 +103,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
+      strict: parsed.options.strict,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -127,6 +128,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
+      strict: parsed.options.strict,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -150,6 +152,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
+      strict: parsed.options.strict,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -170,6 +173,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
+      strict: parsed.options.strict,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -192,6 +196,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
+      strict: parsed.options.strict,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -205,6 +210,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
+      strict: parsed.options.strict,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -234,6 +240,7 @@ export const runCli = async (args: string[]): Promise<number> => {
         verbose: parsed.options.verbose,
         quiet: parsed.options.quiet,
         deps: parsed.options.deps,
+        strict: parsed.options.strict,
       });
       if (!restoreResult.ok) {
         console.error(`Error: ${restoreResult.error}`);

@@ -386,6 +386,9 @@ Restore .NET dependencies and (re)generate local bindings for a cloned repo.
 tsonic restore
 ```
 
+By default, local bindings generation allows constructor-constraint loss (C# still enforces
+constraints at build time). Use `--strict` to make constructor-constraint loss a hard error.
+
 This command is also run automatically before `tsonic build` / `generate` / `run` / `pack` when the project has
 any .NET deps declared in `tsonic.json`.
 

@@ -260,6 +260,12 @@ describe("CLI Parser", () => {
         expect(result.positionals).to.deep.equal(["./lib/MyLib.dll"]);
         expect(result.options.deps).to.deep.equal(["./deps1", "./deps2"]);
       });
+
+      it("should parse --strict option", () => {
+        const result = parseArgs(["restore", "--strict"]);
+        expect(result.command).to.equal("restore");
+        expect(result.options.strict).to.equal(true);
+      });
     });
 
     describe("Program Arguments", () => {

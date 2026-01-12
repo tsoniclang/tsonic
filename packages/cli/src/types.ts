@@ -84,6 +84,12 @@ export type TsonicConfig = {
 export type CliOptions = {
   verbose?: boolean;
   quiet?: boolean;
+  /**
+   * Strict bindings generation.
+   * When enabled, `tsonic restore` / `tsonic add ...` will not relax any tsbindgen
+   * validation rules (including constructor constraint loss).
+   */
+  strict?: boolean;
   config?: string;
   src?: string;
   out?: string;
