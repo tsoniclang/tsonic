@@ -13,6 +13,8 @@ import { packCommand } from "../commands/pack.js";
 import { addPackageCommand } from "../commands/add-package.js";
 import { addNugetCommand } from "../commands/add-nuget.js";
 import { addFrameworkCommand } from "../commands/add-framework.js";
+import { restoreCommand } from "../commands/restore.js";
+import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
@@ -80,6 +82,7 @@ export const runCli = async (args: string[]): Promise<number> => {
     console.error(`Error: ${configResult.error}`);
     return 1;
   }
+  let rawConfig = configResult.value;
 
   // Project root is the directory containing tsonic.json
   const projectRoot = dirname(configPath);
@@ -153,8 +156,58 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 0;
   }
 
+  if (parsed.command === "restore") {
+    const result = restoreCommand(projectRoot, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+      deps: parsed.options.deps,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  // Airplane-grade UX: projects must be clone-and-build friendly.
+  // If the project declares .NET deps (NuGet/framework/DLLs), ensure bindings exist
+  // before running the compiler. This keeps `tsonic build` deterministic without
+  // requiring users to remember a separate restore step.
+  if (
+    parsed.command === "generate" ||
+    parsed.command === "build" ||
+    parsed.command === "run" ||
+    parsed.command === "pack"
+  ) {
+    const hasFrameworkRefs = (rawConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
+    const hasPackageRefs = (rawConfig.dotnet?.packageReferences?.length ?? 0) > 0;
+    const hasDllLibs = (rawConfig.dotnet?.libraries ?? []).some((p) =>
+      p.toLowerCase().endsWith(".dll") && !isBuiltInRuntimeDllPath(p)
+    );
+
+    if (hasFrameworkRefs || hasPackageRefs || hasDllLibs) {
+      const restoreResult = restoreCommand(projectRoot, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+      });
+      if (!restoreResult.ok) {
+        console.error(`Error: ${restoreResult.error}`);
+        return 1;
+      }
+
+      // restore may update tsonic.json (e.g., inferred FrameworkReferences), so reload.
+      const reloaded = loadConfig(configPath);
+      if (!reloaded.ok) {
+        console.error(`Error: ${reloaded.error}`);
+        return 1;
+      }
+      rawConfig = reloaded.value;
+    }
+  }
+
   const entryFile = parsed.positionals[0];
-  const config = resolveConfig(configResult.value, parsed.options, projectRoot, entryFile);
+  const config = resolveConfig(rawConfig, parsed.options, projectRoot, entryFile);
 
   // Dispatch to command handlers
   switch (parsed.command) {

@@ -19,10 +19,13 @@ import {
 import { basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import type { Result, TsonicConfig } from "../types.js";
+import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import {
+  bindingsStoreDir,
   defaultBindingsPackageNameForDll,
   detectTsbindgenNaming,
-  ensurePackageJson,
+  ensureGeneratedBindingsPackageJson,
+  installGeneratedBindingsPackage,
   listDotnetRuntimes,
   npmInstallDevDependency,
   readTsonicJson,
@@ -74,6 +77,14 @@ export const addPackageCommand = (
     return {
       ok: false,
       error: `Invalid DLL path: ${dllAbs} (must end with .dll)`,
+    };
+  }
+  if (isBuiltInRuntimeDllPath(dllAbs)) {
+    return {
+      ok: false,
+      error:
+        `Refusing to add built-in runtime DLL: ${basename(dllAbs)}\n` +
+        `Tsonic includes its runtime automatically. Remove it from dotnet.libraries and try again.`,
     };
   }
 
@@ -197,11 +208,6 @@ export const addPackageCommand = (
   }
 
   const naming = detectTsbindgenNaming(nextConfig);
-  const generatedPackage = defaultBindingsPackageNameForDll(dllAbs);
-  const bindingsDir = join(projectRoot, "bindings", generatedPackage);
-
-  const packageJsonResult = ensurePackageJson(bindingsDir, generatedPackage);
-  if (!packageJsonResult.ok) return packageJsonResult;
 
   const dotnetLib = join(projectRoot, "node_modules/@tsonic/dotnet");
   const coreLib = join(projectRoot, "node_modules/@tsonic/core");
@@ -217,53 +223,158 @@ export const addPackageCommand = (
       ok: false,
       error:
         "Missing @tsonic/core in node_modules. Run 'tsonic project init' (recommended) or install it manually.",
-    };
+      };
   }
 
-  const rootDllName = basename(dllAbs);
-  const rootDllInLib = join(libDir, rootDllName);
-  if (!existsSync(rootDllInLib)) {
-    return {
-      ok: false,
-      error: `Internal error: expected ${rootDllInLib} to exist after copy.`,
-    };
+  const nonFramework = closure.resolvedAssemblies.filter((asm) => {
+    const runtimeDir = runtimeDirs.find((rt) => pathIsWithin(asm.path, rt.dir));
+    return !runtimeDir;
+  });
+
+  const identityKey = (asm: (typeof nonFramework)[number]): string =>
+    `${asm.name}|${asm.publicKeyToken}|${asm.culture}`;
+
+  const byId = new Map<string, (typeof nonFramework)[number]>();
+  const destPathById = new Map<string, string>();
+  const directDeps = new Map<string, string[]>();
+
+  for (const asm of nonFramework) {
+    const id = identityKey(asm);
+    if (byId.has(id)) {
+      return {
+        ok: false,
+        error:
+          `Ambiguous assembly identity in closure: ${asm.name} (${asm.publicKeyToken}, ${asm.culture}).\n` +
+          `This indicates multiple assemblies with the same identity were resolved, which is not supported.`,
+      };
+    }
+    byId.set(id, asm);
+
+    const destPath = join(libDir, basename(asm.path));
+    if (!existsSync(destPath)) {
+      return {
+        ok: false,
+        error: `Internal error: expected copied DLL to exist: ${destPath}`,
+      };
+    }
+    destPathById.set(id, destPath);
   }
 
-  const generateArgs: string[] = [
-    "-a",
-    rootDllInLib,
-    "-o",
-    bindingsDir,
-    "--naming",
-    naming,
-    "--lib",
-    dotnetLib,
-    "--lib",
-    coreLib,
-  ];
-  for (const dir of runtimeDirs) {
-    generateArgs.push("--ref-dir", dir.dir);
+  const ids = new Set(byId.keys());
+  for (const asm of nonFramework) {
+    const id = identityKey(asm);
+    const refs = asm.references ?? [];
+    const deps: string[] = [];
+    for (const r of refs) {
+      const depId = `${r.name}|${r.publicKeyToken}|${r.culture}`;
+      if (ids.has(depId)) deps.push(depId);
+    }
+    // De-dup while preserving order.
+    directDeps.set(id, Array.from(new Set(deps)));
   }
-  for (const dep of userDeps) {
-    generateArgs.push("--ref-dir", dep);
+
+  // Topological order (deps first).
+  const order: string[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (id: string): Result<void, string> => {
+    const s = state.get(id);
+    if (s === "done") return { ok: true, value: undefined };
+    if (s === "visiting") {
+      return { ok: false, error: `Cycle detected in DLL dependency graph at: ${id}` };
+    }
+    state.set(id, "visiting");
+    for (const dep of directDeps.get(id) ?? []) {
+      const r = visit(dep);
+      if (!r.ok) return r;
+    }
+    state.set(id, "done");
+    order.push(id);
+    return { ok: true, value: undefined };
+  };
+
+  for (const id of ids) {
+    const r = visit(id);
+    if (!r.ok) return r;
   }
-  generateArgs.push("--ref-dir", libDir);
 
-  const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
-  if (!genResult.ok) return genResult;
+  // Compute transitive deps for --lib.
+  const transitiveDeps = new Map<string, Set<string>>();
+  for (const id of order) {
+    const set = new Set<string>();
+    for (const dep of directDeps.get(id) ?? []) {
+      set.add(dep);
+      const depTrans = transitiveDeps.get(dep);
+      if (depTrans) for (const t of depTrans) set.add(t);
+    }
+    transitiveDeps.set(id, set);
+  }
 
-  const ensurePkg = ensurePackageJson(bindingsDir, generatedPackage);
-  if (!ensurePkg.ok) return ensurePkg;
+  const bindingsDirById = new Map<string, string>();
+  const packageNameById = new Map<string, string>();
 
-  const installLocal = npmInstallDevDependency(
-    projectRoot,
-    `file:bindings/${generatedPackage}`,
-    options
-  );
-  if (!installLocal.ok) return installLocal;
+  for (const id of order) {
+    const asm = byId.get(id);
+    const destPath = destPathById.get(id);
+    if (!asm || !destPath) {
+      return { ok: false, error: `Internal error: missing assembly info for ${id}` };
+    }
+
+    const packageName = defaultBindingsPackageNameForDll(destPath);
+    const bindingsDir = bindingsStoreDir(projectRoot, "dll", packageName);
+
+    bindingsDirById.set(id, bindingsDir);
+    packageNameById.set(id, packageName);
+
+    const pkgJsonResult = ensureGeneratedBindingsPackageJson(bindingsDir, packageName, {
+      kind: "dll",
+      source: {
+        assemblyName: asm.name,
+        version: asm.version,
+        path: `lib/${basename(destPath)}`,
+      },
+    });
+    if (!pkgJsonResult.ok) return pkgJsonResult;
+
+    const generateArgs: string[] = [
+      "-a",
+      destPath,
+      "-o",
+      bindingsDir,
+      "--naming",
+      naming,
+      "--lib",
+      dotnetLib,
+      "--lib",
+      coreLib,
+    ];
+
+    const libs = Array.from(transitiveDeps.get(id) ?? [])
+      .map((depId) => bindingsDirById.get(depId))
+      .filter((p): p is string => typeof p === "string");
+    libs.sort((a, b) => a.localeCompare(b));
+    for (const lib of libs) generateArgs.push("--lib", lib);
+
+    for (const dir of runtimeDirs) generateArgs.push("--ref-dir", dir.dir);
+    for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
+    generateArgs.push("--ref-dir", libDir);
+
+    const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+    if (!genResult.ok) return genResult;
+
+    const installResult = installGeneratedBindingsPackage(projectRoot, packageName, bindingsDir);
+    if (!installResult.ok) return installResult;
+  }
+
+  const rootId = Array.from(order).find((id) => {
+    const dest = destPathById.get(id);
+    return dest ? basename(dest).toLowerCase() === basename(dllAbs).toLowerCase() : false;
+  });
+  const rootPackage =
+    (rootId ? packageNameById.get(rootId) : undefined) ??
+    defaultBindingsPackageNameForDll(dllAbs);
 
   return {
     ok: true,
-    value: { dllsCopied: copiedCount, bindings: generatedPackage },
+    value: { dllsCopied: copiedCount, bindings: rootPackage },
   };
 };

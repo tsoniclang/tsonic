@@ -241,7 +241,10 @@ tsonic add package ./libs/MyLib.dll --deps ./libs/deps
    - Adds copied DLLs to `dotnet.libraries`
    - Adds any required shared frameworks to `dotnet.frameworkReferences`
 3. If `types-package` is provided: installs it via npm
-4. If `types-package` is omitted: runs tsbindgen and installs a local package under `bindings/<name>-types`
+4. If `types-package` is omitted:
+   - Runs tsbindgen for **every non-framework DLL in the closure** (A, B, C, …)
+   - Writes generated bindings under `.tsonic/bindings/dll/<name>-types/` (gitignored)
+   - Installs them into `node_modules/<name>-types/` (without modifying `package.json`)
 
 ### add nuget
 
@@ -269,6 +272,13 @@ tsonic add nuget Microsoft.Extensions.Logging 10.0.0
 tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 ```
 
+**What it does (auto-generated bindings):**
+
+- Restores the NuGet package graph for the project (`dotnet restore`)
+- Generates bindings for the full **transitive closure** of packages (A, B, C, …)
+- Emits **one bindings package per NuGet package** under `.tsonic/bindings/nuget/<id>-types/`
+- Installs them into `node_modules/<id>-types/` (without modifying `package.json`)
+
 ### add framework
 
 Add a FrameworkReference (and bindings) to the project.
@@ -286,6 +296,22 @@ tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
 # Auto-generate bindings from installed shared framework assemblies
 tsonic add framework Microsoft.AspNetCore.App
 ```
+
+**What it does (auto-generated bindings):**
+
+- Generates a local bindings package under `.tsonic/bindings/framework/<ref>-types/`
+- Installs it into `node_modules/<ref>-types/` (without modifying `package.json`)
+
+### restore
+
+Restore .NET dependencies and (re)generate local bindings for a cloned repo.
+
+```bash
+tsonic restore
+```
+
+This command is also run automatically before `tsonic build` / `generate` / `run` / `pack` when the project has
+any .NET deps declared in `tsonic.json`.
 
 ### pack
 

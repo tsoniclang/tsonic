@@ -12,9 +12,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Result, TsonicConfig } from "../types.js";
 import {
+  bindingsStoreDir,
   defaultBindingsPackageNameForNuget,
   detectTsbindgenNaming,
-  ensurePackageJson,
+  ensureGeneratedBindingsPackageJson,
+  installGeneratedBindingsPackage,
   listDotnetRuntimes,
   npmInstallDevDependency,
   readTsonicJson,
@@ -114,30 +116,65 @@ const findTargetKey = (assets: ProjectAssets, tfm: string): string | undefined =
   return targets.find((k) => k.startsWith(`${tfm}/`));
 };
 
-const collectCompileDlls = (
+type PackageTarget = {
+  readonly libKey: string;
+  readonly packageId: string;
+  readonly version: string;
+  readonly dlls: readonly string[];
+  readonly dependencies: readonly string[]; // Package IDs (no versions)
+};
+
+const parseLibKey = (libKey: string): { readonly id: string; readonly version: string } | undefined => {
+  const idx = libKey.indexOf("/");
+  if (idx <= 0) return undefined;
+  const id = libKey.slice(0, idx);
+  const version = libKey.slice(idx + 1);
+  if (!id || !version) return undefined;
+  return { id, version };
+};
+
+const collectPackageTargets = (
   assets: ProjectAssets,
   targetKey: string,
   packageFolder: string
-): ReadonlyMap<string, readonly string[]> => {
+): ReadonlyMap<string, PackageTarget> => {
   const targets = assets.targets?.[targetKey];
   const libraries = assets.libraries ?? {};
-  const byLibrary = new Map<string, string[]>();
+  const byLibrary = new Map<string, PackageTarget>();
 
   if (!targets || typeof targets !== "object") return byLibrary;
 
   for (const [libKey, libValue] of Object.entries(targets as Record<string, unknown>)) {
     if (!libKey || !libValue || typeof libValue !== "object") continue;
+    const parsed = parseLibKey(libKey);
+    if (!parsed) continue;
+
     const libInfo = libraries[libKey];
     if (!libInfo || libInfo.type !== "package" || !libInfo.path) continue;
 
+    const depsObj = (libValue as Record<string, unknown>).dependencies;
+    const dependencies =
+      depsObj && typeof depsObj === "object"
+        ? Object.keys(depsObj as Record<string, unknown>).filter(Boolean)
+        : [];
+
     const compile = (libValue as Record<string, unknown>).compile;
-    if (!compile || typeof compile !== "object") continue;
+    const dlls =
+      compile && typeof compile === "object"
+        ? Object.keys(compile as Record<string, unknown>)
+            .filter((p) => p.toLowerCase().endsWith(".dll"))
+            .map((p) => join(packageFolder, libInfo.path as string, p))
+        : [];
 
-    const dlls = Object.keys(compile as Record<string, unknown>)
-      .filter((p) => p.toLowerCase().endsWith(".dll"))
-      .map((p) => join(packageFolder, libInfo.path as string, p));
+    if (dlls.length === 0 && dependencies.length === 0) continue;
 
-    if (dlls.length > 0) byLibrary.set(libKey, dlls);
+    byLibrary.set(libKey, {
+      libKey,
+      packageId: parsed.id,
+      version: parsed.version,
+      dlls,
+      dependencies,
+    });
   }
 
   return byLibrary;
@@ -256,30 +293,96 @@ export const addNugetCommand = (
     };
   }
 
-  const dllsByLibrary = collectCompileDlls(assets, targetKey, packageFolder);
-  const rootLibKey = Array.from(dllsByLibrary.keys()).find((k) =>
-    k.toLowerCase().startsWith(`${normalizePkgId(id)}/`)
-  );
-  if (!rootLibKey) {
-    return {
-      ok: false,
-      error:
-        `No compile-time assemblies found for ${id} ${ver}.\n` +
-        `This may be a meta-package or incompatible target framework (${targetFramework}).`,
-    };
+  const packagesByLibKey = collectPackageTargets(assets, targetKey, packageFolder);
+
+  const libKeyByPkgId = new Map<string, string>();
+  for (const node of packagesByLibKey.values()) {
+    const norm = normalizePkgId(node.packageId);
+    const existingKey = libKeyByPkgId.get(norm);
+    if (existingKey && existingKey !== node.libKey) {
+      return {
+        ok: false,
+        error:
+          `Ambiguous restore result: multiple resolved library keys for package '${node.packageId}'.\n` +
+          `- ${existingKey}\n` +
+          `- ${node.libKey}\n` +
+          `This indicates multiple versions were resolved, which is not supported.`,
+      };
+    }
+    libKeyByPkgId.set(norm, node.libKey);
   }
 
-  const seedDlls = dllsByLibrary.get(rootLibKey) ?? [];
-  if (seedDlls.length === 0) {
-    return {
-      ok: false,
-      error: `No .dll compile assets found for ${id} ${ver} under ${targetFramework}.`,
-    };
+  const rootLibKeys: string[] = [];
+  for (const pr of existing) {
+    const root = libKeyByPkgId.get(normalizePkgId(pr.id));
+    if (!root) {
+      return {
+        ok: false,
+        error:
+          `Restore did not produce a target library entry for ${pr.id} ${pr.version}.\n` +
+          `This may indicate the package is incompatible with ${targetFramework}.`,
+      };
+    }
+    rootLibKeys.push(root);
+  }
+
+  // Compute closure from direct packageReferences, including transitive deps.
+  const closure = new Set<string>();
+  const queue: string[] = [...rootLibKeys];
+  while (queue.length > 0) {
+    const libKey = queue.pop();
+    if (!libKey) continue;
+    if (closure.has(libKey)) continue;
+    closure.add(libKey);
+
+    const node = packagesByLibKey.get(libKey);
+    if (!node) continue;
+
+    for (const depId of node.dependencies) {
+      const depLibKey = libKeyByPkgId.get(normalizePkgId(depId));
+      if (depLibKey) queue.push(depLibKey);
+    }
+  }
+
+  // Build dependency edges within the closure.
+  const depsByLibKey = new Map<string, string[]>();
+  for (const libKey of closure) {
+    const node = packagesByLibKey.get(libKey);
+    if (!node) continue;
+    const deps: string[] = [];
+    for (const depId of node.dependencies) {
+      const depLibKey = libKeyByPkgId.get(normalizePkgId(depId));
+      if (depLibKey && closure.has(depLibKey)) deps.push(depLibKey);
+    }
+    depsByLibKey.set(libKey, Array.from(new Set(deps)));
+  }
+
+  // Topological order (deps first).
+  const topo: string[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (libKey: string): Result<void, string> => {
+    const s = state.get(libKey);
+    if (s === "done") return { ok: true, value: undefined };
+    if (s === "visiting") return { ok: false, error: `Cycle detected in NuGet dependency graph at: ${libKey}` };
+    state.set(libKey, "visiting");
+    for (const dep of depsByLibKey.get(libKey) ?? []) {
+      const r = visit(dep);
+      if (!r.ok) return r;
+    }
+    state.set(libKey, "done");
+    topo.push(libKey);
+    return { ok: true, value: undefined };
+  };
+  for (const libKey of closure) {
+    const r = visit(libKey);
+    if (!r.ok) return r;
   }
 
   const compileDirs = new Set<string>();
-  for (const dlls of dllsByLibrary.values()) {
-    for (const dll of dlls) compileDirs.add(dirname(dll));
+  for (const libKey of closure) {
+    const node = packagesByLibKey.get(libKey);
+    if (!node) continue;
+    for (const dll of node.dlls) compileDirs.add(dirname(dll));
   }
 
   const runtimesResult = listDotnetRuntimes(projectRoot);
@@ -287,46 +390,73 @@ export const addNugetCommand = (
   const runtimes = runtimesResult.value;
 
   const naming = detectTsbindgenNaming(nextConfig);
-  const generatedPackage = defaultBindingsPackageNameForNuget(id);
-  const bindingsDir = join(projectRoot, "bindings", generatedPackage);
-  mkdirSync(bindingsDir, { recursive: true });
+  const isGenerated = (libKey: string): boolean =>
+    (packagesByLibKey.get(libKey)?.dlls.length ?? 0) > 0;
 
-  const packageJsonResult = ensurePackageJson(bindingsDir, generatedPackage);
-  if (!packageJsonResult.ok) return packageJsonResult;
-
-  const generateArgs: string[] = [
-    ...seedDlls.flatMap((p) => ["-a", p]),
-    "-o",
-    bindingsDir,
-    "--naming",
-    naming,
-    "--lib",
-    dotnetLib,
-    "--lib",
-    coreLib,
-  ];
-
-  for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
-  for (const d of compileDirs) generateArgs.push("--ref-dir", d);
-  for (const dep of options.deps ?? []) {
-    generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
+  // Pre-compute transitive deps, propagating through meta packages.
+  const transitiveGeneratedDeps = new Map<string, Set<string>>();
+  for (const libKey of topo) {
+    const set = new Set<string>();
+    for (const dep of depsByLibKey.get(libKey) ?? []) {
+      if (isGenerated(dep)) set.add(dep);
+      const depTrans = transitiveGeneratedDeps.get(dep);
+      if (depTrans) for (const t of depTrans) set.add(t);
+    }
+    transitiveGeneratedDeps.set(libKey, set);
   }
 
-  const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
-  if (!genResult.ok) return genResult;
+  const bindingsDirByLibKey = new Map<string, string>();
 
-  const ensurePkg = ensurePackageJson(bindingsDir, generatedPackage);
-  if (!ensurePkg.ok) return ensurePkg;
+  for (const libKey of topo) {
+    const node = packagesByLibKey.get(libKey);
+    if (!node) continue;
 
-  const installLocal = npmInstallDevDependency(
-    projectRoot,
-    `file:bindings/${generatedPackage}`,
-    options
-  );
-  if (!installLocal.ok) return installLocal;
+    const seedDlls = [...node.dlls];
+    if (seedDlls.length === 0) continue;
+
+    const packageName = defaultBindingsPackageNameForNuget(node.packageId);
+    const bindingsDir = bindingsStoreDir(projectRoot, "nuget", packageName);
+    bindingsDirByLibKey.set(libKey, bindingsDir);
+
+    const pkgJsonResult = ensureGeneratedBindingsPackageJson(bindingsDir, packageName, {
+      kind: "nuget",
+      source: { packageId: node.packageId, version: node.version },
+    });
+    if (!pkgJsonResult.ok) return pkgJsonResult;
+
+    const generateArgs: string[] = [
+      ...seedDlls.flatMap((p) => ["-a", p]),
+      "-o",
+      bindingsDir,
+      "--naming",
+      naming,
+      "--lib",
+      dotnetLib,
+      "--lib",
+      coreLib,
+    ];
+
+    const deps = Array.from(transitiveGeneratedDeps.get(libKey) ?? [])
+      .map((depKey) => bindingsDirByLibKey.get(depKey))
+      .filter((p): p is string => typeof p === "string")
+      .sort((a, b) => a.localeCompare(b));
+    for (const depDir of deps) generateArgs.push("--lib", depDir);
+
+    for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
+    for (const d of compileDirs) generateArgs.push("--ref-dir", d);
+    for (const dep of options.deps ?? []) {
+      generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
+    }
+
+    const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+    if (!genResult.ok) return genResult;
+
+    const installResult = installGeneratedBindingsPackage(projectRoot, packageName, bindingsDir);
+    if (!installResult.ok) return installResult;
+  }
 
   return {
     ok: true,
-    value: { packageId: id, version: ver, bindings: generatedPackage },
+    value: { packageId: id, version: ver, bindings: defaultBindingsPackageNameForNuget(id) },
   };
 };
