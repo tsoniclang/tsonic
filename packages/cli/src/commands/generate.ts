@@ -30,6 +30,7 @@ import {
   type AssemblyReference,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../types.js";
+import { isBuiltInRuntimeDllName } from "../dotnet/runtime-dlls.js";
 
 /**
  * Find project .csproj file in current directory
@@ -156,7 +157,10 @@ const collectProjectLibraries = (
     }
 
     // Extract assembly name from filename
-    const dllName = libPath.split("/").pop() ?? "";
+    const dllName = libPath.split(/[\\/]/).pop() ?? "";
+    if (isBuiltInRuntimeDllName(dllName)) {
+      continue;
+    }
     const assemblyName = dllName.replace(/\.dll$/, "");
 
     // Calculate relative path from output directory to the DLL

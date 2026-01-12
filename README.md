@@ -96,6 +96,7 @@ export function main(): void {
 | `tsonic add package <dll> [types]` | Add a local DLL + bindings |
 | `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings |
 | `tsonic add framework <ref> [types]` | Add a FrameworkReference + bindings |
+| `tsonic restore`        | Restore deps + bindings   |
 | `tsonic pack`          | Create a NuGet package  |
 
 ### Common Options

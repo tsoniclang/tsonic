@@ -8,13 +8,15 @@
  * installed shared framework assemblies.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Result, TsonicConfig } from "../types.js";
 import {
+  bindingsStoreDir,
   defaultBindingsPackageNameForFramework,
   detectTsbindgenNaming,
-  ensurePackageJson,
+  ensureGeneratedBindingsPackageJson,
+  installGeneratedBindingsPackage,
   listDotnetRuntimes,
   npmInstallDevDependency,
   readTsonicJson,
@@ -115,10 +117,12 @@ export const addFrameworkCommand = (
 
   const naming = detectTsbindgenNaming(nextConfig);
   const generatedPackage = defaultBindingsPackageNameForFramework(frameworkReference);
-  const bindingsDir = join(projectRoot, "bindings", generatedPackage);
-  mkdirSync(bindingsDir, { recursive: true });
+  const bindingsDir = bindingsStoreDir(projectRoot, "framework", generatedPackage);
 
-  const packageJsonResult = ensurePackageJson(bindingsDir, generatedPackage);
+  const packageJsonResult = ensureGeneratedBindingsPackageJson(bindingsDir, generatedPackage, {
+    kind: "framework",
+    source: { frameworkReference },
+  });
   if (!packageJsonResult.ok) return packageJsonResult;
 
   const generateArgs: string[] = [
@@ -143,15 +147,8 @@ export const addFrameworkCommand = (
   const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
   if (!genResult.ok) return genResult;
 
-  const ensurePkg = ensurePackageJson(bindingsDir, generatedPackage);
-  if (!ensurePkg.ok) return ensurePkg;
-
-  const installLocal = npmInstallDevDependency(
-    projectRoot,
-    `file:bindings/${generatedPackage}`,
-    options
-  );
-  if (!installLocal.ok) return installLocal;
+  const installResult = installGeneratedBindingsPackage(projectRoot, generatedPackage, bindingsDir);
+  if (!installResult.ok) return installResult;
 
   return {
     ok: true,

@@ -19,6 +19,7 @@ COMMANDS:
   add package <dll> [types] Add a local DLL (and optional bindings) to the project
   add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the project
   add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the project
+  restore                   Restore NuGet deps and (re)generate local bindings
   generate [entry]          Generate C# code only
   build [entry]             Build native executable
   run [entry] [-- args...]  Build and run executable
@@ -50,6 +51,7 @@ EXAMPLES:
   tsonic project init
   tsonic project init --nodejs
   tsonic project init --pure
+  tsonic restore
   tsonic add package ./lib/MyLib.dll @company/mylib-types
   tsonic add package ./path/MyLib.dll                  # auto-generate types (tsbindgen)
   tsonic add nuget Microsoft.Extensions.Logging 10.0.0  # auto-generate types (tsbindgen)
