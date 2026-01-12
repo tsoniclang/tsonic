@@ -4,7 +4,10 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { getTypePackageInfo } from "./init.js";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { getTypePackageInfo, initProject } from "./init.js";
 
 describe("Init Command", () => {
   describe("getTypePackageInfo", () => {
@@ -87,6 +90,40 @@ describe("Init Command", () => {
         }
         expect(nodejsPkg.version).to.equal("latest");
       });
+    });
+  });
+
+  describe("initProject", () => {
+    it("should generate dotnet sample for default mode", () => {
+      const dir = mkdtempSync(join(tmpdir(), "tsonic-init-default-"));
+      try {
+        const result = initProject(dir, { skipTypes: true });
+        expect(result.ok).to.equal(true);
+
+        const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
+        expect(appTs).to.include('@tsonic/dotnet/System.js');
+        expect(appTs).to.include("Console.writeLine");
+        expect(appTs).to.include("File.readAllText");
+        expect(appTs).to.not.include("@tsonic/dotnet-pure/System.js");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("should generate dotnet-pure sample when --pure is enabled", () => {
+      const dir = mkdtempSync(join(tmpdir(), "tsonic-init-pure-"));
+      try {
+        const result = initProject(dir, { skipTypes: true, pure: true });
+        expect(result.ok).to.equal(true);
+
+        const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
+        expect(appTs).to.include('@tsonic/dotnet-pure/System.js');
+        expect(appTs).to.include("Console.WriteLine");
+        expect(appTs).to.include("File.ReadAllText");
+        expect(appTs).to.not.include("@tsonic/dotnet/System.js");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });
