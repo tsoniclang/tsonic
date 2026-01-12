@@ -32,6 +32,17 @@ brew install dotnet-sdk
 dotnet --version
 ```
 
+### macOS: Xcode Command Line Tools
+
+Required for NativeAOT builds on macOS:
+
+```bash
+xcode-select --install
+
+# Verify
+xcrun --show-sdk-path
+```
+
 ## Installation
 
 ### Global Installation (Recommended)
