@@ -13,6 +13,8 @@ import { packCommand } from "../commands/pack.js";
 import { addPackageCommand } from "../commands/add-package.js";
 import { addNugetCommand } from "../commands/add-nuget.js";
 import { addFrameworkCommand } from "../commands/add-framework.js";
+import { removeNugetCommand } from "../commands/remove-nuget.js";
+import { updateNugetCommand } from "../commands/update-nuget.js";
 import { restoreCommand } from "../commands/restore.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import { VERSION } from "./constants.js";
@@ -97,7 +99,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addPackageCommand(dllPath, typesPackage, projectRoot, {
+    const result = addPackageCommand(dllPath, typesPackage, configPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -121,7 +123,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addNugetCommand(packageId, version, typesPackage, projectRoot, {
+    const result = addNugetCommand(packageId, version, typesPackage, configPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -144,7 +146,49 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addFrameworkCommand(frameworkRef, typesPackage, projectRoot, {
+    const result = addFrameworkCommand(frameworkRef, typesPackage, configPath, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+      deps: parsed.options.deps,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "remove:nuget") {
+    const packageId = parsed.positionals[0];
+    if (!packageId) {
+      console.error("Error: Package id required");
+      console.error("Usage: tsonic remove nuget <PackageId>");
+      return 1;
+    }
+
+    const result = removeNugetCommand(packageId, configPath, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+      deps: parsed.options.deps,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "update:nuget") {
+    const packageId = parsed.positionals[0];
+    const version = parsed.positionals[1];
+    const typesPackage = parsed.positionals[2]; // optional
+    if (!packageId || !version) {
+      console.error("Error: Package id and version required");
+      console.error("Usage: tsonic update nuget <PackageId> <Version> [types]");
+      return 1;
+    }
+
+    const result = updateNugetCommand(packageId, version, typesPackage, configPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,

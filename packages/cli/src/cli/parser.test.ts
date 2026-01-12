@@ -73,6 +73,28 @@ describe("CLI Parser", () => {
         ]);
       });
 
+      it("should parse remove:nuget as two-word command", () => {
+        const result = parseArgs(["remove", "nuget", "My.Package"]);
+        expect(result.command).to.equal("remove:nuget");
+        expect(result.positionals).to.deep.equal(["My.Package"]);
+      });
+
+      it("should parse update:nuget as two-word command", () => {
+        const result = parseArgs([
+          "update",
+          "nuget",
+          "My.Package",
+          "1.2.4",
+          "@scope/my-package-types",
+        ]);
+        expect(result.command).to.equal("update:nuget");
+        expect(result.positionals).to.deep.equal([
+          "My.Package",
+          "1.2.4",
+          "@scope/my-package-types",
+        ]);
+      });
+
       it("should parse help command from --help", () => {
         const result = parseArgs(["--help"]);
         expect(result.command).to.equal("help");

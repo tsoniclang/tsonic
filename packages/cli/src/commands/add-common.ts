@@ -55,26 +55,6 @@ export const defaultExec: Exec = (command, args, cwd, stdio) => {
   };
 };
 
-export const readTsonicJson = (
-  projectRoot: string
-): Result<{ path: string; config: TsonicConfig }, string> => {
-  const configPath = join(projectRoot, "tsonic.json");
-  if (!existsSync(configPath)) {
-    return { ok: false, error: `tsonic.json not found in ${projectRoot}` };
-  }
-
-  try {
-    const content = readFileSync(configPath, "utf-8");
-    const parsed = JSON.parse(content) as TsonicConfig;
-    return { ok: true, value: { path: configPath, config: parsed } };
-  } catch (error) {
-    return {
-      ok: false,
-      error: `Failed to parse tsonic.json: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-};
-
 export const writeTsonicJson = (
   configPath: string,
   config: TsonicConfig
@@ -85,7 +65,7 @@ export const writeTsonicJson = (
   } catch (error) {
     return {
       ok: false,
-      error: `Failed to write tsonic.json: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to write config: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };

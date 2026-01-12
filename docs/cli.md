@@ -237,7 +237,7 @@ tsonic add package ./libs/MyLib.dll --deps ./libs/deps
 **What it does:**
 
 1. Resolves the DLL dependency closure and copies non-framework DLLs to `lib/` (no "copy-all" behavior)
-2. Updates `tsonic.json`:
+2. Updates your config file (`--config` respected):
    - Adds copied DLLs to `dotnet.libraries`
    - Adds any required shared frameworks to `dotnet.frameworkReferences`
 3. If `types-package` is provided: installs it via npm
@@ -281,7 +281,7 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 
 **Using published bindings packages (no auto-generation):**
 
-If you pass a `types-package`, Tsonic records it in `tsonic.json` so `tsonic restore` knows
+If you pass a `types-package`, Tsonic records it in your config so `tsonic restore` knows
 bindings are supplied externally and will not attempt to generate them:
 
 ```json
@@ -297,6 +297,48 @@ bindings are supplied externally and will not attempt to generate them:
   }
 }
 ```
+
+### update nuget
+
+Update an existing NuGet package reference (and bindings) in the project.
+
+```bash
+tsonic update nuget <package-id> <version> [types-package]
+```
+
+**Examples:**
+
+```bash
+# Update pinned NuGet version (auto-generated bindings)
+tsonic update nuget Microsoft.Extensions.Logging 10.0.1
+
+# Switch to published bindings (no auto-generation)
+tsonic update nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
+```
+
+**What it does:**
+
+- Updates the matching entry in `dotnet.packageReferences` in your config (`--config` respected)
+- Runs `tsonic restore` to validate restore + keep local bindings consistent
+
+### remove nuget
+
+Remove a NuGet package reference (and refresh bindings) from the project.
+
+```bash
+tsonic remove nuget <package-id>
+```
+
+**Examples:**
+
+```bash
+tsonic remove nuget Microsoft.Extensions.Logging
+```
+
+**What it does:**
+
+- Removes the matching entry from `dotnet.packageReferences` in your config (`--config` respected)
+- Runs `tsonic restore` to validate restore + keep local bindings consistent
 
 ### add framework
 
@@ -323,7 +365,7 @@ tsonic add framework Microsoft.AspNetCore.App
 
 **Using published bindings packages (no auto-generation):**
 
-If you pass a `types-package`, Tsonic records it in `tsonic.json` so `tsonic restore` knows
+If you pass a `types-package`, Tsonic records it in your config so `tsonic restore` knows
 bindings are supplied externally and will not attempt to generate them:
 
 ```json
