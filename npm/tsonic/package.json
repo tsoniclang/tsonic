@@ -1,41 +1,25 @@
 {
   "name": "tsonic",
-  "version": "0.1.20",
+  "version": "0.0.19",
   "description": "TypeScript to C# to NativeAOT compiler",
   "type": "module",
   "bin": {
-    "tsonic": "./dist/cli.js"
+    "tsonic": "./bin.js"
   },
-  "main": "./dist/cli.js",
-  "files": [
-    "dist",
-    "runtime",
-    "README.md"
-  ],
   "dependencies": {
-    "@tsonic/tsbindgen": "0.7.20",
-    "typescript": "5.9.2"
-  },
-  "engines": {
-    "node": ">=22.0.0"
+    "@tsonic/cli": "0.0.19"
   },
   "keywords": [
     "tsonic",
     "typescript",
     "csharp",
     "compiler",
-    "native-aot",
-    "dotnet",
-    "transpiler"
+    "nativeaot"
   ],
-  "author": "Tsonic Project",
+  "author": "Tsonic Team",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tsoniclang/tsonic.git"
-  },
-  "homepage": "https://github.com/tsoniclang/tsonic#readme",
-  "bugs": {
-    "url": "https://github.com/tsoniclang/tsonic/issues"
+    "url": "git+https://github.com/tsoniclang/tsonic.git"
   }
 }

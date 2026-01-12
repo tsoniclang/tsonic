@@ -7,7 +7,6 @@
   "scripts": {
     "build": "./scripts/build/all.sh",
     "build:quick": "./scripts/build/all.sh --no-format",
-    "build:npm": "./scripts/build/npm.sh",
     "clean": "./scripts/build/clean.sh",
     "clean:all": "./scripts/build/clean.sh --all",
     "test": "npm test --workspaces",
