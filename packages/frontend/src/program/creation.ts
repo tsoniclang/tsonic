@@ -141,11 +141,13 @@ export const createProgram = (
 
     return resolveTsonicPackageRoot(pkgDirName) ?? absoluteRoot;
   });
-  const typeRoots = mandatoryTypeRoot
-    ? Array.from(new Set([mandatoryTypeRoot, ...resolvedUserTypeRoots]))
-    : resolvedUserTypeRoots.length > 0
-      ? resolvedUserTypeRoots
-      : ["node_modules/@tsonic/globals"];
+  const typeRoots = options.useStandardLib
+    ? resolvedUserTypeRoots
+    : mandatoryTypeRoot
+      ? Array.from(new Set([mandatoryTypeRoot, ...resolvedUserTypeRoots]))
+      : resolvedUserTypeRoots.length > 0
+        ? resolvedUserTypeRoots
+        : ["node_modules/@tsonic/globals"];
 
   // Debug log typeRoots
   if (options.verbose && typeRoots.length > 0) {
@@ -279,9 +281,26 @@ export const createProgram = (
         };
       }
 
-      // Compiler-owned @tsonic/* packages must resolve from the compiler install,
-      // not the user's project root, to keep stdlib typings + metadata coherent.
+      // @tsonic/* packages are project dependencies. Resolve them from the project
+      // root so a global `tsonic` install can compile projects that install
+      // @tsonic/* into their local node_modules (out-of-box experience).
       if (moduleName.startsWith("@tsonic/")) {
+        // Resolve from project root first (works for global installs).
+        // Note: containingFile can be a declaration file coming from a sibling
+        // checkout during development; resolving relative to that path would skip
+        // the project's node_modules entirely.
+        const projectResolveFile = path.join(
+          options.projectRoot,
+          "__tsonic_resolver__.ts"
+        );
+        const projectResult = ts.resolveModuleName(
+          moduleName,
+          projectResolveFile,
+          tsOptions,
+          host
+        );
+        if (projectResult.resolvedModule) return projectResult.resolvedModule;
+
         // Development fallback: allow resolving from sibling checkouts
         // (e.g. ../dotnet, ../core) when present.
         const match = moduleName.match(/^@tsonic\/([^/]+)\/(.+)$/);
@@ -313,6 +332,8 @@ export const createProgram = (
           }
         }
 
+        // Fall back to the compiler's own installation (useful in dev setups
+        // where the project hasn't installed @tsonic/* yet).
         const result = ts.resolveModuleName(
           moduleName,
           compilerContainingFile,
