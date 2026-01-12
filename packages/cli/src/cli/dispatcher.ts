@@ -157,7 +157,7 @@ export const runCli = async (args: string[]): Promise<number> => {
   }
 
   if (parsed.command === "restore") {
-    const result = restoreCommand(projectRoot, {
+    const result = restoreCommand(configPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -186,7 +186,7 @@ export const runCli = async (args: string[]): Promise<number> => {
     );
 
     if (hasFrameworkRefs || hasPackageRefs || hasDllLibs) {
-      const restoreResult = restoreCommand(projectRoot, {
+      const restoreResult = restoreCommand(configPath, {
         verbose: parsed.options.verbose,
         quiet: parsed.options.quiet,
         deps: parsed.options.deps,

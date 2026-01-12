@@ -6,7 +6,8 @@
   "outputDirectory": "out",
   "outputName": "aspnetcore-dotnet",
   "dotnet": {
-    "frameworkReferences": ["Microsoft.AspNetCore.App"]
+    "frameworkReferences": [
+      { "id": "Microsoft.AspNetCore.App", "types": "@tsonic/aspnetcore" }
+    ]
   }
 }
-

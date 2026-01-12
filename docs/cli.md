@@ -279,6 +279,25 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 - Emits **one bindings package per NuGet package** under `.tsonic/bindings/nuget/<id>-types/`
 - Installs them into `node_modules/<id>-types/` (without modifying `package.json`)
 
+**Using published bindings packages (no auto-generation):**
+
+If you pass a `types-package`, Tsonic records it in `tsonic.json` so `tsonic restore` knows
+bindings are supplied externally and will not attempt to generate them:
+
+```json
+{
+  "dotnet": {
+    "packageReferences": [
+      {
+        "id": "Microsoft.EntityFrameworkCore",
+        "version": "10.0.1",
+        "types": "@tsonic/efcore"
+      }
+    ]
+  }
+}
+```
+
 ### add framework
 
 Add a FrameworkReference (and bindings) to the project.
@@ -302,6 +321,21 @@ tsonic add framework Microsoft.AspNetCore.App
 - Generates a local bindings package under `.tsonic/bindings/framework/<ref>-types/`
 - Installs it into `node_modules/<ref>-types/` (without modifying `package.json`)
 
+**Using published bindings packages (no auto-generation):**
+
+If you pass a `types-package`, Tsonic records it in `tsonic.json` so `tsonic restore` knows
+bindings are supplied externally and will not attempt to generate them:
+
+```json
+{
+  "dotnet": {
+    "frameworkReferences": [
+      { "id": "Microsoft.AspNetCore.App", "types": "@tsonic/aspnetcore" }
+    ]
+  }
+}
+```
+
 ### restore
 
 Restore .NET dependencies and (re)generate local bindings for a cloned repo.
@@ -312,6 +346,8 @@ tsonic restore
 
 This command is also run automatically before `tsonic build` / `generate` / `run` / `pack` when the project has
 any .NET deps declared in `tsonic.json`.
+
+Restore only auto-generates bindings for dependency entries that do **not** specify a `types` package.
 
 ### pack
 

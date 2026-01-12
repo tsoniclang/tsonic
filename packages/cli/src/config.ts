@@ -84,11 +84,20 @@ export const loadConfig = (
     if (
       frameworkReferences !== undefined &&
       (!Array.isArray(frameworkReferences) ||
-        frameworkReferences.some((r) => typeof r !== "string"))
+        frameworkReferences.some((r) => {
+          if (typeof r === "string") return false;
+          if (r === null || typeof r !== "object") return true;
+          const id = (r as { readonly id?: unknown }).id;
+          const types = (r as { readonly types?: unknown }).types;
+          if (typeof id !== "string") return true;
+          if (types !== undefined && typeof types !== "string") return true;
+          return false;
+        }))
     ) {
       return {
         ok: false,
-        error: "tsonic.json: 'dotnet.frameworkReferences' must be an array of strings",
+        error:
+          "tsonic.json: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }",
       };
     }
 
@@ -107,12 +116,14 @@ export const loadConfig = (
           entry === null ||
           typeof entry !== "object" ||
           typeof (entry as { readonly id?: unknown }).id !== "string" ||
-          typeof (entry as { readonly version?: unknown }).version !== "string"
+          typeof (entry as { readonly version?: unknown }).version !== "string" ||
+          ((entry as { readonly types?: unknown }).types !== undefined &&
+            typeof (entry as { readonly types?: unknown }).types !== "string")
         ) {
           return {
             ok: false,
             error:
-              "tsonic.json: 'dotnet.packageReferences' entries must be { id: string, version: string }",
+              "tsonic.json: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string }",
           };
         }
       }
@@ -252,8 +263,14 @@ export const resolveConfig = (
   const cliLibraries = cliOptions.lib ?? [];
   const libraries = [...configLibraries, ...cliLibraries];
 
-  const frameworkReferences = config.dotnet?.frameworkReferences ?? [];
-  const packageReferences = config.dotnet?.packageReferences ?? [];
+  const rawFrameworkReferences = config.dotnet?.frameworkReferences ?? [];
+  const frameworkReferences = rawFrameworkReferences.map((r) =>
+    typeof r === "string" ? r : r.id
+  );
+  const packageReferences = (config.dotnet?.packageReferences ?? []).map((p) => ({
+    id: p.id,
+    version: p.version,
+  }));
 
   // Resolve output configuration
   const outputConfig = resolveOutputConfig(config, cliOptions, entryPoint);

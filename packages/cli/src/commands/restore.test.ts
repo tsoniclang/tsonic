@@ -84,7 +84,7 @@ describe("restore command", function () {
         join(dir, "node_modules/@tsonic/core")
       );
 
-      const result = restoreCommand(dir, { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.json"), { quiet: true });
       expect(result.ok).to.equal(true);
 
       // Should not generate bindings for the runtime DLL.
@@ -102,4 +102,3 @@ describe("restore command", function () {
     }
   });
 });
-
