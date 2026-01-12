@@ -10,7 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WRAPPER_DIR="$(cd "$ROOT_DIR/../tsonic-wrapper" && pwd)"
+WRAPPER_DIR="$ROOT_DIR/npm/tsonic"
 RUNTIME_DIR="$(cd "$ROOT_DIR/../runtime" && pwd)"
 NODEJS_CLR_DIR="$(cd "$ROOT_DIR/../nodejs-clr" && pwd)"
 
@@ -298,8 +298,18 @@ if [ "$NEED_BRANCH" = true ]; then
         fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
     "
 
+    # Update wrapper package.json
+    node -e "
+        const fs = require('fs');
+        const path = './npm/tsonic/package.json';
+        const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+        pkg.version = '$NEW_VERSION';
+        pkg.dependencies['@tsonic/cli'] = '$NEW_VERSION';
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+    "
+
     echo "=== Committing version changes ==="
-    git add packages/*/package.json
+    git add packages/*/package.json npm/tsonic/package.json
     git commit -m "chore: bump version to $NEW_VERSION"
     git push -u origin HEAD
 
@@ -322,29 +332,11 @@ for pkg in "${PACKAGES[@]}"; do
 done
 
 # ============================================================
-# UPDATE AND PUBLISH WRAPPER
+# PUBLISH WRAPPER
 # ============================================================
 
-echo "=== Updating tsonic-wrapper ==="
-cd "$WRAPPER_DIR"
-
-if [ "$NEED_BRANCH" = true ]; then
-    # Update wrapper package.json
-    node -e "
-        const fs = require('fs');
-        const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-        pkg.version = '$CLI_VERSION';
-        pkg.dependencies['@tsonic/cli'] = '$CLI_VERSION';
-        fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-    "
-
-    echo "=== Committing wrapper changes ==="
-    git add package.json
-    git commit -m "chore: bump version to $CLI_VERSION"
-    git push -u origin HEAD
-fi
-
 echo "=== Publishing tsonic@$CLI_VERSION ==="
+cd "$WRAPPER_DIR"
 npm publish --access public
 
 # ============================================================
