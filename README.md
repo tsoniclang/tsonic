@@ -20,7 +20,9 @@ npm install -g tsonic
 **Prerequisites:**
 
 - Node.js 22+
-- .NET 10 SDK
+- .NET 10 SDK: https://dotnet.microsoft.com/download/dotnet/10.0
+- macOS only: Xcode Command Line Tools (`xcode-select --install`)
+  - Sanity check: `xcrun --show-sdk-path`
 
 ## Quick Start
 
