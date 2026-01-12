@@ -48,6 +48,16 @@ export function main(): void {
 }
 `;
 
+const SAMPLE_MAIN_TS_PURE = `import { Console } from "@tsonic/dotnet-pure/System.js";
+import { File } from "@tsonic/dotnet-pure/System.IO.js";
+
+export function main(): void {
+  Console.WriteLine("Reading README.md...");
+  const content = File.ReadAllText("./README.md");
+  Console.WriteLine(content);
+}
+`;
+
 const SAMPLE_README = `# My Tsonic Project
 
 This is a sample Tsonic project that demonstrates .NET interop.
@@ -402,11 +412,11 @@ export const initProject = (
     }
 
     // Create src directory and App.ts
-    if (!existsSync(srcDir)) {
+  if (!existsSync(srcDir)) {
       mkdirSync(srcDir, { recursive: true });
     }
     if (!existsSync(appTsPath)) {
-      writeFileSync(appTsPath, SAMPLE_MAIN_TS, "utf-8");
+      writeFileSync(appTsPath, pure ? SAMPLE_MAIN_TS_PURE : SAMPLE_MAIN_TS, "utf-8");
       console.log("✓ Created src/App.ts");
     }
 
