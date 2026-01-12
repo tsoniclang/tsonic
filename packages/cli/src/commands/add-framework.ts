@@ -9,6 +9,8 @@
  */
 
 import type { Result, TsonicConfig } from "../types.js";
+import { loadConfig } from "../config.js";
+import { dirname } from "node:path";
 import {
   bindingsStoreDir,
   defaultBindingsPackageNameForFramework,
@@ -17,7 +19,6 @@ import {
   installGeneratedBindingsPackage,
   listDotnetRuntimes,
   npmInstallDevDependency,
-  readTsonicJson,
   resolveFromProjectRoot,
   resolvePackageRoot,
   resolveTsbindgenDllPath,
@@ -43,9 +44,10 @@ const isValidTypesPackageName = (name: string): boolean => {
 export const addFrameworkCommand = (
   frameworkReference: string,
   typesPackage: string | undefined,
-  projectRoot: string,
+  configPath: string,
   options: AddFrameworkOptions = {}
 ): Result<{ frameworkReference: string; bindings: string }, string> => {
+  const projectRoot = dirname(configPath);
   if (!frameworkReference.trim()) {
     return { ok: false, error: "Framework reference must be non-empty" };
   }
@@ -53,9 +55,9 @@ export const addFrameworkCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = readTsonicJson(projectRoot);
+  const tsonicConfigResult = loadConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
-  const { path: configPath, config } = tsonicConfigResult.value;
+  const config = tsonicConfigResult.value;
 
   const dotnet = config.dotnet ?? {};
   const frameworkRefs: FrameworkReferenceConfig[] = [

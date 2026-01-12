@@ -58,6 +58,20 @@ export const parseArgs = (
           i++;
         }
       }
+      // Handle "remove nuget" as two-word command
+      if (command === "remove") {
+        if (nextArg === "nuget") {
+          command = "remove:nuget";
+          i++;
+        }
+      }
+      // Handle "update nuget" as two-word command
+      if (command === "update") {
+        if (nextArg === "nuget") {
+          command = "update:nuget";
+          i++;
+        }
+      }
       continue;
     }
 

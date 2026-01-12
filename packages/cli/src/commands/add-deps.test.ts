@@ -13,6 +13,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -23,6 +24,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addNugetCommand } from "./add-nuget.js";
 import { addPackageCommand } from "./add-package.js";
+import { removeNugetCommand } from "./remove-nuget.js";
+import { updateNugetCommand } from "./update-nuget.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -41,10 +44,10 @@ const run = (cwd: string, command: string, args: readonly string[]): void => {
   }
 };
 
-const writeTsonicJson = (dir: string): void => {
+const writeTsonicJson = (dir: string, fileName = "tsonic.json"): void => {
   mkdirSync(join(dir, "src"), { recursive: true });
   writeFileSync(
-    join(dir, "tsonic.json"),
+    join(dir, fileName),
     JSON.stringify(
       {
         $schema: "https://tsonic.dev/schema/v1.json",
@@ -92,7 +95,7 @@ const createNugetPackage = (
   feedDir: string,
   pkg: { id: string; version: string; deps?: readonly { id: string; version: string }[] }
 ): void => {
-  const projDir = join(workDir, pkg.id);
+  const projDir = join(workDir, `${pkg.id}.${pkg.version}`);
   mkdirSync(projDir, { recursive: true });
 
   const deps =
@@ -170,7 +173,7 @@ describe("add commands - dependency closure bindings", function () {
         deps: [{ id: "Acme.B", version: "1.0.0" }],
       });
 
-      const result = addNugetCommand("Acme.A", "1.0.0", undefined, dir, {
+      const result = addNugetCommand("Acme.A", "1.0.0", undefined, join(dir, "tsonic.json"), {
         verbose: false,
         quiet: true,
       });
@@ -186,6 +189,96 @@ describe("add commands - dependency closure bindings", function () {
       expect(existsSync(join(dir, "node_modules", "acme-c-types"))).to.equal(
         true
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("update nuget updates pinned version and keeps bindings green", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-update-nuget-"));
+    try {
+      writeTsonicJson(dir, "tsonic.custom.json");
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const feedDir = join(dir, "feed");
+      mkdirSync(feedDir, { recursive: true });
+      writeNugetConfig(dir, feedDir);
+
+      createNugetPackage(dir, feedDir, { id: "Acme.D", version: "1.0.0" });
+      createNugetPackage(dir, feedDir, { id: "Acme.D", version: "1.0.1" });
+
+      const configPath = join(dir, "tsonic.custom.json");
+      const add = addNugetCommand("Acme.D", "1.0.0", undefined, configPath, {
+        verbose: false,
+        quiet: true,
+      });
+      expect(add.ok).to.equal(true);
+      expect(existsSync(join(dir, "node_modules", "acme-d-types"))).to.equal(
+        true
+      );
+
+      const update = updateNugetCommand(
+        "Acme.D",
+        "1.0.1",
+        undefined,
+        configPath,
+        { verbose: false, quiet: true }
+      );
+      expect(update.ok).to.equal(true);
+
+      const updated = JSON.parse(readFileSync(configPath, "utf-8")) as {
+        dotnet?: { packageReferences?: Array<{ id: string; version: string }> };
+      };
+      const pr = updated.dotnet?.packageReferences?.find((p) => p.id === "Acme.D");
+      expect(pr?.version).to.equal("1.0.1");
+      expect(existsSync(join(dir, "node_modules", "acme-d-types"))).to.equal(
+        true
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("remove nuget removes package reference from config", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-remove-nuget-"));
+    try {
+      writeTsonicJson(dir);
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const configPath = join(dir, "tsonic.json");
+      const cfg = JSON.parse(readFileSync(configPath, "utf-8")) as {
+        dotnet?: { packageReferences?: Array<{ id: string; version: string }> };
+      };
+      cfg.dotnet = cfg.dotnet ?? {};
+      cfg.dotnet.packageReferences = [{ id: "Acme.A", version: "1.0.0" }];
+      writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+
+      const removed = removeNugetCommand("Acme.A", configPath, {
+        verbose: false,
+        quiet: true,
+      });
+      expect(removed.ok).to.equal(true);
+
+      const updated = JSON.parse(readFileSync(configPath, "utf-8")) as {
+        dotnet?: { packageReferences?: Array<{ id: string; version: string }> };
+      };
+      expect(updated.dotnet?.packageReferences).to.deep.equal([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -229,7 +322,7 @@ describe("add commands - dependency closure bindings", function () {
       );
       expect(existsSync(dll)).to.equal(true);
 
-      const add = addPackageCommand(dll, undefined, dir, {
+      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.json"), {
         verbose: false,
         quiet: true,
       });

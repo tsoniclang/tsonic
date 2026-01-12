@@ -12,10 +12,11 @@
  */
 
 import type { Result, TsonicConfig } from "../types.js";
+import { loadConfig } from "../config.js";
+import { dirname } from "node:path";
 import {
   defaultBindingsPackageNameForNuget,
   npmInstallDevDependency,
-  readTsonicJson,
   writeTsonicJson,
   type AddCommandOptions,
 } from "./add-common.js";
@@ -40,9 +41,10 @@ export const addNugetCommand = (
   id: string,
   ver: string,
   typesPackage: string | undefined,
-  projectRoot: string,
+  configPath: string,
   options: AddNugetOptions = {}
 ): Result<{ packageId: string; version: string; bindings: string }, string> => {
+  const projectRoot = dirname(configPath);
   if (!id.trim()) {
     return { ok: false, error: "NuGet package id must be non-empty" };
   }
@@ -53,9 +55,9 @@ export const addNugetCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = readTsonicJson(projectRoot);
+  const tsonicConfigResult = loadConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
-  const { path: configPath, config } = tsonicConfigResult.value;
+  const config = tsonicConfigResult.value;
 
   const dotnet = config.dotnet ?? {};
   const existing: PackageReferenceConfig[] = [
@@ -126,4 +128,3 @@ export const addNugetCommand = (
 
   return { ok: true, value: { packageId: id, version: ver, bindings } };
 };
-

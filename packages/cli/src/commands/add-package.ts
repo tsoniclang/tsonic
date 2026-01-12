@@ -16,9 +16,10 @@ import {
   mkdirSync,
   readFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import type { Result, TsonicConfig } from "../types.js";
+import { loadConfig } from "../config.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import {
   bindingsStoreDir,
@@ -28,7 +29,6 @@ import {
   installGeneratedBindingsPackage,
   listDotnetRuntimes,
   npmInstallDevDependency,
-  readTsonicJson,
   resolveFromProjectRoot,
   resolvePackageRoot,
   resolveTsbindgenDllPath,
@@ -78,9 +78,10 @@ const pathIsWithin = (path: string, dir: string): boolean => {
 export const addPackageCommand = (
   dllPath: string,
   typesPackage: string | undefined,
-  projectRoot: string,
+  configPath: string,
   options: AddPackageOptions = {}
 ): Result<{ dllsCopied: number; bindings: string }, string> => {
+  const projectRoot = dirname(configPath);
   const dllAbs = resolveFromProjectRoot(projectRoot, dllPath);
 
   if (!existsSync(dllAbs)) {
@@ -105,9 +106,9 @@ export const addPackageCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = readTsonicJson(projectRoot);
+  const tsonicConfigResult = loadConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
-  const { path: configPath, config } = tsonicConfigResult.value;
+  const config = tsonicConfigResult.value;
 
   const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
   if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
