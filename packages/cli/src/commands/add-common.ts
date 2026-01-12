@@ -143,13 +143,28 @@ export const detectTsbindgenNaming = (config: TsonicConfig): TsbindgenNaming => 
   return typeRoots.some((p) => p.includes("@tsonic/globals-pure")) ? "clr" : "js";
 };
 
+const findNearestPackageRoot = (resolvedFilePath: string): string | null => {
+  let currentDir = dirname(resolvedFilePath);
+
+  for (;;) {
+    if (existsSync(join(currentDir, "package.json"))) return currentDir;
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) return null;
+    currentDir = parentDir;
+  }
+};
+
 export const resolveTsbindgenDllPath = (
   projectRoot: string
 ): Result<string, string> => {
   const tryResolve = (req: ReturnType<typeof createRequire>): string | null => {
     try {
-      const pkgJson = req.resolve("@tsonic/tsbindgen/package.json");
-      const pkgRoot = dirname(pkgJson);
+      // Node 24+ respects `exports` and may disallow deep imports like
+      // "@tsonic/tsbindgen/package.json". Resolve the public entrypoint and
+      // locate the nearest package root on disk.
+      const entryPath = req.resolve("@tsonic/tsbindgen");
+      const pkgRoot = findNearestPackageRoot(entryPath);
+      if (!pkgRoot) return null;
       const dllPath = join(pkgRoot, "lib", "tsbindgen.dll");
       return existsSync(dllPath) ? dllPath : null;
     } catch {
@@ -198,6 +213,14 @@ export const resolvePackageRoot = (
     const pkgJson = req.resolve(`${packageName}/package.json`);
     return { ok: true, value: dirname(pkgJson) };
   } catch (error) {
+    try {
+      const entryPath = req.resolve(packageName);
+      const pkgRoot = findNearestPackageRoot(entryPath);
+      if (pkgRoot) return { ok: true, value: pkgRoot };
+    } catch {
+      // ignore - fall through to user-friendly error below
+    }
+
     return {
       ok: false,
       error:
