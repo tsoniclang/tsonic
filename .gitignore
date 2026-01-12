@@ -143,6 +143,7 @@ npm/tsonic/runtime/*.dll
 .tests/
 .analysis/
 .todos/
+.tmp/
 
 # .NET build artifacts
 **/bin/
