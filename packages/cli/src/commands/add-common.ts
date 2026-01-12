@@ -24,6 +24,11 @@ export type AddCommandOptions = {
   readonly verbose?: boolean;
   readonly quiet?: boolean;
   readonly deps?: readonly string[];
+  /**
+   * Strict bindings generation. When true, tsbindgen is invoked without any
+   * relaxation flags (including constructor constraint loss).
+   */
+  readonly strict?: boolean;
 };
 
 export type TsbindgenNaming = "js" | "clr";
@@ -474,9 +479,18 @@ export const tsbindgenGenerate = (
   options: AddCommandOptions,
   exec: Exec = defaultExec
 ): Result<void, string> => {
+  const policyArgs: string[] = [];
+
+  // Airplane-grade default:
+  // Allow *only* constructor constraint loss (C# still enforces constraints at build time).
+  // Users can opt into full strictness via `--strict`.
+  if (!options.strict) {
+    policyArgs.push("--allow-constructor-constraint-loss");
+  }
+
   const result = exec(
     "dotnet",
-    [tsbindgenDllPath, "generate", ...args],
+    [tsbindgenDllPath, "generate", ...policyArgs, ...args],
     projectRoot,
     options.verbose ? "inherit" : "pipe"
   );

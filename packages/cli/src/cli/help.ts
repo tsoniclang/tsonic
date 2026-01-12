@@ -32,6 +32,7 @@ GLOBAL OPTIONS:
   -V, --verbose             Verbose output
   -q, --quiet               Suppress output
   -c, --config <file>       Config file path (default: tsonic.json)
+  --strict                  Strict bindings generation (fail on constructor-constraint loss)
 
 GENERATE/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory
@@ -60,6 +61,7 @@ EXAMPLES:
   tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
   tsonic remove nuget Microsoft.Extensions.Logging
   tsonic update nuget Microsoft.Extensions.Logging 10.0.1
+  tsonic restore --strict
   tsonic generate src/App.ts
   tsonic build src/App.ts --rid linux-x64
   tsonic run src/App.ts -- --arg1 value1

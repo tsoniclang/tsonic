@@ -336,4 +336,90 @@ describe("add commands - dependency closure bindings", function () {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("add package allows constructor constraint loss by default (use --strict to fail)", () => {
+    const makeLib = (dir: string): string => {
+      const libDir = join(dir, "ctor");
+      run(dir, "dotnet", [
+        "new",
+        "classlib",
+        "-n",
+        "CtorConstraintInterfaceLib",
+        "-f",
+        "net10.0",
+        "--no-restore",
+        "--output",
+        libDir,
+      ]);
+
+      writeFileSync(
+        join(libDir, "Api.cs"),
+        `namespace CtorConstraintInterfaceLib;\n\npublic interface IFactory<T> where T : new()\n{\n  T Make();\n}\n\npublic sealed class Factory<T> : IFactory<T> where T : new()\n{\n  public T Make() => new T();\n}\n`,
+        "utf-8"
+      );
+
+      run(libDir, "dotnet", ["build", "-c", "Release", "--nologo"]);
+      const dll = join(
+        libDir,
+        "bin",
+        "Release",
+        "net10.0",
+        "CtorConstraintInterfaceLib.dll"
+      );
+      expect(existsSync(dll)).to.equal(true);
+      return dll;
+    };
+
+    // Default: should succeed (we pass --allow-constructor-constraint-loss).
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-ctor-constraint-"));
+    try {
+      writeTsonicJson(dir);
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const dll = makeLib(dir);
+      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.json"), {
+        verbose: false,
+        quiet: true,
+      });
+      expect(add.ok).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    // Strict: should fail with TBG406.
+    const dirStrict = mkdtempSync(join(tmpdir(), "tsonic-ctor-constraint-strict-"));
+    try {
+      writeTsonicJson(dirStrict);
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dirStrict, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dirStrict, "node_modules/@tsonic/core")
+      );
+
+      const dll = makeLib(dirStrict);
+      const add = addPackageCommand(dll, undefined, join(dirStrict, "tsonic.json"), {
+        verbose: false,
+        quiet: true,
+        strict: true,
+      });
+      expect(add.ok).to.equal(false);
+      if (add.ok === false) {
+        expect(add.error).to.include("TBG406");
+      }
+    } finally {
+      rmSync(dirStrict, { recursive: true, force: true });
+    }
+  });
 });
