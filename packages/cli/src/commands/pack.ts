@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
+import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 
 /**
  * Pack library into NuGet package
@@ -59,7 +60,18 @@ export const packCommand = (
     console.log("Step 2/2: Creating NuGet package...");
   }
 
-  const packArgs = ["pack", "tsonic.csproj", "-c", "Release", "--nologo"];
+  const nugetConfigResult = resolveNugetConfigFile(config.projectRoot);
+  if (!nugetConfigResult.ok) return nugetConfigResult;
+
+  const packArgs = [
+    "pack",
+    "tsonic.csproj",
+    "-c",
+    "Release",
+    "--nologo",
+    "--configfile",
+    nugetConfigResult.value,
+  ];
 
   if (quiet) {
     packArgs.push("--verbosity", "quiet");

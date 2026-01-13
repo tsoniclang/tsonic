@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
+import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 
 /**
  * Build native executable
@@ -24,6 +25,9 @@ const buildExecutable = (
 ): Result<{ outputPath: string }, string> => {
   const { outputName, rid, quiet, verbose } = config;
 
+  const nugetConfigResult = resolveNugetConfigFile(config.projectRoot);
+  if (!nugetConfigResult.ok) return nugetConfigResult;
+
   // Run dotnet publish
   const publishArgs = [
     "publish",
@@ -33,6 +37,8 @@ const buildExecutable = (
     "-r",
     rid,
     "--nologo",
+    "--configfile",
+    nugetConfigResult.value,
   ];
 
   if (quiet) {
@@ -127,8 +133,19 @@ const buildLibrary = (
     config.dotnetVersion,
   ];
 
+  const nugetConfigResult = resolveNugetConfigFile(config.projectRoot);
+  if (!nugetConfigResult.ok) return nugetConfigResult;
+
   // Run dotnet build
-  const buildArgs = ["build", "tsonic.csproj", "-c", "Release", "--nologo"];
+  const buildArgs = [
+    "build",
+    "tsonic.csproj",
+    "-c",
+    "Release",
+    "--nologo",
+    "--configfile",
+    nugetConfigResult.value,
+  ];
 
   if (quiet) {
     buildArgs.push("--verbosity", "quiet");

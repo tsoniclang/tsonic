@@ -18,6 +18,7 @@ import { basename, dirname, join } from "node:path";
 import type { Result, TsonicConfig } from "../types.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import { loadConfig } from "../config.js";
+import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 import {
   bindingsStoreDir,
   defaultBindingsPackageNameForDll,
@@ -170,13 +171,14 @@ ${itemGroup}
 
 const dotnetRestore = (
   restoreProjectPath: string,
+  nugetConfigFile: string,
   options: RestoreOptions,
   exec: Exec = defaultExec
 ): Result<string, string> => {
   const restoreDir = dirname(restoreProjectPath);
   const result = exec(
     "dotnet",
-    ["restore", restoreProjectPath],
+    ["restore", restoreProjectPath, "--configfile", nugetConfigFile],
     restoreDir,
     options.verbose ? "inherit" : "pipe"
   );
@@ -220,6 +222,9 @@ export const restoreCommand = (
   const configResult = loadConfig(configPath);
   if (!configResult.ok) return configResult;
   const projectRoot = dirname(configPath);
+  const nugetConfigResult = resolveNugetConfigFile(projectRoot);
+  if (!nugetConfigResult.ok) return nugetConfigResult;
+  const nugetConfigFile = nugetConfigResult.value;
   const rawConfig = configResult.value;
   let config = rawConfig;
 
@@ -318,7 +323,7 @@ export const restoreCommand = (
     );
     if (!restoreProject.ok) return restoreProject;
 
-    const assetsPathResult = dotnetRestore(restoreProject.value, options);
+    const assetsPathResult = dotnetRestore(restoreProject.value, nugetConfigFile, options);
     if (!assetsPathResult.ok) return assetsPathResult;
 
     let assets: ProjectAssets;
