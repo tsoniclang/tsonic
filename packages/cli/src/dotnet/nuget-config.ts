@@ -34,7 +34,7 @@ const findProjectNugetConfig = (projectRoot: string): string | null => {
  * Why this exists:
  * - NuGet searches parent directories for nuget.config files.
  * - If the project lives under a repo with a machine-specific local feed
- *   (e.g. "/home/jeswin/..."), restore can fail on fresh machines (NU1301).
+ *   (e.g. "/path/to/local-nuget-feed"), restore can fail on fresh machines (NU1301).
  *
  * Policy:
  * - If the project provides its own nuget.config, use it (standard .NET behavior).
@@ -61,4 +61,3 @@ export const resolveNugetConfigFile = (
     };
   }
 };
-
