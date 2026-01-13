@@ -19,19 +19,20 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 8. [Callbacks](callbacks.md) - Action and Func patterns
 9. [Async Patterns](async-patterns.md) - Async/await and for-await
 10. [.NET Interop](dotnet-interop.md) - Using .NET BCL
-11. [Language Intrinsics](lang-intrinsics.md) - stackalloc, trycast, thisarg, etc.
-12. [JavaScript Runtime](dotnet-interop.md#javascript-runtime-apis-tsonicjs) - Optional JS-style APIs via `@tsonic/js`
+11. [CLR Bindings & Workspaces](bindings.md) - Where bindings live; multi-project repos
+12. [Language Intrinsics](lang-intrinsics.md) - stackalloc, trycast, thisarg, etc.
+13. [JavaScript Runtime](dotnet-interop.md#javascript-runtime-apis-tsonicjs) - Optional JS-style APIs via `@tsonic/js`
 
 ### Build
 
-13. [Build Output](build-output.md) - Pipeline and output
-14. [Diagnostics](diagnostics.md) - Error codes reference
+14. [Build Output](build-output.md) - Pipeline and output
+15. [Diagnostics](diagnostics.md) - Error codes reference
 
 ### Reference
 
-15. [Examples](examples/README.md) - Code examples
-16. [Troubleshooting](troubleshooting.md) - Common issues
-17. [Limitations](limitations.md) - What Tsonic can’t do (yet)
+16. [Examples](examples/README.md) - Code examples
+17. [Troubleshooting](troubleshooting.md) - Common issues
+18. [Limitations](limitations.md) - What Tsonic can’t do (yet)
 
 ## Quick Links
 
