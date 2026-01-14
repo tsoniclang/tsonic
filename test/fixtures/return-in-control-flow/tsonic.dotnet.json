@@ -1,5 +1,5 @@
 {
-  "$schema": "https://tsonic.dev/schema/v1.json",
+  "$schema": "https://tsonic.org/schema/v1.json",
   "rootNamespace": "ReturnInControlFlowTest",
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",

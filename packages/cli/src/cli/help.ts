@@ -16,6 +16,8 @@ USAGE:
 
 COMMANDS:
   project init              Initialize a new Tsonic project
+  add js                    Add JSRuntime interop (@tsonic/js + DLLs)
+  add nodejs                Add Node.js interop (@tsonic/nodejs + DLLs)
   add package <dll> [types] Add a local DLL (and optional bindings) to the project
   add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the project
   add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the project
@@ -49,6 +51,7 @@ ADD/RESTORE OPTIONS:
   --deps <dir>              Additional directory to probe for referenced assemblies (repeatable)
 
 PROJECT INIT OPTIONS:
+  --js                     Enable JSRuntime interop (installs @tsonic/js)
   --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
   --pure                    Use PascalCase .NET bindings
   --skip-types              Skip installing type declarations
@@ -56,9 +59,12 @@ PROJECT INIT OPTIONS:
 
 EXAMPLES:
   tsonic project init
+  tsonic project init --js
   tsonic project init --nodejs
   tsonic project init --pure
   tsonic restore
+  tsonic add js
+  tsonic add nodejs
   tsonic add package ./lib/MyLib.dll @company/mylib-types
   tsonic add package ./path/MyLib.dll                  # auto-generate types (tsbindgen)
   tsonic add nuget Microsoft.Extensions.Logging 10.0.0  # auto-generate types (tsbindgen)
@@ -72,7 +78,7 @@ EXAMPLES:
   tsonic pack
 
 LEARN MORE:
-  Documentation: https://tsonic.dev/docs
+  Documentation: https://tsonic.org/docs
   GitHub: https://github.com/tsoniclang/tsonic
 `);
 };

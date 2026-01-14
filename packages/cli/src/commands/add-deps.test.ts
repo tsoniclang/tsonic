@@ -50,7 +50,7 @@ const writeTsonicJson = (dir: string, fileName = "tsonic.json"): void => {
     join(dir, fileName),
     JSON.stringify(
       {
-        $schema: "https://tsonic.dev/schema/v1.json",
+        $schema: "https://tsonic.org/schema/v1.json",
         rootNamespace: "Test",
         entryPoint: "src/App.ts",
         sourceRoot: "src",

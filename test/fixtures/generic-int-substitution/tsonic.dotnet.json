@@ -1,5 +1,5 @@
 {
-  "$schema": "https://tsonic.dev/schema/v1.json",
+  "$schema": "https://tsonic.org/schema/v1.json",
   "rootNamespace": "GenericIntSubstitution",
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",

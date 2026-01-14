@@ -56,6 +56,12 @@ export const parseArgs = (
         } else if (nextArg === "framework") {
           command = "add:framework";
           i++;
+        } else if (nextArg === "js") {
+          command = "add:js";
+          i++;
+        } else if (nextArg === "nodejs") {
+          command = "add:nodejs";
+          i++;
         }
       }
       // Handle "remove nuget" as two-word command
@@ -126,6 +132,9 @@ export const parseArgs = (
         break;
       case "--nodejs":
         options.nodejs = true;
+        break;
+      case "--js":
+        options.js = true;
         break;
       case "--pure":
         options.pure = true;

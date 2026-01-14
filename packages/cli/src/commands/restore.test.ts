@@ -48,7 +48,7 @@ describe("restore command", function () {
         join(dir, "tsonic.json"),
         JSON.stringify(
           {
-            $schema: "https://tsonic.dev/schema/v1.json",
+            $schema: "https://tsonic.org/schema/v1.json",
             rootNamespace: "Test",
             entryPoint: "src/App.ts",
             sourceRoot: "src",
