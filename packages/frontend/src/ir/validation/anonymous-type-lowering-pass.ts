@@ -618,204 +618,223 @@ const lowerExpression = (
   expr: IrExpression,
   ctx: LoweringContext
 ): IrExpression => {
-  switch (expr.kind) {
-    case "literal":
-    case "identifier":
-    case "this":
-      return expr;
+  const lowered: IrExpression = (() => {
+    switch (expr.kind) {
+      case "literal":
+      case "this":
+        return expr;
 
-    case "array":
-      return {
-        ...expr,
-        elements: expr.elements.map((e) =>
-          e ? lowerExpression(e, ctx) : undefined
-        ),
-      };
+      case "identifier": {
+        // IMPORTANT: Only lower inferredType for identifiers that refer to a real declaration
+        // (locals/parameters). Imported CLR symbols often carry placeholder inferred types
+        // that are not part of emission and must not trigger anonymous type synthesis.
+        if (!expr.declId || !expr.inferredType) return expr;
+        // Treat empty object types (`{}`) as `object`-like placeholders; do not synthesize.
+        if (expr.inferredType.kind === "objectType" && expr.inferredType.members.length === 0) {
+          return expr;
+        }
+        const loweredInferred = lowerType(expr.inferredType, ctx);
+        return loweredInferred === expr.inferredType
+          ? expr
+          : { ...expr, inferredType: loweredInferred };
+      }
 
-    case "object":
-      return {
-        ...expr,
-        contextualType: expr.contextualType
-          ? lowerType(expr.contextualType, ctx)
-          : undefined,
-        properties: expr.properties.map((p) => {
-          if (p.kind === "property") {
-            return {
-              ...p,
-              key:
-                typeof p.key === "string" ? p.key : lowerExpression(p.key, ctx),
-              value: lowerExpression(p.value, ctx),
-            };
-          } else {
-            return {
-              ...p,
-              expression: lowerExpression(p.expression, ctx),
-            };
-          }
-        }),
-      };
+      case "array":
+        return {
+          ...expr,
+          elements: expr.elements.map((e) =>
+            e ? lowerExpression(e, ctx) : undefined
+          ),
+        };
 
-    case "functionExpression": {
-      const loweredReturnType = expr.returnType
-        ? lowerType(expr.returnType, ctx)
-        : undefined;
-      const bodyCtx: LoweringContext = {
-        ...ctx,
-        currentFunctionReturnType: loweredReturnType,
-      };
-      return {
-        ...expr,
-        parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
-        returnType: loweredReturnType,
-        body: lowerBlockStatement(expr.body, bodyCtx),
-      };
-    }
+      case "object":
+        return {
+          ...expr,
+          contextualType: expr.contextualType
+            ? lowerType(expr.contextualType, ctx)
+            : undefined,
+          properties: expr.properties.map((p) => {
+            if (p.kind === "property") {
+              return {
+                ...p,
+                key:
+                  typeof p.key === "string"
+                    ? p.key
+                    : lowerExpression(p.key, ctx),
+                value: lowerExpression(p.value, ctx),
+              };
+            } else {
+              return {
+                ...p,
+                expression: lowerExpression(p.expression, ctx),
+              };
+            }
+          }),
+        };
 
-    case "arrowFunction": {
-      const loweredReturnType = expr.returnType
-        ? lowerType(expr.returnType, ctx)
-        : undefined;
-      const bodyCtx: LoweringContext = {
-        ...ctx,
-        currentFunctionReturnType: loweredReturnType,
-      };
-      // For expression body arrow functions, we need to handle inferredType directly
-      if (expr.body.kind === "blockStatement") {
+      case "functionExpression": {
+        const loweredReturnType = expr.returnType
+          ? lowerType(expr.returnType, ctx)
+          : undefined;
+        const bodyCtx: LoweringContext = {
+          ...ctx,
+          currentFunctionReturnType: loweredReturnType,
+        };
         return {
           ...expr,
           parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
           returnType: loweredReturnType,
           body: lowerBlockStatement(expr.body, bodyCtx),
         };
-      } else {
-        const loweredBody = lowerExpression(expr.body, ctx);
-        // If arrow has expression body and return type, propagate to expression's inferredType
-        const bodyWithType =
-          loweredReturnType && loweredBody.inferredType?.kind === "objectType"
-            ? { ...loweredBody, inferredType: loweredReturnType }
-            : loweredBody;
+      }
+
+      case "arrowFunction": {
+        const loweredReturnType = expr.returnType
+          ? lowerType(expr.returnType, ctx)
+          : undefined;
+        const bodyCtx: LoweringContext = {
+          ...ctx,
+          currentFunctionReturnType: loweredReturnType,
+        };
+        // For expression body arrow functions, we need to handle inferredType directly
+        if (expr.body.kind === "blockStatement") {
+          return {
+            ...expr,
+            parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+            returnType: loweredReturnType,
+            body: lowerBlockStatement(expr.body, bodyCtx),
+          };
+        } else {
+          const loweredBody = lowerExpression(expr.body, ctx);
+          // If arrow has expression body and return type, propagate to expression's inferredType
+          const bodyWithType =
+            loweredReturnType && loweredBody.inferredType?.kind === "objectType"
+              ? { ...loweredBody, inferredType: loweredReturnType }
+              : loweredBody;
+          return {
+            ...expr,
+            parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+            returnType: loweredReturnType,
+            body: bodyWithType,
+          };
+        }
+      }
+
+      case "memberAccess":
         return {
           ...expr,
-          parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
-          returnType: loweredReturnType,
-          body: bodyWithType,
+          object: lowerExpression(expr.object, ctx),
+          property:
+            typeof expr.property === "string"
+              ? expr.property
+              : lowerExpression(expr.property, ctx),
         };
-      }
+
+      case "call":
+        return {
+          ...expr,
+          callee: lowerExpression(expr.callee, ctx),
+          arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
+          typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
+        };
+
+      case "new":
+        return {
+          ...expr,
+          callee: lowerExpression(expr.callee, ctx),
+          arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
+          typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
+        };
+
+      case "update":
+      case "unary":
+      case "await":
+        return {
+          ...expr,
+          expression: lowerExpression(expr.expression, ctx),
+        };
+
+      case "yield":
+        return {
+          ...expr,
+          expression: expr.expression
+            ? lowerExpression(expr.expression, ctx)
+            : undefined,
+        };
+
+      case "binary":
+      case "logical":
+        return {
+          ...expr,
+          left: lowerExpression(expr.left, ctx),
+          right: lowerExpression(expr.right, ctx),
+        };
+
+      case "conditional":
+        return {
+          ...expr,
+          condition: lowerExpression(expr.condition, ctx),
+          whenTrue: lowerExpression(expr.whenTrue, ctx),
+          whenFalse: lowerExpression(expr.whenFalse, ctx),
+        };
+
+      case "assignment":
+        return {
+          ...expr,
+          left:
+            expr.left.kind === "identifierPattern" ||
+            expr.left.kind === "arrayPattern" ||
+            expr.left.kind === "objectPattern"
+              ? lowerPattern(expr.left, ctx)
+              : lowerExpression(expr.left, ctx),
+          right: lowerExpression(expr.right, ctx),
+        };
+
+      case "templateLiteral":
+        return {
+          ...expr,
+          expressions: expr.expressions.map((e) => lowerExpression(e, ctx)),
+        };
+
+      case "spread":
+        return {
+          ...expr,
+          expression: lowerExpression(expr.expression, ctx),
+        };
+
+      case "numericNarrowing":
+        return {
+          ...expr,
+          expression: lowerExpression(expr.expression, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
+
+      case "typeAssertion":
+        return {
+          ...expr,
+          expression: lowerExpression(expr.expression, ctx),
+          targetType: lowerType(expr.targetType, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
+
+      case "trycast":
+        return {
+          ...expr,
+          expression: lowerExpression(expr.expression, ctx),
+          targetType: lowerType(expr.targetType, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
+
+      case "stackalloc":
+        return {
+          ...expr,
+          elementType: lowerType(expr.elementType, ctx),
+          size: lowerExpression(expr.size, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
     }
-
-    case "memberAccess":
-      return {
-        ...expr,
-        object: lowerExpression(expr.object, ctx),
-        property:
-          typeof expr.property === "string"
-            ? expr.property
-            : lowerExpression(expr.property, ctx),
-      };
-
-    case "call":
-      return {
-        ...expr,
-        callee: lowerExpression(expr.callee, ctx),
-        arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
-        typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
-      };
-
-    case "new":
-      return {
-        ...expr,
-        callee: lowerExpression(expr.callee, ctx),
-        arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
-        typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
-      };
-
-    case "update":
-    case "unary":
-    case "await":
-      return {
-        ...expr,
-        expression: lowerExpression(expr.expression, ctx),
-      };
-
-    case "yield":
-      return {
-        ...expr,
-        expression: expr.expression
-          ? lowerExpression(expr.expression, ctx)
-          : undefined,
-      };
-
-    case "binary":
-    case "logical":
-      return {
-        ...expr,
-        left: lowerExpression(expr.left, ctx),
-        right: lowerExpression(expr.right, ctx),
-      };
-
-    case "conditional":
-      return {
-        ...expr,
-        condition: lowerExpression(expr.condition, ctx),
-        whenTrue: lowerExpression(expr.whenTrue, ctx),
-        whenFalse: lowerExpression(expr.whenFalse, ctx),
-      };
-
-    case "assignment":
-      return {
-        ...expr,
-        left:
-          expr.left.kind === "identifierPattern" ||
-          expr.left.kind === "arrayPattern" ||
-          expr.left.kind === "objectPattern"
-            ? lowerPattern(expr.left, ctx)
-            : lowerExpression(expr.left, ctx),
-        right: lowerExpression(expr.right, ctx),
-      };
-
-    case "templateLiteral":
-      return {
-        ...expr,
-        expressions: expr.expressions.map((e) => lowerExpression(e, ctx)),
-      };
-
-    case "spread":
-      return {
-        ...expr,
-        expression: lowerExpression(expr.expression, ctx),
-      };
-
-    case "numericNarrowing":
-      return {
-        ...expr,
-        expression: lowerExpression(expr.expression, ctx),
-        inferredType: lowerType(expr.inferredType, ctx),
-      };
-
-    case "typeAssertion":
-      return {
-        ...expr,
-        expression: lowerExpression(expr.expression, ctx),
-        targetType: lowerType(expr.targetType, ctx),
-        inferredType: lowerType(expr.inferredType, ctx),
-      };
-
-    case "trycast":
-      return {
-        ...expr,
-        expression: lowerExpression(expr.expression, ctx),
-        targetType: lowerType(expr.targetType, ctx),
-        inferredType: lowerType(expr.inferredType, ctx),
-      };
-
-    case "stackalloc":
-      return {
-        ...expr,
-        elementType: lowerType(expr.elementType, ctx),
-        size: lowerExpression(expr.size, ctx),
-        inferredType: lowerType(expr.inferredType, ctx),
-      };
-  }
+  })();
+  return lowered;
 };
 
 /**
