@@ -46,7 +46,7 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
     "typeRoots": ["node_modules/@tsonic/globals"],
     "packageReferences": [{ "id": "Newtonsoft.Json", "version": "13.0.3" }],
     "frameworkReferences": ["Microsoft.AspNetCore.App"],
-    "libraries": ["./libs/MyLib"]
+    "libraries": ["lib/MyLib.dll"]
   }
 }
 ```
@@ -142,7 +142,10 @@ The main TypeScript file that exports a `main()` function.
 }
 ```
 
-**Required for executables**, optional for libraries.
+**Required for executables.** Today, `entryPoint` is also required for library builds.
+
+For libraries, set `entryPoint` to a library root file (for example `src/index.ts`)
+that imports/exports your public API.
 
 #### sourceRoot
 
@@ -320,6 +323,27 @@ Output type: `"executable"`, `"library"`, or `"console-app"`.
 | `packable`              | boolean  | `false`       | Enable NuGet packing   |
 | `package`               | object   | -             | NuGet package metadata |
 
+#### Console App Options
+
+Non-NativeAOT executable (regular `dotnet publish`).
+
+```json
+{
+  "output": {
+    "type": "console-app",
+    "targetFramework": "net10.0",
+    "singleFile": true,
+    "selfContained": true
+  }
+}
+```
+
+| Property          | Type    | Default    | Description                    |
+| ----------------- | ------- | ---------- | ------------------------------ |
+| `targetFramework` | string  | `net10.0`  | Target framework               |
+| `singleFile`      | boolean | `true`     | Single-file publish output     |
+| `selfContained`   | boolean | `true`     | Include runtime in output      |
+
 ### .NET Configuration
 
 #### dotnet.typeRoots
@@ -345,7 +369,40 @@ Additional NuGet package dependencies (emitted as `PackageReference` in the gene
   "dotnet": {
     "packageReferences": [
       { "id": "Newtonsoft.Json", "version": "13.0.3" },
+      { "id": "Microsoft.EntityFrameworkCore", "version": "10.0.1", "types": "@tsonic/efcore" },
       { "id": "System.Text.Json", "version": "8.0.0" }
+    ]
+  }
+}
+```
+
+If you provide `types`, Tsonic will use that npm package for bindings and will not
+auto-generate bindings for that entry during `tsonic restore`.
+
+#### dotnet.frameworkReferences
+
+Additional shared frameworks (emitted as `FrameworkReference` in the generated `.csproj`).
+
+```json
+{
+  "dotnet": {
+    "frameworkReferences": [
+      "Microsoft.AspNetCore.App"
+    ]
+  }
+}
+```
+
+If you provide `types`, Tsonic will use that npm package for bindings and will not
+auto-generate bindings for that entry during `tsonic restore`.
+
+Example with a published bindings package:
+
+```json
+{
+  "dotnet": {
+    "frameworkReferences": [
+      { "id": "Microsoft.AspNetCore.App", "types": "@tsonic/aspnetcore" }
     ]
   }
 }
@@ -353,12 +410,15 @@ Additional NuGet package dependencies (emitted as `PackageReference` in the gene
 
 #### dotnet.libraries
 
-Paths to external .NET library bindings.
+Extra library inputs for the compiler.
+
+- Entries ending with `.dll` are treated as **assembly references** (added to the generated `.csproj`).
+- Other entries are treated as **additional TypeScript type roots** (passed to the TypeScript compiler).
 
 ```json
 {
   "dotnet": {
-    "libraries": ["./libs/custom-lib", "../shared/common"]
+    "libraries": ["lib/MyLib.dll", "./types", "../shared/common"]
   }
 }
 ```
@@ -407,6 +467,7 @@ Paths to external .NET library bindings.
 ```json
 {
   "rootNamespace": "MyLibrary",
+  "entryPoint": "src/index.ts",
   "sourceRoot": "src",
   "output": {
     "type": "library",

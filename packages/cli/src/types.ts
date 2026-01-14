@@ -20,6 +20,8 @@ export type TsonicOutputConfig = {
   readonly optimization?: "size" | "speed";
   readonly invariantGlobalization?: boolean;
   readonly selfContained?: boolean;
+  // Console app (non-NativeAOT) options
+  readonly targetFramework?: string;
   // Library options
   readonly targetFrameworks?: readonly string[];
   readonly generateDocumentation?: boolean;

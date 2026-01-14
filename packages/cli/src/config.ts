@@ -80,6 +80,20 @@ export const loadConfig = (
       }
     }
 
+    const outputType = config.output?.type;
+    if (
+      outputType !== undefined &&
+      outputType !== "executable" &&
+      outputType !== "library" &&
+      outputType !== "console-app"
+    ) {
+      return {
+        ok: false,
+        error:
+          `tsonic.json: 'output.type' must be one of 'executable', 'library', 'console-app' (got '${outputType}')`,
+      };
+    }
+
     const frameworkReferences = config.dotnet?.frameworkReferences;
     if (
       frameworkReferences !== undefined &&
@@ -203,10 +217,16 @@ const resolveOutputConfig = (
       trimmed: configOutput.trimmed ?? true,
       stripSymbols: cliOptions.noStrip
         ? false
-        : (configOutput.stripSymbols ?? true),
-      optimization: cliOptions.optimize ?? configOutput.optimization ?? "speed",
+        : (configOutput.stripSymbols ?? config.buildOptions?.stripSymbols ?? true),
+      optimization:
+        cliOptions.optimize ??
+        config.optimize ??
+        configOutput.optimization ??
+        "speed",
       invariantGlobalization:
-        config.buildOptions?.invariantGlobalization ?? true,
+        configOutput.invariantGlobalization ??
+        config.buildOptions?.invariantGlobalization ??
+        true,
       selfContained:
         cliOptions.selfContained ?? configOutput.selfContained ?? true,
     };
@@ -228,13 +248,23 @@ const resolveOutputConfig = (
     };
   }
 
-  // Console app fallback
-  return {
-    ...baseConfig,
-    singleFile: cliOptions.singleFile ?? configOutput.singleFile ?? true,
-    selfContained:
-      cliOptions.selfContained ?? configOutput.selfContained ?? true,
-  };
+  // Console app (non-NativeAOT) output
+  if (outputType === "console-app") {
+    return {
+      ...baseConfig,
+      targetFramework:
+        cliOptions.targetFramework ??
+        configOutput.targetFramework ??
+        config.dotnetVersion ??
+        "net10.0",
+      singleFile: cliOptions.singleFile ?? configOutput.singleFile ?? true,
+      selfContained:
+        cliOptions.selfContained ?? configOutput.selfContained ?? true,
+    };
+  }
+
+  // Unknown output type - preserve for downstream error handling.
+  return baseConfig;
 };
 
 /**
@@ -285,12 +315,19 @@ export const resolveConfig = (
     outputName: cliOptions.out ?? config.outputName ?? "app",
     rid: cliOptions.rid ?? config.rid ?? detectRid(),
     dotnetVersion: config.dotnetVersion ?? "net10.0",
-    optimize: cliOptions.optimize ?? config.optimize ?? "speed",
+    optimize:
+      cliOptions.optimize ??
+      config.optimize ??
+      config.output?.optimization ??
+      "speed",
     outputConfig,
     stripSymbols: cliOptions.noStrip
       ? false
-      : (config.buildOptions?.stripSymbols ?? true),
-    invariantGlobalization: config.buildOptions?.invariantGlobalization ?? true,
+      : (config.output?.stripSymbols ?? config.buildOptions?.stripSymbols ?? true),
+    invariantGlobalization:
+      config.output?.invariantGlobalization ??
+      config.buildOptions?.invariantGlobalization ??
+      true,
     keepTemp: cliOptions.keepTemp ?? false,
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
