@@ -1,6 +1,6 @@
 # Tsonic
 
-Tsonic is a TypeScript to C# compiler that produces native executables via .NET NativeAOT. Write TypeScript, get fast native binaries.
+Tsonic is a TypeScript to C# compiler that produces native executables via .NET NativeAOT. Write TypeScript, get fast native binaries. Opt into `@tsonic/js` (JavaScript runtime APIs) and `@tsonic/nodejs` (Node-style APIs) when you want them.
 
 ## Why Tsonic?
 
@@ -32,6 +32,7 @@ Details live in the docs: `docs/build-output.md` and `docs/architecture/pipeline
 ## Key Features
 
 - **TypeScript to Native**: Compile TypeScript directly to native executables
+- **Optional JS/Node compatibility**: `@tsonic/js` (JS runtime APIs) and `@tsonic/nodejs` (Node-style APIs)
 - **Direct .NET Access**: Full access to .NET BCL with native performance
 - **NativeAOT Compilation**: Single-file, self-contained executables
 - **Full .NET Interop**: Import and use any .NET library
