@@ -48,5 +48,44 @@ describe("add js", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-});
 
+  it("should be idempotent when @tsonic/js is already installed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-js-idem-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            version: "0.0.0",
+            type: "module",
+            devDependencies: { "@tsonic/js": "^0.1.2" },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(dir, "tsonic.json"),
+        JSON.stringify({ rootNamespace: "Test", dotnet: { typeRoots: [] } }, null, 2) + "\n",
+        "utf-8"
+      );
+
+      const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+      const exec: Exec = (cmd, args) => {
+        calls.push({ cmd, args });
+        return { status: 0, stdout: "", stderr: "" };
+      };
+
+      const result = addJsCommand(join(dir, "tsonic.json"), {}, exec);
+      expect(result.ok).to.equal(true);
+
+      expect(calls.length).to.equal(0);
+      expect(existsSync(join(dir, "lib", "Tsonic.Runtime.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "lib", "Tsonic.JSRuntime.dll"))).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

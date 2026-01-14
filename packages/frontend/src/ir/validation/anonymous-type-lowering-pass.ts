@@ -629,6 +629,7 @@ const lowerExpression = (
         // (locals/parameters). Imported CLR symbols often carry placeholder inferred types
         // that are not part of emission and must not trigger anonymous type synthesis.
         if (!expr.declId || !expr.inferredType) return expr;
+        if (expr.resolvedClrType || expr.resolvedAssembly || expr.importedFrom) return expr;
         // Treat empty object types (`{}`) as `object`-like placeholders; do not synthesize.
         if (expr.inferredType.kind === "objectType" && expr.inferredType.members.length === 0) {
           return expr;

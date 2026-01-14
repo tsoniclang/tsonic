@@ -49,5 +49,45 @@ describe("add nodejs", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-});
 
+  it("should be idempotent when @tsonic/nodejs is already installed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-add-nodejs-idem-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            version: "0.0.0",
+            type: "module",
+            devDependencies: { "@tsonic/nodejs": "^0.4.5" },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(dir, "tsonic.json"),
+        JSON.stringify({ rootNamespace: "Test", dotnet: { typeRoots: [] } }, null, 2) + "\n",
+        "utf-8"
+      );
+
+      const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+      const exec: Exec = (cmd, args) => {
+        calls.push({ cmd, args });
+        return { status: 0, stdout: "", stderr: "" };
+      };
+
+      const result = addNodejsCommand(join(dir, "tsonic.json"), {}, exec);
+      expect(result.ok).to.equal(true);
+
+      expect(calls.length).to.equal(0);
+      expect(existsSync(join(dir, "lib", "Tsonic.Runtime.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "lib", "Tsonic.JSRuntime.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "lib", "nodejs.dll"))).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

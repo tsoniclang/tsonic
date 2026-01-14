@@ -22,6 +22,7 @@ tsonic project init [options]
 
 | Option                  | Description                                               | Default |
 | ----------------------- | --------------------------------------------------------- | ------- |
+| `--js`                  | Enable JavaScript runtime APIs (installs @tsonic/js)       | `false` |
 | `--nodejs`              | Enable Node.js interop (installs @tsonic/nodejs)          | `false` |
 | `--pure`                | Use PascalCase .NET bindings (installs @tsonic/globals-pure) | `false` |
 | `--skip-types`          | Skip installing type declarations                         | `false` |
@@ -32,6 +33,9 @@ tsonic project init [options]
 ```bash
 # Initialize a new project
 tsonic project init
+
+# Enable JavaScript runtime APIs (console, JSON, timers, etc.)
+tsonic project init --js
 
 # Enable Node.js interop (fs, path, etc.)
 tsonic project init --nodejs
@@ -53,6 +57,37 @@ tsonic project init --types-version <ver>
 - `src/App.ts` - Entry point with sample code
 - `.gitignore` - Ignores build artifacts
 - `README.md` - Project readme
+
+### add js
+
+Add JavaScript runtime APIs (`@tsonic/js`) to an existing project.
+
+```bash
+tsonic add js
+```
+
+What it does:
+
+- Installs `@tsonic/js` via npm (if missing)
+- Copies runtime DLLs into `./lib/` (idempotent):
+  - `Tsonic.Runtime.dll`
+  - `Tsonic.JSRuntime.dll`
+
+### add nodejs
+
+Add Node.js compatibility APIs (`@tsonic/nodejs`) to an existing project.
+
+```bash
+tsonic add nodejs
+```
+
+What it does:
+
+- Installs `@tsonic/nodejs` via npm (if missing)
+- Copies runtime DLLs into `./lib/` (idempotent):
+  - `Tsonic.Runtime.dll`
+  - `Tsonic.JSRuntime.dll`
+  - `nodejs.dll`
 
 ### generate
 
