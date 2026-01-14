@@ -8,7 +8,7 @@ Tsonic lets TypeScript/JavaScript developers build fast native apps on .NET:
 
 - **Native binaries** (no JS runtime).
 - **.NET standard library**: use the .NET runtime + BCL (files, networking, crypto, concurrency, etc.).
-- **Node-style APIs when you want them**: optional compatibility packages like `@tsonic/nodejs` and `@tsonic/js`.
+- **Node-style APIs when you want them**: optional compatibility packages like `@tsonic/nodejs`.
 - **Still TypeScript**: your code still typechecks with `tsc`. Tsonic also adds CLR-style numeric types like `int`, `uint`, `long`, etc. via `@tsonic/core/types.js`.
 - **Better security**: you build on a widely used runtime and standard library with regular updates.
 
@@ -36,7 +36,6 @@ Details live in the docs: `docs/build-output.md` and `docs/architecture/pipeline
 - **NativeAOT Compilation**: Single-file, self-contained executables
 - **Full .NET Interop**: Import and use any .NET library
 - **ESM Module System**: Standard ES modules with `.js` import specifiers
-- **Optional JSRuntime**: Use JavaScript-style APIs via `@tsonic/js`
 
 ## Installation
 
@@ -147,15 +146,6 @@ const parsed = JsonSerializer.deserialize<User>(json);
 if (parsed !== undefined) {
   Console.writeLine(parsed.name);
 }
-```
-
-### Optional JS-style APIs (via `@tsonic/js`)
-
-```ts
-import { console, JSON } from "@tsonic/js";
-
-const value = JSON.parse<{ x: number }>("{\"x\": 1}");
-console.log(JSON.stringify(value));
 ```
 
 ### Minimal ASP.NET Core API
