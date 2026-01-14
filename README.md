@@ -8,11 +8,11 @@ Tsonic lets TypeScript/JavaScript developers build fast native apps on .NET:
 
 - **Native binaries** (no JS runtime).
 - **.NET standard library**: use the .NET runtime + BCL (files, networking, crypto, concurrency, etc.).
-- **Node-style APIs when you want them**: optional compatibility packages like `@tsonic/nodejs`.
+- **Optional JS/Node APIs when you want them**: `@tsonic/js` (JavaScript runtime APIs) and `@tsonic/nodejs` (Node-style APIs).
 - **Still TypeScript**: your code still typechecks with `tsc`. Tsonic also adds CLR-style numeric types like `int`, `uint`, `long`, etc. via `@tsonic/core/types.js`.
 - **Better security**: you build on a widely used runtime and standard library with regular updates.
 
-Tsonic targets the .NET BCL (not Node’s built-in modules). If you want Node-like APIs, install `@tsonic/nodejs`.
+Tsonic targets the .NET BCL (not Node’s built-in modules). If you want JavaScript-style APIs, opt into `@tsonic/js`. If you want Node-like APIs, opt into `@tsonic/nodejs`.
 
 ## Why C# + NativeAOT?
 
@@ -56,7 +56,15 @@ npm install -g tsonic
 
 ```bash
 mkdir my-app && cd my-app
+
+# Basic project
 tsonic project init
+
+# Or: include JavaScript runtime APIs (console, JSON, timers, etc.)
+tsonic project init --js
+
+# Or: include Node-style APIs (fs, path, crypto, http, etc.)
+tsonic project init --nodejs
 ```
 
 This creates:
@@ -148,6 +156,51 @@ if (parsed !== undefined) {
 }
 ```
 
+### JavaScript runtime APIs (`@tsonic/js`)
+
+First, enable JSRuntime APIs:
+
+```bash
+# New project
+tsonic project init --js
+
+# Existing project
+tsonic add js
+```
+
+Then write:
+
+```ts
+import { console, JSON } from "@tsonic/js";
+
+export function main(): void {
+  const value = JSON.parse<{ x: number }>('{"x": 1}');
+  console.log(JSON.stringify(value));
+}
+```
+
+### Node-style APIs (`@tsonic/nodejs`)
+
+First, enable Node-style APIs:
+
+```bash
+# New project
+tsonic project init --nodejs
+
+# Existing project
+tsonic add nodejs
+```
+
+Then write:
+
+```ts
+import { console, path } from "@tsonic/nodejs";
+
+export function main(): void {
+  console.log(path.join("a", "b", "c"));
+}
+```
+
 ### Minimal ASP.NET Core API
 
 First, add the shared framework + bindings:
@@ -202,6 +255,8 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 | `tsonic generate [entry]` | Generate C# code only |
 | `tsonic build [entry]` | Build native executable |
 | `tsonic run [entry]`   | Build and run           |
+| `tsonic add js`        | Add `@tsonic/js` + JSRuntime DLLs |
+| `tsonic add nodejs`    | Add `@tsonic/nodejs` + NodeJS DLLs |
 | `tsonic add package <dll> [types]` | Add a local DLL + bindings |
 | `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings |
 | `tsonic add framework <ref> [types]` | Add a FrameworkReference + bindings |
@@ -275,6 +330,8 @@ See `docs/dotnet-interop.md` for the recommended `dist/` + `exports` layout.
 | `@tsonic/globals` | Base types (Array, String, iterators, Promise) |
 | `@tsonic/core`    | Core types (int, float, etc.)                  |
 | `@tsonic/dotnet`  | .NET BCL type declarations                     |
+| `@tsonic/js`      | JavaScript runtime APIs (JS semantics on .NET) |
+| `@tsonic/nodejs`  | Node-style APIs implemented in .NET            |
 
 ## License
 
