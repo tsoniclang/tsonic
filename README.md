@@ -90,9 +90,9 @@ export function main(): void {
 | Command                | Description             |
 | ---------------------- | ----------------------- |
 | `tsonic project init`  | Initialize new project  |
-| `tsonic generate <entry>` | Generate C# code only |
-| `tsonic build <entry>` | Build native executable |
-| `tsonic run <entry>`   | Build and run           |
+| `tsonic generate [entry]` | Generate C# code only |
+| `tsonic build [entry]` | Build native executable |
+| `tsonic run [entry]`   | Build and run           |
 | `tsonic add package <dll> [types]` | Add a local DLL + bindings |
 | `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings |
 | `tsonic add framework <ref> [types]` | Add a FrameworkReference + bindings |
@@ -104,7 +104,7 @@ export function main(): void {
 | Option                   | Description                          |
 | ------------------------ | ------------------------------------ |
 | `-c, --config <file>`    | Config file (default: tsonic.json)   |
-| `-o, --out <path>`       | Output path                          |
+| `-o, --out <name>`       | Output name (binary/assembly)        |
 | `-r, --rid <rid>`        | Runtime identifier (e.g., linux-x64) |
 | `-O, --optimize <level>` | Optimization: size or speed          |
 | `-k, --keep-temp`        | Keep build artifacts                 |

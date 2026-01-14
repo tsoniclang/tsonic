@@ -59,14 +59,14 @@ tsonic project init --types-version <ver>
 Generate C# code from TypeScript without compiling.
 
 ```bash
-tsonic generate <entry> [options]
+tsonic generate [entry] [options]
 ```
 
 **Arguments:**
 
 | Argument  | Description                           | Required |
 | --------- | ------------------------------------- | -------- |
-| `<entry>` | Entry point file (e.g., `src/App.ts`) | Yes      |
+| `<entry>` | Entry point file (e.g., `src/App.ts`) | No (defaults to `entryPoint` in config) |
 
 **Options:**
 
@@ -74,11 +74,11 @@ tsonic generate <entry> [options]
 | ------------------ | ----- | --------------------- | ------------- |
 | `--config <file>`  | `-c`  | Config file path      | `tsonic.json` |
 | `--src <dir>`      | `-s`  | Source root directory | From config   |
-| `--out <name>`     | `-o`  | Output name (assembly/binary) | From config   |
+| `--out <name>`     | `-o`  | Output name (binary/assembly) | From config   |
 | `--namespace <ns>` | `-n`  | Root namespace        | From config   |
 | `--verbose`        | `-V`  | Verbose output        | `false`       |
 | `--quiet`          | `-q`  | Suppress output       | `false`       |
-| `--lib <path>`     | `-L`  | External library path | None          |
+| `--lib <path>`     | `-L`  | External library path (repeatable) | None |
 
 **Examples:**
 
@@ -89,8 +89,11 @@ tsonic generate src/App.ts
 # Override output name (assembly/binary)
 tsonic generate src/App.ts --out my-app
 
-# With external library
-tsonic generate src/App.ts --lib ./libs/MyLib
+# With external DLL reference
+tsonic generate src/App.ts --lib ./lib/MyLib.dll
+
+# With additional type roots (for custom bindings / declarations)
+tsonic generate src/App.ts --lib ./types
 ```
 
 **Output:**
@@ -105,17 +108,17 @@ generated/
 
 ### build
 
-Build a native executable from TypeScript.
+Build an executable (NativeAOT by default) or a library, depending on `output.type`.
 
 ```bash
-tsonic build <entry> [options]
+tsonic build [entry] [options]
 ```
 
 **Arguments:**
 
 | Argument  | Description      | Required |
 | --------- | ---------------- | -------- |
-| `<entry>` | Entry point file | Yes      |
+| `<entry>` | Entry point file | No (defaults to `entryPoint` in config) |
 
 **Options:**
 
@@ -131,7 +134,7 @@ tsonic build <entry> [options]
 | `--no-strip`         |       | Keep debug symbols              | `false`       |
 | `--verbose`          | `-V`  | Verbose output                  | `false`       |
 | `--quiet`            | `-q`  | Suppress output                 | `false`       |
-| `--lib <path>`       | `-L`  | External library path           | None          |
+| `--lib <path>`       | `-L`  | External library path (repeatable) | None       |
 
 **Runtime Identifiers (RID):**
 
@@ -163,22 +166,22 @@ tsonic build src/App.ts --keep-temp --no-strip
 **Build Steps:**
 
 1. **Step 1/3**: Generate C# code (same as `generate`)
-2. **Step 2/3**: Run `dotnet publish` with NativeAOT
-3. **Step 3/3**: Copy output to `out/`
+2. **Step 2/3**: Run `dotnet` (`publish` for executables / `console-app`, `build` for libraries)
+3. **Step 3/3**: Copy output to `out/` (executables) or `dist/` (libraries)
 
 ### run
 
 Build and run the executable in one step.
 
 ```bash
-tsonic run <entry> [-- args...]
+tsonic run [entry] [-- args...]
 ```
 
 **Arguments:**
 
 | Argument     | Description                    | Required |
 | ------------ | ------------------------------ | -------- |
-| `<entry>`    | Entry point file               | Yes      |
+| `<entry>`    | Entry point file               | No (defaults to `entryPoint` in config) |
 | `-- args...` | Arguments passed to executable | No       |
 
 **Options:**
@@ -220,6 +223,7 @@ tsonic add package <dll-path> [types-package]
 | `--verbose` | `-V`  | Verbose output  | `false` |
 | `--quiet`   | `-q`  | Suppress output | `false` |
 | `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
+| `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
 
 **Examples:**
 
@@ -261,6 +265,15 @@ tsonic add nuget <package-id> <version> [types-package]
 | `<package-id>` | NuGet package id | Yes |
 | `<version>` | Exact NuGet version | Yes |
 | `[types-package]` | npm package with type decls | No (auto-generated if omitted) |
+
+**Options:**
+
+| Option      | Short | Description     | Default |
+| ----------- | ----- | --------------- | ------- |
+| `--verbose` | `-V`  | Verbose output  | `false` |
+| `--quiet`   | `-q`  | Suppress output | `false` |
+| `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
+| `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
 
 **Examples:**
 
@@ -306,6 +319,15 @@ Update an existing NuGet package reference (and bindings) in the project.
 tsonic update nuget <package-id> <version> [types-package]
 ```
 
+**Options:**
+
+| Option      | Short | Description     | Default |
+| ----------- | ----- | --------------- | ------- |
+| `--verbose` | `-V`  | Verbose output  | `false` |
+| `--quiet`   | `-q`  | Suppress output | `false` |
+| `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
+| `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
+
 **Examples:**
 
 ```bash
@@ -329,6 +351,15 @@ Remove a NuGet package reference (and refresh bindings) from the project.
 tsonic remove nuget <package-id>
 ```
 
+**Options:**
+
+| Option      | Short | Description     | Default |
+| ----------- | ----- | --------------- | ------- |
+| `--verbose` | `-V`  | Verbose output  | `false` |
+| `--quiet`   | `-q`  | Suppress output | `false` |
+| `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
+| `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
+
 **Examples:**
 
 ```bash
@@ -347,6 +378,15 @@ Add a FrameworkReference (and bindings) to the project.
 ```bash
 tsonic add framework <framework-reference> [types-package]
 ```
+
+**Options:**
+
+| Option      | Short | Description     | Default |
+| ----------- | ----- | --------------- | ------- |
+| `--verbose` | `-V`  | Verbose output  | `false` |
+| `--quiet`   | `-q`  | Suppress output | `false` |
+| `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
+| `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
 
 **Examples:**
 
@@ -386,6 +426,15 @@ Restore .NET dependencies and (re)generate local bindings for a cloned repo.
 tsonic restore
 ```
 
+**Options:**
+
+| Option      | Short | Description     | Default |
+| ----------- | ----- | --------------- | ------- |
+| `--verbose` | `-V`  | Verbose output  | `false` |
+| `--quiet`   | `-q`  | Suppress output | `false` |
+| `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
+| `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
+
 By default, local bindings generation allows constructor-constraint loss (C# still enforces
 constraints at build time). Use `--strict` to make constructor-constraint loss a hard error.
 
@@ -393,6 +442,9 @@ This command is also run automatically before `tsonic build` / `generate` / `run
 any .NET deps declared in `tsonic.json`.
 
 Restore only auto-generates bindings for dependency entries that do **not** specify a `types` package.
+
+When `tsonic restore` runs automatically before `tsonic build` / `generate` / `run` / `pack`, it uses the same
+`--deps` and `--strict` flags passed to the command.
 
 ### pack
 
@@ -450,6 +502,7 @@ These options work with all commands:
 | `--verbose`       | `-V`  | Verbose output   |
 | `--quiet`         | `-q`  | Suppress output  |
 | `--config <file>` | `-c`  | Config file path |
+| `--strict`        | -     | Strict bindings generation (fail on constructor-constraint loss) |
 
 ## Exit Codes
 
@@ -469,8 +522,7 @@ These options work with all commands:
 
 | Variable         | Description           |
 | ---------------- | --------------------- |
-| `TSONIC_VERBOSE` | Enable verbose output |
-| `DOTNET_ROOT`    | .NET SDK location     |
+| `DOTNET_ROOT`    | Used by `dotnet` to locate the .NET SDK     |
 
 ## Configuration File Resolution
 

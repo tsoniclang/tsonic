@@ -13,7 +13,7 @@ TypeScript → IR → C# → .NET → Native Binary
 1. **Parse**: TypeScript Compiler API reads source files
 2. **Build IR**: Create intermediate representation
 3. **Emit C#**: Generate C# code from IR
-4. **Publish**: Run `dotnet publish` with NativeAOT
+4. **Publish**: Run `dotnet publish` (NativeAOT by default for executables)
 5. **Copy**: Copy binary to `out/` directory
 
 ## Directory Structure
@@ -156,6 +156,7 @@ Configuration:
 
 ```json
 {
+  "entryPoint": "src/index.ts",
   "output": {
     "type": "library",
     "targetFrameworks": ["net10.0", "net8.0"]
