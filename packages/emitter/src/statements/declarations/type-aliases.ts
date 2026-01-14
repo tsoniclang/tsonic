@@ -111,8 +111,10 @@ export const emitTypeAliasDeclaration = (
 
           propParts.push(emitCSharpName(member.name, "properties", context));
 
-          // Readonly uses get-only, writable uses get; set;
-          const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
+          // Readonly uses init-only, writable uses get; set;
+          // This preserves TS readonly semantics while still allowing object initializers
+          // (and `required` for non-optional properties in C# 11).
+          const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
 
           properties.push(
             `${getIndent(bodyContext)}${propParts.join(" ")} ${accessors}`

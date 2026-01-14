@@ -56,8 +56,9 @@ export const emitInterfaceMemberAsProperty = (
       // Property name (escape C# keywords)
       parts.push(emitCSharpName(member.name, "properties", context));
 
-      // Getter/setter (readonly is get-only)
-      const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
+      // Getter/setter. For "readonly" in TS, use init-only to preserve immutability
+      // while still allowing object-initializer assignment (and `required` in C# 11).
+      const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
 
       return [`${ind}${parts.join(" ")} ${accessors}`, currentContext];
     }
