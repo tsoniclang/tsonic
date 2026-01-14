@@ -26,6 +26,7 @@ import {
   type EntryInfo,
   type BuildConfig,
   type ExecutableConfig,
+  type ConsoleAppConfig,
   type LibraryConfig,
   type AssemblyReference,
 } from "@tsonic/backend";
@@ -438,7 +439,7 @@ export const generateCommand = (
           ];
 
       // Build output configuration
-      const outputConfig: ExecutableConfig | LibraryConfig =
+      const outputConfig: ExecutableConfig | LibraryConfig | ConsoleAppConfig =
         outputType === "library"
           ? {
               type: "library",
@@ -451,16 +452,24 @@ export const generateCommand = (
               packable: config.outputConfig.packable ?? false,
               packageMetadata: config.outputConfig.package,
             }
-          : {
-              type: "executable",
-              nativeAot: config.outputConfig.nativeAot ?? true,
-              singleFile: config.outputConfig.singleFile ?? true,
-              trimmed: config.outputConfig.trimmed ?? true,
-              stripSymbols: config.stripSymbols,
-              optimization: config.optimize === "size" ? "Size" : "Speed",
-              invariantGlobalization: config.invariantGlobalization,
-              selfContained: config.outputConfig.selfContained ?? true,
-            };
+          : outputType === "console-app"
+            ? {
+                type: "console-app",
+                targetFramework:
+                  config.outputConfig.targetFramework ?? config.dotnetVersion,
+                singleFile: config.outputConfig.singleFile ?? true,
+                selfContained: config.outputConfig.selfContained ?? true,
+              }
+            : {
+                type: "executable",
+                nativeAot: config.outputConfig.nativeAot ?? true,
+                singleFile: config.outputConfig.singleFile ?? true,
+                trimmed: config.outputConfig.trimmed ?? true,
+                stripSymbols: config.stripSymbols,
+                optimization: config.optimize === "size" ? "Size" : "Speed",
+                invariantGlobalization: config.invariantGlobalization,
+                selfContained: config.outputConfig.selfContained ?? true,
+              };
 
       const buildConfig: BuildConfig = {
         rootNamespace,

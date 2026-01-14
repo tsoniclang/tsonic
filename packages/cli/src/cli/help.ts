@@ -23,8 +23,9 @@ COMMANDS:
   update nuget <id> <ver>   Update a NuGet package reference in the project
   restore                   Restore NuGet deps and (re)generate local bindings
   generate [entry]          Generate C# code only
-  build [entry]             Build native executable
+  build [entry]             Build executable or library
   run [entry] [-- args...]  Build and run executable
+  pack                      Create a NuGet package from a library
 
 GLOBAL OPTIONS:
   -h, --help                Show help
@@ -36,19 +37,22 @@ GLOBAL OPTIONS:
 
 GENERATE/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory
-  -o, --out <path>          Output directory (generate) or file (build)
+  -o, --out <name>          Output name (binary/assembly)
   -n, --namespace <ns>      Root namespace override
   -r, --rid <rid>           Runtime identifier (e.g., linux-x64)
   -O, --optimize <level>    Optimization: size or speed
   -k, --keep-temp           Keep build artifacts
   --no-strip                Keep debug symbols
+  -L, --lib <path>          External library path (repeatable)
+
+ADD/RESTORE OPTIONS:
+  --deps <dir>              Additional directory to probe for referenced assemblies (repeatable)
 
 PROJECT INIT OPTIONS:
   --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
   --pure                    Use PascalCase .NET bindings
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
-  --deps <dir>              Additional directory to probe for referenced assemblies (repeatable)
 
 EXAMPLES:
   tsonic project init
@@ -65,6 +69,7 @@ EXAMPLES:
   tsonic generate src/App.ts
   tsonic build src/App.ts --rid linux-x64
   tsonic run src/App.ts -- --arg1 value1
+  tsonic pack
 
 LEARN MORE:
   Documentation: https://tsonic.dev/docs

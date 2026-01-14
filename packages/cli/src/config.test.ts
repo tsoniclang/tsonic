@@ -212,6 +212,88 @@ describe("Config", () => {
       expect(result.invariantGlobalization).to.equal(false);
     });
 
+    it("should allow output.invariantGlobalization to override buildOptions", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        entryPoint: "src/main.ts",
+        buildOptions: {
+          invariantGlobalization: true,
+        },
+        output: {
+          invariantGlobalization: false,
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.invariantGlobalization).to.equal(false);
+      expect(result.outputConfig.invariantGlobalization).to.equal(false);
+    });
+
+    it("should allow output.stripSymbols to override buildOptions", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        entryPoint: "src/main.ts",
+        buildOptions: {
+          stripSymbols: true,
+        },
+        output: {
+          stripSymbols: false,
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.stripSymbols).to.equal(false);
+      expect(result.outputConfig.stripSymbols).to.equal(false);
+    });
+
+    it("should use output.optimization when optimize is not set", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        entryPoint: "src/main.ts",
+        output: {
+          optimization: "size",
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.optimize).to.equal("size");
+      expect(result.outputConfig.optimization).to.equal("size");
+    });
+
+    it("should prefer top-level optimize over output.optimization", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        entryPoint: "src/main.ts",
+        optimize: "speed",
+        output: {
+          optimization: "size",
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.optimize).to.equal("speed");
+      expect(result.outputConfig.optimization).to.equal("speed");
+    });
+
+    it("should resolve console-app output config", () => {
+      const config: TsonicConfig = {
+        rootNamespace: "MyApp",
+        entryPoint: "src/main.ts",
+        output: {
+          type: "console-app",
+          targetFramework: "net8.0",
+          singleFile: false,
+          selfContained: false,
+        },
+      };
+
+      const result = resolveConfig(config, {}, "/project");
+      expect(result.outputConfig.type).to.equal("console-app");
+      expect(result.outputConfig.targetFramework).to.equal("net8.0");
+      expect(result.outputConfig.singleFile).to.equal(false);
+      expect(result.outputConfig.selfContained).to.equal(false);
+    });
+
     it("should default keepTemp to false", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",
