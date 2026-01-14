@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/backend",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "description": ".NET build orchestration for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
     "test:watch": "mocha 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/emitter": "0.0.23",
-    "@tsonic/frontend": "0.0.23"
+    "@tsonic/emitter": "0.0.24",
+    "@tsonic/frontend": "0.0.24"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
