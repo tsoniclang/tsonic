@@ -4,7 +4,7 @@ Tsonic is a TypeScript to C# compiler that produces native executables via .NET 
 
 ## Why Tsonic?
 
-Tsonic lets TypeScript/JavaScript developers build fast native apps on .NET:
+Tsonic lets TypeScript/JavaScript developers build fast native binaries for x64 and ARM64:
 
 - **Native binaries** (no JS runtime).
 - **.NET standard library**: use the .NET runtime + BCL (files, networking, crypto, concurrency, etc.).
