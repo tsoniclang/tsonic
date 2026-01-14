@@ -48,9 +48,9 @@ namespace TestCases.common.types.utilitytypes
 
             public sealed class ReadonlyPerson__Alias
             {
-                public required string Name { get; }
-                public required double Age { get; }
-                public required string Email { get; }
+                public required string Name { get; init; }
+                public required double Age { get; init; }
+                public required string Email { get; init; }
             }
 
             public sealed class PersonName__Alias
@@ -77,16 +77,16 @@ namespace TestCases.common.types.utilitytypes
 
             public sealed class PartialReadonly__Alias
             {
-                public string? Name { get; }
-                public double? Age { get; }
-                public string? Email { get; }
+                public string? Name { get; init; }
+                public double? Age { get; init; }
+                public string? Email { get; init; }
             }
 
             public sealed class ReadonlyPartial__Alias
             {
-                public string? Name { get; }
-                public double? Age { get; }
-                public string? Email { get; }
+                public string? Name { get; init; }
+                public double? Age { get; init; }
+                public string? Email { get; init; }
             }
 
             public sealed class FullMixedPerson__Alias
@@ -111,8 +111,8 @@ namespace TestCases.common.types.utilitytypes
 
             public sealed class OmitFromReadonly__Alias
             {
-                public required string Name { get; }
-                public required double Age { get; }
+                public required string Name { get; init; }
+                public required double Age { get; init; }
             }
 
             public sealed class PartialWithMethods__Alias
@@ -122,7 +122,7 @@ namespace TestCases.common.types.utilitytypes
 
             public sealed class ReadonlyWithMethods__Alias
             {
-                public required string Name { get; }
+                public required string Name { get; init; }
             }
 
             // type MaybeString = string?

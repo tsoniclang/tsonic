@@ -10,6 +10,8 @@ import { generateCommand } from "../commands/generate.js";
 import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
+import { addJsCommand } from "../commands/add-js.js";
+import { addNodejsCommand } from "../commands/add-nodejs.js";
 import { addPackageCommand } from "../commands/add-package.js";
 import { addNugetCommand } from "../commands/add-nuget.js";
 import { addFrameworkCommand } from "../commands/add-framework.js";
@@ -43,6 +45,7 @@ export const runCli = async (args: string[]): Promise<number> => {
     const result = initProject(process.cwd(), {
       skipTypes: parsed.options.skipTypes,
       typesVersion: parsed.options.typesVersion,
+      js: parsed.options.js,
       nodejs: parsed.options.nodejs,
       pure: parsed.options.pure,
     });
@@ -90,6 +93,30 @@ export const runCli = async (args: string[]): Promise<number> => {
   const projectRoot = dirname(configPath);
 
   // Add commands operate on tsonic.json itself (not ResolvedConfig).
+  if (parsed.command === "add:js") {
+    const result = addJsCommand(configPath, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "add:nodejs") {
+    const result = addNodejsCommand(configPath, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
   if (parsed.command === "add:package") {
     const dllPath = parsed.positionals[0];
     const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate

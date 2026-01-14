@@ -19,7 +19,7 @@ Tsonic uses `tsonic.json` for project configuration. This file is required and d
 
 ```json
 {
-  "$schema": "https://tsonic.dev/schema/v1.json",
+  "$schema": "https://tsonic.org/schema/v1.json",
   "rootNamespace": "MyApp",
   "entryPoint": "src/App.ts",
   "sourceRoot": "src",

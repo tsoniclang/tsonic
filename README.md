@@ -224,7 +224,7 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 
 ```json
 {
-  "$schema": "https://tsonic.dev/schema/v1.json",
+  "$schema": "https://tsonic.org/schema/v1.json",
   "rootNamespace": "MyApp",
   "entryPoint": "src/App.ts"
 }

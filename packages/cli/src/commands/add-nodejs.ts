@@ -1,0 +1,90 @@
+/**
+ * tsonic add nodejs - add Node.js interop to an existing project.
+ *
+ * - Installs @tsonic/nodejs (type declarations)
+ * - Copies runtime DLLs into ./lib for deterministic builds
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import type { Result, TsonicConfig } from "../types.js";
+import { loadConfig } from "../config.js";
+import { copyRuntimeDllsToProjectLib } from "../dotnet/runtime-assets.js";
+import {
+  defaultExec,
+  detectTsbindgenNaming,
+  npmInstallDevDependency,
+  type Exec,
+  type AddCommandOptions,
+} from "./add-common.js";
+
+const hasPackage = (projectRoot: string, name: string): boolean => {
+  const pkgJsonPath = join(projectRoot, "package.json");
+  if (!existsSync(pkgJsonPath)) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    return (
+      pkg.dependencies?.[name] !== undefined ||
+      pkg.devDependencies?.[name] !== undefined
+    );
+  } catch {
+    return false;
+  }
+};
+
+const ensureDevDependency = (
+  projectRoot: string,
+  packageName: string,
+  options: AddCommandOptions,
+  exec: Exec
+): Result<void, string> => {
+  if (hasPackage(projectRoot, packageName)) return { ok: true, value: undefined };
+  return npmInstallDevDependency(projectRoot, `${packageName}@latest`, options, exec);
+};
+
+const ensureDotnetForPeerDeps = (
+  projectRoot: string,
+  config: TsonicConfig,
+  options: AddCommandOptions,
+  exec: Exec
+): Result<void, string> => {
+  // @tsonic/nodejs currently imports from @tsonic/dotnet. In CLR-naming projects
+  // (globals-pure), ensure dotnet is present to satisfy module resolution.
+  const naming = detectTsbindgenNaming(config);
+  if (naming !== "clr") return { ok: true, value: undefined };
+  return ensureDevDependency(projectRoot, "@tsonic/dotnet", options, exec);
+};
+
+export const addNodejsCommand = (
+  configPath: string,
+  options: AddCommandOptions = {},
+  exec: Exec = defaultExec
+): Result<void, string> => {
+  const projectRoot = dirname(configPath);
+
+  const configResult = loadConfig(configPath);
+  if (!configResult.ok) return configResult;
+  const config = configResult.value;
+
+  const peerResult = ensureDotnetForPeerDeps(projectRoot, config, options, exec);
+  if (!peerResult.ok) return peerResult;
+
+  const installResult = ensureDevDependency(
+    projectRoot,
+    "@tsonic/nodejs",
+    options,
+    exec
+  );
+  if (!installResult.ok) return installResult;
+
+  const copyResult = copyRuntimeDllsToProjectLib(projectRoot, {
+    includeJsRuntime: true,
+    includeNodejs: true,
+  });
+  if (!copyResult.ok) return copyResult;
+
+  return { ok: true, value: undefined };
+};

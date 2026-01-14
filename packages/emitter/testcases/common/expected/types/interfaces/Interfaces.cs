@@ -10,9 +10,9 @@ namespace TestCases.common.types.interfaces
     }
     public class Point
     {
-        public required double X { get; }
+        public required double X { get; init; }
 
-        public required double Y { get; }
+        public required double Y { get; init; }
     }
 
             public static class Interfaces

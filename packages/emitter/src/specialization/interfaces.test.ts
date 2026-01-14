@@ -99,8 +99,8 @@ describe("Interfaces (spec/16 §2)", () => {
 
     const result = emitModule(module);
 
-    // Readonly should use private set (required for non-optional)
-    expect(result).to.include("public required string ApiUrl { get; }");
+    // Readonly should use init-only setter (required for non-optional + C# 11 required)
+    expect(result).to.include("public required string ApiUrl { get; init; }");
   });
 
   it("should emit generic interface", () => {

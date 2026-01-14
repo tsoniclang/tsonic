@@ -93,11 +93,26 @@ my-app/
 ### Project Init Options
 
 ```bash
+# Enable JavaScript runtime APIs (console, JSON, timers, etc.)
+tsonic project init --js
+
+# Enable Node.js compatibility APIs (fs, path, etc.)
+tsonic project init --nodejs
+
 # Skip installing type packages
 tsonic project init --skip-types
 
 # Specify type package version
 tsonic project init --types-version <ver>
+```
+
+### Adding JS/NodeJS to an existing project
+
+If you already have a Tsonic project and want JSRuntime or Node.js APIs later:
+
+```bash
+tsonic add js
+tsonic add nodejs
 ```
 
 ### Manual Setup

@@ -21,6 +21,10 @@ export function main(): void {
   Console.writeLine(`PARSE.tagsLen=${parsed.tags.length}`);
   Console.writeLine(`PARSE.nested.ok=${parsed.nested.ok}`);
 
+  const inline = JSON.parse<{ x: number }>('{"x": 1}');
+  Console.writeLine(`INLINE.x=${inline.x}`);
+  Console.writeLine(`INLINE.stringify=${JSON.stringify(inline)}`);
+
   const roundtrip = JSON.stringify(parsed);
   Console.writeLine(`STRINGIFY=${roundtrip}`);
 
@@ -35,4 +39,3 @@ export function main(): void {
   const parsedBool = JSON.parse<boolean>("true");
   Console.writeLine(`PRIMITIVE.bool=${parsedBool}`);
 }
-

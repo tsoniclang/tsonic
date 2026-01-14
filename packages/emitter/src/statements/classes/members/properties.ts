@@ -49,7 +49,9 @@ export const emitPropertyMember = (
     parts.push("required");
   }
 
-  if (!hasAccessors && member.isReadonly) {
+  // `readonly` is valid for fields, but NOT for properties.
+  // For auto-properties, we use init-only setters instead (see below).
+  if (!emitsProperty && member.isReadonly) {
     parts.push("readonly");
   }
 
@@ -92,7 +94,7 @@ export const emitPropertyMember = (
   }
 
   if (!hasAccessors) {
-    const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
+    const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
 
     let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
     if (member.initializer) {
