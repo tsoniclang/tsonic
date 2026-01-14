@@ -4,32 +4,28 @@ Tsonic is a TypeScript to C# compiler that produces native executables via .NET 
 
 ## Why Tsonic?
 
-Tsonic is an **escape hatch for TypeScript/JavaScript developers** who want:
+Tsonic lets TypeScript/JavaScript developers build fast native apps on .NET:
 
-- **Native binaries** (not a JS runtime) without rewriting the project in Rust/Go/C++.
-- **A real standard library**: use the .NET runtime + BCL (files, networking, crypto, concurrency, etc.).
-- **A security posture you can reason about**: the .NET runtime and BCL have a mature security process and regular updates.
-- **A pragmatic migration path**: your code stays valid TypeScript and can still be typechecked with `tsc`.
+- **Native binaries** (no JS runtime).
+- **.NET standard library**: use the .NET runtime + BCL (files, networking, crypto, concurrency, etc.).
+- **Node-style APIs when you want them**: optional compatibility packages like `@tsonic/nodejs` and `@tsonic/js`.
+- **Still TypeScript**: your code still typechecks with `tsc`. Tsonic also adds CLR-style numeric types like `int`, `uint`, `long`, etc. via `@tsonic/core/types.js`.
+- **Better security**: you build on a widely used runtime and standard library with regular updates.
+
+Tsonic targets the .NET BCL (not Node’s built-in modules). If you want Node-like APIs, install `@tsonic/nodejs`.
 
 ## Why C# + NativeAOT?
 
-Tsonic targets C#/.NET because it maps extremely well from TypeScript:
+Tsonic compiles TypeScript to C#, then uses the standard CLR NativeAOT pipeline (`dotnet publish`) to produce native binaries.
+
+TypeScript maps well to C#/.NET:
 
 - **Classes, interfaces, generics**: translate naturally to CLR types.
 - **Async/await**: TS `async` maps cleanly to `Task`/`ValueTask`.
 - **Iterators and generators**: map to C# iterator patterns.
 - **Delegates/callbacks**: map to `Action`/`Func` without inventing a new runtime ABI.
 
-.NET NativeAOT then produces **single-file, self-contained native executables**.
-
-## How It Works (High-Level)
-
-Tsonic is a compiler pipeline:
-
-1. **Parse & typecheck TypeScript**
-2. **Build an IR** (intermediate representation)
-3. **Emit C#**
-4. **Compile with `dotnet publish`** (NativeAOT by default)
+NativeAOT produces **single-file, self-contained native executables**.
 
 Details live in the docs: `docs/build-output.md` and `docs/architecture/pipeline.md`.
 
