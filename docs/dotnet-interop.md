@@ -223,9 +223,6 @@ export function main(): void {
 }
 ```
 
-Some APIs use a `_` suffix when a member name would collide with a TypeScript keyword.
-For example, `Map.get_()` / `Map.set_()` / `Map.delete_()`.
-
 ### Extension Methods (LINQ-style `xs.where(...).select(...)`)
 
 tsbindgen-generated packages expose **type-only** `ExtensionMethods` helpers that model C# `using` semantics.
