@@ -17,6 +17,6 @@ export function main(): void {
   Console.writeLine(`File exists: ${exists}`);
 
   // Clean up
-  File.delete_(testFile);
+  File.delete(testFile);
   Console.writeLine("File deleted");
 }
