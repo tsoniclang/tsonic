@@ -34,8 +34,8 @@ export function main(): void {
   const sum = Enumerable.sum(numbers);
   Console.writeLine(`Sum: ${sum}`);
 
-  // LINQ Any (renamed to any_ in tsbindgen because 'any' is TS keyword)
-  const hasLarge = Enumerable.any_(numbers, (n) => n > 5);
+  // LINQ Any
+  const hasLarge = Enumerable.any(numbers, (n) => n > 5);
   Console.writeLine(`Has numbers > 5: ${hasLarge}`);
 
   // LINQ All
