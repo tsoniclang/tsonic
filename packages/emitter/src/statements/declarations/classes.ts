@@ -2,7 +2,7 @@
  * Class declaration emission
  */
 
-import { IrStatement, type IrType } from "@tsonic/frontend";
+import { IrStatement, type IrClassMember, type IrType } from "@tsonic/frontend";
 import {
   EmitterContext,
   getIndent,
@@ -37,6 +37,7 @@ export const emitClassDeclaration = (
   const needsUnsafe = statementUsesPointer(stmt);
 
   const hasTypeParameters = (stmt.typeParameters?.length ?? 0) > 0;
+  const ctorAttributes = stmt.ctorAttributes ?? [];
   const staticMembers = hasTypeParameters
     ? stmt.members.filter(
         (m) =>
@@ -44,7 +45,7 @@ export const emitClassDeclaration = (
           m.isStatic
       )
     : [];
-  const instanceMembers = hasTypeParameters
+  const instanceMembers: readonly IrClassMember[] = hasTypeParameters
     ? stmt.members.filter(
         (m) =>
           m.kind === "constructorDeclaration" ||
@@ -53,7 +54,7 @@ export const emitClassDeclaration = (
       )
     : stmt.members;
 
-  const synthesizedConstructors = (() => {
+  const synthesizedConstructors: readonly IrClassMember[] = (() => {
     // If the class extends a base class and does not declare a constructor,
     // TypeScript supplies a default constructor that forwards to `super(...args)`.
     // In C#, we must emit an explicit forwarding constructor when the base has
@@ -119,10 +120,45 @@ export const emitClassDeclaration = (
     });
   })();
 
-  const membersToEmit =
+  const membersToEmitBase: readonly IrClassMember[] =
     synthesizedConstructors.length > 0
       ? [...synthesizedConstructors, ...instanceMembers]
       : instanceMembers;
+
+  // If ctor attributes were requested but no constructor exists, synthesize a
+  // parameterless constructor so the attributes can be emitted deterministically.
+  // Note: for classes with a base type that requires forwarding, synthesizedConstructors
+  // will be non-empty, so we won't create an invalid parameterless ctor.
+  const ensureCtorForAttributes =
+    ctorAttributes.length > 0 &&
+    !stmt.isStruct &&
+    !membersToEmitBase.some((m) => m.kind === "constructorDeclaration");
+
+  const membersToEmitWithCtor: readonly IrClassMember[] = ensureCtorForAttributes
+    ? [
+        {
+          kind: "constructorDeclaration",
+          accessibility: "public",
+          parameters: [],
+          body: { kind: "blockStatement", statements: [] },
+        } satisfies IrClassMember,
+        ...membersToEmitBase,
+      ]
+    : membersToEmitBase;
+
+  // Apply class-level ctor attributes to all constructors (explicit or synthesized).
+  const membersToEmit: readonly IrClassMember[] = membersToEmitWithCtor.map(
+    (member): IrClassMember => {
+    if (member.kind !== "constructorDeclaration") return member;
+    if (ctorAttributes.length === 0) return member;
+
+    const existing = member.attributes ?? [];
+    return {
+      ...member,
+      attributes: [...ctorAttributes, ...existing],
+    };
+    }
+  );
 
   // Build type parameter names set FIRST - needed when emitting superclass, implements, and members
   // Type parameters must be in scope before we emit types that reference them

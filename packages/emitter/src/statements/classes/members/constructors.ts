@@ -7,6 +7,7 @@ import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
+import { emitAttributes } from "../../../core/attributes.js";
 import {
   emitParametersWithDestructuring,
   generateParameterDestructuring,
@@ -44,6 +45,14 @@ export const emitConstructorMember = (
   let currentContext = context;
   const parts: string[] = [];
 
+  // Emit attributes before the constructor declaration
+  const [attributesCode, attrContext] = emitAttributes(
+    member.attributes,
+    currentContext
+  );
+  currentContext = attrContext;
+  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+
   // Access modifier
   const accessibility = member.accessibility ?? "public";
   parts.push(accessibility);
@@ -64,7 +73,7 @@ export const emitConstructorMember = (
   if (!member.body) {
     // Abstract or interface constructor without body
     const signature = parts.join(" ");
-    const code = `${ind}${signature}(${paramsResult.parameterList});`;
+    const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameterList});`;
     return [code, { ...currentContext, ...savedScoped }];
   }
 
@@ -122,7 +131,7 @@ export const emitConstructorMember = (
   }
 
   const signature = parts.join(" ");
-  const code = `${ind}${signature}(${paramsResult.parameterList})${baseCall}\n${finalBodyCode}`;
+  const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameterList})${baseCall}\n${finalBodyCode}`;
 
   const returnedContext = dedent(finalContext);
   return [code, { ...returnedContext, ...savedScoped }];

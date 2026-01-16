@@ -30,6 +30,9 @@ export type DiagnosticCode =
   | "TSN4002" // Missing .NET type declaration
   | "TSN4003" // Ambiguous CLR binding
   | "TSN4004" // Missing CLR binding
+  | "TSN4005" // Invalid attribute marker usage
+  | "TSN4006" // Invalid attribute argument
+  | "TSN4007" // Attribute target not found
   | "TSN5001" // NativeAOT limitation
   | "TSN5002" // Runtime implementation missing
   | "TSN6001" // Internal compiler error

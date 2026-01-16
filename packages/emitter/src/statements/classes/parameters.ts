@@ -12,6 +12,7 @@ import { emitExpression } from "../../expression-emitter.js";
 import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerParameterPattern } from "../../patterns.js";
+import { emitParameterAttributes } from "../../core/attributes.js";
 
 /**
  * Info about a parameter that needs destructuring in the function body
@@ -68,6 +69,12 @@ export const emitParametersWithDestructuring = (
     const isRest = param.isRest;
     const isOptional = param.isOptional;
 
+    const [parameterAttributePrefix, attrContext] = emitParameterAttributes(
+      param.attributes,
+      currentContext
+    );
+    currentContext = attrContext;
+
     const modifiers: string[] = [];
     if (param.isExtensionReceiver) {
       modifiers.push("this");
@@ -115,7 +122,7 @@ export const emitParametersWithDestructuring = (
     }
 
     // Construct parameter string with modifiers if present
-    let paramStr = `${modifierPrefix}${paramType} ${paramName}`;
+    let paramStr = `${parameterAttributePrefix}${modifierPrefix}${paramType} ${paramName}`;
     if (param.initializer) {
       // Emit the default value directly
       const [defaultExpr, newContext] = emitExpression(

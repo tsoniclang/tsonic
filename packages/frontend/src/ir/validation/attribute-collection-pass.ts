@@ -1,18 +1,23 @@
 /**
  * Attribute Collection Pass
  *
- * This pass detects marker calls like `A.on(Class).type.add(Attr)` and transforms
- * them into attributes attached to the corresponding IR declarations.
+ * This pass detects compiler-only marker calls and transforms them into IR attributes
+ * attached to the corresponding declarations, removing the marker statements.
  *
  * Supported patterns:
- * - A.on(Class).type.add(Attr) - Type-level attribute on class
- * - A.on(Class).type.add(Attr, arg1, arg2) - With positional arguments
- * - A.on(fn).type.add(Attr) - Function-level attribute
+ * - A.on(Class).type.add(AttrCtor, ...args)           - Type attribute
+ * - A.on(Class).ctor.add(AttrCtor, ...args)           - Constructor attribute
+ * - A.on(Class).method(x => x.method).add(AttrCtor)   - Method attribute
+ * - A.on(Class).prop(x => x.prop).add(AttrCtor)       - Property attribute
+ * - add(A.attr(AttrCtor, ...args))                    - Descriptor form
+ * - add(descriptor) where `const descriptor = A.attr(...)`
  *
- * Future patterns (not yet implemented):
- * - A.on(Class).prop(x => x.field).add(Attr) - Property attribute
- * - A.on(Class).method(x => x.fn).add(Attr) - Method attribute
- * - A.on(Class).type.add(Attr, { Name: "x" }) - Named arguments
+ * Backward compatibility:
+ * - A.on(fn).type.add(AttrCtor, ...args) attaches to a function declaration
+ *
+ * Notes:
+ * - This API is compiler-only. All recognized marker statements are removed.
+ * - Invalid marker calls are errors (no silent drops).
  */
 
 import {
@@ -32,7 +37,12 @@ import {
   IrAttribute,
   IrAttributeArg,
   IrType,
+  IrVariableDeclaration,
+  IrArrowFunctionExpression,
+  IrObjectExpression,
 } from "../types.js";
+
+const ATTRIBUTES_IMPORT_SPECIFIER = "@tsonic/core/attributes.js";
 
 /**
  * Result of attribute collection pass
@@ -48,7 +58,8 @@ export type AttributeCollectionResult = {
  */
 type AttributeMarker = {
   readonly targetName: string;
-  readonly targetKind: "class" | "function";
+  readonly targetSelector: "type" | "ctor" | "method" | "prop";
+  readonly selectedMemberName?: string;
   readonly attributeType: IrType;
   readonly positionalArgs: readonly IrAttributeArg[];
   readonly namedArgs: ReadonlyMap<string, IrAttributeArg>;
@@ -101,141 +112,696 @@ const tryExtractAttributeArg = (
   return undefined;
 };
 
+type ParseResult<T> =
+  | { readonly kind: "notMatch" }
+  | { readonly kind: "ok"; readonly value: T }
+  | { readonly kind: "error"; readonly diagnostic: Diagnostic };
+
+const getAttributesApiLocalNames = (module: IrModule): ReadonlySet<string> => {
+  const names = new Set<string>();
+  for (const imp of module.imports) {
+    if (imp.source !== ATTRIBUTES_IMPORT_SPECIFIER) continue;
+    for (const spec of imp.specifiers) {
+      if (spec.kind !== "named") continue;
+      if (spec.name !== "attributes") continue;
+      names.add(spec.localName);
+    }
+  }
+  return names;
+};
+
+const isAttributesApiIdentifier = (
+  expr: IrExpression,
+  apiNames: ReadonlySet<string>
+): expr is IrIdentifierExpression => expr.kind === "identifier" && apiNames.has(expr.name);
+
+const getMemberName = (expr: IrExpression): string | undefined => {
+  if (expr.kind !== "memberAccess") return undefined;
+  if (expr.isComputed) return undefined;
+  if (typeof expr.property !== "string") return undefined;
+  return expr.property;
+};
+
+const looksLikeAttributesApiUsage = (
+  expr: IrExpression,
+  apiNames: ReadonlySet<string>
+): boolean => {
+  switch (expr.kind) {
+    case "call":
+      return (
+        looksLikeAttributesApiUsage(expr.callee, apiNames) ||
+        expr.arguments.some((arg) => arg.kind !== "spread" && looksLikeAttributesApiUsage(arg, apiNames))
+      );
+    case "memberAccess":
+      return (
+        looksLikeAttributesApiUsage(expr.object, apiNames) ||
+        (typeof expr.property === "string" &&
+          (expr.property === "on" || expr.property === "attr") &&
+          isAttributesApiIdentifier(expr.object, apiNames))
+      );
+    case "arrowFunction":
+      return (
+        (expr.body.kind === "blockStatement"
+          ? expr.body.statements.some((s) =>
+              s.kind === "expressionStatement" &&
+              looksLikeAttributesApiUsage(s.expression, apiNames)
+            )
+          : looksLikeAttributesApiUsage(expr.body, apiNames)) || false
+      );
+    case "functionExpression":
+      return expr.body.statements.some(
+        (s) =>
+          s.kind === "expressionStatement" &&
+          looksLikeAttributesApiUsage(s.expression, apiNames)
+      );
+    case "array":
+      return expr.elements.some(
+        (el) => el !== undefined && el.kind !== "spread" && looksLikeAttributesApiUsage(el, apiNames)
+      );
+    case "object":
+      return expr.properties.some((p) => {
+        if (p.kind === "spread") return looksLikeAttributesApiUsage(p.expression, apiNames);
+        if (typeof p.key !== "string") return looksLikeAttributesApiUsage(p.key, apiNames);
+        return looksLikeAttributesApiUsage(p.value, apiNames);
+      });
+    default:
+      return false;
+  }
+};
+
+const parseOnCall = (
+  expr: IrExpression,
+  module: IrModule,
+  apiNames: ReadonlySet<string>
+): ParseResult<{ readonly target: IrIdentifierExpression; readonly sourceSpan?: SourceLocation }> => {
+  if (expr.kind !== "call") return { kind: "notMatch" };
+  const call = expr as IrCallExpression;
+  if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
+
+  const member = call.callee as IrMemberExpression;
+  if (member.isComputed || typeof member.property !== "string") return { kind: "notMatch" };
+  if (member.property !== "on") return { kind: "notMatch" };
+  if (!isAttributesApiIdentifier(member.object, apiNames)) return { kind: "notMatch" };
+
+  if (call.arguments.length !== 1) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: A.on(...) expects exactly 1 argument`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
+
+  const arg0 = call.arguments[0];
+  if (!arg0 || arg0.kind === "spread") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: A.on(...) does not accept spread arguments`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
+
+  if (arg0.kind !== "identifier") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: A.on(Target) target must be an identifier`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
+
+  return {
+    kind: "ok",
+    value: { target: arg0 as IrIdentifierExpression, sourceSpan: call.sourceSpan },
+  };
+};
+
+const parseSelector = (
+  selector: IrExpression,
+  module: IrModule
+): ParseResult<string> => {
+  if (selector.kind !== "arrowFunction") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: selector must be an arrow function (x => x.member)`,
+        createLocation(module.filePath, selector.sourceSpan)
+      ),
+    };
+  }
+
+  const fn = selector as IrArrowFunctionExpression;
+  if (fn.parameters.length !== 1) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: selector must have exactly 1 parameter`,
+        createLocation(module.filePath, fn.sourceSpan)
+      ),
+    };
+  }
+
+  const p0 = fn.parameters[0];
+  if (!p0 || p0.pattern.kind !== "identifierPattern") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: selector parameter must be an identifier`,
+        createLocation(module.filePath, fn.sourceSpan)
+      ),
+    };
+  }
+
+  const paramName = p0.pattern.name;
+  if (fn.body.kind !== "memberAccess") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: selector body must be a member access (x => x.member)`,
+        createLocation(module.filePath, fn.sourceSpan)
+      ),
+    };
+  }
+
+  const body = fn.body as IrMemberExpression;
+  if (body.isComputed || typeof body.property !== "string") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: selector must access a named member (no computed access)`,
+        createLocation(module.filePath, fn.sourceSpan)
+      ),
+    };
+  }
+
+  if (body.object.kind !== "identifier" || body.object.name !== paramName) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: selector must be of the form (x) => x.member`,
+        createLocation(module.filePath, fn.sourceSpan)
+      ),
+    };
+  }
+
+  return { kind: "ok", value: body.property };
+};
+
+type ParsedAttributeDescriptor = {
+  readonly attributeType: IrType;
+  readonly positionalArgs: readonly IrAttributeArg[];
+  readonly namedArgs: ReadonlyMap<string, IrAttributeArg>;
+  readonly sourceSpan?: SourceLocation;
+};
+
+const resolveClrTypeForAttributeCtor = (
+  ctorIdent: IrIdentifierExpression,
+  module: IrModule
+): string | undefined => {
+  if (ctorIdent.resolvedClrType) return ctorIdent.resolvedClrType;
+
+  // Prefer CLR imports: these are the authoritative mapping for runtime type names.
+  for (const imp of module.imports) {
+    if (!imp.isClr) continue;
+    if (!imp.resolvedNamespace) continue;
+    for (const spec of imp.specifiers) {
+      if (spec.kind !== "named") continue;
+      if (spec.localName !== ctorIdent.name) continue;
+      return `${imp.resolvedNamespace}.${spec.name}`;
+    }
+  }
+
+  return undefined;
+};
+
+const makeAttributeType = (
+  ctorIdent: IrIdentifierExpression,
+  module: IrModule
+): ParseResult<IrType> => {
+  const resolvedClrType = resolveClrTypeForAttributeCtor(ctorIdent, module);
+  if (resolvedClrType) {
+    return {
+      kind: "ok",
+      value: {
+        kind: "referenceType",
+        name: ctorIdent.name,
+        resolvedClrType,
+      },
+    };
+  }
+
+  // Allow locally-emitted attribute types (non-ambient class declarations).
+  const hasLocalClass = module.body.some(
+    (s) => s.kind === "classDeclaration" && s.name === ctorIdent.name
+  );
+  if (hasLocalClass) {
+    return { kind: "ok", value: { kind: "referenceType", name: ctorIdent.name } };
+  }
+
+  return {
+    kind: "error",
+    diagnostic: createDiagnostic(
+      "TSN4004",
+      "error",
+      `Missing CLR binding for attribute constructor '${ctorIdent.name}'. Import the attribute type from a CLR bindings module (e.g., @tsonic/dotnet) or define it as a local class.`,
+      createLocation(module.filePath, ctorIdent.sourceSpan)
+    ),
+  };
+};
+
+const parseAttrDescriptorCall = (
+  expr: IrExpression,
+  module: IrModule,
+  apiNames: ReadonlySet<string>
+): ParseResult<ParsedAttributeDescriptor> => {
+  if (expr.kind !== "call") return { kind: "notMatch" };
+
+  const call = expr as IrCallExpression;
+  if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
+
+  const member = call.callee as IrMemberExpression;
+  if (member.isComputed || typeof member.property !== "string") return { kind: "notMatch" };
+  if (member.property !== "attr") return { kind: "notMatch" };
+  if (!isAttributesApiIdentifier(member.object, apiNames)) return { kind: "notMatch" };
+
+  if (call.arguments.length < 1) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: A.attr(AttrCtor, ...args) requires at least the attribute constructor`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
+
+  const rawArgs: IrExpression[] = [];
+  for (const arg of call.arguments) {
+    if (!arg || arg.kind === "spread") {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4006",
+          "error",
+          `Invalid attribute argument: spreads are not allowed in attributes`,
+          createLocation(module.filePath, call.sourceSpan)
+        ),
+      };
+    }
+    rawArgs.push(arg);
+  }
+
+  const ctorExpr = rawArgs[0];
+  if (!ctorExpr || ctorExpr.kind !== "identifier") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: A.attr(...) attribute constructor must be an identifier`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
+
+  const attributeCtor = ctorExpr as IrIdentifierExpression;
+  const attributeTypeResult = makeAttributeType(attributeCtor, module);
+  if (attributeTypeResult.kind !== "ok") {
+    return attributeTypeResult;
+  }
+  const positionalArgs: IrAttributeArg[] = [];
+  const namedArgs = new Map<string, IrAttributeArg>();
+  let sawNamed = false;
+
+  for (const arg of rawArgs.slice(1)) {
+    if (arg.kind === "object") {
+      sawNamed = true;
+      const obj = arg as IrObjectExpression;
+      for (const prop of obj.properties) {
+        if (prop.kind === "spread") {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4006",
+              "error",
+              `Invalid attribute argument: spreads are not allowed in named arguments`,
+              createLocation(module.filePath, obj.sourceSpan)
+            ),
+          };
+        }
+        if (prop.kind !== "property" || typeof prop.key !== "string") {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4006",
+              "error",
+              `Invalid attribute argument: named arguments must be simple { Name: value } properties`,
+              createLocation(module.filePath, obj.sourceSpan)
+            ),
+          };
+        }
+        const v = tryExtractAttributeArg(prop.value);
+        if (!v) {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4006",
+              "error",
+              `Invalid attribute argument: named argument '${prop.key}' must be a compile-time constant`,
+              createLocation(module.filePath, prop.value.sourceSpan)
+            ),
+          };
+        }
+        namedArgs.set(prop.key, v);
+      }
+      continue;
+    }
+
+    if (sawNamed) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4006",
+          "error",
+          `Invalid attribute argument: positional arguments cannot appear after named arguments`,
+          createLocation(module.filePath, arg.sourceSpan)
+        ),
+      };
+    }
+
+    const v = tryExtractAttributeArg(arg);
+    if (!v) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4006",
+          "error",
+          `Invalid attribute argument: attribute arguments must be compile-time constants (string/number/boolean/typeof/enum)`,
+          createLocation(module.filePath, arg.sourceSpan)
+        ),
+      };
+    }
+    positionalArgs.push(v);
+  }
+
+  return {
+    kind: "ok",
+    value: {
+      attributeType: attributeTypeResult.value,
+      positionalArgs,
+      namedArgs,
+      sourceSpan: call.sourceSpan,
+    },
+  };
+};
+
 /**
  * Try to detect if a call expression is an attribute marker pattern.
  *
- * Pattern: A.on(Target).type.add(Attr, ...args)
- * Structure:
- * - CallExpression (outer) - the .add(Attr, ...) call
- *   - callee: MemberAccess with property "add"
- *     - object: MemberAccess with property "type"
- *       - object: CallExpression - the A.on(Target) call
- *         - callee: MemberAccess with property "on"
- *           - object: Identifier "A" or "attributes"
- *         - arguments: [Target identifier]
- *   - arguments: [Attr type, ...positional args]
+ * Patterns:
+ * - A.on(Target).type.add(...)
+ * - A.on(Target).ctor.add(...)
+ * - A.on(Target).method(selector).add(...)
+ * - A.on(Target).prop(selector).add(...)
  */
 const tryDetectAttributeMarker = (
   call: IrCallExpression,
-  module: IrModule
-): AttributeMarker | undefined => {
-  // Check outer call: must be a member access call like .add(...)
-  if (call.callee.kind !== "memberAccess") return undefined;
-
+  module: IrModule,
+  apiNames: ReadonlySet<string>,
+  descriptors: ReadonlyMap<string, ParsedAttributeDescriptor>
+): ParseResult<AttributeMarker> => {
+  if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
   const outerMember = call.callee as IrMemberExpression;
-
-  // Check that property is "add" (string, not computed)
   if (outerMember.isComputed || typeof outerMember.property !== "string") {
-    return undefined;
+    return { kind: "notMatch" };
+  }
+  if (outerMember.property !== "add") return { kind: "notMatch" };
+
+  // Determine the target selector: `.type`, `.ctor`, `.method(selector)`, `.prop(selector)`
+  let selector: AttributeMarker["targetSelector"] | undefined;
+  let selectedMemberName: string | undefined;
+  let onCallExpr: IrExpression | undefined;
+
+  if (outerMember.object.kind === "memberAccess") {
+    const targetMember = outerMember.object as IrMemberExpression;
+    const prop = getMemberName(targetMember);
+    if (prop !== "type" && prop !== "ctor") return { kind: "notMatch" };
+    selector = prop;
+    onCallExpr = targetMember.object;
+  } else if (outerMember.object.kind === "call") {
+    const selectorCall = outerMember.object as IrCallExpression;
+    if (selectorCall.callee.kind !== "memberAccess") return { kind: "notMatch" };
+    const selectorMember = selectorCall.callee as IrMemberExpression;
+    const prop = getMemberName(selectorMember);
+    if (prop !== "method" && prop !== "prop") return { kind: "notMatch" };
+    selector = prop;
+
+    if (selectorCall.arguments.length !== 1) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid attribute marker: .${prop}(selector) expects exactly 1 argument`,
+          createLocation(module.filePath, selectorCall.sourceSpan)
+        ),
+      };
+    }
+
+    const arg0 = selectorCall.arguments[0];
+    if (!arg0 || arg0.kind === "spread") {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid attribute marker: selector cannot be a spread argument`,
+          createLocation(module.filePath, selectorCall.sourceSpan)
+        ),
+      };
+    }
+
+    const sel = parseSelector(arg0, module);
+    if (sel.kind !== "ok") return sel;
+    selectedMemberName = sel.value;
+
+    onCallExpr = selectorMember.object;
+  } else {
+    return { kind: "notMatch" };
   }
 
-  if (outerMember.property !== "add") return undefined;
+  if (!onCallExpr) return { kind: "notMatch" };
 
-  // Check that object is .type member access
-  if (outerMember.object.kind !== "memberAccess") return undefined;
+  const on = parseOnCall(onCallExpr, module, apiNames);
+  if (on.kind !== "ok") return on;
+  const targetName = on.value.target.name;
 
-  const typeMember = outerMember.object as IrMemberExpression;
-
-  if (typeMember.isComputed || typeof typeMember.property !== "string") {
-    return undefined;
+  // Parse `.add(...)` arguments
+  if (call.arguments.length < 1) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: .add(...) requires at least one argument`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
   }
 
-  if (typeMember.property !== "type") return undefined;
-
-  // Check that object of .type is A.on(Target) call
-  if (typeMember.object.kind !== "call") return undefined;
-
-  const onCall = typeMember.object as IrCallExpression;
-
-  // Check that onCall.callee is A.on or attributes.on
-  if (onCall.callee.kind !== "memberAccess") return undefined;
-
-  const onMember = onCall.callee as IrMemberExpression;
-
-  if (onMember.isComputed || typeof onMember.property !== "string") {
-    return undefined;
+  const addArgs: IrExpression[] = [];
+  for (const arg of call.arguments) {
+    if (!arg || arg.kind === "spread") {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4006",
+          "error",
+          `Invalid attribute argument: spreads are not allowed in attributes`,
+          createLocation(module.filePath, call.sourceSpan)
+        ),
+      };
+    }
+    addArgs.push(arg);
   }
 
-  if (onMember.property !== "on") return undefined;
-
-  // Check that the object of .on is "A" or "attributes"
-  if (onMember.object.kind !== "identifier") return undefined;
-
-  const apiObject = onMember.object as IrIdentifierExpression;
-  if (apiObject.name !== "A" && apiObject.name !== "attributes")
-    return undefined;
-
-  // Extract target from A.on(Target)
-  if (onCall.arguments.length !== 1) return undefined;
-
-  const targetArg = onCall.arguments[0];
-  if (!targetArg || targetArg.kind === "spread") return undefined;
-
-  // Target must be an identifier
-  if (targetArg.kind !== "identifier") return undefined;
-
-  const targetName = (targetArg as IrIdentifierExpression).name;
-
-  // Extract attribute type from .add(Attr, ...) arguments
-  if (call.arguments.length < 1) return undefined;
-
-  const attrTypeArg = call.arguments[0];
-  if (!attrTypeArg || attrTypeArg.kind === "spread") return undefined;
-
-  // Attribute type should be an identifier referencing the attribute class
-  if (attrTypeArg.kind !== "identifier") {
-    // Not a simple identifier - could be a member access like System.SerializableAttribute
-    // For now, we don't support this
-    return undefined;
+  const first = addArgs[0];
+  if (!first) {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: .add(...) first argument is missing`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
   }
 
-  const attrIdent = attrTypeArg as IrIdentifierExpression;
-  const resolveClrFromImports = (): string | undefined => {
-    // If the attribute type is imported from a CLR bindings module, reconstruct the CLR FQN
-    // from the module import table. Identifier expressions do not always carry resolvedClrType.
-    for (const imp of module.imports) {
-      if (!imp.isClr) continue;
-      if (!imp.resolvedNamespace) continue;
-      for (const spec of imp.specifiers) {
-        if (spec.kind !== "named") continue;
-        if (spec.localName !== attrIdent.name) continue;
-        return `${imp.resolvedNamespace}.${spec.name}`;
+  // .add(A.attr(...)) inline descriptor
+  if (addArgs.length === 1) {
+    const descCall = parseAttrDescriptorCall(first, module, apiNames);
+    if (descCall.kind === "ok") {
+      return {
+        kind: "ok",
+        value: {
+          targetName,
+          targetSelector: selector,
+          selectedMemberName,
+          attributeType: descCall.value.attributeType,
+          positionalArgs: descCall.value.positionalArgs,
+          namedArgs: descCall.value.namedArgs,
+          sourceSpan: call.sourceSpan,
+        },
+      };
+    }
+
+    // .add(descriptorVar)
+    if (first.kind === "identifier") {
+      const desc = descriptors.get((first as IrIdentifierExpression).name);
+      if (desc) {
+        return {
+          kind: "ok",
+          value: {
+            targetName,
+            targetSelector: selector,
+            selectedMemberName,
+            attributeType: desc.attributeType,
+            positionalArgs: desc.positionalArgs,
+            namedArgs: desc.namedArgs,
+            sourceSpan: call.sourceSpan,
+          },
+        };
       }
     }
-    return undefined;
-  };
+  }
 
-  // Prefer resolvedClrType if present (bindings/globals). Otherwise resolve via CLR imports.
-  // Final fallback is the identifier name (ambient declarations where name is already a CLR type).
-  const clrType =
-    attrIdent.resolvedClrType ?? resolveClrFromImports() ?? attrIdent.name;
-  const attributeType: IrType = {
-    kind: "referenceType",
-    name: attrIdent.name,
-    resolvedClrType: clrType,
-  };
+  // .add(AttrCtor, ...args)
+  if (first.kind !== "identifier") {
+    return {
+      kind: "error",
+      diagnostic: createDiagnostic(
+        "TSN4005",
+        "error",
+        `Invalid attribute marker: .add(AttrCtor, ...args) requires attribute constructor to be an identifier`,
+        createLocation(module.filePath, call.sourceSpan)
+      ),
+    };
+  }
 
-  // Extract positional arguments (skip the first which is the attribute type)
-  const positionalArgs: readonly IrAttributeArg[] = call.arguments
-    .slice(1)
-    .filter((arg): arg is IrExpression => {
-      if (!arg || arg.kind === "spread") return false;
-      // Skip object literals (named arguments) for now
-      if (arg.kind === "object") return false;
-      return true;
-    })
-    .map((arg) => tryExtractAttributeArg(arg))
-    .filter((arg): arg is IrAttributeArg => arg !== undefined);
+  const attributeTypeResult = makeAttributeType(first as IrIdentifierExpression, module);
+  if (attributeTypeResult.kind !== "ok") {
+    return attributeTypeResult;
+  }
+  const positionalArgs: IrAttributeArg[] = [];
+  const namedArgs = new Map<string, IrAttributeArg>();
+  let sawNamed = false;
 
-  // Determine target kind - we'll resolve this against the module later
-  // For now, assume it could be either class or function
+  for (const arg of addArgs.slice(1)) {
+    if (arg.kind === "object") {
+      sawNamed = true;
+      const obj = arg as IrObjectExpression;
+      for (const prop of obj.properties) {
+        if (prop.kind === "spread") {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4006",
+              "error",
+              `Invalid attribute argument: spreads are not allowed in named arguments`,
+              createLocation(module.filePath, obj.sourceSpan)
+            ),
+          };
+        }
+        if (prop.kind !== "property" || typeof prop.key !== "string") {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4006",
+              "error",
+              `Invalid attribute argument: named arguments must be simple { Name: value } properties`,
+              createLocation(module.filePath, obj.sourceSpan)
+            ),
+          };
+        }
+        const v = tryExtractAttributeArg(prop.value);
+        if (!v) {
+          return {
+            kind: "error",
+            diagnostic: createDiagnostic(
+              "TSN4006",
+              "error",
+              `Invalid attribute argument: named argument '${prop.key}' must be a compile-time constant`,
+              createLocation(module.filePath, prop.value.sourceSpan)
+            ),
+          };
+        }
+        namedArgs.set(prop.key, v);
+      }
+      continue;
+    }
+
+    if (sawNamed) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4006",
+          "error",
+          `Invalid attribute argument: positional arguments cannot appear after named arguments`,
+          createLocation(module.filePath, arg.sourceSpan)
+        ),
+      };
+    }
+
+    const v = tryExtractAttributeArg(arg);
+    if (!v) {
+      return {
+        kind: "error",
+        diagnostic: createDiagnostic(
+          "TSN4006",
+          "error",
+          `Invalid attribute argument: attribute arguments must be compile-time constants (string/number/boolean/typeof/enum)`,
+          createLocation(module.filePath, arg.sourceSpan)
+        ),
+      };
+    }
+    positionalArgs.push(v);
+  }
+
   return {
-    targetName,
-    targetKind: "class", // Will be refined during attachment
-    attributeType,
-    positionalArgs,
-    namedArgs: new Map(),
-    sourceSpan: call.sourceSpan,
+    kind: "ok",
+    value: {
+      targetName,
+      targetSelector: selector,
+      selectedMemberName,
+      attributeType: attributeTypeResult.value,
+      positionalArgs,
+      namedArgs,
+      sourceSpan: call.sourceSpan,
+    },
   };
 };
 
@@ -255,26 +821,86 @@ const processModule = (
   module: IrModule,
   diagnostics: Diagnostic[]
 ): IrModule => {
+  const apiNames = getAttributesApiLocalNames(module);
+  if (apiNames.size === 0) {
+    return module;
+  }
+
+  // Collect detected attribute descriptors declared as variables:
+  //   const d = A.attr(AttrCtor, ...args)
+  const descriptors = new Map<string, ParsedAttributeDescriptor>();
+  const removedStatementIndices: Set<number> = new Set();
+
+  module.body.forEach((stmt, i) => {
+    if (stmt.kind !== "variableDeclaration") return;
+    const decl = stmt as IrVariableDeclaration;
+
+    // Only handle simple, single declarator `const name = A.attr(...)`.
+    if (decl.declarationKind !== "const") return;
+    if (decl.declarations.length !== 1) return;
+
+    const d0 = decl.declarations[0];
+    if (!d0) return;
+    if (d0.name.kind !== "identifierPattern") return;
+    if (!d0.initializer) return;
+
+    const parsed = parseAttrDescriptorCall(d0.initializer, module, apiNames);
+    if (parsed.kind === "notMatch") return;
+    if (parsed.kind === "error") {
+      diagnostics.push(parsed.diagnostic);
+      removedStatementIndices.add(i);
+      return;
+    }
+
+    descriptors.set(d0.name.name, parsed.value);
+    removedStatementIndices.add(i);
+  });
+
   // Collect detected attribute markers
   const markers: AttributeMarker[] = [];
-  const markerStatementIndices: Set<number> = new Set();
 
   // Walk statements looking for attribute markers
   module.body.forEach((stmt, i) => {
+    if (removedStatementIndices.has(i)) return;
     if (stmt.kind !== "expressionStatement") return;
 
     const expr = stmt.expression;
     if (expr.kind !== "call") return;
 
-    const marker = tryDetectAttributeMarker(expr as IrCallExpression, module);
-    if (marker) {
-      markers.push(marker);
-      markerStatementIndices.add(i);
+    const marker = tryDetectAttributeMarker(
+      expr as IrCallExpression,
+      module,
+      apiNames,
+      descriptors
+    );
+    if (marker.kind === "ok") {
+      markers.push(marker.value);
+      removedStatementIndices.add(i);
+      return;
+    }
+    if (marker.kind === "error") {
+      diagnostics.push(marker.diagnostic);
+      removedStatementIndices.add(i);
+      return;
+    }
+
+    // If it looks like an attribute API call but doesn't match a supported marker,
+    // fail deterministically instead of leaving runtime-dead code in the output.
+    if (looksLikeAttributesApiUsage(expr, apiNames)) {
+      diagnostics.push(
+        createDiagnostic(
+          "TSN4005",
+          "error",
+          `Invalid attribute marker call. Expected one of: A.on(X).type.add(...), A.on(X).ctor.add(...), A.on(X).method(x => x.m).add(...), A.on(X).prop(x => x.p).add(...)`,
+          createLocation(module.filePath, expr.sourceSpan)
+        )
+      );
+      removedStatementIndices.add(i);
     }
   });
 
-  // If no markers found, return module unchanged
-  if (markers.length === 0) {
+  // If nothing to do, return module unchanged
+  if (markers.length === 0 && removedStatementIndices.size === 0) {
     return module;
   }
 
@@ -292,44 +918,162 @@ const processModule = (
 
   // Build map of attributes per declaration
   const classAttributes = new Map<number, IrAttribute[]>();
+  const classCtorAttributes = new Map<number, IrAttribute[]>();
+  const classMethodAttributes = new Map<number, Map<string, IrAttribute[]>>();
+  const classPropAttributes = new Map<number, Map<string, IrAttribute[]>>();
   const functionAttributes = new Map<number, IrAttribute[]>();
 
   for (const marker of markers) {
     const classIndex = classDeclarations.get(marker.targetName);
     const funcIndex = functionDeclarations.get(marker.targetName);
 
-    if (classIndex !== undefined) {
-      // Attach to class
-      const attrs = classAttributes.get(classIndex) ?? [];
-      attrs.push({
-        kind: "attribute",
-        attributeType: marker.attributeType,
-        positionalArgs: marker.positionalArgs,
-        namedArgs: marker.namedArgs,
-      });
-      classAttributes.set(classIndex, attrs);
-    } else if (funcIndex !== undefined) {
-      // Attach to function
-      const attrs = functionAttributes.get(funcIndex) ?? [];
-      attrs.push({
-        kind: "attribute",
-        attributeType: marker.attributeType,
-        positionalArgs: marker.positionalArgs,
-        namedArgs: marker.namedArgs,
-      });
-      functionAttributes.set(funcIndex, attrs);
-    } else {
-      // Target not found - emit warning diagnostic
-      // This is not a hard failure since the marker may reference a declaration
-      // in another module (cross-module attribute attachment not yet supported)
+    const attr: IrAttribute = {
+      kind: "attribute",
+      attributeType: marker.attributeType,
+      positionalArgs: marker.positionalArgs,
+      namedArgs: marker.namedArgs,
+    };
+
+    if (marker.targetSelector === "type") {
+      if (classIndex !== undefined && funcIndex !== undefined) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Attribute target '${marker.targetName}' is ambiguous (matches both class and function)`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+
+      if (classIndex !== undefined) {
+        const attrs = classAttributes.get(classIndex) ?? [];
+        attrs.push(attr);
+        classAttributes.set(classIndex, attrs);
+        continue;
+      }
+
+      if (funcIndex !== undefined) {
+        const attrs = functionAttributes.get(funcIndex) ?? [];
+        attrs.push(attr);
+        functionAttributes.set(funcIndex, attrs);
+        continue;
+      }
+
       diagnostics.push(
         createDiagnostic(
-          "TSN5002",
-          "warning",
+          "TSN4007",
+          "error",
           `Attribute target '${marker.targetName}' not found in module`,
           createLocation(module.filePath, marker.sourceSpan)
         )
       );
+      continue;
+    }
+
+    if (classIndex === undefined) {
+      diagnostics.push(
+        createDiagnostic(
+          "TSN4007",
+          "error",
+          `Attribute target '${marker.targetName}' not found in module`,
+          createLocation(module.filePath, marker.sourceSpan)
+        )
+      );
+      continue;
+    }
+
+    const classStmt = module.body[classIndex] as IrClassDeclaration;
+
+    if (marker.targetSelector === "ctor") {
+      const hasCtor = classStmt.members.some(
+        (m) => m.kind === "constructorDeclaration"
+      );
+      if (classStmt.isStruct && !hasCtor) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Cannot apply constructor attributes to struct '${classStmt.name}' without an explicit constructor`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const attrs = classCtorAttributes.get(classIndex) ?? [];
+      attrs.push(attr);
+      classCtorAttributes.set(classIndex, attrs);
+      continue;
+    }
+
+    if (marker.targetSelector === "method") {
+      const memberName = marker.selectedMemberName;
+      if (!memberName) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Invalid attribute marker: method target missing member name`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const hasMember = classStmt.members.some(
+        (m) => m.kind === "methodDeclaration" && m.name === memberName
+      );
+      if (!hasMember) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4007",
+            "error",
+            `Method '${classStmt.name}.${memberName}' not found for attribute target`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const perClass = classMethodAttributes.get(classIndex) ?? new Map();
+      const attrs = perClass.get(memberName) ?? [];
+      attrs.push(attr);
+      perClass.set(memberName, attrs);
+      classMethodAttributes.set(classIndex, perClass);
+      continue;
+    }
+
+    if (marker.targetSelector === "prop") {
+      const memberName = marker.selectedMemberName;
+      if (!memberName) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4005",
+            "error",
+            `Invalid attribute marker: property target missing member name`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const hasMember = classStmt.members.some(
+        (m) => m.kind === "propertyDeclaration" && m.name === memberName
+      );
+      if (!hasMember) {
+        diagnostics.push(
+          createDiagnostic(
+            "TSN4007",
+            "error",
+            `Property '${classStmt.name}.${memberName}' not found for attribute target`,
+            createLocation(module.filePath, marker.sourceSpan)
+          )
+        );
+        continue;
+      }
+      const perClass = classPropAttributes.get(classIndex) ?? new Map();
+      const attrs = perClass.get(memberName) ?? [];
+      attrs.push(attr);
+      perClass.set(memberName, attrs);
+      classPropAttributes.set(classIndex, perClass);
     }
   }
 
@@ -340,21 +1084,70 @@ const processModule = (
 
   module.body.forEach((stmt, i) => {
     // Skip marker statements
-    if (markerStatementIndices.has(i)) return;
+    if (removedStatementIndices.has(i)) return;
 
-    if (stmt.kind === "classDeclaration" && classAttributes.has(i)) {
+    if (stmt.kind === "classDeclaration") {
       // Update class with attributes
       const classStmt = stmt as IrClassDeclaration;
       const existingAttrs = classStmt.attributes ?? [];
-      const newAttrs = classAttributes.get(i) ?? [];
-      newBody.push({
+      const typeAttrs = classAttributes.get(i) ?? [];
+      const ctorAttrs = classCtorAttributes.get(i) ?? [];
+      const methodAttrs = classMethodAttributes.get(i);
+      const propAttrs = classPropAttributes.get(i);
+
+      const updatedMembers =
+        methodAttrs || propAttrs
+          ? classStmt.members.map((m) => {
+              if (m.kind === "methodDeclaration" && methodAttrs) {
+                const extras = methodAttrs.get(m.name);
+                if (extras && extras.length > 0) {
+                  return {
+                    ...m,
+                    attributes: [...(m.attributes ?? []), ...extras],
+                  };
+                }
+              }
+              if (m.kind === "propertyDeclaration" && propAttrs) {
+                const extras = propAttrs.get(m.name);
+                if (extras && extras.length > 0) {
+                  return {
+                    ...m,
+                    attributes: [...(m.attributes ?? []), ...extras],
+                  };
+                }
+              }
+              return m;
+            })
+          : classStmt.members;
+
+      const updated: IrClassDeclaration = {
         ...classStmt,
-        attributes: [...existingAttrs, ...newAttrs],
-      });
-    } else if (
-      stmt.kind === "functionDeclaration" &&
-      functionAttributes.has(i)
-    ) {
+        members: updatedMembers,
+        attributes:
+          typeAttrs.length > 0
+            ? [...existingAttrs, ...typeAttrs]
+            : classStmt.attributes,
+        ctorAttributes:
+          ctorAttrs.length > 0
+            ? [...(classStmt.ctorAttributes ?? []), ...ctorAttrs]
+            : classStmt.ctorAttributes,
+      };
+
+      // Avoid allocating new nodes when there are no changes.
+      if (
+        typeAttrs.length === 0 &&
+        ctorAttrs.length === 0 &&
+        !methodAttrs &&
+        !propAttrs
+      ) {
+        newBody.push(classStmt);
+      } else {
+        newBody.push(updated);
+      }
+      return;
+    }
+
+    if (stmt.kind === "functionDeclaration" && functionAttributes.has(i)) {
       // Update function with attributes
       const funcStmt = stmt as IrFunctionDeclaration;
       const existingAttrs = funcStmt.attributes ?? [];
@@ -363,10 +1156,11 @@ const processModule = (
         ...funcStmt,
         attributes: [...existingAttrs, ...newAttrs],
       });
-    } else {
-      // Keep statement unchanged
-      newBody.push(stmt);
+      return;
     }
+
+    // Keep statement unchanged
+    newBody.push(stmt);
   });
 
   return {
