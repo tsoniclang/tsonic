@@ -1,0 +1,14 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "NodejsPathPosixJoin",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "out",
+  "outputName": "nodejs-path-posix-join",
+  "dotnet": {
+    "libraries": [
+      "../../../packages/cli/runtime/Tsonic.JSRuntime.dll",
+      "../../../packages/cli/runtime/nodejs.dll"
+    ]
+  }
+}
