@@ -77,6 +77,16 @@ export type IrClassDeclaration = {
   readonly isStruct: boolean;
   /** C# attributes to emit before the class declaration */
   readonly attributes?: readonly IrAttribute[];
+  /**
+   * C# attributes to emit before ALL constructors on this class.
+   *
+   * Used by the compiler-only attribute API: `A.on(Class).ctor.add(...)`.
+   * These attributes are applied to:
+   * - an explicit TS constructor (if present)
+   * - synthesized forwarding constructors (when needed for base ctor forwarding)
+   * - a synthesized parameterless constructor (when no ctor exists but ctor attributes are requested)
+   */
+  readonly ctorAttributes?: readonly IrAttribute[];
 };
 
 export type IrClassMember =
@@ -147,6 +157,8 @@ export type IrConstructorDeclaration = {
   readonly parameters: readonly IrParameter[];
   readonly body?: IrBlockStatement;
   readonly accessibility: IrAccessibility;
+  /** C# attributes to emit before the constructor declaration */
+  readonly attributes?: readonly IrAttribute[];
 };
 
 export type IrInterfaceDeclaration = {

@@ -1,11 +1,6 @@
 // Test: type-level attributes using A.on(X).type.add(Y) pattern
 import { attributes as A } from "@tsonic/core/attributes.js";
-
-// Declare attribute types (these would come from @tsonic/dotnet in real usage)
-declare class SerializableAttribute {}
-declare class ObsoleteAttribute {
-  constructor(message?: string);
-}
+import { SerializableAttribute, ObsoleteAttribute } from "@tsonic/dotnet/System.js";
 
 // Class with single attribute
 export class User {

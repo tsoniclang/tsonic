@@ -220,10 +220,12 @@ export const emitMethodMember = (
     }
   }
 
-  // Emit attributes before the method declaration
+  // Emit attributes before the method declaration.
+  // IMPORTANT: Use method-level indentation (not body indentation).
+  const methodLevelContext = dedent(finalContext);
   const [attributesCode, attrContext] = emitAttributes(
     member.attributes,
-    finalContext
+    methodLevelContext
   );
 
   const signature = parts.join(" ");
@@ -232,6 +234,5 @@ export const emitMethodMember = (
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
   const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
 
-  const returnedContext = dedent(attrContext);
-  return [code, { ...returnedContext, ...savedScoped }];
+  return [code, { ...attrContext, ...savedScoped }];
 };
