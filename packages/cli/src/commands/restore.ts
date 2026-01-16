@@ -15,10 +15,10 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, dirname, join } from "node:path";
-import type { Result, TsonicConfig } from "../types.js";
+import { basename, dirname, join, resolve, relative } from "node:path";
+import type { Result, TsonicWorkspaceConfig } from "../types.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
-import { loadConfig } from "../config.js";
+import { findWorkspaceConfig, loadConfig, loadWorkspaceConfig } from "../config.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 import {
   bindingsStoreDir,
@@ -345,14 +345,30 @@ export const restoreCommand = (
   configPath: string,
   options: RestoreOptions = {}
 ): Result<void, string> => {
-  const configResult = loadConfig(configPath);
+  const isWorkspaceConfig = basename(configPath) === "tsonic.workspace.json";
+  const configResult = isWorkspaceConfig
+    ? loadWorkspaceConfig(configPath)
+    : loadConfig(configPath);
   if (!configResult.ok) return configResult;
+
   const projectRoot = dirname(configPath);
   const nugetConfigResult = resolveNugetConfigFile(projectRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
   const nugetConfigFile = nugetConfigResult.value;
   const rawConfig = configResult.value;
   let config = rawConfig;
+
+  let workspaceCtx:
+    | { readonly root: string; readonly config: TsonicWorkspaceConfig }
+    | undefined;
+  if (!isWorkspaceConfig) {
+    const wsPath = findWorkspaceConfig(projectRoot);
+    if (wsPath) {
+      const ws = loadWorkspaceConfig(wsPath);
+      if (!ws.ok) return ws;
+      workspaceCtx = { root: dirname(wsPath), config: ws.value };
+    }
+  }
 
   const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
   if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
@@ -371,6 +387,22 @@ export const restoreCommand = (
 
   const dotnet = config.dotnet ?? {};
   const naming = detectTsbindgenNaming(config);
+
+  const projectDllDirs = (dotnet.dllDirs ?? ["lib"]).map((d) => d.trim());
+  const projectDllDirsAbs = projectDllDirs.map((d) =>
+    resolveFromProjectRoot(projectRoot, d)
+  );
+
+  const workspaceRoot = isWorkspaceConfig
+    ? projectRoot
+    : workspaceCtx?.root;
+  const workspaceDotnet = isWorkspaceConfig
+    ? (config as TsonicWorkspaceConfig).dotnet ?? {}
+    : workspaceCtx?.config.dotnet ?? {};
+  const workspaceDllDirs = (workspaceDotnet.dllDirs ?? ["lib"]).map((d) => d.trim());
+  const workspaceDllDirsAbs = workspaceRoot
+    ? workspaceDllDirs.map((d) => resolve(workspaceRoot, d))
+    : [];
 
   const tsbindgenHashResult = sha256FileHex(tsbindgenDll);
   if (!tsbindgenHashResult.ok) return tsbindgenHashResult;
@@ -405,6 +437,7 @@ export const restoreCommand = (
 
     const packageName = defaultBindingsPackageNameForFramework(frameworkRef);
     const outDir = bindingsStoreDir(projectRoot, "framework", packageName);
+    const targetDir = join(projectRoot, "node_modules", packageName);
 
     const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
       kind: "framework",
@@ -454,25 +487,27 @@ export const restoreCommand = (
       generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
     }
 
-    const meta = readGeneratedBindingsMeta(outDir);
+    const meta = readGeneratedBindingsMeta(targetDir);
     if (!meta.ok) return meta;
 
-    if (!options.incremental || meta.value.fingerprint !== fingerprint) {
+    const needsGenerate = !options.incremental || meta.value.fingerprint !== fingerprint;
+
+    if (needsGenerate) {
       const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
       if (!genResult.ok) return genResult;
       const fpWrite = writeGeneratedBindingsFingerprint(outDir, fingerprint, signature);
       if (!fpWrite.ok) return fpWrite;
+      const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
+      if (!installResult.ok) return installResult;
     }
-
-    const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
-    if (!installResult.ok) return installResult;
   }
 
   // 2) NuGet PackageReferences bindings (including transitive deps)
   const packageReferencesAll = (dotnet.packageReferences ??
     []) as PackageReferenceConfig[];
   if (packageReferencesAll.length > 0) {
-    const targetFramework = config.dotnetVersion ?? "net10.0";
+    const targetFramework =
+      config.dotnetVersion ?? workspaceCtx?.config.dotnetVersion ?? "net10.0";
     const restoreDir = join(projectRoot, ".tsonic", "nuget");
     const restoreProject = writeRestoreProject(
       restoreDir,
@@ -673,7 +708,8 @@ export const restoreCommand = (
 
       const packageName = defaultBindingsPackageNameForNuget(node.packageId);
       const outDir = bindingsStoreDir(projectRoot, "nuget", packageName);
-      libDirByLibKey.set(libKey, outDir);
+      const targetDir = join(projectRoot, "node_modules", packageName);
+      libDirByLibKey.set(libKey, targetDir);
 
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
         kind: "nuget",
@@ -748,18 +784,19 @@ export const restoreCommand = (
         generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
       }
 
-      const meta = readGeneratedBindingsMeta(outDir);
+      const meta = readGeneratedBindingsMeta(targetDir);
       if (!meta.ok) return meta;
 
-      if (!options.incremental || meta.value.fingerprint !== fingerprint) {
+      const needsGenerate = !options.incremental || meta.value.fingerprint !== fingerprint;
+
+      if (needsGenerate) {
         const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
         if (!genResult.ok) return genResult;
         const fpWrite = writeGeneratedBindingsFingerprint(outDir, fingerprint, signature);
         if (!fpWrite.ok) return fpWrite;
+        const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
+        if (!installResult.ok) return installResult;
       }
-
-      const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
-      if (!installResult.ok) return installResult;
     }
     }
   }
@@ -790,10 +827,11 @@ export const restoreCommand = (
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;
-      // Only DLLs copied into ./lib are eligible for bindings generation.
-      // Other DLL paths (e.g. workspace project outputs) are treated as build-time
-      // references only.
-      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+      const abs = resolveFromProjectRoot(projectRoot, p);
+      return (
+        projectDllDirsAbs.some((d) => pathIsWithin(abs, d)) ||
+        workspaceDllDirsAbs.some((d) => pathIsWithin(abs, d))
+      );
     });
   if (dllLibraries.length > 0) {
     const typesPackageByLibraryKey = new Map<string, string>();
@@ -814,7 +852,14 @@ export const restoreCommand = (
     }
 
     const userDeps = (options.deps ?? []).map((d) => resolveFromProjectRoot(projectRoot, d));
-    const refDirs = [...runtimes.map((r) => r.dir), join(projectRoot, "lib"), ...userDeps];
+    const refDirs = Array.from(
+      new Set([
+        ...runtimes.map((r) => r.dir),
+        ...projectDllDirsAbs,
+        ...workspaceDllDirsAbs,
+        ...userDeps,
+      ])
+    );
 
     const closureResult = tsbindgenResolveClosure(projectRoot, tsbindgenDll, dllAbs, refDirs);
     if (!closureResult.ok) return closureResult;
@@ -843,8 +888,8 @@ export const restoreCommand = (
       for (const fr of requiredFrameworkRefs) {
         addUniqueFrameworkReference(nextFrameworkRefs, fr);
       }
-      const nextConfig: TsonicConfig = {
-        ...config,
+      const nextConfig = {
+        ...(config as Record<string, unknown>),
         dotnet: { ...dotnet, frameworkReferences: nextFrameworkRefs },
       };
       const writeResult = writeTsonicJson(configPath, nextConfig);
@@ -853,6 +898,17 @@ export const restoreCommand = (
 
     const identityKey = (asm: (typeof nonFramework)[number]): string =>
       `${asm.name}|${asm.publicKeyToken}|${asm.culture}`;
+
+    type OwnerKind = "workspace" | "project" | "external";
+    const classifyOwnerKind = (dllAbsPath: string): OwnerKind => {
+      if (workspaceRoot && workspaceDllDirsAbs.some((d) => pathIsWithin(dllAbsPath, d))) {
+        return "workspace";
+      }
+      if (projectDllDirsAbs.some((d) => pathIsWithin(dllAbsPath, d))) {
+        return "project";
+      }
+      return "external";
+    };
 
     const ids = new Set<string>();
     const byId = new Map<string, (typeof nonFramework)[number]>();
@@ -872,9 +928,9 @@ export const restoreCommand = (
       ids.add(id);
       byId.set(id, asm);
 
-      const destPath = resolveFromProjectRoot(projectRoot, join("lib", basename(asm.path)));
+      const destPath = asm.path;
       if (!existsSync(destPath)) {
-        return { ok: false, error: `Missing DLL dependency in lib/: ${destPath}` };
+        return { ok: false, error: `Missing DLL dependency: ${destPath}` };
       }
       destPathById.set(id, destPath);
     }
@@ -888,6 +944,48 @@ export const restoreCommand = (
         if (ids.has(depId)) deps.push(depId);
       }
       directDeps.set(id, Array.from(new Set(deps)));
+    }
+
+    // Airplane-grade: workspace-owned DLLs must be self-contained within workspace dllDirs.
+    // If a workspace DLL depends on a project-owned/external DLL, sharing becomes non-deterministic
+    // (another project won't see those deps/bindings), so we fail fast.
+    if (workspaceRoot) {
+      const ownerKindById = new Map<string, OwnerKind>();
+      for (const id of ids) {
+        const dest = destPathById.get(id);
+        if (!dest) continue;
+        ownerKindById.set(id, classifyOwnerKind(dest));
+      }
+
+      for (const id of ids) {
+        if (ownerKindById.get(id) !== "workspace") continue;
+        for (const depId of directDeps.get(id) ?? []) {
+          const depKind = ownerKindById.get(depId);
+          if (depKind === "workspace") continue;
+
+          const ownerPath = destPathById.get(id) ?? id;
+          const depPath = destPathById.get(depId) ?? depId;
+          const depLabel =
+            depKind === "project"
+              ? "project-owned"
+              : depKind === "external"
+                ? "external"
+                : "non-workspace";
+
+          return {
+            ok: false,
+            error:
+              `Workspace-owned DLL depends on ${depLabel} DLL, which is not allowed.\n` +
+              `Owner: ${ownerPath}\n` +
+              `Depends on: ${depPath}\n\n` +
+              `Fix:\n` +
+              `- Install/copy the dependency into the workspace 'dotnet.dllDirs' so it becomes workspace-owned, OR\n` +
+              `- Move the owner DLL out of the workspace dllDirs if it should be project-scoped.\n\n` +
+              `Workspace root: ${workspaceRoot}\n` +
+              `Workspace dllDirs: ${workspaceDllDirs.join(", ")}`,
+          };
+        }
+      }
     }
 
     const order: string[] = [];
@@ -928,8 +1026,8 @@ export const restoreCommand = (
       const destPath = destPathById.get(id);
       if (!asm || !destPath) return { ok: false, error: `Internal error: missing assembly info for ${id}` };
 
-      const relLibraryPath = `lib/${basename(destPath)}`;
-      const typesPkg = typesPackageByLibraryKey.get(normalizeLibraryPathKey(relLibraryPath));
+      const configRelLibraryPath = relative(projectRoot, destPath).replace(/\\/g, "/");
+      const typesPkg = typesPackageByLibraryKey.get(normalizeLibraryPathKey(configRelLibraryPath));
       if (typesPkg) {
         const info = computeExternalTypesFingerprint(projectRoot, typesPkg);
         if (!info.ok) return info;
@@ -939,12 +1037,26 @@ export const restoreCommand = (
       }
 
       const packageName = defaultBindingsPackageNameForDll(destPath);
-      const outDir = bindingsStoreDir(projectRoot, "dll", packageName);
-      libDirById.set(id, outDir);
+      const ownerKind = classifyOwnerKind(destPath);
+      let ownerRootForInstall = projectRoot;
+      if (ownerKind === "workspace") {
+        if (!workspaceRoot) {
+          return {
+            ok: false,
+            error: "Internal error: workspace-owned DLL without workspaceRoot",
+          };
+        }
+        ownerRootForInstall = workspaceRoot;
+      }
 
+      const outDir = bindingsStoreDir(ownerRootForInstall, "dll", packageName);
+      const targetDir = join(ownerRootForInstall, "node_modules", packageName);
+      libDirById.set(id, targetDir);
+
+      const ownerRelLibraryPath = relative(ownerRootForInstall, destPath).replace(/\\/g, "/");
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
         kind: "dll",
-        source: { assemblyName: asm.name, version: asm.version, path: `lib/${basename(destPath)}` },
+        source: { assemblyName: asm.name, version: asm.version, path: ownerRelLibraryPath },
       });
       if (!pkgJsonResult.ok) return pkgJsonResult;
 
@@ -970,7 +1082,7 @@ export const restoreCommand = (
         source: {
           assemblyName: asm.name,
           version: asm.version,
-          path: relLibraryPath,
+          path: ownerRelLibraryPath,
           sha256: dllHash.value,
         },
         deps: depFingerprints,
@@ -979,7 +1091,13 @@ export const restoreCommand = (
             .map((r) => ({ name: r.name, version: r.version, dir: r.dir }))
             .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)),
           deps: userDeps.slice().sort((a, b) => a.localeCompare(b)),
-          lib: join(projectRoot, "lib"),
+          dllDirs: {
+            project:
+              ownerKind === "workspace"
+                ? []
+                : projectDllDirsAbs.slice().sort((a, b) => a.localeCompare(b)),
+            workspace: workspaceDllDirsAbs.slice().sort((a, b) => a.localeCompare(b)),
+          },
         },
       };
       const fingerprint = `sha256:${sha256Hex(JSON.stringify(signature))}`;
@@ -1006,20 +1124,26 @@ export const restoreCommand = (
 
       for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
       for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
-      generateArgs.push("--ref-dir", join(projectRoot, "lib"));
+      if (ownerKind === "workspace") {
+        for (const dir of workspaceDllDirsAbs) generateArgs.push("--ref-dir", dir);
+      } else {
+        for (const dir of projectDllDirsAbs) generateArgs.push("--ref-dir", dir);
+        for (const dir of workspaceDllDirsAbs) generateArgs.push("--ref-dir", dir);
+      }
 
-      const meta = readGeneratedBindingsMeta(outDir);
+      const meta = readGeneratedBindingsMeta(targetDir);
       if (!meta.ok) return meta;
 
-      if (!options.incremental || meta.value.fingerprint !== fingerprint) {
+      const needsGenerate = !options.incremental || meta.value.fingerprint !== fingerprint;
+
+      if (needsGenerate) {
         const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
         if (!genResult.ok) return genResult;
         const fpWrite = writeGeneratedBindingsFingerprint(outDir, fingerprint, signature);
         if (!fpWrite.ok) return fpWrite;
+        const installResult = installGeneratedBindingsPackage(ownerRootForInstall, packageName, outDir);
+        if (!installResult.ok) return installResult;
       }
-
-      const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
-      if (!installResult.ok) return installResult;
     }
   }
 

@@ -2,6 +2,7 @@
  * CLI command dispatcher
  */
 
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkDotnetInstalled } from "@tsonic/backend";
 import { loadConfig, findConfig, resolveConfig } from "../config.js";
@@ -12,6 +13,7 @@ import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
 import { addJsCommand } from "../commands/add-js.js";
 import { addNodejsCommand } from "../commands/add-nodejs.js";
+import { addReferenceCommand } from "../commands/add-reference.js";
 import { addPackageCommand } from "../commands/add-package.js";
 import { addNugetCommand } from "../commands/add-nuget.js";
 import { addFrameworkCommand } from "../commands/add-framework.js";
@@ -71,7 +73,231 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 8;
   }
 
-  // Load config
+  // Add/restore commands operate on config files directly (project or workspace).
+  if (parsed.command === "add:js") {
+    const configPath = parsed.options.config
+      ? join(process.cwd(), parsed.options.config)
+      : findConfig(process.cwd());
+    if (!configPath) {
+      console.error("Error: No tsonic.json found");
+      console.error("Run 'tsonic project init' to initialize a project");
+      return 3;
+    }
+    const result = addJsCommand(configPath, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "add:nodejs") {
+    const configPath = parsed.options.config
+      ? join(process.cwd(), parsed.options.config)
+      : findConfig(process.cwd());
+    if (!configPath) {
+      console.error("Error: No tsonic.json found");
+      console.error("Run 'tsonic project init' to initialize a project");
+      return 3;
+    }
+    const result = addNodejsCommand(configPath, {
+      verbose: parsed.options.verbose,
+      quiet: parsed.options.quiet,
+    });
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (parsed.command === "add:reference") {
+    const dllPath = parsed.positionals[0];
+    const typesPackage = parsed.positionals[1];
+    if (!dllPath) {
+      console.error("Error: DLL path required");
+      console.error("Usage: tsonic add reference <path/to/library.dll> [types]");
+      return 1;
+    }
+
+    const configPath = parsed.options.config
+      ? join(process.cwd(), parsed.options.config)
+      : findConfig(process.cwd());
+    if (!configPath) {
+      console.error("Error: No tsonic.json found");
+      console.error("Run 'tsonic project init' to initialize a project");
+      return 3;
+    }
+
+    const result = addReferenceCommand(dllPath, typesPackage, configPath);
+    if (!result.ok) {
+      console.error(`Error: ${result.error}`);
+      return 1;
+    }
+    return 0;
+  }
+
+  const isWorkspaceCapableCommand =
+    parsed.command === "add:package" ||
+    parsed.command === "add:nuget" ||
+    parsed.command === "add:framework" ||
+    parsed.command === "remove:nuget" ||
+    parsed.command === "update:nuget" ||
+    parsed.command === "restore";
+
+  if (isWorkspaceCapableCommand) {
+    const explicitConfig = parsed.options.config
+      ? join(process.cwd(), parsed.options.config)
+      : undefined;
+
+    const workspaceConfig =
+      explicitConfig ??
+      (existsSync(join(process.cwd(), "tsonic.workspace.json"))
+        ? join(process.cwd(), "tsonic.workspace.json")
+        : undefined);
+
+    const configPath = workspaceConfig ?? findConfig(process.cwd());
+    if (!configPath) {
+      console.error("Error: No tsonic.json found");
+      console.error("Run 'tsonic project init' to initialize a project");
+      return 3;
+    }
+
+    if (parsed.command === "add:package") {
+      const dllPath = parsed.positionals[0];
+      const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
+      if (!dllPath) {
+        console.error("Error: DLL path required");
+        console.error(
+          "Usage: tsonic add package <path/to/library.dll> [types]"
+        );
+        return 1;
+      }
+
+      const result = addPackageCommand(dllPath, typesPackage, configPath, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      });
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    if (parsed.command === "add:nuget") {
+      const packageId = parsed.positionals[0];
+      const version = parsed.positionals[1];
+      const typesPackage = parsed.positionals[2]; // optional: omitted => auto-generate
+      if (!packageId || !version) {
+        console.error("Error: Package id and version required");
+        console.error("Usage: tsonic add nuget <PackageId> <Version> [types]");
+        return 1;
+      }
+
+      const result = addNugetCommand(packageId, version, typesPackage, configPath, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      });
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    if (parsed.command === "add:framework") {
+      const frameworkRef = parsed.positionals[0];
+      const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
+      if (!frameworkRef) {
+        console.error("Error: Framework reference required");
+        console.error(
+          "Usage: tsonic add framework <FrameworkReference> [types]"
+        );
+        return 1;
+      }
+
+      const result = addFrameworkCommand(frameworkRef, typesPackage, configPath, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      });
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    if (parsed.command === "remove:nuget") {
+      const packageId = parsed.positionals[0];
+      if (!packageId) {
+        console.error("Error: Package id required");
+        console.error("Usage: tsonic remove nuget <PackageId>");
+        return 1;
+      }
+
+      const result = removeNugetCommand(packageId, configPath, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      });
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    if (parsed.command === "update:nuget") {
+      const packageId = parsed.positionals[0];
+      const version = parsed.positionals[1];
+      const typesPackage = parsed.positionals[2]; // optional
+      if (!packageId || !version) {
+        console.error("Error: Package id and version required");
+        console.error("Usage: tsonic update nuget <PackageId> <Version> [types]");
+        return 1;
+      }
+
+      const result = updateNugetCommand(packageId, version, typesPackage, configPath, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      });
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 1;
+      }
+      return 0;
+    }
+
+    if (parsed.command === "restore") {
+      const result = restoreCommand(configPath, {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+        incremental: parsed.options.incremental,
+      });
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 1;
+      }
+      return 0;
+    }
+  }
+
+  // Load project config (tsonic.json) for compilation commands.
   const configPath = parsed.options.config
     ? join(process.cwd(), parsed.options.config)
     : findConfig(process.cwd());
@@ -92,161 +318,6 @@ export const runCli = async (args: string[]): Promise<number> => {
   // Project root is the directory containing tsonic.json
   const projectRoot = dirname(configPath);
 
-  // Add commands operate on tsonic.json itself (not ResolvedConfig).
-  if (parsed.command === "add:js") {
-    const result = addJsCommand(configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "add:nodejs") {
-    const result = addNodejsCommand(configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "add:package") {
-    const dllPath = parsed.positionals[0];
-    const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
-    if (!dllPath) {
-      console.error("Error: DLL path required");
-      console.error("Usage: tsonic add package <path/to/library.dll> [types]");
-      return 1;
-    }
-
-    const result = addPackageCommand(dllPath, typesPackage, configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "add:nuget") {
-    const packageId = parsed.positionals[0];
-    const version = parsed.positionals[1];
-    const typesPackage = parsed.positionals[2]; // optional: omitted => auto-generate
-    if (!packageId || !version) {
-      console.error("Error: Package id and version required");
-      console.error(
-        "Usage: tsonic add nuget <PackageId> <Version> [types]"
-      );
-      return 1;
-    }
-
-    const result = addNugetCommand(packageId, version, typesPackage, configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "add:framework") {
-    const frameworkRef = parsed.positionals[0];
-    const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
-    if (!frameworkRef) {
-      console.error("Error: Framework reference required");
-      console.error(
-        "Usage: tsonic add framework <FrameworkReference> [types]"
-      );
-      return 1;
-    }
-
-    const result = addFrameworkCommand(frameworkRef, typesPackage, configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "remove:nuget") {
-    const packageId = parsed.positionals[0];
-    if (!packageId) {
-      console.error("Error: Package id required");
-      console.error("Usage: tsonic remove nuget <PackageId>");
-      return 1;
-    }
-
-    const result = removeNugetCommand(packageId, configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "update:nuget") {
-    const packageId = parsed.positionals[0];
-    const version = parsed.positionals[1];
-    const typesPackage = parsed.positionals[2]; // optional
-    if (!packageId || !version) {
-      console.error("Error: Package id and version required");
-      console.error("Usage: tsonic update nuget <PackageId> <Version> [types]");
-      return 1;
-    }
-
-    const result = updateNugetCommand(packageId, version, typesPackage, configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
-  if (parsed.command === "restore") {
-    const result = restoreCommand(configPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-      incremental: parsed.options.incremental,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
-      return 1;
-    }
-    return 0;
-  }
-
   // Airplane-grade UX: projects must be clone-and-build friendly.
   // If the project declares .NET deps (NuGet/framework/DLLs), ensure bindings exist
   // before running the compiler. This keeps `tsonic build` deterministic without
@@ -264,10 +335,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;
-      // Only vendored DLLs (copied into ./lib) require restore-generated bindings.
-      // Non-vendored references (e.g., workspace project outputs) are build-time
-      // assembly references only and should not trigger restore.
-      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+      return true;
     });
 
     if (hasFrameworkRefs || hasPackageRefs || hasDllLibs) {

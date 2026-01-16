@@ -18,7 +18,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import type { Result, TsonicConfig } from "../types.js";
+import type { Result } from "../types.js";
 
 export type AddCommandOptions = {
   readonly verbose?: boolean;
@@ -62,7 +62,7 @@ export const defaultExec: Exec = (command, args, cwd, stdio) => {
 
 export const writeTsonicJson = (
   configPath: string,
-  config: TsonicConfig
+  config: unknown
 ): Result<void, string> => {
   try {
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -137,7 +137,9 @@ export const npmInstallDevDependency = (
   return { ok: true, value: undefined };
 };
 
-export const detectTsbindgenNaming = (config: TsonicConfig): TsbindgenNaming => {
+export const detectTsbindgenNaming = (config: {
+  readonly dotnet?: { readonly typeRoots?: readonly string[] };
+}): TsbindgenNaming => {
   const typeRoots = config.dotnet?.typeRoots;
   if (!typeRoots) return "js";
   return typeRoots.some((p) => p.includes("@tsonic/globals-pure")) ? "clr" : "js";
@@ -348,7 +350,7 @@ export const bindingsStoreDir = (
   projectRoot: string,
   kind: GeneratedBindingsKind,
   packageName: string
-): string => join(projectRoot, ".tsonic", "bindings", kind, packageName);
+): string => join(projectRoot, ".tsonic", "tmp", "bindings", kind, packageName);
 
 export const ensureGeneratedBindingsPackageJson = (
   dir: string,

@@ -50,6 +50,9 @@ export const parseArgs = (
         if (nextArg === "package") {
           command = "add:package";
           i++;
+        } else if (nextArg === "reference") {
+          command = "add:reference";
+          i++;
         } else if (nextArg === "nuget") {
           command = "add:nuget";
           i++;

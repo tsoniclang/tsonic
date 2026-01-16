@@ -43,6 +43,20 @@ describe("CLI Parser", () => {
         ]);
       });
 
+      it("should parse add:reference as two-word command", () => {
+        const result = parseArgs([
+          "add",
+          "reference",
+          "../lib/My.Lib.dll",
+          "@scope/my-lib-types",
+        ]);
+        expect(result.command).to.equal("add:reference");
+        expect(result.positionals).to.deep.equal([
+          "../lib/My.Lib.dll",
+          "@scope/my-lib-types",
+        ]);
+      });
+
       it("should parse add:nuget as two-word command", () => {
         const result = parseArgs([
           "add",

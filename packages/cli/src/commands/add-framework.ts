@@ -8,9 +8,9 @@
  * installed shared framework assemblies.
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
-import { dirname } from "node:path";
+import type { Result } from "../types.js";
+import { loadConfig, loadWorkspaceConfig } from "../config.js";
+import { basename, dirname } from "node:path";
 import {
   bindingsStoreDir,
   defaultBindingsPackageNameForFramework,
@@ -55,7 +55,10 @@ export const addFrameworkCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = loadConfig(configPath);
+  const isWorkspaceConfig = basename(configPath) === "tsonic.workspace.json";
+  const tsonicConfigResult = isWorkspaceConfig
+    ? loadWorkspaceConfig(configPath)
+    : loadConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
   const config = tsonicConfigResult.value;
 
@@ -95,8 +98,8 @@ export const addFrameworkCommand = (
     );
   }
 
-  const nextConfig: TsonicConfig = {
-    ...config,
+  const nextConfig = {
+    ...(config as Record<string, unknown>),
     dotnet: {
       ...dotnet,
       frameworkReferences: frameworkRefs,

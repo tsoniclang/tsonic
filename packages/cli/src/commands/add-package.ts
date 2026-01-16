@@ -18,8 +18,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result } from "../types.js";
+import { loadConfig, loadWorkspaceConfig } from "../config.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import {
   bindingsStoreDir,
@@ -180,7 +180,10 @@ export const addPackageCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = loadConfig(configPath);
+  const isWorkspaceConfig = basename(configPath) === "tsonic.workspace.json";
+  const tsonicConfigResult = isWorkspaceConfig
+    ? loadWorkspaceConfig(configPath)
+    : loadConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
   const config = tsonicConfigResult.value;
 
@@ -196,9 +199,20 @@ export const addPackageCommand = (
     resolveFromProjectRoot(projectRoot, d)
   );
 
+  const dllDirs = config.dotnet?.dllDirs ?? ["lib"];
+  if (dllDirs.length === 0) {
+    return {
+      ok: false,
+      error:
+        "dotnet.dllDirs is empty. 'tsonic add package' needs at least one dllDir to copy the DLL into.\n" +
+        "Set dotnet.dllDirs (recommended default: [\"lib\"]) and retry.",
+    };
+  }
+  const dllDirsAbs = dllDirs.map((d) => resolveFromProjectRoot(projectRoot, d));
+
   const refDirs = [
     ...runtimeDirs.map((r) => r.dir),
-    join(projectRoot, "lib"),
+    ...dllDirsAbs,
     ...userDeps,
   ];
 
@@ -234,7 +248,7 @@ export const addPackageCommand = (
     dllsToCopy.push(asm.path);
   }
 
-  const libDir = join(projectRoot, "lib");
+  const libDir = dllDirsAbs[0] ?? join(projectRoot, "lib");
   mkdirSync(libDir, { recursive: true });
 
   let copiedCount = 0;
@@ -250,7 +264,7 @@ export const addPackageCommand = (
         return {
           ok: false,
           error:
-            `Conflict: lib/${fileName} already exists and differs from the resolved dependency closure.\n` +
+            `Conflict: ${dllDirs[0]}/${fileName} already exists and differs from the resolved dependency closure.\n` +
             `Resolve this conflict (remove/rename the existing DLL) and retry.`,
         };
       }
@@ -259,12 +273,12 @@ export const addPackageCommand = (
       copiedCount++;
     }
 
-    copiedRelPaths.push(`lib/${fileName}`);
+    copiedRelPaths.push(`${dllDirs[0]}/${fileName}`.replace(/\\/g, "/"));
   }
 
   const dotnet = config.dotnet ?? {};
   const libraries: LibraryConfig[] = [...((dotnet.libraries ?? []) as LibraryConfig[])];
-  const rootRelPath = `lib/${basename(dllAbs)}`;
+  const rootRelPath = `${dllDirs[0]}/${basename(dllAbs)}`.replace(/\\/g, "/");
 
   for (const rel of copiedRelPaths) {
     if (typesPackage && normalizeLibraryPathKey(rel) === normalizeLibraryPathKey(rootRelPath)) {
@@ -284,8 +298,8 @@ export const addPackageCommand = (
     }
   }
 
-  const nextConfig: TsonicConfig = {
-    ...config,
+  const nextConfig = {
+    ...(config as Record<string, unknown>),
     dotnet: {
       ...dotnet,
       libraries,
@@ -419,7 +433,7 @@ export const addPackageCommand = (
       source: {
         assemblyName: asm.name,
         version: asm.version,
-        path: `lib/${basename(destPath)}`,
+        path: `${dllDirs[0]}/${basename(destPath)}`.replace(/\\/g, "/"),
       },
     });
     if (!pkgJsonResult.ok) return pkgJsonResult;

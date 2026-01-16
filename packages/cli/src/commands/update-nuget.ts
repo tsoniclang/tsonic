@@ -9,9 +9,9 @@
  * - Always runs `tsonic restore` afterwards to keep local bindings consistent
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
-import { dirname } from "node:path";
+import type { Result } from "../types.js";
+import { loadConfig, loadWorkspaceConfig } from "../config.js";
+import { basename, dirname } from "node:path";
 import {
   npmInstallDevDependency,
   writeTsonicJson,
@@ -49,7 +49,10 @@ export const updateNugetCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const configResult = loadConfig(configPath);
+  const isWorkspaceConfig = basename(configPath) === "tsonic.workspace.json";
+  const configResult = isWorkspaceConfig
+    ? loadWorkspaceConfig(configPath)
+    : loadConfig(configPath);
   if (!configResult.ok) return configResult;
   const config = configResult.value;
 
@@ -76,8 +79,8 @@ export const updateNugetCommand = (
     ? { id: current.id, version: ver, types: typesPackage }
     : { id: current.id, version: ver, types: current.types };
 
-  const nextConfig: TsonicConfig = {
-    ...config,
+  const nextConfig = {
+    ...(config as Record<string, unknown>),
     dotnet: {
       ...dotnet,
       packageReferences: existing,

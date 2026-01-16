@@ -9,8 +9,9 @@
  * - Always runs `tsonic restore` afterwards to keep local bindings consistent
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result } from "../types.js";
+import { loadConfig, loadWorkspaceConfig } from "../config.js";
+import { basename } from "node:path";
 import { writeTsonicJson, type AddCommandOptions } from "./add-common.js";
 import { restoreCommand } from "./restore.js";
 
@@ -31,7 +32,10 @@ export const removeNugetCommand = (
     return { ok: false, error: "NuGet package id must be non-empty" };
   }
 
-  const configResult = loadConfig(configPath);
+  const isWorkspaceConfig = basename(configPath) === "tsonic.workspace.json";
+  const configResult = isWorkspaceConfig
+    ? loadWorkspaceConfig(configPath)
+    : loadConfig(configPath);
   if (!configResult.ok) return configResult;
   const config = configResult.value;
 
@@ -49,8 +53,8 @@ export const removeNugetCommand = (
 
   existing.splice(idx, 1);
 
-  const nextConfig: TsonicConfig = {
-    ...config,
+  const nextConfig = {
+    ...(config as Record<string, unknown>),
     dotnet: {
       ...dotnet,
       packageReferences: existing,
@@ -65,4 +69,3 @@ export const removeNugetCommand = (
 
   return { ok: true, value: { packageId: id } };
 };
-

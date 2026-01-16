@@ -197,20 +197,19 @@ const generateConfig = (
     },
   };
 
-  if (includeTypeRoots || libraryPaths.length > 0) {
-    const typeInfo = getTypePackageInfo({ pure });
-    const dotnet: Record<string, unknown> = {};
+  const typeInfo = getTypePackageInfo({ pure });
+  const dotnet: Record<string, unknown> = { dllDirs: ["lib"] };
 
-    if (includeTypeRoots) {
-      dotnet.typeRoots = typeInfo.typeRoots;
-    }
-
-    if (libraryPaths.length > 0) {
-      dotnet.libraries = [...libraryPaths];
-    }
-
-    config.dotnet = dotnet;
+  if (includeTypeRoots) {
+    dotnet.typeRoots = typeInfo.typeRoots;
   }
+
+  if (libraryPaths.length > 0) {
+    dotnet.libraries = [...libraryPaths];
+  }
+
+  // Always include dotnet stanza so dllDirs is explicit (workspace-friendly default).
+  config.dotnet = dotnet;
 
   return JSON.stringify(config, null, 2) + "\n";
 };

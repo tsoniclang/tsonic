@@ -177,6 +177,111 @@ describe("restore command", function () {
     }
   });
 
+  it("installs bindings for workspace-owned DLLs into workspace node_modules", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-workspace-owned-"));
+    try {
+      mkdirSync(join(dir, "lib"), { recursive: true });
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "workspace",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              dllDirs: ["lib"],
+              libraries: ["lib/Acme.Widget.dll"],
+              frameworkReferences: [],
+              packageReferences: [],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      // Build a real DLL into workspace ./lib.
+      const vendorDir = join(dir, "vendor");
+      mkdirSync(vendorDir, { recursive: true });
+      runDotnet(vendorDir, ["new", "classlib", "-n", "Acme.Widget", "--no-restore"]);
+      const csproj = join(vendorDir, "Acme.Widget", "Acme.Widget.csproj");
+      runDotnet(vendorDir, ["build", csproj, "-c", "Release", "-o", join(dir, "lib")]);
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2) + "\n",
+        "utf-8"
+      );
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "App",
+            entryPoint: "src/App.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "app",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              dllDirs: ["lib"],
+              typeRoots: ["node_modules/@tsonic/globals"],
+              libraries: ["../../lib/Acme.Widget.dll"],
+              frameworkReferences: [],
+              packageReferences: [],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      // Provide required standard bindings packages (no network).
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const result = restoreCommand(join(dir, "packages", "app", "tsonic.json"), {
+        quiet: true,
+        incremental: true,
+      });
+      expect(result.ok).to.equal(true);
+
+      // Bindings should be installed at the workspace root (shared), not per-project.
+      expect(existsSync(join(dir, "node_modules", "acme-widget-types", "package.json"))).to.equal(
+        true
+      );
+      expect(existsSync(join(dir, "packages", "app", "node_modules", "acme-widget-types"))).to.equal(
+        false
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("supports incremental DLL bindings regeneration (skip when unchanged, regen when changed)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-incremental-"));
     try {
@@ -233,7 +338,7 @@ describe("restore command", function () {
       const first = restoreCommand(join(dir, "tsonic.json"), { quiet: true });
       expect(first.ok).to.equal(true);
 
-      const pkgDir = join(dir, ".tsonic", "bindings", "dll", "acme-widget-types");
+      const pkgDir = join(dir, "node_modules", "acme-widget-types");
       const pkgJson = join(pkgDir, "package.json");
       expect(existsSync(pkgJson)).to.equal(true);
 

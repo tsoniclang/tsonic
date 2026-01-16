@@ -3,10 +3,11 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, isAbsolute, relative } from "node:path";
 import { detectRid } from "@tsonic/backend";
 import type {
   TsonicConfig,
+  TsonicWorkspaceConfig,
   CliOptions,
   ResolvedConfig,
   Result,
@@ -36,6 +37,19 @@ export const loadConfig = (
       return {
         ok: false,
         error: "tsonic.json: 'rootNamespace' is required",
+      };
+    }
+
+    const dllDirs = config.dotnet?.dllDirs;
+    if (
+      dllDirs !== undefined &&
+      (!Array.isArray(dllDirs) ||
+        dllDirs.some((d) => typeof d !== "string" || d.trim().length === 0))
+    ) {
+      return {
+        ok: false,
+        error:
+          "tsonic.json: 'dotnet.dllDirs' must be an array of non-empty strings",
       };
     }
 
@@ -191,6 +205,132 @@ export const loadConfig = (
 };
 
 /**
+ * Load tsonic.workspace.json from a directory
+ */
+export const loadWorkspaceConfig = (
+  configPath: string
+): Result<TsonicWorkspaceConfig, string> => {
+  if (!existsSync(configPath)) {
+    return {
+      ok: false,
+      error: `Workspace config file not found: ${configPath}`,
+    };
+  }
+
+  try {
+    const content = readFileSync(configPath, "utf-8");
+    const config = JSON.parse(content) as TsonicWorkspaceConfig;
+
+    const dllDirs = config.dotnet?.dllDirs;
+    if (
+      dllDirs !== undefined &&
+      (!Array.isArray(dllDirs) ||
+        dllDirs.some((d) => typeof d !== "string" || d.trim().length === 0))
+    ) {
+      return {
+        ok: false,
+        error:
+          "tsonic.workspace.json: 'dotnet.dllDirs' must be an array of non-empty strings",
+      };
+    }
+
+    const frameworkReferences = config.dotnet?.frameworkReferences;
+    if (
+      frameworkReferences !== undefined &&
+      (!Array.isArray(frameworkReferences) ||
+        frameworkReferences.some((r) => {
+          if (typeof r === "string") return false;
+          if (r === null || typeof r !== "object") return true;
+          const id = (r as { readonly id?: unknown }).id;
+          const types = (r as { readonly types?: unknown }).types;
+          if (typeof id !== "string") return true;
+          if (types !== undefined && typeof types !== "string") return true;
+          return false;
+        }))
+    ) {
+      return {
+        ok: false,
+        error:
+          "tsonic.workspace.json: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }",
+      };
+    }
+
+    const packageReferences = config.dotnet?.packageReferences;
+    if (packageReferences !== undefined) {
+      if (!Array.isArray(packageReferences)) {
+        return {
+          ok: false,
+          error:
+            "tsonic.workspace.json: 'dotnet.packageReferences' must be an array of { id, version }",
+        };
+      }
+
+      for (const entry of packageReferences as unknown[]) {
+        if (
+          entry === null ||
+          typeof entry !== "object" ||
+          typeof (entry as { readonly id?: unknown }).id !== "string" ||
+          typeof (entry as { readonly version?: unknown }).version !== "string" ||
+          ((entry as { readonly types?: unknown }).types !== undefined &&
+            typeof (entry as { readonly types?: unknown }).types !== "string")
+        ) {
+          return {
+            ok: false,
+            error:
+              "tsonic.workspace.json: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string }",
+          };
+        }
+      }
+    }
+
+    const libraries = config.dotnet?.libraries;
+    if (libraries !== undefined) {
+      if (!Array.isArray(libraries)) {
+        return {
+          ok: false,
+          error:
+            "tsonic.workspace.json: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }",
+        };
+      }
+
+      for (const entry of libraries as unknown[]) {
+        if (typeof entry === "string") continue;
+        if (entry === null || typeof entry !== "object") {
+          return {
+            ok: false,
+            error:
+              "tsonic.workspace.json: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }",
+          };
+        }
+        const path = (entry as { readonly path?: unknown }).path;
+        const types = (entry as { readonly types?: unknown }).types;
+        if (typeof path !== "string") {
+          return {
+            ok: false,
+            error:
+              "tsonic.workspace.json: 'dotnet.libraries' object entries must have { path: string, types?: string }",
+          };
+        }
+        if (types !== undefined && typeof types !== "string") {
+          return {
+            ok: false,
+            error:
+              "tsonic.workspace.json: 'dotnet.libraries' object entries must have { path: string, types?: string }",
+          };
+        }
+      }
+    }
+
+    return { ok: true, value: config };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to parse tsonic.workspace.json: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+/**
  * Find tsonic.json by walking up the directory tree
  */
 export const findConfig = (startDir: string): string | null => {
@@ -206,6 +346,26 @@ export const findConfig = (startDir: string): string | null => {
     const parentDir = dirname(currentDir);
     if (parentDir === currentDir) {
       // Hit root
+      return null;
+    }
+    currentDir = parentDir;
+  }
+};
+
+/**
+ * Find tsonic.workspace.json by walking up the directory tree
+ */
+export const findWorkspaceConfig = (startDir: string): string | null => {
+  let currentDir = resolve(startDir);
+
+  while (true) {
+    const configPath = join(currentDir, "tsonic.workspace.json");
+    if (existsSync(configPath)) {
+      return configPath;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
       return null;
     }
     currentDir = parentDir;
@@ -324,7 +484,36 @@ export const resolveConfig = (
   // Default type roots
   // Only ambient globals packages need typeRoots - explicit import packages are resolved normally
   const defaultTypeRoots = ["node_modules/@tsonic/globals"];
-  const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
+  const rawTypeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
+
+  const resolvePathUpwards = (pathLike: string): string => {
+    if (isAbsolute(pathLike)) return pathLike;
+
+    // Keep the original path if it exists relative to the project (common single-project case).
+    const direct = resolve(projectRoot, pathLike);
+    if (existsSync(direct)) return pathLike;
+
+    // Workspace-friendly: walk up and try to find the referenced path in ancestor dirs.
+    let current = projectRoot;
+    for (;;) {
+      const candidate = join(current, pathLike);
+      if (existsSync(candidate)) {
+        return relative(projectRoot, candidate).replace(/\\/g, "/");
+      }
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+
+    // Preserve original if not found; compiler will surface missing types.
+    return pathLike;
+  };
+
+  const typeRoots = rawTypeRoots.map(resolvePathUpwards);
+
+  const dllDirs = (config.dotnet?.dllDirs ?? ["lib"]).map((d) =>
+    d.trim()
+  );
 
   // Merge libraries from config and CLI
   const configLibraries = (config.dotnet?.libraries ?? []).map((entry) =>
@@ -372,6 +561,7 @@ export const resolveConfig = (
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
     typeRoots,
+    dllDirs,
     libraries,
     frameworkReferences,
     packageReferences,

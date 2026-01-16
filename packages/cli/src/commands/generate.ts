@@ -43,14 +43,17 @@ const findProjectCsproj = (): string | null => {
 };
 
 /**
- * Find a specific DLL, checking project's lib/ first, then CLI package runtime
- * Returns the absolute path to the DLL or null if not found
+ * Find a specific DLL, checking configured dllDirs first, then CLI package runtime.
+ * Returns the absolute path to the DLL or null if not found.
  */
-const findDll = (dllName: string): string | null => {
-  // 1. First check project's lib/ directory (created by tsonic init)
-  const projectLibPath = join(process.cwd(), "lib", dllName);
-  if (existsSync(projectLibPath)) {
-    return projectLibPath;
+const findDll = (
+  projectRoot: string,
+  dllDirs: readonly string[],
+  dllName: string
+): string | null => {
+  for (const dir of dllDirs) {
+    const candidate = join(projectRoot, dir, dllName);
+    if (existsSync(candidate)) return candidate;
   }
 
   // 2. Fall back to CLI package runtime directory
@@ -60,7 +63,7 @@ const findDll = (dllName: string): string | null => {
     // npm installed: From dist/commands -> ../runtime (inside @tsonic/cli package)
     join(import.meta.dirname, "../runtime"),
     // From project's node_modules (when CLI is a dev dependency)
-    join(process.cwd(), "node_modules/@tsonic/cli/runtime"),
+    join(projectRoot, "node_modules/@tsonic/cli/runtime"),
   ];
 
   for (const runtimeDir of cliRuntimePaths) {
@@ -75,14 +78,18 @@ const findDll = (dllName: string): string | null => {
 
 /**
  * Find runtime DLLs for the project
- * Checks project's lib/ directory first, then falls back to CLI package
+ * Checks configured dllDirs first, then falls back to CLI package
  * Returns assembly references for the csproj file
  */
-const findRuntimeDlls = (outputDir: string): readonly AssemblyReference[] => {
+const findRuntimeDlls = (
+  projectRoot: string,
+  dllDirs: readonly string[],
+  outputDir: string
+): readonly AssemblyReference[] => {
   const refs: AssemblyReference[] = [];
 
   // Always include Tsonic.Runtime
-  const runtimeDll = findDll("Tsonic.Runtime.dll");
+  const runtimeDll = findDll(projectRoot, dllDirs, "Tsonic.Runtime.dll");
   if (runtimeDll) {
     refs.push({
       name: "Tsonic.Runtime",
@@ -194,6 +201,7 @@ export const generateCommand = (
     projectRoot,
     sourceRoot,
     typeRoots,
+    dllDirs,
     frameworkReferences,
     packageReferences,
   } = config;
@@ -405,7 +413,7 @@ export const generateCommand = (
       const assemblyReferences = runtimePath
         ? []
         : [
-            ...findRuntimeDlls(outputDir),
+            ...findRuntimeDlls(projectRoot, dllDirs, outputDir),
             ...collectProjectLibraries(projectRoot, outputDir, config.libraries),
           ];
 

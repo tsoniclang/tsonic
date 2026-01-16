@@ -61,6 +61,15 @@ export type TsonicConfig = {
   readonly dotnet?: {
     readonly typeRoots?: readonly string[];
     /**
+     * Directories that Tsonic treats as "vendored DLL roots" for this config owner.
+     *
+     * - For projects: paths are relative to the directory containing `tsonic.json`
+     * - For workspaces: paths are relative to the directory containing `tsonic.workspace.json`
+     *
+     * DLLs inside these directories are eligible for automatic bindings generation (restore/build).
+     */
+    readonly dllDirs?: readonly string[];
+    /**
      * External library references for .NET interop.
      *
      * - Strings are treated as paths (DLL references or additional type roots).
@@ -88,6 +97,41 @@ export type TsonicConfig = {
       readonly id: string;
       readonly version: string;
       /** If provided, bindings are expected from this npm package (no auto-generation). */
+      readonly types?: string;
+    }>;
+  };
+};
+
+/**
+ * Workspace configuration file (tsonic.workspace.json)
+ *
+ * This config exists only to support shared workspace installs (DLLs + generated bindings)
+ * that multiple projects can reference.
+ */
+export type TsonicWorkspaceConfig = {
+  readonly $schema?: string;
+  /** Default target framework for workspace-owned dependency restores (e.g. "net10.0"). */
+  readonly dotnetVersion?: string;
+  readonly dotnet?: {
+    readonly typeRoots?: readonly string[];
+    readonly dllDirs?: readonly string[];
+    readonly libraries?: ReadonlyArray<
+      | string
+      | {
+          readonly path: string;
+          readonly types?: string;
+        }
+    >;
+    readonly frameworkReferences?: ReadonlyArray<
+      | string
+      | {
+          readonly id: string;
+          readonly types?: string;
+        }
+    >;
+    readonly packageReferences?: ReadonlyArray<{
+      readonly id: string;
+      readonly version: string;
       readonly types?: string;
     }>;
   };
@@ -164,6 +208,7 @@ export type ResolvedConfig = {
   readonly verbose: boolean;
   readonly quiet: boolean;
   readonly typeRoots: readonly string[];
+  readonly dllDirs: readonly string[];
   readonly libraries: readonly string[]; // External library paths for .NET interop
   readonly frameworkReferences: readonly string[];
   readonly packageReferences: ReadonlyArray<{

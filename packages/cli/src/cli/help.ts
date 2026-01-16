@@ -19,6 +19,7 @@ COMMANDS:
   add js                    Add JSRuntime interop (@tsonic/js + DLLs)
   add nodejs                Add Node.js interop (@tsonic/nodejs + DLLs)
   add package <dll> [types] Add a local DLL (and optional bindings) to the project
+  add reference <dll> [t]   Reference an existing local DLL (no copy/generation)
   add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the project
   add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the project
   remove nuget <id>         Remove a NuGet package reference from the project
@@ -69,6 +70,7 @@ EXAMPLES:
   tsonic add nodejs
   tsonic add package ./lib/MyLib.dll @company/mylib-types
   tsonic add package ./path/MyLib.dll                  # auto-generate types (tsbindgen)
+  tsonic add reference ../lib/MyLib.dll                # reference workspace-installed DLL
   tsonic add nuget Microsoft.Extensions.Logging 10.0.0  # auto-generate types (tsbindgen)
   tsonic add framework Microsoft.AspNetCore.App @tsonic/aspnetcore
   tsonic remove nuget Microsoft.Extensions.Logging
