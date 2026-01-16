@@ -60,6 +60,7 @@
     "@tsonic/core": "0.6.3",
     "@tsonic/dotnet": "0.8.10",
     "@tsonic/globals": "0.3.11",
-    "@tsonic/js": "0.1.3"
+    "@tsonic/js": "0.1.3",
+    "@tsonic/nodejs": "0.4.6"
   }
 }

@@ -243,18 +243,7 @@ export const restoreCommand = (
   const dotnetLib = dotnetRoot.value;
   const coreLib = coreRoot.value;
 
-  let dotnet = config.dotnet ?? {};
-  const originalLibraries = dotnet.libraries ?? [];
-  const filteredLibraries = originalLibraries.filter(
-    (p) => !isBuiltInRuntimeDllPath(p)
-  );
-  if (filteredLibraries.length !== originalLibraries.length) {
-    dotnet = { ...dotnet, libraries: filteredLibraries };
-    const nextConfig: TsonicConfig = { ...config, dotnet };
-    const writeResult = writeTsonicJson(configPath, nextConfig);
-    if (!writeResult.ok) return writeResult;
-    config = nextConfig;
-  }
+  const dotnet = config.dotnet ?? {};
   const naming = detectTsbindgenNaming(config);
 
   // 1) FrameworkReferences bindings
@@ -558,7 +547,17 @@ export const restoreCommand = (
   }
 
   // 3) Local DLL bindings (dotnet.libraries)
-  const dllLibraries = (dotnet.libraries ?? []).filter((p) => p.toLowerCase().endsWith(".dll"));
+  const dllLibraries = (dotnet.libraries ?? []).filter(
+    (p) => {
+      const normalized = p.replace(/\\/g, "/").toLowerCase();
+      if (!normalized.endsWith(".dll")) return false;
+      if (isBuiltInRuntimeDllPath(p)) return false;
+      // Only DLLs copied into ./lib are eligible for bindings generation.
+      // Other DLL paths (e.g. workspace project outputs) are treated as build-time
+      // references only.
+      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+    }
+  );
   if (dllLibraries.length > 0) {
     const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(projectRoot, p));
     for (const p of dllAbs) {

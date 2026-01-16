@@ -206,7 +206,7 @@ tsonic add js
 ```
 
 ```typescript
-import { console, JSON, Math, Date, Timers } from "@tsonic/js";
+import { console, JSON, Math, Date, Timers } from "@tsonic/js/index.js";
 
 export function main(): void {
   console.log("Hello from JSRuntime!");

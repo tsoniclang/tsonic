@@ -14,6 +14,7 @@ import {
   defaultExec,
   detectTsbindgenNaming,
   npmInstallDevDependency,
+  writeTsonicJson,
   type Exec,
   type AddCommandOptions,
 } from "./add-common.js";
@@ -58,6 +59,10 @@ const ensureDotnetForPeerDeps = (
   return ensureDevDependency(projectRoot, "@tsonic/dotnet", options, exec);
 };
 
+const addUnique = (arr: string[], value: string): void => {
+  if (!arr.includes(value)) arr.push(value);
+};
+
 export const addNodejsCommand = (
   configPath: string,
   options: AddCommandOptions = {},
@@ -85,6 +90,17 @@ export const addNodejsCommand = (
     includeNodejs: true,
   });
   if (!copyResult.ok) return copyResult;
+
+  const dotnet = config.dotnet ?? {};
+  const libraries = [...(dotnet.libraries ?? [])];
+  addUnique(libraries, "lib/Tsonic.JSRuntime.dll");
+  addUnique(libraries, "lib/nodejs.dll");
+
+  const writeResult = writeTsonicJson(configPath, {
+    ...config,
+    dotnet: { ...dotnet, libraries },
+  });
+  if (!writeResult.ok) return writeResult;
 
   return { ok: true, value: undefined };
 };

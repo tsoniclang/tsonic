@@ -113,6 +113,8 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
       "@tsonic/globals": ["../globals/index.d.ts"],
       "@tsonic/js": ["../js/index.d.ts"],
       "@tsonic/js/*": ["../js/*"],
+      "@tsonic/nodejs": ["../nodejs/index.d.ts"],
+      "@tsonic/nodejs/*": ["../nodejs/*"],
       "@tsonic/aspnetcore/*": ["../aspnetcore/*"],
       "@tsonic/efcore/*": ["../efcore/*"],
       "@tsonic/efcore-sqlite/*": ["../efcore-sqlite/*"],

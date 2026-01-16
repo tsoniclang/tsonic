@@ -172,7 +172,7 @@ tsonic add js
 Then write:
 
 ```ts
-import { console, JSON } from "@tsonic/js";
+import { console, JSON } from "@tsonic/js/index.js";
 
 export function main(): void {
   const value = JSON.parse<{ x: number }>('{"x": 1}');
@@ -195,7 +195,7 @@ tsonic add nodejs
 Then write:
 
 ```ts
-import { console, path } from "@tsonic/nodejs";
+import { console, path } from "@tsonic/nodejs/index.js";
 
 export function main(): void {
   console.log(path.join("a", "b", "c"));

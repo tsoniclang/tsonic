@@ -4,6 +4,8 @@
   "entryPoint": "src/index.ts",
   "sourceRoot": "src",
   "outputDirectory": "out",
-  "outputName": "json-jsruntime-roundtrip"
+  "outputName": "json-jsruntime-roundtrip",
+  "dotnet": {
+    "libraries": ["../../../packages/cli/runtime/Tsonic.JSRuntime.dll"]
+  }
 }
-
