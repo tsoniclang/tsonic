@@ -133,6 +133,11 @@ describe("Init Command", () => {
         expect(appTs).to.include('@tsonic/js/index.js');
         expect(appTs).to.include("JSON.parse");
         expect(appTs).to.include("JSON.stringify");
+
+        const config = JSON.parse(readFileSync(join(dir, "tsonic.json"), "utf-8")) as {
+          dotnet?: { libraries?: unknown };
+        };
+        expect(config.dotnet?.libraries).to.deep.equal(["lib/Tsonic.JSRuntime.dll"]);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -147,6 +152,14 @@ describe("Init Command", () => {
         const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
         expect(appTs).to.include('@tsonic/nodejs/index.js');
         expect(appTs).to.include("console.log");
+
+        const config = JSON.parse(readFileSync(join(dir, "tsonic.json"), "utf-8")) as {
+          dotnet?: { libraries?: unknown };
+        };
+        expect(config.dotnet?.libraries).to.deep.equal([
+          "lib/Tsonic.JSRuntime.dll",
+          "lib/nodejs.dll",
+        ]);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

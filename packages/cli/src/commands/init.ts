@@ -351,7 +351,8 @@ export const initProject = (
     // - Tsonic.Runtime.dll (always)
     // - Tsonic.JSRuntime.dll (if --js or --nodejs)
     // - nodejs.dll (if --nodejs)
-    // Note: These are NOT added to dotnet.libraries - findRuntimeDlls in generate.ts looks in lib/ first
+    // Note: JSRuntime/nodejs are treated like any other CLR assembly and must be
+    // listed in dotnet.libraries to be referenced by the generated .csproj.
     console.log("Copying runtime DLLs to lib/...");
     const copyResult = copyRuntimeDllsToProjectLib(cwd, {
       includeJsRuntime: js || nodejs,
@@ -367,8 +368,11 @@ export const initProject = (
     }
 
     // Create tsonic.json
-    // Note: Runtime DLLs in lib/ are found automatically by generate command
-    const config = generateConfig(shouldInstallTypes, [], pure);
+    const runtimeLibraries: string[] = [];
+    if (js || nodejs) runtimeLibraries.push("lib/Tsonic.JSRuntime.dll");
+    if (nodejs) runtimeLibraries.push("lib/nodejs.dll");
+
+    const config = generateConfig(shouldInstallTypes, runtimeLibraries, pure);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 

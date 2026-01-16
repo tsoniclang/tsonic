@@ -72,6 +72,7 @@ What it does:
 - Copies runtime DLLs into `./lib/` (idempotent):
   - `Tsonic.Runtime.dll`
   - `Tsonic.JSRuntime.dll`
+- Adds `lib/Tsonic.JSRuntime.dll` to `tsonic.json` `dotnet.libraries` (idempotent)
 
 ### add nodejs
 
@@ -88,6 +89,7 @@ What it does:
   - `Tsonic.Runtime.dll`
   - `Tsonic.JSRuntime.dll`
   - `nodejs.dll`
+- Adds `lib/Tsonic.JSRuntime.dll` and `lib/nodejs.dll` to `tsonic.json` `dotnet.libraries` (idempotent)
 
 ### generate
 

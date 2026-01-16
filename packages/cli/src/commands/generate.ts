@@ -31,7 +31,6 @@ import {
   type AssemblyReference,
 } from "@tsonic/backend";
 import type { ResolvedConfig, Result } from "../types.js";
-import { isBuiltInRuntimeDllName } from "../dotnet/runtime-dlls.js";
 
 /**
  * Find project .csproj file in current directory
@@ -41,22 +40,6 @@ const findProjectCsproj = (): string | null => {
   const files = readdirSync(cwd);
   const csprojFile = files.find((f) => f.endsWith(".csproj"));
   return csprojFile ? join(cwd, csprojFile) : null;
-};
-
-/**
- * Collect all CLR assemblies used by modules
- * Returns unique assembly names from module imports
- */
-const collectClrAssemblies = (modules: readonly IrModule[]): Set<string> => {
-  const assemblies = new Set<string>();
-  for (const mod of modules) {
-    for (const imp of mod.imports) {
-      if (imp.isClr && imp.resolvedAssembly) {
-        assemblies.add(imp.resolvedAssembly);
-      }
-    }
-  }
-  return assemblies;
 };
 
 /**
@@ -95,10 +78,7 @@ const findDll = (dllName: string): string | null => {
  * Checks project's lib/ directory first, then falls back to CLI package
  * Returns assembly references for the csproj file
  */
-const findRuntimeDlls = (
-  outputDir: string,
-  usedAssemblies: Set<string> = new Set()
-): readonly AssemblyReference[] => {
+const findRuntimeDlls = (outputDir: string): readonly AssemblyReference[] => {
   const refs: AssemblyReference[] = [];
 
   // Always include Tsonic.Runtime
@@ -108,31 +88,6 @@ const findRuntimeDlls = (
       name: "Tsonic.Runtime",
       hintPath: relative(outputDir, runtimeDll),
     });
-  }
-
-  // Include Tsonic.JSRuntime when the program uses JS runtime bindings.
-  // This should be treated like any other CLR assembly: referenced only when used.
-  //
-  // Note: nodejs.dll depends on Tsonic.JSRuntime, so include it when nodejs is used.
-  if (usedAssemblies.has("Tsonic.JSRuntime") || usedAssemblies.has("nodejs")) {
-    const jsRuntimeDll = findDll("Tsonic.JSRuntime.dll");
-    if (jsRuntimeDll) {
-      refs.push({
-        name: "Tsonic.JSRuntime",
-        hintPath: relative(outputDir, jsRuntimeDll),
-      });
-    }
-  }
-
-  // Include nodejs.dll if nodejs assembly is used
-  if (usedAssemblies.has("nodejs")) {
-    const nodejsDll = findDll("nodejs.dll");
-    if (nodejsDll) {
-      refs.push({
-        name: "nodejs",
-        hintPath: relative(outputDir, nodejsDll),
-      });
-    }
   }
 
   return refs;
@@ -162,7 +117,7 @@ const collectProjectLibraries = (
 
     // Extract assembly name from filename
     const dllName = libPath.split(/[\\/]/).pop() ?? "";
-    if (isBuiltInRuntimeDllName(dllName)) {
+    if (dllName.toLowerCase() === "tsonic.runtime.dll") {
       continue;
     }
     const assemblyName = dllName.replace(/\.dll$/, "");
@@ -261,6 +216,25 @@ export const generateCommand = (
         ok: false,
         error:
           "Entry point is required (library multi-file support coming soon)",
+      };
+    }
+
+    const dllLibraries = config.libraries.filter((p) =>
+      p.toLowerCase().endsWith(".dll")
+    );
+    const missingDlls = dllLibraries.filter((p) =>
+      !existsSync(resolve(projectRoot, p))
+    );
+    if (missingDlls.length > 0) {
+      const details = missingDlls
+        .map((p) => `- ${p}`)
+        .join("\n");
+      return {
+        ok: false,
+        error:
+          `Missing DLLs referenced by 'dotnet.libraries' / '--lib':\n` +
+          `${details}\n` +
+          `Ensure these DLLs exist or re-run the appropriate 'tsonic add ...' command.`,
       };
     }
 
@@ -393,12 +367,6 @@ export const generateCommand = (
     const projectCsproj = findProjectCsproj();
 
     // Collect CLR assemblies used by the modules (e.g., "nodejs")
-    const usedAssemblies = collectClrAssemblies(irResult.value);
-
-    // Debug: log collected assemblies
-    if (config.verbose && usedAssemblies.size > 0) {
-      console.log(`  CLR assemblies used: ${[...usedAssemblies].join(", ")}`);
-    }
 
     if (projectCsproj) {
       // Copy existing .csproj from project root (preserves user edits)
@@ -437,7 +405,7 @@ export const generateCommand = (
       const assemblyReferences = runtimePath
         ? []
         : [
-            ...findRuntimeDlls(outputDir, usedAssemblies),
+            ...findRuntimeDlls(outputDir),
             ...collectProjectLibraries(projectRoot, outputDir, config.libraries),
           ];
 

@@ -4,7 +4,13 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addJsCommand } from "./add-js.js";
@@ -44,6 +50,13 @@ describe("add js", () => {
 
       expect(existsSync(join(dir, "lib", "Tsonic.Runtime.dll"))).to.equal(true);
       expect(existsSync(join(dir, "lib", "Tsonic.JSRuntime.dll"))).to.equal(true);
+
+      const updated = JSON.parse(
+        readFileSync(join(dir, "tsonic.json"), "utf-8")
+      ) as {
+        dotnet?: { libraries?: unknown };
+      };
+      expect(updated.dotnet?.libraries).to.deep.equal(["lib/Tsonic.JSRuntime.dll"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -84,6 +97,13 @@ describe("add js", () => {
       expect(calls.length).to.equal(0);
       expect(existsSync(join(dir, "lib", "Tsonic.Runtime.dll"))).to.equal(true);
       expect(existsSync(join(dir, "lib", "Tsonic.JSRuntime.dll"))).to.equal(true);
+
+      const updated = JSON.parse(
+        readFileSync(join(dir, "tsonic.json"), "utf-8")
+      ) as {
+        dotnet?: { libraries?: unknown };
+      };
+      expect(updated.dotnet?.libraries).to.deep.equal(["lib/Tsonic.JSRuntime.dll"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

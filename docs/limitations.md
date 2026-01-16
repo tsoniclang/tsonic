@@ -11,7 +11,7 @@ Tsonic targets .NET. Code is meant to compile to native binaries; it is not mean
 - If you want JavaScript-style APIs, opt in explicitly via `@tsonic/js`:
 
 ```typescript
-import { Date, Map, Set, console } from "@tsonic/js";
+import { Date, Map, Set, console } from "@tsonic/js/index.js";
 ```
 
 ## Module System Constraints

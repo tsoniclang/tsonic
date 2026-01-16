@@ -94,11 +94,37 @@ export const addPackageCommand = (
     };
   }
   if (isBuiltInRuntimeDllPath(dllAbs)) {
+    const dllName = basename(dllAbs);
+    const lower = dllName.toLowerCase();
+    if (lower === "tsonic.runtime.dll") {
+      return {
+        ok: false,
+        error:
+          `Refusing to add ${dllName}.\n` +
+          `Tsonic always references its core runtime automatically; do not list it in dotnet.libraries.`,
+      };
+    }
+    if (lower === "tsonic.jsruntime.dll") {
+      return {
+        ok: false,
+        error:
+          `Refusing to add ${dllName} via 'tsonic add package'.\n` +
+          `Use 'tsonic add js' (or 'tsonic project init --js') to install @tsonic/js and add the DLL reference.`,
+      };
+    }
+    if (lower === "nodejs.dll") {
+      return {
+        ok: false,
+        error:
+          `Refusing to add ${dllName} via 'tsonic add package'.\n` +
+          `Use 'tsonic add nodejs' (or 'tsonic project init --nodejs') to install @tsonic/nodejs and add the DLL reference.`,
+      };
+    }
     return {
       ok: false,
       error:
-        `Refusing to add built-in runtime DLL: ${basename(dllAbs)}\n` +
-        `Tsonic includes its runtime automatically. Remove it from dotnet.libraries and try again.`,
+        `Refusing to add runtime DLL: ${dllName}.\n` +
+        `Use the dedicated 'tsonic add ...' command for runtime-provided assemblies.`,
     };
   }
 

@@ -31,7 +31,7 @@ const linkDir = (target: string, linkPath: string): void => {
 describe("restore command", function () {
   this.timeout(10 * 60 * 1000);
 
-  it("ignores built-in runtime DLLs in dotnet.libraries (legacy config)", () => {
+  it("ignores runtime DLLs in dotnet.libraries (legacy config)", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-runtime-"));
     try {
       mkdirSync(join(dir, "src"), { recursive: true });
@@ -92,11 +92,11 @@ describe("restore command", function () {
         false
       );
 
-      // Should auto-migrate the config by removing built-in runtime DLLs from dotnet.libraries.
+      // restore does not rewrite the config; it simply ignores runtime DLLs for bindings generation.
       const updated = JSON.parse(readFileSync(join(dir, "tsonic.json"), "utf-8")) as {
         dotnet?: { libraries?: unknown };
       };
-      expect(updated.dotnet?.libraries).to.deep.equal([]);
+      expect(updated.dotnet?.libraries).to.deep.equal(["lib/Tsonic.Runtime.dll"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

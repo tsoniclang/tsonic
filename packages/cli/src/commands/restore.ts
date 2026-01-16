@@ -243,18 +243,7 @@ export const restoreCommand = (
   const dotnetLib = dotnetRoot.value;
   const coreLib = coreRoot.value;
 
-  let dotnet = config.dotnet ?? {};
-  const originalLibraries = dotnet.libraries ?? [];
-  const filteredLibraries = originalLibraries.filter(
-    (p) => !isBuiltInRuntimeDllPath(p)
-  );
-  if (filteredLibraries.length !== originalLibraries.length) {
-    dotnet = { ...dotnet, libraries: filteredLibraries };
-    const nextConfig: TsonicConfig = { ...config, dotnet };
-    const writeResult = writeTsonicJson(configPath, nextConfig);
-    if (!writeResult.ok) return writeResult;
-    config = nextConfig;
-  }
+  const dotnet = config.dotnet ?? {};
   const naming = detectTsbindgenNaming(config);
 
   // 1) FrameworkReferences bindings
@@ -558,7 +547,9 @@ export const restoreCommand = (
   }
 
   // 3) Local DLL bindings (dotnet.libraries)
-  const dllLibraries = (dotnet.libraries ?? []).filter((p) => p.toLowerCase().endsWith(".dll"));
+  const dllLibraries = (dotnet.libraries ?? []).filter(
+    (p) => p.toLowerCase().endsWith(".dll") && !isBuiltInRuntimeDllPath(p)
+  );
   if (dllLibraries.length > 0) {
     const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(projectRoot, p));
     for (const p of dllAbs) {
