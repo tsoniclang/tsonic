@@ -110,6 +110,17 @@ const findRuntimeDlls = (
     });
   }
 
+  // Always include Tsonic.JSRuntime
+  // The compiler/emitter lowers core TS operations (e.g. string/array helpers) to
+  // Tsonic.JSRuntime.*, so every generated project must reference this runtime.
+  const jsRuntimeDll = findDll("Tsonic.JSRuntime.dll");
+  if (jsRuntimeDll) {
+    refs.push({
+      name: "Tsonic.JSRuntime",
+      hintPath: relative(outputDir, jsRuntimeDll),
+    });
+  }
+
   // Include nodejs.dll if nodejs assembly is used
   if (usedAssemblies.has("nodejs")) {
     const nodejsDll = findDll("nodejs.dll");
@@ -117,17 +128,6 @@ const findRuntimeDlls = (
       refs.push({
         name: "nodejs",
         hintPath: relative(outputDir, nodejsDll),
-      });
-    }
-  }
-
-  // Include Tsonic.JSRuntime.dll if JS runtime types are used
-  if (usedAssemblies.has("Tsonic.JSRuntime")) {
-    const jsRuntimeDll = findDll("Tsonic.JSRuntime.dll");
-    if (jsRuntimeDll) {
-      refs.push({
-        name: "Tsonic.JSRuntime",
-        hintPath: relative(outputDir, jsRuntimeDll),
       });
     }
   }
