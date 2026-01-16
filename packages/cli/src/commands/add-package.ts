@@ -47,8 +47,56 @@ const sha256File = (path: string): string => {
   return createHash("sha256").update(new Uint8Array(data)).digest("hex");
 };
 
-const addUnique = (arr: string[], value: string): void => {
-  if (!arr.includes(value)) arr.push(value);
+type LibraryConfig = string | { readonly path: string; readonly types?: string };
+
+const normalizeLibraryPathKey = (p: string): string =>
+  p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+
+const getLibraryPath = (entry: LibraryConfig): string =>
+  typeof entry === "string" ? entry : entry.path;
+
+const ensureLibraryPath = (arr: LibraryConfig[], path: string): void => {
+  const key = normalizeLibraryPathKey(path);
+  if (arr.some((e) => normalizeLibraryPathKey(getLibraryPath(e)) === key)) return;
+  arr.push(path);
+};
+
+const ensureLibraryTypes = (
+  arr: LibraryConfig[],
+  path: string,
+  types: string
+): Result<void, string> => {
+  const key = normalizeLibraryPathKey(path);
+  const idx = arr.findIndex((e) => normalizeLibraryPathKey(getLibraryPath(e)) === key);
+  if (idx < 0) {
+    arr.push({ path, types });
+    return { ok: true, value: undefined };
+  }
+
+  const existing = arr[idx];
+  if (!existing) {
+    arr[idx] = { path, types };
+    return { ok: true, value: undefined };
+  }
+  if (typeof existing === "string") {
+    arr[idx] = { path: existing, types };
+    return { ok: true, value: undefined };
+  }
+
+  if (existing.types && existing.types !== types) {
+    return {
+      ok: false,
+      error:
+        `Library already present with a different types package:\n` +
+        `- ${existing.path}\n` +
+        `- existing: ${existing.types}\n` +
+        `- requested: ${types}\n` +
+        `Refusing to change automatically (airplane-grade). Update tsonic.json manually if intended.`,
+    };
+  }
+
+  arr[idx] = { ...existing, types };
+  return { ok: true, value: undefined };
 };
 
 type FrameworkReferenceConfig =
@@ -215,9 +263,16 @@ export const addPackageCommand = (
   }
 
   const dotnet = config.dotnet ?? {};
-  const libraries = [...(dotnet.libraries ?? [])];
+  const libraries: LibraryConfig[] = [...((dotnet.libraries ?? []) as LibraryConfig[])];
+  const rootRelPath = `lib/${basename(dllAbs)}`;
+
   for (const rel of copiedRelPaths) {
-    addUnique(libraries, rel);
+    if (typesPackage && normalizeLibraryPathKey(rel) === normalizeLibraryPathKey(rootRelPath)) {
+      const res = ensureLibraryTypes(libraries, rel, typesPackage);
+      if (!res.ok) return res;
+      continue;
+    }
+    ensureLibraryPath(libraries, rel);
   }
 
   const frameworkRefs: FrameworkReferenceConfig[] = [

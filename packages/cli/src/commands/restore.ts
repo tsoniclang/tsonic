@@ -14,6 +14,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Result, TsonicConfig } from "../types.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
@@ -39,7 +40,132 @@ import {
   writeTsonicJson,
 } from "./add-common.js";
 
-export type RestoreOptions = AddCommandOptions;
+export type RestoreOptions = AddCommandOptions & {
+  /**
+   * Skip bindings re-generation when inputs are unchanged.
+   * In incremental mode we still verify/install generated packages into node_modules.
+   */
+  readonly incremental?: boolean;
+};
+
+type LibraryConfig = string | { readonly path: string; readonly types?: string };
+
+const normalizeLibraryPathKey = (p: string): string =>
+  p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+
+const getLibraryPath = (entry: LibraryConfig): string =>
+  typeof entry === "string" ? entry : entry.path;
+
+const getLibraryTypes = (entry: LibraryConfig): string | undefined =>
+  typeof entry === "string" ? undefined : entry.types;
+
+const sha256Hex = (data: string): string =>
+  createHash("sha256").update(data, "utf-8").digest("hex");
+
+const sha256FileHex = (path: string): Result<string, string> => {
+  try {
+    const data = readFileSync(path);
+    return {
+      ok: true,
+      value: createHash("sha256").update(new Uint8Array(data)).digest("hex"),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to read file for hashing: ${path}\n${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+type GeneratedBindingsMeta = {
+  readonly fingerprint?: string;
+};
+
+const readNpmPackageIdentity = (
+  packageRoot: string
+): Result<{ readonly name: string; readonly version: string }, string> => {
+  const pkgJsonPath = join(packageRoot, "package.json");
+  if (!existsSync(pkgJsonPath)) {
+    return { ok: false, error: `package.json not found for npm package at: ${packageRoot}` };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
+      name?: unknown;
+      version?: unknown;
+    };
+    const name = typeof parsed.name === "string" ? parsed.name : "";
+    const version = typeof parsed.version === "string" ? parsed.version : "";
+    if (!name || !version) {
+      return { ok: false, error: `Invalid package.json at ${pkgJsonPath} (missing name/version)` };
+    }
+    return { ok: true, value: { name, version } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to parse ${pkgJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+const computeExternalTypesFingerprint = (
+  projectRoot: string,
+  packageName: string
+): Result<{ readonly fingerprint: string; readonly packageRoot: string }, string> => {
+  const root = resolvePackageRoot(projectRoot, packageName);
+  if (!root.ok) return root;
+  const identity = readNpmPackageIdentity(root.value);
+  if (!identity.ok) return identity;
+  return {
+    ok: true,
+    value: { packageRoot: root.value, fingerprint: `npm:${identity.value.name}@${identity.value.version}` },
+  };
+};
+
+const readGeneratedBindingsMeta = (dir: string): Result<GeneratedBindingsMeta, string> => {
+  const pkgJsonPath = join(dir, "package.json");
+  if (!existsSync(pkgJsonPath)) return { ok: true, value: {} };
+  try {
+    const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<string, unknown>;
+    const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
+    if (tsonic.generated !== true) return { ok: true, value: {} };
+    const fingerprint = typeof tsonic.fingerprint === "string" ? tsonic.fingerprint : undefined;
+    return { ok: true, value: { fingerprint } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to parse ${pkgJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+const writeGeneratedBindingsFingerprint = (
+  dir: string,
+  fingerprint: string,
+  signature: Record<string, unknown>
+): Result<void, string> => {
+  const pkgJsonPath = join(dir, "package.json");
+  if (!existsSync(pkgJsonPath)) {
+    return { ok: false, error: `Internal error: missing bindings package.json at ${pkgJsonPath}` };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<string, unknown>;
+    const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
+    if (tsonic.generated !== true) {
+      return {
+        ok: false,
+        error: `Refusing to write fingerprint into non-generated package.json: ${pkgJsonPath}`,
+      };
+    }
+    parsed.tsonic = { ...tsonic, fingerprint, signature };
+    writeFileSync(pkgJsonPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to write fingerprint into ${pkgJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
 
 type PackageReference = { readonly id: string; readonly version: string };
 type PackageReferenceConfig = {
@@ -246,12 +372,23 @@ export const restoreCommand = (
   const dotnet = config.dotnet ?? {};
   const naming = detectTsbindgenNaming(config);
 
+  const tsbindgenHashResult = sha256FileHex(tsbindgenDll);
+  if (!tsbindgenHashResult.ok) return tsbindgenHashResult;
+  const tsbindgenSha256 = tsbindgenHashResult.value;
+
+  const dotnetIdentity = readNpmPackageIdentity(dotnetLib);
+  if (!dotnetIdentity.ok) return dotnetIdentity;
+  const coreIdentity = readNpmPackageIdentity(coreLib);
+  if (!coreIdentity.ok) return coreIdentity;
+
   // 1) FrameworkReferences bindings
   for (const entry of (dotnet.frameworkReferences ??
     []) as FrameworkReferenceConfig[]) {
     const frameworkRef = typeof entry === "string" ? entry : entry.id;
     const typesPackage = typeof entry === "string" ? undefined : entry.types;
     if (typesPackage) {
+      const ext = computeExternalTypesFingerprint(projectRoot, typesPackage);
+      if (!ext.ok) return ext;
       continue; // bindings supplied externally; do not auto-generate.
     }
 
@@ -275,6 +412,31 @@ export const restoreCommand = (
     });
     if (!pkgJsonResult.ok) return pkgJsonResult;
 
+    const depsAbs = (options.deps ?? [])
+      .map((d) => resolveFromProjectRoot(projectRoot, d))
+      .sort((a, b) => a.localeCompare(b));
+
+    const signature: Record<string, unknown> = {
+      schemaVersion: 1,
+      kind: "framework",
+      packageName,
+      naming,
+      strict: options.strict === true,
+      tool: { tsbindgenSha256 },
+      libs: {
+        dotnet: dotnetIdentity.value,
+        core: coreIdentity.value,
+      },
+      source: { frameworkReference: frameworkRef, runtime: runtime },
+      refDirs: [
+        ...runtimes
+          .map((r) => ({ name: r.name, version: r.version, dir: r.dir }))
+          .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)),
+        ...depsAbs.map((d) => ({ dir: d })),
+      ],
+    };
+    const fingerprint = `sha256:${sha256Hex(JSON.stringify(signature))}`;
+
     const generateArgs: string[] = [
       "-d",
       runtime.dir,
@@ -292,8 +454,15 @@ export const restoreCommand = (
       generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
     }
 
-    const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
-    if (!genResult.ok) return genResult;
+    const meta = readGeneratedBindingsMeta(outDir);
+    if (!meta.ok) return meta;
+
+    if (!options.incremental || meta.value.fingerprint !== fingerprint) {
+      const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+      if (!genResult.ok) return genResult;
+      const fpWrite = writeGeneratedBindingsFingerprint(outDir, fingerprint, signature);
+      if (!fpWrite.ok) return fpWrite;
+    }
 
     const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
     if (!installResult.ok) return installResult;
@@ -443,12 +612,18 @@ export const restoreCommand = (
         typesPackageByPkgId.set(normalizePkgId(pr.id), pr.types);
       }
     }
+    for (const typesPkg of typesPackageByPkgId.values()) {
+      const ext = computeExternalTypesFingerprint(projectRoot, typesPkg);
+      if (!ext.ok) return ext;
+    }
 
-    const typesLibDirByPkgId = new Map<string, string>();
+    const typesInfoByPkgId = new Map<string, { readonly libDir: string; readonly fingerprint: string }>();
 
-    const resolveTypesLibDir = (packageId: string): Result<string, string> => {
+    const resolveTypesInfo = (
+      packageId: string
+    ): Result<{ readonly libDir: string; readonly fingerprint: string }, string> => {
       const norm = normalizePkgId(packageId);
-      const existing = typesLibDirByPkgId.get(norm);
+      const existing = typesInfoByPkgId.get(norm);
       if (existing) return { ok: true, value: existing };
 
       const typesPkg = typesPackageByPkgId.get(norm);
@@ -456,10 +631,11 @@ export const restoreCommand = (
         return { ok: false, error: `Internal error: missing types package for ${packageId}` };
       }
 
-      const root = resolvePackageRoot(projectRoot, typesPkg);
-      if (!root.ok) return root;
-      typesLibDirByPkgId.set(norm, root.value);
-      return { ok: true, value: root.value };
+      const info = computeExternalTypesFingerprint(projectRoot, typesPkg);
+      if (!info.ok) return info;
+      const value = { libDir: info.value.packageRoot, fingerprint: info.value.fingerprint };
+      typesInfoByPkgId.set(norm, value);
+      return { ok: true, value };
     };
 
     const transitiveDeps = new Map<string, Set<string>>();
@@ -473,7 +649,8 @@ export const restoreCommand = (
       transitiveDeps.set(libKey, set);
     }
 
-    const bindingsDirByLibKey = new Map<string, string>();
+    const libDirByLibKey = new Map<string, string>();
+    const fingerprintByLibKey = new Map<string, string>();
 
     for (const libKey of topo) {
       const node = packagesByLibKey.get(libKey);
@@ -485,18 +662,62 @@ export const restoreCommand = (
         (p) => normalizePkgId(p.id) === normalizePkgId(node.packageId)
       );
       if (declared?.types) {
+        const info = resolveTypesInfo(node.packageId);
+        if (!info.ok) return info;
+        libDirByLibKey.set(libKey, info.value.libDir);
+        fingerprintByLibKey.set(libKey, info.value.fingerprint);
         continue; // bindings supplied externally; do not auto-generate.
       }
 
       const packageName = defaultBindingsPackageNameForNuget(node.packageId);
       const outDir = bindingsStoreDir(projectRoot, "nuget", packageName);
-      bindingsDirByLibKey.set(libKey, outDir);
+      libDirByLibKey.set(libKey, outDir);
 
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
         kind: "nuget",
         source: { packageId: node.packageId, version: node.version },
       });
       if (!pkgJsonResult.ok) return pkgJsonResult;
+
+      const seedInfo: Array<{ readonly path: string; readonly sha256: string }> = [];
+      for (const dll of seedDlls) {
+        const h = sha256FileHex(dll);
+        if (!h.ok) return h;
+        seedInfo.push({ path: dll, sha256: h.value });
+      }
+      seedInfo.sort((a, b) => a.path.localeCompare(b.path));
+
+      const depFingerprints = Array.from(transitiveDeps.get(libKey) ?? [])
+        .map((depKey) => {
+          const fp = fingerprintByLibKey.get(depKey);
+          return fp ? { libKey: depKey, fingerprint: fp } : undefined;
+        })
+        .filter((x): x is { libKey: string; fingerprint: string } => x !== undefined)
+        .sort((a, b) => a.libKey.localeCompare(b.libKey));
+
+      const signature: Record<string, unknown> = {
+        schemaVersion: 1,
+        kind: "nuget",
+        packageName,
+        naming,
+        strict: options.strict === true,
+        tool: { tsbindgenSha256 },
+        libs: { dotnet: dotnetIdentity.value, core: coreIdentity.value },
+        source: { packageId: node.packageId, version: node.version },
+        seeds: seedInfo,
+        deps: depFingerprints,
+        refDirs: {
+          runtimes: runtimes
+            .map((r) => ({ name: r.name, version: r.version, dir: r.dir }))
+            .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)),
+          nugetCompileDirs: Array.from(compileDirs).sort((a, b) => a.localeCompare(b)),
+          deps: (options.deps ?? [])
+            .map((d) => resolveFromProjectRoot(projectRoot, d))
+            .sort((a, b) => a.localeCompare(b)),
+        },
+      };
+      const fingerprint = `sha256:${sha256Hex(JSON.stringify(signature))}`;
+      fingerprintByLibKey.set(libKey, fingerprint);
 
       const generateArgs: string[] = [
         ...seedDlls.flatMap((p) => ["-a", p]),
@@ -512,20 +733,8 @@ export const restoreCommand = (
 
       const libDirs = new Set<string>();
       for (const depKey of transitiveDeps.get(libKey) ?? []) {
-        const depNode = packagesByLibKey.get(depKey);
-        if (!depNode) continue;
-
-        const depPkgNorm = normalizePkgId(depNode.packageId);
-        const typesPkg = typesPackageByPkgId.get(depPkgNorm);
-        if (typesPkg) {
-          const dirRes = resolveTypesLibDir(depNode.packageId);
-          if (!dirRes.ok) return dirRes;
-          libDirs.add(dirRes.value);
-          continue;
-        }
-
-        const generated = bindingsDirByLibKey.get(depKey);
-        if (generated) libDirs.add(generated);
+        const depDir = libDirByLibKey.get(depKey);
+        if (depDir) libDirs.add(depDir);
       }
       for (const depDir of Array.from(libDirs).sort((a, b) => a.localeCompare(b))) {
         generateArgs.push("--lib", depDir);
@@ -537,8 +746,15 @@ export const restoreCommand = (
         generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
       }
 
-      const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
-      if (!genResult.ok) return genResult;
+      const meta = readGeneratedBindingsMeta(outDir);
+      if (!meta.ok) return meta;
+
+      if (!options.incremental || meta.value.fingerprint !== fingerprint) {
+        const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+        if (!genResult.ok) return genResult;
+        const fpWrite = writeGeneratedBindingsFingerprint(outDir, fingerprint, signature);
+        if (!fpWrite.ok) return fpWrite;
+      }
 
       const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
       if (!installResult.ok) return installResult;
@@ -547,8 +763,28 @@ export const restoreCommand = (
   }
 
   // 3) Local DLL bindings (dotnet.libraries)
-  const dllLibraries = (dotnet.libraries ?? []).filter(
-    (p) => {
+  const dotnetLibraries = (dotnet.libraries ?? []) as LibraryConfig[];
+
+  for (const entry of dotnetLibraries) {
+    const typesPkg = getLibraryTypes(entry);
+    if (!typesPkg) continue;
+    const path = getLibraryPath(entry);
+    if (!path.toLowerCase().endsWith(".dll")) {
+      return {
+        ok: false,
+        error:
+          `Invalid dotnet.libraries entry: 'types' is only valid for DLL paths.\n` +
+          `- path: ${path}\n` +
+          `- types: ${typesPkg}`,
+      };
+    }
+    const ext = computeExternalTypesFingerprint(projectRoot, typesPkg);
+    if (!ext.ok) return ext;
+  }
+
+  const dllLibraries = dotnetLibraries
+    .map(getLibraryPath)
+    .filter((p) => {
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;
@@ -556,9 +792,15 @@ export const restoreCommand = (
       // Other DLL paths (e.g. workspace project outputs) are treated as build-time
       // references only.
       return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
-    }
-  );
+    });
   if (dllLibraries.length > 0) {
+    const typesPackageByLibraryKey = new Map<string, string>();
+    for (const entry of dotnetLibraries) {
+      const typesPkg = getLibraryTypes(entry);
+      if (!typesPkg) continue;
+      typesPackageByLibraryKey.set(normalizeLibraryPathKey(getLibraryPath(entry)), typesPkg);
+    }
+
     const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(projectRoot, p));
     for (const p of dllAbs) {
       if (!existsSync(p)) {
@@ -677,21 +919,69 @@ export const restoreCommand = (
       transitiveDeps.set(id, set);
     }
 
-    const bindingsDirById = new Map<string, string>();
+    const libDirById = new Map<string, string>();
+    const fingerprintById = new Map<string, string>();
     for (const id of order) {
       const asm = byId.get(id);
       const destPath = destPathById.get(id);
       if (!asm || !destPath) return { ok: false, error: `Internal error: missing assembly info for ${id}` };
 
+      const relLibraryPath = `lib/${basename(destPath)}`;
+      const typesPkg = typesPackageByLibraryKey.get(normalizeLibraryPathKey(relLibraryPath));
+      if (typesPkg) {
+        const info = computeExternalTypesFingerprint(projectRoot, typesPkg);
+        if (!info.ok) return info;
+        libDirById.set(id, info.value.packageRoot);
+        fingerprintById.set(id, info.value.fingerprint);
+        continue; // bindings supplied externally; do not auto-generate.
+      }
+
       const packageName = defaultBindingsPackageNameForDll(destPath);
       const outDir = bindingsStoreDir(projectRoot, "dll", packageName);
-      bindingsDirById.set(id, outDir);
+      libDirById.set(id, outDir);
 
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
         kind: "dll",
         source: { assemblyName: asm.name, version: asm.version, path: `lib/${basename(destPath)}` },
       });
       if (!pkgJsonResult.ok) return pkgJsonResult;
+
+      const dllHash = sha256FileHex(destPath);
+      if (!dllHash.ok) return dllHash;
+
+      const depFingerprints = Array.from(transitiveDeps.get(id) ?? [])
+        .map((depId) => {
+          const fp = fingerprintById.get(depId);
+          return fp ? { id: depId, fingerprint: fp } : undefined;
+        })
+        .filter((x): x is { id: string; fingerprint: string } => x !== undefined)
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      const signature: Record<string, unknown> = {
+        schemaVersion: 1,
+        kind: "dll",
+        packageName,
+        naming,
+        strict: options.strict === true,
+        tool: { tsbindgenSha256 },
+        libs: { dotnet: dotnetIdentity.value, core: coreIdentity.value },
+        source: {
+          assemblyName: asm.name,
+          version: asm.version,
+          path: relLibraryPath,
+          sha256: dllHash.value,
+        },
+        deps: depFingerprints,
+        refDirs: {
+          runtimes: runtimes
+            .map((r) => ({ name: r.name, version: r.version, dir: r.dir }))
+            .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)),
+          deps: userDeps.slice().sort((a, b) => a.localeCompare(b)),
+          lib: join(projectRoot, "lib"),
+        },
+      };
+      const fingerprint = `sha256:${sha256Hex(JSON.stringify(signature))}`;
+      fingerprintById.set(id, fingerprint);
 
       const generateArgs: string[] = [
         "-a",
@@ -707,7 +997,7 @@ export const restoreCommand = (
       ];
 
       const libs = Array.from(transitiveDeps.get(id) ?? [])
-        .map((depId) => bindingsDirById.get(depId))
+        .map((depId) => libDirById.get(depId))
         .filter((p): p is string => typeof p === "string")
         .sort((a, b) => a.localeCompare(b));
       for (const lib of libs) generateArgs.push("--lib", lib);
@@ -716,8 +1006,15 @@ export const restoreCommand = (
       for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
       generateArgs.push("--ref-dir", join(projectRoot, "lib"));
 
-      const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
-      if (!genResult.ok) return genResult;
+      const meta = readGeneratedBindingsMeta(outDir);
+      if (!meta.ok) return meta;
+
+      if (!options.incremental || meta.value.fingerprint !== fingerprint) {
+        const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+        if (!genResult.ok) return genResult;
+        const fpWrite = writeGeneratedBindingsFingerprint(outDir, fingerprint, signature);
+        if (!fpWrite.ok) return fpWrite;
+      }
 
       const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
       if (!installResult.ok) return installResult;

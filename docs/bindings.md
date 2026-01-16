@@ -106,7 +106,18 @@ The actual NuGet package DLLs are read from the standard .NET NuGet cache (not c
     - `.tsonic/bindings/dll/<asm>-types/`
     - mirrors to `node_modules/<asm>-types/`
 - If `typesPackage` is provided:
-  - installs it and skips auto-generation.
+  - installs it and skips auto-generation for that DLL
+  - records the mapping in `tsonic.json` so future `tsonic restore` runs won’t try to generate bindings for it:
+
+```json
+{
+  "dotnet": {
+    "libraries": [
+      { "path": "lib/MyLib.dll", "types": "my-lib-types" }
+    ]
+  }
+}
+```
 
 ## Recommended Workspace Layout (Concrete Example)
 
@@ -225,4 +236,3 @@ Per workspace package:
 - Use `.tsonic/bindings/**` for **auto-generated per-project** bindings.
 - Use `dist/tsonic/bindings/**` + `exports` for **shippable bindings packages** (workspaces/published).
 - Treat “vendored C# source” the same as “local DLL” at the Tsonic boundary: build a DLL, then `tsonic add package <dll>`.
-

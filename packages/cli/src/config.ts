@@ -143,6 +143,44 @@ export const loadConfig = (
       }
     }
 
+    const libraries = config.dotnet?.libraries;
+    if (libraries !== undefined) {
+      if (!Array.isArray(libraries)) {
+        return {
+          ok: false,
+          error:
+            "tsonic.json: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }",
+        };
+      }
+
+      for (const entry of libraries as unknown[]) {
+        if (typeof entry === "string") continue;
+        if (entry === null || typeof entry !== "object") {
+          return {
+            ok: false,
+            error:
+              "tsonic.json: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }",
+          };
+        }
+        const path = (entry as { readonly path?: unknown }).path;
+        const types = (entry as { readonly types?: unknown }).types;
+        if (typeof path !== "string") {
+          return {
+            ok: false,
+            error:
+              "tsonic.json: 'dotnet.libraries' object entries must have { path: string, types?: string }",
+          };
+        }
+        if (types !== undefined && typeof types !== "string") {
+          return {
+            ok: false,
+            error:
+              "tsonic.json: 'dotnet.libraries' object entries must have { path: string, types?: string }",
+          };
+        }
+      }
+    }
+
     return { ok: true, value: config };
   } catch (error) {
     return {
@@ -289,7 +327,9 @@ export const resolveConfig = (
   const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
 
   // Merge libraries from config and CLI
-  const configLibraries = config.dotnet?.libraries ?? [];
+  const configLibraries = (config.dotnet?.libraries ?? []).map((entry) =>
+    typeof entry === "string" ? entry : entry.path
+  );
   const cliLibraries = cliOptions.lib ?? [];
   const libraries = [...configLibraries, ...cliLibraries];
 

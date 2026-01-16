@@ -49,6 +49,7 @@ GENERATE/BUILD/RUN OPTIONS:
 
 ADD/RESTORE OPTIONS:
   --deps <dir>              Additional directory to probe for referenced assemblies (repeatable)
+  --incremental             Skip bindings re-generation when inputs are unchanged
 
 PROJECT INIT OPTIONS:
   --js                     Enable JSRuntime interop (installs @tsonic/js)
@@ -63,6 +64,7 @@ EXAMPLES:
   tsonic project init --nodejs
   tsonic project init --pure
   tsonic restore
+  tsonic restore --incremental
   tsonic add js
   tsonic add nodejs
   tsonic add package ./lib/MyLib.dll @company/mylib-types

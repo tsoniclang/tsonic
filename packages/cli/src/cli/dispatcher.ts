@@ -238,6 +238,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
       strict: parsed.options.strict,
+      incremental: parsed.options.incremental,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -258,7 +259,8 @@ export const runCli = async (args: string[]): Promise<number> => {
   ) {
     const hasFrameworkRefs = (rawConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
     const hasPackageRefs = (rawConfig.dotnet?.packageReferences?.length ?? 0) > 0;
-    const hasDllLibs = (rawConfig.dotnet?.libraries ?? []).some((p) => {
+    const hasDllLibs = (rawConfig.dotnet?.libraries ?? []).some((entry) => {
+      const p = typeof entry === "string" ? entry : entry.path;
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;
@@ -274,6 +276,7 @@ export const runCli = async (args: string[]): Promise<number> => {
         quiet: parsed.options.quiet,
         deps: parsed.options.deps,
         strict: parsed.options.strict,
+        incremental: true,
       });
       if (!restoreResult.ok) {
         console.error(`Error: ${restoreResult.error}`);

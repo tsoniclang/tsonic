@@ -172,6 +172,9 @@ export const parseArgs = (
       case "--strict":
         options.strict = true;
         break;
+      case "--incremental":
+        options.incremental = true;
+        break;
     }
   }
 

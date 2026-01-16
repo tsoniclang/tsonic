@@ -311,6 +311,7 @@ tsonic add nuget <package-id> <version> [types-package]
 | `--quiet`   | `-q`  | Suppress output | `false` |
 | `--deps <dir>` | - | Additional directory to probe for referenced assemblies (repeatable) | - |
 | `--strict`  | -     | Strict bindings generation (fail on constructor-constraint loss) | `false` |
+| `--incremental` | - | Skip bindings re-generation when inputs are unchanged | `false` |
 
 **Examples:**
 
@@ -476,7 +477,7 @@ By default, local bindings generation allows constructor-constraint loss (C# sti
 constraints at build time). Use `--strict` to make constructor-constraint loss a hard error.
 
 This command is also run automatically before `tsonic build` / `generate` / `run` / `pack` when the project has
-any .NET deps declared in `tsonic.json`.
+any .NET deps declared in `tsonic.json` (in incremental mode).
 
 Restore only auto-generates bindings for dependency entries that do **not** specify a `types` package.
 

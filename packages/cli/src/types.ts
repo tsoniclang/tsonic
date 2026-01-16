@@ -60,7 +60,20 @@ export type TsonicConfig = {
   };
   readonly dotnet?: {
     readonly typeRoots?: readonly string[];
-    readonly libraries?: readonly string[]; // External library paths for .NET interop
+    /**
+     * External library references for .NET interop.
+     *
+     * - Strings are treated as paths (DLL references or additional type roots).
+     * - Object entries allow attaching an external bindings package to a DLL path.
+     */
+    readonly libraries?: ReadonlyArray<
+      | string
+      | {
+          readonly path: string;
+          /** If provided, bindings are expected from this npm package (no auto-generation). */
+          readonly types?: string;
+        }
+    >;
     /** Additional shared frameworks (FrameworkReference) */
     readonly frameworkReferences?: ReadonlyArray<
       | string
@@ -92,6 +105,8 @@ export type CliOptions = {
    * validation rules (including constructor constraint loss).
    */
   strict?: boolean;
+  /** Skip bindings regeneration when inputs are unchanged (restore only). */
+  incremental?: boolean;
   config?: string;
   src?: string;
   out?: string;

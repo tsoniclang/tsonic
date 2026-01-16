@@ -59,10 +59,6 @@ const ensureDotnetForPeerDeps = (
   return ensureDevDependency(projectRoot, "@tsonic/dotnet", options, exec);
 };
 
-const addUnique = (arr: string[], value: string): void => {
-  if (!arr.includes(value)) arr.push(value);
-};
-
 export const addJsCommand = (
   configPath: string,
   options: AddCommandOptions = {},
@@ -86,8 +82,20 @@ export const addJsCommand = (
   if (!copyResult.ok) return copyResult;
 
   const dotnet = config.dotnet ?? {};
-  const libraries = [...(dotnet.libraries ?? [])];
-  addUnique(libraries, "lib/Tsonic.JSRuntime.dll");
+  type LibraryConfig = string | { readonly path: string; readonly types?: string };
+  const normalizePathKey = (p: string): string =>
+    p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const getPath = (entry: LibraryConfig): string =>
+    typeof entry === "string" ? entry : entry.path;
+  const hasLibrary = (arr: LibraryConfig[], path: string): boolean => {
+    const key = normalizePathKey(path);
+    return arr.some((e) => normalizePathKey(getPath(e)) === key);
+  };
+
+  const libraries: LibraryConfig[] = [...((dotnet.libraries ?? []) as LibraryConfig[])];
+  if (!hasLibrary(libraries, "lib/Tsonic.JSRuntime.dll")) {
+    libraries.push("lib/Tsonic.JSRuntime.dll");
+  }
 
   const writeResult = writeTsonicJson(configPath, {
     ...config,

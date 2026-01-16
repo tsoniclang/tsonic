@@ -414,11 +414,24 @@ Extra library inputs for the compiler.
 
 - Entries ending with `.dll` are treated as **assembly references** (added to the generated `.csproj`).
 - Other entries are treated as **additional TypeScript type roots** (passed to the TypeScript compiler).
+ - For DLL entries, you can optionally attach an external bindings package via `{ "path": "...", "types": "..." }`.
 
 ```json
 {
   "dotnet": {
     "libraries": ["lib/MyLib.dll", "./types", "../shared/common"]
+  }
+}
+```
+
+Example: tell `tsonic restore` that bindings for a vendored DLL are supplied externally (no auto-generation):
+
+```json
+{
+  "dotnet": {
+    "libraries": [
+      { "path": "lib/MyLib.dll", "types": "my-lib-types" }
+    ]
   }
 }
 ```
