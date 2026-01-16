@@ -548,7 +548,15 @@ export const restoreCommand = (
 
   // 3) Local DLL bindings (dotnet.libraries)
   const dllLibraries = (dotnet.libraries ?? []).filter(
-    (p) => p.toLowerCase().endsWith(".dll") && !isBuiltInRuntimeDllPath(p)
+    (p) => {
+      const normalized = p.replace(/\\/g, "/").toLowerCase();
+      if (!normalized.endsWith(".dll")) return false;
+      if (isBuiltInRuntimeDllPath(p)) return false;
+      // Only DLLs copied into ./lib are eligible for bindings generation.
+      // Other DLL paths (e.g. workspace project outputs) are treated as build-time
+      // references only.
+      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+    }
   );
   if (dllLibraries.length > 0) {
     const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(projectRoot, p));

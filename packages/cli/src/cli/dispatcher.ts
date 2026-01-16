@@ -258,9 +258,15 @@ export const runCli = async (args: string[]): Promise<number> => {
   ) {
     const hasFrameworkRefs = (rawConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
     const hasPackageRefs = (rawConfig.dotnet?.packageReferences?.length ?? 0) > 0;
-    const hasDllLibs = (rawConfig.dotnet?.libraries ?? []).some((p) =>
-      p.toLowerCase().endsWith(".dll") && !isBuiltInRuntimeDllPath(p)
-    );
+    const hasDllLibs = (rawConfig.dotnet?.libraries ?? []).some((p) => {
+      const normalized = p.replace(/\\/g, "/").toLowerCase();
+      if (!normalized.endsWith(".dll")) return false;
+      if (isBuiltInRuntimeDllPath(p)) return false;
+      // Only vendored DLLs (copied into ./lib) require restore-generated bindings.
+      // Non-vendored references (e.g., workspace project outputs) are build-time
+      // assembly references only and should not trigger restore.
+      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+    });
 
     if (hasFrameworkRefs || hasPackageRefs || hasDllLibs) {
       const restoreResult = restoreCommand(configPath, {
