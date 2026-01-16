@@ -209,6 +209,28 @@ export const resolvePackageRoot = (
       : join(projectRoot, "__tsonic_require__.js")
   );
 
+  const tryResolveTsonicSibling = (): string | null => {
+    if (!packageName.startsWith("@tsonic/")) return null;
+    const parts = packageName.split("/");
+    const dirName = parts[1];
+    if (!dirName) return null;
+
+    const here = fileURLToPath(import.meta.url);
+    const repoRoot = resolve(join(dirname(here), "../../../.."));
+    const monorepoParent = resolve(join(repoRoot, ".."));
+
+    const candidate = resolve(join(monorepoParent, dirName));
+    const pkgJsonPath = join(candidate, "package.json");
+    if (!existsSync(pkgJsonPath)) return null;
+    try {
+      const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as { name?: unknown };
+      if (parsed.name === packageName) return candidate;
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
   try {
     const pkgJson = req.resolve(`${packageName}/package.json`);
     return { ok: true, value: dirname(pkgJson) };
@@ -220,6 +242,9 @@ export const resolvePackageRoot = (
     } catch {
       // ignore - fall through to user-friendly error below
     }
+
+    const sibling = tryResolveTsonicSibling();
+    if (sibling) return { ok: true, value: sibling };
 
     return {
       ok: false,

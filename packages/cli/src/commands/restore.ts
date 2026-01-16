@@ -530,6 +530,31 @@ export const restoreCommand = (
     const shouldAutoGenerate = (p: PackageReferenceConfig): boolean =>
       p.types === undefined || p.types.trim().length === 0;
 
+    const typesPackageByPkgId = new Map<string, string>();
+    const typesInfoByPkgId = new Map<string, { readonly libDir: string; readonly fingerprint: string }>();
+
+    for (const pr of packageReferencesAll) {
+      if (!pr.types || pr.types.trim().length === 0) continue;
+      const norm = normalizePkgId(pr.id);
+      const existing = typesPackageByPkgId.get(norm);
+      if (existing && existing !== pr.types) {
+        return {
+          ok: false,
+          error:
+            `NuGet package '${pr.id}' is configured with multiple different 'types' packages:\n` +
+            `- ${existing}\n` +
+            `- ${pr.types}\n` +
+            `Refusing to proceed (airplane-grade). Fix your tsonic.json to have a single owner.`,
+        };
+      }
+      typesPackageByPkgId.set(norm, pr.types);
+      if (!typesInfoByPkgId.has(norm)) {
+        const info = computeExternalTypesFingerprint(projectRoot, pr.types);
+        if (!info.ok) return info;
+        typesInfoByPkgId.set(norm, { libDir: info.value.packageRoot, fingerprint: info.value.fingerprint });
+      }
+    }
+
     const roots: string[] = [];
     for (const pr of packageReferencesAll.filter(shouldAutoGenerate)) {
       const root = libKeyByPkgId.get(normalizePkgId(pr.id));
@@ -606,36 +631,13 @@ export const restoreCommand = (
       for (const dll of node.dlls) compileDirs.add(dirname(dll));
     }
 
-    const typesPackageByPkgId = new Map<string, string>();
-    for (const pr of packageReferencesAll) {
-      if (pr.types && pr.types.trim().length > 0) {
-        typesPackageByPkgId.set(normalizePkgId(pr.id), pr.types);
-      }
-    }
-    for (const typesPkg of typesPackageByPkgId.values()) {
-      const ext = computeExternalTypesFingerprint(projectRoot, typesPkg);
-      if (!ext.ok) return ext;
-    }
-
-    const typesInfoByPkgId = new Map<string, { readonly libDir: string; readonly fingerprint: string }>();
-
     const resolveTypesInfo = (
       packageId: string
     ): Result<{ readonly libDir: string; readonly fingerprint: string }, string> => {
       const norm = normalizePkgId(packageId);
       const existing = typesInfoByPkgId.get(norm);
       if (existing) return { ok: true, value: existing };
-
-      const typesPkg = typesPackageByPkgId.get(norm);
-      if (!typesPkg) {
-        return { ok: false, error: `Internal error: missing types package for ${packageId}` };
-      }
-
-      const info = computeExternalTypesFingerprint(projectRoot, typesPkg);
-      if (!info.ok) return info;
-      const value = { libDir: info.value.packageRoot, fingerprint: info.value.fingerprint };
-      typesInfoByPkgId.set(norm, value);
-      return { ok: true, value };
+      return { ok: false, error: `Internal error: missing types package info for ${packageId}` };
     };
 
     const transitiveDeps = new Map<string, Set<string>>();
