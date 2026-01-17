@@ -53,7 +53,6 @@ ADD/RESTORE OPTIONS:
 PROJECT INIT OPTIONS:
   --js                     Enable JSRuntime interop (installs @tsonic/js)
   --nodejs                  Enable Node.js interop (installs @tsonic/nodejs)
-  --pure                    Use PascalCase .NET bindings
   --skip-types              Skip installing type declarations
   --types-version <ver>     Version of type declarations to install
 
@@ -61,7 +60,6 @@ EXAMPLES:
   tsonic project init
   tsonic project init --js
   tsonic project init --nodejs
-  tsonic project init --pure
   tsonic restore
   tsonic add js
   tsonic add nodejs

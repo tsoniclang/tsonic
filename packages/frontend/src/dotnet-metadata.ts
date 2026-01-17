@@ -1,5 +1,11 @@
 /**
- * .NET Metadata Loader - Reads .metadata.json files to determine override behavior
+ * .NET Semantic Registry — Loaded from tsbindgen `<Namespace>/bindings.json`
+ *
+ * This is a lightweight semantic index used by a few compiler passes
+ * (e.g., override/shadow detection against CLR base classes).
+ *
+ * NOTE: tsbindgen no longer emits `.metadata.json`. All CLR semantics needed
+ * by the compiler live in `bindings.json`.
  */
 
 /**
@@ -17,14 +23,40 @@ export type DotnetMemberMetadata = {
  */
 export type DotnetTypeMetadata = {
   readonly kind: "class" | "interface" | "struct" | "enum";
-  readonly members: Readonly<Record<string, DotnetMemberMetadata>>;
+  readonly methods: ReadonlyMap<string, ReadonlyMap<number, DotnetMemberMetadata>>;
+  readonly properties: ReadonlyMap<string, DotnetMemberMetadata>;
 };
 
 /**
- * Complete metadata file structure
+ * Minimal shape of tsbindgen `<Namespace>/bindings.json` (only fields we use here).
  */
-export type DotnetMetadataFile = {
-  readonly types: Readonly<Record<string, DotnetTypeMetadata>>;
+export type TsbindgenBindingsFile = {
+  readonly namespace: string;
+  readonly types: readonly TsbindgenBindingsType[];
+};
+
+export type TsbindgenBindingsType = {
+  readonly clrName: string;
+  readonly kind?: string;
+  readonly methods?: readonly TsbindgenBindingsMethod[];
+  readonly properties?: readonly TsbindgenBindingsProperty[];
+};
+
+export type TsbindgenBindingsMethod = {
+  readonly clrName: string;
+  readonly isStatic?: boolean;
+  readonly isVirtual?: boolean;
+  readonly isSealed?: boolean;
+  readonly isAbstract?: boolean;
+  readonly parameterCount?: number;
+};
+
+export type TsbindgenBindingsProperty = {
+  readonly clrName: string;
+  readonly isStatic?: boolean;
+  readonly isVirtual?: boolean;
+  readonly isSealed?: boolean;
+  readonly isAbstract?: boolean;
 };
 
 /**
@@ -35,11 +67,65 @@ export class DotnetMetadataRegistry {
   private readonly metadata = new Map<string, DotnetTypeMetadata>();
 
   /**
-   * Load a metadata file and add its types to the registry
+   * Load a tsbindgen bindings.json file and add its types to the registry.
    */
-  loadMetadataFile(_filePath: string, content: DotnetMetadataFile): void {
-    for (const [typeName, typeMetadata] of Object.entries(content.types)) {
-      this.metadata.set(typeName, typeMetadata);
+  loadBindingsFile(_filePath: string, content: TsbindgenBindingsFile): void {
+    for (const type of content.types) {
+      const kindMap: Record<string, DotnetTypeMetadata["kind"]> = {
+        Class: "class",
+        Interface: "interface",
+        Struct: "struct",
+        Enum: "enum",
+      };
+
+      const kind = kindMap[type.kind ?? ""] ?? "class";
+
+      const properties = new Map<string, DotnetMemberMetadata>();
+      for (const prop of type.properties ?? []) {
+        if (prop.isStatic) continue;
+        properties.set(prop.clrName, {
+          kind: "property",
+          virtual: prop.isVirtual === true || prop.isAbstract === true,
+          sealed: prop.isSealed === true,
+          abstract: prop.isAbstract === true,
+        });
+      }
+
+      const methods = new Map<string, Map<number, DotnetMemberMetadata>>();
+      for (const method of type.methods ?? []) {
+        if (method.isStatic) continue;
+        const paramCount = method.parameterCount;
+        if (typeof paramCount !== "number") continue;
+
+        const byCount = methods.get(method.clrName) ?? new Map<number, DotnetMemberMetadata>();
+
+        const existing = byCount.get(paramCount);
+        const next: DotnetMemberMetadata = existing
+          ? {
+              kind: "method",
+              virtual:
+                existing.virtual === true ||
+                method.isVirtual === true ||
+                method.isAbstract === true,
+              sealed: existing.sealed === true || method.isSealed === true,
+              abstract: existing.abstract === true || method.isAbstract === true,
+            }
+          : {
+              kind: "method",
+              virtual: method.isVirtual === true || method.isAbstract === true,
+              sealed: method.isSealed === true,
+              abstract: method.isAbstract === true,
+            };
+
+        byCount.set(paramCount, next);
+        methods.set(method.clrName, byCount);
+      }
+
+      this.metadata.set(type.clrName, {
+        kind,
+        methods,
+        properties,
+      });
     }
   }
 
@@ -63,7 +149,32 @@ export class DotnetMetadataRegistry {
     if (!typeMetadata) {
       return undefined;
     }
-    return typeMetadata.members[memberSignature];
+
+    // Method signature: Name(type1,type2,...) — we only use arity (count) here.
+    const sigMatch = memberSignature.match(/^([^(]+)\((.*)\)$/);
+    if (sigMatch) {
+      const methodName = sigMatch[1];
+      if (!methodName) return undefined;
+      const rawParams = sigMatch[2]?.trim() ?? "";
+      const paramCount =
+        rawParams.length === 0 ? 0 : rawParams.split(",").filter(Boolean).length;
+
+      const byCount = typeMetadata.methods.get(methodName);
+      if (!byCount) return undefined;
+
+      const exact = byCount.get(paramCount);
+      if (exact) return exact;
+
+      // If there's exactly one overload for this name, accept it as the only candidate.
+      if (byCount.size === 1) {
+        return Array.from(byCount.values())[0];
+      }
+
+      return undefined;
+    }
+
+    // Property lookup
+    return typeMetadata.properties.get(memberSignature);
   }
 
   /**

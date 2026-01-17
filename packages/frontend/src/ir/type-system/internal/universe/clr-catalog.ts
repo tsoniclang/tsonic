@@ -1,7 +1,7 @@
 /**
  * CLR Type Catalog Loader
  *
- * Loads CLR type metadata from bindings.json and metadata.json files
+ * Loads CLR type metadata from tsbindgen <Namespace>/bindings.json files
  * into a queryable catalog structure.
  *
  * INVARIANT INV-CLR: All assembly types loaded here become part of the
@@ -9,8 +9,7 @@
  *
  * The loader:
  * 1. Scans node_modules/@tsonic/* packages for metadata files
- * 2. Parses metadata.json for type definitions, members, signatures
- * 3. Parses bindings.json for TS ↔ CLR name mappings
+ * 2. Parses bindings.json for type definitions, members, signatures
  * 4. Converts to NominalEntry structures with proper IrType members
  */
 
@@ -18,6 +17,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as ts from "typescript";
 import type { IrType } from "../../../types/index.js";
+import { tsbindgenClrTypeNameToTsTypeName } from "../../../../tsbindgen/names.js";
 import type {
   AssemblyTypeCatalog,
   TypeId,
@@ -30,9 +30,9 @@ import type {
   ParameterMode,
   TypeParameterEntry,
   HeritageEdge,
-  RawMetadataFile,
-  RawMetadataType,
-  RawMetadataMethod,
+  RawBindingsFile,
+  RawBindingsType,
+  RawBindingsMethod,
 } from "./types.js";
 import { makeTypeId, parseStableId } from "./types.js";
 
@@ -1057,7 +1057,7 @@ const parseFieldType = (normalizedSig: string): IrType => {
  */
 const parseMethodSignature = (
   normalizedSig: string,
-  method: RawMetadataMethod
+  method: RawBindingsMethod
 ): MethodSignatureEntry => {
   // Parse return type
   const returnMatch = normalizedSig.match(/\):([^|]+)\|/);
@@ -1069,6 +1069,12 @@ const parseMethodSignature = (
   // Parse parameter types
   const paramsMatch = normalizedSig.match(/\|\(([^)]*)\):/);
   const parameters: ParameterEntry[] = [];
+  const modifierByIndex = new Map<number, ParameterMode>();
+  for (const m of method.parameterModifiers ?? []) {
+    if (m.modifier === "ref" || m.modifier === "out" || m.modifier === "in") {
+      modifierByIndex.set(m.index, m.modifier);
+    }
+  }
 
   if (paramsMatch && paramsMatch[1]) {
     const paramTypes = splitTypeArguments(paramsMatch[1]);
@@ -1076,11 +1082,13 @@ const parseMethodSignature = (
       const rawParamType = paramTypes[i];
       if (!rawParamType) continue;
       let paramType = rawParamType.trim();
-      let mode: ParameterMode = "value";
+      let mode: ParameterMode = modifierByIndex.get(i) ?? "value";
 
       // Handle ref/out/in modifiers
       if (paramType.endsWith("&")) {
-        mode = "ref"; // or could be out/in, need more info
+        // tsbindgen normalized signatures mark byref with '&'. Use the more
+        // precise modifier metadata when available.
+        mode = modifierByIndex.get(i) ?? "ref";
         paramType = paramType.slice(0, -1);
       }
 
@@ -1120,7 +1128,7 @@ const parseMethodSignature = (
  * Convert raw metadata type to NominalEntry.
  */
 const convertRawType = (
-  rawType: RawMetadataType,
+  rawType: RawBindingsType,
   _namespace: string
 ): NominalEntry => {
   // Parse stableId
@@ -1133,7 +1141,7 @@ const convertRawType = (
     rawType.stableId,
     rawType.clrName,
     parsed.assemblyName,
-    rawType.tsEmitName
+    tsbindgenClrTypeNameToTsTypeName(rawType.clrName)
   );
 
   // Convert kind
@@ -1150,8 +1158,9 @@ const convertRawType = (
   const members = new Map<string, MemberEntry>();
 
   for (const prop of rawType.properties) {
+    const propTsName = prop.clrName;
     const memberEntry: MemberEntry = {
-      tsName: prop.tsEmitName,
+      tsName: propTsName,
       clrName: prop.clrName,
       memberKind: "property" as MemberKind,
       type: parsePropertyType(prop.normalizedSignature),
@@ -1165,13 +1174,14 @@ const convertRawType = (
       hasSetter: prop.hasSetter,
       stableId: prop.stableId,
     };
-    members.set(prop.tsEmitName, memberEntry);
+    members.set(propTsName, memberEntry);
   }
 
   // Convert fields to members
   for (const field of rawType.fields) {
+    const fieldTsName = field.clrName;
     const memberEntry: MemberEntry = {
-      tsName: field.tsEmitName,
+      tsName: fieldTsName,
       clrName: field.clrName,
       memberKind: "field" as MemberKind,
       type: parseFieldType(field.normalizedSignature),
@@ -1185,15 +1195,15 @@ const convertRawType = (
       hasSetter: !field.isReadOnly && !field.isLiteral,
       stableId: field.stableId,
     };
-    members.set(field.tsEmitName, memberEntry);
+    members.set(fieldTsName, memberEntry);
   }
 
   // Convert methods to members (grouped by name for overloads)
-  const methodsByName = new Map<string, RawMetadataMethod[]>();
+  const methodsByName = new Map<string, RawBindingsMethod[]>();
   for (const method of rawType.methods) {
-    const existing = methodsByName.get(method.tsEmitName) ?? [];
+    const existing = methodsByName.get(method.clrName) ?? [];
     existing.push(method);
-    methodsByName.set(method.tsEmitName, existing);
+    methodsByName.set(method.clrName, existing);
   }
 
   for (const [methodName, overloads] of methodsByName) {
@@ -1299,10 +1309,10 @@ const findTsonicPackages = (nodeModulesPath: string): string[] => {
 };
 
 /**
- * Find all metadata.json files in a package.
+ * Find all bindings.json files in a package.
  */
-const findMetadataFiles = (packagePath: string): string[] => {
-  const metadataFiles: string[] = [];
+const findBindingsFiles = (packagePath: string): string[] => {
+  const bindingsFiles: string[] = [];
 
   const walk = (dir: string) => {
     if (!fs.existsSync(dir)) return;
@@ -1311,14 +1321,14 @@ const findMetadataFiles = (packagePath: string): string[] => {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(fullPath);
-      } else if (entry.name === "metadata.json") {
-        metadataFiles.push(fullPath);
+      } else if (entry.name === "bindings.json") {
+        bindingsFiles.push(fullPath);
       }
     }
   };
 
   walk(packagePath);
-  return metadataFiles;
+  return bindingsFiles;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1348,21 +1358,21 @@ export const loadClrCatalog = (
   }
 
   for (const packagePath of Array.from(packageRoots).sort()) {
-    // Find all metadata.json files
-    const metadataFiles = findMetadataFiles(packagePath);
+    // Find all bindings.json files
+    const bindingsFiles = findBindingsFiles(packagePath);
 
-    for (const metadataPath of metadataFiles) {
+    for (const bindingsPath of bindingsFiles) {
       try {
-        const dtsPath = path.join(path.dirname(metadataPath), "index.d.ts");
-        if (fs.existsSync(dtsPath)) {
-          dtsFiles.add(dtsPath);
+        const internalDtsPath = path.join(path.dirname(bindingsPath), "internal", "index.d.ts");
+        if (fs.existsSync(internalDtsPath)) {
+          dtsFiles.add(internalDtsPath);
         }
 
-        const content = fs.readFileSync(metadataPath, "utf-8");
-        const metadata: RawMetadataFile = JSON.parse(content);
+        const content = fs.readFileSync(bindingsPath, "utf-8");
+        const bindings: RawBindingsFile = JSON.parse(content);
 
-        for (const rawType of metadata.types) {
-          const entry = convertRawType(rawType, metadata.namespace);
+        for (const rawType of bindings.types) {
+          const entry = convertRawType(rawType, bindings.namespace);
 
           // Add to entries map
           entries.set(entry.typeId.stableId, entry);
@@ -1372,13 +1382,13 @@ export const loadClrCatalog = (
           clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
 
           // Add to namespace map
-          const nsTypes = namespaceToTypeIds.get(metadata.namespace) ?? [];
+          const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
           nsTypes.push(entry.typeId);
-          namespaceToTypeIds.set(metadata.namespace, nsTypes);
+          namespaceToTypeIds.set(bindings.namespace, nsTypes);
         }
       } catch (e) {
         // Log but continue - don't fail on malformed files
-        console.warn(`Failed to load metadata from ${metadataPath}:`, e);
+        console.warn(`Failed to load metadata from ${bindingsPath}:`, e);
       }
     }
   }
@@ -1403,28 +1413,28 @@ export const loadClrCatalog = (
 /**
  * Load CLR catalog from a specific package (for testing).
  */
-export const loadSinglePackageMetadata = (
-  metadataPath: string
+export const loadSinglePackageBindings = (
+  bindingsPath: string
 ): AssemblyTypeCatalog => {
   const entries = new Map<string, NominalEntry>();
   const tsNameToTypeId = new Map<string, TypeId>();
   const clrNameToTypeId = new Map<string, TypeId>();
   const namespaceToTypeIds = new Map<string, TypeId[]>();
-  const dtsPath = path.join(path.dirname(metadataPath), "index.d.ts");
+  const dtsPath = path.join(path.dirname(bindingsPath), "internal", "index.d.ts");
 
-  const content = fs.readFileSync(metadataPath, "utf-8");
-  const metadata: RawMetadataFile = JSON.parse(content);
+  const content = fs.readFileSync(bindingsPath, "utf-8");
+  const bindings: RawBindingsFile = JSON.parse(content);
 
-  for (const rawType of metadata.types) {
-    const entry = convertRawType(rawType, metadata.namespace);
+  for (const rawType of bindings.types) {
+    const entry = convertRawType(rawType, bindings.namespace);
 
     entries.set(entry.typeId.stableId, entry);
     tsNameToTypeId.set(entry.typeId.tsName, entry.typeId);
     clrNameToTypeId.set(entry.typeId.clrName, entry.typeId);
 
-    const nsTypes = namespaceToTypeIds.get(metadata.namespace) ?? [];
+    const nsTypes = namespaceToTypeIds.get(bindings.namespace) ?? [];
     nsTypes.push(entry.typeId);
-    namespaceToTypeIds.set(metadata.namespace, nsTypes);
+    namespaceToTypeIds.set(bindings.namespace, nsTypes);
   }
 
   if (fs.existsSync(dtsPath)) {

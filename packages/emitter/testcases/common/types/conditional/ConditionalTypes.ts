@@ -22,9 +22,9 @@ export function processValue<T extends string | number>(
   value: T
 ): T extends string ? number : string {
   if (typeof value === "string") {
-    return value.length as any;
+    return value.Length as unknown as T extends string ? number : string;
   }
-  return value.toString() as any;
+  return value.ToString() as unknown as T extends string ? number : string;
 }
 
 // ReturnType utility

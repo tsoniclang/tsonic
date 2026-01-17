@@ -7,12 +7,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Result, TsonicConfig } from "../types.js";
+import type { Result } from "../types.js";
 import { loadConfig } from "../config.js";
 import { copyRuntimeDllsToProjectLib } from "../dotnet/runtime-assets.js";
 import {
   defaultExec,
-  detectTsbindgenNaming,
   npmInstallDevDependency,
   writeTsonicJson,
   type Exec,
@@ -46,19 +45,6 @@ const ensureDevDependency = (
   return npmInstallDevDependency(projectRoot, `${packageName}@latest`, options, exec);
 };
 
-const ensureDotnetForPeerDeps = (
-  projectRoot: string,
-  config: TsonicConfig,
-  options: AddCommandOptions,
-  exec: Exec
-): Result<void, string> => {
-  // @tsonic/nodejs currently imports from @tsonic/dotnet. In CLR-naming projects
-  // (globals-pure), ensure dotnet is present to satisfy module resolution.
-  const naming = detectTsbindgenNaming(config);
-  if (naming !== "clr") return { ok: true, value: undefined };
-  return ensureDevDependency(projectRoot, "@tsonic/dotnet", options, exec);
-};
-
 const addUnique = (arr: string[], value: string): void => {
   if (!arr.includes(value)) arr.push(value);
 };
@@ -73,9 +59,6 @@ export const addNodejsCommand = (
   const configResult = loadConfig(configPath);
   if (!configResult.ok) return configResult;
   const config = configResult.value;
-
-  const peerResult = ensureDotnetForPeerDeps(projectRoot, config, options, exec);
-  if (!peerResult.ok) return peerResult;
 
   const installResult = ensureDevDependency(
     projectRoot,

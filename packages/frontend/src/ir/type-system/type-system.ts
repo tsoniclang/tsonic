@@ -2689,12 +2689,7 @@ export const createTypeSystem = (
     const entry = unifiedCatalog.getByTypeId(declaringTypeId);
     if (!entry || entry.origin !== "assembly") return undefined;
 
-    const member =
-      unifiedCatalog.getMember(declaringTypeId, declaringMemberName) ??
-      unifiedCatalog.getMember(
-        declaringTypeId,
-        declaringMemberName.charAt(0).toUpperCase() + declaringMemberName.slice(1)
-      );
+    const member = unifiedCatalog.getMember(declaringTypeId, declaringMemberName);
     const candidates = member?.signatures;
     if (!candidates || candidates.length === 0) return undefined;
 

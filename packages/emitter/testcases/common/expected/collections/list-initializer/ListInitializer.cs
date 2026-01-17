@@ -1,28 +1,32 @@
+// Generated from: ListInitializer.ts
+// Generated at: 2026-01-17T15:36:53.716Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.collections.listinitializer
 {
     public class User
     {
-        public int Id;
+        public int id;
 
         public User(int id)
             {
-            this.Id = id;
+            this.id = id;
             }
     }
 
             public static class ListInitializer
             {
-                public static global::System.Collections.Generic.List<int> MakeInts()
+                public static global::System.Collections.Generic.List<int> makeInts()
                     {
                     return new global::System.Collections.Generic.List<int> { 1, 2, 3 };
                     }
 
-                public static global::System.Collections.Generic.List<string> MakeStrings()
+                public static global::System.Collections.Generic.List<string> makeStrings()
                     {
                     return new global::System.Collections.Generic.List<string> { "a", "b" };
                     }
 
-                public static global::System.Collections.Generic.List<User> MakeUsers()
+                public static global::System.Collections.Generic.List<User> makeUsers()
                     {
                     var u1 = new User(1);
                     var u2 = new User(2);

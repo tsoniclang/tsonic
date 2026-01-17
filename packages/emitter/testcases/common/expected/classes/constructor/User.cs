@@ -1,23 +1,27 @@
+// Generated from: User.ts
+// Generated at: 2026-01-17T15:36:42.603Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.classes.constructor
 {
     public class User
     {
-        public string Name;
+        public string name;
 
-        public string Email;
+        public string email;
 
-        private string Password;
+        private string password;
 
         public User(string name, string email, string password)
             {
-            this.Name = name;
-            this.Email = email;
-            this.Password = password;
+            this.name = name;
+            this.email = email;
+            this.password = password;
             }
 
-        public bool Authenticate(string input)
+        public bool authenticate(string input)
             {
-            return input == this.Password;
+            return input == this.password;
             }
     }
 }

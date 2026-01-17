@@ -14,7 +14,6 @@
 import * as ts from "typescript";
 import type { IrType, IrMethodSignature } from "../../types/index.js";
 import { getNamespaceFromPath } from "../../../resolver/namespace.js";
-import type { NamingPolicy } from "../../../resolver/naming-policy.js";
 import { GLOBALS_TO_CLR_FQ } from "./universe/alias-table.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -182,7 +181,6 @@ export type ConvertTypeFn = (typeNode: ts.TypeNode) => IrType;
 
 export type BuildTypeRegistryOptions = {
   readonly convertType?: ConvertTypeFn;
-  readonly namespaceNamingPolicy?: NamingPolicy;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -238,8 +236,7 @@ const resolveHeritageTypeName = (
   typeNode: ts.ExpressionWithTypeArguments,
   checker: ts.TypeChecker,
   sourceRoot: string,
-  rootNamespace: string,
-  namespaceNamingPolicy: NamingPolicy | undefined
+  rootNamespace: string
 ): string | undefined => {
   const expr = typeNode.expression;
 
@@ -291,8 +288,7 @@ const resolveHeritageTypeName = (
       ? getNamespaceFromPath(
           sourceFile.fileName,
           sourceRoot,
-          rootNamespace,
-          namespaceNamingPolicy
+          rootNamespace
         )
       : undefined;
 
@@ -548,7 +544,6 @@ const extractHeritage = (
   checker: ts.TypeChecker,
   sourceRoot: string,
   rootNamespace: string,
-  namespaceNamingPolicy: NamingPolicy | undefined,
   convertType: ConvertTypeFn,
   canonicalize?: (name: string) => string
 ): readonly HeritageInfo[] => {
@@ -563,8 +558,7 @@ const extractHeritage = (
         type,
         checker,
         sourceRoot,
-        rootNamespace,
-        namespaceNamingPolicy
+        rootNamespace
       );
       const rawTypeName = resolvedName ?? getTypeNodeName(type);
       if (rawTypeName) {
@@ -609,7 +603,6 @@ export const buildTypeRegistry = (
   // Default converter returns unknownType (used during bootstrap)
   const convert: ConvertTypeFn =
     options.convertType ?? (() => ({ kind: "unknownType" }));
-  const namespaceNamingPolicy = options.namespaceNamingPolicy;
 
   // Helper function to process a declaration node
   const processDeclaration = (
@@ -656,15 +649,14 @@ export const buildTypeRegistry = (
 	        fullyQualifiedName: fqName,
 	        typeParameters: extractTypeParameters(node.typeParameters, convert),
 	        members: extractMembers(node.members, convert),
-	        heritage: extractHeritage(
-	          node.heritageClauses,
-	          checker,
-	          sourceRoot,
-	          rootNamespace,
-	          namespaceNamingPolicy,
-	          convert,
-	          canonicalize
-	        ),
+		        heritage: extractHeritage(
+		          node.heritageClauses,
+		          checker,
+		          sourceRoot,
+		          rootNamespace,
+		          convert,
+		          canonicalize
+		        ),
 	      });
 
 	      simpleNameToFQ.set(simpleName, fqName);
@@ -690,18 +682,17 @@ export const buildTypeRegistry = (
         entries.set(fqName, {
           ...existing,
           members: mergedMembers,
-          heritage: [
-            ...existing.heritage,
-            ...extractHeritage(
-              node.heritageClauses,
-              checker,
-              sourceRoot,
-              rootNamespace,
-              namespaceNamingPolicy,
-              convert,
-              canonicalize
-            ),
-          ],
+	          heritage: [
+	            ...existing.heritage,
+	            ...extractHeritage(
+	              node.heritageClauses,
+	              checker,
+	              sourceRoot,
+	              rootNamespace,
+	              convert,
+	              canonicalize
+	            ),
+	          ],
         });
 	      } else {
 	        entries.set(fqName, {
@@ -710,15 +701,14 @@ export const buildTypeRegistry = (
 	          fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters, convert),
           members: extractMembers(node.members, convert),
-          heritage: extractHeritage(
-            node.heritageClauses,
-            checker,
-            sourceRoot,
-            rootNamespace,
-            namespaceNamingPolicy,
-            convert,
-            canonicalize
-          ),
+	          heritage: extractHeritage(
+	            node.heritageClauses,
+	            checker,
+	            sourceRoot,
+	            rootNamespace,
+	            convert,
+	            canonicalize
+	          ),
 	        });
 	        simpleNameToFQ.set(simpleName, fqName);
 	      }
@@ -766,8 +756,7 @@ export const buildTypeRegistry = (
       : getNamespaceFromPath(
           sourceFile.fileName,
           sourceRoot,
-          rootNamespace,
-          namespaceNamingPolicy
+          rootNamespace
         );
 
     ts.forEachChild(sourceFile, (node) => {

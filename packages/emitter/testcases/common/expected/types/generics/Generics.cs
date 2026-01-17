@@ -1,28 +1,32 @@
+// Generated from: Generics.ts
+// Generated at: 2026-01-17T15:37:38.661Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.generics
 {
     public class Box<T>
     {
-        public T Value;
+        public T value;
 
         public Box(T value)
             {
-            this.Value = value;
+            this.value = value;
             }
 
-        public T GetValue()
+        public T getValue()
             {
-            return this.Value;
+            return this.value;
             }
     }
 
             public static class Generics
             {
-                public static T Identity<T>(T value)
+                public static T identity<T>(T value)
                     {
                     return value;
                     }
 
-                public static bool TryFirstElement<T>(T[] arr, out T result)
+                public static bool tryFirstElement<T>(T[] arr, out T result)
                     {
                     result = default;
 

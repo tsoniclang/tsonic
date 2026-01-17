@@ -19,7 +19,6 @@ describe("Init Command", () => {
         expect(packageNames).to.include("tsonic");
         expect(packageNames).to.include("@tsonic/core");
         expect(packageNames).to.include("@tsonic/globals");
-        expect(packageNames).to.not.include("@tsonic/globals-pure");
         expect(packageNames).to.not.include("@tsonic/nodejs");
         expect(packageNames).to.not.include("@tsonic/js");
       });
@@ -56,33 +55,6 @@ describe("Init Command", () => {
       });
     });
 
-    describe("pure flag", () => {
-      it("should use globals-pure when pure flag is true", () => {
-        const result = getTypePackageInfo({ pure: true });
-        const packageNames = result.packages.map((p) => p.name);
-
-        expect(packageNames).to.include("tsonic");
-        expect(packageNames).to.include("@tsonic/core");
-        expect(packageNames).to.include("@tsonic/globals-pure");
-        expect(packageNames).to.not.include("@tsonic/globals");
-        expect(result.typeRoots).to.deep.equal([
-          "node_modules/@tsonic/globals-pure",
-        ]);
-      });
-
-      it("should use globals-pure with nodejs when both flags are true", () => {
-        const result = getTypePackageInfo({ nodejs: true, pure: true });
-        const packageNames = result.packages.map((p) => p.name);
-
-        expect(packageNames).to.include("tsonic");
-        expect(packageNames).to.include("@tsonic/core");
-        expect(packageNames).to.include("@tsonic/globals-pure");
-        expect(packageNames).to.include("@tsonic/dotnet");
-        expect(packageNames).to.include("@tsonic/nodejs");
-        expect(packageNames).to.not.include("@tsonic/globals");
-      });
-    });
-
     describe("package versions", () => {
       it("should use latest version for all packages", () => {
         const result = getTypePackageInfo();
@@ -115,9 +87,8 @@ describe("Init Command", () => {
 
         const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
         expect(appTs).to.include('@tsonic/dotnet/System.js');
-        expect(appTs).to.include("Console.writeLine");
-        expect(appTs).to.include("File.readAllText");
-        expect(appTs).to.not.include("@tsonic/dotnet-pure/System.js");
+        expect(appTs).to.include("Console.WriteLine");
+        expect(appTs).to.include("File.ReadAllText");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -165,20 +136,5 @@ describe("Init Command", () => {
       }
     });
 
-    it("should generate dotnet-pure sample when --pure is enabled", () => {
-      const dir = mkdtempSync(join(tmpdir(), "tsonic-init-pure-"));
-      try {
-        const result = initProject(dir, { skipTypes: true, pure: true });
-        expect(result.ok).to.equal(true);
-
-        const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
-        expect(appTs).to.include('@tsonic/dotnet-pure/System.js');
-        expect(appTs).to.include("Console.WriteLine");
-        expect(appTs).to.include("File.ReadAllText");
-        expect(appTs).to.not.include("@tsonic/dotnet/System.js");
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    });
   });
 });

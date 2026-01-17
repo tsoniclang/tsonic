@@ -190,23 +190,23 @@ describe("Generator Wrapper", () => {
       const [code] = generateWrapperClass(func, context);
 
       // Class declaration
-      expect(code).to.include("public sealed class Counter_Generator");
+      expect(code).to.include("public sealed class counter_Generator");
 
       // Private fields
       expect(code).to.include("private readonly");
-      expect(code).to.include("IEnumerator<Counter_exchange>");
+      expect(code).to.include("IEnumerator<counter_exchange>");
       expect(code).to.include("_enumerator");
-      expect(code).to.include("Counter_exchange _exchange");
+      expect(code).to.include("counter_exchange _exchange");
       expect(code).to.include("bool _done = false");
 
       // Constructor
-      expect(code).to.include("public Counter_Generator(");
-      expect(code).to.include("IEnumerable<Counter_exchange> enumerable");
+      expect(code).to.include("public counter_Generator(");
+      expect(code).to.include("IEnumerable<counter_exchange> enumerable");
       expect(code).to.include("GetEnumerator()");
 
       // next() method
       expect(code).to.include(
-        "public global::Tsonic.Runtime.IteratorResult<double> Next("
+        "public global::Tsonic.Runtime.IteratorResult<double> next("
       );
       expect(code).to.include("double? value = default");
       expect(code).to.include("_exchange.Input = value");
@@ -215,13 +215,13 @@ describe("Generator Wrapper", () => {
 
       // return() method - takes object when TReturn is void
       expect(code).to.include(
-        "public global::Tsonic.Runtime.IteratorResult<double> Return("
+        "public global::Tsonic.Runtime.IteratorResult<double> @return("
       );
       expect(code).to.include("Dispose()");
 
       // throw() method
       expect(code).to.include(
-        "public global::Tsonic.Runtime.IteratorResult<double> Throw(object e)"
+        "public global::Tsonic.Runtime.IteratorResult<double> @throw(object e)"
       );
       expect(code).to.include("System.Exception");
     });
@@ -245,16 +245,16 @@ describe("Generator Wrapper", () => {
       const [code] = generateWrapperClass(func, context);
 
       // Async class
-      expect(code).to.include("public sealed class AsyncCounter_Generator");
+      expect(code).to.include("public sealed class asyncCounter_Generator");
 
       // Async enumerator
-      expect(code).to.include("IAsyncEnumerator<AsyncCounter_exchange>");
-      expect(code).to.include("IAsyncEnumerable<AsyncCounter_exchange>");
+      expect(code).to.include("IAsyncEnumerator<asyncCounter_exchange>");
+      expect(code).to.include("IAsyncEnumerable<asyncCounter_exchange>");
       expect(code).to.include("GetAsyncEnumerator()");
 
       // Async next() method
       expect(code).to.include(
-        "public async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> Next("
+        "public async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
 

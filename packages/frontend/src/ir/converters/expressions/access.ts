@@ -15,6 +15,7 @@ import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
 import type { MemberId } from "../../type-system/index.js";
 import type { MemberBinding } from "../../../program/bindings.js";
+import { tsbindgenClrTypeNameToTsTypeName } from "../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
 
 /**
@@ -429,8 +430,9 @@ const disambiguateOverloadsByDeclaringType = (
 
   const typeEntry = types.find((t) => {
     if (!t || typeof t !== "object") return false;
-    const tsEmitName = (t as { readonly tsEmitName?: unknown }).tsEmitName;
-    return tsEmitName === declaringTypeTsName;
+    const clrName = (t as { readonly clrName?: unknown }).clrName;
+    if (typeof clrName !== "string") return false;
+    return tsbindgenClrTypeNameToTsTypeName(clrName) === declaringTypeTsName;
   }) as { readonly clrName?: unknown } | undefined;
 
   const expectedClrType =

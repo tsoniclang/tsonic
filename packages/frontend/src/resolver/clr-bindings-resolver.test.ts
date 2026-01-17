@@ -65,7 +65,7 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
   const writeDistBindingsPackage = (
     pkgRoot: string,
     spec: TestPkgSpec
-  ): { readonly bindingsPath: string; readonly metadataPath: string } => {
+  ): { readonly bindingsPath: string } => {
     const distRoot = join(pkgRoot, "dist", "tsonic", "bindings");
     mkdirSync(distRoot, { recursive: true });
 
@@ -82,11 +82,7 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
       namespace: spec.namespace,
       types: [{ assemblyName: spec.assemblyName }],
     });
-
-    const metadataPath = join(internalDir, "metadata.json");
-    writeJson(metadataPath, {});
-
-    return { bindingsPath, metadataPath };
+    return { bindingsPath };
   };
 
   it("resolves CLR bindings from a scoped package using npm exports (dist layout)", () => {
@@ -114,7 +110,7 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
       },
     });
 
-    const { bindingsPath, metadataPath } = writeDistBindingsPackage(pkgRoot, spec);
+    const { bindingsPath } = writeDistBindingsPackage(pkgRoot, spec);
 
     const resolver = createClrBindingsResolver(workspaceRoot);
 
@@ -123,7 +119,6 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
     if (!direct.isClr) return;
     expect(direct.resolvedNamespace).to.equal(spec.namespace);
     expect(direct.bindingsPath).to.equal(bindingsPath);
-    expect(direct.metadataPath).to.equal(metadataPath);
     expect(direct.assembly).to.equal(spec.assemblyName);
 
     // Deep subpaths should still resolve to the namespace bindings.

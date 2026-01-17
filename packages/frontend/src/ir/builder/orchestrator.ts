@@ -9,7 +9,6 @@ import { relative } from "path";
 import { IrModule } from "../types.js";
 import { TsonicProgram } from "../../program.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
-import { resolveNamingPolicy } from "../../resolver/naming-policy.js";
 import { Result, ok, error } from "../../types/result.js";
 import {
   Diagnostic,
@@ -45,13 +44,9 @@ export const buildIrModule = (
     const namespace = getNamespaceFromPath(
       sourceFile.fileName,
       options.sourceRoot,
-      options.rootNamespace,
-      resolveNamingPolicy(options.namingPolicy, "namespaces")
+      options.rootNamespace
     );
-    const className = getClassNameFromPath(
-      sourceFile.fileName,
-      resolveNamingPolicy(options.namingPolicy, "classes")
-    );
+    const className = getClassNameFromPath(sourceFile.fileName);
 
     const imports = extractImports(sourceFile, ctx);
     const exports = extractExportsWithContext(sourceFile, ctx);

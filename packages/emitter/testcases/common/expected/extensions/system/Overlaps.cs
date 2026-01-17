@@ -1,10 +1,14 @@
+// Generated from: Overlaps.ts
+// Generated at: 2026-01-17T15:37:02.213Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.extensions.system
 {
         public static class Overlaps
         {
             // type Ext = T
 
-            public static void Run()
+            public static void run()
                 {
                 var s = "hello";
                 var a = global::System.MemoryExtensions.AsSpan((string)s);

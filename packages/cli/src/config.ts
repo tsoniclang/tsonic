@@ -39,47 +39,6 @@ export const loadConfig = (
       };
     }
 
-    const isNamingPolicy = (value: string): boolean =>
-      value === "clr" || value === "none";
-
-    const validateNamingPolicyKey = (
-      key: string,
-      value: string | undefined
-    ): Result<void, string> => {
-      if (value === undefined) return { ok: true, value: undefined };
-      if (isNamingPolicy(value)) return { ok: true, value: undefined };
-      return {
-        ok: false,
-        error: `tsonic.json: '${key}' must be one of 'clr', 'none' (got '${value}')`,
-      };
-    };
-
-    const namingPolicy = config.namingPolicy;
-    if (namingPolicy) {
-      const checks: Array<Result<void, string>> = [
-        validateNamingPolicyKey("namingPolicy.all", namingPolicy.all),
-        validateNamingPolicyKey("namingPolicy.classes", namingPolicy.classes),
-        validateNamingPolicyKey(
-          "namingPolicy.namespaces",
-          namingPolicy.namespaces
-        ),
-        validateNamingPolicyKey("namingPolicy.methods", namingPolicy.methods),
-        validateNamingPolicyKey(
-          "namingPolicy.properties",
-          namingPolicy.properties
-        ),
-        validateNamingPolicyKey("namingPolicy.fields", namingPolicy.fields),
-        validateNamingPolicyKey(
-          "namingPolicy.enumMembers",
-          namingPolicy.enumMembers
-        ),
-      ];
-
-      for (const res of checks) {
-        if (!res.ok) return res;
-      }
-    }
-
     const outputType = config.output?.type;
     if (
       outputType !== undefined &&
@@ -307,7 +266,6 @@ export const resolveConfig = (
 
   return {
     rootNamespace: cliOptions.namespace ?? config.rootNamespace,
-    namingPolicy: config.namingPolicy,
     entryPoint,
     projectRoot,
     sourceRoot,

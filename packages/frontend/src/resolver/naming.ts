@@ -3,15 +3,14 @@
  */
 
 import * as path from "node:path";
-import { applyNamingPolicy, type NamingPolicy } from "./naming-policy.js";
+
+const normalizePathFragment = (fragment: string): string =>
+  fragment.replace(/-/g, "");
 
 /**
  * Generate class name from file path
  */
-export const getClassNameFromPath = (
-  filePath: string,
-  classNamingPolicy?: NamingPolicy
-): string => {
+export const getClassNameFromPath = (filePath: string): string => {
   const basename = path.basename(filePath, ".ts");
-  return applyNamingPolicy(basename, classNamingPolicy ?? "clr");
+  return normalizePathFragment(basename);
 };

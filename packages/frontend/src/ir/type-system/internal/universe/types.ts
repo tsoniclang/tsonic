@@ -3,7 +3,7 @@
  *
  * This module defines the types for the unified type catalog that merges
  * source-authored types (from TS AST) and assembly-authored types (from
- * CLR metadata in bindings.json/metadata.json).
+ * CLR metadata in bindings.json).
  *
  * INVARIANT INV-CLR: All nominal type identities come from ONE unified catalog.
  * No type query is allowed to "fall back" to parallel logic or parallel stores.
@@ -268,7 +268,7 @@ export type FieldEntry = {
 /**
  * Complete catalog of types loaded from assembly metadata.
  *
- * This is the result of loading bindings.json + metadata.json files.
+ * This is the result of loading bindings.json files.
  */
 export type AssemblyTypeCatalog = {
   /** All type entries, keyed by stableId */
@@ -318,42 +318,46 @@ export type UnifiedTypeCatalog = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// RAW JSON TYPES — Shapes matching bindings.json/metadata.json
+// RAW JSON TYPES — Shapes matching tsbindgen <Namespace>/bindings.json
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Raw type entry from metadata.json.
- * This matches the actual JSON structure.
+ * Raw type entry from bindings.json.
+ *
+ * This is a superset of the historical metadata.json + bindings.json data:
+ * - Type shape/kind/accessibility for the CLR type catalog
+ * - Member signature metadata for semantic typing
+ * - Binding target metadata (assembly/type/member) for codegen
+ *
+ * IMPORTANT: No `tsEmitName` fields exist. TS names are derived deterministically
+ * from CLR reflection names (generics + nested types) and member CLR names.
  */
-export type RawMetadataType = {
+export type RawBindingsType = {
   readonly stableId: string;
   readonly clrName: string;
-  readonly tsEmitName: string;
   readonly kind: string;
   readonly accessibility: string;
   readonly isAbstract: boolean;
   readonly isSealed: boolean;
   readonly isStatic: boolean;
   readonly arity: number;
-  readonly methods: readonly RawMetadataMethod[];
-  readonly properties: readonly RawMetadataProperty[];
-  readonly fields: readonly RawMetadataField[];
-  readonly events: readonly unknown[];
-  readonly constructors: readonly RawMetadataConstructor[];
+  readonly methods: readonly RawBindingsMethod[];
+  readonly properties: readonly RawBindingsProperty[];
+  readonly fields: readonly RawBindingsField[];
+  readonly events?: readonly unknown[];
+  readonly constructors: readonly RawBindingsConstructor[];
   readonly baseType?: string;
   readonly interfaces?: readonly string[];
+  readonly assemblyName?: string;
+  readonly metadataToken?: number;
 };
 
-/**
- * Raw method entry from metadata.json.
- */
-export type RawMetadataMethod = {
+export type RawBindingsMethod = {
   readonly stableId: string;
   readonly clrName: string;
-  readonly tsEmitName: string;
   readonly normalizedSignature: string;
-  readonly provenance: string;
-  readonly emitScope: string;
+  readonly provenance?: string;
+  readonly emitScope?: string;
   readonly isStatic: boolean;
   readonly isAbstract: boolean;
   readonly isVirtual: boolean;
@@ -363,18 +367,21 @@ export type RawMetadataMethod = {
   readonly parameterCount: number;
   readonly isExtensionMethod: boolean;
   readonly sourceInterface?: string;
+  readonly declaringClrType?: string;
+  readonly declaringAssemblyName?: string;
+  readonly parameterModifiers?: readonly {
+    readonly index: number;
+    readonly modifier: "ref" | "out" | "in";
+  }[];
+  readonly metadataToken?: number;
 };
 
-/**
- * Raw property entry from metadata.json.
- */
-export type RawMetadataProperty = {
+export type RawBindingsProperty = {
   readonly stableId: string;
   readonly clrName: string;
-  readonly tsEmitName: string;
   readonly normalizedSignature: string;
-  readonly provenance: string;
-  readonly emitScope: string;
+  readonly provenance?: string;
+  readonly emitScope?: string;
   readonly isStatic: boolean;
   readonly isAbstract: boolean;
   readonly isVirtual: boolean;
@@ -382,107 +389,34 @@ export type RawMetadataProperty = {
   readonly isIndexer: boolean;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
+  readonly declaringClrType?: string;
+  readonly declaringAssemblyName?: string;
+  readonly metadataToken?: number;
 };
 
-/**
- * Raw field entry from metadata.json.
- */
-export type RawMetadataField = {
+export type RawBindingsField = {
   readonly stableId: string;
   readonly clrName: string;
-  readonly tsEmitName: string;
   readonly normalizedSignature: string;
   readonly isStatic: boolean;
   readonly isReadOnly: boolean;
   readonly isLiteral: boolean;
+  readonly declaringClrType?: string;
+  readonly declaringAssemblyName?: string;
+  readonly metadataToken?: number;
 };
 
-/**
- * Raw constructor entry from metadata.json.
- */
-export type RawMetadataConstructor = {
+export type RawBindingsConstructor = {
   readonly normalizedSignature: string;
   readonly isStatic: boolean;
   readonly parameterCount: number;
 };
 
-/**
- * Raw metadata.json file structure.
- */
-export type RawMetadataFile = {
-  readonly namespace: string;
-  readonly contributingAssemblies: readonly string[];
-  readonly types: readonly RawMetadataType[];
-};
-
-/**
- * Raw bindings.json type entry.
- */
-export type RawBindingType = {
-  readonly stableId: string;
-  readonly clrName: string;
-  readonly tsEmitName: string;
-  readonly assemblyName: string;
-  readonly metadataToken: number;
-  readonly methods: readonly RawBindingMethod[];
-  readonly properties: readonly RawBindingProperty[];
-  readonly fields: readonly RawBindingField[];
-};
-
-/**
- * Raw bindings.json method entry.
- */
-export type RawBindingMethod = {
-  readonly stableId: string;
-  readonly clrName: string;
-  readonly tsEmitName: string;
-  readonly metadataToken: number;
-  readonly normalizedSignature: string;
-  readonly isStatic: boolean;
-  readonly declaringClrType: string;
-  readonly declaringAssemblyName: string;
-  readonly isExtensionMethod: boolean;
-  readonly parameterModifiers?: readonly {
-    readonly index: number;
-    readonly modifier: "ref" | "out" | "in";
-  }[];
-};
-
-/**
- * Raw bindings.json property entry.
- */
-export type RawBindingProperty = {
-  readonly stableId: string;
-  readonly clrName: string;
-  readonly tsEmitName: string;
-  readonly metadataToken: number;
-  readonly normalizedSignature: string;
-  readonly isStatic: boolean;
-  readonly declaringClrType: string;
-  readonly declaringAssemblyName: string;
-};
-
-/**
- * Raw bindings.json field entry.
- */
-export type RawBindingField = {
-  readonly stableId: string;
-  readonly clrName: string;
-  readonly tsEmitName: string;
-  readonly metadataToken: number;
-  readonly normalizedSignature: string;
-  readonly isStatic: boolean;
-  readonly isReadOnly: boolean;
-  readonly declaringClrType: string;
-  readonly declaringAssemblyName: string;
-};
-
-/**
- * Raw bindings.json file structure.
- */
 export type RawBindingsFile = {
   readonly namespace: string;
-  readonly types: readonly RawBindingType[];
+  readonly contributingAssemblies?: readonly string[];
+  readonly dotnetVersion?: string;
+  readonly types: readonly RawBindingsType[];
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

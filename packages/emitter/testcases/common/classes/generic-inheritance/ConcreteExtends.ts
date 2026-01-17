@@ -20,6 +20,6 @@ export class IntContainer extends Container<int> {
 
 export class StringContainer extends Container<string> {
   getLength(): int {
-    return this.getValue().length;
+    return this.getValue().Length;
   }
 }

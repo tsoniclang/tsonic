@@ -1,22 +1,26 @@
+// Generated from: MethodInGenericClass.ts
+// Generated at: 2026-01-17T15:36:48.564Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.classes.genericmethods
 {
     public class Transformer<T>
     {
-        public T Value;
+        public T value;
 
         public Transformer(T value)
             {
-            this.Value = value;
+            this.value = value;
             }
 
-        public Transformer<U> Map<U>(global::System.Func<T, U> fn)
+        public Transformer<U> map<U>(global::System.Func<T, U> fn)
             {
-            return new Transformer<U>(fn(this.Value));
+            return new Transformer<U>(fn(this.value));
             }
 
-        public Transformer<T> Combine(Transformer<T> other, global::System.Func<T, T, T> fn)
+        public Transformer<T> combine(Transformer<T> other, global::System.Func<T, T, T> fn)
             {
-            return new Transformer<T>(fn(this.Value, other.Value));
+            return new Transformer<T>(fn(this.value, other.value));
             }
     }
 }

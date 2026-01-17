@@ -53,18 +53,6 @@ describe("Config", () => {
       expect(result.optimize).to.equal("size");
     });
 
-    it("should preserve namingPolicy from config", () => {
-      const config: TsonicConfig = {
-        rootNamespace: "MyApp",
-        namingPolicy: {
-          classes: "none",
-        },
-      };
-
-      const result = resolveConfig(config, {}, "/project");
-      expect(result.namingPolicy).to.deep.equal({ classes: "none" });
-    });
-
     it("should default frameworkReferences and packageReferences to empty arrays", () => {
       const config: TsonicConfig = {
         rootNamespace: "MyApp",

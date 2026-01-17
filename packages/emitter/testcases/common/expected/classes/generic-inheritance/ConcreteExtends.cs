@@ -1,17 +1,21 @@
+// Generated from: ConcreteExtends.ts
+// Generated at: 2026-01-17T15:36:44.985Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.classes.genericinheritance
 {
     public class Container<T>
     {
-        public T Value;
+        public T value;
 
         public Container(T value)
             {
-            this.Value = value;
+            this.value = value;
             }
 
-        public T GetValue()
+        public T getValue()
             {
-            return this.Value;
+            return this.value;
             }
     }
     public class IntContainer : Container<int>
@@ -21,9 +25,9 @@ namespace TestCases.common.classes.genericinheritance
 
             }
 
-        public int Double()
+        public int @double()
             {
-            return this.GetValue() * 2;
+            return this.getValue() * 2;
             }
     }
     public class StringContainer : Container<string>
@@ -33,9 +37,9 @@ namespace TestCases.common.classes.genericinheritance
 
             }
 
-        public int GetLength()
+        public int getLength()
             {
-            return this.GetValue().Length;
+            return this.getValue().Length;
             }
     }
 }

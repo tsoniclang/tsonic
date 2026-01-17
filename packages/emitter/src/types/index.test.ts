@@ -111,7 +111,7 @@ describe("Type Emission", () => {
 
     // Task should be emitted (may be fully-qualified or short form depending on emitter)
     expect(result).to.include("async");
-    expect(result).to.include("FetchData()");
+    expect(result).to.include("fetchData()");
     expect(result).to.include("await getData()");
     // Should NOT include using directives - uses global:: FQN
     expect(result).to.not.include("using System.Threading.Tasks");

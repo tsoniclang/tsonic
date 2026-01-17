@@ -14,7 +14,6 @@ import { dirname } from "node:path";
 import {
   bindingsStoreDir,
   defaultBindingsPackageNameForFramework,
-  detectTsbindgenNaming,
   ensureGeneratedBindingsPackageJson,
   installGeneratedBindingsPackage,
   listDotnetRuntimes,
@@ -136,12 +135,8 @@ export const addFrameworkCommand = (
 
   const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
   if (!dotnetRoot.ok) return dotnetRoot;
-  const coreRoot = resolvePackageRoot(projectRoot, "@tsonic/core");
-  if (!coreRoot.ok) return coreRoot;
   const dotnetLib = dotnetRoot.value;
-  const coreLib = coreRoot.value;
 
-  const naming = detectTsbindgenNaming(nextConfig);
   const generatedPackage = defaultBindingsPackageNameForFramework(frameworkReference);
   const bindingsDir = bindingsStoreDir(projectRoot, "framework", generatedPackage);
 
@@ -156,12 +151,8 @@ export const addFrameworkCommand = (
     runtime.dir,
     "-o",
     bindingsDir,
-    "--naming",
-    naming,
     "--lib",
     dotnetLib,
-    "--lib",
-    coreLib,
   ];
   for (const rt of runtimes) {
     generateArgs.push("--ref-dir", rt.dir);

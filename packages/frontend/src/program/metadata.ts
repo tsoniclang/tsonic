@@ -1,18 +1,18 @@
 /**
- * .NET metadata file loading
+ * .NET semantic registry loading
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   DotnetMetadataRegistry,
-  DotnetMetadataFile,
+  TsbindgenBindingsFile,
 } from "../dotnet-metadata.js";
 
 /**
- * Recursively scan a directory for .d.ts files
+ * Recursively scan a directory for tsbindgen `<Namespace>/bindings.json` files.
  */
-const scanForDeclarationFiles = (dir: string): readonly string[] => {
+const scanForBindingsFiles = (dir: string): readonly string[] => {
   if (!fs.existsSync(dir)) {
     return [];
   }
@@ -23,8 +23,8 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...scanForDeclarationFiles(fullPath));
-    } else if (entry.name.endsWith(".d.ts")) {
+      results.push(...scanForBindingsFiles(fullPath));
+    } else if (entry.name === "bindings.json") {
       results.push(fullPath);
     }
   }
@@ -33,33 +33,30 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
 };
 
 /**
- * Load .NET metadata files from configured type roots
- * Looks for *.metadata.json files alongside .d.ts files
+ * Load .NET semantic info from configured type roots.
+ *
+ * tsbindgen emits a single manifest per namespace: `<Namespace>/bindings.json`.
+ * This loader scans the configured type roots and loads all discovered manifests.
  */
 export const loadDotnetMetadata = (
   typeRoots: readonly string[]
 ): DotnetMetadataRegistry => {
   const registry = new DotnetMetadataRegistry();
 
-  // Scan all type roots for .d.ts files
+  // Scan all type roots for bindings.json manifests
   for (const typeRoot of typeRoots) {
     const absoluteRoot = path.resolve(typeRoot);
-    const declFiles = scanForDeclarationFiles(absoluteRoot);
+    const bindingsFiles = scanForBindingsFiles(absoluteRoot);
 
-    for (const declPath of declFiles) {
-      // Look for corresponding .metadata.json file
-      const metadataPath = declPath.replace(/\.d\.ts$/, ".metadata.json");
-
+    for (const bindingsPath of bindingsFiles) {
       try {
-        if (fs.existsSync(metadataPath)) {
-          const content = fs.readFileSync(metadataPath, "utf-8");
-          const metadataFile = JSON.parse(content) as DotnetMetadataFile;
-          registry.loadMetadataFile(metadataPath, metadataFile);
-        }
+        const content = fs.readFileSync(bindingsPath, "utf-8");
+        const bindingsFile = JSON.parse(content) as TsbindgenBindingsFile;
+        registry.loadBindingsFile(bindingsPath, bindingsFile);
       } catch (err) {
         // Silently skip files that can't be read or parsed
         // In production, we might want to emit a warning diagnostic
-        console.warn(`Failed to load metadata from ${metadataPath}:`, err);
+        console.warn(`Failed to load bindings from ${bindingsPath}:`, err);
       }
     }
   }

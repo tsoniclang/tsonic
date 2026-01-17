@@ -1,5 +1,7 @@
 import { dirname, relative } from "path";
-import { applyNamingPolicy, type NamingPolicy } from "./naming-policy.js";
+
+const normalizePathFragment = (fragment: string): string =>
+  fragment.replace(/-/g, "");
 
 /**
  * Compute namespace from file path relative to source root.
@@ -23,7 +25,6 @@ export const getNamespaceFromPath = (
   filePath: string,
   sourceRoot: string,
   rootNamespace: string,
-  namespaceNamingPolicy?: NamingPolicy
 ): string => {
   const fileDir = dirname(filePath);
 
@@ -41,6 +42,6 @@ export const getNamespaceFromPath = (
   return parts.length === 0
     ? rootNamespace
     : `${rootNamespace}.${parts
-        .map((p) => applyNamingPolicy(p, namespaceNamingPolicy ?? "clr"))
+        .map(normalizePathFragment)
         .join(".")}`;
 };

@@ -1,10 +1,4 @@
 import type { Diagnostic, IrModule, IrStatement } from "@tsonic/frontend";
-import {
-  applyNamingPolicy,
-  resolveNamingPolicy,
-  type NamingPolicyBucket,
-  type NamingPolicyConfig,
-} from "@tsonic/frontend";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 type CollisionItem = {
@@ -14,12 +8,9 @@ type CollisionItem = {
 };
 
 const getCSharpIdentifier = (
-  original: string,
-  bucket: NamingPolicyBucket,
-  namingPolicy: NamingPolicyConfig | undefined
+  original: string
 ): string => {
-  const policy = resolveNamingPolicy(namingPolicy, bucket);
-  return escapeCSharpIdentifier(applyNamingPolicy(original, policy));
+  return escapeCSharpIdentifier(original);
 };
 
 const addCollisionDiagnostics = (
@@ -52,14 +43,13 @@ const addCollisionDiagnostics = (
       message:
         `Naming policy collision in ${scope}: ` +
         `${details} all map to C# identifier '${csharp}'. ` +
-        `Rename one declaration or set namingPolicy.all = \"none\" to preserve source casing.`,
+        `Rename one declaration to make output deterministic.`,
     });
   }
 };
 
 const collectInlineTypeNames = (
-  stmt: Extract<IrStatement, { kind: "interfaceDeclaration" }>,
-  namingPolicy: NamingPolicyConfig | undefined
+  stmt: Extract<IrStatement, { kind: "interfaceDeclaration" }>
 ): readonly CollisionItem[] => {
   const items: CollisionItem[] = [];
 
@@ -69,7 +59,7 @@ const collectInlineTypeNames = (
 
     items.push({
       original: `${stmt.name}.${member.name}`,
-      csharp: getCSharpIdentifier(member.name, "classes", namingPolicy),
+      csharp: getCSharpIdentifier(member.name),
       kind: "inlineType",
     });
   }
@@ -103,8 +93,7 @@ const collectContainerNameItem = (
 };
 
 export const validateNamingPolicyCollisions = (
-  modules: readonly IrModule[],
-  namingPolicy: NamingPolicyConfig | undefined
+  modules: readonly IrModule[]
 ): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
@@ -119,7 +108,7 @@ export const validateNamingPolicyCollisions = (
       if (stmt.kind === "functionDeclaration") {
         moduleValueItems.push({
           original: stmt.name,
-          csharp: getCSharpIdentifier(stmt.name, "methods", namingPolicy),
+          csharp: getCSharpIdentifier(stmt.name),
           kind: "function",
         });
         continue;
@@ -130,7 +119,7 @@ export const validateNamingPolicyCollisions = (
           if (decl.name.kind !== "identifierPattern") continue;
           moduleValueItems.push({
             original: decl.name.name,
-            csharp: getCSharpIdentifier(decl.name.name, "fields", namingPolicy),
+            csharp: getCSharpIdentifier(decl.name.name),
             kind: "variable",
           });
         }
@@ -164,7 +153,7 @@ export const validateNamingPolicyCollisions = (
           csharp: escapeCSharpIdentifier(stmt.name),
           kind: "interface",
         });
-        namespaceTypeItems.push(...collectInlineTypeNames(stmt, namingPolicy));
+        namespaceTypeItems.push(...collectInlineTypeNames(stmt));
       }
     }
 
@@ -189,19 +178,16 @@ export const validateNamingPolicyCollisions = (
           if (m.kind === "methodDeclaration") {
             items.push({
               original: m.name,
-              csharp: getCSharpIdentifier(m.name, "methods", namingPolicy),
+              csharp: getCSharpIdentifier(m.name),
               kind: "method",
             });
             continue;
           }
           if (m.kind === "propertyDeclaration") {
             const hasAccessors = !!(m.getterBody || m.setterBody);
-            const bucket: NamingPolicyBucket = hasAccessors
-              ? "properties"
-              : "fields";
             items.push({
               original: m.name,
-              csharp: getCSharpIdentifier(m.name, bucket, namingPolicy),
+              csharp: getCSharpIdentifier(m.name),
               kind: hasAccessors ? "property" : "field",
             });
           }
@@ -220,7 +206,7 @@ export const validateNamingPolicyCollisions = (
           if (m.kind === "methodSignature") {
             items.push({
               original: m.name,
-              csharp: getCSharpIdentifier(m.name, "methods", namingPolicy),
+              csharp: getCSharpIdentifier(m.name),
               kind: "method",
             });
             continue;
@@ -228,7 +214,7 @@ export const validateNamingPolicyCollisions = (
           // propertySignature
           items.push({
             original: m.name,
-            csharp: getCSharpIdentifier(m.name, "properties", namingPolicy),
+            csharp: getCSharpIdentifier(m.name),
             kind: "property",
           });
         }
@@ -243,7 +229,7 @@ export const validateNamingPolicyCollisions = (
       if (stmt.kind === "enumDeclaration") {
         const items: CollisionItem[] = stmt.members.map((m) => ({
           original: m.name,
-          csharp: getCSharpIdentifier(m.name, "enumMembers", namingPolicy),
+          csharp: getCSharpIdentifier(m.name),
           kind: "enumMember",
         }));
         addCollisionDiagnostics(
@@ -257,7 +243,7 @@ export const validateNamingPolicyCollisions = (
       if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
         const items: CollisionItem[] = stmt.type.members.map((m) => ({
           original: m.name,
-          csharp: getCSharpIdentifier(m.name, "properties", namingPolicy),
+          csharp: getCSharpIdentifier(m.name),
           kind: m.kind === "methodSignature" ? "method" : "property",
         }));
         addCollisionDiagnostics(
@@ -271,4 +257,3 @@ export const validateNamingPolicyCollisions = (
 
   return diagnostics;
 };
-

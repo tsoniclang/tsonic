@@ -4,8 +4,6 @@
 
 import type { OutputType, PackageMetadata } from "@tsonic/backend";
 
-export type NamingPolicy = "clr" | "none";
-
 /**
  * Output configuration in tsonic.json
  */
@@ -36,16 +34,6 @@ export type TsonicOutputConfig = {
 export type TsonicConfig = {
   readonly $schema?: string;
   readonly rootNamespace: string;
-  readonly namingPolicy?: {
-    /** Force a single naming mode for all buckets. */
-    readonly all?: NamingPolicy;
-    readonly classes?: NamingPolicy;
-    readonly namespaces?: NamingPolicy;
-    readonly methods?: NamingPolicy;
-    readonly properties?: NamingPolicy;
-    readonly fields?: NamingPolicy;
-    readonly enumMembers?: NamingPolicy;
-  };
   readonly entryPoint?: string;
   readonly sourceRoot?: string;
   readonly outputDirectory?: string;
@@ -107,7 +95,6 @@ export type CliOptions = {
   typesVersion?: string;
   js?: boolean; // Enable JSRuntime interop (installs @tsonic/js)
   nodejs?: boolean; // Enable Node.js interop (installs @tsonic/nodejs)
-  pure?: boolean; // Use PascalCase .NET bindings (installs @tsonic/globals-pure)
   // Output type options
   type?: OutputType;
   targetFramework?: string;
@@ -125,15 +112,6 @@ export type CliOptions = {
  */
 export type ResolvedConfig = {
   readonly rootNamespace: string;
-  readonly namingPolicy?: {
-    readonly all?: NamingPolicy;
-    readonly classes?: NamingPolicy;
-    readonly namespaces?: NamingPolicy;
-    readonly methods?: NamingPolicy;
-    readonly properties?: NamingPolicy;
-    readonly fields?: NamingPolicy;
-    readonly enumMembers?: NamingPolicy;
-  };
   readonly entryPoint: string | undefined;
   readonly projectRoot: string; // Directory containing tsonic.json/package.json
   readonly sourceRoot: string;

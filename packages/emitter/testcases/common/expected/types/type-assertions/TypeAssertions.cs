@@ -1,39 +1,43 @@
+// Generated from: TypeAssertions.ts
+// Generated at: 2026-01-17T15:37:43.284Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.typeassertions
 {
     internal class Animal
     {
-        public string Name;
+        public string name;
     }
     internal class Dog : Animal
     {
-        public string Breed;
+        public string breed;
     }
 
             public static class TypeAssertions
             {
-                public static readonly int IntFromLiteral = 1000;
+                public static readonly int intFromLiteral = 1000;
 
-                public static readonly byte ByteFromLiteral = 255;
+                public static readonly byte byteFromLiteral = 255;
 
-                public static readonly short ShortFromLiteral = 1000;
+                public static readonly short shortFromLiteral = 1000;
 
-                public static readonly long LongFromLiteral = 1000000L;
+                public static readonly long longFromLiteral = 1000000L;
 
-                public static readonly float FloatFromLiteral = 1.5f;
+                public static readonly float floatFromLiteral = 1.5f;
 
-                public static readonly double DoubleFromLiteral = 1.5;
+                public static readonly double doubleFromLiteral = 1.5;
 
-                public static readonly object SomeObject = new Dog();
+                public static readonly object someObject = new Dog();
 
-                public static readonly Animal AsAnimal = (Animal)SomeObject;
+                public static readonly Animal asAnimal = (Animal)someObject;
 
-                public static Animal TestReferenceCasts(object obj)
+                public static Animal testReferenceCasts(object obj)
                     {
                     var animal = (Animal)obj;
                     return animal;
                     }
 
-                public static Dog TestDownCast(Animal animal)
+                public static Dog testDownCast(Animal animal)
                     {
                     var dog = (Dog)animal;
                     return dog;

@@ -136,9 +136,6 @@ export const parseArgs = (
       case "--js":
         options.js = true;
         break;
-      case "--pure":
-        options.pure = true;
-        break;
       case "-O":
       case "--optimize":
         options.optimize = (args[++i] ?? "speed") as "size" | "speed";

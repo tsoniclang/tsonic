@@ -24,7 +24,6 @@ import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import {
   bindingsStoreDir,
   defaultBindingsPackageNameForDll,
-  detectTsbindgenNaming,
   ensureGeneratedBindingsPackageJson,
   installGeneratedBindingsPackage,
   listDotnetRuntimes,
@@ -251,14 +250,9 @@ export const addPackageCommand = (
     };
   }
 
-  const naming = detectTsbindgenNaming(nextConfig);
-
   const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
   if (!dotnetRoot.ok) return dotnetRoot;
-  const coreRoot = resolvePackageRoot(projectRoot, "@tsonic/core");
-  if (!coreRoot.ok) return coreRoot;
   const dotnetLib = dotnetRoot.value;
-  const coreLib = coreRoot.value;
 
   const nonFramework = closure.resolvedAssemblies.filter((asm) => {
     const runtimeDir = runtimeDirs.find((rt) => pathIsWithin(asm.path, rt.dir));
@@ -374,12 +368,8 @@ export const addPackageCommand = (
       destPath,
       "-o",
       bindingsDir,
-      "--naming",
-      naming,
       "--lib",
       dotnetLib,
-      "--lib",
-      coreLib,
     ];
 
     const libs = Array.from(transitiveDeps.get(id) ?? [])

@@ -100,12 +100,19 @@ const tryExtractAttributeArg = (
     typeof expr.property === "string"
   ) {
     const object = expr.object;
-    if (
-      object.kind === "identifier" &&
-      object.inferredType &&
-      object.inferredType.kind === "referenceType"
-    ) {
-      return { kind: "enum", type: object.inferredType, member: expr.property };
+    const enumType =
+      expr.inferredType && expr.inferredType.kind === "referenceType"
+        ? expr.inferredType
+        : object.kind === "identifier" &&
+            object.inferredType &&
+            object.inferredType.kind === "referenceType"
+          ? object.inferredType
+          : undefined;
+
+    if (enumType) {
+      const binding = (expr as IrMemberExpression).memberBinding;
+      const member = binding?.member ?? expr.property;
+      return { kind: "enum", type: enumType, member };
     }
   }
 

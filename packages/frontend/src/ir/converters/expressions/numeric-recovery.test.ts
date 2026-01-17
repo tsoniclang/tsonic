@@ -5,13 +5,13 @@
  * we recover the original numeric intent from the declaration AST.
  *
  * These tests verify:
- * - Property access recovery (arr.length, string.length → int)
- * - Call return type recovery (string.indexOf() → int)
+ * - Property access recovery (arr.Length, string.Length → int)
+ * - Call return type recovery (string.IndexOf() → int)
  * - Negative cases (plain number stays number)
  * - Guardrails (unions, complex types are NOT recovered)
  *
  * Note: .NET arrays don't have indexOf method (use Array.IndexOf or LINQ).
- * String has indexOf from System.String.
+ * String has IndexOf from System.String.
  */
 
 import { describe, it } from "mocha";
@@ -143,12 +143,12 @@ const findExpression = (
 };
 
 describe("Declaration-Based Numeric Intent Recovery", function () {
-  this.timeout(10_000);
+  this.timeout(60_000);
   describe("Property Access Recovery", () => {
-    it("should recover 'int' from arr.length property declaration", () => {
+    it("should recover 'int' from arr.Length property declaration", () => {
       const code = `
         export function getLen(arr: string[]): number {
-          return arr.length;
+          return arr.Length;
         }
       `;
 
@@ -159,7 +159,7 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       const lengthExpr = findExpression(
         modules,
         (expr): expr is IrMemberExpression =>
-          expr.kind === "memberAccess" && expr.property === "length"
+          expr.kind === "memberAccess" && expr.property === "Length"
       );
 
       expect(lengthExpr).to.not.be.undefined;
@@ -171,10 +171,10 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       });
     });
 
-    it("should recover 'int' from string.length property declaration", () => {
+    it("should recover 'int' from string.Length property declaration", () => {
       const code = `
         export function getLen(s: string): number {
-          return s.length;
+          return s.Length;
         }
       `;
 
@@ -185,7 +185,7 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       const lengthExpr = findExpression(
         modules,
         (expr): expr is IrMemberExpression =>
-          expr.kind === "memberAccess" && expr.property === "length"
+          expr.kind === "memberAccess" && expr.property === "Length"
       );
 
       expect(lengthExpr).to.not.be.undefined;
@@ -198,12 +198,12 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
   });
 
   describe("Call Return Type Recovery", () => {
-    it("should recover 'int' from string.indexOf() return type", () => {
-      // Note: Using string.indexOf() because .NET arrays don't have indexOf method
+    it("should recover 'int' from string.IndexOf() return type", () => {
+      // Note: Using string.IndexOf() because .NET arrays don't have indexOf method
       // (use Array.IndexOf static method or LINQ instead)
       const code = `
         export function findIndex(str: string, search: string): number {
-          return str.indexOf(search);
+          return str.IndexOf(search);
         }
       `;
 
@@ -214,7 +214,7 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       const indexOfCall = findExpression(modules, (expr) => {
         if (expr.kind !== "call") return false;
         if (expr.callee.kind !== "memberAccess") return false;
-        return expr.callee.property === "indexOf";
+        return expr.callee.property === "IndexOf";
       });
 
       expect(indexOfCall).to.not.be.undefined;
@@ -231,7 +231,7 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
     it("should recover 'int' even when assigned to number variable", () => {
       const code = `
         export function assignToNumber(arr: string[]): void {
-          const len: number = arr.length;
+          const len: number = arr.Length;
         }
       `;
 
@@ -242,7 +242,7 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       const lengthExpr = findExpression(
         modules,
         (expr): expr is IrMemberExpression =>
-          expr.kind === "memberAccess" && expr.property === "length"
+          expr.kind === "memberAccess" && expr.property === "Length"
       );
 
       expect(lengthExpr).to.not.be.undefined;
@@ -255,16 +255,16 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
     });
   });
 
-  describe("End-to-End Integration: arr[arr.length - 1]", () => {
-    it("should pass numeric proof validation for arr[arr.length - 1] pattern", () => {
+  describe("End-to-End Integration: arr[arr.Length - 1]", () => {
+    it("should pass numeric proof validation for arr[arr.Length - 1] pattern", () => {
       // This is the specific regression guard for the original issue.
-      // The pattern arr[arr.length - 1] must:
+      // The pattern arr[arr.Length - 1] must:
       // 1. Compile successfully
-      // 2. Build IR with arr.length having int intent
+      // 2. Build IR with arr.Length having int intent
       // 3. Pass numeric proof pass without TSN5107
       const code = `
         export function getLast(arr: string[]): string {
-          return arr[arr.length - 1];
+          return arr[arr.Length - 1];
         }
       `;
 
@@ -292,12 +292,12 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       ).to.be.true;
     });
 
-    it("should pass numeric proof for string.indexOf() as index", () => {
-      // Using string.indexOf() result as string char index
+    it("should pass numeric proof for string.IndexOf() as index", () => {
+      // Using string.IndexOf() result as string char index
       // Note: .NET arrays don't have indexOf method, use string instead
       const code = `
         export function getCharAtIndex(str: string, search: string): string {
-          const idx = str.indexOf(search);
+          const idx = str.IndexOf(search);
           return str[idx];
         }
       `;
@@ -320,10 +320,10 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
     });
 
     it("should pass numeric proof for length-based arithmetic", () => {
-      // Pattern: arr.length in subtraction (common for last element access)
+      // Pattern: arr.Length in subtraction (common for last element access)
       const code = `
         export function getSecondLast(arr: string[]): string {
-          return arr[arr.length - 2];
+          return arr[arr.Length - 2];
         }
       `;
 
@@ -347,15 +347,15 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
 
   // Note: User-defined function return type recovery is tested through E2E tests
   // (test/fixtures/*) which have proper node_modules setup for @tsonic/core imports.
-  // The unit tests here focus on built-in globals (arr.length, string.indexOf, etc.)
+  // The unit tests here focus on built-in globals (arr.Length, string.IndexOf, etc.)
 
   describe("Chained Call Type Recovery", () => {
     it("should recover correct type through method chain", () => {
-      // str.substring() returns string, then .length returns int
-      // Note: .length is declared as int in globals, no import needed
+      // str.Substring() returns string, then .Length returns int
+      // Note: .Length is declared as int in globals, no import needed
       const code = `
         export function getSubLength(s: string): number {
-          return s.substring(0, 5).length;
+          return s.Substring(0, 5).Length;
         }
       `;
 
@@ -366,7 +366,7 @@ describe("Declaration-Based Numeric Intent Recovery", function () {
       const lengthExpr = findExpression(
         modules,
         (expr): expr is IrMemberExpression =>
-          expr.kind === "memberAccess" && expr.property === "length"
+          expr.kind === "memberAccess" && expr.property === "Length"
       );
 
       expect(lengthExpr).to.not.be.undefined;

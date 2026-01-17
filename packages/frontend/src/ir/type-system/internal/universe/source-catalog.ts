@@ -22,7 +22,6 @@ import type { Binding } from "../../../binding/index.js";
 import { buildTypeRegistry } from "../type-registry.js";
 import type { TypeRegistry } from "../type-registry.js";
 import { convertType } from "../type-converter.js";
-import type { NamingPolicy } from "../../../../resolver/naming-policy.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -36,7 +35,6 @@ export type SourceCatalogConfig = {
   readonly checker: ts.TypeChecker;
   readonly sourceRoot: string;
   readonly rootNamespace: string;
-  readonly namespaceNamingPolicy?: NamingPolicy;
   readonly binding: Binding;
 };
 
@@ -94,9 +92,6 @@ export const buildSourceCatalog = (
     config.checker,
     config.sourceRoot,
     config.rootNamespace,
-    {
-      namespaceNamingPolicy: config.namespaceNamingPolicy,
-    }
     // No convertType — uses default (() => unknownType).
   );
 
@@ -122,7 +117,6 @@ export const buildSourceCatalog = (
     config.sourceRoot,
     config.rootNamespace,
     {
-      namespaceNamingPolicy: config.namespaceNamingPolicy,
       convertType: boundConvertType,
     }
   );
