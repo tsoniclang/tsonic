@@ -1,0 +1,9 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "AttributesComprehensive",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "attributes-comprehensive"
+}
+

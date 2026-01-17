@@ -1,0 +1,6 @@
+User.Serializable: ok
+User.ctor.Obsolete: ok
+User.save.Obsolete: ok
+User.name.Obsolete: ok
+NoCtor.ctor.Obsolete: ok
+Alice

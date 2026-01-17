@@ -57,6 +57,18 @@ describe("Attribute Collection Pass", () => {
     resolvedClrType,
   });
 
+  const makeTypedIdentifier = (name: string, inferredType: unknown) => ({
+    kind: "identifier" as const,
+    name,
+    inferredType: inferredType as any,
+  });
+
+  const makeRefType = (name: string, resolvedClrType?: string) => ({
+    kind: "referenceType" as const,
+    name,
+    resolvedClrType,
+  });
+
   /**
    * Helper to create a minimal member access IR
    */
@@ -87,6 +99,29 @@ describe("Attribute Collection Pass", () => {
     kind: "literal" as const,
     value,
     raw: String(value),
+  });
+
+  const makeObject = (properties: readonly unknown[]) => ({
+    kind: "object" as const,
+    properties,
+  });
+
+  const makeObjectProp = (key: string | unknown, value: unknown) => ({
+    kind: "property" as const,
+    key: key as any,
+    value: value as any,
+    shorthand: false as const,
+  });
+
+  const makeObjectSpread = (expression: unknown) => ({
+    kind: "spread" as const,
+    expression: expression as any,
+  });
+
+  const makeUnaryTypeof = (expression: unknown) => ({
+    kind: "unary" as const,
+    operator: "typeof" as const,
+    expression: expression as any,
   });
 
   const makeParameter = (name: string) => ({
@@ -326,6 +361,264 @@ describe("Attribute Collection Pass", () => {
         value: "Use NewUser instead",
       });
     });
+
+    it("should attach attribute with named arguments", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
+              makeObject([
+                makeObjectProp("IsError", makeLiteral(true)),
+                makeObjectProp("DiagnosticId", makeLiteral("TSN0000")),
+              ]),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      expect(classDecl.attributes).to.have.length(1);
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.positionalArgs).to.have.length(0);
+      expect(attr.namedArgs.get("IsError")).to.deep.equal({
+        kind: "boolean",
+        value: true,
+      });
+      expect(attr.namedArgs.get("DiagnosticId")).to.deep.equal({
+        kind: "string",
+        value: "TSN0000",
+      });
+    });
+
+    it("should attach attribute with mixed positional and named arguments", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
+              makeLiteral("Deprecated"),
+              makeObject([makeObjectProp("IsError", makeLiteral(true))]),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.positionalArgs).to.deep.equal([{ kind: "string", value: "Deprecated" }]);
+      expect(attr.namedArgs.get("IsError")).to.deep.equal({
+        kind: "boolean",
+        value: true,
+      });
+    });
+
+    it("should attach attribute with typeof argument", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier(
+                "TypeConverterAttribute",
+                "System.ComponentModel.TypeConverterAttribute"
+              ),
+              makeUnaryTypeof(
+                makeTypedIdentifier(
+                  "User",
+                  makeRefType("User", "Test.User")
+                )
+              ),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      expect(classDecl.attributes).to.have.length(1);
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.positionalArgs).to.have.length(1);
+      expect(attr.positionalArgs[0]).to.deep.equal({
+        kind: "typeof",
+        type: { kind: "referenceType", name: "User", resolvedClrType: "Test.User" },
+      });
+    });
+
+    it("should attach attribute with enum argument", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("MyAttr", "Test.MyAttr"),
+              {
+                kind: "memberAccess" as const,
+                object: makeTypedIdentifier("MyEnum", makeRefType("MyEnum", "Test.MyEnum")),
+                property: "Value",
+                isComputed: false,
+                isOptional: false,
+              },
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.positionalArgs).to.deep.equal([
+        {
+          kind: "enum",
+          type: { kind: "referenceType", name: "MyEnum", resolvedClrType: "Test.MyEnum" },
+          member: "Value",
+        },
+      ]);
+    });
+
+    it("should use CLR member name for enum arguments when memberBinding is present", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("MyAttr", "Test.MyAttr"),
+              {
+                kind: "memberAccess" as const,
+                object: makeTypedIdentifier(
+                  "LayoutKind",
+                  makeRefType("LayoutKind", "System.Runtime.InteropServices.LayoutKind")
+                ),
+                property: "sequential",
+                isComputed: false,
+                isOptional: false,
+                memberBinding: {
+                  assembly: "System.Runtime.InteropServices",
+                  type: "System.Runtime.InteropServices.LayoutKind",
+                  member: "Sequential",
+                },
+              },
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.positionalArgs).to.deep.equal([
+        {
+          kind: "enum",
+          type: {
+            kind: "referenceType",
+            name: "LayoutKind",
+            resolvedClrType: "System.Runtime.InteropServices.LayoutKind",
+          },
+          member: "Sequential",
+        },
+      ]);
+    });
   });
 
   describe("Alias imports", () => {
@@ -415,6 +708,35 @@ describe("Attribute Collection Pass", () => {
       expect(method && "attributes" in method ? method.attributes : undefined).to.have.length(1);
     });
 
+    it("should error when the selected method does not exist", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makeMethodMarkerCall("User", "PureAttribute", makeSelector("missing")),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4007")).to.be.true;
+    });
+
     it("should error on invalid selector body", () => {
       const module = createModule([
         {
@@ -473,6 +795,32 @@ describe("Attribute Collection Pass", () => {
       const classDecl = mod.body[0] as IrClassDeclaration;
       const prop = classDecl.members.find((m) => m.kind === "propertyDeclaration");
       expect(prop && "attributes" in prop ? prop.attributes : undefined).to.have.length(1);
+    });
+
+    it("should error when the selected property does not exist", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "name",
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makePropMarkerCall("User", "missing", "DataMemberAttribute"),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4007")).to.be.true;
     });
   });
 
@@ -559,6 +907,54 @@ describe("Attribute Collection Pass", () => {
   });
 
   describe("Error cases", () => {
+    it("should error when attribute constructor has no CLR binding and is not a local class", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        makeMarkerCall("User", "MissingAttribute"),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4004")).to.be.true;
+    });
+
+    it("should allow locally declared attribute types (no CLR binding)", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "MyAttr",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        makeMarkerCall("User", "MyAttr"),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body.find((s) => s.kind === "classDeclaration" && s.name === "User") as IrClassDeclaration;
+      expect(classDecl.attributes).to.have.length(1);
+      const attr = assertDefined(classDecl.attributes?.[0]);
+      expect(attr.attributeType).to.deep.equal({ kind: "referenceType", name: "MyAttr" });
+    });
+
     it("should emit diagnostic when target not found", () => {
       // IR representation of:
       // A.on(NotExist).type.add(SomeAttribute);
@@ -610,6 +1006,149 @@ describe("Attribute Collection Pass", () => {
       expect(result.diagnostics.some((d) => d.code === "TSN4006")).to.be.true;
     });
 
+    it("should error when positional args appear after named args", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
+              makeObject([makeObjectProp("IsError", makeLiteral(true))]),
+              makeLiteral("too late"),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4006")).to.be.true;
+    });
+
+    it("should error on spreads in named arguments object", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
+              makeObject([makeObjectSpread(makeIdentifier("x"))]),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4006")).to.be.true;
+    });
+
+    it("should error when a named argument value is not a constant", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
+              makeObject([makeObjectProp("IsError", makeIdentifier("notConst"))]),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4006")).to.be.true;
+    });
+
+    it("should error when a named argument key is not a string", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier("User"),
+                ]),
+                "type"
+              ),
+              "add"
+            ),
+            [
+              makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
+              makeObject([
+                makeObjectProp(makeIdentifier("IsError"), makeLiteral(true)),
+              ]),
+            ]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4006")).to.be.true;
+    });
+
     it("should error on unsupported marker call shapes using the attributes API", () => {
       const module = createModule([
         {
@@ -635,6 +1174,38 @@ describe("Attribute Collection Pass", () => {
             [makeIdentifier("SerializableAttribute", "System.SerializableAttribute")]
           ),
         },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
+    });
+
+    it("should error when type target is ambiguous (class and function share name)", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        {
+          kind: "functionDeclaration",
+          name: "User",
+          parameters: [],
+          body: { kind: "blockStatement", statements: [] },
+          isAsync: false,
+          isGenerator: false,
+          isExported: true,
+        } as IrFunctionDeclaration,
+        makeMarkerCall(
+          "User",
+          "SerializableAttribute",
+          [],
+          "System.SerializableAttribute"
+        ),
       ]);
 
       const result = runAttributeCollectionPass([module]);
