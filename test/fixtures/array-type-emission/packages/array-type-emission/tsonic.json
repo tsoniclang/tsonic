@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "ArrayTypeEmissionTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "array-type-emission-test",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  }
+}

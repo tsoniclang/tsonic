@@ -44,21 +44,17 @@ const run = (cwd: string, command: string, args: readonly string[]): void => {
   }
 };
 
-const writeTsonicJson = (dir: string, fileName = "tsonic.json"): void => {
-  mkdirSync(join(dir, "src"), { recursive: true });
+const writeWorkspaceConfig = (
+  dir: string,
+  fileName = "tsonic.workspace.json"
+): void => {
   writeFileSync(
     join(dir, fileName),
     JSON.stringify(
       {
-        $schema: "https://tsonic.org/schema/v1.json",
-        rootNamespace: "Test",
-        entryPoint: "src/App.ts",
-        sourceRoot: "src",
-        outputDirectory: "generated",
-        outputName: "app",
+        $schema: "https://tsonic.org/schema/workspace/v1.json",
         dotnetVersion: "net10.0",
         dotnet: {
-          typeRoots: ["node_modules/@tsonic/globals"],
           libraries: [],
           frameworkReferences: [],
           packageReferences: [],
@@ -144,7 +140,7 @@ describe("add commands - dependency closure bindings", function () {
   it("add nuget generates bindings for transitive deps (A -> B -> C)", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-nuget-"));
     try {
-      writeTsonicJson(dir);
+      writeWorkspaceConfig(dir);
 
       // Link required standard bindings packages into the temp project (no network).
       linkDir(
@@ -173,10 +169,16 @@ describe("add commands - dependency closure bindings", function () {
         deps: [{ id: "Acme.B", version: "1.0.0" }],
       });
 
-      const result = addNugetCommand("Acme.A", "1.0.0", undefined, join(dir, "tsonic.json"), {
+      const result = addNugetCommand(
+        "Acme.A",
+        "1.0.0",
+        undefined,
+        join(dir, "tsonic.workspace.json"),
+        {
         verbose: false,
         quiet: true,
-      });
+        }
+      );
       expect(result.ok).to.equal(true);
 
       // Airplane-grade requirement: deps bindings are generated automatically.
@@ -197,7 +199,7 @@ describe("add commands - dependency closure bindings", function () {
   it("update nuget updates pinned version and keeps bindings green", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-update-nuget-"));
     try {
-      writeTsonicJson(dir, "tsonic.custom.json");
+      writeWorkspaceConfig(dir, "tsonic.custom.json");
 
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
@@ -250,7 +252,7 @@ describe("add commands - dependency closure bindings", function () {
   it("remove nuget removes package reference from config", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-remove-nuget-"));
     try {
-      writeTsonicJson(dir);
+      writeWorkspaceConfig(dir);
 
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
@@ -261,7 +263,7 @@ describe("add commands - dependency closure bindings", function () {
         join(dir, "node_modules/@tsonic/core")
       );
 
-      const configPath = join(dir, "tsonic.json");
+      const configPath = join(dir, "tsonic.workspace.json");
       const cfg = JSON.parse(readFileSync(configPath, "utf-8")) as {
         dotnet?: { packageReferences?: Array<{ id: string; version: string }> };
       };
@@ -287,7 +289,7 @@ describe("add commands - dependency closure bindings", function () {
   it("add package resolves netstandard-style dependencies under .NET 10", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-add-package-"));
     try {
-      writeTsonicJson(dir);
+      writeWorkspaceConfig(dir);
 
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
@@ -322,7 +324,7 @@ describe("add commands - dependency closure bindings", function () {
       );
       expect(existsSync(dll)).to.equal(true);
 
-      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.json"), {
+      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.workspace.json"), {
         verbose: false,
         quiet: true,
       });
@@ -373,7 +375,7 @@ describe("add commands - dependency closure bindings", function () {
     // Default: should succeed (we pass --allow-constructor-constraint-loss).
     const dir = mkdtempSync(join(tmpdir(), "tsonic-ctor-constraint-"));
     try {
-      writeTsonicJson(dir);
+      writeWorkspaceConfig(dir);
 
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
@@ -385,7 +387,7 @@ describe("add commands - dependency closure bindings", function () {
       );
 
       const dll = makeLib(dir);
-      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.json"), {
+      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.workspace.json"), {
         verbose: false,
         quiet: true,
       });
@@ -397,7 +399,7 @@ describe("add commands - dependency closure bindings", function () {
     // Strict: should fail with TBG406.
     const dirStrict = mkdtempSync(join(tmpdir(), "tsonic-ctor-constraint-strict-"));
     try {
-      writeTsonicJson(dirStrict);
+      writeWorkspaceConfig(dirStrict);
 
       linkDir(
         join(repoRoot, "node_modules/@tsonic/dotnet"),
@@ -409,7 +411,7 @@ describe("add commands - dependency closure bindings", function () {
       );
 
       const dll = makeLib(dirStrict);
-      const add = addPackageCommand(dll, undefined, join(dirStrict, "tsonic.json"), {
+      const add = addPackageCommand(dll, undefined, join(dirStrict, "tsonic.workspace.json"), {
         verbose: false,
         quiet: true,
         strict: true,

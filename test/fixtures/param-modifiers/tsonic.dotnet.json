@@ -1,8 +1,0 @@
-{
-  "runtime": "dotnet",
-  "rootNamespace": "ParamModifiersTest",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "param-modifiers-test"
-}

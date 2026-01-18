@@ -1,8 +1,0 @@
-{
-  "runtime": "dotnet",
-  "rootNamespace": "SwitchStatement",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "switch-statement"
-}

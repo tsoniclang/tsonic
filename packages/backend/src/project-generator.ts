@@ -108,6 +108,7 @@ const generateExecutableProperties = (
     <PublishAot>true</PublishAot>
     <PublishSingleFile>${execConfig.singleFile}</PublishSingleFile>
     <PublishTrimmed>${execConfig.trimmed}</PublishTrimmed>
+    <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
     <InvariantGlobalization>${execConfig.invariantGlobalization}</InvariantGlobalization>
     <StripSymbols>${execConfig.stripSymbols}</StripSymbols>
 

@@ -1,5 +1,5 @@
 /**
- * tsonic remove nuget - remove a NuGet PackageReference from the project.
+ * tsonic remove nuget - remove a NuGet PackageReference from the workspace.
  *
  * Usage:
  *   tsonic remove nuget <PackageId>
@@ -9,16 +9,10 @@
  * - Always runs `tsonic restore` afterwards to keep local bindings consistent
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result, TsonicWorkspaceConfig, PackageReferenceConfig } from "../types.js";
+import { loadWorkspaceConfig } from "../config.js";
 import { writeTsonicJson, type AddCommandOptions } from "./add-common.js";
 import { restoreCommand } from "./restore.js";
-
-type PackageReferenceConfig = {
-  readonly id: string;
-  readonly version: string;
-  readonly types?: string;
-};
 
 const normalizePkgId = (id: string): string => id.trim().toLowerCase();
 
@@ -31,7 +25,7 @@ export const removeNugetCommand = (
     return { ok: false, error: "NuGet package id must be non-empty" };
   }
 
-  const configResult = loadConfig(configPath);
+  const configResult = loadWorkspaceConfig(configPath);
   if (!configResult.ok) return configResult;
   const config = configResult.value;
 
@@ -49,7 +43,7 @@ export const removeNugetCommand = (
 
   existing.splice(idx, 1);
 
-  const nextConfig: TsonicConfig = {
+  const nextConfig: TsonicWorkspaceConfig = {
     ...config,
     dotnet: {
       ...dotnet,
@@ -65,4 +59,3 @@ export const removeNugetCommand = (
 
   return { ok: true, value: { packageId: id } };
 };
-

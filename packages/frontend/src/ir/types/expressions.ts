@@ -150,14 +150,12 @@ export type IrArrowFunctionExpression = {
  *
  * - clrIndexer: CLR indexer (obj[int]) - requires Int32 proof
  * - dictionary: Dictionary<K,V>[key] - NO Int32 requirement (key is typed)
- * - jsRuntimeArray: Tsonic.JSRuntime.Array.get() - requires Int32 proof
  * - stringChar: string[int] character access - requires Int32 proof
  * - unknown: Fallback for unclassified access - emit error
  */
 export type ComputedAccessKind =
   | "clrIndexer"
   | "dictionary"
-  | "jsRuntimeArray"
   | "stringChar"
   | "unknown";
 

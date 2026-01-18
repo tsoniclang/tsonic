@@ -1,8 +1,0 @@
-{
-  "runtime": "dotnet",
-  "rootNamespace": "GenericConstraintsObjectStruct",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "generic-constraints-object-struct"
-}

@@ -1,173 +1,282 @@
 /**
- * Configuration loading and validation
+ * Workspace + project configuration loading and resolution.
+ *
+ * Airplane-grade rule: Tsonic always operates in a workspace.
+ * - Workspace root contains `tsonic.workspace.json`
+ * - Projects live under `packages/*` and contain `tsonic.json`
+ * - All external dependencies are workspace-scoped (no project-private deps)
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { detectRid } from "@tsonic/backend";
+import type { OutputType } from "@tsonic/backend";
 import type {
-  TsonicConfig,
   CliOptions,
+  FrameworkReferenceConfig,
+  PackageReferenceConfig,
   ResolvedConfig,
   Result,
   TsonicOutputConfig,
+  TsonicProjectConfig,
+  TsonicWorkspaceConfig,
 } from "./types.js";
-import type { OutputType } from "@tsonic/backend";
+
+export const WORKSPACE_CONFIG_FILE = "tsonic.workspace.json";
+export const PROJECT_CONFIG_FILE = "tsonic.json";
 
 /**
- * Load tsonic.json from a directory
+ * Find `tsonic.workspace.json` by walking up the directory tree.
  */
-export const loadConfig = (
-  configPath: string
-): Result<TsonicConfig, string> => {
-  if (!existsSync(configPath)) {
-    return {
-      ok: false,
-      error: `Config file not found: ${configPath}`,
-    };
+export const findWorkspaceConfig = (startDir: string): string | null => {
+  let currentDir = resolve(startDir);
+
+  for (;;) {
+    const cfg = join(currentDir, WORKSPACE_CONFIG_FILE);
+    if (existsSync(cfg)) return cfg;
+
+    const parent = dirname(currentDir);
+    if (parent === currentDir) return null;
+    currentDir = parent;
   }
+};
 
+const parseJsonFile = <T>(filePath: string): Result<T, string> => {
   try {
-    const content = readFileSync(configPath, "utf-8");
-    const config = JSON.parse(content) as TsonicConfig;
-
-    // Validate required fields
-    if (!config.rootNamespace) {
-      return {
-        ok: false,
-        error: "tsonic.json: 'rootNamespace' is required",
-      };
-    }
-
-    const outputType = config.output?.type;
-    if (
-      outputType !== undefined &&
-      outputType !== "executable" &&
-      outputType !== "library" &&
-      outputType !== "console-app"
-    ) {
-      return {
-        ok: false,
-        error:
-          `tsonic.json: 'output.type' must be one of 'executable', 'library', 'console-app' (got '${outputType}')`,
-      };
-    }
-
-    const frameworkReferences = config.dotnet?.frameworkReferences;
-    if (
-      frameworkReferences !== undefined &&
-      (!Array.isArray(frameworkReferences) ||
-        frameworkReferences.some((r) => {
-          if (typeof r === "string") return false;
-          if (r === null || typeof r !== "object") return true;
-          const id = (r as { readonly id?: unknown }).id;
-          const types = (r as { readonly types?: unknown }).types;
-          if (typeof id !== "string") return true;
-          if (types !== undefined && typeof types !== "string") return true;
-          return false;
-        }))
-    ) {
-      return {
-        ok: false,
-        error:
-          "tsonic.json: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }",
-      };
-    }
-
-    const packageReferences = config.dotnet?.packageReferences;
-    if (packageReferences !== undefined) {
-      if (!Array.isArray(packageReferences)) {
-        return {
-          ok: false,
-          error:
-            "tsonic.json: 'dotnet.packageReferences' must be an array of { id, version }",
-        };
-      }
-
-      for (const entry of packageReferences as unknown[]) {
-        if (
-          entry === null ||
-          typeof entry !== "object" ||
-          typeof (entry as { readonly id?: unknown }).id !== "string" ||
-          typeof (entry as { readonly version?: unknown }).version !== "string" ||
-          ((entry as { readonly types?: unknown }).types !== undefined &&
-            typeof (entry as { readonly types?: unknown }).types !== "string")
-        ) {
-          return {
-            ok: false,
-            error:
-              "tsonic.json: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string }",
-          };
-        }
-      }
-    }
-
-    return { ok: true, value: config };
+    const raw = readFileSync(filePath, "utf-8");
+    return { ok: true, value: JSON.parse(raw) as T };
   } catch (error) {
     return {
       ok: false,
-      error: `Failed to parse tsonic.json: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };
 
+export const loadWorkspaceConfig = (
+  configPath: string
+): Result<TsonicWorkspaceConfig, string> => {
+  if (!existsSync(configPath)) {
+    return { ok: false, error: `Workspace config not found: ${configPath}` };
+  }
+
+  const parsed = parseJsonFile<Record<string, unknown>>(configPath);
+  if (!parsed.ok) return parsed;
+  const config = parsed.value as TsonicWorkspaceConfig;
+
+  if (!config.dotnetVersion || typeof config.dotnetVersion !== "string") {
+    return {
+      ok: false,
+      error: `${WORKSPACE_CONFIG_FILE}: 'dotnetVersion' is required`,
+    };
+  }
+
+  const dotnet = (config.dotnet ?? {}) as Record<string, unknown>;
+
+  const libraries = dotnet.libraries;
+  if (
+    libraries !== undefined &&
+    (!Array.isArray(libraries) || libraries.some((p) => typeof p !== "string"))
+  ) {
+    return {
+      ok: false,
+      error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings`,
+    };
+  }
+
+  const frameworkReferences = dotnet.frameworkReferences;
+  if (
+    frameworkReferences !== undefined &&
+    (!Array.isArray(frameworkReferences) ||
+      frameworkReferences.some((r) => {
+        if (typeof r === "string") return false;
+        if (r === null || typeof r !== "object") return true;
+        const id = (r as { readonly id?: unknown }).id;
+        const types = (r as { readonly types?: unknown }).types;
+        if (typeof id !== "string") return true;
+        if (types !== undefined && typeof types !== "string") return true;
+        return false;
+      }))
+  ) {
+    return {
+      ok: false,
+      error:
+        `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }`,
+    };
+  }
+
+  const packageReferences = dotnet.packageReferences;
+  if (packageReferences !== undefined) {
+    if (!Array.isArray(packageReferences)) {
+      return {
+        ok: false,
+        error:
+          `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' must be an array of { id, version }`,
+      };
+    }
+
+    for (const entry of packageReferences as unknown[]) {
+      if (
+        entry === null ||
+        typeof entry !== "object" ||
+        typeof (entry as { readonly id?: unknown }).id !== "string" ||
+        typeof (entry as { readonly version?: unknown }).version !== "string" ||
+        ((entry as { readonly types?: unknown }).types !== undefined &&
+          typeof (entry as { readonly types?: unknown }).types !== "string")
+      ) {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string }`,
+        };
+      }
+    }
+  }
+
+  const typeRoots = dotnet.typeRoots;
+  if (
+    typeRoots !== undefined &&
+    (!Array.isArray(typeRoots) || typeRoots.some((r) => typeof r !== "string"))
+  ) {
+    return {
+      ok: false,
+      error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.typeRoots' must be an array of strings`,
+    };
+  }
+
+  return { ok: true, value: config };
+};
+
+export const loadProjectConfig = (
+  configPath: string
+): Result<TsonicProjectConfig, string> => {
+  if (!existsSync(configPath)) {
+    return { ok: false, error: `Project config not found: ${configPath}` };
+  }
+
+  const parsed = parseJsonFile<Record<string, unknown>>(configPath);
+  if (!parsed.ok) return parsed;
+
+  // Airplane-grade enforcement: deps live in the workspace config only.
+  if ("dotnet" in parsed.value || "dotnetVersion" in parsed.value) {
+    return {
+      ok: false,
+      error:
+        `${PROJECT_CONFIG_FILE}: dotnet dependencies must be declared in ${WORKSPACE_CONFIG_FILE} (workspace-scoped).\n` +
+        `Remove 'dotnet' / 'dotnetVersion' from this project config and retry.`,
+    };
+  }
+
+  const references = (parsed.value as { readonly references?: unknown }).references;
+  if (references !== undefined) {
+    if (references === null || typeof references !== "object" || Array.isArray(references)) {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'references' must be an object`,
+      };
+    }
+
+    const libraries = (references as { readonly libraries?: unknown }).libraries;
+    if (
+      libraries !== undefined &&
+      (!Array.isArray(libraries) || libraries.some((p) => typeof p !== "string"))
+    ) {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'references.libraries' must be an array of strings`,
+      };
+    }
+  }
+
+  const config = parsed.value as TsonicProjectConfig;
+
+  if (!config.rootNamespace || typeof config.rootNamespace !== "string") {
+    return { ok: false, error: `${PROJECT_CONFIG_FILE}: 'rootNamespace' is required` };
+  }
+
+  const outputType = config.output?.type;
+  if (
+    outputType !== undefined &&
+    outputType !== "executable" &&
+    outputType !== "library" &&
+    outputType !== "console-app"
+  ) {
+    return {
+      ok: false,
+      error:
+        `${PROJECT_CONFIG_FILE}: 'output.type' must be one of 'executable', 'library', 'console-app' (got '${String(outputType)}')`,
+    };
+  }
+
+  return { ok: true, value: config };
+};
+
+export const listProjects = (workspaceRoot: string): readonly string[] => {
+  const packagesDir = join(workspaceRoot, "packages");
+  if (!existsSync(packagesDir)) return [];
+
+  const projects: string[] = [];
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const projectDir = join(packagesDir, entry.name);
+    if (existsSync(join(projectDir, PROJECT_CONFIG_FILE))) {
+      projects.push(projectDir);
+    }
+  }
+  return projects;
+};
+
 /**
- * Find tsonic.json by walking up the directory tree
+ * Find the nearest project config under `packages/<project>/tsonic.json` for a given working directory.
  */
-export const findConfig = (startDir: string): string | null => {
+export const findProjectConfig = (
+  startDir: string,
+  workspaceRoot: string
+): string | null => {
   let currentDir = resolve(startDir);
+  const workspaceAbs = resolve(workspaceRoot);
 
-  // Walk up until we find tsonic.json or hit root
-  while (true) {
-    const configPath = join(currentDir, "tsonic.json");
-    if (existsSync(configPath)) {
-      return configPath;
+  for (;;) {
+    // Don't walk above the workspace.
+    if (!currentDir.startsWith(workspaceAbs)) return null;
+
+    const cfg = join(currentDir, PROJECT_CONFIG_FILE);
+    if (existsSync(cfg)) {
+      // Enforce packages/* boundary.
+      const rel = currentDir.slice(workspaceAbs.length).replace(/^[\\/]/, "");
+      if (!rel.startsWith("packages/")) return null;
+      return cfg;
     }
 
-    const parentDir = dirname(currentDir);
-    if (parentDir === currentDir) {
-      // Hit root
-      return null;
-    }
-    currentDir = parentDir;
+    if (currentDir === workspaceAbs) return null;
+    const parent = dirname(currentDir);
+    if (parent === currentDir) return null;
+    currentDir = parent;
   }
 };
 
 /**
- * Auto-detect output type based on entry point and project structure
- */
-const autoDetectOutputType = (entryPoint: string | undefined): OutputType => {
-  // If no entry point, default to library
-  if (!entryPoint) {
-    return "library";
-  }
-
-  // If entry point is provided, default to executable
-  // The user specified an entry point, so they want a runnable program
-  return "executable";
-};
-
-/**
- * Resolve output configuration from config + CLI options
+ * Resolve output configuration from project + workspace + CLI options.
  */
 const resolveOutputConfig = (
-  config: TsonicConfig,
+  projectConfig: TsonicProjectConfig,
+  workspaceConfig: TsonicWorkspaceConfig,
   cliOptions: CliOptions,
   entryPoint: string | undefined
 ): TsonicOutputConfig => {
-  const configOutput = config.output ?? {};
+  const configOutput = projectConfig.output ?? {};
 
-  // Determine output type
+  const autoDetectOutputType = (ep: string | undefined): OutputType =>
+    ep ? "executable" : "library";
+
   const outputType =
     cliOptions.type ?? configOutput.type ?? autoDetectOutputType(entryPoint);
 
-  // Base config from file
   const baseConfig: TsonicOutputConfig = {
     type: outputType,
-    name: configOutput.name ?? config.outputName,
+    name: configOutput.name ?? projectConfig.outputName,
   };
 
-  // Merge executable-specific options
   if (outputType === "executable") {
     return {
       ...baseConfig,
@@ -176,28 +285,31 @@ const resolveOutputConfig = (
       trimmed: configOutput.trimmed ?? true,
       stripSymbols: cliOptions.noStrip
         ? false
-        : (configOutput.stripSymbols ?? config.buildOptions?.stripSymbols ?? true),
+        : (configOutput.stripSymbols ??
+            projectConfig.buildOptions?.stripSymbols ??
+            workspaceConfig.buildOptions?.stripSymbols ??
+            true),
       optimization:
         cliOptions.optimize ??
-        config.optimize ??
+        projectConfig.optimize ??
+        workspaceConfig.optimize ??
         configOutput.optimization ??
         "speed",
       invariantGlobalization:
         configOutput.invariantGlobalization ??
-        config.buildOptions?.invariantGlobalization ??
+        projectConfig.buildOptions?.invariantGlobalization ??
+        workspaceConfig.buildOptions?.invariantGlobalization ??
         true,
       selfContained:
         cliOptions.selfContained ?? configOutput.selfContained ?? true,
     };
   }
 
-  // Merge library-specific options
   if (outputType === "library") {
     return {
       ...baseConfig,
-      targetFrameworks: configOutput.targetFrameworks ?? [
-        config.dotnetVersion ?? "net10.0",
-      ],
+      targetFrameworks:
+        configOutput.targetFrameworks ?? [workspaceConfig.dotnetVersion],
       generateDocumentation:
         cliOptions.generateDocs ?? configOutput.generateDocumentation ?? true,
       includeSymbols:
@@ -207,84 +319,95 @@ const resolveOutputConfig = (
     };
   }
 
-  // Console app (non-NativeAOT) output
   if (outputType === "console-app") {
     return {
       ...baseConfig,
       targetFramework:
         cliOptions.targetFramework ??
         configOutput.targetFramework ??
-        config.dotnetVersion ??
-        "net10.0",
+        workspaceConfig.dotnetVersion,
       singleFile: cliOptions.singleFile ?? configOutput.singleFile ?? true,
       selfContained:
         cliOptions.selfContained ?? configOutput.selfContained ?? true,
     };
   }
 
-  // Unknown output type - preserve for downstream error handling.
   return baseConfig;
 };
 
 /**
- * Resolve final configuration from file + CLI args
- * @param projectRoot - Directory containing tsonic.json/package.json (for package resolution)
+ * Resolve a project's effective configuration (workspace-scoped deps + project settings).
  */
 export const resolveConfig = (
-  config: TsonicConfig,
+  workspaceConfig: TsonicWorkspaceConfig,
+  projectConfig: TsonicProjectConfig,
   cliOptions: CliOptions,
+  workspaceRoot: string,
   projectRoot: string,
   entryFile?: string
 ): ResolvedConfig => {
-  const entryPoint = entryFile ?? config.entryPoint;
+  const entryPoint = entryFile ?? projectConfig.entryPoint;
   const sourceRoot =
     cliOptions.src ??
-    config.sourceRoot ??
+    projectConfig.sourceRoot ??
     (entryPoint ? dirname(entryPoint) : "src");
 
-  // Default type roots
-  // Only ambient globals packages need typeRoots - explicit import packages are resolved normally
   const defaultTypeRoots = ["node_modules/@tsonic/globals"];
-  const typeRoots = config.dotnet?.typeRoots ?? defaultTypeRoots;
+  const typeRoots = workspaceConfig.dotnet?.typeRoots ?? defaultTypeRoots;
 
-  // Merge libraries from config and CLI
-  const configLibraries = config.dotnet?.libraries ?? [];
+  const configLibraries = workspaceConfig.dotnet?.libraries ?? [];
+  const projectLibraries = (projectConfig.references?.libraries ?? []).map((p) =>
+    resolve(projectRoot, p)
+  );
   const cliLibraries = cliOptions.lib ?? [];
-  const libraries = [...configLibraries, ...cliLibraries];
+  const libraries = [...configLibraries, ...projectLibraries, ...cliLibraries];
 
-  const rawFrameworkReferences = config.dotnet?.frameworkReferences ?? [];
+  const rawFrameworkReferences =
+    (workspaceConfig.dotnet?.frameworkReferences ??
+      []) as readonly FrameworkReferenceConfig[];
   const frameworkReferences = rawFrameworkReferences.map((r) =>
     typeof r === "string" ? r : r.id
   );
-  const packageReferences = (config.dotnet?.packageReferences ?? []).map((p) => ({
-    id: p.id,
-    version: p.version,
-  }));
 
-  // Resolve output configuration
-  const outputConfig = resolveOutputConfig(config, cliOptions, entryPoint);
+  const packageReferences = (
+    (workspaceConfig.dotnet?.packageReferences ??
+      []) as readonly PackageReferenceConfig[]
+  ).map((p) => ({ id: p.id, version: p.version }));
+
+  const outputConfig = resolveOutputConfig(
+    projectConfig,
+    workspaceConfig,
+    cliOptions,
+    entryPoint
+  );
 
   return {
-    rootNamespace: cliOptions.namespace ?? config.rootNamespace,
+    workspaceRoot,
+    rootNamespace: cliOptions.namespace ?? projectConfig.rootNamespace,
     entryPoint,
     projectRoot,
     sourceRoot,
-    outputDirectory: config.outputDirectory ?? "generated",
-    outputName: cliOptions.out ?? config.outputName ?? "app",
-    rid: cliOptions.rid ?? config.rid ?? detectRid(),
-    dotnetVersion: config.dotnetVersion ?? "net10.0",
+    outputDirectory: projectConfig.outputDirectory ?? "generated",
+    outputName: cliOptions.out ?? projectConfig.outputName ?? "app",
+    rid: cliOptions.rid ?? workspaceConfig.rid ?? detectRid(),
+    dotnetVersion: workspaceConfig.dotnetVersion,
     optimize:
       cliOptions.optimize ??
-      config.optimize ??
-      config.output?.optimization ??
+      projectConfig.optimize ??
+      workspaceConfig.optimize ??
+      projectConfig.output?.optimization ??
       "speed",
     outputConfig,
     stripSymbols: cliOptions.noStrip
       ? false
-      : (config.output?.stripSymbols ?? config.buildOptions?.stripSymbols ?? true),
+      : (projectConfig.output?.stripSymbols ??
+          projectConfig.buildOptions?.stripSymbols ??
+          workspaceConfig.buildOptions?.stripSymbols ??
+          true),
     invariantGlobalization:
-      config.output?.invariantGlobalization ??
-      config.buildOptions?.invariantGlobalization ??
+      projectConfig.output?.invariantGlobalization ??
+      projectConfig.buildOptions?.invariantGlobalization ??
+      workspaceConfig.buildOptions?.invariantGlobalization ??
       true,
     keepTemp: cliOptions.keepTemp ?? false,
     verbose: cliOptions.verbose ?? false,

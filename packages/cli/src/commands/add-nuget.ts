@@ -1,5 +1,5 @@
 /**
- * tsonic add nuget - add a NuGet PackageReference to the project, plus bindings.
+ * tsonic add nuget - add a NuGet PackageReference to the workspace, plus bindings.
  *
  * Usage:
  *   tsonic add nuget <PackageId> <Version> [typesPackage]
@@ -11,8 +11,8 @@
  *   via `tsonic restore` (single source of truth)
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result, TsonicWorkspaceConfig, PackageReferenceConfig } from "../types.js";
+import { loadWorkspaceConfig } from "../config.js";
 import { dirname } from "node:path";
 import {
   defaultBindingsPackageNameForNuget,
@@ -23,12 +23,6 @@ import {
 import { restoreCommand } from "./restore.js";
 
 export type AddNugetOptions = AddCommandOptions;
-
-type PackageReferenceConfig = {
-  readonly id: string;
-  readonly version: string;
-  readonly types?: string;
-};
 
 const normalizePkgId = (id: string): string => id.trim().toLowerCase();
 
@@ -44,7 +38,7 @@ export const addNugetCommand = (
   configPath: string,
   options: AddNugetOptions = {}
 ): Result<{ packageId: string; version: string; bindings: string }, string> => {
-  const projectRoot = dirname(configPath);
+  const workspaceRoot = dirname(configPath);
   if (!id.trim()) {
     return { ok: false, error: "NuGet package id must be non-empty" };
   }
@@ -55,7 +49,7 @@ export const addNugetCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = loadConfig(configPath);
+  const tsonicConfigResult = loadWorkspaceConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
   const config = tsonicConfigResult.value;
 
@@ -75,7 +69,7 @@ export const addNugetCommand = (
         ok: false,
         error:
           `NuGet package already present with a different version: ${current?.id} ${current?.version}\n` +
-          `Refusing to change versions automatically (airplane-grade). Update tsonic.json manually if intended.`,
+          `Refusing to change versions automatically (airplane-grade). Update tsonic.workspace.json manually if intended.`,
       };
     }
 
@@ -88,7 +82,7 @@ export const addNugetCommand = (
             `- ${current.id} ${current.version}\n` +
             `- existing: ${current.types}\n` +
             `- requested: ${typesPackage}\n` +
-            `Refusing to change automatically (airplane-grade). Update tsonic.json manually if intended.`,
+            `Refusing to change automatically (airplane-grade). Update tsonic.workspace.json manually if intended.`,
         };
       }
 
@@ -100,7 +94,7 @@ export const addNugetCommand = (
     );
   }
 
-  const nextConfig: TsonicConfig = {
+  const nextConfig: TsonicWorkspaceConfig = {
     ...config,
     dotnet: {
       ...dotnet,
@@ -117,7 +111,11 @@ export const addNugetCommand = (
     defaultBindingsPackageNameForNuget(id);
 
   if (typesPackage) {
-    const installResult = npmInstallDevDependency(projectRoot, typesPackage, options);
+    const installResult = npmInstallDevDependency(
+      workspaceRoot,
+      typesPackage,
+      options
+    );
     if (!installResult.ok) return installResult;
     return { ok: true, value: { packageId: id, version: ver, bindings } };
   }

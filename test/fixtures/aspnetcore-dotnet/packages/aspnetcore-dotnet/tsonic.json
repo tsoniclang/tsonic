@@ -1,0 +1,8 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "AspNetCoreDotnet",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "aspnetcore-dotnet"
+}

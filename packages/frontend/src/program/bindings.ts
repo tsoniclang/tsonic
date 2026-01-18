@@ -207,6 +207,8 @@ const validateBindingFile = (
  * Supports simple (global/module) and hierarchical (namespace/type/member) formats
  */
 export class BindingRegistry {
+  private readonly loadedBindingFiles = new Set<string>();
+
   // Simple format: global/module bindings for identifiers like console, Math, fs
   private readonly simpleBindings = new Map<string, SimpleBindingDescriptor>();
 
@@ -365,6 +367,13 @@ export class BindingRegistry {
    * Supports simple, full, and tsbindgen formats
    */
   addBindings(_filePath: string, manifest: BindingFile): void {
+    // Airplane-grade: a given bindings file must be loaded exactly once per
+    // ProgramContext. Some converters perform on-demand bindings.json loading
+    // based on Binding-resolved MemberIds; without this guard, overload sets
+    // can silently duplicate and become ambiguous.
+    if (this.loadedBindingFiles.has(_filePath)) return;
+    this.loadedBindingFiles.add(_filePath);
+
     const addMemberOverload = (key: string, member: MemberBinding): void => {
       const existing = this.memberOverloads.get(key) ?? [];
       existing.push(member);
@@ -619,6 +628,7 @@ export class BindingRegistry {
    * Clear all loaded bindings
    */
   clear(): void {
+    this.loadedBindingFiles.clear();
     this.simpleBindings.clear();
     this.namespaces.clear();
     this.types.clear();

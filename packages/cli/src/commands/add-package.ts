@@ -18,8 +18,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result, TsonicWorkspaceConfig } from "../types.js";
+import { loadWorkspaceConfig } from "../config.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import {
   bindingsStoreDir,
@@ -80,8 +80,8 @@ export const addPackageCommand = (
   configPath: string,
   options: AddPackageOptions = {}
 ): Result<{ dllsCopied: number; bindings: string }, string> => {
-  const projectRoot = dirname(configPath);
-  const dllAbs = resolveFromProjectRoot(projectRoot, dllPath);
+  const workspaceRoot = dirname(configPath);
+  const dllAbs = resolveFromProjectRoot(workspaceRoot, dllPath);
 
   if (!existsSync(dllAbs)) {
     return { ok: false, error: `DLL not found: ${dllAbs}` };
@@ -108,7 +108,7 @@ export const addPackageCommand = (
         ok: false,
         error:
           `Refusing to add ${dllName} via 'tsonic add package'.\n` +
-          `Use 'tsonic add js' (or 'tsonic project init --js') to install @tsonic/js and add the DLL reference.`,
+          `Use 'tsonic add js' (or 'tsonic init --js') to install @tsonic/js and add the DLL reference.`,
       };
     }
     if (lower === "nodejs.dll") {
@@ -116,7 +116,7 @@ export const addPackageCommand = (
         ok: false,
         error:
           `Refusing to add ${dllName} via 'tsonic add package'.\n` +
-          `Use 'tsonic add nodejs' (or 'tsonic project init --nodejs') to install @tsonic/nodejs and add the DLL reference.`,
+          `Use 'tsonic add nodejs' (or 'tsonic init --nodejs') to install @tsonic/nodejs and add the DLL reference.`,
       };
     }
     return {
@@ -131,30 +131,30 @@ export const addPackageCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = loadConfig(configPath);
+  const tsonicConfigResult = loadWorkspaceConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
   const config = tsonicConfigResult.value;
 
-  const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
+  const tsbindgenDllResult = resolveTsbindgenDllPath(workspaceRoot);
   if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
   const tsbindgenDll = tsbindgenDllResult.value;
 
-  const runtimesResult = listDotnetRuntimes(projectRoot);
+  const runtimesResult = listDotnetRuntimes(workspaceRoot);
   if (!runtimesResult.ok) return runtimesResult;
   const runtimeDirs = runtimesResult.value;
 
   const userDeps = (options.deps ?? []).map((d) =>
-    resolveFromProjectRoot(projectRoot, d)
+    resolveFromProjectRoot(workspaceRoot, d)
   );
 
   const refDirs = [
     ...runtimeDirs.map((r) => r.dir),
-    join(projectRoot, "lib"),
+    join(workspaceRoot, "libs"),
     ...userDeps,
   ];
 
   const closureResult = tsbindgenResolveClosure(
-    projectRoot,
+    workspaceRoot,
     tsbindgenDll,
     [dllAbs],
     refDirs
@@ -185,7 +185,7 @@ export const addPackageCommand = (
     dllsToCopy.push(asm.path);
   }
 
-  const libDir = join(projectRoot, "lib");
+  const libDir = join(workspaceRoot, "libs");
   mkdirSync(libDir, { recursive: true });
 
   let copiedCount = 0;
@@ -201,7 +201,7 @@ export const addPackageCommand = (
         return {
           ok: false,
           error:
-            `Conflict: lib/${fileName} already exists and differs from the resolved dependency closure.\n` +
+            `Conflict: libs/${fileName} already exists and differs from the resolved dependency closure.\n` +
             `Resolve this conflict (remove/rename the existing DLL) and retry.`,
         };
       }
@@ -210,7 +210,7 @@ export const addPackageCommand = (
       copiedCount++;
     }
 
-    copiedRelPaths.push(`lib/${fileName}`);
+    copiedRelPaths.push(`libs/${fileName}`);
   }
 
   const dotnet = config.dotnet ?? {};
@@ -228,7 +228,7 @@ export const addPackageCommand = (
     }
   }
 
-  const nextConfig: TsonicConfig = {
+  const nextConfig: TsonicWorkspaceConfig = {
     ...config,
     dotnet: {
       ...dotnet,
@@ -242,7 +242,7 @@ export const addPackageCommand = (
 
   // Install or generate bindings.
   if (typesPackage) {
-    const installResult = npmInstallDevDependency(projectRoot, typesPackage, options);
+    const installResult = npmInstallDevDependency(workspaceRoot, typesPackage, options);
     if (!installResult.ok) return installResult;
     return {
       ok: true,
@@ -250,7 +250,7 @@ export const addPackageCommand = (
     };
   }
 
-  const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
+  const dotnetRoot = resolvePackageRoot(workspaceRoot, "@tsonic/dotnet");
   if (!dotnetRoot.ok) return dotnetRoot;
   const dotnetLib = dotnetRoot.value;
 
@@ -348,7 +348,7 @@ export const addPackageCommand = (
     }
 
     const packageName = defaultBindingsPackageNameForDll(destPath);
-    const bindingsDir = bindingsStoreDir(projectRoot, "dll", packageName);
+    const bindingsDir = bindingsStoreDir(workspaceRoot, "dll", packageName);
 
     bindingsDirById.set(id, bindingsDir);
     packageNameById.set(id, packageName);
@@ -358,7 +358,7 @@ export const addPackageCommand = (
       source: {
         assemblyName: asm.name,
         version: asm.version,
-        path: `lib/${basename(destPath)}`,
+        path: `libs/${basename(destPath)}`,
       },
     });
     if (!pkgJsonResult.ok) return pkgJsonResult;
@@ -382,10 +382,10 @@ export const addPackageCommand = (
     for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
     generateArgs.push("--ref-dir", libDir);
 
-    const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+    const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
     if (!genResult.ok) return genResult;
 
-    const installResult = installGeneratedBindingsPackage(projectRoot, packageName, bindingsDir);
+    const installResult = installGeneratedBindingsPackage(workspaceRoot, packageName, bindingsDir);
     if (!installResult.ok) return installResult;
   }
 

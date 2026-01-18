@@ -26,7 +26,7 @@ describe("CLI Parser", () => {
 
       it("should parse project:init as two-word command", () => {
         const result = parseArgs(["project", "init"]);
-        expect(result.command).to.equal("project:init");
+        expect(result.command).to.equal("init");
       });
 
       it("should parse add:package as two-word command", () => {
@@ -157,8 +157,8 @@ describe("CLI Parser", () => {
       });
 
       it("should parse --config option with value", () => {
-        const result = parseArgs(["build", "--config", "tsonic.json"]);
-        expect(result.options.config).to.equal("tsonic.json");
+        const result = parseArgs(["build", "--config", "tsonic.workspace.json"]);
+        expect(result.options.config).to.equal("tsonic.workspace.json");
       });
 
       it("should parse -c short option for config", () => {

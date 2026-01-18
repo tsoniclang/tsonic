@@ -29,42 +29,86 @@ export type TsonicOutputConfig = {
 };
 
 /**
- * Tsonic configuration file (tsonic.json)
+ * Tsonic project configuration file (packages/<project>/tsonic.json)
  */
-export type TsonicConfig = {
+export type TsonicProjectConfig = {
   readonly $schema?: string;
   readonly rootNamespace: string;
   readonly entryPoint?: string;
   readonly sourceRoot?: string;
   readonly outputDirectory?: string;
   readonly outputName?: string;
-  readonly rid?: string;
-  readonly dotnetVersion?: string;
   readonly optimize?: "size" | "speed";
   readonly output?: TsonicOutputConfig;
   readonly buildOptions?: {
     readonly stripSymbols?: boolean;
     readonly invariantGlobalization?: boolean;
   };
-  readonly dotnet?: {
-    readonly typeRoots?: readonly string[];
-    readonly libraries?: readonly string[]; // External library paths for .NET interop
-    /** Additional shared frameworks (FrameworkReference) */
-    readonly frameworkReferences?: ReadonlyArray<
-      | string
-      | {
-          readonly id: string;
-          /** If provided, bindings are expected from this npm package (no auto-generation). */
-          readonly types?: string;
-        }
-    >;
-    /** Additional NuGet packages (PackageReference) */
-    readonly packageReferences?: ReadonlyArray<{
+  /**
+   * Project-scoped CLR assembly references (workspace-internal).
+   *
+   * Use this for referencing sibling Tsonic-built libraries (DLL outputs)
+   * inside the same workspace (e.g., an API project referencing a domain DLL).
+   *
+   * Paths are resolved relative to the project root.
+   */
+  readonly references?: {
+    readonly libraries?: readonly string[];
+  };
+};
+
+export type FrameworkReferenceConfig =
+  | string
+  | {
       readonly id: string;
-      readonly version: string;
       /** If provided, bindings are expected from this npm package (no auto-generation). */
       readonly types?: string;
-    }>;
+    };
+
+export type PackageReferenceConfig = {
+  readonly id: string;
+  readonly version: string;
+  /** If provided, bindings are expected from this npm package (no auto-generation). */
+  readonly types?: string;
+};
+
+/**
+ * Tsonic workspace configuration file (tsonic.workspace.json)
+ *
+ * Airplane-grade rule: all external dependencies are workspace-scoped.
+ * Projects do not own separate dependency graphs.
+ */
+export type TsonicWorkspaceConfig = {
+  readonly $schema?: string;
+  /**
+   * Target framework moniker for the workspace (e.g. "net10.0").
+   * Applies to all projects.
+   */
+  readonly dotnetVersion: string;
+  /**
+   * Default Runtime Identifier (RID) for native builds. Optional.
+   */
+  readonly rid?: string;
+  readonly optimize?: "size" | "speed";
+  readonly buildOptions?: {
+    readonly stripSymbols?: boolean;
+    readonly invariantGlobalization?: boolean;
+  };
+  readonly dotnet?: {
+    /**
+     * Ambient type roots for TypeScript compilation (globals, etc).
+     * Defaults to ["node_modules/@tsonic/globals"] when omitted.
+     */
+    readonly typeRoots?: readonly string[];
+    /**
+     * Workspace-scoped DLL references. Paths are relative to the workspace root.
+     * Recommended location is ./libs/*.dll.
+     */
+    readonly libraries?: readonly string[];
+    /** Additional shared frameworks (FrameworkReference) */
+    readonly frameworkReferences?: ReadonlyArray<FrameworkReferenceConfig>;
+    /** Additional NuGet packages (PackageReference) */
+    readonly packageReferences?: ReadonlyArray<PackageReferenceConfig>;
   };
 };
 
@@ -81,6 +125,7 @@ export type CliOptions = {
    */
   strict?: boolean;
   config?: string;
+  project?: string;
   src?: string;
   out?: string;
   namespace?: string;
@@ -111,6 +156,7 @@ export type CliOptions = {
  * Combined configuration (from file + CLI args)
  */
 export type ResolvedConfig = {
+  readonly workspaceRoot: string;
   readonly rootNamespace: string;
   readonly entryPoint: string | undefined;
   readonly projectRoot: string; // Directory containing tsonic.json/package.json

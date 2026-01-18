@@ -17,11 +17,12 @@ import type { MemberId } from "../../type-system/index.js";
 import type { MemberBinding } from "../../../program/bindings.js";
 import { tsbindgenClrTypeNameToTsTypeName } from "../../../tsbindgen/names.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
+import { loadBindingsFromPath } from "../../../program/bindings.js";
 
 /**
  * Fallback for getDeclaredPropertyType when TypeSystem can't resolve the member.
  * Uses TypeSystem.typeOfMemberId() to get member types for:
- * - Built-in types from globals (Array.length, string.length, etc.)
+ * - Built-in types from globals (Array.Length, string.Length, etc.)
  * - CLR-bound types from tsbindgen
  * - Types with inherited members not in TypeRegistry
  *
@@ -100,7 +101,7 @@ const getDeclaredPropertyType = (
   }
 
   // Fallback: Use Binding for inherited members not in TypeRegistry
-  // (e.g., Array.length from Array$instance)
+  // (e.g., Array.Length from Array$instance)
   const fallbackResult = getDeclaredPropertyTypeFallback(node, ctx);
   if (DEBUG) {
     console.log(
@@ -132,7 +133,7 @@ const classifyComputedAccess = (
   if (!objectType) return "unknown";
 
   // TypeScript array type (number[], T[], etc.)
-  // Both clrIndexer and jsRuntimeArray require Int32 proof
+  // Requires Int32 proof
   if (objectType.kind === "arrayType") {
     return "clrIndexer";
   }
@@ -207,7 +208,7 @@ const extractTypeName = (
   }
 
   // Handle primitive types - map to their CLR type names for binding lookup
-  // This enables binding resolution for methods like string.split(), number.toString()
+  // This enables binding resolution for methods like string.Split(), number.ToString()
   if (inferredType.kind === "primitiveType") {
     switch (inferredType.name) {
       case "string":
@@ -224,7 +225,7 @@ const extractTypeName = (
   }
 
   // Handle literal types - determine the CLR type from the value type
-  // This enables binding resolution for string literals like "hello".split(" ")
+  // This enables binding resolution for string literals like "hello".Split(" ")
   if (inferredType.kind === "literalType") {
     const valueType = typeof inferredType.value;
     switch (valueType) {
@@ -472,13 +473,22 @@ const resolveHierarchicalBindingFromMemberId = (
   };
 
   const typeAlias = normalizeDeclaringType(declaringTypeName);
-  const overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+  let overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
   if (!overloadsAll || overloadsAll.length === 0) {
     const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
     const bindingsPath =
       declSourceFilePath !== undefined
         ? findNearestBindingsJson(declSourceFilePath)
         : undefined;
+
+    // Airplane-grade: If we can locate the bindings.json that corresponds to the
+    // tsbindgen declaration, load it on-demand and retry. This avoids relying on
+    // "import closure" heuristics and ensures CLR binding lookup is based on the
+    // declaration’s actual owning bindings.json.
+    if (bindingsPath) {
+      loadBindingsFromPath(ctx.bindings, bindingsPath);
+      overloadsAll = ctx.bindings.getMemberOverloads(typeAlias, propertyName);
+    }
 
     // Airplane-grade rule: If this member resolves to a tsbindgen declaration,
     // we MUST have a CLR binding; we must never guess member names via naming policy.
@@ -489,7 +499,7 @@ const resolveHierarchicalBindingFromMemberId = (
     const isClrBound =
       declaringTypeName.startsWith("__Ext_") || bindingsPath !== undefined;
 
-    if (isClrBound) {
+    if (isClrBound && (!overloadsAll || overloadsAll.length === 0)) {
       ctx.diagnostics.push(
         createDiagnostic(
           "TSN4004",
@@ -692,9 +702,9 @@ export const convertMemberExpression = (
 
     // Try to resolve hierarchical binding
     const memberBinding =
-      resolveHierarchicalBinding(object, propertyName, ctx) ??
       resolveExtensionMethodsBinding(node, propertyName, ctx) ??
-      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx);
+      resolveHierarchicalBindingFromMemberId(node, propertyName, ctx) ??
+      resolveHierarchicalBinding(object, propertyName, ctx);
 
     // DETERMINISTIC TYPING: Property type comes from NominalEnv + TypeRegistry for
     // user-defined types (including inherited members), with fallback to Binding layer
@@ -715,6 +725,15 @@ export const convertMemberExpression = (
       ctx
     );
 
+    // Hierarchical bindings: namespace.type is a static type reference, not a runtime
+    // value. When this pattern is present in the binding manifest, avoid poisoning the
+    // receiver with unknownType; the emitter uses "no inferredType" to classify the
+    // receiver as a static type, enabling global::Type.Member emission.
+    const isNamespaceTypeReference =
+      object.kind === "identifier" &&
+      ctx.bindings.getNamespace(object.name)?.types.some((t) => t.alias === propertyName) ===
+        true;
+
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
     // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).
     //
@@ -731,9 +750,11 @@ export const convertMemberExpression = (
     // Users must add explicit types like `count: int = 0` instead of `count = 0`.
     const propertyInferredType = declaredType
       ? declaredType
-      : memberBinding
+      : isNamespaceTypeReference
         ? undefined
-        : { kind: "unknownType" as const };
+        : memberBinding
+          ? undefined
+          : { kind: "unknownType" as const };
 
     return {
       kind: "memberAccess",

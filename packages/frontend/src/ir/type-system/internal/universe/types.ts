@@ -341,15 +341,22 @@ export type RawBindingsType = {
   readonly isSealed: boolean;
   readonly isStatic: boolean;
   readonly arity: number;
+  readonly typeParameters?: readonly string[];
   readonly methods: readonly RawBindingsMethod[];
   readonly properties: readonly RawBindingsProperty[];
   readonly fields: readonly RawBindingsField[];
   readonly events?: readonly unknown[];
   readonly constructors: readonly RawBindingsConstructor[];
-  readonly baseType?: string;
-  readonly interfaces?: readonly string[];
+  readonly baseType?: RawBindingsHeritageType;
+  readonly interfaces?: readonly RawBindingsHeritageType[];
   readonly assemblyName?: string;
   readonly metadataToken?: number;
+};
+
+export type RawBindingsHeritageType = {
+  readonly stableId: string;
+  readonly clrName: string;
+  readonly typeArguments?: readonly string[];
 };
 
 export type RawBindingsMethod = {

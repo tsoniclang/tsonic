@@ -156,22 +156,37 @@ else
         fi
 
         # Build and run - capture errors to file
-        if node "$cli_path" build src/index.ts --config tsonic.dotnet.json 2>"$error_file"; then
+        if node "$cli_path" build --project "$fixture_name" --config tsonic.workspace.json 2>"$error_file"; then
             # Find executable
             # Some .NET publish outputs mark DLLs as executable; filter those out.
             exe_path=""
+            project_root="packages/$fixture_name"
+            out_dir="$project_root/out"
+
+            output_name="$fixture_name"
+            generated_subdir="generated"
+            if [ -f "$project_root/tsonic.json" ]; then
+                cfg_vals=$(node -e 'const fs=require("fs"); const cfg=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); console.log(String(cfg.outputName ?? "")); console.log(String(cfg.outputDirectory ?? ""));' "$project_root/tsonic.json" 2>/dev/null || true)
+                cfg_output_name=$(printf "%s" "$cfg_vals" | sed -n '1p')
+                cfg_output_dir=$(printf "%s" "$cfg_vals" | sed -n '2p')
+                if [ -n "$cfg_output_name" ]; then output_name="$cfg_output_name"; fi
+                if [ -n "$cfg_output_dir" ]; then generated_subdir="$cfg_output_dir"; fi
+            fi
+
+            generated_dir="$project_root/$generated_subdir"
+
             # Prefer the top-level binary matching the fixture name when present.
-            if [ -f "out/$fixture_name" ] && [ -x "out/$fixture_name" ]; then
-                exe_path="out/$fixture_name"
+            if [ -f "$out_dir/$output_name" ] && [ -x "$out_dir/$output_name" ]; then
+                exe_path="$out_dir/$output_name"
             else
-                exe_path=$(find out -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | grep -v '\.so$' | grep -v '\.dylib$' | head -1 || true)
+                exe_path=$(find "$out_dir" -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | grep -v '\.so$' | grep -v '\.dylib$' | head -1 || true)
             fi
 
             if [ -z "$exe_path" ]; then
-                if [ -f "generated/$fixture_name" ] && [ -x "generated/$fixture_name" ]; then
-                    exe_path="generated/$fixture_name"
+                if [ -f "$generated_dir/$output_name" ] && [ -x "$generated_dir/$output_name" ]; then
+                    exe_path="$generated_dir/$output_name"
                 else
-                    exe_path=$(find generated -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | grep -v '\.so$' | grep -v '\.dylib$' | head -1 || true)
+                    exe_path=$(find "$generated_dir" -type f -executable 2>/dev/null | grep -v '\.dll$' | grep -v '\.dbg$' | grep -v '\.so$' | grep -v '\.dylib$' | head -1 || true)
                 fi
             fi
 
@@ -211,7 +226,7 @@ else
     # Collect fixture directories for dotnet tests
     DOTNET_FIXTURES=()
     for fixture_dir in "$FIXTURES_DIR"/*/; do
-        config_file="$fixture_dir/tsonic.dotnet.json"
+        config_file="$fixture_dir/tsonic.workspace.json"
         # Skip if no dotnet config
         if [ ! -f "$config_file" ]; then
             continue
@@ -280,11 +295,7 @@ else
         local result=""
 
         # Find config
-        if [ -f "$fixture_dir/tsonic.dotnet.json" ]; then
-            config_file="tsonic.dotnet.json"
-        elif [ -f "$fixture_dir/tsonic.js.json" ]; then
-            config_file="tsonic.js.json"
-        else
+        if [ ! -f "$fixture_dir/tsonic.workspace.json" ]; then
             result="FAIL (no config)"
             echo "$result" > "$result_file"
             echo -e "  $fixture_name: \033[0;31m$result\033[0m"
@@ -298,7 +309,7 @@ else
         fi
 
         # Build should FAIL
-        if node "$cli_path" build src/index.ts --config "$config_file" >/dev/null 2>&1; then
+        if node "$cli_path" build --project "$fixture_name" --config tsonic.workspace.json >/dev/null 2>&1; then
             result="FAIL (expected error but succeeded)"
         else
             result="PASS (failed as expected)"

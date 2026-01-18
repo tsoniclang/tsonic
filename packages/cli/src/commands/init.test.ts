@@ -6,8 +6,8 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { getTypePackageInfo, initProject } from "./init.js";
+import { basename, join } from "node:path";
+import { getTypePackageInfo, initWorkspace } from "./init.js";
 
 describe("Init Command", () => {
   describe("getTypePackageInfo", () => {
@@ -78,14 +78,18 @@ describe("Init Command", () => {
     });
   });
 
-  describe("initProject", () => {
+  describe("initWorkspace", () => {
     it("should generate dotnet sample for default mode", () => {
       const dir = mkdtempSync(join(tmpdir(), "tsonic-init-default-"));
       try {
-        const result = initProject(dir, { skipTypes: true });
+        const result = initWorkspace(dir, { skipTypes: true });
         expect(result.ok).to.equal(true);
 
-        const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
+        const workspaceName = basename(dir);
+        const appTs = readFileSync(
+          join(dir, "packages", workspaceName, "src", "App.ts"),
+          "utf-8"
+        );
         expect(appTs).to.include('@tsonic/dotnet/System.js');
         expect(appTs).to.include("Console.WriteLine");
         expect(appTs).to.include("File.ReadAllText");
@@ -97,18 +101,24 @@ describe("Init Command", () => {
     it("should generate js sample when --js is enabled", () => {
       const dir = mkdtempSync(join(tmpdir(), "tsonic-init-js-"));
       try {
-        const result = initProject(dir, { skipTypes: true, js: true });
+        const result = initWorkspace(dir, { skipTypes: true, js: true });
         expect(result.ok).to.equal(true);
 
-        const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
+        const workspaceName = basename(dir);
+        const appTs = readFileSync(
+          join(dir, "packages", workspaceName, "src", "App.ts"),
+          "utf-8"
+        );
         expect(appTs).to.include('@tsonic/js/index.js');
         expect(appTs).to.include("JSON.parse");
         expect(appTs).to.include("JSON.stringify");
 
-        const config = JSON.parse(readFileSync(join(dir, "tsonic.json"), "utf-8")) as {
+        const config = JSON.parse(
+          readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")
+        ) as {
           dotnet?: { libraries?: unknown };
         };
-        expect(config.dotnet?.libraries).to.deep.equal(["lib/Tsonic.JSRuntime.dll"]);
+        expect(config.dotnet?.libraries).to.deep.equal(["libs/Tsonic.JSRuntime.dll"]);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -117,19 +127,25 @@ describe("Init Command", () => {
     it("should generate nodejs sample when --nodejs is enabled", () => {
       const dir = mkdtempSync(join(tmpdir(), "tsonic-init-nodejs-"));
       try {
-        const result = initProject(dir, { skipTypes: true, nodejs: true });
+        const result = initWorkspace(dir, { skipTypes: true, nodejs: true });
         expect(result.ok).to.equal(true);
 
-        const appTs = readFileSync(join(dir, "src", "App.ts"), "utf-8");
+        const workspaceName = basename(dir);
+        const appTs = readFileSync(
+          join(dir, "packages", workspaceName, "src", "App.ts"),
+          "utf-8"
+        );
         expect(appTs).to.include('@tsonic/nodejs/index.js');
         expect(appTs).to.include("console.log");
 
-        const config = JSON.parse(readFileSync(join(dir, "tsonic.json"), "utf-8")) as {
+        const config = JSON.parse(
+          readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")
+        ) as {
           dotnet?: { libraries?: unknown };
         };
         expect(config.dotnet?.libraries).to.deep.equal([
-          "lib/Tsonic.JSRuntime.dll",
-          "lib/nodejs.dll",
+          "libs/Tsonic.JSRuntime.dll",
+          "libs/nodejs.dll",
         ]);
       } finally {
         rmSync(dir, { recursive: true, force: true });

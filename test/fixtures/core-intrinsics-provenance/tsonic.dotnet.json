@@ -1,9 +1,0 @@
-{
-  "runtime": "dotnet",
-  "rootNamespace": "CoreIntrinsicsProvenance",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "core-intrinsics-provenance"
-}
-

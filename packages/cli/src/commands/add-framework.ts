@@ -1,5 +1,5 @@
 /**
- * tsonic add framework - add a FrameworkReference to the project, plus bindings.
+ * tsonic add framework - add a FrameworkReference to the workspace, plus bindings.
  *
  * Usage:
  *   tsonic add framework Microsoft.AspNetCore.App [typesPackage]
@@ -8,8 +8,8 @@
  * installed shared framework assemblies.
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result, TsonicWorkspaceConfig, FrameworkReferenceConfig } from "../types.js";
+import { loadWorkspaceConfig } from "../config.js";
 import { dirname } from "node:path";
 import {
   bindingsStoreDir,
@@ -28,10 +28,6 @@ import {
 
 export type AddFrameworkOptions = AddCommandOptions;
 
-type FrameworkReferenceConfig =
-  | string
-  | { readonly id: string; readonly types?: string };
-
 const normalizeFrameworkRefId = (value: FrameworkReferenceConfig): string =>
   typeof value === "string" ? value : value.id;
 
@@ -46,7 +42,7 @@ export const addFrameworkCommand = (
   configPath: string,
   options: AddFrameworkOptions = {}
 ): Result<{ frameworkReference: string; bindings: string }, string> => {
-  const projectRoot = dirname(configPath);
+  const workspaceRoot = dirname(configPath);
   if (!frameworkReference.trim()) {
     return { ok: false, error: "Framework reference must be non-empty" };
   }
@@ -54,7 +50,7 @@ export const addFrameworkCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const tsonicConfigResult = loadConfig(configPath);
+  const tsonicConfigResult = loadWorkspaceConfig(configPath);
   if (!tsonicConfigResult.ok) return tsonicConfigResult;
   const config = tsonicConfigResult.value;
 
@@ -82,7 +78,7 @@ export const addFrameworkCommand = (
             `- ${frameworkReference}\n` +
             `- existing: ${existing.types}\n` +
             `- requested: ${typesPackage}\n` +
-            `Refusing to change automatically (airplane-grade). Update tsonic.json manually if intended.`,
+            `Refusing to change automatically (airplane-grade). Update tsonic.workspace.json manually if intended.`,
         };
       } else {
         frameworkRefs[idx] = { ...existing, types: typesPackage };
@@ -94,7 +90,7 @@ export const addFrameworkCommand = (
     );
   }
 
-  const nextConfig: TsonicConfig = {
+  const nextConfig: TsonicWorkspaceConfig = {
     ...config,
     dotnet: {
       ...dotnet,
@@ -106,7 +102,11 @@ export const addFrameworkCommand = (
   if (!writeResult.ok) return writeResult;
 
   if (typesPackage) {
-    const installResult = npmInstallDevDependency(projectRoot, typesPackage, options);
+    const installResult = npmInstallDevDependency(
+      workspaceRoot,
+      typesPackage,
+      options
+    );
     if (!installResult.ok) return installResult;
     return {
       ok: true,
@@ -114,11 +114,11 @@ export const addFrameworkCommand = (
     };
   }
 
-  const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
+  const tsbindgenDllResult = resolveTsbindgenDllPath(workspaceRoot);
   if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
   const tsbindgenDll = tsbindgenDllResult.value;
 
-  const runtimesResult = listDotnetRuntimes(projectRoot);
+  const runtimesResult = listDotnetRuntimes(workspaceRoot);
   if (!runtimesResult.ok) return runtimesResult;
   const runtimes = runtimesResult.value;
 
@@ -133,12 +133,12 @@ export const addFrameworkCommand = (
     };
   }
 
-  const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
+  const dotnetRoot = resolvePackageRoot(workspaceRoot, "@tsonic/dotnet");
   if (!dotnetRoot.ok) return dotnetRoot;
   const dotnetLib = dotnetRoot.value;
 
   const generatedPackage = defaultBindingsPackageNameForFramework(frameworkReference);
-  const bindingsDir = bindingsStoreDir(projectRoot, "framework", generatedPackage);
+  const bindingsDir = bindingsStoreDir(workspaceRoot, "framework", generatedPackage);
 
   const packageJsonResult = ensureGeneratedBindingsPackageJson(bindingsDir, generatedPackage, {
     kind: "framework",
@@ -158,13 +158,17 @@ export const addFrameworkCommand = (
     generateArgs.push("--ref-dir", rt.dir);
   }
   for (const dep of options.deps ?? []) {
-    generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
+    generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
   }
 
-  const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+  const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
   if (!genResult.ok) return genResult;
 
-  const installResult = installGeneratedBindingsPackage(projectRoot, generatedPackage, bindingsDir);
+  const installResult = installGeneratedBindingsPackage(
+    workspaceRoot,
+    generatedPackage,
+    bindingsDir
+  );
   if (!installResult.ok) return installResult;
 
   return {

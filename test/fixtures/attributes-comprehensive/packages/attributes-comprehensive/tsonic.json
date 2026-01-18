@@ -1,0 +1,8 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "AttributesComprehensive",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "attributes-comprehensive"
+}

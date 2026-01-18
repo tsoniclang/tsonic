@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "ReturnInControlFlowTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "return-in-control-flow",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  }
+}

@@ -1,8 +1,0 @@
-{
-  "runtime": "js",
-  "rootNamespace": "GenericInference",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "generic-inference"
-}

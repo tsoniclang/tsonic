@@ -801,13 +801,10 @@ const processExpression = (
 
         // Require Int32 proof for:
         // - clrIndexer: CLR collection indexers (List<T>, Array, etc.)
-        // - jsRuntimeArray: Tsonic.JSRuntime.Array.get()
         // - stringChar: string character access
         // Dictionary access does NOT require Int32 proof (key is typed K, usually string)
         const requiresInt32 =
-          accessKind === "clrIndexer" ||
-          accessKind === "jsRuntimeArray" ||
-          accessKind === "stringChar";
+          accessKind === "clrIndexer" || accessKind === "stringChar";
 
         if (requiresInt32) {
           const indexKind = inferNumericKind(processedProperty, ctx);

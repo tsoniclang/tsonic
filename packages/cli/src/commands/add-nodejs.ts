@@ -1,15 +1,15 @@
 /**
- * tsonic add nodejs - add Node.js interop to an existing project.
+ * tsonic add nodejs - add Node.js interop to a workspace.
  *
  * - Installs @tsonic/nodejs (type declarations)
- * - Copies runtime DLLs into ./lib for deterministic builds
+ * - Copies runtime DLLs into ./libs for deterministic builds
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Result } from "../types.js";
-import { loadConfig } from "../config.js";
-import { copyRuntimeDllsToProjectLib } from "../dotnet/runtime-assets.js";
+import { loadWorkspaceConfig } from "../config.js";
+import { copyRuntimeDllsToWorkspaceLibs } from "../dotnet/runtime-assets.js";
 import {
   defaultExec,
   npmInstallDevDependency,
@@ -54,21 +54,21 @@ export const addNodejsCommand = (
   options: AddCommandOptions = {},
   exec: Exec = defaultExec
 ): Result<void, string> => {
-  const projectRoot = dirname(configPath);
+  const workspaceRoot = dirname(configPath);
 
-  const configResult = loadConfig(configPath);
+  const configResult = loadWorkspaceConfig(configPath);
   if (!configResult.ok) return configResult;
   const config = configResult.value;
 
   const installResult = ensureDevDependency(
-    projectRoot,
+    workspaceRoot,
     "@tsonic/nodejs",
     options,
     exec
   );
   if (!installResult.ok) return installResult;
 
-  const copyResult = copyRuntimeDllsToProjectLib(projectRoot, {
+  const copyResult = copyRuntimeDllsToWorkspaceLibs(workspaceRoot, {
     includeJsRuntime: true,
     includeNodejs: true,
   });
@@ -76,8 +76,8 @@ export const addNodejsCommand = (
 
   const dotnet = config.dotnet ?? {};
   const libraries = [...(dotnet.libraries ?? [])];
-  addUnique(libraries, "lib/Tsonic.JSRuntime.dll");
-  addUnique(libraries, "lib/nodejs.dll");
+  addUnique(libraries, "libs/Tsonic.JSRuntime.dll");
+  addUnique(libraries, "libs/nodejs.dll");
 
   const writeResult = writeTsonicJson(configPath, {
     ...config,

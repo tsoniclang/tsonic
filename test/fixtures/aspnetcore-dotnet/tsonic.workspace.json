@@ -1,0 +1,14 @@
+{
+  "$schema": "https://tsonic.org/schema/workspace/v1.json",
+  "dotnetVersion": "net10.0",
+  "dotnet": {
+    "frameworkReferences": [
+      {
+        "id": "Microsoft.AspNetCore.App",
+        "types": "@tsonic/aspnetcore"
+      }
+    ],
+    "libraries": [],
+    "packageReferences": []
+  }
+}

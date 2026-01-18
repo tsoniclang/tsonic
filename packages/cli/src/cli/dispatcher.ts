@@ -2,10 +2,19 @@
  * CLI command dispatcher
  */
 
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkDotnetInstalled } from "@tsonic/backend";
-import { loadConfig, findConfig, resolveConfig } from "../config.js";
-import { initProject } from "../commands/init.js";
+import {
+  findWorkspaceConfig,
+  findProjectConfig,
+  listProjects,
+  PROJECT_CONFIG_FILE,
+  loadProjectConfig,
+  loadWorkspaceConfig,
+  resolveConfig,
+} from "../config.js";
+import { initWorkspace } from "../commands/init.js";
 import { generateCommand } from "../commands/generate.js";
 import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
@@ -22,6 +31,7 @@ import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
+import type { Result } from "../types.js";
 
 /**
  * Main CLI entry point
@@ -40,9 +50,9 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 0;
   }
 
-  // Handle project init (doesn't need config)
-  if (parsed.command === "project:init") {
-    const result = initProject(process.cwd(), {
+  // Handle workspace init (doesn't need existing config)
+  if (parsed.command === "init") {
+    const result = initWorkspace(process.cwd(), {
       skipTypes: parsed.options.skipTypes,
       typesVersion: parsed.options.typesVersion,
       js: parsed.options.js,
@@ -52,12 +62,11 @@ export const runCli = async (args: string[]): Promise<number> => {
       console.error(`Error: ${result.error}`);
       return 1;
     }
-    console.log("✓ Initialized Tsonic project");
-    console.log("  Created: tsonic.json");
-    console.log("  Created/Updated: .gitignore");
+    console.log("✓ Initialized Tsonic workspace");
+    console.log("  Created: tsonic.workspace.json");
     console.log("\nNext steps:");
-    console.log("  1. Edit tsonic.json to configure your project");
-    console.log("  2. Create src/main.ts");
+    console.log("  1. Edit tsonic.workspace.json to configure the workspace");
+    console.log("  2. Edit packages/<project>/tsonic.json to configure the project");
     console.log("  3. Run: tsonic build");
     return 0;
   }
@@ -70,30 +79,29 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 8;
   }
 
-  // Load config
-  const configPath = parsed.options.config
+  // Workspace is mandatory: locate tsonic.workspace.json
+  const workspaceConfigPath = parsed.options.config
     ? join(process.cwd(), parsed.options.config)
-    : findConfig(process.cwd());
+    : findWorkspaceConfig(process.cwd());
 
-  if (!configPath) {
-    console.error("Error: No tsonic.json found");
-    console.error("Run 'tsonic project init' to initialize a project");
+  if (!workspaceConfigPath) {
+    console.error("Error: No tsonic.workspace.json found");
+    console.error("Run 'tsonic init' to initialize a workspace");
     return 3;
   }
 
-  const configResult = loadConfig(configPath);
-  if (!configResult.ok) {
-    console.error(`Error: ${configResult.error}`);
+  const workspaceRoot = dirname(workspaceConfigPath);
+
+  const workspaceConfigResult = loadWorkspaceConfig(workspaceConfigPath);
+  if (!workspaceConfigResult.ok) {
+    console.error(`Error: ${workspaceConfigResult.error}`);
     return 1;
   }
-  let rawConfig = configResult.value;
+  let rawWorkspaceConfig = workspaceConfigResult.value;
 
-  // Project root is the directory containing tsonic.json
-  const projectRoot = dirname(configPath);
-
-  // Add commands operate on tsonic.json itself (not ResolvedConfig).
+  // Add/restore commands operate on the WORKSPACE config.
   if (parsed.command === "add:js") {
-    const result = addJsCommand(configPath, {
+    const result = addJsCommand(workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
     });
@@ -105,7 +113,7 @@ export const runCli = async (args: string[]): Promise<number> => {
   }
 
   if (parsed.command === "add:nodejs") {
-    const result = addNodejsCommand(configPath, {
+    const result = addNodejsCommand(workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
     });
@@ -125,7 +133,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addPackageCommand(dllPath, typesPackage, configPath, {
+    const result = addPackageCommand(dllPath, typesPackage, workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -150,7 +158,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addNugetCommand(packageId, version, typesPackage, configPath, {
+    const result = addNugetCommand(packageId, version, typesPackage, workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -174,7 +182,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addFrameworkCommand(frameworkRef, typesPackage, configPath, {
+    const result = addFrameworkCommand(frameworkRef, typesPackage, workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -195,7 +203,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = removeNugetCommand(packageId, configPath, {
+    const result = removeNugetCommand(packageId, workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -218,7 +226,7 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = updateNugetCommand(packageId, version, typesPackage, configPath, {
+    const result = updateNugetCommand(packageId, version, typesPackage, workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -232,7 +240,7 @@ export const runCli = async (args: string[]): Promise<number> => {
   }
 
   if (parsed.command === "restore") {
-    const result = restoreCommand(configPath, {
+    const result = restoreCommand(workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
       deps: parsed.options.deps,
@@ -255,20 +263,20 @@ export const runCli = async (args: string[]): Promise<number> => {
     parsed.command === "run" ||
     parsed.command === "pack"
   ) {
-    const hasFrameworkRefs = (rawConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
-    const hasPackageRefs = (rawConfig.dotnet?.packageReferences?.length ?? 0) > 0;
-    const hasDllLibs = (rawConfig.dotnet?.libraries ?? []).some((p) => {
+    const hasFrameworkRefs =
+      (rawWorkspaceConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
+    const hasPackageRefs =
+      (rawWorkspaceConfig.dotnet?.packageReferences?.length ?? 0) > 0;
+    const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some((p) => {
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;
-      // Only vendored DLLs (copied into ./lib) require restore-generated bindings.
-      // Non-vendored references (e.g., workspace project outputs) are build-time
-      // assembly references only and should not trigger restore.
-      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+      // Workspace-managed DLLs live under ./libs
+      return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
     });
 
     if (hasFrameworkRefs || hasPackageRefs || hasDllLibs) {
-      const restoreResult = restoreCommand(configPath, {
+      const restoreResult = restoreCommand(workspaceConfigPath, {
         verbose: parsed.options.verbose,
         quiet: parsed.options.quiet,
         deps: parsed.options.deps,
@@ -279,18 +287,76 @@ export const runCli = async (args: string[]): Promise<number> => {
         return 1;
       }
 
-      // restore may update tsonic.json (e.g., inferred FrameworkReferences), so reload.
-      const reloaded = loadConfig(configPath);
+      // restore may update workspace config (e.g., inferred FrameworkReferences), so reload.
+      const reloaded = loadWorkspaceConfig(workspaceConfigPath);
       if (!reloaded.ok) {
         console.error(`Error: ${reloaded.error}`);
         return 1;
       }
-      rawConfig = reloaded.value;
+      rawWorkspaceConfig = reloaded.value;
     }
   }
 
+  // Resolve target project (required for build/generate/run/pack).
+  const projects = listProjects(workspaceRoot);
+  const resolveProjectCfgPath = (): Result<string, string> => {
+    if (parsed.options.project) {
+      const projectArg = parsed.options.project;
+      // Allow "packages/foo" or "foo"
+      const asPath =
+        projectArg.includes("/") || projectArg.includes("\\")
+          ? join(workspaceRoot, projectArg)
+          : join(workspaceRoot, "packages", projectArg);
+      const cfg = asPath.endsWith(PROJECT_CONFIG_FILE)
+        ? asPath
+        : join(asPath, PROJECT_CONFIG_FILE);
+      if (!cfg.startsWith(workspaceRoot)) {
+        return { ok: false, error: `Project must be within workspace: ${projectArg}` };
+      }
+      if (!existsSync(cfg)) {
+        return { ok: false, error: `Project config not found: ${cfg}` };
+      }
+      return { ok: true, value: cfg };
+    }
+
+    const nearest = findProjectConfig(process.cwd(), workspaceRoot);
+    if (nearest) return { ok: true, value: nearest };
+
+    if (projects.length === 1) {
+      return { ok: true, value: join(projects[0]!, PROJECT_CONFIG_FILE) };
+    }
+
+    return {
+      ok: false,
+      error:
+        `No project selected.\n` +
+        `Run from within packages/<project>/ or pass --project <name>.`,
+    };
+  };
+
+  const projectCfgPathResult = resolveProjectCfgPath();
+  if (!projectCfgPathResult.ok) {
+    console.error(`Error: ${projectCfgPathResult.error}`);
+    return 1;
+  }
+  const projectConfigPath = projectCfgPathResult.value;
+  const projectRoot = dirname(projectConfigPath);
+
+  const projectConfigResult = loadProjectConfig(projectConfigPath);
+  if (!projectConfigResult.ok) {
+    console.error(`Error: ${projectConfigResult.error}`);
+    return 1;
+  }
+
   const entryFile = parsed.positionals[0];
-  const config = resolveConfig(rawConfig, parsed.options, projectRoot, entryFile);
+  const config = resolveConfig(
+    rawWorkspaceConfig,
+    projectConfigResult.value,
+    parsed.options,
+    workspaceRoot,
+    projectRoot,
+    entryFile
+  );
 
   // Dispatch to command handlers
   switch (parsed.command) {

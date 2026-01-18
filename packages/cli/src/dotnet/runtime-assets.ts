@@ -69,3 +69,42 @@ export const copyRuntimeDllsToProjectLib = (
   return { ok: true, value: copiedPaths };
 };
 
+export const copyRuntimeDllsToWorkspaceLibs = (
+  workspaceRoot: string,
+  options: RuntimeDllCopyOptions = {}
+): Result<readonly string[], string> => {
+  const runtimeDir = findCliRuntimeDir();
+  if (!runtimeDir) {
+    return {
+      ok: false,
+      error: "Runtime directory not found. Make sure 'tsonic' is installed.",
+    };
+  }
+
+  const libsDir = join(workspaceRoot, "libs");
+  mkdirSync(libsDir, { recursive: true });
+
+  const includeJsRuntime = options.includeJsRuntime === true;
+  const includeNodejs = options.includeNodejs === true;
+
+  const requiredDlls = [
+    ...(includeJsRuntime || includeNodejs ? ["Tsonic.JSRuntime.dll"] : []),
+    ...(includeNodejs ? ["nodejs.dll"] : []),
+  ] as const;
+
+  const copiedPaths: string[] = [];
+  for (const dllName of requiredDlls) {
+    const sourcePath = join(runtimeDir, dllName);
+    if (!existsSync(sourcePath)) {
+      return {
+        ok: false,
+        error: `${dllName} not found in runtime directory.`,
+      };
+    }
+
+    copyFileSync(sourcePath, join(libsDir, dllName));
+    copiedPaths.push(`libs/${dllName}`);
+  }
+
+  return { ok: true, value: copiedPaths };
+};

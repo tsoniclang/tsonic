@@ -249,7 +249,7 @@ describe("End-to-End Integration", () => {
           }
 
           findById(id: number): T | undefined {
-            for (let i: int = 0; i < this.items.length; i++) {
+            for (let i: int = 0; i < this.items.Length; i++) {
               if (this.items[i].id === id) {
                 return this.items[i];
               }
@@ -372,7 +372,7 @@ describe("End-to-End Integration", () => {
           }
 
           findById(id: UserId): User | undefined {
-            for (let i: int = 0; i < this.users.length; i++) {
+            for (let i: int = 0; i < this.users.Length; i++) {
               if (this.users[i].id === id) {
                 return this.users[i];
               }
@@ -388,7 +388,7 @@ describe("End-to-End Integration", () => {
         // Generic utility function with manual iteration
         export function transform<T, U>(arr: T[], fn: (item: T) => U): U[] {
           const result: U[] = [];
-          for (let i: int = 0; i < arr.length; i++) {
+          for (let i: int = 0; i < arr.Length; i++) {
             result.push(fn(arr[i]));
           }
           return result;

@@ -1,35 +1,78 @@
 /**
- * tsonic project init command
+ * tsonic init - initialize a mandatory Tsonic workspace.
+ *
+ * Workspace layout (airplane-grade, deterministic):
+ *   tsonic.workspace.json
+ *   libs/
+ *   packages/<workspaceName>/
+ *     tsonic.json
+ *     package.json
+ *     src/App.ts
  */
 
 import {
-  writeFileSync,
   existsSync,
-  readFileSync,
   mkdirSync,
+  readFileSync,
+  writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import type { Result } from "../types.js";
-import { copyRuntimeDllsToProjectLib } from "../dotnet/runtime-assets.js";
+import type {
+  Result,
+  TsonicProjectConfig,
+  TsonicWorkspaceConfig,
+} from "../types.js";
+import { copyRuntimeDllsToWorkspaceLibs } from "../dotnet/runtime-assets.js";
 
 type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
-  readonly js?: boolean; // Enable JSRuntime interop
-  readonly nodejs?: boolean; // Enable Node.js interop
+  readonly js?: boolean;
+  readonly nodejs?: boolean;
 };
 
-const DEFAULT_GITIGNORE = `# .NET build artifacts
-generated/bin/
-generated/obj/
+type TypePackageInfo = {
+  readonly packages: readonly { name: string; version: string }[];
+  readonly typeRoots: readonly string[];
+};
+
+// Unified CLI package version - installed as devDependency for npm scripts.
+const CLI_PACKAGE = { name: "tsonic", version: "latest" };
+
+export const getTypePackageInfo = (
+  options: {
+    readonly js?: boolean;
+    readonly nodejs?: boolean;
+  } = {}
+): TypePackageInfo => {
+  const js = options.js === true;
+  const nodejs = options.nodejs === true;
+
+  const packages = [
+    CLI_PACKAGE,
+    { name: "@tsonic/core", version: "latest" },
+    { name: "@tsonic/globals", version: "latest" },
+    ...(js ? [{ name: "@tsonic/js", version: "latest" }] : []),
+    ...(nodejs ? [{ name: "@tsonic/nodejs", version: "latest" }] : []),
+  ];
+
+  return {
+    packages,
+    typeRoots: ["node_modules/@tsonic/globals"],
+  };
+};
+
+const DEFAULT_ROOT_GITIGNORE = `# .NET build artifacts (per-project)
+packages/*/generated/bin/
+packages/*/generated/obj/
 
 # Optional: Uncomment to ignore generated C# files
-# generated/**/*.cs
+# packages/*/generated/**/*.cs
 
 # Output executables
-out/
-*.exe
+packages/*/out/
+packages/*/*.exe
 
 # Dependencies
 node_modules/
@@ -52,7 +95,7 @@ const SAMPLE_MAIN_TS_JS = `import { Console } from "@tsonic/dotnet/System.js";
 import { console, JSON } from "@tsonic/js/index.js";
 
 export function main(): void {
-  Console.writeLine("JSRuntime JSON example...");
+  Console.WriteLine("JSRuntime JSON example...");
   const value = JSON.parse<{ x: number }>('{"x": 1}');
   console.log(JSON.stringify(value));
 }
@@ -65,332 +108,200 @@ export function main(): void {
 }
 `;
 
-const SAMPLE_README = `# My Tsonic Project
+const createOrUpdateRootPackageJson = (workspaceRoot: string): void => {
+  const packageJsonPath = join(workspaceRoot, "package.json");
+  const workspaceName = basename(workspaceRoot);
 
-This is a sample Tsonic project that demonstrates .NET interop.
-
-## Getting Started
-
-Build and run the project:
-
-\`\`\`bash
-npm run build
-./out/app
-\`\`\`
-
-Or run directly:
-
-\`\`\`bash
-npm run dev
-\`\`\`
-
-## Project Structure
-
-- \`src/App.ts\` - Entry point
-- \`tsonic.json\` - Project configuration
-- \`generated/\` - Generated C# code (gitignored)
-`;
-
-type TypePackageInfo = {
-  readonly packages: readonly { name: string; version: string }[];
-  readonly typeRoots: readonly string[];
-};
-
-// Unified CLI package version - installed as devDependency for npm run build/dev
-const CLI_PACKAGE = { name: "tsonic", version: "latest" };
-
-/**
- * Get type package info
- *
- * typeRoots: Only ambient globals packages (provide global types without imports)
- * packages: All type packages to install (includes explicit import packages)
- *
- * Package structure:
- * - @tsonic/core: Core types (int, float, etc.) - imported as @tsonic/core/types.js
- * - @tsonic/globals depends on @tsonic/dotnet
- * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (satisfied by globals)
- */
-export const getTypePackageInfo = (
-  options: {
-    readonly js?: boolean;
-    readonly nodejs?: boolean;
-  } = {}
-): TypePackageInfo => {
-  const js = options.js === true;
-  const nodejs = options.nodejs === true;
-
-  // Core package is always included (provides int, float, etc.)
-  const corePackage = { name: "@tsonic/core", version: "latest" };
-
-  // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
-  // - @tsonic/core: core types (int, float, etc.) - explicit import
-  // - @tsonic/globals: base types + BCL methods (transitive @tsonic/dotnet) - needs typeRoots
-  // - @tsonic/nodejs: Node.js interop (peerDep on @tsonic/dotnet, satisfied by globals)
-  const packages = [
-    CLI_PACKAGE,
-    corePackage,
-    { name: "@tsonic/globals", version: "latest" },
-  ];
-
-  if (js) {
-    packages.push({ name: "@tsonic/js", version: "latest" });
-  }
-  if (nodejs) {
-    packages.push({ name: "@tsonic/nodejs", version: "latest" });
-  }
-  return {
-    packages,
-    typeRoots: ["node_modules/@tsonic/globals"],
-  };
-};
-
-/**
- * Generate tsonic.json config
- */
-const generateConfig = (
-  includeTypeRoots: boolean,
-  libraryPaths: readonly string[] = []
-): string => {
-  const config: Record<string, unknown> = {
-    $schema: "https://tsonic.org/schema/v1.json",
-    rootNamespace: "MyApp",
-    entryPoint: "src/App.ts",
-    sourceRoot: "src",
-    outputDirectory: "generated",
-    outputName: "app",
-    optimize: "speed",
-    buildOptions: {
-      stripSymbols: true,
-      invariantGlobalization: true,
-    },
-  };
-
-  if (includeTypeRoots || libraryPaths.length > 0) {
-    const typeInfo = getTypePackageInfo();
-    const dotnet: Record<string, unknown> = {};
-
-    if (includeTypeRoots) {
-      dotnet.typeRoots = typeInfo.typeRoots;
-    }
-
-    if (libraryPaths.length > 0) {
-      dotnet.libraries = [...libraryPaths];
-    }
-
-    config.dotnet = dotnet;
-  }
-
-  return JSON.stringify(config, null, 2) + "\n";
-};
-
-/**
- * Create or update package.json with scripts and metadata
- */
-const createOrUpdatePackageJson = (packageJsonPath: string): void => {
-  let packageJson: Record<string, unknown>;
-
+  let pkg: Record<string, unknown>;
   if (existsSync(packageJsonPath)) {
-    // Merge with existing package.json
-    const existing = readFileSync(packageJsonPath, "utf-8");
-    packageJson = JSON.parse(existing);
-
-    // Ensure required fields exist
-    if (!packageJson.name) {
-      packageJson.name = "my-tsonic-app";
-    }
-    if (!packageJson.version) {
-      packageJson.version = "1.0.0";
-    }
-    if (!packageJson.type) {
-      packageJson.type = "module";
-    }
-
-    // Merge scripts
-    const existingScripts =
-      (packageJson.scripts as Record<string, string>) || {};
-    packageJson.scripts = {
-      ...existingScripts,
-      build: "tsonic build src/App.ts",
-      dev: "tsonic run src/App.ts",
-    };
-
-    // Ensure devDependencies exists
-    if (!packageJson.devDependencies) {
-      packageJson.devDependencies = {};
-    }
+    pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as Record<string, unknown>;
   } else {
-    // Create new package.json
-    packageJson = {
-      name: "my-tsonic-app",
+    pkg = {
+      name: workspaceName,
+      private: true,
       version: "1.0.0",
       type: "module",
-      scripts: {
-        build: "tsonic build src/App.ts",
-        dev: "tsonic run src/App.ts",
-      },
-      devDependencies: {},
     };
   }
 
+  pkg.workspaces = ["packages/*"];
+
+  const scripts = (pkg.scripts as Record<string, string>) ?? {};
+  pkg.scripts = {
+    ...scripts,
+    build: "tsonic build",
+    dev: "tsonic run",
+  };
+
+  pkg.devDependencies = (pkg.devDependencies as Record<string, string>) ?? {};
+
+  writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
+};
+
+const writeWorkspaceConfig = (
+  workspaceRoot: string,
+  config: TsonicWorkspaceConfig
+): void => {
   writeFileSync(
-    packageJsonPath,
-    JSON.stringify(packageJson, null, 2) + "\n",
+    join(workspaceRoot, "tsonic.workspace.json"),
+    JSON.stringify(config, null, 2) + "\n",
     "utf-8"
   );
 };
 
-/**
- * Install npm package
- */
-const installPackage = (
-  packageName: string,
-  version: string
-): Result<void, string> => {
-  const result = spawnSync(
-    "npm",
-    ["install", "--save-dev", `${packageName}@${version}`],
-    {
-      stdio: "inherit",
-      encoding: "utf-8",
-    }
+const writeProjectConfig = (projectRoot: string, config: TsonicProjectConfig): void => {
+  writeFileSync(
+    join(projectRoot, "tsonic.json"),
+    JSON.stringify(config, null, 2) + "\n",
+    "utf-8"
   );
+};
 
+const npmInstallDev = (workspaceRoot: string, spec: string): Result<void, string> => {
+  const result = spawnSync("npm", ["install", "--save-dev", spec, "--no-fund", "--no-audit"], {
+    cwd: workspaceRoot,
+    stdio: "inherit",
+    encoding: "utf-8",
+  });
   if (result.status !== 0) {
-    return {
-      ok: false,
-      error: `Failed to install ${packageName}@${version}`,
-    };
+    return { ok: false, error: `npm install failed: ${spec}` };
   }
-
   return { ok: true, value: undefined };
 };
 
-/**
- * Initialize a new Tsonic project
- */
-export const initProject = (
-  cwd: string,
+export const initWorkspace = (
+  workspaceRoot: string,
   options: InitOptions = {}
 ): Result<void, string> => {
-  const tsonicJsonPath = join(cwd, "tsonic.json");
-  const gitignorePath = join(cwd, ".gitignore");
-  const srcDir = join(cwd, "src");
-  const appTsPath = join(srcDir, "App.ts");
-  const readmePath = join(cwd, "README.md");
-  const packageJsonPath = join(cwd, "package.json");
-
-  // Check if tsonic.json already exists
-  if (existsSync(tsonicJsonPath)) {
+  const workspaceConfigPath = join(workspaceRoot, "tsonic.workspace.json");
+  if (existsSync(workspaceConfigPath)) {
     return {
       ok: false,
-      error: "tsonic.json already exists. Project is already initialized.",
+      error:
+        "tsonic.workspace.json already exists. Workspace is already initialized.",
     };
   }
 
-  try {
-    // Create or update package.json FIRST (before npm install)
-    const packageJsonExists = existsSync(packageJsonPath);
-    createOrUpdatePackageJson(packageJsonPath);
-    console.log(
-      packageJsonExists ? "✓ Updated package.json" : "✓ Created package.json"
-    );
+  const name = basename(workspaceRoot);
+  const packagesDir = join(workspaceRoot, "packages");
+  const libsDir = join(workspaceRoot, "libs");
+  const projectRoot = join(packagesDir, name);
 
-    // Install type declarations
-    const shouldInstallTypes = !options.skipTypes;
-    const js = options.js ?? false;
-    const nodejs = options.nodejs ?? false;
-    const typeInfo = getTypePackageInfo({ js, nodejs });
+  try {
+    mkdirSync(packagesDir, { recursive: true });
+    mkdirSync(libsDir, { recursive: true });
+    mkdirSync(projectRoot, { recursive: true });
+    mkdirSync(join(projectRoot, "src"), { recursive: true });
+
+    // Root package.json (npm workspaces)
+    createOrUpdateRootPackageJson(workspaceRoot);
+
+    // Workspace config (deps live here)
+    let workspaceConfig: TsonicWorkspaceConfig = {
+      $schema: "https://tsonic.org/schema/workspace/v1.json",
+      dotnetVersion: "net10.0",
+      dotnet: {
+        typeRoots: ["node_modules/@tsonic/globals"],
+        libraries: [],
+        frameworkReferences: [],
+        packageReferences: [],
+      },
+    };
+
+    // Install type declarations at workspace root
+    const shouldInstallTypes = options.skipTypes !== true;
+    const js = options.js === true;
+    const nodejs = options.nodejs === true;
 
     if (shouldInstallTypes) {
+      const typeInfo = getTypePackageInfo({ js, nodejs });
       for (const pkg of typeInfo.packages) {
         const version = options.typesVersion ?? pkg.version;
-        console.log(`Installing type declarations (${pkg.name}@${version})...`);
-        const installResult = installPackage(pkg.name, version);
-        if (!installResult.ok) {
-          return installResult;
-        }
-        console.log(`✓ Installed ${pkg.name}`);
+        const r = npmInstallDev(workspaceRoot, `${pkg.name}@${version}`);
+        if (!r.ok) return r;
       }
     }
 
-    // Copy runtime DLLs to lib/ directory
-    // This includes:
-    // - Tsonic.Runtime.dll (always)
-    // - Tsonic.JSRuntime.dll (if --js or --nodejs)
-    // - nodejs.dll (if --nodejs)
-    // Note: JSRuntime/nodejs are treated like any other CLR assembly and must be
-    // listed in dotnet.libraries to be referenced by the generated .csproj.
-    console.log("Copying runtime DLLs to lib/...");
-    const copyResult = copyRuntimeDllsToProjectLib(cwd, {
-      includeJsRuntime: js || nodejs,
-      includeNodejs: nodejs,
+    // Optional runtime assemblies (JSRuntime + nodejs) are treated like any other DLL:
+    // copy them into ./libs and add to workspace dotnet.libraries so csproj references them.
+    if (js || nodejs) {
+      const copyResult = copyRuntimeDllsToWorkspaceLibs(workspaceRoot, {
+        includeJsRuntime: true,
+        includeNodejs: nodejs,
+      });
+      if (!copyResult.ok) return copyResult;
+
+      const libs: string[] = [...(workspaceConfig.dotnet?.libraries ?? [])];
+      if (copyResult.value.includes("libs/Tsonic.JSRuntime.dll")) {
+        libs.push("libs/Tsonic.JSRuntime.dll");
+      }
+      if (copyResult.value.includes("libs/nodejs.dll")) {
+        libs.push("libs/nodejs.dll");
+      }
+      workspaceConfig = {
+        ...workspaceConfig,
+        dotnet: {
+          ...(workspaceConfig.dotnet ?? {}),
+          libraries: Array.from(new Set(libs)),
+        },
+      };
+    }
+
+    writeWorkspaceConfig(workspaceRoot, workspaceConfig);
+
+    // Project package.json (minimal)
+    const projectPkgJson = join(projectRoot, "package.json");
+    if (!existsSync(projectPkgJson)) {
+      writeFileSync(
+        projectPkgJson,
+        JSON.stringify(
+          {
+            name,
+            private: true,
+            version: "1.0.0",
+            type: "module",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+    }
+
+    // Project config
+    writeProjectConfig(projectRoot, {
+      $schema: "https://tsonic.org/schema/v1.json",
+      rootNamespace: "MyApp",
+      entryPoint: "src/App.ts",
+      sourceRoot: "src",
+      outputDirectory: "generated",
+      outputName: name,
+      output: { type: "executable" },
     });
-    if (!copyResult.ok) {
-      // Log warning but continue - user can add manually later
-      console.log(`⚠ Warning: ${copyResult.error}`);
-    } else {
-      for (const path of copyResult.value) {
-        console.log(`✓ Copied ${path.split("/").pop()}`);
-      }
+
+    // Sample source
+    const appTsPath = join(projectRoot, "src", "App.ts");
+    if (!existsSync(appTsPath)) {
+      const sample = nodejs ? SAMPLE_MAIN_TS_NODEJS : js ? SAMPLE_MAIN_TS_JS : SAMPLE_MAIN_TS;
+      writeFileSync(appTsPath, sample, "utf-8");
     }
 
-    // Create tsonic.json
-    const runtimeLibraries: string[] = [];
-    if (js || nodejs) runtimeLibraries.push("lib/Tsonic.JSRuntime.dll");
-    if (nodejs) runtimeLibraries.push("lib/nodejs.dll");
-
-    const config = generateConfig(shouldInstallTypes, runtimeLibraries);
-    writeFileSync(tsonicJsonPath, config, "utf-8");
-    console.log("✓ Created tsonic.json");
-
-    // Create or append to .gitignore
+    // Root .gitignore
+    const gitignorePath = join(workspaceRoot, ".gitignore");
     if (existsSync(gitignorePath)) {
       const existing = readFileSync(gitignorePath, "utf-8");
-      if (!existing.includes("generated/")) {
-        writeFileSync(
-          gitignorePath,
-          existing + "\n" + DEFAULT_GITIGNORE,
-          "utf-8"
-        );
-        console.log("✓ Updated .gitignore");
+      if (!existing.includes("packages/*/generated/")) {
+        writeFileSync(gitignorePath, existing + "\n" + DEFAULT_ROOT_GITIGNORE, "utf-8");
       }
     } else {
-      writeFileSync(gitignorePath, DEFAULT_GITIGNORE, "utf-8");
-      console.log("✓ Created .gitignore");
+      writeFileSync(gitignorePath, DEFAULT_ROOT_GITIGNORE, "utf-8");
     }
-
-    // Create src directory and App.ts
-    if (!existsSync(srcDir)) {
-      mkdirSync(srcDir, { recursive: true });
-    }
-    if (!existsSync(appTsPath)) {
-      const sample = nodejs
-        ? SAMPLE_MAIN_TS_NODEJS
-        : js
-          ? SAMPLE_MAIN_TS_JS
-          : SAMPLE_MAIN_TS;
-      writeFileSync(appTsPath, sample, "utf-8");
-      console.log("✓ Created src/App.ts");
-    }
-
-    // Create README.md
-    if (!existsSync(readmePath)) {
-      writeFileSync(readmePath, SAMPLE_README, "utf-8");
-      console.log("✓ Created README.md");
-    }
-
-    // Note: .csproj is generated by the build command with proper runtime DLL references
-
-    console.log("\n✓ Project initialized successfully!");
-    console.log("\nNext steps:");
-    console.log("  npm run build   # Build executable");
-    console.log("  npm run dev     # Run directly");
 
     return { ok: true, value: undefined };
   } catch (error) {
     return {
       ok: false,
-      error: `Failed to initialize project: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to initialize workspace: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };

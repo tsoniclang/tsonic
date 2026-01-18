@@ -1,9 +1,0 @@
-{
-  "runtime": "dotnet",
-  "rootNamespace": "InstanceofNarrowing",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "out",
-  "outputName": "instanceof-narrowing"
-}
-

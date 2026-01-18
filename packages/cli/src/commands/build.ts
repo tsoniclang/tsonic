@@ -23,9 +23,9 @@ const buildExecutable = (
   config: ResolvedConfig,
   generatedDir: string
 ): Result<{ outputPath: string }, string> => {
-  const { outputName, rid, quiet, verbose } = config;
+  const { outputName, rid, quiet, verbose, workspaceRoot } = config;
 
-  const nugetConfigResult = resolveNugetConfigFile(config.projectRoot);
+  const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
 
   // Run dotnet publish
@@ -76,7 +76,7 @@ const buildExecutable = (
     "publish"
   );
   const sourceBinary = join(publishDir, binaryName);
-  const outDir = join(process.cwd(), "out");
+  const outDir = join(config.projectRoot, "out");
   const targetBinary = join(outDir, binaryName);
 
   if (!existsSync(sourceBinary)) {
@@ -128,12 +128,12 @@ const buildLibrary = (
   config: ResolvedConfig,
   generatedDir: string
 ): Result<{ outputPath: string }, string> => {
-  const { outputName, quiet, verbose } = config;
+  const { outputName, quiet, verbose, workspaceRoot } = config;
   const targetFrameworks = config.outputConfig.targetFrameworks ?? [
     config.dotnetVersion,
   ];
 
-  const nugetConfigResult = resolveNugetConfigFile(config.projectRoot);
+  const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
 
   // Run dotnet build
@@ -171,7 +171,7 @@ const buildLibrary = (
   }
 
   // Copy output library artifacts
-  const outputDir = join(process.cwd(), "dist");
+  const outputDir = join(config.projectRoot, "dist");
 
   try {
     // Create output directory
@@ -199,7 +199,7 @@ const buildLibrary = (
       if (existsSync(dllSource)) {
         const dllTarget = join(frameworkOutputDir, `${outputName}.dll`);
         copyFileSync(dllSource, dllTarget);
-        copiedFiles.push(relative(process.cwd(), dllTarget));
+        copiedFiles.push(relative(config.projectRoot, dllTarget));
       }
 
       // Copy .xml (documentation)
@@ -207,7 +207,7 @@ const buildLibrary = (
       if (existsSync(xmlSource)) {
         const xmlTarget = join(frameworkOutputDir, `${outputName}.xml`);
         copyFileSync(xmlSource, xmlTarget);
-        copiedFiles.push(relative(process.cwd(), xmlTarget));
+        copiedFiles.push(relative(config.projectRoot, xmlTarget));
       }
 
       // Copy .pdb (symbols)
@@ -215,7 +215,7 @@ const buildLibrary = (
       if (existsSync(pdbSource)) {
         const pdbTarget = join(frameworkOutputDir, `${outputName}.pdb`);
         copyFileSync(pdbSource, pdbTarget);
-        copiedFiles.push(relative(process.cwd(), pdbTarget));
+        copiedFiles.push(relative(config.projectRoot, pdbTarget));
       }
     }
 

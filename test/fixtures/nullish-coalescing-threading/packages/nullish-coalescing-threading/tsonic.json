@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "NullishCoalescingThreadingTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "nullish-coalescing-threading",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  }
+}

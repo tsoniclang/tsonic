@@ -30,36 +30,44 @@ describe("add nodejs", () => {
         "utf-8"
       );
       writeFileSync(
-        join(dir, "tsonic.json"),
-        JSON.stringify({ rootNamespace: "Test", dotnet: { typeRoots: [] } }, null, 2) + "\n",
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: { libraries: [], frameworkReferences: [], packageReferences: [] },
+          },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
       const calls: Array<{ cmd: string; args: readonly string[] }> = [];
-      const exec: Exec = (cmd, args) => {
+      const exec: Exec = (cmd, args, cwd) => {
         calls.push({ cmd, args });
+        expect(cwd).to.equal(dir);
         return { status: 0, stdout: "", stderr: "" };
       };
 
-      const result = addNodejsCommand(join(dir, "tsonic.json"), {}, exec);
+      const result = addNodejsCommand(join(dir, "tsonic.workspace.json"), {}, exec);
       expect(result.ok).to.equal(true);
 
       expect(calls.length).to.equal(1);
       expect(calls[0]?.cmd).to.equal("npm");
       expect(calls[0]?.args.join(" ")).to.include("@tsonic/nodejs@latest");
 
-      expect(existsSync(join(dir, "lib", "Tsonic.Runtime.dll"))).to.equal(true);
-      expect(existsSync(join(dir, "lib", "Tsonic.JSRuntime.dll"))).to.equal(true);
-      expect(existsSync(join(dir, "lib", "nodejs.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "libs", "Tsonic.JSRuntime.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "libs", "nodejs.dll"))).to.equal(true);
 
       const updated = JSON.parse(
-        readFileSync(join(dir, "tsonic.json"), "utf-8")
+        readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")
       ) as {
         dotnet?: { libraries?: unknown };
       };
       expect(updated.dotnet?.libraries).to.deep.equal([
-        "lib/Tsonic.JSRuntime.dll",
-        "lib/nodejs.dll",
+        "libs/Tsonic.JSRuntime.dll",
+        "libs/nodejs.dll",
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -84,33 +92,41 @@ describe("add nodejs", () => {
         "utf-8"
       );
       writeFileSync(
-        join(dir, "tsonic.json"),
-        JSON.stringify({ rootNamespace: "Test", dotnet: { typeRoots: [] } }, null, 2) + "\n",
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: { libraries: [], frameworkReferences: [], packageReferences: [] },
+          },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
       const calls: Array<{ cmd: string; args: readonly string[] }> = [];
-      const exec: Exec = (cmd, args) => {
+      const exec: Exec = (cmd, args, cwd) => {
         calls.push({ cmd, args });
+        expect(cwd).to.equal(dir);
         return { status: 0, stdout: "", stderr: "" };
       };
 
-      const result = addNodejsCommand(join(dir, "tsonic.json"), {}, exec);
+      const result = addNodejsCommand(join(dir, "tsonic.workspace.json"), {}, exec);
       expect(result.ok).to.equal(true);
 
       expect(calls.length).to.equal(0);
-      expect(existsSync(join(dir, "lib", "Tsonic.Runtime.dll"))).to.equal(true);
-      expect(existsSync(join(dir, "lib", "Tsonic.JSRuntime.dll"))).to.equal(true);
-      expect(existsSync(join(dir, "lib", "nodejs.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "libs", "Tsonic.JSRuntime.dll"))).to.equal(true);
+      expect(existsSync(join(dir, "libs", "nodejs.dll"))).to.equal(true);
 
       const updated = JSON.parse(
-        readFileSync(join(dir, "tsonic.json"), "utf-8")
+        readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")
       ) as {
         dotnet?: { libraries?: unknown };
       };
       expect(updated.dotnet?.libraries).to.deep.equal([
-        "lib/Tsonic.JSRuntime.dll",
-        "lib/nodejs.dll",
+        "libs/Tsonic.JSRuntime.dll",
+        "libs/nodejs.dll",
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

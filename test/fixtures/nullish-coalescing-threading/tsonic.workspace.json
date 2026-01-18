@@ -1,0 +1,19 @@
+{
+  "$schema": "https://tsonic.org/schema/workspace/v1.json",
+  "dotnetVersion": "net10.0",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  },
+  "dotnet": {
+    "typeRoots": [
+      "node_modules/@tsonic/globals",
+      "node_modules/@tsonic/dotnet",
+      "node_modules/@tsonic/core"
+    ],
+    "libraries": [],
+    "frameworkReferences": [],
+    "packageReferences": []
+  }
+}

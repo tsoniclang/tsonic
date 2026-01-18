@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "TernaryIntThreadingTest",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "ternary-int-threading",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  }
+}

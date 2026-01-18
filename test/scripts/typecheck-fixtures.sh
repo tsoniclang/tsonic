@@ -62,8 +62,8 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
   [ -d "$fixture_dir" ] || continue
   fixture_name="$(basename "$fixture_dir")"
 
-  # Only dotnet fixtures
-  if [ ! -f "$fixture_dir/tsonic.dotnet.json" ]; then
+  # Only workspace fixtures (dotnet E2E)
+  if [ ! -f "$fixture_dir/tsonic.workspace.json" ]; then
     continue
   fi
 
@@ -73,9 +73,9 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     continue
   fi
 
-  entry="$fixture_dir/src/index.ts"
+  entry="$fixture_dir/packages/$fixture_name/src/index.ts"
   if [ ! -f "$entry" ]; then
-    echo "  $fixture_name: SKIP (no src/index.ts)"
+    echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts)"
     continue
   fi
 

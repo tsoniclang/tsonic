@@ -102,8 +102,10 @@ const parseClrTypeString = (clrType: string): IrType => {
     bool: { kind: "primitiveType", name: "boolean" },
     "System.Char": { kind: "primitiveType", name: "char" },
     char: { kind: "primitiveType", name: "char" },
-    "System.Object": { kind: "anyType" }, // object → any in TS
-    object: { kind: "anyType" },
+    // System.Object is the CLR "top" reference type. Treat it as C# `object`,
+    // not TypeScript `any` (airplane-grade: no implicit "any" in IR).
+    "System.Object": { kind: "referenceType", name: "object" },
+    object: { kind: "referenceType", name: "object" },
   };
 
   const primitive = primitiveMap[clrType];
@@ -139,6 +141,49 @@ const parseClrTypeString = (clrType: string): IrType => {
   // Handle type parameters (single uppercase letter or common patterns)
   if (/^T\d*$/.test(clrType) || /^T[A-Z][a-zA-Z]*$/.test(clrType)) {
     return { kind: "typeParameterType", name: clrType };
+  }
+
+  // Handle tsbindgen-style generic instantiations using underscore arity:
+  //   KeyValuePair_2[[TKey,TValue]]
+  // This format is used in bindings.json for inheritance type arguments.
+  const underscoreInstantiationMatch = clrType.match(/^(.+?)_(\d+)\[\[(.+)\]\]$/);
+  if (
+    underscoreInstantiationMatch &&
+    underscoreInstantiationMatch[1] &&
+    underscoreInstantiationMatch[2] &&
+    underscoreInstantiationMatch[3]
+  ) {
+    const baseName = underscoreInstantiationMatch[1];
+    const arity = parseInt(underscoreInstantiationMatch[2], 10);
+    const typeArgsStr = underscoreInstantiationMatch[3];
+
+    // NOTE: CLR type strings inside normalized signatures often use assembly-qualified
+    // type arguments (commas for AssemblyName/Version/Culture/PublicKeyToken).
+    // Those commas are not type-argument separators. Only parse `[[...]]` payloads
+    // that follow our deterministic tsbindgen encoding for bindings.json heritage
+    // (no assembly identity segments).
+    //
+    // If we mis-parse assembly-qualified args, we break signatureKey matching which
+    // hydrates optional/rest flags from tsbindgen .d.ts (airplane-grade determinism).
+    const looksAssemblyQualified =
+      /\bVersion=|\bCulture=|\bPublicKeyToken=/.test(typeArgsStr);
+
+    const args = looksAssemblyQualified ? [] : splitTypeArguments(typeArgsStr);
+
+    // Airplane-grade safety: only attach parsed typeArguments when we can prove
+    // the arity matches. Otherwise, preserve only the generic *definition* arity
+    // and keep the raw CLR string for later resolution.
+    const typeArguments: IrType[] | undefined =
+      !looksAssemblyQualified && args.length === arity
+        ? args.map((arg) => parseClrTypeString(arg.trim()))
+        : undefined;
+
+    return {
+      kind: "referenceType",
+      name: `${baseName}_${arity}`,
+      typeArguments,
+      resolvedClrType: clrType,
+    };
   }
 
   // Handle generic types: Name`N[[TypeArgs]]
@@ -853,8 +898,6 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
   tsNameToTypeId: ReadonlyMap<string, TypeId>,
   dtsPaths: readonly string[]
 ): void => {
-  const mergedTypeParams = new Map<string, readonly string[]>();
-  const mergedHeritage = new Map<string, HeritageEdge[]>();
   const mergedMemberTypes = new Map<string, Map<string, IrType>>();
   const mergedMethodSignatureOptionals = new Map<
     string,
@@ -864,16 +907,6 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
   for (const dtsPath of dtsPaths) {
     try {
       const info = extractHeritageFromTsBindgenDts(dtsPath, tsNameToTypeId, entries);
-      for (const [tsName, params] of info.typeParametersByTsName) {
-        if (!mergedTypeParams.has(tsName) && params.length > 0) {
-          mergedTypeParams.set(tsName, params);
-        }
-      }
-      for (const [tsName, edges] of info.heritageByTsName) {
-        const list = mergedHeritage.get(tsName) ?? [];
-        list.push(...edges);
-        mergedHeritage.set(tsName, list);
-      }
 
       for (const [tsName, memberTypes] of info.memberTypesByTsName) {
         const merged = mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
@@ -897,7 +930,7 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
         mergedMethodSignatureOptionals.set(tsName, merged);
       }
     } catch (e) {
-      console.warn(`Failed to parse tsbindgen d.ts for heritage: ${dtsPath}`, e);
+      console.warn(`Failed to parse tsbindgen d.ts for enrichment: ${dtsPath}`, e);
     }
   }
 
@@ -906,13 +939,6 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
     const entry = entries.get(typeId.stableId);
     if (!entry) continue;
 
-    const dtsTypeParams = mergedTypeParams.get(tsName);
-	    const updatedTypeParameters =
-	      dtsTypeParams && dtsTypeParams.length === entry.typeParameters.length
-	        ? dtsTypeParams.map((name) => ({ name }))
-	        : entry.typeParameters;
-
-	    const extraHeritage = mergedHeritage.get(tsName) ?? [];
 	    const memberTypes = mergedMemberTypes.get(tsName);
 	    const signatureOptionals = mergedMethodSignatureOptionals.get(tsName);
 	    let updatedMembers: Map<string, MemberEntry> | undefined;
@@ -973,37 +999,9 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
 	      }
 	    }
 
-	    const shouldSkip =
-	      extraHeritage.length === 0 &&
-	      updatedTypeParameters === entry.typeParameters &&
-	      !updatedMembers;
-    if (shouldSkip) continue;
+    if (!updatedMembers) continue;
 
-    const combined = [...entry.heritage, ...extraHeritage];
-    const seen = new Set<string>();
-    const deduped: HeritageEdge[] = [];
-    for (const h of combined) {
-      const key = `${h.kind}|${h.targetStableId}|${JSON.stringify(h.typeArguments)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      deduped.push(h);
-    }
-    deduped.sort((a, b) => {
-      const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
-      const ra = rank(a.kind);
-      const rb = rank(b.kind);
-      if (ra !== rb) return ra - rb;
-      const stable = a.targetStableId.localeCompare(b.targetStableId);
-      if (stable !== 0) return stable;
-      return JSON.stringify(a.typeArguments).localeCompare(JSON.stringify(b.typeArguments));
-    });
-
-    entries.set(typeId.stableId, {
-      ...entry,
-      typeParameters: updatedTypeParameters,
-      heritage: deduped,
-      ...(updatedMembers ? { members: updatedMembers } : {}),
-    });
+    entries.set(typeId.stableId, { ...entry, members: updatedMembers });
   }
 };
 
@@ -1231,18 +1229,49 @@ const convertRawType = (
     members.set(methodName, memberEntry);
   }
 
-  // Parse type parameters from arity
-  const typeParameters: TypeParameterEntry[] = [];
-  for (let i = 0; i < rawType.arity; i++) {
-    typeParameters.push({
-      name: i === 0 ? "T" : `T${i + 1}`,
+  const typeParameters: TypeParameterEntry[] =
+    rawType.typeParameters && rawType.typeParameters.length === rawType.arity
+      ? rawType.typeParameters.map((name) => ({ name }))
+      : Array.from({ length: rawType.arity }, (_, i) => ({
+          name: i === 0 ? "T" : `T${i + 1}`,
+        }));
+
+  const heritage: HeritageEdge[] = [];
+
+  if (rawType.baseType) {
+    heritage.push({
+      kind: "extends",
+      targetStableId: rawType.baseType.stableId,
+      typeArguments: (rawType.baseType.typeArguments ?? []).map(parseClrTypeString),
     });
   }
 
-  // Parse heritage (base type and interfaces)
-  const heritage: HeritageEdge[] = [];
-  // Note: baseType and interfaces are not in the raw type shown,
-  // but we'd parse them if present
+  for (const iface of rawType.interfaces ?? []) {
+    heritage.push({
+      kind: "implements",
+      targetStableId: iface.stableId,
+      typeArguments: (iface.typeArguments ?? []).map(parseClrTypeString),
+    });
+  }
+
+  // Dedup + stable sort (airplane-grade determinism)
+  const heritageSeen = new Set<string>();
+  const heritageDeduped: HeritageEdge[] = [];
+  for (const edge of heritage) {
+    const key = `${edge.kind}|${edge.targetStableId}|${JSON.stringify(edge.typeArguments)}`;
+    if (heritageSeen.has(key)) continue;
+    heritageSeen.add(key);
+    heritageDeduped.push(edge);
+  }
+  heritageDeduped.sort((a, b) => {
+    const rank = (k: HeritageEdge["kind"]) => (k === "extends" ? 0 : 1);
+    const ra = rank(a.kind);
+    const rb = rank(b.kind);
+    if (ra !== rb) return ra - rb;
+    const stable = a.targetStableId.localeCompare(b.targetStableId);
+    if (stable !== 0) return stable;
+    return JSON.stringify(a.typeArguments).localeCompare(JSON.stringify(b.typeArguments));
+  });
 
   // Convert accessibility
   const accessibilityMap: Record<
@@ -1260,7 +1289,7 @@ const convertRawType = (
     typeId,
     kind,
     typeParameters,
-    heritage,
+    heritage: heritageDeduped,
     members,
     origin: "assembly",
     accessibility,

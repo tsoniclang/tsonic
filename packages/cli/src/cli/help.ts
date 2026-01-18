@@ -15,15 +15,15 @@ USAGE:
   tsonic <command> [options]
 
 COMMANDS:
-  project init              Initialize a new Tsonic project
+  init                     Initialize a new Tsonic workspace (and default project)
   add js                    Add JSRuntime interop (@tsonic/js + DLLs)
   add nodejs                Add Node.js interop (@tsonic/nodejs + DLLs)
-  add package <dll> [types] Add a local DLL (and optional bindings) to the project
-  add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the project
-  add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the project
-  remove nuget <id>         Remove a NuGet package reference from the project
-  update nuget <id> <ver>   Update a NuGet package reference in the project
-  restore                   Restore NuGet deps and (re)generate local bindings
+  add package <dll> [types] Add a local DLL (and optional bindings) to the workspace
+  add nuget <id> <ver> [t]  Add a NuGet package (and optional bindings) to the workspace
+  add framework <ref> [t]   Add a .NET FrameworkReference (and optional bindings) to the workspace
+  remove nuget <id>         Remove a NuGet package reference from the workspace
+  update nuget <id> <ver>   Update a NuGet package reference in the workspace
+  restore                   Restore NuGet deps and (re)generate local bindings (workspace-scoped)
   generate [entry]          Generate C# code only
   build [entry]             Build executable or library
   run [entry] [-- args...]  Build and run executable
@@ -34,8 +34,9 @@ GLOBAL OPTIONS:
   -v, --version             Show version
   -V, --verbose             Verbose output
   -q, --quiet               Suppress output
-  -c, --config <file>       Config file path (default: tsonic.json)
+  -c, --config <file>       Workspace config path (default: auto-detect tsonic.workspace.json)
   --strict                  Strict bindings generation (fail on constructor-constraint loss)
+  --project <name>          Select project under packages/<name>/
 
 GENERATE/BUILD/RUN OPTIONS:
   -s, --src <dir>           Source root directory
@@ -57,9 +58,9 @@ PROJECT INIT OPTIONS:
   --types-version <ver>     Version of type declarations to install
 
 EXAMPLES:
-  tsonic project init
-  tsonic project init --js
-  tsonic project init --nodejs
+  tsonic init
+  tsonic init --js
+  tsonic init --nodejs
   tsonic restore
   tsonic add js
   tsonic add nodejs
@@ -70,9 +71,9 @@ EXAMPLES:
   tsonic remove nuget Microsoft.Extensions.Logging
   tsonic update nuget Microsoft.Extensions.Logging 10.0.1
   tsonic restore --strict
-  tsonic generate src/App.ts
-  tsonic build src/App.ts --rid linux-x64
-  tsonic run src/App.ts -- --arg1 value1
+  tsonic generate src/App.ts --project my-app
+  tsonic build src/App.ts --rid linux-x64 --project my-app
+  tsonic run src/App.ts --project my-app -- --arg1 value1
   tsonic pack
 
 LEARN MORE:
