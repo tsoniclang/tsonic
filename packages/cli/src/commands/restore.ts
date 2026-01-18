@@ -2,7 +2,7 @@
  * tsonic restore - restore .NET dependencies and (re)generate local bindings.
  *
  * This is the "clone a repo and get to green" command:
- * - Runs dotnet restore for NuGet PackageReferences from tsonic.json
+ * - Runs dotnet restore for NuGet PackageReferences from tsonic.workspace.json
  * - Generates bindings for all transitive NuGet package deps (no duplicates)
  * - Generates bindings for all local DLLs in dotnet.libraries (no duplicates)
  * - Generates bindings for FrameworkReferences when present

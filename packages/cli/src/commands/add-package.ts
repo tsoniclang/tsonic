@@ -108,7 +108,7 @@ export const addPackageCommand = (
         ok: false,
         error:
           `Refusing to add ${dllName} via 'tsonic add package'.\n` +
-          `Use 'tsonic add js' (or 'tsonic project init --js') to install @tsonic/js and add the DLL reference.`,
+          `Use 'tsonic add js' (or 'tsonic init --js') to install @tsonic/js and add the DLL reference.`,
       };
     }
     if (lower === "nodejs.dll") {
@@ -116,7 +116,7 @@ export const addPackageCommand = (
         ok: false,
         error:
           `Refusing to add ${dllName} via 'tsonic add package'.\n` +
-          `Use 'tsonic add nodejs' (or 'tsonic project init --nodejs') to install @tsonic/nodejs and add the DLL reference.`,
+          `Use 'tsonic add nodejs' (or 'tsonic init --nodejs') to install @tsonic/nodejs and add the DLL reference.`,
       };
     }
     return {

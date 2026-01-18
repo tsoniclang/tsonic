@@ -167,6 +167,27 @@ export const loadProjectConfig = (
     };
   }
 
+  const references = (parsed.value as { readonly references?: unknown }).references;
+  if (references !== undefined) {
+    if (references === null || typeof references !== "object" || Array.isArray(references)) {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'references' must be an object`,
+      };
+    }
+
+    const libraries = (references as { readonly libraries?: unknown }).libraries;
+    if (
+      libraries !== undefined &&
+      (!Array.isArray(libraries) || libraries.some((p) => typeof p !== "string"))
+    ) {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'references.libraries' must be an array of strings`,
+      };
+    }
+  }
+
   const config = parsed.value as TsonicProjectConfig;
 
   if (!config.rootNamespace || typeof config.rootNamespace !== "string") {
@@ -335,8 +356,11 @@ export const resolveConfig = (
   const typeRoots = workspaceConfig.dotnet?.typeRoots ?? defaultTypeRoots;
 
   const configLibraries = workspaceConfig.dotnet?.libraries ?? [];
+  const projectLibraries = (projectConfig.references?.libraries ?? []).map((p) =>
+    resolve(projectRoot, p)
+  );
   const cliLibraries = cliOptions.lib ?? [];
-  const libraries = [...configLibraries, ...cliLibraries];
+  const libraries = [...configLibraries, ...projectLibraries, ...cliLibraries];
 
   const rawFrameworkReferences =
     (workspaceConfig.dotnet?.frameworkReferences ??

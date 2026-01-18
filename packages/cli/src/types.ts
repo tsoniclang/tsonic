@@ -44,6 +44,17 @@ export type TsonicProjectConfig = {
     readonly stripSymbols?: boolean;
     readonly invariantGlobalization?: boolean;
   };
+  /**
+   * Project-scoped CLR assembly references (workspace-internal).
+   *
+   * Use this for referencing sibling Tsonic-built libraries (DLL outputs)
+   * inside the same workspace (e.g., an API project referencing a domain DLL).
+   *
+   * Paths are resolved relative to the project root.
+   */
+  readonly references?: {
+    readonly libraries?: readonly string[];
+  };
 };
 
 export type FrameworkReferenceConfig =
