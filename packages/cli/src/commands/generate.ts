@@ -16,8 +16,6 @@ import {
   type IrModule,
   type CompilerOptions,
   isExecutableStatement,
-  applyNamingPolicy,
-  resolveNamingPolicy,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "@tsonic/emitter";
 import {
@@ -138,13 +136,9 @@ const collectProjectLibraries = (
  * Extract entry point information from IR module
  */
 const extractEntryInfo = (
-  entryModule: IrModule,
-  namingPolicy: ResolvedConfig["namingPolicy"]
+  entryModule: IrModule
 ): EntryInfo | null => {
-  const methodName = applyNamingPolicy(
-    "main",
-    resolveNamingPolicy(namingPolicy, "methods")
-  );
+  const methodName = "main";
 
   // Look for exported 'main' function
   for (const exp of entryModule.exports) {
@@ -190,7 +184,6 @@ export const generateCommand = (
     entryPoint,
     outputDirectory,
     rootNamespace,
-    namingPolicy,
     projectRoot,
     sourceRoot,
     typeRoots,
@@ -250,7 +243,6 @@ export const generateCommand = (
       projectRoot,
       sourceRoot,
       rootNamespace,
-      namingPolicy,
       typeRoots: allTypeRoots,
       verbose: config.verbose,
     };
@@ -283,7 +275,6 @@ export const generateCommand = (
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)
       clrBindings: bindings, // Pass bindings from frontend for Action/Func resolution
-      namingPolicy,
     });
 
     if (!emitResult.ok) {
@@ -319,13 +310,13 @@ export const generateCommand = (
         /\\/g,
         "/"
       );
-      const foundEntryModule =
-        irResult.value.find((m: IrModule) => m.filePath === entryRelative) ??
-        entryModule;
+        const foundEntryModule =
+          irResult.value.find((m: IrModule) => m.filePath === entryRelative) ??
+          entryModule;
 
-      if (foundEntryModule) {
-        const hasTopLevelCode = foundEntryModule.body.some(isExecutableStatement);
-        const mainExport = extractEntryInfo(foundEntryModule, namingPolicy);
+        if (foundEntryModule) {
+          const hasTopLevelCode = foundEntryModule.body.some(isExecutableStatement);
+          const mainExport = extractEntryInfo(foundEntryModule);
 
         if (mainExport && hasTopLevelCode) {
           return {

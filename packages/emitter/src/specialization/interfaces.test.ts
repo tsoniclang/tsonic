@@ -60,11 +60,11 @@ describe("Interfaces (spec/16 §2)", () => {
     expect(result).not.to.include("interface User");
 
     // Should have auto-properties (required for non-optional)
-    expect(result).to.include("public required double Id { get; set; }");
-    expect(result).to.include("public required string Name { get; set; }");
+    expect(result).to.include("public required double id { get; set; }");
+    expect(result).to.include("public required string name { get; set; }");
 
     // Optional property should be nullable
-    expect(result).to.include("public bool? Active { get; set; }");
+    expect(result).to.include("public bool? active { get; set; }");
   });
 
   it("should emit interface with readonly members", () => {
@@ -100,7 +100,7 @@ describe("Interfaces (spec/16 §2)", () => {
     const result = emitModule(module);
 
     // Readonly should use init-only setter (required for non-optional + C# 11 required)
-    expect(result).to.include("public required string ApiUrl { get; init; }");
+    expect(result).to.include("public required string apiUrl { get; init; }");
   });
 
   it("should emit generic interface", () => {
@@ -146,6 +146,6 @@ describe("Interfaces (spec/16 §2)", () => {
 
     // Allow for whitespace variations
     expect(result).to.match(/public\s+class\s+Result\s*<T>/);
-    expect(result).to.include("public required T Data { get; set; }");
+    expect(result).to.include("public required T data { get; set; }");
   });
 });

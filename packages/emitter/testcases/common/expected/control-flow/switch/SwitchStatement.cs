@@ -1,8 +1,12 @@
+// Generated from: SwitchStatement.ts
+// Generated at: 2026-01-17T15:36:54.902Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.controlflow.switch
 {
         public static class SwitchStatement
         {
-            public static string GetDayType(double day)
+            public static string getDayType(double day)
                 {
                 switch (day)
                 {

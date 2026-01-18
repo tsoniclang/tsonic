@@ -34,16 +34,11 @@ export type {
   FieldEntry,
   AssemblyTypeCatalog,
   UnifiedTypeCatalog,
-  RawMetadataType,
-  RawMetadataMethod,
-  RawMetadataProperty,
-  RawMetadataField,
-  RawMetadataConstructor,
-  RawMetadataFile,
-  RawBindingType,
-  RawBindingMethod,
-  RawBindingProperty,
-  RawBindingField,
+  RawBindingsType,
+  RawBindingsMethod,
+  RawBindingsProperty,
+  RawBindingsField,
+  RawBindingsConstructor,
   RawBindingsFile,
 } from "./types.js";
 
@@ -60,7 +55,7 @@ export {
 
 export {
   loadClrCatalog,
-  loadSinglePackageMetadata,
+  loadSinglePackageBindings,
   getTypeByStableId,
   getTypeByTsName,
   getTypeByClrName,

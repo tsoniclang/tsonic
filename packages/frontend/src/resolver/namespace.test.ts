@@ -27,7 +27,7 @@ describe("getNamespaceFromPath", () => {
       "/project/src",
       "MyApp"
     );
-    expect(result).to.equal("MyApp.Models");
+    expect(result).to.equal("MyApp.models");
   });
 
   it("should compute namespace from nested subdirectories", () => {
@@ -36,7 +36,7 @@ describe("getNamespaceFromPath", () => {
       "/project/src",
       "MyApp"
     );
-    expect(result).to.equal("MyApp.Models.Entities");
+    expect(result).to.equal("MyApp.models.entities");
   });
 
   it("should filter out 'src' from path components", () => {
@@ -45,7 +45,7 @@ describe("getNamespaceFromPath", () => {
       "/project/src",
       "MyApp"
     );
-    expect(result).to.equal("MyApp.Models");
+    expect(result).to.equal("MyApp.models");
   });
 
   it("should handle case-preserved directory names", () => {
@@ -63,7 +63,7 @@ describe("getNamespaceFromPath", () => {
       "/project/src",
       "MyApp"
     );
-    expect(result).to.equal("MyApp.A.B.C.D.E");
+    expect(result).to.equal("MyApp.a.b.c.d.e");
   });
 
   it("should handle source root without trailing slash", () => {
@@ -72,7 +72,7 @@ describe("getNamespaceFromPath", () => {
       "/project/src",
       "MyApp"
     );
-    expect(result).to.equal("MyApp.Models");
+    expect(result).to.equal("MyApp.models");
   });
 
   it("should handle source root with trailing slash", () => {
@@ -81,6 +81,6 @@ describe("getNamespaceFromPath", () => {
       "/project/src/",
       "MyApp"
     );
-    expect(result).to.equal("MyApp.Models");
+    expect(result).to.equal("MyApp.models");
   });
 });

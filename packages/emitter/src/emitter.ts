@@ -36,10 +36,7 @@ export const emitCSharpFiles = (
   modules: readonly IrModule[],
   options: Partial<EmitterOptions> = {}
 ): EmitResult => {
-  const namingErrors = validateNamingPolicyCollisions(
-    modules,
-    options.namingPolicy
-  );
+  const namingErrors = validateNamingPolicyCollisions(modules);
   if (namingErrors.length > 0) {
     return { ok: false, errors: namingErrors };
   }

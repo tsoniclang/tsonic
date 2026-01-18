@@ -9,7 +9,7 @@
  *
  * Design:
  * - Source types get stableIds generated as "{projectName}:{fullyQualifiedName}"
- * - Assembly types keep their original stableIds from metadata.json
+ * - Assembly types keep their original stableIds from tsbindgen bindings
  * - Lookups by tsName, clrName, or stableId all work uniformly
  */
 
@@ -78,7 +78,7 @@ const convertMemberInfo = (
 
   return {
     tsName: memberInfo.name,
-    clrName: toPascalCase(memberInfo.name), // Convert to C# naming convention
+    clrName: memberInfo.name,
     memberKind,
     type: memberInfo.type,
     signatures: memberInfo.methodSignatures?.map((sig) => ({
@@ -207,13 +207,6 @@ const convertRegistryEntry = (
     isSealed: false,
     isStatic: false,
   };
-};
-
-/**
- * Convert camelCase to PascalCase for C# naming.
- */
-const toPascalCase = (name: string): string => {
-  return name.charAt(0).toUpperCase() + name.slice(1);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -13,25 +13,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./types/metadata.js": {
-      "types": "./dist/types/metadata.d.ts",
-      "default": "./dist/types/metadata.js"
-    },
-    "./types/bindings.js": {
-      "types": "./dist/types/bindings.d.ts",
-      "default": "./dist/types/bindings.js"
-    },
-    "./types/nested-types.js": {
-      "types": "./dist/types/nested-types.d.ts",
-      "default": "./dist/types/nested-types.js"
-    },
     "./types/explicit-views.js": {
       "types": "./dist/types/explicit-views.d.ts",
       "default": "./dist/types/explicit-views.js"
-    },
-    "./metadata/index.js": {
-      "types": "./dist/metadata/index.d.ts",
-      "default": "./dist/metadata/index.js"
     }
   },
   "scripts": {

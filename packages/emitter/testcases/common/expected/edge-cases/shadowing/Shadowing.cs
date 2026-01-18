@@ -1,8 +1,12 @@
+// Generated from: Shadowing.ts
+// Generated at: 2026-01-17T15:36:58.368Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.edgecases.shadowing
 {
         public static class Shadowing
         {
-            public static double ShadowedVariable()
+            public static double shadowedVariable()
                 {
                 var x = 10;
                 {
@@ -11,7 +15,7 @@ namespace TestCases.common.edgecases.shadowing
                 }
                 }
 
-            public static double ShadowInFunction()
+            public static double shadowInFunction()
                 {
                 var value = 5;
                 var inner = () =>

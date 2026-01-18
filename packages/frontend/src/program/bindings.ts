@@ -5,6 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { tsbindgenClrTypeNameToTsTypeName } from "../tsbindgen/names.js";
 
 /**
  * Parameter modifier for ref/out/in parameters
@@ -88,7 +89,6 @@ export type SimpleBindingFile = {
  */
 export type TsbindgenMethod = {
   readonly clrName: string;
-  readonly tsEmitName: string;
   /** Normalized signature string (tsbindgen metadata, used for extension receiver inference) */
   readonly normalizedSignature?: string;
   /** Total parameter count in CLR signature (includes extension receiver) */
@@ -102,21 +102,18 @@ export type TsbindgenMethod = {
 
 export type TsbindgenProperty = {
   readonly clrName: string;
-  readonly tsEmitName: string;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
 };
 
 export type TsbindgenField = {
   readonly clrName: string;
-  readonly tsEmitName: string;
   readonly declaringClrType: string;
   readonly declaringAssemblyName: string;
 };
 
 export type TsbindgenType = {
   readonly clrName: string; // Full CLR type name (e.g., "System.Console")
-  readonly tsEmitName: string; // TypeScript name (e.g., "Console")
   readonly assemblyName: string;
   readonly methods: readonly TsbindgenMethod[];
   readonly properties: readonly TsbindgenProperty[];
@@ -408,8 +405,6 @@ export class BindingRegistry {
       }
     } else if (isTsbindgenBindingFile(manifest)) {
       // tsbindgen format: convert to internal format
-      // Key by tsEmitName (what TS code writes), emit clrName (what C# needs)
-      // Also key by clrName for packages that expose PascalCase in .d.ts
       for (const tsbType of manifest.types) {
         // Create members from methods, properties, and fields
         const members: MemberBinding[] = [];
@@ -418,8 +413,8 @@ export class BindingRegistry {
           const memberBinding: MemberBinding = {
             kind: "method",
             name: method.clrName,
-            // alias = tsEmitName (what TS code uses, e.g., "add")
-            alias: method.tsEmitName,
+            // No naming policy: TS member names are the CLR names as authored.
+            alias: method.clrName,
             signature: method.normalizedSignature,
             parameterCount: method.parameterCount,
             binding: {
@@ -468,7 +463,7 @@ export class BindingRegistry {
           members.push({
             kind: "property",
             name: prop.clrName,
-            alias: prop.tsEmitName,
+            alias: prop.clrName,
             binding: {
               assembly: prop.declaringAssemblyName,
               type: prop.declaringClrType,
@@ -482,7 +477,7 @@ export class BindingRegistry {
           members.push({
             kind: "property",
             name: field.clrName,
-            alias: field.tsEmitName,
+            alias: field.clrName,
             binding: {
               assembly: field.declaringAssemblyName,
               type: field.declaringClrType,
@@ -491,18 +486,20 @@ export class BindingRegistry {
           });
         }
 
-        // Create TypeBinding - use tsEmitName as the TS alias (e.g., "Console")
+        const tsAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+
+        // Create TypeBinding - TS alias is derived deterministically from CLR name.
         const typeBinding: TypeBinding = {
           name: tsbType.clrName,
-          alias: tsbType.tsEmitName,
+          alias: tsAlias,
           kind: "class", // Default to class; could be refined with more metadata
           members,
         };
 
-        // Index the type by its TS name (tsEmitName)
+        // Index the type by its TS name.
         this.types.set(typeBinding.alias, typeBinding);
 
-        // Also index by simple name if tsEmitName has arity suffix (e.g., "List_1" -> also index as "List")
+        // Also index by simple name if ts alias has arity suffix (e.g., "List_1" -> also index as "List")
         // This is needed because TS exports both List_1 and List as aliases, and TS code uses List<T>
         // IMPORTANT: Only set if not already present - non-generic versions should take precedence
         // (e.g., Action should resolve to System.Action, not System.Action`9)
@@ -516,31 +513,18 @@ export class BindingRegistry {
           this.types.set(simpleAlias, typeBinding);
         }
 
-        // Index members for direct lookup by BOTH tsEmitName and clrName
-        // This allows TS code to use either naming convention
+        // Index members for direct lookup.
         for (const member of members) {
-          // Key by tsEmitName (e.g., "List_1.add")
+          // Key by TS name (e.g., "List_1.Add")
           const tsKey = `${typeBinding.alias}.${member.alias}`;
           this.members.set(tsKey, member);
           addMemberOverload(tsKey, member);
 
-          // Also key by simple alias if applicable (e.g., "List.add")
+          // Also key by simple alias if applicable (e.g., "List.Add")
           if (simpleAlias) {
             const simpleKey = `${simpleAlias}.${member.alias}`;
             this.members.set(simpleKey, member);
             addMemberOverload(simpleKey, member);
-          }
-
-          // Also key by clrName if different (e.g., "List_1.Add" and "List.Add")
-          if (member.alias !== member.name) {
-            const clrKey = `${typeBinding.alias}.${member.name}`;
-            this.members.set(clrKey, member);
-            addMemberOverload(clrKey, member);
-            if (simpleAlias) {
-              const simpleClrKey = `${simpleAlias}.${member.name}`;
-              this.members.set(simpleClrKey, member);
-              addMemberOverload(simpleClrKey, member);
-            }
           }
         }
       }
@@ -744,12 +728,12 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
 
 /**
  * Load bindings from a package directory and recursively from its @tsonic/* dependencies.
- * This ensures that when @tsonic/globals depends on @tsonic/dotnet, the bindings from
- * @tsonic/dotnet are also loaded.
  *
- * Supports two package structures:
- * 1. globals/globals-pure: Only has index.d.ts, depends on dotnet/dotnet-pure
- * 2. dotnet/dotnet-pure: Has facade pattern with Namespace.d.ts + Namespace/bindings.json
+ * This supports the common "namespace facade" layout:
+ * - `System.d.ts` (or `index.d.ts`) at the package root
+ * - `System/bindings.json` (or `index/bindings.json`) next to the namespace's `internal/index.d.ts`
+ *
+ * Some packages may also provide a root-level `bindings.json` (simple/global bindings).
  */
 const loadBindingsFromPackage = (
   registry: BindingRegistry,
@@ -768,18 +752,13 @@ const loadBindingsFromPackage = (
     return;
   }
 
-  // Strategy 1: Look for *.bindings.json manifest files in the package root
   const rootEntries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
-  const rootManifests = rootEntries
-    .filter((e) => e.isFile() && e.name.endsWith(".bindings.json"))
-    .map((e) => path.join(absoluteRoot, e.name));
 
-  for (const manifestPath of rootManifests) {
-    loadBindingsFromPath(registry, manifestPath);
-  }
+  // Strategy 1: root-level bindings.json (simple/global bindings)
+  const rootBindingsPath = path.join(absoluteRoot, "bindings.json");
+  loadBindingsFromPath(registry, rootBindingsPath);
 
-  // Strategy 2: Look for Namespace/bindings.json for each Namespace.d.ts facade
-  // This supports @tsonic/dotnet structure: System.d.ts facade + System/bindings.json
+  // Strategy 2: Namespace/bindings.json for each Namespace.d.ts facade
   const facadeFiles = rootEntries
     .filter((e) => e.isFile() && e.name.endsWith(".d.ts"))
     .map((e) => e.name);
@@ -795,22 +774,8 @@ const loadBindingsFromPackage = (
     }
   }
 
-  // Strategy 3: Look for *.bindings.json next to each .d.ts file (recursive)
-  const declFiles = scanForDeclarationFiles(absoluteRoot);
-  for (const declPath of declFiles) {
-    const manifestPath = declPath.replace(/\.d\.ts$/, ".bindings.json");
-    loadBindingsFromPath(registry, manifestPath);
-
-    // Strategy 4: Look for bindings.json in same directory as index.d.ts
-    if (path.basename(declPath) === "index.d.ts") {
-      const dirBindings = path.join(path.dirname(declPath), "bindings.json");
-      loadBindingsFromPath(registry, dirBindings);
-    }
-  }
-
-  // Strategy 5: Recursively load bindings from @tsonic/* dependencies
+  // Strategy 3: Recursively load bindings from @tsonic/* dependencies
   // This is crucial for packages like @tsonic/globals that depend on @tsonic/dotnet
-  // and @tsonic/globals-pure that depends on @tsonic/dotnet-pure
   const packageJsonPath = path.join(absoluteRoot, "package.json");
   if (fs.existsSync(packageJsonPath)) {
     try {
@@ -840,9 +805,13 @@ const loadBindingsFromPackage = (
 };
 
 /**
- * Load binding manifests from configured type roots
- * Looks for *.bindings.json files alongside .d.ts files OR directly in typeRoot
- * Also recursively loads bindings from @tsonic/* dependencies of typeRoot packages
+ * Load binding manifests from configured type roots.
+ *
+ * Conventions:
+ * - Root-level `bindings.json` (simple/global bindings)
+ * - `Namespace.d.ts` + `Namespace/bindings.json` (namespace facade)
+ *
+ * Also recursively loads bindings from @tsonic/* dependencies of typeRoot packages.
  */
 export const loadBindings = (typeRoots: readonly string[]): BindingRegistry => {
   const registry = new BindingRegistry();

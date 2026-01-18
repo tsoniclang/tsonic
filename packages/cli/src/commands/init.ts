@@ -18,7 +18,6 @@ type InitOptions = {
   readonly typesVersion?: string;
   readonly js?: boolean; // Enable JSRuntime interop
   readonly nodejs?: boolean; // Enable Node.js interop
-  readonly pure?: boolean; // Use PascalCase .NET bindings
 };
 
 const DEFAULT_GITIGNORE = `# .NET build artifacts
@@ -43,16 +42,6 @@ const SAMPLE_MAIN_TS = `import { Console } from "@tsonic/dotnet/System.js";
 import { File } from "@tsonic/dotnet/System.IO.js";
 
 export function main(): void {
-  Console.writeLine("Reading README.md...");
-  const content = File.readAllText("./README.md");
-  Console.writeLine(content);
-}
-`;
-
-const SAMPLE_MAIN_TS_PURE = `import { Console } from "@tsonic/dotnet-pure/System.js";
-import { File } from "@tsonic/dotnet-pure/System.IO.js";
-
-export function main(): void {
   Console.WriteLine("Reading README.md...");
   const content = File.ReadAllText("./README.md");
   Console.WriteLine(content);
@@ -64,16 +53,6 @@ import { console, JSON } from "@tsonic/js/index.js";
 
 export function main(): void {
   Console.writeLine("JSRuntime JSON example...");
-  const value = JSON.parse<{ x: number }>('{"x": 1}');
-  console.log(JSON.stringify(value));
-}
-`;
-
-const SAMPLE_MAIN_TS_JS_PURE = `import { Console } from "@tsonic/dotnet-pure/System.js";
-import { console, JSON } from "@tsonic/js/index.js";
-
-export function main(): void {
-  Console.WriteLine("JSRuntime JSON example...");
   const value = JSON.parse<{ x: number }>('{"x": 1}');
   console.log(JSON.stringify(value));
 }
@@ -128,40 +107,30 @@ const CLI_PACKAGE = { name: "tsonic", version: "latest" };
  *
  * Package structure:
  * - @tsonic/core: Core types (int, float, etc.) - imported as @tsonic/core/types.js
- * - @tsonic/globals depends on @tsonic/dotnet (camelCase BCL methods)
- * - @tsonic/globals-pure depends on @tsonic/dotnet-pure (PascalCase CLR naming)
- * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (uses whichever globals provides)
+ * - @tsonic/globals depends on @tsonic/dotnet
+ * - @tsonic/nodejs has @tsonic/dotnet as peerDependency (satisfied by globals)
  */
 export const getTypePackageInfo = (
   options: {
     readonly js?: boolean;
     readonly nodejs?: boolean;
-    readonly pure?: boolean;
   } = {}
 ): TypePackageInfo => {
   const js = options.js === true;
   const nodejs = options.nodejs === true;
-  const pure = options.pure === true;
 
   // Core package is always included (provides int, float, etc.)
   const corePackage = { name: "@tsonic/core", version: "latest" };
 
   // - @tsonic/cli: the compiler CLI (provides `tsonic` command)
   // - @tsonic/core: core types (int, float, etc.) - explicit import
-  // - @tsonic/globals[-pure]: base types + BCL methods (transitive @tsonic/dotnet[-pure]) - needs typeRoots
+  // - @tsonic/globals: base types + BCL methods (transitive @tsonic/dotnet) - needs typeRoots
   // - @tsonic/nodejs: Node.js interop (peerDep on @tsonic/dotnet, satisfied by globals)
-  const globalsPackage = pure ? "@tsonic/globals-pure" : "@tsonic/globals";
   const packages = [
     CLI_PACKAGE,
     corePackage,
-    { name: globalsPackage, version: "latest" },
+    { name: "@tsonic/globals", version: "latest" },
   ];
-
-  // JSRuntime / nodejs bindings currently import from @tsonic/dotnet (not dotnet-pure).
-  // In --pure mode, ensure @tsonic/dotnet is installed so these packages typecheck.
-  if (pure && (js || nodejs)) {
-    packages.push({ name: "@tsonic/dotnet", version: "latest" });
-  }
 
   if (js) {
     packages.push({ name: "@tsonic/js", version: "latest" });
@@ -171,7 +140,7 @@ export const getTypePackageInfo = (
   }
   return {
     packages,
-    typeRoots: [`node_modules/${globalsPackage}`],
+    typeRoots: ["node_modules/@tsonic/globals"],
   };
 };
 
@@ -180,8 +149,7 @@ export const getTypePackageInfo = (
  */
 const generateConfig = (
   includeTypeRoots: boolean,
-  libraryPaths: readonly string[] = [],
-  pure: boolean = false
+  libraryPaths: readonly string[] = []
 ): string => {
   const config: Record<string, unknown> = {
     $schema: "https://tsonic.org/schema/v1.json",
@@ -198,7 +166,7 @@ const generateConfig = (
   };
 
   if (includeTypeRoots || libraryPaths.length > 0) {
-    const typeInfo = getTypePackageInfo({ pure });
+    const typeInfo = getTypePackageInfo();
     const dotnet: Record<string, unknown> = {};
 
     if (includeTypeRoots) {
@@ -331,8 +299,7 @@ export const initProject = (
     const shouldInstallTypes = !options.skipTypes;
     const js = options.js ?? false;
     const nodejs = options.nodejs ?? false;
-    const pure = options.pure ?? false;
-    const typeInfo = getTypePackageInfo({ js, nodejs, pure });
+    const typeInfo = getTypePackageInfo({ js, nodejs });
 
     if (shouldInstallTypes) {
       for (const pkg of typeInfo.packages) {
@@ -372,7 +339,7 @@ export const initProject = (
     if (js || nodejs) runtimeLibraries.push("lib/Tsonic.JSRuntime.dll");
     if (nodejs) runtimeLibraries.push("lib/nodejs.dll");
 
-    const config = generateConfig(shouldInstallTypes, runtimeLibraries, pure);
+    const config = generateConfig(shouldInstallTypes, runtimeLibraries);
     writeFileSync(tsonicJsonPath, config, "utf-8");
     console.log("✓ Created tsonic.json");
 
@@ -400,10 +367,8 @@ export const initProject = (
       const sample = nodejs
         ? SAMPLE_MAIN_TS_NODEJS
         : js
-          ? (pure ? SAMPLE_MAIN_TS_JS_PURE : SAMPLE_MAIN_TS_JS)
-          : pure
-            ? SAMPLE_MAIN_TS_PURE
-            : SAMPLE_MAIN_TS;
+          ? SAMPLE_MAIN_TS_JS
+          : SAMPLE_MAIN_TS;
       writeFileSync(appTsPath, sample, "utf-8");
       console.log("✓ Created src/App.ts");
     }

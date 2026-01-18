@@ -52,7 +52,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("int X");
+      expect(result).to.include("int x");
     });
 
     it("should emit long without qualification", () => {
@@ -63,7 +63,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("long X");
+      expect(result).to.include("long x");
     });
 
     it("should emit double without qualification", () => {
@@ -74,7 +74,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("double X");
+      expect(result).to.include("double x");
     });
 
     it("should emit decimal without qualification", () => {
@@ -85,7 +85,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("decimal X");
+      expect(result).to.include("decimal x");
     });
 
     it("should emit bool without qualification", () => {
@@ -96,7 +96,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("bool X");
+      expect(result).to.include("bool x");
     });
 
     it("should emit nint (native int) without qualification", () => {
@@ -107,7 +107,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("nint X");
+      expect(result).to.include("nint x");
     });
   });
 
@@ -251,7 +251,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("User User");
+      expect(result).to.include("User user");
     });
 
     it("should emit local interface types without qualification", () => {
@@ -293,7 +293,7 @@ describe("Reference Type Emission", () => {
 
       const result = emitModule(module);
 
-      expect(result).to.include("IUser User");
+      expect(result).to.include("IUser user");
     });
   });
 

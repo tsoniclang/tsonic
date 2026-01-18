@@ -23,7 +23,6 @@ export type ResolvedClrImport =
       readonly packageName: string;
       readonly resolvedNamespace: string;
       readonly bindingsPath: string;
-      readonly metadataPath: string | undefined;
       readonly assembly: string | undefined;
     }
   | {
@@ -139,18 +138,12 @@ export class ClrBindingsResolver {
       return { isClr: false };
     }
 
-    const bindingsDirAbs = dirname(legacyBindingsPath);
-
     // Extract namespace from bindings.json (tsbindgen format)
     // This is the authoritative namespace, not the subpath
     const resolvedNamespace = this.extractNamespace(
       legacyBindingsPath,
       namespaceKey
     );
-
-    // Check for optional metadata.json
-    const metadataPath = join(bindingsDirAbs, "internal", "metadata.json");
-    const hasMetadata = this.fileExists(metadataPath);
 
     // Extract assembly name from bindings.json types
     const assembly = this.extractAssembly(legacyBindingsPath);
@@ -160,7 +153,6 @@ export class ClrBindingsResolver {
       packageName,
       resolvedNamespace,
       bindingsPath: legacyBindingsPath,
-      metadataPath: hasMetadata ? metadataPath : undefined,
       assembly,
     };
   }
@@ -485,13 +477,6 @@ export class ClrBindingsResolver {
       this.assemblyCache.set(bindingsPath, null);
       return undefined;
     }
-  }
-
-  /**
-   * Check if a file exists (not cached - used for optional files)
-   */
-  private fileExists(filePath: string): boolean {
-    return existsSync(filePath);
   }
 
   /**

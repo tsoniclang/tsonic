@@ -3,56 +3,21 @@
  */
 
 import { EmitterOptions, EmitterContext } from "./core.js";
-import {
-  loadLibraries,
-  buildBindingsRegistry,
-} from "@tsonic/frontend/metadata/index.js";
-import type { TypeBinding } from "@tsonic/frontend/types/bindings.js";
 
 /**
  * Create a new emitter context with default values
  */
 export const createContext = (options: EmitterOptions): EmitterContext => {
-  // Load metadata and bindings from library directories
-  let metadata: EmitterContext["metadata"] = undefined;
-  let bindingsRegistry: EmitterContext["bindingsRegistry"] = undefined;
-
-  // Prefer pre-loaded bindings from frontend (clrBindings) over library loading
-  if (options.clrBindings && options.clrBindings.size > 0) {
-    // Convert frontend bindings to emitter format
-    // Frontend TypeBinding has: { name: CLR_NAME, alias: TS_NAME, ... }
-    // Emitter expects: { clrName: CLR_NAME, ... } or { name: CLR_NAME, ... }
-    // getBindingClrName in references.ts handles both formats via duck typing
-    const converted = new Map<string, TypeBinding>();
-    for (const [tsName, binding] of options.clrBindings) {
-      // Create a binding compatible with getBindingClrName
-      // It checks for clrName first, then name - we provide both for safety
-      converted.set(tsName, {
-        clrName: binding.name, // Frontend's name field IS the CLR name
-        tsEmitName: binding.alias,
-        assemblyName: "", // Not needed for type resolution
-        metadataToken: 0, // Not needed for type resolution
-      });
-    }
-    bindingsRegistry = converted;
-  } else if (options.libraries && options.libraries.length > 0) {
-    // Fallback: load from library directories (legacy path)
-    const librariesResult = loadLibraries(options.libraries);
-    if (librariesResult.ok) {
-      metadata = librariesResult.value.metadata;
-      bindingsRegistry = buildBindingsRegistry(librariesResult.value.bindings);
-    } else {
-      const message = librariesResult.error.map((d) => d.message).join(", ");
-      throw new Error(`[Tsonic] Failed to load libraries: ${message}`);
-    }
-  }
+  const bindingsRegistry =
+    options.clrBindings && options.clrBindings.size > 0
+      ? options.clrBindings
+      : undefined;
 
   return {
     indentLevel: 0,
     options,
     isStatic: false,
     isAsync: false,
-    metadata,
     bindingsRegistry,
   };
 };

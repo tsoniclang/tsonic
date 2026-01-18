@@ -31,8 +31,6 @@ export type AddCommandOptions = {
   readonly strict?: boolean;
 };
 
-export type TsbindgenNaming = "js" | "clr";
-
 export type ExecResult = {
   readonly status: number | null;
   readonly stdout: string;
@@ -137,11 +135,6 @@ export const npmInstallDevDependency = (
   return { ok: true, value: undefined };
 };
 
-export const detectTsbindgenNaming = (config: TsonicConfig): TsbindgenNaming => {
-  const typeRoots = config.dotnet?.typeRoots;
-  if (!typeRoots) return "js";
-  return typeRoots.some((p) => p.includes("@tsonic/globals-pure")) ? "clr" : "js";
-};
 
 const findNearestPackageRoot = (resolvedFilePath: string): string | null => {
   let currentDir = dirname(resolvedFilePath);

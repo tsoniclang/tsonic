@@ -577,7 +577,7 @@ describe("Binding Resolution in IR", () => {
 
         interface __Ext_System_Linq_IEnumerable_1<T> {
           // Signature shape doesn't matter for binding lookup; this is an extension marker surface.
-          tryGetNonEnumeratedCount(count: number): boolean;
+          TryGetNonEnumeratedCount(count: number): boolean;
         }
 
         type ExtensionMethods_System_Linq<TShape> =
@@ -589,7 +589,7 @@ describe("Binding Resolution in IR", () => {
 
         export function test() {
           let count = 0;
-          return xs.tryGetNonEnumeratedCount(count);
+          return xs.TryGetNonEnumeratedCount(count);
         }
       `;
 
@@ -599,12 +599,10 @@ describe("Binding Resolution in IR", () => {
         types: [
           {
             clrName: "System.Linq.Enumerable",
-            tsEmitName: "Enumerable",
             assemblyName: "System.Linq",
             methods: [
               {
                 clrName: "TryGetNonEnumeratedCount",
-                tsEmitName: "tryGetNonEnumeratedCount",
                 normalizedSignature:
                   "TryGetNonEnumeratedCount|(IEnumerable_1,System.Int32&):System.Boolean|static=true",
                 declaringClrType: "System.Linq.Enumerable",
@@ -659,8 +657,8 @@ describe("Binding Resolution in IR", () => {
         interface ReadOnlySpan_1<T> {}
 
         interface __Ext_System_ReadOnlySpan_1<T> {
-          overlaps(other: ReadOnlySpan_1<T>): boolean;
-          overlaps(other: ReadOnlySpan_1<T>, elementOffset: number): boolean;
+          Overlaps(other: ReadOnlySpan_1<T>): boolean;
+          Overlaps(other: ReadOnlySpan_1<T>, elementOffset: number): boolean;
         }
 
         type ExtensionMethods_System<TShape> =
@@ -672,8 +670,8 @@ describe("Binding Resolution in IR", () => {
 
         export function test() {
           let off = 0;
-          xs.overlaps(xs);
-          return xs.overlaps(xs, off);
+          xs.Overlaps(xs);
+          return xs.Overlaps(xs, off);
         }
       `;
 
@@ -683,12 +681,10 @@ describe("Binding Resolution in IR", () => {
         types: [
           {
             clrName: "System.MemoryExtensions",
-            tsEmitName: "MemoryExtensions",
             assemblyName: "System",
             methods: [
               {
                 clrName: "Overlaps",
-                tsEmitName: "overlaps",
                 normalizedSignature:
                   "Overlaps|(ReadOnlySpan_1,ReadOnlySpan_1):System.Boolean|static=true",
                 parameterCount: 2,
@@ -698,7 +694,6 @@ describe("Binding Resolution in IR", () => {
               },
               {
                 clrName: "Overlaps",
-                tsEmitName: "overlaps",
                 normalizedSignature:
                   "Overlaps|(ReadOnlySpan_1,ReadOnlySpan_1,System.Int32&):System.Boolean|static=true",
                 parameterCount: 3,

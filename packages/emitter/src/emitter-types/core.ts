@@ -2,15 +2,12 @@
  * Core emitter types
  */
 
-import type { MetadataFile } from "@tsonic/frontend/types/metadata.js";
-import type { TypeBinding } from "@tsonic/frontend/types/bindings.js";
 import type { TypeBinding as FrontendTypeBinding } from "@tsonic/frontend";
 import type {
   IrType,
   IrInterfaceMember,
   IrClassMember,
 } from "@tsonic/frontend";
-import type { NamingPolicyConfig } from "@tsonic/frontend";
 
 /**
  * Module identity for import resolution
@@ -69,8 +66,6 @@ export type TypeMemberIndex = ReadonlyMap<string, ReadonlyMap<string, TypeMember
 export type EmitterOptions = {
   /** Root namespace for the application */
   readonly rootNamespace: string;
-  /** Naming policy (CLR-style vs preserve source names) */
-  readonly namingPolicy?: NamingPolicyConfig;
   /** Member-kind index for locally-emitted types (populated during batch emission) */
   readonly typeMemberIndex?: TypeMemberIndex;
   /** Whether to include source map comments */
@@ -85,7 +80,7 @@ export type EmitterOptions = {
   readonly isEntryPoint?: boolean;
   /** Entry point file path (for batch emit) */
   readonly entryPointPath?: string;
-  /** External library paths (contain .metadata and .bindings directories) */
+  /** Type roots used by the frontend to discover CLR bindings (informational; emitter does not load directly). */
   readonly libraries?: readonly string[];
   /** Module map for resolving cross-file imports (populated during batch emission) */
   readonly moduleMap?: ModuleMap;
@@ -190,10 +185,8 @@ export type EmitterContext = {
   readonly hasSuperClass?: boolean;
   /** Whether the module has any inheritance (to decide virtual methods) */
   readonly hasInheritance?: boolean;
-  /** Loaded .NET metadata files (for CLR type information) */
-  readonly metadata?: ReadonlyArray<MetadataFile>;
   /** Registry mapping TypeScript emit names to type bindings */
-  readonly bindingsRegistry?: ReadonlyMap<string, TypeBinding>;
+  readonly bindingsRegistry?: ReadonlyMap<string, FrontendTypeBinding>;
   /** Map of local names to import binding info (for qualifying imported identifiers) */
   readonly importBindings?: ReadonlyMap<string, ImportBinding>;
   /** Set of variable names known to be int (from canonical for-loop counters) */
@@ -205,8 +198,8 @@ export type EmitterContext = {
   /**
    * Map from source type-parameter names to their emitted C# identifiers.
    *
-   * Used to deterministically avoid CLR naming collisions between type parameters and members
-   * after namingPolicy transforms (e.g. `interface Triple<A> { a: A }` → property `A`).
+   * Used to deterministically avoid C# identifier collisions between type parameters
+   * and members after escaping/sanitization.
    */
   readonly typeParameterNameMap?: ReadonlyMap<string, string>;
   /** Return type of current function/method (for contextual typing in return statements) */

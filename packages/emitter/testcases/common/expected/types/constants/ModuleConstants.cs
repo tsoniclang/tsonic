@@ -1,3 +1,7 @@
+// Generated from: ModuleConstants.ts
+// Generated at: 2026-01-17T15:37:20.172Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.constants
 {
         public static class ModuleConstants
@@ -8,6 +12,6 @@ namespace TestCases.common.types.constants
 
             public static readonly int COUNT = 42;
 
-            public static readonly bool ISENABLED = true;
+            public static readonly bool IS_ENABLED = true;
         }
 }

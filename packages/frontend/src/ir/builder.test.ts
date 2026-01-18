@@ -93,7 +93,7 @@ describe("IR Builder", () => {
         const module = result.value;
         expect(module.kind).to.equal("module");
         expect(module.namespace).to.equal("TestApp");
-        expect(module.className).to.equal("Test");
+        expect(module.className).to.equal("test");
         expect(module.isStaticContainer).to.equal(true);
       }
     });

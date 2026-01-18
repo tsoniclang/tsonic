@@ -1,29 +1,33 @@
+// Generated from: NullishFull.ts
+// Generated at: 2026-01-17T15:37:28.243Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.expectedtypethreading
 {
         public static class NullishFull
         {
-            public static int BasicNullish(int? value)
+            public static int basicNullish(int? value)
                 {
                 return value ?? 100;
                 }
 
-            public static int NestedNullish(int? a, int? b)
+            public static int nestedNullish(int? a, int? b)
                 {
                 return a ?? b ?? 999;
                 }
 
-            public static int NullishWithExpr(int? value, int fallback)
+            public static int nullishWithExpr(int? value, int fallback)
                 {
                 return value ?? fallback;
                 }
 
-            public static int NullishInVar(int? value)
+            public static int nullishInVar(int? value)
                 {
                 int result = value ?? 42;
                 return result;
                 }
 
-            public static int NullishInIf(int? value, bool condition)
+            public static int nullishInIf(int? value, bool condition)
                 {
                 if (condition)
                     {

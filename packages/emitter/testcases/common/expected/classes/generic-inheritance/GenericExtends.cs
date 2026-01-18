@@ -1,26 +1,30 @@
+// Generated from: GenericExtends.ts
+// Generated at: 2026-01-17T15:36:46.162Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.classes.genericinheritance
 {
     public class Box<T>
     {
-        public T Value;
+        public T value;
 
         public Box(T value)
             {
-            this.Value = value;
+            this.value = value;
             }
     }
     public class LabeledBox<T> : Box<T>
     {
-        public string Label;
+        public string label;
 
         public LabeledBox(T value, string label) : base(value)
             {
-            this.Label = label;
+            this.label = label;
             }
 
-        public string Describe()
+        public string describe()
             {
-            return $"{this.Label}: {this.Value}";
+            return $"{this.label}: {this.value}";
             }
     }
     public class WrappedBox<U> : Box<U>
@@ -30,9 +34,9 @@ namespace TestCases.common.classes.genericinheritance
 
             }
 
-        public Box<U> Wrap()
+        public Box<U> wrap()
             {
-            return new Box<U>(this.Value);
+            return new Box<U>(this.value);
             }
     }
 }

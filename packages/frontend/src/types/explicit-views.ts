@@ -12,8 +12,6 @@
  * @see spec/explicit-interface-views.md for complete documentation
  */
 
-import type { ExplicitView } from "./metadata.ts";
-
 /**
  * Pattern for explicit interface view property names.
  * Format: As_IInterfaceName
@@ -55,121 +53,6 @@ export const extractInterfaceNameFromView = (
  */
 export const buildViewPropertyName = (interfaceName: string): string => {
   return `${VIEW_PROPERTY_PREFIX}${interfaceName}`;
-};
-
-/**
- * Find explicit view for a given interface in type metadata.
- *
- * @param explicitViews - Array of explicit views from metadata
- * @param interfaceName - CLR interface name to find (e.g., "System.Collections.ICollection")
- * @returns Explicit view if found, undefined otherwise
- */
-export const findExplicitView = (
-  explicitViews: readonly ExplicitView[] | undefined,
-  interfaceName: string
-): ExplicitView | undefined => {
-  if (!explicitViews) {
-    return undefined;
-  }
-
-  return explicitViews.find((view) => view.interfaceName === interfaceName);
-};
-
-/**
- * Check if a member is in an explicit view (view-only member).
- *
- * @param explicitViews - Array of explicit views from metadata
- * @param memberName - CLR member name to check
- * @returns True if member appears in any view
- */
-export const isMemberInExplicitView = (
-  explicitViews: readonly ExplicitView[] | undefined,
-  memberName: string
-): boolean => {
-  if (!explicitViews) {
-    return false;
-  }
-
-  for (const view of explicitViews) {
-    if (view.members.some((m) => m.clrName === memberName)) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-/**
- * Get all interface names that have explicit views.
- *
- * @param explicitViews - Array of explicit views from metadata
- * @returns Array of interface CLR names
- */
-export const getExplicitViewInterfaces = (
-  explicitViews: readonly ExplicitView[] | undefined
-): readonly string[] => {
-  if (!explicitViews) {
-    return [];
-  }
-
-  return explicitViews.map((view) => view.interfaceName);
-};
-
-/**
- * Information about an explicit view member access.
- */
-export type ExplicitViewAccess = {
-  readonly interfaceName: string;
-  readonly interfaceTsName: string;
-  readonly memberName: string;
-  readonly memberKind: "Method" | "Property" | "Event";
-};
-
-/**
- * Parse an explicit view member access expression.
- *
- * Example: obj.As_ICollection.CopyTo
- * Returns: { interfaceName: "ICollection", memberName: "CopyTo", ... }
- *
- * @param viewPropertyName - View property name (e.g., "As_ICollection")
- * @param memberName - Member being accessed (e.g., "CopyTo")
- * @param explicitViews - Array of explicit views from metadata
- * @returns View access info if valid, undefined if invalid
- */
-export const parseExplicitViewAccess = (
-  viewPropertyName: string,
-  memberName: string,
-  explicitViews: readonly ExplicitView[] | undefined
-): ExplicitViewAccess | undefined => {
-  // Extract interface name from view property
-  const interfaceTsName = extractInterfaceNameFromView(viewPropertyName);
-  if (!interfaceTsName) {
-    return undefined;
-  }
-
-  // Find the explicit view in metadata
-  if (!explicitViews) {
-    return undefined;
-  }
-
-  // Look for view that matches the property name
-  const view = explicitViews.find((v) => v.tsPropertyName === viewPropertyName);
-  if (!view) {
-    return undefined;
-  }
-
-  // Find the member in the view
-  const member = view.members.find((m) => m.name === memberName);
-  if (!member) {
-    return undefined;
-  }
-
-  return {
-    interfaceName: view.interfaceName,
-    interfaceTsName,
-    memberName: member.name,
-    memberKind: member.kind,
-  };
 };
 
 /**

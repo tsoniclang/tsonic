@@ -160,7 +160,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     // Should use global:: prefixed assembly + csharpName
-    expect(result).to.include("global::System.Console.Log");
+    expect(result).to.include("global::System.Console.log");
     // No using statements
     expect(result).not.to.include("using System");
   });
@@ -431,7 +431,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     // Should emit regular property access
-    expect(result).to.include("obj.Property");
+    expect(result).to.include("obj.property");
   });
 
   it("should escape special characters in dictionary keys", () => {

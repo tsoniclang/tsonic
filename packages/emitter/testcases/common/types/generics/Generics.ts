@@ -6,7 +6,7 @@ export function identity<T>(value: T): T {
 
 // Idiomatic C# pattern: TryGet with out parameter
 export function tryFirstElement<T>(arr: T[], result: out<T>): boolean {
-  if (arr.length === 0) {
+  if (arr.Length === 0) {
     return false;
   }
   result = arr[0];

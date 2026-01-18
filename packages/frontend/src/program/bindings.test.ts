@@ -132,12 +132,10 @@ describe("Binding System", () => {
         types: [
           {
             clrName: "System.Linq.Enumerable",
-            tsEmitName: "Enumerable",
             assemblyName: "System.Linq",
             methods: [
               {
                 clrName: "Where",
-                tsEmitName: "where",
                 normalizedSignature:
                   "Where|(IEnumerable_1,Func_2):IEnumerable_1|static=true",
                 declaringClrType: "System.Linq.Enumerable",
@@ -153,7 +151,7 @@ describe("Binding System", () => {
 
       const resolved = registry.resolveExtensionMethod(
         "__Ext_System_Linq_IEnumerable_1",
-        "where"
+        "Where"
       );
 
       expect(resolved).to.not.equal(undefined);
@@ -178,7 +176,7 @@ describe("Binding System", () => {
 
     it("should load bindings from a manifest file in typeRoot", () => {
       // Create a test binding manifest
-      const manifestPath = path.join(tempDir, "test.bindings.json");
+      const manifestPath = path.join(tempDir, "bindings.json");
       const manifest = {
         bindings: {
           console: {
@@ -201,12 +199,12 @@ describe("Binding System", () => {
     });
 
     it("should load bindings from manifest next to .d.ts file", () => {
-      // Create a subdirectory structure
-      const subDir = path.join(tempDir, "types");
-      fs.mkdirSync(subDir, { recursive: true });
+      // Create a facade + namespace directory structure
+      // `Runtime.d.ts` at root, with `Runtime/bindings.json` next to it.
+      fs.writeFileSync(path.join(tempDir, "Runtime.d.ts"), "");
 
-      // Create .d.ts and .bindings.json files
-      fs.writeFileSync(path.join(subDir, "runtime.d.ts"), "");
+      const namespaceDir = path.join(tempDir, "Runtime");
+      fs.mkdirSync(namespaceDir, { recursive: true });
       const manifest = {
         bindings: {
           Math: {
@@ -217,7 +215,7 @@ describe("Binding System", () => {
         },
       };
       fs.writeFileSync(
-        path.join(subDir, "runtime.bindings.json"),
+        path.join(namespaceDir, "bindings.json"),
         JSON.stringify(manifest, null, 2)
       );
 
@@ -254,7 +252,7 @@ describe("Binding System", () => {
         },
       };
       fs.writeFileSync(
-        path.join(dir1, "runtime.bindings.json"),
+        path.join(dir1, "bindings.json"),
         JSON.stringify(manifest1, null, 2)
       );
 
@@ -269,7 +267,7 @@ describe("Binding System", () => {
         },
       };
       fs.writeFileSync(
-        path.join(dir2, "node.bindings.json"),
+        path.join(dir2, "bindings.json"),
         JSON.stringify(manifest2, null, 2)
       );
 
@@ -281,7 +279,7 @@ describe("Binding System", () => {
     });
 
     it("should handle malformed JSON gracefully", () => {
-      const manifestPath = path.join(tempDir, "bad.bindings.json");
+      const manifestPath = path.join(tempDir, "bindings.json");
       fs.writeFileSync(manifestPath, "{ invalid json }");
 
       // Should not throw, just skip the bad file
@@ -305,7 +303,7 @@ describe("Binding System", () => {
         },
       };
       fs.writeFileSync(
-        path.join(tempDir, "mixed.bindings.json"),
+        path.join(tempDir, "bindings.json"),
         JSON.stringify(manifest, null, 2)
       );
 

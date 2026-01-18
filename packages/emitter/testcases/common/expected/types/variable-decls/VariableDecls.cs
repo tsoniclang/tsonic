@@ -1,44 +1,48 @@
+// Generated from: VariableDecls.ts
+// Generated at: 2026-01-17T15:37:45.603Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.variabledecls
 {
         public static class VariableDecls
         {
-            public static readonly double InferredDouble = 42.5;
+            public static readonly double inferredDouble = 42.5;
 
-            public static readonly int InferredInt = 42;
+            public static readonly int inferredInt = 42;
 
-            public static readonly string InferredString = "hello";
+            public static readonly string inferredString = "hello";
 
-            public static readonly bool InferredBool = true;
+            public static readonly bool inferredBool = true;
 
-            public static readonly int ExplicitInt = 42;
+            public static readonly int explicitInt = 42;
 
-            public static readonly byte ExplicitByte = 255;
+            public static readonly byte explicitByte = 255;
 
-            public static readonly short ExplicitShort = 1000;
+            public static readonly short explicitShort = 1000;
 
-            public static readonly long ExplicitLong = 1000000L;
+            public static readonly long explicitLong = 1000000L;
 
-            public static readonly float ExplicitFloat = 1.5f;
+            public static readonly float explicitFloat = 1.5f;
 
-            public static readonly double ExplicitDouble = 1.5;
+            public static readonly double explicitDouble = 1.5;
 
-            public static readonly string ExplicitString = "world";
+            public static readonly string explicitString = "world";
 
-            public static readonly bool ExplicitBool = false;
+            public static readonly bool explicitBool = false;
 
-            public static readonly int AssertedInt = 42;
+            public static readonly int assertedInt = 42;
 
-            public static readonly byte AssertedByte = 255;
+            public static readonly byte assertedByte = 255;
 
-            public static readonly short AssertedShort = 1000;
+            public static readonly short assertedShort = 1000;
 
-            public static readonly long AssertedLong = 1000000L;
+            public static readonly long assertedLong = 1000000L;
 
-            public static readonly float AssertedFloat = 1.5f;
+            public static readonly float assertedFloat = 1.5f;
 
-            public static readonly double AssertedDouble = 42;
+            public static readonly double assertedDouble = 42;
 
-            public static void LocalDeclarations()
+            public static void localDeclarations()
                 {
                 var localInferredDouble = 42.5;
                 var localInferredInt = 42;
@@ -53,10 +57,10 @@ namespace TestCases.common.types.variabledecls
                 var localAssertedDouble = 100;
                 }
 
-            public static int MutableInt = 0;
+            public static int mutableInt = 0;
 
-            public static string MutableString = "";
+            public static string mutableString = "";
 
-            public static readonly int ImmutableInt = 42;
+            public static readonly int immutableInt = 42;
         }
 }

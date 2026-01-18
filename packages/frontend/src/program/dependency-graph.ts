@@ -292,7 +292,6 @@ export const buildModuleDependencyGraph = (
   const irResult = buildIr(tsonicProgram, {
     sourceRoot: sourceRootAbs,
     rootNamespace: options.rootNamespace,
-    namingPolicy: options.namingPolicy,
   });
 
   if (!irResult.ok) {
@@ -307,9 +306,21 @@ export const buildModuleDependencyGraph = (
   // Note: This pass always succeeds (no diagnostics), but we use the lowered modules
   const loweredModules = anonTypeResult.modules;
 
+  // Run attribute collection pass - extracts A.on(X).type.add(...) marker calls
+  // and attaches them as attributes to declarations.
+  //
+  // IMPORTANT: This must run BEFORE the IR soundness gate. Attribute markers are
+  // compiler-only and may introduce types that are not representable in the runtime
+  // subset (e.g., AttributeDescriptor<>). The pass removes all recognized marker
+  // statements so the emitter/soundness gate never see them.
+  const attributeResult = runAttributeCollectionPass(loweredModules);
+  if (!attributeResult.ok) {
+    return error(attributeResult.diagnostics);
+  }
+
   // Run IR soundness gate - validates no anyType leaked through
   // This is the final validation before emitter can run
-  const soundnessResult = validateIrSoundness(loweredModules, {
+  const soundnessResult = validateIrSoundness(attributeResult.modules, {
     knownReferenceTypes: new Set(tsonicProgram.bindings.getTypesMap().keys()),
   });
   if (!soundnessResult.ok) {
@@ -318,7 +329,7 @@ export const buildModuleDependencyGraph = (
 
   // Run numeric proof pass - validates all numeric narrowings are provable
   // and attaches proofs to expressions for the emitter
-  const numericResult = runNumericProofPass(loweredModules);
+  const numericResult = runNumericProofPass(attributeResult.modules);
   if (!numericResult.ok) {
     return error(numericResult.diagnostics);
   }
@@ -348,15 +359,8 @@ export const buildModuleDependencyGraph = (
     return error(yieldResult.diagnostics);
   }
 
-  // Run attribute collection pass - extracts A.on(X).type(Y) marker calls
-  // and attaches them as attributes to declarations
-  const attributeResult = runAttributeCollectionPass(yieldResult.modules);
-  if (!attributeResult.ok) {
-    return error(attributeResult.diagnostics);
-  }
-
   // Run virtual marking pass - marks base class methods as virtual when overridden
-  const virtualResult = runVirtualMarkingPass(attributeResult.modules);
+  const virtualResult = runVirtualMarkingPass(yieldResult.modules);
   // Note: This pass always succeeds
 
   // Use the processed modules with proofs, lowered yields, attributes, and virtual marks

@@ -1,18 +1,20 @@
-import {
-  applyNamingPolicy,
-  resolveNamingPolicy,
-  type NamingPolicyBucket,
-} from "@tsonic/frontend";
 import type { EmitterContext } from "./types.js";
 import { escapeCSharpIdentifier } from "./emitter-types/index.js";
 
+export type NamingPolicyBucket =
+  | "namespaces"
+  | "classes"
+  | "methods"
+  | "properties"
+  | "fields"
+  | "enumMembers";
+
 export const getCSharpName = (
   name: string,
-  bucket: NamingPolicyBucket,
-  context: EmitterContext
+  _bucket: NamingPolicyBucket,
+  _context: EmitterContext
 ): string => {
-  const policy = resolveNamingPolicy(context.options.namingPolicy, bucket);
-  return applyNamingPolicy(name, policy);
+  return name;
 };
 
 export const emitCSharpName = (
@@ -22,4 +24,3 @@ export const emitCSharpName = (
 ): string => {
   return escapeCSharpIdentifier(getCSharpName(name, bucket, context));
 };
-

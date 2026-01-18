@@ -1,3 +1,7 @@
+// Generated from: Attributes.ts
+// Generated at: 2026-01-17T15:36:40.340Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.attributes.comprehensive
 {
     [global::System.SerializableAttribute]
@@ -6,26 +10,28 @@ namespace TestCases.common.attributes.comprehensive
         [global::System.ObsoleteAttribute("ctor")]
         public User()
             {
+
             }
 
-        private string NameField;
+        private string _nameField;
 
         [global::System.ObsoleteAttribute("prop")]
-        public string Name
+        public string name
             {
             get
                 {
-                return this.NameField;
+                return this._nameField;
                 }
             set
                 {
-                this.NameField = value;
+                this._nameField = value;
                 }
             }
 
         [global::System.ObsoleteAttribute("method")]
-        public void Save()
+        public void save()
             {
+
             }
     }
     public class NoCtor
@@ -33,8 +39,9 @@ namespace TestCases.common.attributes.comprehensive
         [global::System.ObsoleteAttribute("implicit")]
         public NoCtor()
             {
+
             }
 
-        public double Value;
+        public double value;
     }
 }

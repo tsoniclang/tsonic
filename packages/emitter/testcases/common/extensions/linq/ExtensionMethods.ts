@@ -13,15 +13,17 @@ export function inc(x: thisarg<int>): int {
 
 export function run(): void {
   const numbers = new List<int>();
-  numbers.add(1);
-  numbers.add(2);
-  numbers.add(3);
-  numbers.add(4);
+  numbers.Add(1);
+  numbers.Add(2);
+  numbers.Add(3);
+  numbers.Add(4);
 
   const xs = numbers as unknown as LinqSeq<int>;
-  const doubled = xs.where((n) => n % 2 === 0).select((n) => n * 2).toList();
+  const doubled = xs
+    .Where((n) => n % 2 === 0)
+    .Select((n) => n * 2)
+    .ToList();
 
-  Console.writeLine(doubled.count);
-  Console.writeLine(inc(5));
+  Console.WriteLine(doubled.Count);
+  Console.WriteLine(inc(5));
 }
-

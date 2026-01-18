@@ -5,7 +5,6 @@ import { int } from "@tsonic/core/types.js";
 export function run(): void {
   const buffer = stackalloc<int>(256);
   buffer[0] = 42;
-  Console.writeLine(buffer[0]);
-  Console.writeLine(buffer.length);
+  Console.WriteLine(buffer[0]);
+  Console.WriteLine(buffer.Length);
 }
-

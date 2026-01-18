@@ -1,9 +1,13 @@
+// Generated from: MaybeMonad.ts
+// Generated at: 2026-01-17T15:37:31.628Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.functorpatterns
 {
     public class Functor<T>
         where T : class
     {
-        public Functor<U> Map<U>(global::System.Func<T, U> fn)
+        public Functor<U> map<U>(global::System.Func<T, U> fn)
             where U : class
             {
             throw "Not implemented";
@@ -11,13 +15,13 @@ namespace TestCases.common.types.functorpatterns
     }
     public static class Maybe
     {
-        public static Maybe<T> Just<T>(T value)
+        public static Maybe<T> just<T>(T value)
             where T : class
             {
             return new Maybe<T>(value);
             }
 
-        public static Maybe<T> Nothing<T>()
+        public static Maybe<T> nothing<T>()
             where T : class
             {
             return new Maybe<T>(default);
@@ -26,36 +30,36 @@ namespace TestCases.common.types.functorpatterns
     public class Maybe<T> : Functor<T>
         where T : class
     {
-        private T? Value;
+        private T? value;
 
         public Maybe(T? value) : base()
             {
-            this.Value = value;
+            this.value = value;
             }
 
-        public override Maybe<U> Map<U>(global::System.Func<T, U> fn)
+        public override Maybe<U> map<U>(global::System.Func<T, U> fn)
             where U : class
             {
-            if (this.Value is null)
+            if (this.value is null)
                 {
-                return Maybe.Nothing<U>();
+                return Maybe.nothing<U>();
                 }
-            return Maybe.Just(fn(this.Value));
+            return Maybe.just(fn(this.value));
             }
 
-        public Maybe<U> FlatMap<U>(global::System.Func<T, Maybe<U>> fn)
+        public Maybe<U> flatMap<U>(global::System.Func<T, Maybe<U>> fn)
             where U : class
             {
-            if (this.Value is null)
+            if (this.value is null)
                 {
-                return Maybe.Nothing<U>();
+                return Maybe.nothing<U>();
                 }
-            return fn(this.Value);
+            return fn(this.value);
             }
 
-        public T GetOrElse(T defaultValue)
+        public T getOrElse(T defaultValue)
             {
-            return this.Value is not null ? this.Value : defaultValue;
+            return this.value is not null ? this.value : defaultValue;
             }
     }
 }

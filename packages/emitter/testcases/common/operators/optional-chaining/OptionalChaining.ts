@@ -11,5 +11,5 @@ export function getCity(user: User | null): string | undefined {
 }
 
 export function getNameLength(user: User | null): number {
-  return user?.name?.length ?? 0;
+  return user?.name?.Length ?? 0;
 }

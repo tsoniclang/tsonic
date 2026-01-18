@@ -7,10 +7,6 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitType } from "./emitter.js";
-import {
-  isNestedType,
-  tsCSharpNestedTypeName,
-} from "@tsonic/frontend/types/nested-types.js";
 import { substituteTypeArgs } from "../core/type-resolution.js";
 
 /**
@@ -61,7 +57,7 @@ const toGlobalClr = (clr: string): string => {
 const getBindingClrName = (b: unknown): string | undefined => {
   if (!b || typeof b !== "object") return undefined;
 
-  // tsbindgen TypeBinding: { clrName: "System.Action", tsEmitName: "Action", ... }
+  // Legacy/duck-typed support: { clrName: "System.Action", ... }
   const maybeClrName = (b as { clrName?: unknown }).clrName;
   if (typeof maybeClrName === "string" && maybeClrName.length > 0) {
     return maybeClrName;
@@ -293,8 +289,7 @@ export const emitReferenceType = (
   // to `System.ComponentModel.Container` from the binding registry.
   const localTypeInfo = context.localTypes?.get(name);
   if (localTypeInfo) {
-    // Convert nested type names (Outer$Inner → Outer.Inner)
-    let csharpName = isNestedType(name) ? tsCSharpNestedTypeName(name) : name;
+    let csharpName = name;
 
     // Type aliases with objectType underlying type are emitted as classes with __Alias suffix
     // (per spec/16-types-and-interfaces.md §3.4)

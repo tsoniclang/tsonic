@@ -86,18 +86,20 @@ describe("Generator Emission", () => {
     const code = emitModule(module);
 
     // Should contain exchange class
-    expect(code).to.include("public sealed class Counter_exchange");
+    expect(code).to.include("public sealed class counter_exchange");
     expect(code).to.include("public object? Input { get; set; }");
     expect(code).to.include("public double Output { get; set; }");
 
     // Should have IEnumerable return type with fully-qualified name
-    expect(code).to.include("Counter_exchange> Counter()");
+    expect(code).to.include(
+      "global::System.Collections.Generic.IEnumerable<counter_exchange> counter()"
+    );
 
     // Should NOT use using directives - all types use global:: FQN
     expect(code).to.not.include("using System.Collections.Generic");
 
     // Should initialize exchange variable
-    expect(code).to.include("var exchange = new Counter_exchange()");
+    expect(code).to.include("var exchange = new counter_exchange()");
 
     // Should emit yield with exchange object pattern
     expect(code).to.include("exchange.Output = i");
@@ -181,11 +183,11 @@ describe("Generator Emission", () => {
     const code = emitModule(module);
 
     // Should contain exchange class
-    expect(code).to.include("public sealed class AsyncCounter_exchange");
+    expect(code).to.include("public sealed class asyncCounter_exchange");
 
     // Should have IAsyncEnumerable return type with async and global:: FQN
     expect(code).to.include(
-      "public static async global::System.Collections.Generic.IAsyncEnumerable<AsyncCounter_exchange> AsyncCounter()"
+      "public static async global::System.Collections.Generic.IAsyncEnumerable<asyncCounter_exchange> asyncCounter()"
     );
   });
 
@@ -286,37 +288,37 @@ describe("Generator Emission", () => {
       // Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
 
       // Should generate exchange class
-      expect(code).to.include("public sealed class Accumulator_exchange");
+      expect(code).to.include("public sealed class accumulator_exchange");
       expect(code).to.include("public double? Input { get; set; }");
       expect(code).to.include("public double Output { get; set; }");
 
       // Should generate wrapper class
-      expect(code).to.include("public sealed class Accumulator_Generator");
-      expect(code).to.include("IEnumerator<Accumulator_exchange> _enumerator");
-      expect(code).to.include("Accumulator_exchange _exchange");
+      expect(code).to.include("public sealed class accumulator_Generator");
+      expect(code).to.include("IEnumerator<accumulator_exchange> _enumerator");
+      expect(code).to.include("accumulator_exchange _exchange");
 
       // next() method with nullable parameter
       expect(code).to.include(
-        "global::Tsonic.Runtime.IteratorResult<double> Next(double? value"
+        "global::Tsonic.Runtime.IteratorResult<double> next(double? value"
       );
       expect(code).to.include("_exchange.Input = value");
       expect(code).to.include("MoveNext()");
 
       // return() and throw() methods
       expect(code).to.include(
-        "global::Tsonic.Runtime.IteratorResult<double> Return("
+        "global::Tsonic.Runtime.IteratorResult<double> @return("
       );
       expect(code).to.include(
-        "global::Tsonic.Runtime.IteratorResult<double> Throw(object e)"
+        "global::Tsonic.Runtime.IteratorResult<double> @throw(object e)"
       );
 
       // Function should return wrapper type
-      expect(code).to.include("Accumulator_Generator Accumulator(");
+      expect(code).to.include("accumulator_Generator accumulator(");
 
       // Should use local iterator pattern
       expect(code).to.include("__iterator()");
       expect(code).to.include(
-        "return new Accumulator_Generator(__iterator(), exchange)"
+        "return new accumulator_Generator(__iterator(), exchange)"
       );
     });
 
@@ -422,10 +424,12 @@ describe("Generator Emission", () => {
       expect(code).to.not.include("IteratorResult<");
 
       // Should use IEnumerable return type
-      expect(code).to.include("IEnumerable<Range_exchange> Range()");
+      expect(code).to.include(
+        "global::System.Collections.Generic.IEnumerable<range_exchange> range()"
+      );
 
       // Should generate exchange class
-      expect(code).to.include("public sealed class Range_exchange");
+      expect(code).to.include("public sealed class range_exchange");
     });
 
     it("should handle async bidirectional generator", () => {
@@ -472,10 +476,10 @@ describe("Generator Emission", () => {
       const code = emitModule(module);
 
       // Should generate async wrapper
-      expect(code).to.include("AsyncAccumulator_Generator");
-      expect(code).to.include("IAsyncEnumerator<AsyncAccumulator_exchange>");
+      expect(code).to.include("asyncAccumulator_Generator");
+      expect(code).to.include("IAsyncEnumerator<asyncAccumulator_exchange>");
       expect(code).to.include(
-        "async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> Next("
+        "async global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<double>> next("
       );
       expect(code).to.include("await _enumerator.MoveNextAsync()");
     });
@@ -528,7 +532,7 @@ describe("Generator Emission", () => {
         // Should generate wrapper with string? Input
         expect(code).to.include("public string? Input { get; set; }");
         // next() method should accept string?
-        expect(code).to.include("Next(string? value = default)");
+        expect(code).to.include("next(string? value = default)");
       });
 
       it("should use await foreach for async yield* delegation", () => {

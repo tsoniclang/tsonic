@@ -1,30 +1,34 @@
+// Generated from: InheritanceChain.ts
+// Generated at: 2026-01-17T15:36:47.328Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.classes.genericinheritance
 {
     public class Entity<TId>
     {
-        public TId Id;
+        public TId id;
 
         public Entity(TId id)
             {
-            this.Id = id;
+            this.id = id;
             }
     }
     public class NamedEntity<TId> : Entity<TId>
     {
-        public string Name;
+        public string name;
 
         public NamedEntity(TId id, string name) : base(id)
             {
-            this.Name = name;
+            this.name = name;
             }
     }
     public class User : NamedEntity<int>
     {
-        public string Email;
+        public string email;
 
         public User(int id, string name, string email) : base(id, name)
             {
-            this.Email = email;
+            this.email = email;
             }
     }
 }

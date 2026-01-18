@@ -38,7 +38,6 @@ describe("CLR member binding disambiguation", () => {
           namespace: "nodejs.Http",
           types: [
             {
-              tsEmitName: "Server",
               clrName: "nodejs.Http.Server",
             },
           ],
@@ -126,21 +125,19 @@ describe("CLR member binding disambiguation", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-    bindings.addBindings("/test/nodejs-http.json", {
-      namespace: "nodejs.Http",
-      types: [
-        {
-          clrName: "nodejs.Http.Server",
-          tsEmitName: "Server",
-          assemblyName: "nodejs",
-          methods: [
-            {
-              clrName: "listen",
-              tsEmitName: "listen",
-              normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
-              parameterCount: 2,
-              declaringClrType: "nodejs.Http.Server",
-              declaringAssemblyName: "nodejs",
+      bindings.addBindings("/test/nodejs-http.json", {
+        namespace: "nodejs.Http",
+        types: [
+          {
+            clrName: "nodejs.Http.Server",
+            assemblyName: "nodejs",
+            methods: [
+              {
+                clrName: "listen",
+                normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
+                parameterCount: 2,
+                declaringClrType: "nodejs.Http.Server",
+                declaringAssemblyName: "nodejs",
             },
           ],
           properties: [],
@@ -150,20 +147,18 @@ describe("CLR member binding disambiguation", () => {
     });
 
     // Collision: another namespace also exports a `Server.listen`, but the CLR member
-    // name casing differs (Listen vs listen). Tsonic must select the correct one
-    // using the declaration source file's nearest bindings.json.
+    // targets differ. Tsonic must select the correct one using the declaration source
+    // file's nearest bindings.json.
     bindings.addBindings("/test/nodejs.json", {
       namespace: "nodejs",
       types: [
         {
           clrName: "nodejs.Server",
-          tsEmitName: "Server",
           assemblyName: "nodejs",
           methods: [
             {
-              clrName: "Listen",
-              tsEmitName: "listen",
-              normalizedSignature: "Listen|(System.Int32,System.Action):nodejs.Server|static=false",
+              clrName: "listen",
+              normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Server|static=false",
               parameterCount: 2,
               declaringClrType: "nodejs.Server",
               declaringAssemblyName: "nodejs",
@@ -256,7 +251,6 @@ describe("CLR member binding disambiguation", () => {
           namespace: "nodejs.Http",
           types: [
             {
-              tsEmitName: "NotServer",
               clrName: "nodejs.Http.NotServer",
             },
           ],
@@ -349,12 +343,10 @@ describe("CLR member binding disambiguation", () => {
       types: [
         {
           clrName: "nodejs.Http.Server",
-          tsEmitName: "Server",
           assemblyName: "nodejs",
           methods: [
             {
               clrName: "listen",
-              tsEmitName: "listen",
               normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
               parameterCount: 2,
               declaringClrType: "nodejs.Http.Server",
@@ -372,13 +364,11 @@ describe("CLR member binding disambiguation", () => {
       types: [
         {
           clrName: "nodejs.Server",
-          tsEmitName: "Server",
           assemblyName: "nodejs",
           methods: [
             {
-              clrName: "Listen",
-              tsEmitName: "listen",
-              normalizedSignature: "Listen|(System.Int32,System.Action):nodejs.Server|static=false",
+              clrName: "listen",
+              normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Server|static=false",
               parameterCount: 2,
               declaringClrType: "nodejs.Server",
               declaringAssemblyName: "nodejs",
@@ -436,7 +426,6 @@ describe("CLR member binding disambiguation", () => {
           namespace: "nodejs.Http",
           types: [
             {
-              tsEmitName: "Server",
               clrName: "nodejs.Http.Server",
             },
           ],
@@ -530,7 +519,6 @@ describe("CLR member binding disambiguation", () => {
       types: [
         {
           clrName: "nodejs.Http.Server",
-          tsEmitName: "Server",
           assemblyName: "nodejs",
           methods: [],
           properties: [],

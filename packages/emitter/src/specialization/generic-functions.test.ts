@@ -61,7 +61,7 @@ describe("Generic Functions (spec/15 §3-5)", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("public static T Identity<T>(T value)");
+    expect(result).to.include("public static T identity<T>(T value)");
     expect(result).to.include("return value");
   });
 
@@ -138,7 +138,7 @@ describe("Generic Functions (spec/15 §3-5)", () => {
     const result = emitModule(module);
 
     expect(result).to.include("<T, U>");
-    expect(result).to.include("Pair");
+    expect(result).to.include("pair");
     expect(result).to.include("T first");
     expect(result).to.include("U second");
   });
@@ -288,13 +288,13 @@ describe("Generic Functions (spec/15 §3-5)", () => {
 
     // Should generate adapter interface
     expect(result).to.include("public interface __Constraint_T");
-    expect(result).to.include("double Id { get; }");
+    expect(result).to.include("double id { get; }");
 
     // Should generate adapter wrapper class
     expect(result).to.include(
       "public sealed class __Wrapper_T : __Constraint_T"
     );
-    expect(result).to.include("public double Id { get; set; }");
+    expect(result).to.include("public double id { get; set; }");
 
     // Function should reference the constraint
     expect(result).to.include("where T : __Constraint_T");
@@ -372,7 +372,7 @@ describe("Generic Functions (spec/15 §3-5)", () => {
     expect(result).to.include("where T : struct");
     // Should use T? for nullable value type parameter/return
     expect(result).to.include("T? value");
-    expect(result).to.include("T? WrapValue");
+    expect(result).to.include("T? wrapValue");
   });
 
   it("should emit generic function with object constraint (class)", () => {
@@ -447,7 +447,7 @@ describe("Generic Functions (spec/15 §3-5)", () => {
     expect(result).to.include("where T : class");
     // Should use T? for nullable reference type parameter/return
     expect(result).to.include("T? value");
-    expect(result).to.include("T? WrapRef");
+    expect(result).to.include("T? wrapRef");
   });
 
   it("should emit generic function with multiple interface constraints", () => {

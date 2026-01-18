@@ -24,7 +24,6 @@ import {
   defaultBindingsPackageNameForDll,
   defaultBindingsPackageNameForFramework,
   defaultBindingsPackageNameForNuget,
-  detectTsbindgenNaming,
   ensureGeneratedBindingsPackageJson,
   installGeneratedBindingsPackage,
   listDotnetRuntimes,
@@ -238,13 +237,9 @@ export const restoreCommand = (
 
   const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
   if (!dotnetRoot.ok) return dotnetRoot;
-  const coreRoot = resolvePackageRoot(projectRoot, "@tsonic/core");
-  if (!coreRoot.ok) return coreRoot;
   const dotnetLib = dotnetRoot.value;
-  const coreLib = coreRoot.value;
 
   const dotnet = config.dotnet ?? {};
-  const naming = detectTsbindgenNaming(config);
 
   // 1) FrameworkReferences bindings
   for (const entry of (dotnet.frameworkReferences ??
@@ -280,12 +275,8 @@ export const restoreCommand = (
       runtime.dir,
       "-o",
       outDir,
-      "--naming",
-      naming,
       "--lib",
       dotnetLib,
-      "--lib",
-      coreLib,
     ];
     for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
     for (const dep of options.deps ?? []) {
@@ -502,12 +493,8 @@ export const restoreCommand = (
         ...seedDlls.flatMap((p) => ["-a", p]),
         "-o",
         outDir,
-        "--naming",
-        naming,
         "--lib",
         dotnetLib,
-        "--lib",
-        coreLib,
       ];
 
       const libDirs = new Set<string>();
@@ -698,12 +685,8 @@ export const restoreCommand = (
         destPath,
         "-o",
         outDir,
-        "--naming",
-        naming,
         "--lib",
         dotnetLib,
-        "--lib",
-        coreLib,
       ];
 
       const libs = Array.from(transitiveDeps.get(id) ?? [])

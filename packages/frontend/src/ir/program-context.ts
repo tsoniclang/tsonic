@@ -17,7 +17,6 @@ import type { IrType } from "./types.js";
 import type { DotnetMetadataRegistry } from "../dotnet-metadata.js";
 import type { BindingRegistry } from "../program/bindings.js";
 import type { ClrBindingsResolver } from "../resolver/clr-bindings-resolver.js";
-import { resolveNamingPolicy } from "../resolver/naming-policy.js";
 import type { TsonicProgram } from "../program.js";
 import type { IrBuildOptions } from "./builder/types.js";
 import type { Diagnostic } from "../types/diagnostic.js";
@@ -212,9 +211,9 @@ export const createProgramContext = (
   };
 
   const packageHasClrMetadata = (pkgRoot: string): boolean => {
-    // Only treat explicitly marked Tsonic packages as CLR metadata packages.
-    // Many third-party npm packages ship random `metadata.json` files; scanning and
-    // excluding them would incorrectly drop their declaration files from SourceCatalog.
+    // Only treat explicitly marked Tsonic packages as CLR bindings packages.
+    // Many third-party npm packages can ship random JSON files; scanning and excluding
+    // them would incorrectly drop their declaration files from SourceCatalog.
     if (!isTsonicClrPackage(pkgRoot)) return false;
 
     const cached = packageHasMetadataCache.get(pkgRoot);
@@ -230,7 +229,7 @@ export const createProgramContext = (
       try {
         for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
           const fullPath = path.join(currentDir, entry.name);
-          if (entry.isFile() && entry.name === "metadata.json") {
+          if (entry.isFile() && entry.name === "bindings.json") {
             found = true;
             break;
           }
@@ -253,7 +252,7 @@ export const createProgramContext = (
     const pkgRoot = findPackageRootForFile(sf.fileName);
     if (!pkgRoot) return true;
 
-    // tsbindgen-generated CLR declarations live in packages that include metadata.json
+    // tsbindgen-generated CLR declarations live in packages that include bindings.json
     // and are already represented in the CLR catalog. Including them in SourceCatalog
     // creates tsName collisions (e.g., `IEnumerable_1`) that break nominal resolution.
     return !packageHasClrMetadata(pkgRoot);
@@ -265,7 +264,6 @@ export const createProgramContext = (
     checker: program.checker,
     sourceRoot: options.sourceRoot,
     rootNamespace: options.rootNamespace,
-    namespaceNamingPolicy: resolveNamingPolicy(options.namingPolicy, "namespaces"),
     binding: program.binding,
   });
 
@@ -375,7 +373,7 @@ export const createProgramContext = (
   // The CLR catalog loader scans node_modules/@tsonic by default; when developing in a
   // multi-repo workspace (or running E2E fixtures without local node_modules),
   // imports can resolve from sibling checkouts. Those package roots must be added
-  // explicitly so metadata.json files are discovered and loaded into the Universe.
+  // explicitly so bindings.json files are discovered and loaded into the Universe.
   const resolvePackageRootFromBindingsPath = (
     bindingsPath: string
   ): string | undefined => {
