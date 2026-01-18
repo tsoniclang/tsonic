@@ -15,9 +15,14 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { Result, TsonicConfig } from "../types.js";
+import type {
+  FrameworkReferenceConfig,
+  PackageReferenceConfig,
+  Result,
+  TsonicWorkspaceConfig,
+} from "../types.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
-import { loadConfig } from "../config.js";
+import { loadWorkspaceConfig } from "../config.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 import {
   bindingsStoreDir,
@@ -41,15 +46,6 @@ import {
 export type RestoreOptions = AddCommandOptions;
 
 type PackageReference = { readonly id: string; readonly version: string };
-type PackageReferenceConfig = {
-  readonly id: string;
-  readonly version: string;
-  readonly types?: string;
-};
-
-type FrameworkReferenceConfig =
-  | string
-  | { readonly id: string; readonly types?: string };
 
 type ProjectAssets = {
   readonly targets?: Record<string, unknown>;
@@ -218,24 +214,24 @@ export const restoreCommand = (
   configPath: string,
   options: RestoreOptions = {}
 ): Result<void, string> => {
-  const configResult = loadConfig(configPath);
+  const configResult = loadWorkspaceConfig(configPath);
   if (!configResult.ok) return configResult;
-  const projectRoot = dirname(configPath);
-  const nugetConfigResult = resolveNugetConfigFile(projectRoot);
+  const workspaceRoot = dirname(configPath);
+  const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
   const nugetConfigFile = nugetConfigResult.value;
   const rawConfig = configResult.value;
   let config = rawConfig;
 
-  const tsbindgenDllResult = resolveTsbindgenDllPath(projectRoot);
+  const tsbindgenDllResult = resolveTsbindgenDllPath(workspaceRoot);
   if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
   const tsbindgenDll = tsbindgenDllResult.value;
 
-  const runtimesResult = listDotnetRuntimes(projectRoot);
+  const runtimesResult = listDotnetRuntimes(workspaceRoot);
   if (!runtimesResult.ok) return runtimesResult;
   const runtimes = runtimesResult.value;
 
-  const dotnetRoot = resolvePackageRoot(projectRoot, "@tsonic/dotnet");
+  const dotnetRoot = resolvePackageRoot(workspaceRoot, "@tsonic/dotnet");
   if (!dotnetRoot.ok) return dotnetRoot;
   const dotnetLib = dotnetRoot.value;
 
@@ -262,7 +258,7 @@ export const restoreCommand = (
     }
 
     const packageName = defaultBindingsPackageNameForFramework(frameworkRef);
-    const outDir = bindingsStoreDir(projectRoot, "framework", packageName);
+    const outDir = bindingsStoreDir(workspaceRoot, "framework", packageName);
 
     const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
       kind: "framework",
@@ -280,13 +276,13 @@ export const restoreCommand = (
     ];
     for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
     for (const dep of options.deps ?? []) {
-      generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
+      generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
     }
 
-    const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+    const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
     if (!genResult.ok) return genResult;
 
-    const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
+    const installResult = installGeneratedBindingsPackage(workspaceRoot, packageName, outDir);
     if (!installResult.ok) return installResult;
   }
 
@@ -294,8 +290,8 @@ export const restoreCommand = (
   const packageReferencesAll = (dotnet.packageReferences ??
     []) as PackageReferenceConfig[];
   if (packageReferencesAll.length > 0) {
-    const targetFramework = config.dotnetVersion ?? "net10.0";
-    const restoreDir = join(projectRoot, ".tsonic", "nuget");
+    const targetFramework = config.dotnetVersion;
+    const restoreDir = join(workspaceRoot, ".tsonic", "nuget");
     const restoreProject = writeRestoreProject(
       restoreDir,
       targetFramework,
@@ -447,7 +443,7 @@ export const restoreCommand = (
         return { ok: false, error: `Internal error: missing types package for ${packageId}` };
       }
 
-      const root = resolvePackageRoot(projectRoot, typesPkg);
+      const root = resolvePackageRoot(workspaceRoot, typesPkg);
       if (!root.ok) return root;
       typesLibDirByPkgId.set(norm, root.value);
       return { ok: true, value: root.value };
@@ -480,7 +476,7 @@ export const restoreCommand = (
       }
 
       const packageName = defaultBindingsPackageNameForNuget(node.packageId);
-      const outDir = bindingsStoreDir(projectRoot, "nuget", packageName);
+      const outDir = bindingsStoreDir(workspaceRoot, "nuget", packageName);
       bindingsDirByLibKey.set(libKey, outDir);
 
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
@@ -521,13 +517,13 @@ export const restoreCommand = (
       for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
       for (const d of compileDirs) generateArgs.push("--ref-dir", d);
       for (const dep of options.deps ?? []) {
-        generateArgs.push("--ref-dir", resolveFromProjectRoot(projectRoot, dep));
+        generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
       }
 
-      const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+      const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
       if (!genResult.ok) return genResult;
 
-      const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
+      const installResult = installGeneratedBindingsPackage(workspaceRoot, packageName, outDir);
       if (!installResult.ok) return installResult;
     }
     }
@@ -539,27 +535,25 @@ export const restoreCommand = (
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;
-      // Only DLLs copied into ./lib are eligible for bindings generation.
-      // Other DLL paths (e.g. workspace project outputs) are treated as build-time
-      // references only.
-      return normalized.startsWith("lib/") || normalized.startsWith("./lib/");
+      // Only DLLs copied into ./libs are eligible for bindings generation.
+      return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
     }
   );
   if (dllLibraries.length > 0) {
-    const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(projectRoot, p));
+    const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(workspaceRoot, p));
     for (const p of dllAbs) {
       if (!existsSync(p)) {
         return {
           ok: false,
-          error: `Missing DLL from tsonic.json dotnet.libraries: ${p}`,
+          error: `Missing DLL from tsonic.workspace.json dotnet.libraries: ${p}`,
         };
       }
     }
 
-    const userDeps = (options.deps ?? []).map((d) => resolveFromProjectRoot(projectRoot, d));
-    const refDirs = [...runtimes.map((r) => r.dir), join(projectRoot, "lib"), ...userDeps];
+    const userDeps = (options.deps ?? []).map((d) => resolveFromProjectRoot(workspaceRoot, d));
+    const refDirs = [...runtimes.map((r) => r.dir), join(workspaceRoot, "libs"), ...userDeps];
 
-    const closureResult = tsbindgenResolveClosure(projectRoot, tsbindgenDll, dllAbs, refDirs);
+    const closureResult = tsbindgenResolveClosure(workspaceRoot, tsbindgenDll, dllAbs, refDirs);
     if (!closureResult.ok) return closureResult;
     const closure = closureResult.value;
     const hasErrors = closure.diagnostics.some((d) => d.severity === "Error");
@@ -586,7 +580,7 @@ export const restoreCommand = (
       for (const fr of requiredFrameworkRefs) {
         addUniqueFrameworkReference(nextFrameworkRefs, fr);
       }
-      const nextConfig: TsonicConfig = {
+      const nextConfig: TsonicWorkspaceConfig = {
         ...config,
         dotnet: { ...dotnet, frameworkReferences: nextFrameworkRefs },
       };
@@ -615,9 +609,9 @@ export const restoreCommand = (
       ids.add(id);
       byId.set(id, asm);
 
-      const destPath = resolveFromProjectRoot(projectRoot, join("lib", basename(asm.path)));
+      const destPath = resolveFromProjectRoot(workspaceRoot, join("libs", basename(asm.path)));
       if (!existsSync(destPath)) {
-        return { ok: false, error: `Missing DLL dependency in lib/: ${destPath}` };
+        return { ok: false, error: `Missing DLL dependency in libs/: ${destPath}` };
       }
       destPathById.set(id, destPath);
     }
@@ -671,12 +665,12 @@ export const restoreCommand = (
       if (!asm || !destPath) return { ok: false, error: `Internal error: missing assembly info for ${id}` };
 
       const packageName = defaultBindingsPackageNameForDll(destPath);
-      const outDir = bindingsStoreDir(projectRoot, "dll", packageName);
+      const outDir = bindingsStoreDir(workspaceRoot, "dll", packageName);
       bindingsDirById.set(id, outDir);
 
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
         kind: "dll",
-        source: { assemblyName: asm.name, version: asm.version, path: `lib/${basename(destPath)}` },
+        source: { assemblyName: asm.name, version: asm.version, path: `libs/${basename(destPath)}` },
       });
       if (!pkgJsonResult.ok) return pkgJsonResult;
 
@@ -697,12 +691,12 @@ export const restoreCommand = (
 
       for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
       for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
-      generateArgs.push("--ref-dir", join(projectRoot, "lib"));
+      generateArgs.push("--ref-dir", join(workspaceRoot, "libs"));
 
-      const genResult = tsbindgenGenerate(projectRoot, tsbindgenDll, generateArgs, options);
+      const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
       if (!genResult.ok) return genResult;
 
-      const installResult = installGeneratedBindingsPackage(projectRoot, packageName, outDir);
+      const installResult = installGeneratedBindingsPackage(workspaceRoot, packageName, outDir);
       if (!installResult.ok) return installResult;
     }
   }

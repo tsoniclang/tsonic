@@ -1,0 +1,53 @@
+// Test null in generic type contexts with proper constraints
+// Nullable generic types require T extends struct or T extends object
+import { Console } from "@tsonic/dotnet/System.js";
+
+// Result type constrained to reference types (T extends object → where T : class)
+interface Result<T extends object> {
+  value: T | null;
+  error: string | null;
+}
+
+// Generic function returning null value - T is constrained to class
+function wrapError<T extends object>(error: string): Result<T> {
+  return { value: null, error };
+}
+
+// Generic function returning actual value
+function wrapValue<T extends object>(value: T): Result<T> {
+  return { value, error: null };
+}
+
+// String wrapper - strings are primitives in TS, need wrapper for object constraint
+class StringWrapper {
+  constructor(public text: string) {}
+}
+
+function getConcreteNull(): Result<StringWrapper> {
+  return { value: null, error: null };
+}
+
+// Simple wrapper class for testing
+class NumberWrapper {
+  constructor(public num: number) {}
+}
+
+export function main(): void {
+  // Test wrapError with reference type
+  const err = wrapError<NumberWrapper>("something went wrong");
+  Console.WriteLine(`Error: ${err.error}`);
+  Console.WriteLine(`Value is null: ${err.value === null}`);
+
+  // Test wrapValue with reference type
+  const ok = wrapValue(new NumberWrapper(42));
+  Console.WriteLine(`Value: ${ok.value!.num}`);
+  Console.WriteLine(`Error is null: ${ok.error === null}`);
+
+  // Test concrete string result
+  const concrete = getConcreteNull();
+  Console.WriteLine(
+    `Both null: ${concrete.value === null && concrete.error === null}`
+  );
+
+  Console.WriteLine("All tests passed!");
+}

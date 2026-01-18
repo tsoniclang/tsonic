@@ -1,5 +1,5 @@
 /**
- * tsonic update nuget - update an existing NuGet PackageReference in the project.
+ * tsonic update nuget - update an existing NuGet PackageReference in the workspace.
  *
  * Usage:
  *   tsonic update nuget <PackageId> <Version> [typesPackage]
@@ -9,8 +9,8 @@
  * - Always runs `tsonic restore` afterwards to keep local bindings consistent
  */
 
-import type { Result, TsonicConfig } from "../types.js";
-import { loadConfig } from "../config.js";
+import type { Result, TsonicWorkspaceConfig, PackageReferenceConfig } from "../types.js";
+import { loadWorkspaceConfig } from "../config.js";
 import { dirname } from "node:path";
 import {
   npmInstallDevDependency,
@@ -18,12 +18,6 @@ import {
   type AddCommandOptions,
 } from "./add-common.js";
 import { restoreCommand } from "./restore.js";
-
-type PackageReferenceConfig = {
-  readonly id: string;
-  readonly version: string;
-  readonly types?: string;
-};
 
 const normalizePkgId = (id: string): string => id.trim().toLowerCase();
 
@@ -49,7 +43,7 @@ export const updateNugetCommand = (
     return { ok: false, error: `Invalid types package name: ${typesPackage}` };
   }
 
-  const configResult = loadConfig(configPath);
+  const configResult = loadWorkspaceConfig(configPath);
   if (!configResult.ok) return configResult;
   const config = configResult.value;
 
@@ -76,7 +70,7 @@ export const updateNugetCommand = (
     ? { id: current.id, version: ver, types: typesPackage }
     : { id: current.id, version: ver, types: current.types };
 
-  const nextConfig: TsonicConfig = {
+  const nextConfig: TsonicWorkspaceConfig = {
     ...config,
     dotnet: {
       ...dotnet,

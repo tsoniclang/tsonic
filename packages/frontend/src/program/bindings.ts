@@ -577,7 +577,21 @@ export class BindingRegistry {
     memberAlias: string
   ): readonly MemberBinding[] | undefined {
     const key = `${typeAlias}.${memberAlias}`;
-    return this.memberOverloads.get(key);
+    const direct = this.memberOverloads.get(key);
+    if (direct) return direct;
+
+    // CLR universal base: all reference types expose `System.Object` members.
+    // tsbindgen bindings.json currently does not encode full inheritance, so we
+    // provide a deterministic fallback for the core Object instance methods.
+    //
+    // This enables common patterns like `Expression.ToString()` without needing
+    // per-type duplication in bindings.
+    const objectMembers = new Set(["ToString", "GetType", "GetHashCode", "Equals"]);
+    if (typeAlias !== "Object" && objectMembers.has(memberAlias)) {
+      return this.memberOverloads.get(`Object.${memberAlias}`);
+    }
+
+    return undefined;
   }
 
   /**

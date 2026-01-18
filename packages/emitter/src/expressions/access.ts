@@ -250,7 +250,11 @@ const isStaticTypeReference = (
     objectType?.kind === "intersectionType" ||
     objectType?.kind === "unionType" ||
     objectType?.kind === "primitiveType" ||
-    objectType?.kind === "literalType"
+    objectType?.kind === "literalType" ||
+    // Type parameters (e.g. `T`) are values at runtime, not static type receivers.
+    objectType?.kind === "typeParameterType" ||
+    // Unknown still represents a value receiver; never treat as a static type reference.
+    objectType?.kind === "unknownType"
   ) {
     return false;
   }

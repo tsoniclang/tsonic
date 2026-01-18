@@ -18,7 +18,11 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import type { Result, TsonicConfig } from "../types.js";
+import type {
+  Result,
+  TsonicProjectConfig,
+  TsonicWorkspaceConfig,
+} from "../types.js";
 
 export type AddCommandOptions = {
   readonly verbose?: boolean;
@@ -60,7 +64,7 @@ export const defaultExec: Exec = (command, args, cwd, stdio) => {
 
 export const writeTsonicJson = (
   configPath: string,
-  config: TsonicConfig
+  config: TsonicWorkspaceConfig | TsonicProjectConfig
 ): Result<void, string> => {
   try {
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");

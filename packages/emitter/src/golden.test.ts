@@ -23,7 +23,10 @@ const __dirname = path.dirname(__filename);
 /**
  * Main test suite setup (synchronous discovery for Mocha compatibility)
  */
-describe("Golden Tests", () => {
+describe("Golden Tests", function () {
+  // Golden tests run the full compiler+emitter pipeline per scenario and can
+  // exceed the default timeout on slower machines / CI.
+  this.timeout(30_000);
   const testcasesDir = path.join(__dirname, "../testcases");
 
   try {

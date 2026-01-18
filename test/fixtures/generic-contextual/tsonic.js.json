@@ -1,8 +1,0 @@
-{
-  "runtime": "js",
-  "rootNamespace": "GenericContextual",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "generic-contextual"
-}

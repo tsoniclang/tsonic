@@ -147,6 +147,17 @@ export const convertType = (
     return convertType(typeNode.type, binding);
   }
 
+  // Type operators
+  // - `readonly T[]` should behave like `T[]` at the IR level (we do not model
+  //   readonly-ness in emitted C# types).
+  // Other operators (e.g. `keyof`) are handled elsewhere (utility-type expansion)
+  // or intentionally rejected by the soundness gate when they lower to anyType.
+  if (ts.isTypeOperatorNode(typeNode)) {
+    if (typeNode.operator === ts.SyntaxKind.ReadonlyKeyword) {
+      return convertType(typeNode.type, binding);
+    }
+  }
+
   // Type predicate return types: (x is T) has no direct C# type-level equivalent.
   // MVP: lower to boolean so we can emit valid C# and avoid anyType/ICE.
   if (ts.isTypePredicateNode(typeNode)) {

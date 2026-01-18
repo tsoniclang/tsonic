@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "MultiModuleGenerators",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "multi-module-generators",
+  "optimize": "speed",
+  "buildOptions": {
+    "stripSymbols": true,
+    "invariantGlobalization": true
+  }
+}

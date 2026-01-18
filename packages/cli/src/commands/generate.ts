@@ -9,7 +9,7 @@ import {
   readdirSync,
   copyFileSync,
 } from "node:fs";
-import { join, dirname, relative, resolve } from "node:path";
+import { join, dirname, relative, resolve, isAbsolute } from "node:path";
 import {
   buildModuleDependencyGraph,
   type Diagnostic,
@@ -33,11 +33,10 @@ import type { ResolvedConfig, Result } from "../types.js";
 /**
  * Find project .csproj file in current directory
  */
-const findProjectCsproj = (): string | null => {
-  const cwd = process.cwd();
-  const files = readdirSync(cwd);
+const findProjectCsproj = (projectRoot: string): string | null => {
+  const files = readdirSync(projectRoot);
   const csprojFile = files.find((f) => f.endsWith(".csproj"));
-  return csprojFile ? join(cwd, csprojFile) : null;
+  return csprojFile ? join(projectRoot, csprojFile) : null;
 };
 
 /**
@@ -92,19 +91,19 @@ const findRuntimeDlls = (outputDir: string): readonly AssemblyReference[] => {
 };
 
 /**
- * Collect assembly references from project libraries (lib/*.dll)
- * These are DLLs registered in tsonic.json's dotnet.libraries
+ * Collect assembly references from workspace libraries (libs/*.dll)
+ * These are DLLs registered in tsonic.workspace.json's dotnet.libraries
  */
 const collectProjectLibraries = (
-  projectRoot: string,
+  workspaceRoot: string,
   outputDir: string,
   libraries: readonly string[]
 ): readonly AssemblyReference[] => {
   const refs: AssemblyReference[] = [];
 
   for (const libPath of libraries) {
-    // Library path is relative to project root
-    const absolutePath = join(projectRoot, libPath);
+    // Library path is relative to workspace root
+    const absolutePath = join(workspaceRoot, libPath);
     if (!existsSync(absolutePath)) {
       continue;
     }
@@ -184,6 +183,7 @@ export const generateCommand = (
     entryPoint,
     outputDirectory,
     rootNamespace,
+    workspaceRoot,
     projectRoot,
     sourceRoot,
     typeRoots,
@@ -212,11 +212,18 @@ export const generateCommand = (
       };
     }
 
+    const absoluteEntryPoint = isAbsolute(entryPoint)
+      ? entryPoint
+      : resolve(projectRoot, entryPoint);
+    const absoluteSourceRoot = isAbsolute(sourceRoot)
+      ? sourceRoot
+      : resolve(projectRoot, sourceRoot);
+
     const dllLibraries = config.libraries.filter((p) =>
       p.toLowerCase().endsWith(".dll")
     );
     const missingDlls = dllLibraries.filter((p) =>
-      !existsSync(resolve(projectRoot, p))
+      !existsSync(resolve(workspaceRoot, p))
     );
     if (missingDlls.length > 0) {
       const details = missingDlls
@@ -236,17 +243,22 @@ export const generateCommand = (
     const typeLibraries = config.libraries.filter(
       (lib) => !lib.endsWith(".dll")
     );
-    const allTypeRoots = [...typeRoots, ...typeLibraries];
+    const allTypeRoots = [...typeRoots, ...typeLibraries].map((p) =>
+      isAbsolute(p) ? p : resolve(workspaceRoot, p)
+    );
 
     // Build dependency graph - this traverses all imports and builds IR for all modules
     const compilerOptions: CompilerOptions = {
       projectRoot,
-      sourceRoot,
+      sourceRoot: absoluteSourceRoot,
       rootNamespace,
       typeRoots: allTypeRoots,
       verbose: config.verbose,
     };
-    const graphResult = buildModuleDependencyGraph(entryPoint, compilerOptions);
+    const graphResult = buildModuleDependencyGraph(
+      absoluteEntryPoint,
+      compilerOptions
+    );
 
     if (!graphResult.ok) {
       const errorMessages = graphResult.error
@@ -269,7 +281,6 @@ export const generateCommand = (
     const irResult = { ok: true as const, value: modules };
 
     // Emit C# code
-    const absoluteEntryPoint = entryPoint ? resolve(entryPoint) : undefined;
     const emitResult = emitCSharpFiles(irResult.value, {
       rootNamespace,
       entryPointPath: absoluteEntryPoint,
@@ -288,7 +299,7 @@ export const generateCommand = (
     const csFiles = emitResult.files;
 
     // Create output directory
-    const outputDir = join(process.cwd(), outputDirectory);
+    const outputDir = join(projectRoot, outputDirectory);
     mkdirSync(outputDir, { recursive: true });
 
     // Write C# files preserving directory structure
@@ -306,17 +317,20 @@ export const generateCommand = (
     if (absoluteEntryPoint && outputType !== "library") {
       // entryModule is already provided by buildDependencyGraph
       // But double-check by comparing relative paths
-      const entryRelative = relative(sourceRoot, absoluteEntryPoint).replace(
-        /\\/g,
-        "/"
-      );
-        const foundEntryModule =
-          irResult.value.find((m: IrModule) => m.filePath === entryRelative) ??
-          entryModule;
+      const entryRelative = relative(
+        absoluteSourceRoot,
+        absoluteEntryPoint
+      ).replace(/\\/g, "/");
 
-        if (foundEntryModule) {
-          const hasTopLevelCode = foundEntryModule.body.some(isExecutableStatement);
-          const mainExport = extractEntryInfo(foundEntryModule);
+      const foundEntryModule =
+        irResult.value.find((m: IrModule) => m.filePath === entryRelative) ??
+        entryModule;
+
+      if (foundEntryModule) {
+        const hasTopLevelCode = foundEntryModule.body.some(
+          isExecutableStatement
+        );
+        const mainExport = extractEntryInfo(foundEntryModule);
 
         if (mainExport && hasTopLevelCode) {
           return {
@@ -355,7 +369,7 @@ export const generateCommand = (
 
     // Generate or copy existing .csproj
     const csprojPath = join(outputDir, "tsonic.csproj");
-    const projectCsproj = findProjectCsproj();
+    const projectCsproj = findProjectCsproj(projectRoot);
 
     // Collect CLR assemblies used by the modules (e.g., "nodejs")
 
@@ -397,7 +411,7 @@ export const generateCommand = (
         ? []
         : [
             ...findRuntimeDlls(outputDir),
-            ...collectProjectLibraries(projectRoot, outputDir, config.libraries),
+            ...collectProjectLibraries(workspaceRoot, outputDir, config.libraries),
           ];
 
       // Build output configuration

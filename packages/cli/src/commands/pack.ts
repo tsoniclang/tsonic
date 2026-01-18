@@ -60,7 +60,7 @@ export const packCommand = (
     console.log("Step 2/2: Creating NuGet package...");
   }
 
-  const nugetConfigResult = resolveNugetConfigFile(config.projectRoot);
+  const nugetConfigResult = resolveNugetConfigFile(config.workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
 
   const packArgs = [

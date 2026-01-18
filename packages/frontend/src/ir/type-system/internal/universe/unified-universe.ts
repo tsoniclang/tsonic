@@ -395,6 +395,20 @@ export const lookupMemberWithInheritance = (
     if (result) return result;
   }
 
+  // CLR universal base: all types have `System.Object` members available
+  // (ToString/GetHashCode/Equals/GetType), even when the catalog doesn't encode
+  // full inheritance relationships yet.
+  //
+  // Airplane-grade rule: this is deterministic and reflects CLR semantics.
+  // It also unblocks common patterns like `Expression.ToString()` for LINQ.
+  if (typeId.clrName !== "System.Object") {
+    const objectTypeId = catalog.resolveClrName("System.Object");
+    if (objectTypeId) {
+      const objectMember = catalog.getMember(objectTypeId, memberName);
+      if (objectMember) return objectMember;
+    }
+  }
+
   return undefined;
 };
 

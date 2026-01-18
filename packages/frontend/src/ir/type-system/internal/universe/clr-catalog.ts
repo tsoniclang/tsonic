@@ -102,8 +102,10 @@ const parseClrTypeString = (clrType: string): IrType => {
     bool: { kind: "primitiveType", name: "boolean" },
     "System.Char": { kind: "primitiveType", name: "char" },
     char: { kind: "primitiveType", name: "char" },
-    "System.Object": { kind: "anyType" }, // object → any in TS
-    object: { kind: "anyType" },
+    // System.Object is the CLR "top" reference type. Treat it as C# `object`,
+    // not TypeScript `any` (airplane-grade: no implicit "any" in IR).
+    "System.Object": { kind: "referenceType", name: "object" },
+    object: { kind: "referenceType", name: "object" },
   };
 
   const primitive = primitiveMap[clrType];

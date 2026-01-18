@@ -39,10 +39,10 @@ export const parseArgs = (
     // Commands
     if (!command && !arg.startsWith("-")) {
       command = arg;
-      // Handle "project init" as two-word command
       const nextArg = args[i + 1];
+      // Legacy alias: "project init" -> "init"
       if (command === "project" && nextArg === "init") {
-        command = "project:init";
+        command = "init";
         i++;
       }
       // Handle "add package" as two-word command
@@ -107,6 +107,9 @@ export const parseArgs = (
       case "-c":
       case "--config":
         options.config = args[++i] ?? "";
+        break;
+      case "--project":
+        options.project = args[++i] ?? "";
         break;
       case "-s":
       case "--src":
