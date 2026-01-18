@@ -1,7 +1,7 @@
 import { Console } from "@tsonic/dotnet/System.js";
 
 interface Printable {
-  toString(): string;
+  ToString(): string;
 }
 
 class Printer<T extends Printable> {
@@ -20,7 +20,7 @@ class Person implements Printable {
   constructor(name: string) {
     this.name = name;
   }
-  toString(): string {
+  ToString(): string {
     return `Person: ${this.name}`;
   }
 }
