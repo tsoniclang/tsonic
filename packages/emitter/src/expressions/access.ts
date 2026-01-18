@@ -373,7 +373,6 @@ export const emitMemberAccess = (
   // Property access
   const prop = expr.property as string;
   const objectType = expr.object.inferredType;
-  const isArrayType = objectType?.kind === "arrayType";
 
   // Union member projection: u.prop → u.Match(__m1 => __m1.prop, __m2 => __m2.prop, ...)
   // This handles accessing properties on union types where the property exists on all members.
@@ -409,34 +408,6 @@ export const emitMemberAccess = (
           return [{ text }, newContext];
         }
       }
-    }
-  }
-
-  // Array.length → .Length (C# arrays use .Length property)
-  if (isArrayType && prop === "length") {
-    const text = `${receiverText}.Length`;
-    return [{ text }, newContext];
-  }
-
-  // Check if this is a string type
-  const isStringType =
-    objectType?.kind === "primitiveType" && objectType.name === "string";
-
-  // String.length → .Length (C# strings use .Length property)
-  if (isStringType && prop === "length") {
-    const text = `${receiverText}.Length`;
-    return [{ text }, newContext];
-  }
-
-  // Span<T>.length → .Length (C# Span<T> uses .Length)
-  if (prop === "length" && objectType) {
-    const resolved = resolveTypeAlias(stripNullish(objectType), context);
-    if (
-      resolved.kind === "referenceType" &&
-      (resolved.name === "Span" || resolved.resolvedClrType?.endsWith("System.Span"))
-    ) {
-      const text = `${receiverText}.Length`;
-      return [{ text }, newContext];
     }
   }
 

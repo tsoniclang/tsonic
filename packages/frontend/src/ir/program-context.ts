@@ -267,8 +267,7 @@ export const createProgramContext = (
     binding: program.binding,
   });
 
-  // Load assembly type catalog for CLR stdlib types
-  // This enables member lookup on primitive types like string.length
+  // Load assembly type catalog for CLR stdlib types.
   const nodeModulesPath = path.resolve(
     program.options.projectRoot,
     "node_modules"
@@ -331,24 +330,6 @@ export const createProgramContext = (
   };
 
   const extraPackageRoots: string[] = [];
-
-  // If the project doesn't have these packages installed, allow discovering them
-  // from sibling checkouts (common in a multi-repo workspace).
-  const jsInstalled = fs.existsSync(
-    path.join(nodeModulesPath, "@tsonic", "js", "package.json")
-  );
-  if (!jsInstalled) {
-    const jsRoot = resolveTsonicPackageRoot("js", "@tsonic/js");
-    if (jsRoot) extraPackageRoots.push(jsRoot);
-  }
-
-  const nodejsInstalled = fs.existsSync(
-    path.join(nodeModulesPath, "@tsonic", "nodejs", "package.json")
-  );
-  if (!nodejsInstalled) {
-    const nodejsRoot = resolveTsonicPackageRoot("nodejs", "@tsonic/nodejs");
-    if (nodejsRoot) extraPackageRoots.push(nodejsRoot);
-  }
 
   // Ensure stdlib metadata is available even when the project has no node_modules
   // (e.g., in a multi-repo workspace). dotnet provides CLR surface area for

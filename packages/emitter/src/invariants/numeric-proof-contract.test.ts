@@ -215,7 +215,7 @@ const createModuleWithIdentifierIndex = (options: {
 
 describe("Numeric Proof Contract (Behavioral)", () => {
   // ============================================================================
-  // ACCESS KINDS THAT REQUIRE Int32 PROOF: clrIndexer, jsRuntimeArray, stringChar
+  // ACCESS KINDS THAT REQUIRE Int32 PROOF: clrIndexer, stringChar
   // ============================================================================
 
   describe("clrIndexer access (requires Int32 proof)", () => {
@@ -278,48 +278,6 @@ describe("Numeric Proof Contract (Behavioral)", () => {
         accessKind: "clrIndexer",
         indexName: "i",
         indexHasInt32Type: true,
-      });
-
-      const result = runNumericProofPass([module]);
-
-      expect(result.ok).to.be.true;
-    });
-  });
-
-  describe("jsRuntimeArray access (requires Int32 proof)", () => {
-    it("double literal (1.5) triggers TSN5107", () => {
-      const module = createModuleWithAccess({
-        accessKind: "jsRuntimeArray",
-        indexHasProof: false,
-        indexValue: 1.5,
-        indexRaw: "1.5",
-      });
-
-      const result = runNumericProofPass([module]);
-
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
-    });
-
-    it("unproven identifier triggers TSN5107", () => {
-      const module = createModuleWithIdentifierIndex({
-        accessKind: "jsRuntimeArray",
-        indexName: "idx",
-        indexHasInt32Type: false,
-      });
-
-      const result = runNumericProofPass([module]);
-
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN5107");
-    });
-
-    it("integer literal (1) passes and gets marker", () => {
-      const module = createModuleWithAccess({
-        accessKind: "jsRuntimeArray",
-        indexHasProof: false,
-        indexValue: 1,
-        indexRaw: "1",
       });
 
       const result = runNumericProofPass([module]);
@@ -598,31 +556,6 @@ describe("Numeric Proof Contract (Behavioral)", () => {
         indexHasProof: false,
         indexValue: 0,
         indexRaw: "0",
-      });
-
-      const result = runNumericProofPass([module]);
-      expect(result.ok).to.be.true;
-
-      const varDecl = result.modules[0]?.body[1] as IrStatement;
-      if (varDecl?.kind !== "variableDeclaration") {
-        throw new Error("Expected variable declaration");
-      }
-      const access = varDecl.declarations[0]?.initializer as IrMemberExpression;
-      const indexExpr = access.property as IrExpression;
-
-      // Index should have primitiveType(name="int") after proof pass
-      expect(indexExpr.inferredType?.kind).to.equal("primitiveType");
-      if (indexExpr.inferredType?.kind === "primitiveType") {
-        expect(indexExpr.inferredType.name).to.equal("int");
-      }
-    });
-
-    it("jsRuntimeArray: valid index gets primitiveType(name='int')", () => {
-      const module = createModuleWithAccess({
-        accessKind: "jsRuntimeArray",
-        indexHasProof: false,
-        indexValue: 5,
-        indexRaw: "5",
       });
 
       const result = runNumericProofPass([module]);
