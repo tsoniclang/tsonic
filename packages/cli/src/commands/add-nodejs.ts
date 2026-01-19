@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Result } from "../types.js";
+import type { LibraryReferenceConfig, Result } from "../types.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { copyRuntimeDllsToWorkspaceLibs } from "../dotnet/runtime-assets.js";
 import {
@@ -45,8 +45,19 @@ const ensureDevDependency = (
   return npmInstallDevDependency(projectRoot, `${packageName}@latest`, options, exec);
 };
 
-const addUnique = (arr: string[], value: string): void => {
-  if (!arr.includes(value)) arr.push(value);
+const normalizeLibraryKey = (pathLike: string): string =>
+  pathLike.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+
+const getLibraryPath = (entry: LibraryReferenceConfig): string =>
+  typeof entry === "string" ? entry : entry.path;
+
+const addUniqueLibraryPath = (
+  entries: LibraryReferenceConfig[],
+  libraryPath: string
+): void => {
+  const key = normalizeLibraryKey(libraryPath);
+  if (entries.some((e) => normalizeLibraryKey(getLibraryPath(e)) === key)) return;
+  entries.push(libraryPath);
 };
 
 export const addNodejsCommand = (
@@ -75,9 +86,9 @@ export const addNodejsCommand = (
   if (!copyResult.ok) return copyResult;
 
   const dotnet = config.dotnet ?? {};
-  const libraries = [...(dotnet.libraries ?? [])];
-  addUnique(libraries, "libs/Tsonic.JSRuntime.dll");
-  addUnique(libraries, "libs/nodejs.dll");
+  const libraries: LibraryReferenceConfig[] = [...(dotnet.libraries ?? [])];
+  addUniqueLibraryPath(libraries, "libs/Tsonic.JSRuntime.dll");
+  addUniqueLibraryPath(libraries, "libs/nodejs.dll");
 
   const writeResult = writeTsonicJson(configPath, {
     ...config,

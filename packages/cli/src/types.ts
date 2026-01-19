@@ -57,6 +57,18 @@ export type TsonicProjectConfig = {
   };
 };
 
+export type LibraryReferenceConfig =
+  | string
+  | {
+      /** Path to a DLL or a TypeScript type root. Resolved relative to the workspace root. */
+      readonly path: string;
+      /**
+       * If provided, bindings are expected from this npm package (no auto-generation).
+       * Intended for DLL paths.
+       */
+      readonly types?: string;
+    };
+
 export type FrameworkReferenceConfig =
   | string
   | {
@@ -104,7 +116,7 @@ export type TsonicWorkspaceConfig = {
      * Workspace-scoped DLL references. Paths are relative to the workspace root.
      * Recommended location is ./libs/*.dll.
      */
-    readonly libraries?: readonly string[];
+    readonly libraries?: readonly LibraryReferenceConfig[];
     /** Additional shared frameworks (FrameworkReference) */
     readonly frameworkReferences?: ReadonlyArray<FrameworkReferenceConfig>;
     /** Additional NuGet packages (PackageReference) */

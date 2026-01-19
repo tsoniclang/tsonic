@@ -231,7 +231,9 @@ export const initWorkspace = (
       });
       if (!copyResult.ok) return copyResult;
 
-      const libs: string[] = [...(workspaceConfig.dotnet?.libraries ?? [])];
+      const libs = (workspaceConfig.dotnet?.libraries ?? []).map((p) =>
+        typeof p === "string" ? p : p.path
+      );
       if (copyResult.value.includes("libs/Tsonic.JSRuntime.dll")) {
         libs.push("libs/Tsonic.JSRuntime.dll");
       }

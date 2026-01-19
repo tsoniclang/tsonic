@@ -14,6 +14,7 @@ import type { OutputType } from "@tsonic/backend";
 import type {
   CliOptions,
   FrameworkReferenceConfig,
+  LibraryReferenceConfig,
   PackageReferenceConfig,
   ResolvedConfig,
   Result,
@@ -74,14 +75,42 @@ export const loadWorkspaceConfig = (
   const dotnet = (config.dotnet ?? {}) as Record<string, unknown>;
 
   const libraries = dotnet.libraries;
-  if (
-    libraries !== undefined &&
-    (!Array.isArray(libraries) || libraries.some((p) => typeof p !== "string"))
-  ) {
-    return {
-      ok: false,
-      error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings`,
-    };
+  if (libraries !== undefined) {
+    if (!Array.isArray(libraries)) {
+      return {
+        ok: false,
+        error:
+          `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }`,
+      };
+    }
+
+    for (const entry of libraries as unknown[]) {
+      if (typeof entry === "string") continue;
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string }`,
+        };
+      }
+
+      const path = (entry as { readonly path?: unknown }).path;
+      const types = (entry as { readonly types?: unknown }).types;
+      if (typeof path !== "string" || path.trim().length === 0) {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must include a non-empty 'path'`,
+        };
+      }
+      if (types !== undefined && typeof types !== "string") {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a string when present`,
+        };
+      }
+    }
   }
 
   const frameworkReferences = dotnet.frameworkReferences;
@@ -355,7 +384,9 @@ export const resolveConfig = (
   const defaultTypeRoots = ["node_modules/@tsonic/globals"];
   const typeRoots = workspaceConfig.dotnet?.typeRoots ?? defaultTypeRoots;
 
-  const configLibraries = workspaceConfig.dotnet?.libraries ?? [];
+  const configLibraries = (workspaceConfig.dotnet?.libraries ?? []).map(
+    (p: LibraryReferenceConfig) => (typeof p === "string" ? p : p.path)
+  );
   const projectLibraries = (projectConfig.references?.libraries ?? []).map((p) =>
     resolve(projectRoot, p)
   );
