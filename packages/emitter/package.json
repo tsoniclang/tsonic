@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/emitter",
-  "version": "0.0.27",
+  "version": "0.0.28",
   "description": "C# code generator for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,7 +25,7 @@
     "update-golden:js": "npx tsx scripts/update-golden-tests.ts js"
   },
   "dependencies": {
-    "@tsonic/frontend": "0.0.27"
+    "@tsonic/frontend": "0.0.28"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
