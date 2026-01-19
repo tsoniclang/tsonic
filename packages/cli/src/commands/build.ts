@@ -3,18 +3,182 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import {
   chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
+  rmSync,
 } from "node:fs";
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
+import {
+  listDotnetRuntimes,
+  resolvePackageRoot,
+  resolveTsbindgenDllPath,
+  tsbindgenGenerate,
+  type AddCommandOptions,
+} from "./add-common.js";
+
+type ProjectAssets = {
+  readonly targets?: Record<string, unknown>;
+  readonly libraries?: Record<string, { readonly type?: string; readonly path?: string }>;
+  readonly packageFolders?: Record<string, unknown>;
+};
+
+const pickPackageFolder = (assets: ProjectAssets): string | undefined => {
+  const folders = assets.packageFolders ? Object.keys(assets.packageFolders) : [];
+  if (folders.length === 0) return undefined;
+  return folders[0];
+};
+
+const findTargetKey = (assets: ProjectAssets, tfm: string): string | undefined => {
+  const targets = assets.targets ? Object.keys(assets.targets) : [];
+  if (targets.includes(tfm)) return tfm;
+  return targets.find((k) => k.startsWith(`${tfm}/`));
+};
+
+const collectNugetCompileDirs = (workspaceRoot: string, tfm: string): Result<readonly string[], string> => {
+  const assetsPath = join(workspaceRoot, ".tsonic", "nuget", "obj", "project.assets.json");
+  if (!existsSync(assetsPath)) return { ok: true, value: [] };
+
+  let assets: ProjectAssets;
+  try {
+    assets = JSON.parse(readFileSync(assetsPath, "utf-8")) as ProjectAssets;
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to parse ${assetsPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const packageFolder = pickPackageFolder(assets);
+  if (!packageFolder) return { ok: true, value: [] };
+
+  const targetKey = findTargetKey(assets, tfm);
+  if (!targetKey) return { ok: true, value: [] };
+
+  const targets = assets.targets?.[targetKey];
+  const libraries = assets.libraries ?? {};
+  if (!targets || typeof targets !== "object") return { ok: true, value: [] };
+
+  const compileDirs = new Set<string>();
+  for (const [libKey, libValue] of Object.entries(targets as Record<string, unknown>)) {
+    if (!libKey || !libValue || typeof libValue !== "object") continue;
+
+    const libInfo = libraries[libKey];
+    if (!libInfo || libInfo.type !== "package" || !libInfo.path) continue;
+
+    const compile = (libValue as Record<string, unknown>).compile;
+    if (!compile || typeof compile !== "object") continue;
+
+    for (const p of Object.keys(compile as Record<string, unknown>)) {
+      if (!p.toLowerCase().endsWith(".dll")) continue;
+      const dllPath = join(packageFolder, libInfo.path as string, p);
+      compileDirs.add(dirname(dllPath));
+    }
+  }
+
+  return { ok: true, value: Array.from(compileDirs).sort((a, b) => a.localeCompare(b)) };
+};
+
+const listGeneratedBindingsLibDirs = (workspaceRoot: string): readonly string[] => {
+  const base = join(workspaceRoot, ".tsonic", "bindings");
+  if (!existsSync(base)) return [];
+
+  const libs: string[] = [];
+  const kinds = readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  for (const kind of kinds) {
+    const kindDir = join(base, kind);
+    for (const entry of readdirSync(kindDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = join(kindDir, entry.name);
+      const pkgJsonPath = join(dir, "package.json");
+      if (!existsSync(pkgJsonPath)) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<string, unknown>;
+        const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
+        if (tsonic.generated === true) libs.push(dir);
+      } catch {
+        // Ignore malformed generated packages; restore will report these separately.
+      }
+    }
+  }
+
+  libs.sort((a, b) => a.localeCompare(b));
+  return libs;
+};
+
+const generateLibraryBindings = (
+  config: ResolvedConfig
+): Result<void, string> => {
+  const { workspaceRoot, projectRoot, outputName, dotnetVersion, verbose, quiet, packageReferences } = config;
+
+  const dllPath = join(projectRoot, "dist", dotnetVersion, `${outputName}.dll`);
+  if (!existsSync(dllPath)) {
+    return { ok: false, error: `Built library DLL not found at ${dllPath}` };
+  }
+
+  const tsbindgenDllResult = resolveTsbindgenDllPath(workspaceRoot);
+  if (!tsbindgenDllResult.ok) return tsbindgenDllResult;
+
+  const runtimesResult = listDotnetRuntimes(workspaceRoot);
+  if (!runtimesResult.ok) return runtimesResult;
+  const runtimes = runtimesResult.value;
+
+  const dotnetRoot = resolvePackageRoot(workspaceRoot, "@tsonic/dotnet");
+  if (!dotnetRoot.ok) return dotnetRoot;
+
+  const outDir = join(projectRoot, "dist", "tsonic", "bindings");
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(outDir, { recursive: true });
+
+  const compileDirsResult = collectNugetCompileDirs(workspaceRoot, dotnetVersion);
+  if (!compileDirsResult.ok) return compileDirsResult;
+
+  if (packageReferences.length > 0 && compileDirsResult.value.length === 0) {
+    return {
+      ok: false,
+      error:
+        "NuGet PackageReferences are configured, but no restore assets were found.\n" +
+        "Run `tsonic restore` at the workspace root and retry.",
+    };
+  }
+
+  const generatedLibs = listGeneratedBindingsLibDirs(workspaceRoot);
+
+  const args: string[] = [
+    "-a",
+    dllPath,
+    "-o",
+    outDir,
+    "--lib",
+    dotnetRoot.value,
+  ];
+
+  for (const lib of generatedLibs) args.push("--lib", lib);
+
+  const refDirs = new Set<string>();
+  refDirs.add(join(projectRoot, "dist", dotnetVersion));
+  refDirs.add(join(workspaceRoot, "libs"));
+  for (const rt of runtimes) refDirs.add(rt.dir);
+  for (const d of compileDirsResult.value) refDirs.add(d);
+
+  for (const dir of Array.from(refDirs).sort((a, b) => a.localeCompare(b))) {
+    if (existsSync(dir)) args.push("--ref-dir", dir);
+  }
+
+  const options: AddCommandOptions = { verbose, quiet };
+  const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDllResult.value, args, options);
+  if (!genResult.ok) return genResult;
+
+  return { ok: true, value: undefined };
+};
 
 /**
  * Build native executable
@@ -224,6 +388,11 @@ const buildLibrary = (
         ok: false,
         error: "No library artifacts found to copy",
       };
+    }
+
+    const bindingsResult = generateLibraryBindings(config);
+    if (!bindingsResult.ok) {
+      return { ok: false, error: bindingsResult.error };
     }
 
     return {
