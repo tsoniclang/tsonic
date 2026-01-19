@@ -173,7 +173,7 @@ cli/src/
 │   ├── dispatcher.ts # Command routing
 │   └── help.ts       # Help text
 ├── commands/         # Command implementations
-│   ├── init.ts       # project init
+│   ├── init.ts       # init (workspace + default project)
 │   ├── generate.ts   # generate command
 │   ├── build.ts      # build command
 │   ├── run.ts        # run command

@@ -56,10 +56,10 @@ Use `List<T>` when you need add/remove operations:
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const list = new List<number>();
-list.add(1);
-list.add(2);
-list.add(3);
-list.add(4);
+list.Add(1);
+list.Add(2);
+list.Add(3);
+list.Add(4);
 ```
 
 ## Tuple Types

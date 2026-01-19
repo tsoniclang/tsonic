@@ -30,13 +30,13 @@ import { Console } from "@tsonic/dotnet/System.js";
 import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 
 async function delay(ms: number): Promise<void> {
-  await Task.delay(ms);
+  await Task.Delay(ms);
 }
 
 export async function main(): Promise<void> {
-  Console.writeLine("Starting...");
+  Console.WriteLine("Starting...");
   await delay(1000);
-  Console.writeLine("Done!");
+  Console.WriteLine("Done!");
 }
 ```
 
@@ -52,13 +52,13 @@ type User = {
 };
 
 async function fetchUser(id: number): Promise<User> {
-  await Task.delay(10);
+  await Task.Delay(10);
   return { id, name: "Alice" };
 }
 
 export async function main(): Promise<void> {
   const user = await fetchUser(123);
-  Console.writeLine(user.name);
+  Console.WriteLine(user.name);
 }
 ```
 
@@ -77,9 +77,9 @@ async function riskyOperation(): Promise<string> {
 export async function main(): Promise<void> {
   try {
     const result = await riskyOperation();
-    Console.writeLine(result);
+    Console.WriteLine(result);
   } catch (e) {
-    Console.writeLine("Error occurred");
+    Console.WriteLine("Error occurred");
   }
 }
 ```
@@ -96,14 +96,14 @@ import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 
 async function* asyncNumbers(): AsyncGenerator<number> {
   for (let i = 0; i < 5; i++) {
-    await Task.delay(100);
+    await Task.Delay(100);
     yield i;
   }
 }
 
 export async function main(): Promise<void> {
   for await (const n of asyncNumbers()) {
-    Console.writeLine(`Got: ${n}`);
+    Console.WriteLine(`Got: ${n}`);
   }
 }
 ```
@@ -129,7 +129,7 @@ declare function getItemsAsync(): AsyncIterable<string>;
 export async function main(): Promise<void> {
   const items = getItemsAsync();
   for await (const item of items) {
-    Console.writeLine(item);
+    Console.WriteLine(item);
   }
 }
 ```
@@ -143,7 +143,7 @@ import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 type Page = { index: number };
 
 async function fetchPage(index: number): Promise<Page> {
-  await Task.delay(10);
+  await Task.Delay(10);
   return { index };
 }
 
@@ -158,7 +158,7 @@ export async function main(): Promise<void> {
   for await (const page of fetchPages()) {
     pages.push(page);
   }
-  Console.writeLine(`Fetched ${pages.length} pages`);
+  Console.WriteLine(`Fetched ${pages.length} pages`);
 }
 ```
 
@@ -172,7 +172,7 @@ import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 
 async function* countdown(n: number): AsyncGenerator<number> {
   while (n > 0) {
-    await Task.delay(1000);
+    await Task.Delay(1000);
     yield n;
     n--;
   }
@@ -180,9 +180,9 @@ async function* countdown(n: number): AsyncGenerator<number> {
 
 export async function main(): Promise<void> {
   for await (const n of countdown(5)) {
-    Console.writeLine(`${n}...`);
+    Console.WriteLine(`${n}...`);
   }
-  Console.writeLine("Liftoff!");
+  Console.WriteLine("Liftoff!");
 }
 ```
 
@@ -207,13 +207,13 @@ export async function main(): Promise<void> {
   const gen = asyncAccumulator(10);
 
   const r1 = await gen.next();
-  Console.writeLine(`Initial: ${r1.value}`); // 10
+  Console.WriteLine(`Initial: ${r1.value}`); // 10
 
   const r2 = await gen.next(5);
-  Console.writeLine(`After +5: ${r2.value}`); // 15
+  Console.WriteLine(`After +5: ${r2.value}`); // 15
 
   const r3 = await gen.next(20);
-  Console.writeLine(`After +20: ${r3.value}`); // 35
+  Console.WriteLine(`After +20: ${r3.value}`); // 35
 }
 ```
 
@@ -236,7 +236,7 @@ async function* outer(): AsyncGenerator<string> {
 
 export async function main(): Promise<void> {
   for await (const s of outer()) {
-    Console.writeLine(s); // start, a, b, end
+    Console.WriteLine(s); // start, a, b, end
   }
 }
 ```
@@ -297,7 +297,7 @@ async function withTimeout<T>(
   ms: number
 ): Promise<T> {
   const cts = new CancellationTokenSource();
-  cts.cancelAfter(ms);
+  cts.CancelAfter(ms);
   // Use cancellation token with operation
   return await operation();
 }
@@ -341,12 +341,15 @@ export async function main(): Promise<void> {
 }
 ```
 
-Generates:
+Generates a `Program.Main` wrapper that awaits your entry function:
 
 ```csharp
-public static async Task Main()
+public static class Program
 {
-    await someAsyncWork();
+    public static async Task Main(string[] args)
+    {
+        await global::MyApp.App.main();
+    }
 }
 ```
 
@@ -362,7 +365,7 @@ declare function syncWrapper(): string;
 
 export function main(): void {
   const result = syncWrapper();
-  Console.writeLine(result);
+  Console.WriteLine(result);
 }
 
 // This pattern is handled by the async main support
@@ -440,7 +443,7 @@ export async function main(): Promise<void> {
   try {
     await application();
   } catch (e) {
-    Console.writeLine("Fatal error");
+    Console.WriteLine("Fatal error");
     // Log and exit
   }
 }

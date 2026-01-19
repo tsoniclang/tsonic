@@ -51,7 +51,7 @@ import { char, int } from "@tsonic/core/types.js";
 import { Console, Char } from "@tsonic/dotnet/System.js";
 
 function takesChar(c: char): void {
-  Console.writeLine(c);
+  Console.WriteLine(c);
 }
 
 takesChar("Z"); // OK
@@ -102,14 +102,14 @@ For collections that need add/remove operations, use `List<T>`:
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const list = new List<number>();
-list.add(1);
-list.add(2);
-list.add(3);
+list.Add(1);
+list.Add(2);
+list.Add(3);
 // Generated: var list = new List<double>(); list.Add(...);
 
 // Or create empty and add items
 const names = new List<string>();
-names.add("Alice");
+names.Add("Alice");
 ```
 
 ## Tuples
@@ -177,19 +177,19 @@ Tsonic does not include JavaScript `Map`/`Set` in the default globals. Use .NET 
 import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const userMap = new Dictionary<string, User>();
-userMap.add("alice", alice);
-userMap.containsKey("bob"); // boolean
+userMap.Add("alice", alice);
+userMap.ContainsKey("bob"); // boolean
 userMap.remove("alice");
 userMap.clear();
-const dictSize = userMap.count;
+const dictSize = userMap.Count;
 
 const ids = new HashSet<number>();
-ids.add(1);
-ids.add(2);
-const hasOne = ids.contains(1); // true
+ids.Add(1);
+ids.Add(2);
+const hasOne = ids.Contains(1); // true
 ids.remove(1);
 ids.clear();
-const setSize = ids.count;
+const setSize = ids.Count;
 
 void dictSize;
 void setSize;
@@ -521,7 +521,7 @@ function tryGetDog(animal: Animal): Dog | null {
 function process(animal: Animal): void {
   const dog = trycast<Dog>(animal);
   if (dog !== null) {
-    Console.writeLine(dog.breed);
+    Console.WriteLine(dog.breed);
   }
 }
 ```
@@ -573,7 +573,7 @@ function createPoint(): { x: number; y: number } {
 }
 
 function processData(data: { id: number; name: string }): void {
-  Console.writeLine(data.name);
+  Console.WriteLine(data.name);
 }
 ```
 
@@ -602,13 +602,15 @@ For reusable types, prefer explicit interfaces:
 
 ```typescript
 // ✅ Preferred for reusable types
+import { Math } from "@tsonic/dotnet/System.js";
+
 interface Point {
   x: number;
   y: number;
 }
 
 function distance(a: Point, b: Point): number {
-  return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+  return Math.Sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
 }
 ```
 

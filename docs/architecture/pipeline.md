@@ -187,7 +187,7 @@ const { files } = emitCSharpFiles(modules, {
 ### Module Structure
 
 ```
-IrModule (src/utils/Math.ts)
+IrModule (src/Utils/Math.ts)
     |
     v
 C# File:

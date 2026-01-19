@@ -16,7 +16,7 @@ function* counter(): Generator<number> {
 }
 
 for (const n of counter()) {
-  Console.writeLine(n); // 1, 2, 3
+  Console.WriteLine(n); // 1, 2, 3
 }
 ```
 
@@ -89,7 +89,7 @@ function* fibonacci(): Generator<number> {
 }
 
 for (const n of fibonacci()) {
-  Console.writeLine(n); // 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89
+  Console.WriteLine(n); // 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89
 }
 ```
 
@@ -107,10 +107,10 @@ function* counter(): Generator<number> {
 }
 
 const gen = counter();
-Console.writeLine(gen.next().value); // 1
-Console.writeLine(gen.next().value); // 2
-Console.writeLine(gen.next().value); // 3
-Console.writeLine(gen.next().done); // true
+Console.WriteLine(gen.next().value); // 1
+Console.WriteLine(gen.next().value); // 2
+Console.WriteLine(gen.next().value); // 3
+Console.WriteLine(gen.next().done); // true
 ```
 
 ### IteratorResult
@@ -148,12 +148,12 @@ export function main(): void {
   const gen = accumulator(0);
 
   // First next() starts the generator - value is ignored
-  Console.writeLine(gen.next().value); // 0
+  Console.WriteLine(gen.next().value); // 0
 
   // Subsequent next(value) passes value to generator
-  Console.writeLine(gen.next(5).value); // 5
-  Console.writeLine(gen.next(10).value); // 15
-  Console.writeLine(gen.next(3).value); // 18
+  Console.WriteLine(gen.next(5).value); // 5
+  Console.WriteLine(gen.next(10).value); // 15
+  Console.WriteLine(gen.next(3).value); // 18
 }
 ```
 
@@ -198,13 +198,13 @@ function* dataProcessor(): Generator<string, number, number> {
 export function main(): void {
   const processor = dataProcessor();
 
-  Console.writeLine(processor.next().value); // "Received 0 values, sum = 0"
-  Console.writeLine(processor.next(10).value); // "Received 1 values, sum = 10"
-  Console.writeLine(processor.next(20).value); // "Received 2 values, sum = 30"
-  Console.writeLine(processor.next(5).value); // "Received 3 values, sum = 35"
+  Console.WriteLine(processor.next().value); // "Received 0 values, sum = 0"
+  Console.WriteLine(processor.next(10).value); // "Received 1 values, sum = 10"
+  Console.WriteLine(processor.next(20).value); // "Received 2 values, sum = 30"
+  Console.WriteLine(processor.next(5).value); // "Received 3 values, sum = 35"
 
   const final = processor.next(-1);
-  Console.writeLine(`Done: ${final.done}`); // "Done: true"
+  Console.WriteLine(`Done: ${final.done}`); // "Done: true"
 }
 ```
 
@@ -235,10 +235,10 @@ function* counter(): Generator<number, string> {
 }
 
 const gen = counter();
-Console.writeLine(gen.next().value); // 0
-Console.writeLine(gen.next().value); // 1
+Console.WriteLine(gen.next().value); // 0
+Console.WriteLine(gen.next().value); // 1
 gen.return("done"); // Terminates generator
-Console.writeLine(gen.next().done); // true
+Console.WriteLine(gen.next().done); // true
 ```
 
 **Note:** The value passed to `return()` becomes the generator's return value but does NOT appear in the `IteratorResult.value`. Access it via the `returnValue` property (Tsonic extension).
@@ -290,11 +290,11 @@ The return value is available after the generator completes:
 import { Console } from "@tsonic/dotnet/System.js";
 
 const gen = countdown(3);
-Console.writeLine(gen.next().value); // 3
-Console.writeLine(gen.next(1).value); // 2
-Console.writeLine(gen.next(1).value); // 1
+Console.WriteLine(gen.next().value); // 3
+Console.WriteLine(gen.next(1).value); // 2
+Console.WriteLine(gen.next(1).value); // 1
 const final = gen.next(1);
-Console.writeLine(final.done); // true
+Console.WriteLine(final.done); // true
 // final.value in JS would be "Liftoff!"
 ```
 
@@ -322,7 +322,7 @@ async function* fetchPages(): AsyncGenerator<string> {
 
 export async function main(): Promise<void> {
   for await (const page of fetchPages()) {
-    Console.writeLine(page);
+    Console.WriteLine(page);
   }
 }
 ```
@@ -348,13 +348,13 @@ export async function main(): Promise<void> {
   const gen = asyncAccumulator(10);
 
   const r1 = await gen.next();
-  Console.writeLine(`Initial: ${r1.value}`); // 10
+  Console.WriteLine(`Initial: ${r1.value}`); // 10
 
   const r2 = await gen.next(5);
-  Console.writeLine(`After +5: ${r2.value}`); // 15
+  Console.WriteLine(`After +5: ${r2.value}`); // 15
 
   const r3 = await gen.next(20);
-  Console.writeLine(`After +20: ${r3.value}`); // 35
+  Console.WriteLine(`After +20: ${r3.value}`); // 35
 }
 ```
 
@@ -374,7 +374,7 @@ async function* asyncRange(start: number, end: number): AsyncGenerator<number> {
 
 export async function main(): Promise<void> {
   for await (const n of asyncRange(1, 5)) {
-    Console.writeLine(n); // 1, 2, 3, 4, 5 (with delays)
+    Console.WriteLine(n); // 1, 2, 3, 4, 5 (with delays)
   }
 }
 ```
@@ -398,7 +398,7 @@ function* outer(): Generator<number> {
 }
 
 for (const n of outer()) {
-  Console.writeLine(n); // 0, 1, 2, 3
+  Console.WriteLine(n); // 0, 1, 2, 3
 }
 ```
 
@@ -494,7 +494,7 @@ function* naturals(): Generator<number> {
 // Take first 5
 const gen = naturals();
 for (let i = 0; i < 5; i++) {
-  Console.writeLine(gen.next().value);
+  Console.WriteLine(gen.next().value);
 }
 ```
 

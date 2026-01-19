@@ -8,7 +8,7 @@ Tsonic compiles TypeScript to native executables via C# and .NET NativeAOT.
 
 1. [Getting Started](getting-started.md) - Installation and first project
 2. [CLI Reference](cli.md) - Commands and options
-3. [Configuration](configuration.md) - tsonic.json reference
+3. [Configuration](configuration.md) - Workspace + project config
 
 ### Language
 
@@ -89,13 +89,13 @@ tsonic --version
 ```bash
 # Create project
 mkdir hello && cd hello
-tsonic project init
+tsonic init
 
 # Build
 npm run build
 
 # Run
-./out/app
+./packages/hello/out/hello
 ```
 
 Output:

@@ -82,19 +82,23 @@ namespace MyApp.Utils
 ### Namespace Generation
 
 ```typescript
-// src/utils/math.ts with rootNamespace "MyApp"
+// src/Utils/Math.ts with rootNamespace "MyApp"
 // -> namespace: MyApp.Utils
 //
-// See `getNamespaceFromPath()` in `@tsonic/frontend` (supports namingPolicy).
+// See `getNamespaceFromPath()` in `@tsonic/frontend`:
+// - removes '-' from path fragments
+// - preserves case (no casing transforms)
 ```
 
 ### Class Name Generation
 
 ```typescript
-// math.ts -> class Math
-// todo-list.ts -> class TodoList (default)
+// Math.ts -> class Math
+// todo-list.ts -> class todolist
 //
-// See `getClassNameFromPath()` in `@tsonic/frontend` (supports namingPolicy).
+// See `getClassNameFromPath()` in `@tsonic/frontend`:
+// - removes '-' from the file basename
+// - preserves case (no casing transforms)
 ```
 
 ## Type Emission

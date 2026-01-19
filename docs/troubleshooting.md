@@ -43,14 +43,15 @@ sudo apt-get install dotnet-sdk-10.0
 ### "Config file not found"
 
 ```
-Error: Config file not found: tsonic.json
+Error: No tsonic.workspace.json found
 ```
 
 **Solutions**:
 
-1. Run from project root (where `tsonic.json` is)
-2. Create config: `tsonic project init`
-3. Specify path: `tsonic build --config path/to/tsonic.json`
+1. Run from inside a workspace (any directory under the workspace root)
+2. Initialize a new workspace: `tsonic init`
+3. Specify the workspace config path explicitly: `tsonic build --config path/to/tsonic.workspace.json`
+4. If the workspace has multiple projects, add `--project <name>`
 
 ### "Entry point is required"
 
@@ -215,12 +216,12 @@ declare function getData(): Promise<string>;
 export async function main(): Promise<void> {
   // ❌ Wrong
   getData().then((data) => {
-    Console.writeLine(data);
+    Console.WriteLine(data);
   });
 
   // ✅ Correct
   const data = await getData();
-  Console.writeLine(data);
+  Console.WriteLine(data);
 }
 ```
 

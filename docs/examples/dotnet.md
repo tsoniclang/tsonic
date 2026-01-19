@@ -10,30 +10,30 @@ Using .NET Base Class Library (BCL) in Tsonic.
 
 	export function main(): void {
 	  // Read file
-	  const content = File.readAllText("input.txt");
-	  Console.writeLine(content);
+	  const content = File.ReadAllText("input.txt");
+	  Console.WriteLine(content);
 
 	  // Write file
-	  File.writeAllText("output.txt", "Hello, World!");
+	  File.WriteAllText("output.txt", "Hello, World!");
 
 	  // Check existence
-	  if (File.exists("config.json")) {
-	    const config = File.readAllText("config.json");
+	  if (File.Exists("config.json")) {
+	    const config = File.ReadAllText("config.json");
 	  }
 
 	  // List files
-	  const files = Directory.getFiles(".");
+	  const files = Directory.GetFiles(".");
 	  for (const file of files) {
-	    Console.writeLine(file);
+	    Console.WriteLine(file);
 	  }
 
 	  // Create directory
-	  Directory.createDirectory("data");
+	  Directory.CreateDirectory("data");
 
 	  // Path manipulation
-	  const fullPath = Path.combine("data", "file.txt");
-	  const extension = Path.getExtension("file.txt");
-	  const filename = Path.getFileName("/path/to/file.txt");
+	  const fullPath = Path.Combine("data", "file.txt");
+	  const extension = Path.GetExtension("file.txt");
+	  const filename = Path.GetFileName("/path/to/file.txt");
 	}
 ```
 
@@ -50,36 +50,36 @@ Using .NET Base Class Library (BCL) in Tsonic.
 	export function main(): void {
 	  // List<T>
 	  const numbers = new List<number>();
-	  numbers.add(1);
-	  numbers.add(2);
-	  numbers.add(3);
+	  numbers.Add(1);
+	  numbers.Add(2);
+	  numbers.Add(3);
 
-	  Console.writeLine(numbers.count);
-	  Console.writeLine(numbers.contains(2));
+	  Console.WriteLine(numbers.Count);
+	  Console.WriteLine(numbers.Contains(2));
 
-	  numbers.remove(2);
-	  numbers.clear();
+	  numbers.Remove(2);
+	  numbers.Clear();
 
 	  // Dictionary<K,V>
 	  const ages = new Dictionary<string, number>();
-	  ages.add("Alice", 30);
-	  ages.add("Bob", 25);
+	  ages.Add("Alice", 30);
+	  ages.Add("Bob", 25);
 
 	  const aliceAge = ages["Alice"];
-	  const hasAlice = ages.containsKey("Alice");
+	  const hasAlice = ages.ContainsKey("Alice");
 
 	  // HashSet<T>
 	  const unique = new HashSet<string>();
-	  unique.add("a");
-	  unique.add("b");
-	  unique.add("a"); // Duplicate, ignored
+	  unique.Add("a");
+	  unique.Add("b");
+	  unique.Add("a"); // Duplicate, ignored
 
-	  Console.writeLine(unique.count); // 2
+	  Console.WriteLine(unique.Count); // 2
 
 	  // Dictionary with number keys
 	  const byId = new Dictionary<number, string>();
-	  byId.add(1, "Alice");
-	  byId.add(2, "Bob");
+	  byId.Add(1, "Alice");
+	  byId.Add(2, "Bob");
 	  const name = byId[1]; // "Alice"
 	}
 ```
@@ -95,11 +95,11 @@ Using .NET Base Class Library (BCL) in Tsonic.
 
 	  // Destructure
 	  const [x, y] = point;
-	  Console.writeLine(`Point: ${x}, ${y}`);
+	  Console.WriteLine(`Point: ${x}, ${y}`);
 
 	  // Return multiple values
 	  const result = getMinMax([5, 2, 8, 1, 9]);
-	  Console.writeLine(`Min: ${result[0]}, Max: ${result[1]}`);
+	  Console.WriteLine(`Min: ${result[0]}, Max: ${result[1]}`);
 	}
 
 function getMinMax(numbers: number[]): [number, number] {
@@ -132,25 +132,25 @@ interface User {
   ];
 
   // Types are contextually inferred from the array element type
-  // Filter (Where)
-	  const adults = Enumerable.where(users, (u) => u.age >= 30);
+	  // Filter (Where)
+	  const adults = Enumerable.Where(users, (u) => u.age >= 30);
 
   // Transform (Select)
-	  const names = Enumerable.select(users, (u) => u.name);
+	  const names = Enumerable.Select(users, (u) => u.name);
 
   // First matching
-	  const alice = Enumerable.firstOrDefault(users, (u) => u.name === "Alice");
+	  const alice = Enumerable.FirstOrDefault(users, (u) => u.name === "Alice");
 
   // Sorting
-	  const byAge = Enumerable.orderBy(users, (u) => u.age);
+	  const byAge = Enumerable.OrderBy(users, (u) => u.age);
 
   // Aggregation
-	  const totalAge = Enumerable.sum(users, (u) => u.age);
-	  const averageAge = Enumerable.average(users, (u) => u.age);
+	  const totalAge = Enumerable.Sum(users, (u) => u.age);
+	  const averageAge = Enumerable.Average(users, (u) => u.age);
 
   // Any/All
-	  const anyAdult = Enumerable.any(users, (u) => u.age >= 18);
-	  const allAdults = Enumerable.all(users, (u) => u.age >= 18);
+	  const anyAdult = Enumerable.Any(users, (u) => u.age >= 18);
+	  const allAdults = Enumerable.All(users, (u) => u.age >= 18);
 	}
 ```
 
@@ -165,16 +165,16 @@ Lambda parameter types are contextually inferred from the collection element typ
 	export function main(): void {
 	  // Efficient string building
 	  const sb = new StringBuilder();
-	  sb.append("Hello");
-	  sb.append(", ");
-	  sb.append("World");
-	  sb.appendLine("!");
+	  sb.Append("Hello");
+	  sb.Append(", ");
+	  sb.Append("World");
+	  sb.AppendLine("!");
 
-	  const result = sb.toString();
-	  Console.writeLine(result);
+	  const result = sb.ToString();
+	  Console.WriteLine(result);
 
 	  // String formatting
-	  const formatted = String.format("Name: {0}, Age: {1}", "Alice", 30);
+	  const formatted = String.Format("Name: {0}, Age: {1}", "Alice", 30);
 	}
 ```
 
@@ -185,27 +185,27 @@ Lambda parameter types are contextually inferred from the collection element typ
 
 	export function main(): void {
 	  // Current time
-	  const now = DateTime.now;
-	  const utcNow = DateTime.utcNow;
+	  const now = DateTime.Now;
+	  const utcNow = DateTime.UtcNow;
 
   // Create specific date
   const date = new DateTime(2024, 12, 25);
 
 	  // Date arithmetic
-	  const tomorrow = now.addDays(1);
-	  const nextWeek = now.addDays(7);
-	  const nextMonth = now.addMonths(1);
+	  const tomorrow = now.AddDays(1);
+	  const nextWeek = now.AddDays(7);
+	  const nextMonth = now.AddMonths(1);
 
   // TimeSpan
   const duration = new TimeSpan(1, 30, 0); // 1 hour 30 minutes
-  const later = now.Add(duration);
+	  const later = now.Add(duration);
 
 	  // Formatting
-	  const formatted = now.toString("yyyy-MM-dd HH:mm:ss");
-	  Console.writeLine(formatted);
+	  const formatted = now.ToString("yyyy-MM-dd HH:mm:ss");
+	  Console.WriteLine(formatted);
 
 	  // Parsing
-	  const parsed = DateTime.parse("2024-12-25");
+	  const parsed = DateTime.Parse("2024-12-25");
 	}
 ```
 
@@ -216,21 +216,21 @@ Lambda parameter types are contextually inferred from the collection element typ
 
 	export function main(): void {
 	  // Output
-	  Console.writeLine("Hello, World!");
-	  Console.write("No newline");
+	  Console.WriteLine("Hello, World!");
+	  Console.Write("No newline");
 
 	  // Formatted output
-	  Console.writeLine("Name: {0}, Age: {1}", "Alice", 30);
+	  Console.WriteLine("Name: {0}, Age: {1}", "Alice", 30);
 
 	  // Colors
-	  Console.foregroundColor = ConsoleColor.green;
-	  Console.writeLine("Green text");
-	  Console.resetColor();
+	  Console.ForegroundColor = ConsoleColor.Green;
+	  Console.WriteLine("Green text");
+	  Console.ResetColor();
 
 	  // Read input
-	  Console.write("Enter name: ");
-	  const name = Console.readLine();
-	  Console.writeLine(`Hello, ${name}!`);
+	  Console.Write("Enter name: ");
+	  const name = Console.ReadLine();
+	  Console.WriteLine(`Hello, ${name}!`);
 	}
 ```
 
@@ -241,27 +241,27 @@ Lambda parameter types are contextually inferred from the collection element typ
 
 	export function main(): void {
 	  // Basic operations
-	  const abs = Math.abs(-5); // 5
-	  const max = Math.max(10, 20); // 20
-	  const min = Math.min(10, 20); // 10
+	  const abs = Math.Abs(-5); // 5
+	  const max = Math.Max(10, 20); // 20
+	  const min = Math.Min(10, 20); // 10
 
 	  // Rounding
-	  const floor = Math.floor(4.7); // 4
-	  const ceil = Math.ceiling(4.2); // 5
-	  const round = Math.round(4.5); // 4 (banker's rounding)
+	  const floor = Math.Floor(4.7); // 4
+	  const ceil = Math.Ceiling(4.2); // 5
+	  const round = Math.Round(4.5); // 4 (banker's rounding)
 
 	  // Power and roots
-	  const pow = Math.pow(2, 10); // 1024
-	  const sqrt = Math.sqrt(16); // 4
+	  const pow = Math.Pow(2, 10); // 1024
+	  const sqrt = Math.Sqrt(16); // 4
 
 	  // Trigonometry
-	  const sin = Math.sin(Math.pi / 2);
-	  const cos = Math.cos(0);
+	  const sin = Math.Sin(Math.PI / 2);
+	  const cos = Math.Cos(0);
 
 	  // Random
 	  const random = new Random();
-	  const value = random.next(1, 100); // 1-99
-	  const doubleValue = random.nextDouble(); // 0.0-1.0
+	  const value = random.Next(1, 100); // 1-99
+	  const doubleValue = random.NextDouble(); // 0.0-1.0
 	}
 ```
 
@@ -272,25 +272,25 @@ Lambda parameter types are contextually inferred from the collection element typ
 
 	export function main(): void {
 	  // Environment variables
-	  const path = Environment.getEnvironmentVariable("PATH");
-	  Environment.setEnvironmentVariable("MY_VAR", "value");
+	  const path = Environment.GetEnvironmentVariable("PATH");
+	  Environment.SetEnvironmentVariable("MY_VAR", "value");
 
 	  // System info
-	  const machineName = Environment.machineName;
-	  const userName = Environment.userName;
-	  const osVersion = Environment.osVersion;
+	  const machineName = Environment.MachineName;
+	  const userName = Environment.UserName;
+	  const osVersion = Environment.OSVersion;
 
 	  // Current directory
-	  const cwd = Environment.currentDirectory;
+	  const cwd = Environment.CurrentDirectory;
 
 	  // Command line args
-	  const args = Environment.getCommandLineArgs();
+	  const args = Environment.GetCommandLineArgs();
 	  for (const arg of args) {
-	    Console.writeLine(arg);
+	    Console.WriteLine(arg);
 	  }
 
 	  // Exit code
-	  Environment.exit(0);
+	  Environment.Exit(0);
 	}
 ```
 
@@ -304,8 +304,8 @@ Lambda parameter types are contextually inferred from the collection element typ
 	  const client = new HttpClient();
 
 	  // GET request
-	  const response = await client.getStringAsync("https://api.example.com/data");
-	  Console.writeLine(response);
+	  const response = await client.GetStringAsync("https://api.example.com/data");
+	  Console.WriteLine(response);
 	}
 ```
 
@@ -323,12 +323,12 @@ interface User {
 	export function main(): void {
 	  // Serialize
 	  const user: User = { id: 1, name: "Alice" };
-	  const json = JsonSerializer.serialize(user);
-	  Console.writeLine(json); // {"id":1,"name":"Alice"}
+	  const json = JsonSerializer.Serialize(user);
+	  Console.WriteLine(json); // {"id":1,"name":"Alice"}
 
 	  // Deserialize
-	  const parsed = JsonSerializer.deserialize<User>('{"id":2,"name":"Bob"}');
-	  Console.writeLine(parsed?.name); // Bob
+	  const parsed = JsonSerializer.Deserialize<User>('{"id":2,"name":"Bob"}');
+	  Console.WriteLine(parsed?.name); // Bob
 	}
 ```
 

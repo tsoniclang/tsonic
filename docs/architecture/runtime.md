@@ -63,8 +63,10 @@ Example:
 
 ```typescript
 // TypeScript
+import { Random } from "@tsonic/dotnet/System.js";
+
 function getValue(): string | number {
-  return Math.random() > 0.5 ? "hello" : 42;
+  return Random.Shared.NextDouble() > 0.5 ? "hello" : 42;
 }
 ```
 
@@ -72,7 +74,7 @@ function getValue(): string | number {
 // Generated C#
 public static Union<string, double> getValue()
 {
-    return Math.random() > 0.5 ? "hello" : 42.0;
+    return global::System.Random.Shared.NextDouble() > 0.5 ? "hello" : 42.0;
 }
 ```
 
@@ -261,10 +263,10 @@ For dynamic collections, use List<T> explicitly:
 ```typescript
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 const list = new List<number>();
-list.add(1);
-list.add(2);
-list.add(3);
-list.add(4);
+list.Add(1);
+list.Add(2);
+list.Add(3);
+list.Add(4);
 ```
 
 ## NativeAOT Compatibility

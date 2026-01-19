@@ -654,53 +654,22 @@ yield 1;
 const x = yield; // Bidirectional yield
 ```
 
-## TSN9xxx: Metadata Loading
+## TSN9xxx: Type Universe Resolution
 
-### TSN9001-TSN9018: Metadata Errors
+Tsonic resolves nominal types (including stdlib types like `System.String`) through loaded CLR bindings (`<Namespace>/bindings.json` in tsbindgen packages).
 
-Errors loading `.metadata.json` files:
+### TSN9001: Missing Stdlib Type (fatal)
 
-| Code    | Error                                               |
-| ------- | --------------------------------------------------- |
-| TSN9001 | Metadata file not found                             |
-| TSN9002 | Failed to read metadata file                        |
-| TSN9003 | Invalid JSON in metadata file                       |
-| TSN9004 | Metadata file must be an object                     |
-| TSN9005 | Missing or invalid 'namespace' field                |
-| TSN9006 | Missing or invalid 'contributingAssemblies' field   |
-| TSN9007 | All 'contributingAssemblies' must be strings        |
-| TSN9008 | Missing or invalid 'types' field                    |
-| TSN9009 | Invalid type: must be an object                     |
-| TSN9010 | Invalid type: missing or invalid field              |
-| TSN9011 | Invalid type: 'kind' must be one of ...             |
-| TSN9012 | Invalid type: 'accessibility' must be one of ...    |
-| TSN9013 | Invalid type: field must be a boolean               |
-| TSN9014 | Invalid type: 'arity' must be a non-negative number |
-| TSN9015 | Invalid type: field must be an array                |
-| TSN9016 | Metadata directory not found                        |
-| TSN9017 | Not a directory                                     |
-| TSN9018 | No .metadata.json files found                       |
+Emitted when a required stdlib type cannot be found in the loaded bindings. This is **fatal** because the compiler cannot safely proceed.
 
-### TSN9101-TSN9114: Bindings Errors
+Fixes:
 
-Errors loading `.bindings.json` files:
+- Ensure `@tsonic/dotnet` + `@tsonic/globals` are installed
+- Run `tsonic restore` to refresh bindings and NuGet closure
 
-| Code    | Error                                                      |
-| ------- | ---------------------------------------------------------- |
-| TSN9101 | Bindings file not found                                    |
-| TSN9102 | Failed to read bindings file                               |
-| TSN9103 | Invalid JSON in bindings file                              |
-| TSN9104 | Bindings file must be an object                            |
-| TSN9105 | Missing or invalid 'namespace' field                       |
-| TSN9106 | Missing or invalid 'types' field                           |
-| TSN9107 | Invalid type binding: must be an object                    |
-| TSN9108 | Invalid type binding: missing or invalid field             |
-| TSN9109 | Invalid type binding: 'metadataToken' must be a number     |
-| TSN9110 | Invalid type binding: V1 field must be an array if present |
-| TSN9111 | Invalid type binding: V2 field must be an array if present |
-| TSN9112 | Bindings directory not found                               |
-| TSN9113 | Not a directory                                            |
-| TSN9114 | No .bindings.json files found                              |
+### TSN9002: Unknown Type (error)
+
+Emitted when a nominal type name cannot be resolved from bindings. This is recoverable: Tsonic substitutes `unknown` so it can continue analysis and report additional issues.
 
 ## Getting Help
 
