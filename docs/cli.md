@@ -43,7 +43,6 @@ Add JSRuntime interop to an existing workspace:
 
 - Installs `@tsonic/js` (if missing)
 - Copies runtime DLLs into `libs/` (idempotent):
-  - `Tsonic.Runtime.dll`
   - `Tsonic.JSRuntime.dll`
 - Adds `libs/Tsonic.JSRuntime.dll` to `tsonic.workspace.json` `dotnet.libraries`
 
@@ -53,7 +52,6 @@ Add Node.js compatibility APIs to an existing workspace:
 
 - Installs `@tsonic/nodejs` (if missing)
 - Copies runtime DLLs into `libs/` (idempotent):
-  - `Tsonic.Runtime.dll`
   - `Tsonic.JSRuntime.dll`
   - `nodejs.dll`
 - Adds `libs/Tsonic.JSRuntime.dll` and `libs/nodejs.dll` to `tsonic.workspace.json` `dotnet.libraries`
