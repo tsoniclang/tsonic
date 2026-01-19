@@ -34,6 +34,9 @@ Minimal example:
 - `dotnet.typeRoots`: ambient TypeScript `typeRoots` used for compilation.
   - Default when omitted: `["node_modules/@tsonic/globals"]`
 - `dotnet.libraries`: workspace DLL references (recommended location: `libs/*.dll`).
+  - Each entry can be either a string path, or an object with an explicit bindings package:
+    - `"libs/MyLib.dll"`
+    - `{ "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }` (bindings supplied externally; no auto-generation)
 - `dotnet.frameworkReferences`: additional shared frameworks (e.g. `Microsoft.AspNetCore.App`).
 - `dotnet.packageReferences`: NuGet packages (pinned exact versions).
 
@@ -106,4 +109,3 @@ The only deterministic normalization is for **path-derived** names:
 - Directory segments and file basenames have hyphens (`-`) removed when generating namespaces / module container class names.
   - `src/todo-list.ts` → class `todolist`
   - `src/my-feature/x.ts` → namespace segment `myfeature`
-
