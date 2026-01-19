@@ -76,6 +76,19 @@ If `types` is omitted, Tsonic:
 
 If `types` is provided, Tsonic installs it and skips auto-generation.
 
+Tsonic also records the mapping in `tsonic.workspace.json` so `tsonic restore` knows to treat
+the DLL as “externally bound”:
+
+```json
+{
+  "dotnet": {
+    "libraries": [
+      { "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }
+    ]
+  }
+}
+```
+
 Options:
 
 - `--deps <dir>` (repeatable) — extra probe directories for assembly resolution
@@ -173,4 +186,3 @@ When `--project` is not supplied, Tsonic selects:
 
 1. The nearest `packages/<name>/tsonic.json` when run from inside that project directory tree, otherwise
 2. If the workspace has exactly one project, it is selected automatically
-

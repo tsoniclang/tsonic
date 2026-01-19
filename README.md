@@ -58,27 +58,29 @@ npm install -g tsonic
 ```bash
 mkdir my-app && cd my-app
 
-# Basic project
-tsonic project init
+# Basic workspace + default project
+tsonic init
 
 # Or: include JavaScript runtime APIs (console, JSON, timers, etc.)
-tsonic project init --js
+tsonic init --js
 
 # Or: include Node-style APIs (fs, path, crypto, http, etc.)
-tsonic project init --nodejs
+tsonic init --nodejs
 ```
 
 This creates:
 
-- `src/App.ts` - Entry point
-- `tsonic.json` - Configuration
-- `package.json` - With build scripts
+- `tsonic.workspace.json` - Workspace config (dependencies live here)
+- `libs/` - Workspace-scoped DLLs
+- `packages/my-app/tsonic.json` - Project config
+- `packages/my-app/src/App.ts` - Entry point
+- `package.json` - NPM workspaces + scripts
 
 ### Build and Run
 
 ```bash
 npm run build    # Build native executable
-./out/app        # Run it
+./packages/my-app/out/my-app  # Run it
 
 # Or build and run in one step
 npm run dev
@@ -87,15 +89,15 @@ npm run dev
 ### Example Program
 
 ```typescript
-// src/App.ts
+// packages/my-app/src/App.ts
 import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
   const message = "Hello from Tsonic!";
-  Console.writeLine(message);
+  Console.WriteLine(message);
 
   const numbers = [1, 2, 3, 4, 5];
-  Console.writeLine(`Numbers: ${numbers.length}`);
+  Console.WriteLine(`Numbers: ${numbers.length}`);
 }
 ```
 
@@ -108,21 +110,21 @@ import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 export function main(): void {
   // File I/O
-  const content = File.readAllText("./README.md");
-  Console.writeLine(content);
+  const content = File.ReadAllText("./README.md");
+  Console.WriteLine(content);
 
   // .NET collections
   const list = new List<number>();
-  list.add(1);
-  list.add(2);
-  list.add(3);
-  Console.writeLine(`Count: ${list.count}`);
+  list.Add(1);
+  list.Add(2);
+  list.Add(3);
+  Console.WriteLine(`Count: ${list.Count}`);
 }
 ```
 
 ## Examples
 
-### LINQ extension methods (`where`, `select`)
+### LINQ extension methods (`Where`, `Select`)
 
 ```ts
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
@@ -131,11 +133,11 @@ import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
 type LinqList<T> = Linq<List<T>>;
 
 const xs = new List<number>() as unknown as LinqList<number>;
-xs.add(1);
-xs.add(2);
-xs.add(3);
+xs.Add(1);
+xs.Add(2);
+xs.Add(3);
 
-const doubled = xs.where((x) => x % 2 === 0).select((x) => x * 2).toList();
+const doubled = xs.Where((x) => x % 2 === 0).Select((x) => x * 2).ToList();
 void doubled;
 ```
 
@@ -148,12 +150,12 @@ import { JsonSerializer } from "@tsonic/dotnet/System.Text.Json.js";
 type User = { id: number; name: string };
 
 const user: User = { id: 1, name: "Alice" };
-const json = JsonSerializer.serialize(user);
-Console.writeLine(json);
+const json = JsonSerializer.Serialize(user);
+Console.WriteLine(json);
 
-const parsed = JsonSerializer.deserialize<User>(json);
+const parsed = JsonSerializer.Deserialize<User>(json);
 if (parsed !== undefined) {
-  Console.writeLine(parsed.name);
+  Console.WriteLine(parsed.name);
 }
 ```
 
@@ -163,7 +165,7 @@ First, enable JSRuntime APIs:
 
 ```bash
 # New project
-tsonic project init --js
+tsonic init --js
 
 # Existing project
 tsonic add js
@@ -186,7 +188,7 @@ First, enable Node-style APIs:
 
 ```bash
 # New project
-tsonic project init --nodejs
+tsonic init --nodejs
 
 # Existing project
 tsonic add nodejs
@@ -216,11 +218,11 @@ Then write:
 import { WebApplication } from "@tsonic/aspnetcore/Microsoft.AspNetCore.Builder.js";
 
 export function main(): void {
-  const builder = WebApplication.createBuilder([]);
-  const app = builder.build();
+  const builder = WebApplication.CreateBuilder([]);
+  const app = builder.Build();
 
-  app.mapGet("/", () => "Hello from Tsonic + ASP.NET Core!");
-  app.run();
+  app.MapGet("/", () => "Hello from Tsonic + ASP.NET Core!");
+  app.Run();
 }
 ```
 
@@ -231,7 +233,7 @@ Tsonic doesn’t “guess” CLR types from strings. It relies on **bindings pac
 - Given a `.dll` (or a directory of assemblies), tsbindgen produces:
   - ESM namespace facades (`*.js`) + TypeScript types (`*.d.ts`)
   - `bindings.json` (namespace → CLR mapping)
-  - `internal/metadata.json` (CLR metadata for resolution)
+  - `internal/index.d.ts` (full type declarations)
 - Tsonic uses these artifacts to resolve imports like:
   - `import { Console } from "@tsonic/dotnet/System.js"`
 
@@ -252,7 +254,7 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 
 | Command                | Description             |
 | ---------------------- | ----------------------- |
-| `tsonic project init`  | Initialize new project  |
+| `tsonic init`          | Initialize workspace + default project |
 | `tsonic generate [entry]` | Generate C# code only |
 | `tsonic build [entry]` | Build native executable |
 | `tsonic run [entry]`   | Build and run           |
@@ -268,7 +270,7 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 
 | Option                   | Description                          |
 | ------------------------ | ------------------------------------ |
-| `-c, --config <file>`    | Config file (default: tsonic.json)   |
+| `-c, --config <file>`    | Workspace config path (default: auto-detect `tsonic.workspace.json`) |
 | `-o, --out <name>`       | Output name (binary/assembly)        |
 | `-r, --rid <rid>`        | Runtime identifier (e.g., linux-x64) |
 | `-O, --optimize <level>` | Optimization: size or speed          |
@@ -276,45 +278,33 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 | `-V, --verbose`          | Verbose output                       |
 | `-q, --quiet`            | Suppress output                      |
 
-## Configuration (tsonic.json)
+## Configuration
 
-```json
-{
-  "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "MyApp",
-  "entryPoint": "src/App.ts"
-}
-```
+Tsonic uses **two** config files:
 
-## Project Structure
+- `tsonic.workspace.json` (workspace root) — shared settings and **all external dependencies**
+- `packages/<project>/tsonic.json` — per-project compilation settings
+
+See `docs/configuration.md` for the full reference.
+
+## Workspace Structure
 
 ```
 my-app/
-├── src/
-│   └── App.ts           # Entry point (exports main())
-├── tsonic.json          # Configuration
-├── package.json         # NPM package
-├── generated/           # Generated C# (gitignored)
-└── out/                 # Output executable (gitignored)
-```
-
-## Naming Modes
-
-Tsonic supports two binding/name styles:
-
-- Default: JavaScript-style member names (`Console.writeLine`)
-- `--pure`: CLR-style member names (`Console.WriteLine`)
-
-```bash
-tsonic project init --pure
+├── tsonic.workspace.json
+├── libs/
+├── packages/
+│   └── my-app/
+│       ├── tsonic.json
+│       └── src/App.ts
+└── package.json         # npm workspaces + scripts
 ```
 
 ## Npm Workspaces (Multi-Assembly Repos)
 
-Tsonic projects are plain npm packages, so you can use **npm workspaces** to build multi-assembly repos (e.g. `@acme/domain` + `@acme/api`).
+Tsonic workspaces are plain npm workspaces, so you can build multi-assembly repos (e.g. `@acme/domain` + `@acme/api`).
 
-- Each workspace package has its own `tsonic.json` and produces its own output (`dist/` for libraries, `out/` for executables).
-- Build workspace dependencies first (via `npm run -w <pkg> ...`) before building dependents.
+- Each workspace package has its own `packages/<name>/tsonic.json` and produces its own output (`dist/` for libraries, `out/` for executables).
 - For library packages, you can generate **tsbindgen** CLR bindings under `dist/` and expose them via npm `exports`; Tsonic resolves imports using Node resolution (including `exports`) and locates the nearest `bindings.json`.
 
 See `docs/dotnet-interop.md` for the recommended `dist/` + `exports` layout.

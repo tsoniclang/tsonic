@@ -152,7 +152,18 @@ The actual NuGet package DLLs are read from the standard .NET NuGet cache (not c
   - mirrors to:
     - `node_modules/<asm>-types/`
 - If `typesPackage` is provided:
-  - installs it and skips auto-generation.
+  - installs it and skips auto-generation
+  - records the mapping in `dotnet.libraries` so restore/build know bindings are supplied externally:
+
+    ```json
+    {
+      "dotnet": {
+        "libraries": [
+          { "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }
+        ]
+      }
+    }
+    ```
 
 ### `tsonic restore`
 
@@ -161,7 +172,7 @@ Restore is the “clone a repo and get to green” command:
 - Restores NuGet deps defined in `tsonic.workspace.json`
 - (Re)generates local bindings for:
   - NuGet packages without `types`
-  - local DLLs under `libs/` without `types`
+  - local DLLs under `libs/` without a `types` mapping
   - FrameworkReferences without `types`
 
 `tsonic build` / `tsonic generate` / `tsonic run` automatically run `tsonic restore`
@@ -192,4 +203,3 @@ packages/domain/
 - Commit: `libs/` **if you depend on local DLLs** (so other devs get identical inputs).
 - Gitignore: `node_modules/`, `.tsonic/`, `packages/*/generated/`, `packages/*/out/`, `packages/*/dist/` (unless you are publishing a bindings package).
 - For published bindings packages: include `dist/tsonic/bindings/` in the published artifact (either committed or generated in your publish pipeline).
-
