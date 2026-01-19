@@ -18,7 +18,11 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import type { Result, TsonicWorkspaceConfig } from "../types.js";
+import type {
+  LibraryReferenceConfig,
+  Result,
+  TsonicWorkspaceConfig,
+} from "../types.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { isBuiltInRuntimeDllPath } from "../dotnet/runtime-dlls.js";
 import {
@@ -46,8 +50,52 @@ const sha256File = (path: string): string => {
   return createHash("sha256").update(new Uint8Array(data)).digest("hex");
 };
 
-const addUnique = (arr: string[], value: string): void => {
-  if (!arr.includes(value)) arr.push(value);
+const normalizeLibraryKey = (pathLike: string): string =>
+  pathLike.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+
+const getLibraryPath = (entry: LibraryReferenceConfig): string =>
+  typeof entry === "string" ? entry : entry.path;
+
+const setLibraryTypesMapping = (
+  entries: LibraryReferenceConfig[],
+  libraryPath: string,
+  typesPackage: string
+): Result<void, string> => {
+  const key = normalizeLibraryKey(libraryPath);
+  const idx = entries.findIndex((e) => normalizeLibraryKey(getLibraryPath(e)) === key);
+  if (idx === -1) {
+    entries.push({ path: libraryPath, types: typesPackage });
+    return { ok: true, value: undefined };
+  }
+
+  const existing = entries[idx]!;
+  if (typeof existing === "string") {
+    entries[idx] = { path: existing, types: typesPackage };
+    return { ok: true, value: undefined };
+  }
+
+  if (existing.types === undefined || existing.types === typesPackage) {
+    entries[idx] = { path: existing.path, types: typesPackage };
+    return { ok: true, value: undefined };
+  }
+
+  return {
+    ok: false,
+    error:
+      `Conflicting types mapping for '${getLibraryPath(existing)}'.\n` +
+      `Existing: ${existing.types}\n` +
+      `Requested: ${typesPackage}\n` +
+      `Remove the existing entry from tsonic.workspace.json and retry.`,
+  };
+};
+
+const addUniqueLibraryPath = (
+  entries: LibraryReferenceConfig[],
+  libraryPath: string
+): void => {
+  const key = normalizeLibraryKey(libraryPath);
+  if (entries.some((e) => normalizeLibraryKey(getLibraryPath(e)) === key)) return;
+  entries.push(libraryPath);
 };
 
 type FrameworkReferenceConfig =
@@ -214,9 +262,13 @@ export const addPackageCommand = (
   }
 
   const dotnet = config.dotnet ?? {};
-  const libraries = [...(dotnet.libraries ?? [])];
-  for (const rel of copiedRelPaths) {
-    addUnique(libraries, rel);
+  const libraries: LibraryReferenceConfig[] = [...(dotnet.libraries ?? [])];
+  for (const rel of copiedRelPaths) addUniqueLibraryPath(libraries, rel);
+
+  if (typesPackage) {
+    const rootRel = `libs/${basename(dllAbs)}`;
+    const mappingResult = setLibraryTypesMapping(libraries, rootRel, typesPackage);
+    if (!mappingResult.ok) return mappingResult;
   }
 
   const frameworkRefs: FrameworkReferenceConfig[] = [

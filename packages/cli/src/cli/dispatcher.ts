@@ -267,7 +267,8 @@ export const runCli = async (args: string[]): Promise<number> => {
       (rawWorkspaceConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
     const hasPackageRefs =
       (rawWorkspaceConfig.dotnet?.packageReferences?.length ?? 0) > 0;
-    const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some((p) => {
+    const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some((entry) => {
+      const p = typeof entry === "string" ? entry : entry.path;
       const normalized = p.replace(/\\/g, "/").toLowerCase();
       if (!normalized.endsWith(".dll")) return false;
       if (isBuiltInRuntimeDllPath(p)) return false;

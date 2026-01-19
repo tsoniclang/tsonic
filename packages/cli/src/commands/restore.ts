@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type {
   FrameworkReferenceConfig,
+  LibraryReferenceConfig,
   PackageReferenceConfig,
   Result,
   TsonicWorkspaceConfig,
@@ -209,6 +210,9 @@ const pathIsWithin = (path: string, dir: string): boolean => {
   const normalizedBase = normalizedDir.replace(/\\/g, "/");
   return normalizedPath.startsWith(normalizedBase);
 };
+
+const normalizeLibraryKey = (pathLike: string): string =>
+  pathLike.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 
 export const restoreCommand = (
   configPath: string,
@@ -530,15 +534,46 @@ export const restoreCommand = (
   }
 
   // 3) Local DLL bindings (dotnet.libraries)
-  const dllLibraries = (dotnet.libraries ?? []).filter(
-    (p) => {
-      const normalized = p.replace(/\\/g, "/").toLowerCase();
-      if (!normalized.endsWith(".dll")) return false;
-      if (isBuiltInRuntimeDllPath(p)) return false;
-      // Only DLLs copied into ./libs are eligible for bindings generation.
-      return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
+  const typesPackageByLibraryPathKey = new Map<string, string>();
+  const libraryPaths: string[] = [];
+  for (const entry of (dotnet.libraries ?? []) as LibraryReferenceConfig[]) {
+    if (typeof entry === "string") {
+      libraryPaths.push(entry);
+      continue;
     }
-  );
+
+    libraryPaths.push(entry.path);
+    if (entry.types === undefined) continue;
+
+    const key = normalizeLibraryKey(entry.path);
+    if (!key.endsWith(".dll")) {
+      return {
+        ok: false,
+        error:
+          `tsonic.workspace.json: dotnet.libraries entry has 'types' but is not a DLL: ${entry.path}`,
+      };
+    }
+
+    const existing = typesPackageByLibraryPathKey.get(key);
+    if (existing && existing !== entry.types) {
+      return {
+        ok: false,
+        error:
+          `tsonic.workspace.json: conflicting 'types' mapping for '${entry.path}'.\n` +
+          `Existing: ${existing}\n` +
+          `New: ${entry.types}`,
+      };
+    }
+    typesPackageByLibraryPathKey.set(key, entry.types);
+  }
+
+  const dllLibraries = libraryPaths.filter((p) => {
+    const normalized = p.replace(/\\/g, "/").toLowerCase();
+    if (!normalized.endsWith(".dll")) return false;
+    if (isBuiltInRuntimeDllPath(p)) return false;
+    // Only DLLs copied into ./libs are eligible for bindings generation.
+    return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
+  });
   if (dllLibraries.length > 0) {
     const dllAbs = dllLibraries.map((p) => resolveFromProjectRoot(workspaceRoot, p));
     for (const p of dllAbs) {
@@ -658,15 +693,32 @@ export const restoreCommand = (
       transitiveDeps.set(id, set);
     }
 
-    const bindingsDirById = new Map<string, string>();
+    const libDirById = new Map<string, string>();
     for (const id of order) {
       const asm = byId.get(id);
       const destPath = destPathById.get(id);
       if (!asm || !destPath) return { ok: false, error: `Internal error: missing assembly info for ${id}` };
 
+      const typesPkg = typesPackageByLibraryPathKey.get(
+        normalizeLibraryKey(`libs/${basename(destPath)}`)
+      );
+      if (typesPkg) {
+        const typesRoot = resolvePackageRoot(workspaceRoot, typesPkg);
+        if (!typesRoot.ok) {
+          return {
+            ok: false,
+            error:
+              `Bindings package not found for '${basename(destPath)}': ${typesPkg}\n` +
+              `Install it in the workspace and retry (e.g. npm install -D ${typesPkg}).`,
+          };
+        }
+        libDirById.set(id, typesRoot.value);
+        continue; // bindings supplied externally; do not auto-generate.
+      }
+
       const packageName = defaultBindingsPackageNameForDll(destPath);
       const outDir = bindingsStoreDir(workspaceRoot, "dll", packageName);
-      bindingsDirById.set(id, outDir);
+      libDirById.set(id, outDir);
 
       const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
         kind: "dll",
@@ -684,7 +736,7 @@ export const restoreCommand = (
       ];
 
       const libs = Array.from(transitiveDeps.get(id) ?? [])
-        .map((depId) => bindingsDirById.get(depId))
+        .map((depId) => libDirById.get(depId))
         .filter((p): p is string => typeof p === "string")
         .sort((a, b) => a.localeCompare(b));
       for (const lib of libs) generateArgs.push("--lib", lib);

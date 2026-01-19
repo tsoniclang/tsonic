@@ -627,5 +627,27 @@ describe("Config", () => {
         "libs/C.dll",
       ]);
     });
+
+    it("should flatten dotnet.libraries object entries to paths", () => {
+      const workspaceConfig = makeWorkspaceConfig({
+        dotnet: {
+          libraries: [
+            { path: "libs/A.dll", types: "@acme/a-types" },
+            "libs/B.dll",
+          ],
+        },
+      });
+      const projectConfig = makeProjectConfig();
+
+      const result = resolveConfig(
+        workspaceConfig,
+        projectConfig,
+        {},
+        WORKSPACE_ROOT,
+        PROJECT_ROOT
+      );
+
+      expect(result.libraries).to.deep.equal(["libs/A.dll", "libs/B.dll"]);
+    });
   });
 });
