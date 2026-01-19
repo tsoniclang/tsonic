@@ -25,8 +25,8 @@ export function main(): void {
   const buffer = stackalloc<int>(256);
   buffer[0] = 42;
 
-  Console.writeLine(`First: ${buffer[0]}`);
-  Console.writeLine(`Length: ${buffer.length}`);
+  Console.WriteLine(`First: ${buffer[0]}`);
+  Console.WriteLine(`Length: ${buffer.length}`);
 }
 ```
 
@@ -93,7 +93,7 @@ class Dog extends Animal {
 export function main(animal: Animal): void {
   const dog = trycast<Dog>(animal);
   if (dog !== null) {
-    Console.writeLine(dog.breed);
+    Console.WriteLine(dog.breed);
   }
 }
 ```

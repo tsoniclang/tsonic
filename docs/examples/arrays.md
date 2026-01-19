@@ -48,18 +48,18 @@ const numbers = new List<number>([1, 2, 3]);
 
 // Or create empty and add items
 const names = new List<string>();
-names.add("Alice");
-names.add("Bob");
+names.Add("Alice");
+names.Add("Bob");
 
 // List properties and methods
-Console.writeLine(names.count); // 2
-const hasAlice = names.contains("Alice"); // true
+Console.WriteLine(names.Count); // 2
+const hasAlice = names.Contains("Alice"); // true
 
 // Remove items
-names.remove("Alice");
+names.Remove("Alice");
 
 // Clear all
-names.clear();
+names.Clear();
 ```
 
 ### Collection Initializer Syntax
@@ -90,21 +90,21 @@ import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 const numbers = [1, 2, 3, 4, 5];
 
 // Select = map
-const doubled = Enumerable.select(numbers, (n) => n * 2);
+const doubled = Enumerable.Select(numbers, (n) => n * 2);
 
 // Where = filter
-const evens = Enumerable.where(numbers, (n) => n % 2 === 0);
+const evens = Enumerable.Where(numbers, (n) => n % 2 === 0);
 
 // Aggregate = reduce
-const sum = Enumerable.aggregate(numbers, 0, (acc, n) => acc + n);
+const sum = Enumerable.Aggregate(numbers, 0, (acc, n) => acc + n);
 
 // First, Last
-const first = Enumerable.first(numbers);
-const last = Enumerable.last(numbers);
+const first = Enumerable.First(numbers);
+const last = Enumerable.Last(numbers);
 
 // Any, All
-const anyEven = Enumerable.any(numbers, (n) => n % 2 === 0);
-const allPositive = Enumerable.all(numbers, (n) => n > 0);
+const anyEven = Enumerable.Any(numbers, (n) => n % 2 === 0);
+const allPositive = Enumerable.All(numbers, (n) => n > 0);
 ```
 
 ## Iterating Arrays
@@ -116,12 +116,12 @@ const items = ["a", "b", "c"];
 
 // For-of loop (preferred)
 for (const item of items) {
-  Console.writeLine(item);
+  Console.WriteLine(item);
 }
 
 // Index-based for loop
 for (let i = 0; i < items.length; i++) {
-  Console.writeLine(items[i]);
+  Console.WriteLine(items[i]);
 }
 ```
 
@@ -160,7 +160,7 @@ const value = matrix[1][2]; // 6
 // Iterate
 for (const row of matrix) {
   for (const cell of row) {
-    Console.writeLine(cell.toString());
+    Console.WriteLine(cell.toString());
   }
 }
 ```
@@ -181,10 +181,10 @@ const users: User[] = [
 ];
 
 // Find user by id
-const found = Enumerable.firstOrDefault(users, (u) => u.id === 1);
+const found = Enumerable.FirstOrDefault(users, (u) => u.id === 1);
 
 // Map to names
-const names = Enumerable.select(users, (u) => u.name);
+const names = Enumerable.Select(users, (u) => u.name);
 ```
 
 ## Spread Operator
@@ -220,7 +220,7 @@ const item = items[index]; // "b"
 import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers: int[] = [10, 20, 30];
-const first = Enumerable.elementAt(numbers, 0);
+const first = Enumerable.ElementAt(numbers, 0);
 ```
 
 ### Long Arrays

@@ -62,7 +62,7 @@ Command-line interface and orchestration:
 
 - Argument parsing
 - Configuration loading
-- Command dispatch (project init, generate, build, run)
+- Command dispatch (init, restore, generate, build, run)
 - Error reporting
 
 Entry point for all user interactions.
@@ -110,7 +110,8 @@ C# runtime libraries:
 1. CLI receives: tsonic build src/App.ts
 
 2. Config loaded:
-   - tsonic.json parsed
+   - tsonic.workspace.json parsed
+   - packages/<project>/tsonic.json parsed
    - CLI args merged
    - Resolved config created
 

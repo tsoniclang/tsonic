@@ -28,7 +28,7 @@ import { User, UserService } from "./models/User.js";
 export function main(): void {
   const service = new UserService();
   const user = service.getUser(1);
-  Console.writeLine(user.name);
+  Console.WriteLine(user.name);
 }
 ```
 
@@ -71,8 +71,8 @@ import { Console } from "@tsonic/dotnet/System.js";
 import { PI, add, Point } from "./utils.js";
 
 const point: Point = { x: 10, y: 20 };
-Console.writeLine(add(1, 2));
-Console.writeLine(PI);
+Console.WriteLine(add(1, 2));
+Console.WriteLine(PI);
 ```
 
 ## Namespace Import
@@ -92,8 +92,8 @@ export function add(a: number, b: number): number {
 import { Console } from "@tsonic/dotnet/System.js";
 import * as utils from "./utils.js";
 
-Console.writeLine(utils.PI);
-Console.writeLine(utils.add(1, 2));
+Console.WriteLine(utils.PI);
+Console.WriteLine(utils.add(1, 2));
 ```
 
 ## Re-exports (Barrel Files)
@@ -161,10 +161,10 @@ import { List, Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 ```typescript
 export function main(): void {
-  Console.writeLine("Hello from .NET!");
+  Console.WriteLine("Hello from .NET!");
 
-  const exists = File.exists("config.json");
-  const files = Directory.getFiles(".");
+  const exists = File.Exists("config.json");
+  const files = Directory.GetFiles(".");
 }
 ```
 
@@ -175,18 +175,18 @@ File paths map to C# namespaces:
 ```
 src/
 ├── App.ts           → MyApp.App
-├── models/
+├── Models/
 │   ├── User.ts      → MyApp.Models.User
 │   └── Product.ts   → MyApp.Models.Product
-└── services/
-    └── api.ts       → MyApp.Services.Api
+└── Services/
+    └── Api.ts       → MyApp.Services.Api
 ```
 
 When importing across directories:
 
 ```typescript
-// src/services/api.ts
-  import { User } from "../models/User.js";
+// src/Services/Api.ts
+  import { User } from "../Models/User.js";
 // Resolves to namespace MyApp.Models
 
 export function getUser(): User {
@@ -236,7 +236,7 @@ export function main(): void {
 
   const user = service.find(1);
   if (user) {
-    Console.writeLine(user.name);
+    Console.WriteLine(user.name);
   }
 }
 ```

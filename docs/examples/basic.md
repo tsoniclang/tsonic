@@ -8,7 +8,7 @@ Simple Tsonic programs to get started.
 import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
-  Console.writeLine("Hello, Tsonic!");
+  Console.WriteLine("Hello, Tsonic!");
 }
 ```
 
@@ -22,8 +22,8 @@ export function main(): void {
   const age = 30;
   const active = true;
 
-  Console.writeLine(`${name} is ${age} years old`);
-  Console.writeLine(`Active: ${active}`);
+  Console.WriteLine(`${name} is ${age} years old`);
+  Console.WriteLine(`Active: ${active}`);
 }
 ```
 
@@ -41,8 +41,8 @@ function add(a: number, b: number): number {
 }
 
 export function main(): void {
-  Console.writeLine(greet("Bob"));
-  Console.writeLine(add(5, 3));
+  Console.WriteLine(greet("Bob"));
+  Console.WriteLine(add(5, 3));
 }
 ```
 
@@ -67,7 +67,7 @@ class Person {
 
 export function main(): void {
   const person = new Person("Alice", 30);
-  Console.writeLine(person.greet());
+  Console.WriteLine(person.greet());
 }
 ```
 
@@ -83,9 +83,9 @@ interface User {
 }
 
 function displayUser(user: User): void {
-  Console.writeLine(`User: ${user.name} (${user.id})`);
+  Console.WriteLine(`User: ${user.name} (${user.id})`);
   if (user.email) {
-    Console.writeLine(`Email: ${user.email}`);
+    Console.WriteLine(`Email: ${user.email}`);
   }
 }
 
@@ -108,26 +108,26 @@ export function main(): void {
   // If/else
   const x = 10;
   if (x > 5) {
-    Console.writeLine("Greater than 5");
+    Console.WriteLine("Greater than 5");
   } else {
-    Console.writeLine("5 or less");
+    Console.WriteLine("5 or less");
   }
 
   // For loop
   for (let i = 0; i < 5; i++) {
-    Console.writeLine(i);
+    Console.WriteLine(i);
   }
 
   // For-of loop
   const items = ["a", "b", "c"];
   for (const item of items) {
-    Console.writeLine(item);
+    Console.WriteLine(item);
   }
 
   // While loop
   let count = 0;
   while (count < 3) {
-    Console.writeLine(count);
+    Console.WriteLine(count);
     count++;
   }
 
@@ -135,13 +135,13 @@ export function main(): void {
   const value = 2;
   switch (value) {
     case 1:
-      Console.writeLine("one");
+      Console.WriteLine("one");
       break;
     case 2:
-      Console.writeLine("two");
+      Console.WriteLine("two");
       break;
     default:
-      Console.writeLine("other");
+      Console.WriteLine("other");
   }
 }
 ```
@@ -165,10 +165,10 @@ enum Color {
 
 export function main(): void {
   const status = Status.Active;
-  Console.writeLine(status); // 1
+  Console.WriteLine(status); // 1
 
   const color = Color.Green;
-  Console.writeLine(color); // "green"
+  Console.WriteLine(color); // "green"
 }
 ```
 
@@ -198,7 +198,7 @@ export function main(): void {
   const str = identity("hello");
 
   const box = new Container("contents");
-  Console.writeLine(box.get());
+  Console.WriteLine(box.get());
 }
 ```
 
@@ -213,10 +213,10 @@ const record: [string, number, boolean] = ["Alice", 30, true];
 
 export function main(): void {
   const [x, y] = point;
-  Console.writeLine(`Point: ${x}, ${y}`);
+  Console.WriteLine(`Point: ${x}, ${y}`);
 
   const [name, age, active] = record;
-  Console.writeLine(`${name} is ${age} years old`);
+  Console.WriteLine(`${name} is ${age} years old`);
 }
 ```
 
@@ -229,17 +229,17 @@ import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.j
 export function main(): void {
   // Dictionary<TKey, TValue> - key-value pairs
   const scores = new Dictionary<string, number>();
-  scores.add("Alice", 100);
-  scores.add("Bob", 85);
-  Console.writeLine(scores.containsKey("Alice")); // true
-  Console.writeLine(scores.count); // 2
+  scores.Add("Alice", 100);
+  scores.Add("Bob", 85);
+  Console.WriteLine(scores.ContainsKey("Alice")); // true
+  Console.WriteLine(scores.Count); // 2
 
   // HashSet<T> - unique values
   const tags = new HashSet<string>();
-  tags.add("typescript");
-  tags.add("native");
-  tags.add("typescript"); // Ignored (duplicate)
-  Console.writeLine(tags.count); // 2
+  tags.Add("typescript");
+  tags.Add("native");
+  tags.Add("typescript"); // Ignored (duplicate)
+  Console.WriteLine(tags.Count); // 2
 }
 ```
 
@@ -259,8 +259,8 @@ const handler = {
 };
 
 export function main(): void {
-  Console.writeLine(point.x);
-  Console.writeLine(handler.process(5)); // 10
+  Console.WriteLine(point.x);
+  Console.WriteLine(handler.process(5)); // 10
 }
 ```
 
@@ -282,7 +282,7 @@ function isDog(pet: Dog | Cat): pet is Dog {
 }
 
 export function main(): void {
-  const pet: Dog | Cat = { bark: (): void => Console.writeLine("Woof!") };
+  const pet: Dog | Cat = { bark: (): void => Console.WriteLine("Woof!") };
 
   if (isDog(pet)) {
     pet.bark(); // TypeScript knows pet is Dog here
@@ -297,7 +297,7 @@ import { Console } from "@tsonic/dotnet/System.js";
 import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
 
 async function delay(ms: number): Promise<void> {
-  await Task.delay(ms);
+  await Task.Delay(ms);
 }
 
 async function fetchData(): Promise<string> {
@@ -307,7 +307,7 @@ async function fetchData(): Promise<string> {
 
 export async function main(): Promise<void> {
   const data = await fetchData();
-  Console.writeLine(data);
+  Console.WriteLine(data);
 }
 ```
 
@@ -324,9 +324,9 @@ export function main(): void {
   try {
     riskyOperation();
   } catch (error) {
-    Console.writeLine("Caught error");
+    Console.WriteLine("Caught error");
   } finally {
-    Console.writeLine("Cleanup");
+    Console.WriteLine("Cleanup");
   }
 }
 ```
@@ -350,13 +350,13 @@ export function main(): void {
   const b: int = 20;
   const sum: int = a + b; // Integer arithmetic
 
-  Console.writeLine(`Sum: ${sum}`);
-  Console.writeLine(`Range sum 1-10: ${sumRange(1, 10)}`);
+  Console.WriteLine(`Sum: ${sum}`);
+  Console.WriteLine(`Range sum 1-10: ${sumRange(1, 10)}`);
 
   // Integer division truncates
   const x: int = 10;
   const y: int = 3;
-  Console.writeLine(`10 / 3 = ${x / y}`); // 3 (not 3.333...)
+  Console.WriteLine(`10 / 3 = ${x / y}`); // 3 (not 3.333...)
 }
 ```
 
@@ -389,12 +389,12 @@ export function main(): void {
 
   // Inline callback
   forEach(nums, (n: int) => {
-    Console.writeLine(`Item: ${n}`);
+    Console.WriteLine(`Item: ${n}`);
   });
 
   // Transform callback
   const doubled = map(nums, (n: int) => n * 2);
-  Console.writeLine(`Doubled: ${doubled}`);
+  Console.WriteLine(`Doubled: ${doubled}`);
 }
 ```
 

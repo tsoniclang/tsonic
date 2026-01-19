@@ -68,81 +68,54 @@ npx tsonic --version
 
 ## Creating a Project
 
-### Using project init
+### Using `tsonic init`
 
 The easiest way to start:
 
 ```bash
 mkdir my-app
 cd my-app
-tsonic project init
+tsonic init
 ```
 
 This creates:
 
 ```
 my-app/
-├── src/
-│   └── App.ts           # Entry point
-├── tsonic.json          # Configuration
-├── package.json         # NPM package with scripts
-├── .gitignore           # Ignores generated/ and out/
-└── README.md            # Project readme
+├── tsonic.workspace.json     # Workspace config (dependencies live here)
+├── libs/                     # Workspace-scoped DLLs
+├── packages/
+│   └── my-app/
+│       ├── tsonic.json       # Project config
+│       ├── package.json      # Project package.json (minimal)
+│       └── src/App.ts        # Entry point
+├── package.json              # Workspace package.json (npm workspaces + scripts)
+└── .gitignore                # Ignores generated/, out/, node_modules/, .tsonic/
 ```
 
-### Project Init Options
+### Init Options
 
 ```bash
-# Enable JavaScript runtime APIs (console, JSON, timers, etc.)
-tsonic project init --js
+# Enable JavaScript runtime APIs (@tsonic/js)
+tsonic init --js
 
-# Enable Node.js compatibility APIs (fs, path, etc.)
-tsonic project init --nodejs
+# Enable Node.js compatibility APIs (@tsonic/nodejs)
+tsonic init --nodejs
 
 # Skip installing type packages
-tsonic project init --skip-types
+tsonic init --skip-types
 
 # Specify type package version
-tsonic project init --types-version <ver>
+tsonic init --types-version <ver>
 ```
 
-### Adding JS/NodeJS to an existing project
+### Adding JS/NodeJS to an existing workspace
 
-If you already have a Tsonic project and want JSRuntime or Node.js APIs later:
+If you already have a Tsonic workspace and want JSRuntime or Node.js APIs later:
 
 ```bash
 tsonic add js
 tsonic add nodejs
-```
-
-### Manual Setup
-
-If you prefer manual setup:
-
-1. Create `tsonic.json`:
-
-```json
-{
-  "rootNamespace": "MyApp",
-  "entryPoint": "src/App.ts",
-  "sourceRoot": "src"
-}
-```
-
-2. Create `src/App.ts`:
-
-```typescript
-import { Console } from "@tsonic/dotnet/System.js";
-
-export function main(): void {
-  Console.writeLine("Hello!");
-}
-```
-
-3. Install type packages:
-
-```bash
-npm install --save-dev tsonic @tsonic/core @tsonic/globals
 ```
 
 ## Building and Running
@@ -152,17 +125,23 @@ npm install --save-dev tsonic @tsonic/core @tsonic/globals
 Generate C# and compile to native:
 
 ```bash
-tsonic build src/App.ts
+tsonic build
 ```
 
-Output goes to `out/app` (or `out/app.exe` on Windows).
+Output goes to `packages/<project>/out/<app>` (or `.exe` on Windows).
+
+If your workspace has multiple projects, select one explicitly:
+
+```bash
+tsonic build --project my-app
+```
 
 ### Run Command
 
 Build and execute in one step:
 
 ```bash
-tsonic run src/App.ts
+tsonic run
 ```
 
 ### NPM Scripts
@@ -170,8 +149,8 @@ tsonic run src/App.ts
 The generated `package.json` includes convenience scripts:
 
 ```bash
-npm run build    # tsonic build src/App.ts
-npm run dev      # tsonic run src/App.ts
+npm run build    # tsonic build
+npm run dev      # tsonic run
 ```
 
 ## Understanding the Output
@@ -180,13 +159,15 @@ After building:
 
 ```
 my-app/
-├── generated/           # Generated C# code
-│   ├── src/
-│   │   └── App.cs       # Your code as C#
-│   ├── Program.cs       # Entry point wrapper
-│   └── tsonic.csproj    # .NET project file
-└── out/
-    └── app              # Native executable
+└── packages/
+    └── my-app/
+        ├── generated/           # Generated C# code
+        │   ├── src/
+        │   │   └── App.cs       # Your code as C#
+        │   ├── Program.cs       # Entry point wrapper
+        │   └── tsonic.csproj    # .NET project file
+        └── out/
+            └── my-app           # Native executable
 ```
 
 ### Generated C# (Example)
@@ -197,7 +178,7 @@ Your TypeScript:
 import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
-  Console.writeLine("Hello!");
+  Console.WriteLine("Hello!");
 }
 ```
 
@@ -208,7 +189,7 @@ namespace MyApp
 {
     public static class App
     {
-        public static void Main()
+        public static void main()
         {
             global::System.Console.WriteLine("Hello!");
         }
@@ -219,7 +200,7 @@ namespace MyApp
 ## Next Steps
 
 - [CLI Reference](cli.md) - All commands and options
-- [Configuration](configuration.md) - tsonic.json in detail
+- [Configuration](configuration.md) - Workspace + project config
 - [Language Guide](language.md) - TypeScript features supported
 - [.NET Interop](dotnet-interop.md) - Using .NET libraries
 

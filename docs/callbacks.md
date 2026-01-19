@@ -24,7 +24,7 @@ Use `Action<T>` for callbacks that don't return a value.
 import { int } from "@tsonic/core/types.js";
 
 function forEach(items: List<int>, callback: (item: int) => void): void {
-  const len = items.count;
+  const len = items.Count;
   for (let i: int = 0; i < len; i++) {
     callback(items[i]);
   }
@@ -32,12 +32,12 @@ function forEach(items: List<int>, callback: (item: int) => void): void {
 
 export function main(): void {
   const numbers = new List<int>();
-  numbers.add(1);
-  numbers.add(2);
-  numbers.add(3);
+  numbers.Add(1);
+  numbers.Add(2);
+  numbers.Add(3);
 
   forEach(numbers, (n: int) => {
-    Console.writeLine(`Item: ${n}`);
+    Console.WriteLine(`Item: ${n}`);
   });
 }
 ```
@@ -45,7 +45,7 @@ export function main(): void {
 Generated C#:
 
 ```csharp
-public static void ForEach(List<int> items, Action<int> callback)
+public static void forEach(List<int> items, Action<int> callback)
 {
     var len = items.Count;
     for (var i = 0; i < len; i++)
@@ -64,7 +64,7 @@ function forEachWithIndex(
   items: List<int>,
   callback: (item: int, index: int) => void
 ): void {
-  const len = items.count;
+  const len = items.Count;
   for (let i: int = 0; i < len; i++) {
     callback(items[i], i);
   }
@@ -72,14 +72,14 @@ function forEachWithIndex(
 
 // Usage
 forEachWithIndex(numbers, (item: int, index: int) => {
-  Console.writeLine(`[${index}] = ${item}`);
+  Console.WriteLine(`[${index}] = ${item}`);
 });
 ```
 
 Generated C#:
 
 ```csharp
-public static void ForEachWithIndex(List<int> items, Action<int, int> callback)
+public static void forEachWithIndex(List<int> items, Action<int, int> callback)
 ```
 
 ## Func Callbacks
@@ -93,9 +93,9 @@ import { int } from "@tsonic/core/types.js";
 
 function map(items: List<int>, transform: (item: int) => int): List<int> {
   const result = new List<int>();
-  const len = items.count;
+  const len = items.Count;
   for (let i: int = 0; i < len; i++) {
-    result.add(transform(items[i]));
+    result.Add(transform(items[i]));
   }
   return result;
 }
@@ -107,7 +107,7 @@ const doubled = map(numbers, (n: int) => n * 2);
 Generated C#:
 
 ```csharp
-public static List<int> Map(List<int> items, Func<int, int> transform)
+public static List<int> map(List<int> items, Func<int, int> transform)
 ```
 
 ### Predicate Functions
@@ -120,11 +120,11 @@ function filter(
   predicate: (item: int) => boolean
 ): List<int> {
   const result = new List<int>();
-  const len = items.count;
+  const len = items.Count;
   for (let i: int = 0; i < len; i++) {
     const item = items[i];
     if (predicate(item)) {
-      result.add(item);
+      result.Add(item);
     }
   }
   return result;
@@ -137,7 +137,7 @@ const evens = filter(numbers, (n: int) => n % 2 === 0);
 Generated C#:
 
 ```csharp
-public static List<int> Filter(List<int> items, Func<int, bool> predicate)
+public static List<int> filter(List<int> items, Func<int, bool> predicate)
 ```
 
 ### Reducer Functions
@@ -151,7 +151,7 @@ function reduce(
   initial: int
 ): int {
   let result = initial;
-  const len = items.count;
+  const len = items.Count;
   for (let i: int = 0; i < len; i++) {
     result = reducer(result, items[i]);
   }
@@ -165,7 +165,7 @@ const sum = reduce(numbers, (acc: int, n: int) => acc + n, 0);
 Generated C#:
 
 ```csharp
-public static int Reduce(List<int> items, Func<int, int, int> reducer, int initial)
+public static int reduce(List<int> items, Func<int, int, int> reducer, int initial)
 ```
 
 ## Type Mappings
@@ -198,13 +198,13 @@ Pass arrow functions directly:
 import { int } from "@tsonic/core/types.js";
 
 const numbers = new List<int>();
-numbers.add(1);
-numbers.add(2);
-numbers.add(3);
+numbers.Add(1);
+numbers.Add(2);
+numbers.Add(3);
 
-// Inline Action
-numbers.forEach((n: int) => {
-  Console.writeLine(`${n}`);
+// Inline Action (List<T>.ForEach)
+numbers.ForEach((n: int) => {
+  Console.WriteLine(`${n}`);
 });
 
 // Inline Func with return
@@ -225,8 +225,8 @@ function createMultiplier(factor: int): (n: int) => int {
 const double = createMultiplier(2);
 const triple = createMultiplier(3);
 
-Console.writeLine(`${double(5)}`); // 10
-Console.writeLine(`${triple(5)}`); // 15
+Console.WriteLine(`${double(5)}`); // 10
+Console.WriteLine(`${triple(5)}`); // 15
 ```
 
 ### Function Composition
@@ -242,7 +242,7 @@ const addOne = (x: int) => x + 1;
 const double = (x: int) => x * 2;
 
 const addThenDouble = compose(double, addOne);
-Console.writeLine(`${addThenDouble(5)}`); // 12
+Console.WriteLine(`${addThenDouble(5)}`); // 12
 ```
 
 ## Async Callbacks
@@ -254,7 +254,7 @@ For async callbacks, use `Promise` return types:
 
 async function processAsync(callback: () => Promise<string>): Promise<void> {
   const result = await callback();
-  Console.writeLine(result);
+  Console.WriteLine(result);
 }
 
 await processAsync(async () => {
@@ -265,7 +265,7 @@ await processAsync(async () => {
 Generated C#:
 
 ```csharp
-public static async Task ProcessAsync(Func<Task<string>> callback)
+public static async Task processAsync(Func<Task<string>> callback)
 {
     var result = await callback();
     Console.WriteLine(result);
@@ -284,7 +284,7 @@ function addClickHandler(handler: EventHandler): void {
 }
 
 addClickHandler((sender: object, args: EventArgs) => {
-  Console.writeLine("Clicked!");
+  Console.WriteLine("Clicked!");
 });
 ```
 
@@ -324,20 +324,20 @@ import { int } from "@tsonic/core/types.js";
 	import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers = new List<int>();
-numbers.add(1);
-numbers.add(2);
-numbers.add(3);
-numbers.add(4);
-numbers.add(5);
+numbers.Add(1);
+numbers.Add(2);
+numbers.Add(3);
+numbers.Add(4);
+numbers.Add(5);
 
 // LINQ Where with predicate
-const evens = Enumerable.where(numbers, (n: int) => n % 2 === 0);
+const evens = Enumerable.Where(numbers, (n: int) => n % 2 === 0);
 
 // LINQ Select with transform
-const doubled = Enumerable.select(numbers, (n: int) => n * 2);
+const doubled = Enumerable.Select(numbers, (n: int) => n * 2);
 
 // LINQ Aggregate with reducer
-const sum = Enumerable.aggregate(
+const sum = Enumerable.Aggregate(
   numbers,
   0,
   (acc: int, n: int) => acc + n

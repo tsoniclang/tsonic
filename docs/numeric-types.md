@@ -130,8 +130,8 @@ import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const list = new List<string>();
-list.add("one");
-list.add("two");
+list.Add("one");
+list.Add("two");
 
 // List indexers require an int index
 const idx: int = 0;
@@ -151,7 +151,7 @@ const numbers = new List<int>();
 // ... populate list
 
 // Sum() returns int when input is int
-const total = Enumerable.sum(numbers);
+const total = Enumerable.Sum(numbers);
 ```
 
 ### Recommended: Array Indexing
@@ -439,8 +439,8 @@ import { int } from "@tsonic/core/types.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const nums = new List<int>();
-nums.add(1);
-nums.add(2);
+nums.Add(1);
+nums.Add(2);
 // Now LINQ operations work correctly
 ```
 

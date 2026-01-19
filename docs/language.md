@@ -138,7 +138,7 @@ switch (value) {
 
 // Loops
 for (let i = 0; i < 10; i++) {
-  Console.writeLine(i);
+  Console.WriteLine(i);
 }
 
 for (const item of items) {
@@ -158,7 +158,7 @@ import { Console } from "@tsonic/dotnet/System.js";
 try {
   riskyOperation();
 } catch (error) {
-  Console.writeLine("Error");
+  Console.WriteLine("Error");
 } finally {
   cleanup();
 }
@@ -176,8 +176,8 @@ const mixed: Array<number | string> = [1, "two", 3];
 
 // Arrays emit as native C# arrays (T[])
 // Use LINQ for functional-style operations
-const doubled = Enumerable.select(numbers, (n: number): number => n * 2);
-const filtered = Enumerable.where(numbers, (n: number): boolean => n > 1);
+const doubled = Enumerable.Select(numbers, (n: number): number => n * 2);
+const filtered = Enumerable.Where(numbers, (n: number): boolean => n > 1);
 ```
 
 ### Tuples
@@ -204,14 +204,14 @@ import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.j
 
 // Dictionary<TKey, TValue> - key-value pairs
 const userMap = new Dictionary<string, User>();
-userMap.add("alice", alice);
-const hasAlice = userMap.containsKey("alice");
+userMap.Add("alice", alice);
+const hasAlice = userMap.ContainsKey("alice");
 
 // HashSet<T> - unique values
 const ids = new HashSet<number>();
-ids.add(1);
-ids.add(2);
-const hasOne = ids.contains(1); // true
+ids.Add(1);
+ids.Add(2);
+const hasOne = ids.Contains(1); // true
 ```
 
 ### Objects
@@ -329,13 +329,13 @@ const entries = [
   ["b", 2],
 ];
 for (const [key, value] of entries) {
-  Console.writeLine(`${key}: ${value}`);
+  Console.WriteLine(`${key}: ${value}`);
 }
 
 // Object destructuring in for-of
 const users = [{ name: "Alice" }, { name: "Bob" }];
 for (const { name } of users) {
-  Console.writeLine(name);
+  Console.WriteLine(name);
 }
 ```
 
@@ -346,7 +346,7 @@ import { Console } from "@tsonic/dotnet/System.js";
 
 // Function parameter destructuring
 function greet({ name, age }: Person): void {
-  Console.writeLine(`Hello ${name}, you are ${age}`);
+  Console.WriteLine(`Hello ${name}, you are ${age}`);
 }
 
 // Array parameter destructuring
@@ -422,7 +422,7 @@ import { User, Product } from "./models/index.js";
 ```typescript
 import * as utils from "./utils.js";
 import { Console } from "@tsonic/dotnet/System.js";
-Console.writeLine(utils.PI);
+Console.WriteLine(utils.PI);
 utils.add(1, 2);
 ```
 
@@ -450,7 +450,7 @@ Every executable needs a `main()` function exported from the entry point.
 import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(): void {
-  Console.writeLine("Hello!");
+  Console.WriteLine("Hello!");
 }
 ```
 
@@ -461,7 +461,7 @@ import { Console } from "@tsonic/dotnet/System.js";
 
 export async function main(): Promise<void> {
   const data = await fetchData();
-  Console.writeLine(data);
+  Console.WriteLine(data);
 }
 ```
 
@@ -472,7 +472,7 @@ import { Console } from "@tsonic/dotnet/System.js";
 
 export function main(args: string[]): void {
   for (const arg of args) {
-    Console.writeLine(arg);
+    Console.WriteLine(arg);
   }
 }
 ```
@@ -525,7 +525,7 @@ function* counter(): Generator<number> {
 
 export function main(): void {
   for (const n of counter()) {
-    Console.writeLine(n);
+    Console.WriteLine(n);
   }
 }
 ```
@@ -549,9 +549,9 @@ function* accumulator(start: number): Generator<number, void, number> {
 
 export function main(): void {
   const gen = accumulator(10);
-  Console.writeLine(gen.next().value); // 10
-  Console.writeLine(gen.next(5).value); // 15
-  Console.writeLine(gen.next(3).value); // 18
+  Console.WriteLine(gen.next().value); // 10
+  Console.WriteLine(gen.next(5).value); // 15
+  Console.WriteLine(gen.next(3).value); // 18
 }
 ```
 
@@ -569,7 +569,7 @@ async function* fetchItems(): AsyncGenerator<string> {
 
 export async function main(): Promise<void> {
   for await (const item of fetchItems()) {
-    Console.writeLine(item);
+    Console.WriteLine(item);
   }
 }
 ```
@@ -616,9 +616,9 @@ function isString(value: unknown): value is string {
 
 function process(value: string | number): void {
   if (isString(value)) {
-    Console.writeLine(value.toUpperCase()); // value is string here
+    Console.WriteLine(value.toUpperCase()); // value is string here
   } else {
-    Console.writeLine(value * 2); // value is number here
+    Console.WriteLine(value * 2); // value is number here
   }
 }
 ```
@@ -630,11 +630,11 @@ import { Console } from "@tsonic/dotnet/System.js";
 
 function handle(value: string | number | boolean): void {
   if (typeof value === "string") {
-    Console.writeLine(value.length);
+    Console.WriteLine(value.length);
   } else if (typeof value === "number") {
-    Console.writeLine(value.toFixed(2));
+    Console.WriteLine(value.toFixed(2));
   } else {
-    Console.writeLine(value ? "yes" : "no");
+    Console.WriteLine(value ? "yes" : "no");
   }
 }
 ```
@@ -649,7 +649,7 @@ function process(value: string | null): void {
     return;
   }
   // value is string here (null eliminated)
-  Console.writeLine(value.toUpperCase());
+  Console.WriteLine(value.toUpperCase());
 }
 
 function handleOptional(value?: string): void {
@@ -657,7 +657,7 @@ function handleOptional(value?: string): void {
     return;
   }
   // value is string here
-  Console.writeLine(value.length);
+  Console.WriteLine(value.length);
 }
 ```
 
@@ -726,12 +726,12 @@ import { Console } from "@tsonic/dotnet/System.js";
 
 function greetOk(name: string): void {
   // ✅
-  Console.writeLine(name);
+  Console.WriteLine(name);
 }
 
 function greetBad(name) {
   // ❌ Error: parameter needs type
-  Console.writeLine(name);
+  Console.WriteLine(name);
 }
 
 // Return types are inferred but can be explicit
@@ -746,11 +746,12 @@ Tsonic maps your directory structure directly to C# namespaces.
 
 ### The Mapping Rule
 
-**Directory path = C# namespace (default: `namingPolicy.namespaces = "clr"`)**
+**Directory path = C# namespace (hyphens removed; case preserved)**
 
 ```
-src/models/User.ts  ->  namespace MyApp.Models { class User {} }
-src/api/v1/handlers.ts  ->  namespace MyApp.Api.V1 { class Handlers {} }
+src/Models/User.ts         ->  namespace MyApp.Models { class User {} }
+src/Api/V1/Handlers.ts     ->  namespace MyApp.Api.V1 { class Handlers {} }
+src/todo-list.ts           ->  class todolist
 ```
 
 ### Root Namespace
@@ -761,7 +762,7 @@ Set via CLI or config:
 tsonic build src/App.ts --namespace MyApp
 ```
 
-Or in `tsonic.json`:
+Or in `packages/<project>/tsonic.json`:
 
 ```json
 {
@@ -777,9 +778,8 @@ The file name (without `.ts`) becomes the C# class name:
 | ---------------- | ----------------------------------------- |
 | `App.ts`         | `class App`                               |
 | `UserService.ts` | `class UserService`                       |
-| `my-utils.ts`    | `class MyUtils`                           |
-
-To override naming, set `namingPolicy` in `tsonic.json`. For example, `namingPolicy.all = "none"` disables CLR-style renaming (only hyphens are removed).
+| `my-utils.ts`    | `class myutils`                           |
+| `todo-list.ts`   | `class todolist`                          |
 
 ### Directory to Namespace Mapping
 
@@ -787,30 +787,28 @@ Each directory becomes a namespace segment:
 
 ```
 MyApp/              (root namespace)
-├── models/         -> MyApp.Models
+├── Models/         -> MyApp.Models
 │   ├── User.ts     -> MyApp.Models.User
 │   └── Product.ts  -> MyApp.Models.Product
-└── services/       -> MyApp.Services
-    └── api.ts      -> MyApp.Services.Api
+└── Services/       -> MyApp.Services
+    └── Api.ts      -> MyApp.Services.Api
 ```
 
-### Case Preservation
+### Case Preservation (No Renaming)
 
-To preserve directory casing, set `namingPolicy.namespaces` to `"none"`:
+Tsonic does not apply casing transforms. If you want CLR-style casing, name your folders/files that way.
 
 ```
-src/Models/User.ts   -> MyApp.Models.User  (capital M)
-src/models/User.ts   -> MyApp.models.User  (lowercase m)
+src/Models/User.ts   -> MyApp.Models.User
+src/models/User.ts   -> MyApp.models.User
 ```
-
-Be consistent with casing across your project.
 
 ### Static Container Classes
 
 Files with top-level exports become static classes:
 
 ```typescript
-// math.ts
+// Math.ts
 export const pi = 3.14159;
 export function add(a: number, b: number): number {
   return a + b;
@@ -824,8 +822,8 @@ namespace MyApp
 {
     public static class Math
     {
-        public static readonly double Pi = 3.14159;
-        public static double Add(double a, double b)
+        public static readonly double pi = 3.14159;
+        public static double add(double a, double b)
         {
             return a + b;
         }
@@ -838,8 +836,8 @@ namespace MyApp
 TypeScript imports resolve to C# namespace references:
 
 ```typescript
-// src/services/UserService.ts
-import { User } from "../models/User.js";
+// src/Services/UserService.ts
+import { User } from "../Models/User.js";
 
 export class UserService {
   getUser(): User {

@@ -21,19 +21,23 @@ TypeScript → IR → C# → .NET → Native Binary
 After building:
 
 ```
-project/
-├── src/
-│   └── App.ts           # Your source
-├── generated/           # Generated C# code
-│   ├── src/
-│   │   └── App.cs       # C# from your TypeScript
-│   ├── Program.cs       # Entry point wrapper
-│   ├── tsonic.csproj    # .NET project file
-│   ├── bin/             # .NET build output
-│   └── obj/             # .NET intermediate files
-├── out/
-│   └── app              # Final executable
-└── tsonic.json
+workspace/
+├── tsonic.workspace.json
+├── libs/
+└── packages/
+    └── my-app/
+        ├── tsonic.json
+        ├── src/
+        │   └── App.ts           # Your source
+        ├── generated/           # Generated C# code
+        │   ├── src/
+        │   │   └── App.cs       # C# from your TypeScript
+        │   ├── Program.cs       # Entry point wrapper
+        │   ├── tsonic.csproj    # .NET project file
+        │   ├── bin/             # .NET build output
+        │   └── obj/             # .NET intermediate files
+        └── out/
+            └── my-app           # Final executable
 ```
 
 ## Generated Files
@@ -124,8 +128,8 @@ public static class Program
 Single native binary:
 
 ```
-out/app        (Linux/macOS)
-out/app.exe    (Windows)
+packages/<project>/out/<name>      (Linux/macOS)
+packages/<project>/out/<name>.exe  (Windows)
 ```
 
 Configuration:
@@ -150,6 +154,12 @@ dist/
 │   └── MyLib.pdb     # Symbols
 └── net8.0/
     └── ...           # Multi-target
+```
+
+Library builds also emit shippable CLR bindings under:
+
+```
+dist/tsonic/bindings/
 ```
 
 Configuration:
@@ -211,14 +221,14 @@ Size increases with:
 For debugging, keep generated files:
 
 ```bash
-tsonic build src/App.ts --keep-temp
+tsonic build --keep-temp
 ```
 
 Or inspect manually:
 
 ```bash
-tsonic generate src/App.ts  # Generate C# only
-cd generated
+tsonic generate             # Generate C# only
+cd packages/<project>/generated
 dotnet build            # Build manually
 ```
 
@@ -244,10 +254,12 @@ Cross-compilation requires .NET SDK with target runtime.
 Recommended `.gitignore`:
 
 ```gitignore
-# Tsonic build output
-generated/
-out/
-dist/
+# .NET build artifacts (per-project)
+packages/*/generated/bin/
+packages/*/generated/obj/
+
+# Output executables
+packages/*/out/
 
 # .NET artifacts
 bin/
@@ -255,6 +267,9 @@ obj/
 
 # Dependencies
 node_modules/
+
+# Internal tooling artifacts (restore scratch, caches)
+.tsonic/
 ```
 
 ## Troubleshooting Builds
