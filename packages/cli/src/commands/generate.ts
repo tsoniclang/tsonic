@@ -102,8 +102,12 @@ const collectProjectLibraries = (
   const refs: AssemblyReference[] = [];
 
   for (const libPath of libraries) {
-    // Library path is relative to workspace root
-    const absolutePath = join(workspaceRoot, libPath);
+    // Workspace libraries are typically relative to workspace root, but
+    // project-scoped references (`references.libraries`) are resolved to absolute
+    // paths. Handle both deterministically.
+    const absolutePath = isAbsolute(libPath)
+      ? libPath
+      : join(workspaceRoot, libPath);
     if (!existsSync(absolutePath)) {
       continue;
     }
