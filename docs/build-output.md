@@ -144,7 +144,9 @@ Configuration:
 
 ### Library
 
-.NET class library:
+#### Managed (.NET) library
+
+Standard managed library build:
 
 ```
 dist/
@@ -162,6 +164,27 @@ Library builds also emit shippable CLR bindings under:
 dist/tsonic/bindings/
 ```
 
+#### NativeAOT (native library)
+
+When `output.nativeAot: true` for a library, Tsonic runs `dotnet publish -r <rid>` and
+copies the full publish output into `dist/`:
+
+```
+dist/
+└── net10.0/
+    ├── MyLib.dll                  # Managed DLL (copied for reflection/bindings)
+    └── linux-x64/
+        └── publish/
+            ├── libMyLib.so        # Native shared library (Linux)
+            ├── MyLib.pdb          # Optional symbols (if emitted)
+            └── ...                # Runtime/native deps as produced by dotnet publish
+```
+
+Notes:
+
+- The native output is RID-specific, so it is placed under `dist/<tfm>/<rid>/publish/`.
+- Use `output.nativeLib` to pick `"shared"` (default) vs `"static"`.
+
 Configuration:
 
 ```json
@@ -169,7 +192,21 @@ Configuration:
   "entryPoint": "src/index.ts",
   "output": {
     "type": "library",
-    "targetFrameworks": ["net10.0", "net8.0"]
+    "targetFrameworks": ["net10.0", "net8.0"],
+    "nativeAot": false
+  }
+}
+```
+
+NativeAOT library example:
+
+```json
+{
+  "output": {
+    "type": "library",
+    "targetFrameworks": ["net10.0"],
+    "nativeAot": true,
+    "nativeLib": "shared"
   }
 }
 ```
@@ -178,13 +215,22 @@ Configuration:
 
 ### NativeAOT Settings
 
-| Option          | Default | Description            |
-| --------------- | ------- | ---------------------- |
-| `nativeAot`     | `true`  | Enable AOT compilation |
-| `singleFile`    | `true`  | Single executable      |
-| `trimmed`       | `true`  | Remove unused code     |
-| `stripSymbols`  | `true`  | Remove debug info      |
-| `selfContained` | `true`  | Include runtime        |
+These defaults apply to `output.type: "executable"` unless specified in `tsonic.json`.
+
+| Option          | Default | Description                                    |
+| --------------- | ------- | ---------------------------------------------- |
+| `nativeAot`     | `true`  | Enable NativeAOT publish for executables       |
+| `singleFile`    | `true`  | Single executable (NativeAOT executables only) |
+| `trimmed`       | `true`  | Remove unused code (NativeAOT executables)     |
+| `stripSymbols`  | `true`  | Remove debug info                              |
+| `selfContained` | `true`  | Include runtime                                |
+
+For `output.type: "library"`, only these keys apply:
+
+| Option      | Default  | Description                                      |
+| ----------- | -------- | ------------------------------------------------ |
+| `nativeAot` | `false`  | Enable NativeAOT publish for libraries           |
+| `nativeLib` | `shared` | Native library kind (`shared` or `static`)       |
 
 ### Optimization
 
