@@ -153,6 +153,7 @@ describe("Project Generator", () => {
         outputConfig: {
           type: "library",
           targetFrameworks: ["net8.0", "net9.0"],
+          nativeAot: false,
           generateDocumentation: true,
           includeSymbols: true,
           packable: false,
@@ -170,6 +171,52 @@ describe("Project Generator", () => {
       );
       expect(result).to.include("<DebugType>embedded</DebugType>");
       expect(result).to.include("<IsPackable>false</IsPackable>");
+    });
+
+    it("should generate NativeAOT shared library .csproj when enabled", () => {
+      const config: BuildConfig = {
+        rootNamespace: "TestLib",
+        outputName: "testlib",
+        dotnetVersion: "net10.0",
+        outputConfig: {
+          type: "library",
+          targetFrameworks: ["net10.0"],
+          nativeAot: true,
+          nativeLib: "shared",
+          generateDocumentation: false,
+          includeSymbols: false,
+          packable: false,
+        },
+      };
+
+      const result = generateCsproj(config);
+
+      expect(result).to.include("<OutputType>Library</OutputType>");
+      expect(result).to.include("<PublishAot>true</PublishAot>");
+      expect(result).to.include("<NativeLib>Shared</NativeLib>");
+      expect(result).to.include("<SelfContained>true</SelfContained>");
+    });
+
+    it("should generate NativeAOT static library .csproj when requested", () => {
+      const config: BuildConfig = {
+        rootNamespace: "TestLib",
+        outputName: "testlib",
+        dotnetVersion: "net10.0",
+        outputConfig: {
+          type: "library",
+          targetFrameworks: ["net10.0"],
+          nativeAot: true,
+          nativeLib: "static",
+          generateDocumentation: false,
+          includeSymbols: false,
+          packable: false,
+        },
+      };
+
+      const result = generateCsproj(config);
+
+      expect(result).to.include("<PublishAot>true</PublishAot>");
+      expect(result).to.include("<NativeLib>Static</NativeLib>");
     });
   });
 });

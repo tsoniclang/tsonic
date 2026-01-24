@@ -426,6 +426,8 @@ export const generateCommand = (
               targetFrameworks: config.outputConfig.targetFrameworks ?? [
                 config.dotnetVersion,
               ],
+              nativeAot: config.outputConfig.nativeAot ?? false,
+              nativeLib: config.outputConfig.nativeLib,
               generateDocumentation:
                 config.outputConfig.generateDocumentation ?? true,
               includeSymbols: config.outputConfig.includeSymbols ?? true,

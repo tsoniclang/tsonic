@@ -12,6 +12,12 @@ export type TsonicOutputConfig = {
   readonly name?: string;
   // Executable options
   readonly nativeAot?: boolean;
+  /**
+   * Native library kind when building `output.type = "library"` with NativeAOT.
+   * - "shared": OS-level dynamic library (.so/.dylib/.dll)
+   * - "static": OS-level static library (.a/.lib)
+   */
+  readonly nativeLib?: "shared" | "static";
   readonly singleFile?: boolean;
   readonly trimmed?: boolean;
   readonly stripSymbols?: boolean;

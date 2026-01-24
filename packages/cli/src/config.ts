@@ -237,6 +237,27 @@ export const loadProjectConfig = (
     };
   }
 
+  const nativeAot = config.output?.nativeAot;
+  if (nativeAot !== undefined && typeof nativeAot !== "boolean") {
+    return {
+      ok: false,
+      error: `${PROJECT_CONFIG_FILE}: 'output.nativeAot' must be a boolean when present`,
+    };
+  }
+
+  const nativeLib = config.output?.nativeLib;
+  if (
+    nativeLib !== undefined &&
+    nativeLib !== "shared" &&
+    nativeLib !== "static"
+  ) {
+    return {
+      ok: false,
+      error:
+        `${PROJECT_CONFIG_FILE}: 'output.nativeLib' must be 'shared' or 'static' when present (got '${String(nativeLib)}')`,
+    };
+  }
+
   return { ok: true, value: config };
 };
 
@@ -339,6 +360,8 @@ const resolveOutputConfig = (
       ...baseConfig,
       targetFrameworks:
         configOutput.targetFrameworks ?? [workspaceConfig.dotnetVersion],
+      nativeAot: cliOptions.noAot ? false : (configOutput.nativeAot ?? false),
+      nativeLib: configOutput.nativeLib ?? "shared",
       generateDocumentation:
         cliOptions.generateDocs ?? configOutput.generateDocumentation ?? true,
       includeSymbols:

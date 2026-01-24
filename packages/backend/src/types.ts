@@ -40,6 +40,19 @@ export type ExecutableConfig = {
 export type LibraryConfig = {
   readonly type: "library";
   readonly targetFrameworks: readonly string[];
+  /**
+   * When true, also supports NativeAOT publish for this library.
+   *
+   * NOTE: NativeAOT for libraries produces a native library (shared/static),
+   * not a managed CLR .dll assembly.
+   */
+  readonly nativeAot: boolean;
+  /**
+   * Native library kind when `nativeAot` is enabled.
+   * - "shared": .so / .dylib / .dll
+   * - "static": .a / .lib
+   */
+  readonly nativeLib?: "shared" | "static";
   readonly generateDocumentation: boolean;
   readonly includeSymbols: boolean;
   readonly packable: boolean;
