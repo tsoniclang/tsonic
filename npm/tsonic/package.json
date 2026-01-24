@@ -1,13 +1,13 @@
 {
   "name": "tsonic",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "TypeScript to C# to NativeAOT compiler",
   "type": "module",
   "bin": {
     "tsonic": "./bin.js"
   },
   "dependencies": {
-    "@tsonic/cli": "0.0.29"
+    "@tsonic/cli": "0.0.30"
   },
   "keywords": [
     "tsonic",
