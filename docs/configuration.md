@@ -80,10 +80,20 @@ Minimal executable project:
 `output.type`:
 
 - `"executable"` (default when `entryPoint` is provided)
-  - Uses NativeAOT by default.
+  - Uses NativeAOT by default (`output.nativeAot: true`).
 - `"library"` (default when `entryPoint` is omitted)
   - Copies artifacts to `dist/` and emits `dist/tsonic/bindings/`.
+  - Can also publish as a NativeAOT **native library** when `output.nativeAot: true`.
 - `"console-app"` (non-NativeAOT executable)
+
+Common `output.*` fields:
+
+| Field | Applies To | Default | Notes |
+| --- | --- | --- | --- |
+| `nativeAot` | executable | `true` | NativeAOT publish |
+| `nativeAot` | library | `false` | When `true`, runs `dotnet publish -r <rid>` and copies output to `dist/<tfm>/<rid>/publish/` |
+| `nativeLib` | library | `shared` | Only when `nativeAot: true` (`shared` or `static`) |
+| `targetFrameworks` | library | `[dotnetVersion]` | Multi-target supported |
 
 ### `references.libraries` (workspace-internal)
 

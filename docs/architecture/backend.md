@@ -238,6 +238,19 @@ type ExecutableConfig = {
 type LibraryConfig = {
   type: "library";
   targetFrameworks: string[];
+  /**
+   * When true, also supports NativeAOT publish for this library.
+   *
+   * NOTE: NativeAOT for libraries produces a native library (shared/static),
+   * not a managed CLR .dll assembly.
+   */
+  nativeAot: boolean;
+  /**
+   * Native library kind when `nativeAot` is enabled.
+   * - "shared": .so / .dylib / .dll
+   * - "static": .a / .lib
+   */
+  nativeLib?: "shared" | "static";
   generateDocumentation: boolean;
   includeSymbols: boolean;
   packable: boolean;
