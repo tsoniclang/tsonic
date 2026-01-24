@@ -3,7 +3,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { checkDotnetInstalled } from "@tsonic/backend";
 import {
   findWorkspaceConfig,
@@ -81,7 +81,7 @@ export const runCli = async (args: string[]): Promise<number> => {
 
   // Workspace is mandatory: locate tsonic.workspace.json
   const workspaceConfigPath = parsed.options.config
-    ? join(process.cwd(), parsed.options.config)
+    ? resolve(process.cwd(), parsed.options.config)
     : findWorkspaceConfig(process.cwd());
 
   if (!workspaceConfigPath) {

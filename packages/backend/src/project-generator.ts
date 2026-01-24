@@ -161,13 +161,23 @@ const generateLibraryProperties = (
       ? generatePackageMetadata(libConfig.packageMetadata)
       : "";
 
+  const nativeAotSettings = libConfig.nativeAot
+    ? `
+
+    <!-- NativeAOT native library settings -->
+    <PublishAot>true</PublishAot>
+    <NativeLib>${capitalizeFirst(libConfig.nativeLib ?? "shared")}</NativeLib>
+    <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
+    <SelfContained>true</SelfContained>`
+    : "";
+
   return `  <PropertyGroup>
     <OutputType>Library</OutputType>
     ${targetProp}
     <RootNamespace>${config.rootNamespace}</RootNamespace>
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>false</ImplicitUsings>${docSettings}${symbolSettings}
+    <ImplicitUsings>false</ImplicitUsings>${docSettings}${symbolSettings}${nativeAotSettings}
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>${libConfig.packable}</IsPackable>${packageSettings}
   </PropertyGroup>`;

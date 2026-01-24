@@ -292,46 +292,89 @@ const buildLibrary = (
   config: ResolvedConfig,
   generatedDir: string
 ): Result<{ outputPath: string }, string> => {
-  const { outputName, quiet, verbose, workspaceRoot } = config;
+  const { outputName, quiet, verbose, workspaceRoot, rid } = config;
   const targetFrameworks = config.outputConfig.targetFrameworks ?? [
     config.dotnetVersion,
   ];
+  const nativeAot = config.outputConfig.nativeAot ?? false;
 
   const nugetConfigResult = resolveNugetConfigFile(workspaceRoot);
   if (!nugetConfigResult.ok) return nugetConfigResult;
 
-  // Run dotnet build
-  const buildArgs = [
-    "build",
-    "tsonic.csproj",
-    "-c",
-    "Release",
-    "--nologo",
-    "--configfile",
-    nugetConfigResult.value,
-  ];
+  if (nativeAot) {
+    // Run dotnet publish for NativeAOT libraries (RID-specific)
+    for (const framework of targetFrameworks) {
+      const publishArgs = [
+        "publish",
+        "tsonic.csproj",
+        "-c",
+        "Release",
+        "-r",
+        rid,
+        "-f",
+        framework,
+        "--nologo",
+        "--configfile",
+        nugetConfigResult.value,
+      ];
 
-  if (quiet) {
-    buildArgs.push("--verbosity", "quiet");
-  } else if (verbose) {
-    buildArgs.push("--verbosity", "detailed");
+      if (quiet) {
+        publishArgs.push("--verbosity", "quiet");
+      } else if (verbose) {
+        publishArgs.push("--verbosity", "detailed");
+      } else {
+        publishArgs.push("--verbosity", "minimal");
+      }
+
+      const publishResult = spawnSync("dotnet", publishArgs, {
+        cwd: generatedDir,
+        stdio: verbose ? "inherit" : "pipe",
+        encoding: "utf-8",
+      });
+
+      if (publishResult.status !== 0) {
+        const errorMsg =
+          publishResult.stderr || publishResult.stdout || "Unknown error";
+        return {
+          ok: false,
+          error: `dotnet publish failed:\n${errorMsg}`,
+        };
+      }
+    }
   } else {
-    buildArgs.push("--verbosity", "minimal");
-  }
+    // Run dotnet build (managed library)
+    const buildArgs = [
+      "build",
+      "tsonic.csproj",
+      "-c",
+      "Release",
+      "--nologo",
+      "--configfile",
+      nugetConfigResult.value,
+    ];
 
-  const buildResult = spawnSync("dotnet", buildArgs, {
-    cwd: generatedDir,
-    stdio: verbose ? "inherit" : "pipe",
-    encoding: "utf-8",
-  });
+    if (quiet) {
+      buildArgs.push("--verbosity", "quiet");
+    } else if (verbose) {
+      buildArgs.push("--verbosity", "detailed");
+    } else {
+      buildArgs.push("--verbosity", "minimal");
+    }
 
-  if (buildResult.status !== 0) {
-    const errorMsg =
-      buildResult.stderr || buildResult.stdout || "Unknown error";
-    return {
-      ok: false,
-      error: `dotnet build failed:\n${errorMsg}`,
-    };
+    const buildResult = spawnSync("dotnet", buildArgs, {
+      cwd: generatedDir,
+      stdio: verbose ? "inherit" : "pipe",
+      encoding: "utf-8",
+    });
+
+    if (buildResult.status !== 0) {
+      const errorMsg =
+        buildResult.stderr || buildResult.stdout || "Unknown error";
+      return {
+        ok: false,
+        error: `dotnet build failed:\n${errorMsg}`,
+      };
+    }
   }
 
   // Copy output library artifacts
@@ -348,6 +391,7 @@ const buildLibrary = (
 
     for (const framework of targetFrameworks) {
       const buildDir = join(generatedDir, "bin", "Release", framework);
+      const artifactDir = nativeAot ? join(buildDir, rid) : buildDir;
 
       if (!existsSync(buildDir)) {
         continue;
@@ -359,7 +403,7 @@ const buildLibrary = (
       }
 
       // Copy .dll
-      const dllSource = join(buildDir, `${outputName}.dll`);
+      const dllSource = join(artifactDir, `${outputName}.dll`);
       if (existsSync(dllSource)) {
         const dllTarget = join(frameworkOutputDir, `${outputName}.dll`);
         copyFileSync(dllSource, dllTarget);
@@ -367,7 +411,7 @@ const buildLibrary = (
       }
 
       // Copy .xml (documentation)
-      const xmlSource = join(buildDir, `${outputName}.xml`);
+      const xmlSource = join(artifactDir, `${outputName}.xml`);
       if (existsSync(xmlSource)) {
         const xmlTarget = join(frameworkOutputDir, `${outputName}.xml`);
         copyFileSync(xmlSource, xmlTarget);
@@ -375,11 +419,32 @@ const buildLibrary = (
       }
 
       // Copy .pdb (symbols)
-      const pdbSource = join(buildDir, `${outputName}.pdb`);
+      const pdbSource = join(artifactDir, `${outputName}.pdb`);
       if (existsSync(pdbSource)) {
         const pdbTarget = join(frameworkOutputDir, `${outputName}.pdb`);
         copyFileSync(pdbSource, pdbTarget);
         copiedFiles.push(relative(config.projectRoot, pdbTarget));
+      }
+
+      if (nativeAot) {
+        const publishDir = join(buildDir, rid, "publish");
+        if (!existsSync(publishDir)) {
+          return {
+            ok: false,
+            error: `NativeAOT publish output not found at ${publishDir}`,
+          };
+        }
+
+        const publishOutDir = join(frameworkOutputDir, rid, "publish");
+        rmSync(publishOutDir, { recursive: true, force: true });
+        mkdirSync(publishOutDir, { recursive: true });
+
+        const publishEntries = readdirSync(publishDir, { withFileTypes: true });
+        for (const entry of publishEntries) {
+          const src = join(publishDir, entry.name);
+          const dst = join(publishOutDir, entry.name);
+          cpSync(src, dst, { recursive: entry.isDirectory(), force: true });
+        }
       }
     }
 
