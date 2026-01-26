@@ -1139,6 +1139,14 @@ const lowerStatement = (
         body: lowerStatement(stmt.body, ctx),
       };
 
+    case "forInStatement":
+      return {
+        ...stmt,
+        variable: lowerPattern(stmt.variable, ctx),
+        expression: lowerExpression(stmt.expression, ctx),
+        body: lowerStatement(stmt.body, ctx),
+      };
+
     case "switchStatement":
       return {
         ...stmt,

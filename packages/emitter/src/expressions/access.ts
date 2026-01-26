@@ -298,7 +298,9 @@ export const emitMemberAccess = (
 
   if (expr.isComputed) {
     // Check if this is array index access
-    const objectType = expr.object.inferredType;
+    const objectType = expr.object.inferredType
+      ? stripNullish(expr.object.inferredType)
+      : undefined;
     const isArrayType = objectType?.kind === "arrayType";
 
     // TypeScript array access - unified for both js and dotnet modes

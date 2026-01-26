@@ -1,5 +1,5 @@
 /**
- * Loop statement emitters (while, for, for-of)
+ * Loop statement emitters (while, for, for-of, for-in)
  */
 
 import { IrStatement, IrExpression } from "@tsonic/frontend";
@@ -8,6 +8,7 @@ import { emitExpression } from "../../expression-emitter.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
+import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -295,5 +296,46 @@ export const emitForOfStatement = (
       : bodyCode;
 
   const code = `${ind}${foreachKeyword} (var ${tempVar} in ${exprFrag.text})\n${combinedBody}`;
+  return [code, dedent(bodyContext)];
+};
+
+/**
+ * Emit a for-in statement
+ *
+ * TypeScript: for (const k in dict) { ... }
+ * C#: foreach (var k in dict.Keys) { ... }
+ *
+ * Note: We currently support for-in only for `Record<string, T>` / dictionaryType receivers.
+ */
+export const emitForInStatement = (
+  stmt: Extract<IrStatement, { kind: "forInStatement" }>,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  const ind = getIndent(context);
+  const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
+
+  if (stmt.variable.kind !== "identifierPattern") {
+    throw new Error(`for...in requires an identifier binding pattern`);
+  }
+
+  const receiverType = stmt.expression.inferredType
+    ? resolveTypeAlias(stripNullish(stmt.expression.inferredType), context)
+    : undefined;
+
+  if (
+    receiverType?.kind !== "dictionaryType" ||
+    receiverType.keyType.kind !== "primitiveType" ||
+    receiverType.keyType.name !== "string"
+  ) {
+    throw new Error(
+      `for...in is only supported for Record<string, T> dictionaries (got ${receiverType?.kind ?? "unknown"}).`
+    );
+  }
+
+  const varName = escapeCSharpIdentifier(stmt.variable.name);
+  const iterExpr = `(${exprFrag.text}).Keys`;
+
+  const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(exprContext));
+  const code = `${ind}foreach (var ${varName} in ${iterExpr})\n${bodyCode}`;
   return [code, dedent(bodyContext)];
 };

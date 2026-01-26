@@ -25,6 +25,7 @@ export type IrStatement =
   | IrWhileStatement
   | IrForStatement
   | IrForOfStatement
+  | IrForInStatement
   | IrSwitchStatement
   | IrThrowStatement
   | IrTryStatement
@@ -233,6 +234,13 @@ export type IrForOfStatement = {
   readonly body: IrStatement;
   /** True for `for await (... of ...)` - async iteration */
   readonly isAwait: boolean;
+};
+
+export type IrForInStatement = {
+  readonly kind: "forInStatement";
+  readonly variable: IrPattern;
+  readonly expression: IrExpression;
+  readonly body: IrStatement;
 };
 
 export type IrSwitchStatement = {
