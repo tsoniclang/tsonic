@@ -2125,6 +2125,13 @@ export const createTypeSystem = (
 	      return memberType.kind === "unknownType" ? undefined : memberType;
 	    }
 
+	    // Element access: const first = items[0]
+	    // DETERMINISTIC: Infer element type from a deterministically typed receiver.
+	    if (ts.isElementAccessExpression(init)) {
+	      const inferred = inferExpressionType(init, new Map());
+	      return inferred && inferred.kind !== "unknownType" ? inferred : undefined;
+	    }
+
 	    return undefined;
 	  };
 
