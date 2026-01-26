@@ -9,6 +9,7 @@ import { emitTypeArguments, generateSpecializedName } from "./identifiers.js";
 import { emitType } from "../type-emitter.js";
 import { formatPostfixExpressionText } from "./parentheses.js";
 import { emitMemberAccess } from "./access.js";
+import { containsTypeParameter } from "../core/type-resolution.js";
 
 /**
  * Ref/out/in parameter handling:
@@ -154,8 +155,29 @@ const isCSharpBuiltinType = (typeStr: string): boolean => {
  * Ensure a C# type string has global:: prefix for unambiguous resolution
  */
 const ensureGlobalPrefix = (typeStr: string): string => {
-  // Skip primitives and already-prefixed types
-  if (typeStr.startsWith("global::") || isCSharpBuiltinType(typeStr)) {
+  // Skip already-prefixed types
+  if (typeStr.startsWith("global::")) {
+    return typeStr;
+  }
+
+  // Handle pointer types (T*). `global::int*` is invalid; qualify the element type only.
+  if (typeStr.endsWith("*")) {
+    const inner = typeStr.slice(0, -1);
+    return `${ensureGlobalPrefix(inner)}*`;
+  }
+
+  // Handle arrays (T[], T[,], jagged arrays, ...). `global::string[]` is invalid; qualify
+  // the element type only.
+  const arrayMatch = /(\[[,\s]*\])$/.exec(typeStr);
+  if (arrayMatch) {
+    const suffix = arrayMatch[1];
+    if (!suffix) return typeStr;
+    const inner = typeStr.slice(0, -suffix.length);
+    return `${ensureGlobalPrefix(inner)}${suffix}`;
+  }
+
+  // Skip primitives (and other builtin keyword types) after handling suffix forms.
+  if (isCSharpBuiltinType(typeStr)) {
     return typeStr;
   }
 
@@ -175,6 +197,15 @@ const registerJsonAotType = (
 ): void => {
   if (!type) return;
   if (!context.options.jsonAotRegistry) return;
+
+  // NativeAOT JSON source generation requires CLOSED types.
+  // If the type contains any generic parameters in the current scope (T, U, ...),
+  // we cannot emit `[JsonSerializable(typeof(T))]` because `T` is not in scope in the
+  // generated context class. Skip registration to keep emission valid.
+  if (containsTypeParameter(type, context.typeParameters ?? new Set())) {
+    context.options.jsonAotRegistry.needsJsonAot = true;
+    return;
+  }
 
   const registry = context.options.jsonAotRegistry;
   const [rawTypeStr] = emitType(type, { ...context, qualifyLocalTypes: true });

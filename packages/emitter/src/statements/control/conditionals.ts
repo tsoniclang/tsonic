@@ -16,9 +16,11 @@ import {
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
+  getAllPropertySignatures,
   isDefinitelyValueType,
 } from "../../core/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { emitBooleanCondition, toBooleanCondition } from "../../core/boolean-context.js";
 
 /**
  * Information extracted from a type predicate guard call.
@@ -51,6 +53,147 @@ type InstanceofGuardInfo = {
   readonly escapedNarrow: string;
   readonly narrowedMap: Map<string, NarrowedBinding>;
   readonly targetType?: IrType;
+};
+
+/**
+ * Information extracted from an `("prop" in x)` condition.
+ *
+ * This is used for union narrowing over structural union members (Union<T1..Tn>):
+ *   if ("error" in auth) { ... } → if (auth.IsN()) { var auth__N_k = auth.AsN(); ... }
+ *
+ * NOTE: We only support the common "2-member union" narrowing case today:
+ * - RHS must be an identifier
+ * - RHS inferred type must resolve to unionType (arity 2..8)
+ * - LHS must be a string literal
+ * - The property must exist on exactly ONE union member (so narrowing is single-type)
+ */
+type InGuardInfo = {
+  readonly originalName: string;
+  readonly propertyName: string;
+  readonly memberN: number;
+  readonly unionArity: number;
+  readonly ctxWithId: EmitterContext;
+  readonly narrowedName: string;
+  readonly escapedOrig: string;
+  readonly escapedNarrow: string;
+  readonly narrowedMap: Map<string, NarrowedBinding>;
+};
+
+/**
+ * Check if a local nominal type (class/interface) has a property with the given TS name.
+ */
+const hasLocalProperty = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  propertyName: string,
+  context: EmitterContext
+): boolean => {
+  if (!context.localTypes) return false;
+
+  const info = context.localTypes.get(type.name);
+  if (!info) return false;
+
+  if (info.kind === "interface") {
+    const props = getAllPropertySignatures(type, context);
+    return props?.some((p) => p.name === propertyName) ?? false;
+  }
+
+  if (info.kind === "class") {
+    return info.members.some(
+      (m) => m.kind === "propertyDeclaration" && m.name === propertyName
+    );
+  }
+
+  return false;
+};
+
+/**
+ * Try to extract guard info from an `("prop" in x)` binary expression.
+ */
+const tryResolveInGuard = (
+  condition: IrExpression,
+  context: EmitterContext
+): InGuardInfo | undefined => {
+  if (condition.kind !== "binary") return undefined;
+  if (condition.operator !== "in") return undefined;
+
+  // LHS must be a string literal
+  if (condition.left.kind !== "literal") return undefined;
+  if (typeof condition.left.value !== "string") return undefined;
+
+  // RHS must be an identifier (the name we can narrow)
+  if (condition.right.kind !== "identifier") return undefined;
+
+  const propertyName = condition.left.value;
+  const originalName = condition.right.name;
+
+  const unionSourceType = condition.right.inferredType;
+  if (!unionSourceType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
+  if (resolved.kind !== "unionType") return undefined;
+
+  const unionArity = resolved.types.length;
+  if (unionArity < 2 || unionArity > 8) return undefined;
+
+  // Find which union members contain the property.
+  const matchingMembers: number[] = [];
+  for (let i = 0; i < resolved.types.length; i++) {
+    const member = resolved.types[i];
+    if (!member || member.kind !== "referenceType") continue;
+    if (hasLocalProperty(member, propertyName, context)) {
+      matchingMembers.push(i + 1);
+    }
+  }
+
+  // Only support the common "exactly one matching member" narrowing case.
+  if (matchingMembers.length !== 1) return undefined;
+
+  const memberN = matchingMembers[0];
+  if (!memberN) return undefined;
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+
+  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const escapedOrig = escapeCSharpIdentifier(originalName);
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
+
+  const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+  const memberType = resolved.types[memberN - 1];
+  narrowedMap.set(originalName, {
+    kind: "rename",
+    name: narrowedName,
+    type: memberType,
+  });
+
+  return {
+    originalName,
+    propertyName,
+    memberN,
+    unionArity,
+    ctxWithId,
+    narrowedName,
+    escapedOrig,
+    escapedNarrow,
+    narrowedMap,
+  };
+};
+
+/**
+ * Conservative check: does a statement definitely terminate control flow?
+ * Used to apply post-if narrowing in patterns like:
+ *   if (guard(x)) return ...;
+ *   // x is now narrowed in the remainder of the block (2-member unions only)
+ */
+const isDefinitelyTerminating = (stmt: IrStatement): boolean => {
+  if (stmt.kind === "returnStatement" || stmt.kind === "throwStatement") {
+    return true;
+  }
+  if (stmt.kind === "blockStatement") {
+    const last = stmt.statements[stmt.statements.length - 1];
+    return last ? isDefinitelyTerminating(last) : false;
+  }
+  return false;
 };
 
 /**
@@ -325,111 +468,6 @@ const emitForcedBlockWithPreamble = (
 };
 
 /**
- * Check if an expression's inferred type is boolean
- */
-const isBooleanCondition = (expr: IrExpression): boolean => {
-  const type = expr.inferredType;
-  if (!type) return false;
-  return type.kind === "primitiveType" && type.name === "boolean";
-};
-
-/**
- * Convert an expression to a valid C# boolean condition.
- * In TypeScript, any value can be used in a boolean context (truthy/falsy).
- * In C#, only boolean expressions are valid conditions.
- *
- * For non-boolean expressions:
- * - Reference types (objects, arrays): emit `expr != null`
- * - Numbers: emit a JS-truthiness check (0 and NaN are falsy)
- * - Strings: emit `!string.IsNullOrEmpty(expr)`
- */
-const toBooleanCondition = (
-  expr: IrExpression,
-  emittedText: string,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  // Literal truthiness can be fully resolved without re-evaluating anything.
-  if (expr.kind === "literal") {
-    if (expr.value === null || expr.value === undefined) {
-      return ["false", context];
-    }
-    if (typeof expr.value === "boolean") {
-      return [expr.value ? "true" : "false", context];
-    }
-    if (typeof expr.value === "number") {
-      return [expr.value === 0 ? "false" : "true", context];
-    }
-    if (typeof expr.value === "string") {
-      return [expr.value.length === 0 ? "false" : "true", context];
-    }
-  }
-
-  // If already boolean, use as-is
-  if (isBooleanCondition(expr)) {
-    return [emittedText, context];
-  }
-
-  // For reference types (non-primitive), add != null check
-  const type = expr.inferredType;
-  if (type && type.kind !== "primitiveType") {
-    // Special-case literalType (which behaves like its primitive base) to avoid `0 != null` etc.
-    if (type.kind === "literalType") {
-      if (typeof type.value === "boolean") {
-        return [type.value ? "true" : "false", context];
-      }
-      if (typeof type.value === "number") {
-        return [type.value === 0 ? "false" : "true", context];
-      }
-      if (typeof type.value === "string") {
-        return [type.value.length === 0 ? "false" : "true", context];
-      }
-    }
-    return [`${emittedText} != null`, context];
-  }
-
-  // Default: assume it's a reference type and add null check
-  // This handles cases where type inference didn't work
-  if (!type) {
-    return [`${emittedText} != null`, context];
-  }
-
-  // For primitives that are not boolean, just use as-is for now
-  if (type.kind === "primitiveType") {
-    switch (type.name) {
-      case "null":
-      case "undefined":
-        return ["false", context];
-
-      case "string":
-        return [`!string.IsNullOrEmpty(${emittedText})`, context];
-
-      case "int":
-        return [`${emittedText} != 0`, context];
-
-      case "char":
-        return [`${emittedText} != '\\0'`, context];
-
-      case "number": {
-        // JS truthiness for numbers: falsy iff 0 or NaN.
-        // Use a pattern var to avoid evaluating the expression twice.
-        const nextId = (context.tempVarId ?? 0) + 1;
-        const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-        const tmp = `__tsonic_truthy_num_${nextId}`;
-        return [
-          `(${emittedText} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
-          ctxWithId,
-        ];
-      }
-
-      case "boolean":
-        return [emittedText, context];
-    }
-  }
-
-  return [emittedText, context];
-};
-
-/**
  * Emit an if statement
  */
 export const emitIfStatement = (
@@ -481,6 +519,91 @@ export const emitIfStatement = (
 
       return [code, finalContext];
     }
+  }
+
+  // Case A3: if ("error" in auth) { ... }
+  // Union 'in' narrowing rewrite → if (auth.IsN()) { var auth__N_k = auth.AsN(); ... }
+  const inGuard = tryResolveInGuard(stmt.condition, context);
+  if (inGuard) {
+    const {
+      originalName,
+      memberN,
+      unionArity,
+      ctxWithId,
+      escapedOrig,
+      escapedNarrow,
+      narrowedMap,
+    } = inGuard;
+
+    const condText = `${escapedOrig}.Is${memberN}()`;
+
+    const thenCtx: EmitterContext = {
+      ...indent(ctxWithId),
+      narrowedBindings: narrowedMap,
+    };
+
+    const thenInd = getIndent(thenCtx);
+    const castLine = `${thenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
+
+    const [thenCode, thenBodyCtx] = emitForcedBlockWithPreamble(
+      castLine,
+      stmt.thenStatement,
+      thenCtx,
+      ind
+    );
+
+    let finalContext = dedent(thenBodyCtx);
+
+    let code = `${ind}if (${condText})\n${thenCode}`;
+
+    // Optional else branch narrowing (2-member unions only)
+    if (stmt.elseStatement) {
+      if (unionArity === 2) {
+        const otherMemberN = memberN === 1 ? 2 : 1;
+        const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+        const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+        elseNarrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+
+        const elseCtx: EmitterContext = {
+          ...indent({ ...finalContext, narrowedBindings: elseNarrowedMap }),
+        };
+
+        const [elseCode, elseCtxAfter] = emitStatement(
+          stmt.elseStatement,
+          elseCtx
+        );
+        code += `\n${ind}else\n${elseCode}`;
+        finalContext = dedent(elseCtxAfter);
+        finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+        return [code, finalContext];
+      }
+
+      // If we can't narrow ELSE safely, emit it without narrowing.
+      const [elseCode, elseCtx] = emitStatement(
+        stmt.elseStatement,
+        indent({ ...finalContext, narrowedBindings: ctxWithId.narrowedBindings })
+      );
+      code += `\n${ind}else\n${elseCode}`;
+      finalContext = dedent(elseCtx);
+      finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+      return [code, finalContext];
+    }
+
+    // Post-if narrowing for early-exit patterns (2-member unions only):
+    // if (auth.Is2()) return ...;
+    // // auth is now member 1 in the remainder
+    if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
+      const otherMemberN = memberN === 1 ? 2 : 1;
+      const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+      const postMap = new Map(ctxWithId.narrowedBindings ?? []);
+      postMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+      finalContext = { ...finalContext, narrowedBindings: postMap };
+      return [code, finalContext];
+    }
+
+    // Restore narrowedBindings to the incoming scope.
+    finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+    return [code, finalContext];
   }
 
   // Case A2: if (x instanceof Foo) { ... }
@@ -786,12 +909,11 @@ export const emitIfStatement = (
       type: strippedType,
     });
 
-    // Emit condition
-    const [condFrag, condContext] = emitExpression(stmt.condition, context);
-    const [condText, condCtxAfterCond] = toBooleanCondition(
+    // Emit condition (boolean context)
+    const [condText, condCtxAfterCond] = emitBooleanCondition(
       stmt.condition,
-      condFrag.text,
-      condContext
+      (e, ctx) => emitExpression(e, ctx),
+      context
     );
 
     // Apply narrowing to appropriate branch
@@ -836,11 +958,10 @@ export const emitIfStatement = (
   }
 
   // Standard if-statement emission (no narrowing)
-  const [condFrag, condContext] = emitExpression(stmt.condition, context);
-  const [condText, condCtxAfterCond] = toBooleanCondition(
+  const [condText, condCtxAfterCond] = emitBooleanCondition(
     stmt.condition,
-    condFrag.text,
-    condContext
+    (e, ctx) => emitExpression(e, ctx),
+    context
   );
 
   const [thenCode, thenContext] = emitStatement(

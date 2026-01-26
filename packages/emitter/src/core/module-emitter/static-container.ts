@@ -31,7 +31,8 @@ export const hasMatchingClassName = (
   return declarations.some(
     (decl) =>
       (decl.kind === "classDeclaration" ||
-        decl.kind === "interfaceDeclaration") &&
+        decl.kind === "interfaceDeclaration" ||
+        decl.kind === "enumDeclaration") &&
       decl.name === className
   );
 };

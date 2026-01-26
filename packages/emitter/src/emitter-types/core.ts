@@ -26,6 +26,14 @@ export type ModuleIdentity = {
    * Used to select namingPolicy bucket for value imports.
    */
   readonly exportedValueKinds?: ReadonlyMap<string, "function" | "variable">;
+  /**
+   * Local type index for this module.
+   *
+   * Used for import resolution of local type aliases:
+   * - structural aliases (objectType) import as `${Name}__Alias`
+   * - non-structural aliases are erased to their underlying type at emission time
+   */
+  readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
 };
 
 /**

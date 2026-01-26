@@ -9,9 +9,10 @@
  */
 
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
-import { EmitterContext, ImportBinding } from "../types.js";
+import { EmitterContext, ImportBinding, LocalTypeInfo } from "../types.js";
 import { resolveImportPath } from "./module-map.js";
 import { emitCSharpName } from "../naming-policy.js";
+import { emitType } from "../type-emitter.js";
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.
@@ -75,6 +76,7 @@ export const processImports = (
               actualExportName,
               targetModule.hasTypeCollision,
               targetModule.exportedValueKinds,
+              targetModule.localTypes,
               ctx
             );
             if (binding) {
@@ -168,6 +170,7 @@ const createImportBinding = (
   resolvedExportName: string,
   hasTypeCollision: boolean = false,
   exportedValueKinds: ReadonlyMap<string, "function" | "variable"> | undefined,
+  targetLocalTypes: ReadonlyMap<string, LocalTypeInfo> | undefined,
   context: EmitterContext
 ): { localName: string; importBinding: ImportBinding } | null => {
   const localName = spec.localName;
@@ -182,8 +185,48 @@ const createImportBinding = (
     const isType = spec.isType === true;
 
     if (isType) {
-      // Type import: clrName is the type's FQN at namespace level
-      // Types are emitted at namespace level, not inside container class
+      const localType = targetLocalTypes?.get(resolvedExportName);
+
+      // Type aliases:
+      // - Structural aliases (`type T = { ... }`) are emitted as `T__Alias` classes
+      // - Non-structural aliases are erased to their underlying type at emission time
+      if (localType?.kind === "typeAlias") {
+        if (localType.type.kind === "objectType") {
+          return {
+            localName,
+            importBinding: {
+              kind: "type",
+              clrName: `global::${namespace}.${resolvedExportName}__Alias`,
+            },
+          };
+        }
+
+        if (localType.typeParameters.length > 0) {
+          throw new Error(
+            `ICE: Cannot import generic type alias '${resolvedExportName}' from '${namespace}'. Use a class/interface instead.`
+          );
+        }
+
+        const [typeName] = emitType(localType.type, {
+          ...context,
+          localTypes: targetLocalTypes,
+          moduleNamespace: namespace,
+          // Always fully qualify local types from the target module when erasing aliases,
+          // so the resulting C# type is usable across files.
+          qualifyLocalTypes: true,
+        });
+
+        return {
+          localName,
+          importBinding: {
+            kind: "type",
+            clrName: typeName,
+          },
+        };
+      }
+
+      // Type import: clrName is the type's FQN at namespace level.
+      // (Classes/interfaces/enums are emitted at namespace scope.)
       return {
         localName,
         importBinding: {

@@ -470,7 +470,7 @@ const collectInterfaceProps = (
  * → choose Result__0<T,E>
  *
  * Matching rules (conservative):
- * - Only considers union members that are referenceTypes to local interfaces.
+ * - Only considers union members that are referenceTypes to local interfaces or classes.
  * - Object literal keys must be a subset of the candidate's property names.
  * - All *required* (non-optional) candidate properties must be present in the literal.
  *
@@ -508,17 +508,37 @@ export const selectUnionMemberForObjectLiteral = (
       resolved.kind === "referenceType" ? resolved : (member as typeof member);
 
     const info = context.localTypes.get(ref.name);
-    if (!info || info.kind !== "interface") continue;
+    if (!info) continue;
 
-    const props = getAllPropertySignatures(ref, context);
-    if (!props) continue;
+    // Interface members: use property signatures (includes inherited interfaces).
+    if (info.kind === "interface") {
+      const props = getAllPropertySignatures(ref, context);
+      if (!props) continue;
 
-    const allProps = new Set(props.map((p) => p.name));
-    const requiredProps = new Set(
-      props.filter((p) => !p.isOptional).map((p) => p.name)
-    );
+      const allProps = new Set(props.map((p) => p.name));
+      const requiredProps = new Set(
+        props.filter((p) => !p.isOptional).map((p) => p.name)
+      );
 
-    candidates.push({ ref, allProps, requiredProps });
+      candidates.push({ ref, allProps, requiredProps });
+      continue;
+    }
+
+    // Class members: use property declarations.
+    // Anonymous object literal synthesis (TSN7403) emits DTO-like classes with `required` properties,
+    // so unions over synthesized shapes must be matched here (not only interfaces).
+    if (info.kind === "class") {
+      const props = info.members.filter(
+        (m) => m.kind === "propertyDeclaration"
+      );
+      const allProps = new Set(props.map((p) => p.name));
+      const requiredProps = new Set(
+        props.filter((p) => p.isRequired).map((p) => p.name)
+      );
+
+      candidates.push({ ref, allProps, requiredProps });
+      continue;
+    }
   }
 
   // Filter by match rules

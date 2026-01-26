@@ -1,0 +1,9 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "InOperatorUnionGuard",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "in-operator-union-guard"
+}
+
