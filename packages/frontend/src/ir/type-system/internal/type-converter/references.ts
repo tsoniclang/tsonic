@@ -508,6 +508,59 @@ export const convertTypeReference = (
         return { kind: "typeParameterType", name: typeName };
       }
 
+      // Pure index-signature interface/type alias: treat as dictionaryType.
+      //
+      // This supports idiomatic TS dictionary surfaces:
+      //   interface MetricsTotals { [metric: string]: int }
+      //   type MetricsTotals = { [metric: string]: int }
+      //
+      // Without this, computed access `totals["pageviews"]` is misclassified as
+      // a CLR indexer and fails numeric proof (TSN5107). This is not a workaround:
+      // index-signature-only shapes are structural dictionaries and should compile
+      // to `Dictionary<K, V>` / `Record<K, V>` behavior.
+      const tryConvertPureIndexSignatureToDictionary = (
+        decl: ts.Declaration
+      ): IrDictionaryType | undefined => {
+        const typeElements = ts.isInterfaceDeclaration(decl)
+          ? decl.members
+          : ts.isTypeAliasDeclaration(decl) && ts.isTypeLiteralNode(decl.type)
+            ? decl.type.members
+            : undefined;
+        if (!typeElements) return undefined;
+
+        const indexSignatures = typeElements.filter(ts.isIndexSignatureDeclaration);
+        const otherMembers = typeElements.filter(
+          (m) => !ts.isIndexSignatureDeclaration(m)
+        );
+        if (indexSignatures.length === 0 || otherMembers.length > 0) {
+          return undefined;
+        }
+
+        const indexSig = indexSignatures[0];
+        const keyParam = indexSig?.parameters[0];
+        const keyTypeNode = keyParam?.type;
+        const keyType: IrType =
+          keyTypeNode && keyTypeNode.kind === ts.SyntaxKind.NumberKeyword
+            ? { kind: "primitiveType", name: "number" }
+            : { kind: "primitiveType", name: "string" };
+        const valueType = indexSig?.type
+          ? convertType(indexSig.type, binding)
+          : { kind: "anyType" as const };
+
+        return {
+          kind: "dictionaryType",
+          keyType,
+          valueType,
+        };
+      };
+
+      const pureIndexSigDict = declNode
+        ? tryConvertPureIndexSignatureToDictionary(declNode)
+        : undefined;
+      if (pureIndexSigDict) {
+        return pureIndexSigDict;
+      }
+
       // Check for type alias to function type
       // DETERMINISTIC: Expand function type aliases so lambda contextual typing works
       // e.g., `type NumberToNumber = (x: number) => number` should be converted

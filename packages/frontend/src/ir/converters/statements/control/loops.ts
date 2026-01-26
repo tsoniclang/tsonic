@@ -88,7 +88,11 @@ export const convertForOfStatement = (
     variable,
     expression: convertExpression(node.expression, ctx, undefined),
     body: body ?? { kind: "emptyStatement" },
-    isAwait: !!node.awaitModifier,
+    // TS parser marks `for await` loops with both `awaitModifier` and AwaitContext flags.
+    // Use both to be resilient across TS versions/host implementations.
+    isAwait:
+      node.awaitModifier !== undefined ||
+      (node.flags & ts.NodeFlags.AwaitContext) !== 0,
   };
 };
 
