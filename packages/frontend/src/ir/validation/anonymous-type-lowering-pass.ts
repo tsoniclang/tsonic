@@ -55,6 +55,8 @@ type LoweringContext = {
   readonly shapeToName: Map<string, string>;
   /** Module file path for unique naming */
   readonly moduleFilePath: string;
+  /** Type names already declared in this module (avoid collisions) */
+  readonly existingTypeNames: ReadonlySet<string>;
   /** Current function's lowered return type (for propagating to return statements) */
   readonly currentFunctionReturnType?: IrType;
 };
@@ -235,7 +237,7 @@ const interfaceMembersToClassMembers = (
       return {
         kind: "propertyDeclaration",
         name: m.name,
-        type: m.type,
+        type: isOptional ? addUndefinedToType(m.type) : m.type,
         initializer: undefined,
         emitAsAutoProperty: true,
         isStatic: false,
@@ -256,9 +258,23 @@ const generateModuleHash = (filePath: string): string => {
 /**
  * Get or create a generated type name for an object type shape
  */
+const sanitizeInlineTypeName = (raw: string): string | undefined => {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+
+  const cleaned = trimmed.replace(/[^A-Za-z0-9_]/g, "_");
+  if (cleaned === "") return undefined;
+
+  // C# identifiers cannot start with a digit.
+  if (/^[0-9]/.test(cleaned)) return `_${cleaned}`;
+
+  return cleaned;
+};
+
 const getOrCreateTypeName = (
   objectType: IrObjectType,
-  ctx: LoweringContext
+  ctx: LoweringContext,
+  nameHint?: string
 ): string => {
   const signature = computeShapeSignature(objectType);
   const existing = ctx.shapeToName.get(signature);
@@ -269,7 +285,18 @@ const getOrCreateTypeName = (
   // Generate name with module hash prefix to avoid collisions across modules
   const moduleHash = generateModuleHash(ctx.moduleFilePath);
   const shapeHash = generateShapeHash(signature);
-  const name = `__Anon_${moduleHash}_${shapeHash}`;
+  const anonName = `__Anon_${moduleHash}_${shapeHash}`;
+  const preferredBase = nameHint ? sanitizeInlineTypeName(nameHint) : undefined;
+
+  const preferredName = preferredBase
+    ? ctx.existingTypeNames.has(preferredBase) ||
+      ctx.generatedDeclarations.some((d) => d.name === preferredBase) ||
+      Array.from(ctx.shapeToName.values()).includes(preferredBase)
+      ? `${preferredBase}_${shapeHash}`
+      : preferredBase
+    : undefined;
+
+  const name = preferredName ?? anonName;
   ctx.shapeToName.set(signature, name);
 
   const typeParamNames = new Set<string>();
@@ -346,9 +373,32 @@ const stripNullishFromType = (type: IrType): IrType => {
 };
 
 /**
+ * Ensure a type includes `undefined` (for optional members).
+ *
+ * Optional properties in TS (`foo?: T`) can carry optionality via a flag,
+ * not as an explicit `T | undefined` union in IR. When we synthesize a named
+ * type for an anonymous object, we must preserve optionality by materializing
+ * `undefined` into the type.
+ */
+const addUndefinedToType = (type: IrType): IrType => {
+  const undefinedType: IrType = { kind: "primitiveType", name: "undefined" };
+
+  if (type.kind === "unionType") {
+    const hasUndefined = type.types.some(
+      (t) => t.kind === "primitiveType" && t.name === "undefined"
+    );
+    return hasUndefined
+      ? type
+      : { ...type, types: [...type.types, undefinedType] };
+  }
+
+  return { kind: "unionType", types: [type, undefinedType] };
+};
+
+/**
  * Lower a type, replacing objectType with referenceType
  */
-const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
+const lowerType = (type: IrType, ctx: LoweringContext, nameHint?: string): IrType => {
   switch (type.kind) {
     case "objectType": {
       // First, recursively lower any nested object types in members
@@ -356,7 +406,7 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
         if (m.kind === "propertySignature") {
           return {
             ...m,
-            type: lowerType(m.type, ctx),
+            type: lowerType(m.type, ctx, m.name),
           };
         } else if (m.kind === "methodSignature") {
           return {
@@ -374,7 +424,7 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
       };
 
       // Generate name for this shape
-      const typeName = getOrCreateTypeName(loweredObjectType, ctx);
+      const typeName = getOrCreateTypeName(loweredObjectType, ctx, nameHint);
 
       const typeParamNames = new Set<string>();
       for (const member of loweredObjectType.members) {
@@ -517,11 +567,8 @@ const lowerTypeParameter = (
 /**
  * Lower an interface member
  *
- * IMPORTANT: For propertySignature where type is objectType, we KEEP the objectType
- * instead of lowering to referenceType. This allows the emitter's interface inline-type
- * extraction to name these inline objects properly (e.g., `Address` instead of `__Anon_*`).
- *
- * We still lower nested member types within the objectType to handle deeper nesting.
+ * IMPORTANT: We MUST lower objectType in all type positions before the emitter.
+ * The emitter is not allowed to see IrObjectType nodes (soundness gate enforces this).
  */
 const lowerInterfaceMember = (
   member: IrInterfaceMember,
@@ -529,24 +576,9 @@ const lowerInterfaceMember = (
 ): IrInterfaceMember => {
   switch (member.kind) {
     case "propertySignature": {
-      // If the property type is objectType, preserve it for emitter's inline extraction
-      // but still lower nested member types within
-      if (member.type.kind === "objectType") {
-        const loweredMembers: IrInterfaceMember[] = member.type.members.map(
-          (m) => lowerInterfaceMember(m, ctx)
-        );
-        return {
-          ...member,
-          type: {
-            ...member.type,
-            members: loweredMembers,
-          },
-        };
-      }
-      // For non-objectType, lower normally
       return {
         ...member,
-        type: lowerType(member.type, ctx),
+        type: lowerType(member.type, ctx, member.name),
       };
     }
     case "methodSignature":
@@ -902,7 +934,7 @@ const lowerClassMember = (
     case "propertyDeclaration":
       return {
         ...member,
-        type: member.type ? lowerType(member.type, ctx) : undefined,
+        type: member.type ? lowerType(member.type, ctx, member.name) : undefined,
         initializer: member.initializer
           ? lowerExpression(member.initializer, ctx)
           : undefined,
@@ -1179,10 +1211,23 @@ const lowerStatement = (
  * Lower a single module
  */
 const lowerModule = (module: IrModule): IrModule => {
+  const existingTypeNames = new Set<string>();
+  for (const stmt of module.body) {
+    switch (stmt.kind) {
+      case "classDeclaration":
+      case "interfaceDeclaration":
+      case "enumDeclaration":
+      case "typeAliasDeclaration":
+        existingTypeNames.add(stmt.name);
+        break;
+    }
+  }
+
   const ctx: LoweringContext = {
     generatedDeclarations: [],
     shapeToName: new Map(),
     moduleFilePath: module.filePath,
+    existingTypeNames,
   };
 
   // Lower all statements in the module body
