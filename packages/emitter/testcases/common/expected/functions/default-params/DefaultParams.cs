@@ -1,7 +1,3 @@
-// Generated from: DefaultParams.ts
-// Generated at: 2026-01-17T15:37:08.982Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.functions.defaultparams
 {
         public static class DefaultParams

@@ -1,16 +1,12 @@
-// Generated from: Counter.ts
-// Generated at: 2026-01-17T15:36:43.833Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.fieldinference
 {
     public class Counter
     {
-        public int count = 0;
+        public int count { get; set; } = 0;
 
-        public string name = "default";
+        public string name { get; set; } = "default";
 
-        public bool active = true;
+        public bool active { get; set; } = true;
 
         public void increment()
             {

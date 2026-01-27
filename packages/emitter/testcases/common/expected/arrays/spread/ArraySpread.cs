@@ -1,7 +1,3 @@
-// Generated from: ArraySpread.ts
-// Generated at: 2026-01-17T15:36:35.470Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.arrays.spread
 {
         public static class ArraySpread

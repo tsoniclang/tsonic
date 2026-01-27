@@ -1,7 +1,3 @@
-// Generated from: GenericNullDefault.ts
-// Generated at: 2026-01-17T15:36:56.052Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.edgecases.genericnulldefault
 {
     public class Result <T> 
@@ -13,7 +9,7 @@ namespace TestCases.common.edgecases.genericnulldefault
     }
     internal class StringWrapper
     {
-        public string value;
+        public string value { get; set; }
 
         public StringWrapper(string value)
             {

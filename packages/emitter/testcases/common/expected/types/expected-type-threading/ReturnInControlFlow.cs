@@ -1,7 +1,3 @@
-// Generated from: ReturnInControlFlow.ts
-// Generated at: 2026-01-17T15:37:27.094Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.expectedtypethreading
 {
         public static class ReturnInControlFlow

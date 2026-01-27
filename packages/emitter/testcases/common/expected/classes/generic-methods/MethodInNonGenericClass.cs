@@ -1,7 +1,3 @@
-// Generated from: MethodInNonGenericClass.ts
-// Generated at: 2026-01-17T15:36:49.661Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.genericmethods
 {
     public class Wrapper <T>

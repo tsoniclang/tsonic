@@ -17,6 +17,7 @@ import {
   buildIr,
   runNumericProofPass,
   runAttributeCollectionPass,
+  runAnonymousTypeLoweringPass,
 } from "@tsonic/frontend";
 import { emitCSharpFiles } from "../src/emitter.js";
 import { parseConfigYaml } from "../src/golden-tests/config-parser.js";
@@ -43,13 +44,33 @@ const generateAndWrite = (
   console.log(`Updating: ${pathParts.join("/")}/${baseName}`);
 
   try {
+    // Compile ALL .ts files in the scenario directory so that cross-module behaviors
+    // (imports, re-exports, union narrowing across files, etc.) are captured in golden outputs.
+    const scenarioRoot = path.dirname(inputPath);
+    const tsFiles: string[] = [];
+    const collectTs = (dir: string): void => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          collectTs(full);
+          continue;
+        }
+        if (entry.isFile() && entry.name.endsWith(".ts")) {
+          tsFiles.push(full);
+        }
+      }
+    };
+    collectTs(scenarioRoot);
+    tsFiles.sort();
+
     // Build namespace from path parts
     const namespaceParts = pathParts.map((part) => part.replace(/-/g, ""));
     const rootNamespace = ["TestCases", ...namespaceParts].join(".");
     const sourceRoot = path.dirname(inputPath);
 
     // Compile
-    const compileResult = compile([inputPath], {
+    const compileResult = compile(tsFiles.length ? tsFiles : [inputPath], {
       projectRoot: monorepoRoot,
       sourceRoot,
       rootNamespace,
@@ -75,8 +96,12 @@ const generateAndWrite = (
       return false;
     }
 
+    // Run anonymous type lowering pass (keeps update script consistent with golden runner).
+    const anonTypeResult = runAnonymousTypeLoweringPass(irResult.value);
+    const loweredModules = anonTypeResult.modules;
+
     // Run numeric proof pass
-    const proofResult = runNumericProofPass(irResult.value);
+    const proofResult = runNumericProofPass(loweredModules);
     if (!proofResult.ok) {
       console.error(`  ERROR: Proof pass failed`);
       for (const d of proofResult.diagnostics) {

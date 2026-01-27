@@ -1,12 +1,8 @@
-// Generated from: NestedSubstitution.ts
-// Generated at: 2026-01-17T15:37:37.519Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.genericsubstitution
 {
     public class Wrapper<T>
     {
-        public T inner;
+        public T inner { get; set; }
 
         public Wrapper(T inner)
             {
@@ -15,7 +11,7 @@ namespace TestCases.common.types.genericsubstitution
     }
     public class Container<T>
     {
-        public Wrapper<T> wrapped;
+        public Wrapper<T> wrapped { get; set; }
 
         public Container(T value)
             {

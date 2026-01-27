@@ -1,12 +1,8 @@
-// Generated from: Generics.ts
-// Generated at: 2026-01-17T15:37:38.661Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.generics
 {
     public class Box<T>
     {
-        public T value;
+        public T value { get; set; }
 
         public Box(T value)
             {

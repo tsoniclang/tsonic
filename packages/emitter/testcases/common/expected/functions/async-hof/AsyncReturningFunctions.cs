@@ -1,7 +1,3 @@
-// Generated from: AsyncReturningFunctions.ts
-// Generated at: 2026-01-17T15:37:05.616Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.functions.asynchof
 {
         public static class AsyncReturningFunctions

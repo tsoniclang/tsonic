@@ -1,7 +1,3 @@
-// Generated from: MultipleConstraints.ts
-// Generated at: 2026-01-17T15:37:35.108Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.genericconstraints
 {
     public class ComparableShowable<T>
@@ -18,7 +14,7 @@ namespace TestCases.common.types.genericconstraints
     }
     public class NumberValue : ComparableShowable<NumberValue>
     {
-        public int value;
+        public int value { get; set; }
 
         public NumberValue(int value) : base()
             {

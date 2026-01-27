@@ -1,12 +1,8 @@
-// Generated from: MethodInGenericClass.ts
-// Generated at: 2026-01-17T15:36:48.564Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.genericmethods
 {
     public class Transformer<T>
     {
-        public T value;
+        public T value { get; set; }
 
         public Transformer(T value)
             {

@@ -1,7 +1,3 @@
-// Generated from: DoubleArray.ts
-// Generated at: 2026-01-17T15:36:33.056Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.arrays.doublearray
 {
         public static class DoubleArray

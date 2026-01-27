@@ -1,12 +1,8 @@
-// Generated from: ConcreteExtends.ts
-// Generated at: 2026-01-17T15:36:44.985Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.genericinheritance
 {
     public class Container<T>
     {
-        public T value;
+        public T value { get; set; }
 
         public Container(T value)
             {

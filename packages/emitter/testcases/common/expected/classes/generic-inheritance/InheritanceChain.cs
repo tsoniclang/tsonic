@@ -1,12 +1,8 @@
-// Generated from: InheritanceChain.ts
-// Generated at: 2026-01-17T15:36:47.328Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.genericinheritance
 {
     public class Entity<TId>
     {
-        public TId id;
+        public TId id { get; set; }
 
         public Entity(TId id)
             {
@@ -15,7 +11,7 @@ namespace TestCases.common.classes.genericinheritance
     }
     public class NamedEntity<TId> : Entity<TId>
     {
-        public string name;
+        public string name { get; set; }
 
         public NamedEntity(TId id, string name) : base(id)
             {
@@ -24,7 +20,7 @@ namespace TestCases.common.classes.genericinheritance
     }
     public class User : NamedEntity<int>
     {
-        public string email;
+        public string email { get; set; }
 
         public User(int id, string name, string email) : base(id, name)
             {

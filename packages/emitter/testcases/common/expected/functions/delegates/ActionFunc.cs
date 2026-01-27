@@ -1,7 +1,3 @@
-// Generated from: ActionFunc.ts
-// Generated at: 2026-01-17T15:37:10.178Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.functions.delegates
 {
         public static class ActionFunc

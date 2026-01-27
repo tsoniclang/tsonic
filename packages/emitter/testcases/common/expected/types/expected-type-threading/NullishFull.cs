@@ -1,7 +1,3 @@
-// Generated from: NullishFull.ts
-// Generated at: 2026-01-17T15:37:28.243Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.expectedtypethreading
 {
         public static class NullishFull

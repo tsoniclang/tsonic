@@ -1,7 +1,3 @@
-// Generated from: FunctionArrays.ts
-// Generated at: 2026-01-17T15:37:29.362Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.functioncollections
 {
     public class OperationMap

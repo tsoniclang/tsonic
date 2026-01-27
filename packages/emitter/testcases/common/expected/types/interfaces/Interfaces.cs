@@ -1,7 +1,3 @@
-// Generated from: Interfaces.ts
-// Generated at: 2026-01-17T15:37:39.841Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.interfaces
 {
     public class User

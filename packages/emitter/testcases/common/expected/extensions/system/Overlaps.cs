@@ -1,7 +1,3 @@
-// Generated from: Overlaps.ts
-// Generated at: 2026-01-17T15:37:02.213Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.extensions.system
 {
         public static class Overlaps

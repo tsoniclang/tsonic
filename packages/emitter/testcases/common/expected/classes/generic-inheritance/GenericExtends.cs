@@ -1,12 +1,8 @@
-// Generated from: GenericExtends.ts
-// Generated at: 2026-01-17T15:36:46.162Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.genericinheritance
 {
     public class Box<T>
     {
-        public T value;
+        public T value { get; set; }
 
         public Box(T value)
             {
@@ -15,7 +11,7 @@ namespace TestCases.common.classes.genericinheritance
     }
     public class LabeledBox<T> : Box<T>
     {
-        public string label;
+        public string label { get; set; }
 
         public LabeledBox(T value, string label) : base(value)
             {

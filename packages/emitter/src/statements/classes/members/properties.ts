@@ -28,8 +28,11 @@ export const emitPropertyMember = (
   let currentContext = context;
   const parts: string[] = [];
   const hasAccessors = !!(member.getterBody || member.setterBody);
-  const isAutoProperty = member.emitAsAutoProperty === true;
-  const emitsProperty = hasAccessors || isAutoProperty;
+  // TypeScript class fields map to C# auto-properties by default.
+  // This is required for reflection-based libraries (e.g., EF Core, System.Text.Json),
+  // and matches TypeScript’s object-model semantics more closely than C# fields.
+  //
+  // Accessor bodies (`get foo() {}` / `set foo(v) {}`) are emitted as explicit properties.
 
   // Access modifier
   const accessibility = member.accessibility ?? "public";
@@ -49,12 +52,6 @@ export const emitPropertyMember = (
     parts.push("required");
   }
 
-  // `readonly` is valid for fields, but NOT for properties.
-  // For auto-properties, we use init-only setters instead (see below).
-  if (!emitsProperty && member.isReadonly) {
-    parts.push("readonly");
-  }
-
   // Property type - uses standard type emission pipeline
   // Note: type is always set for class fields (from annotation or inference)
   if (member.type) {
@@ -66,9 +63,7 @@ export const emitPropertyMember = (
   }
 
   // Property name (escape C# keywords)
-  parts.push(
-    emitCSharpName(member.name, emitsProperty ? "properties" : "fields", context)
-  );
+  parts.push(emitCSharpName(member.name, "properties", context));
 
   // Emit attributes before the property declaration
   const [attributesCode, attrContext] = emitAttributes(
@@ -78,20 +73,6 @@ export const emitPropertyMember = (
   currentContext = attrContext;
 
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-
-  if (!emitsProperty) {
-    // Emit as field (TypeScript class fields map to C# fields, not properties)
-    let code = `${attrPrefix}${ind}${parts.join(" ")}`;
-    if (member.initializer) {
-      const [initFrag, finalContext] = emitExpression(
-        member.initializer,
-        currentContext
-      );
-      code += ` = ${initFrag.text}`;
-      currentContext = finalContext;
-    }
-    return [`${code};`, currentContext];
-  }
 
   if (!hasAccessors) {
     const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
