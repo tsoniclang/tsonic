@@ -1,7 +1,3 @@
-// Generated from: ExtensionMethods.ts
-// Generated at: 2026-01-17T15:37:00.349Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.extensions.linq
 {
         public static class ExtensionMethods

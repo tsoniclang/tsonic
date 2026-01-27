@@ -1,7 +1,3 @@
-// Generated from: VariableDecls.ts
-// Generated at: 2026-01-17T15:37:45.603Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.variabledecls
 {
         public static class VariableDecls

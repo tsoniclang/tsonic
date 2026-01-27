@@ -1,7 +1,3 @@
-// Generated from: UtilityTypes.ts
-// Generated at: 2026-01-17T15:37:44.507Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.utilitytypes
 {
     public class Person

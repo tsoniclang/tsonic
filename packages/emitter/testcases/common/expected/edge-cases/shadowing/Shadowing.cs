@@ -1,7 +1,3 @@
-// Generated from: Shadowing.ts
-// Generated at: 2026-01-17T15:36:58.368Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.edgecases.shadowing
 {
         public static class Shadowing

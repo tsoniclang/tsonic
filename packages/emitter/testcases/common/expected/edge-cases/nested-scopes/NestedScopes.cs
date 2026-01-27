@@ -1,7 +1,3 @@
-// Generated from: NestedScopes.ts
-// Generated at: 2026-01-17T15:36:57.193Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.edgecases.nestedscopes
 {
         public static class NestedScopes

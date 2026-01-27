@@ -1,7 +1,3 @@
-// Generated from: ArrayConstructor.ts
-// Generated at: 2026-01-17T15:36:30.592Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.arrays.constructor
 {
     internal class User

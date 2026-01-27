@@ -1,7 +1,3 @@
-// Generated from: ArraySpread.ts
-// Generated at: 2026-01-17T15:37:24.749Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.expectedtypethreading
 {
         public static class ArraySpread

@@ -1,14 +1,10 @@
-// Generated from: Person.ts
-// Generated at: 2026-01-17T15:36:41.438Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.basic
 {
     public class Person
     {
-        public string name;
+        public string name { get; set; }
 
-        public double age;
+        public double age { get; set; }
 
         public string greet()
             {

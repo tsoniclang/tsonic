@@ -1,7 +1,3 @@
-// Generated from: NullishCoalescing.ts
-// Generated at: 2026-01-17T15:37:15.515Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.operators.nullishcoalescing
 {
         public static class NullishCoalescing

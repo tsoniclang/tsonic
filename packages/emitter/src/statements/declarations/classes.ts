@@ -191,10 +191,8 @@ export const emitClassDeclaration = (
       continue;
     }
     if (member.kind === "propertyDeclaration") {
-      const hasAccessors = !!(member.getterBody || member.setterBody);
-      const emitsProperty = hasAccessors || member.emitAsAutoProperty === true;
       reservedTypeParamNames.add(
-        emitCSharpName(member.name, emitsProperty ? "properties" : "fields", context)
+        emitCSharpName(member.name, "properties", context)
       );
     }
   }

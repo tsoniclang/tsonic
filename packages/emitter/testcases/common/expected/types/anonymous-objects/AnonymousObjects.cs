@@ -1,7 +1,3 @@
-// Generated from: AnonymousObjects.ts
-// Generated at: 2026-01-17T15:37:18.950Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.anonymousobjects
 {
     public class __Anon_AnonymousObjects_2_22

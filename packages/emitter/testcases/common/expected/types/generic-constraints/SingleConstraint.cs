@@ -1,7 +1,3 @@
-// Generated from: SingleConstraint.ts
-// Generated at: 2026-01-17T15:37:32.812Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.genericconstraints
 {
     public interface Printable
@@ -11,7 +7,7 @@ namespace TestCases.common.types.genericconstraints
     public class Printer<T>
         where T : Printable
     {
-        public T value;
+        public T value { get; set; }
 
         public Printer(T value)
             {

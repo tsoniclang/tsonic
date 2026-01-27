@@ -1,7 +1,3 @@
-// Generated from: InOperator.ts
-// Generated at: 2026-01-27T06:19:53.709Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.operators.inoperator
 {
         public static class InOperator

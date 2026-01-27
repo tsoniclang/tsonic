@@ -1,7 +1,3 @@
-// Generated from: MaybeMonad.ts
-// Generated at: 2026-01-17T15:37:31.628Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.functorpatterns
 {
     public class Functor<T>
@@ -30,7 +26,7 @@ namespace TestCases.common.types.functorpatterns
     public class Maybe<T> : Functor<T>
         where T : class
     {
-        private T? value;
+        private T? value { get; set; }
 
         public Maybe(T? value) : base()
             {

@@ -1,7 +1,3 @@
-// Generated from: Dictionaries.ts
-// Generated at: 2026-01-17T15:37:21.304Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.dictionaries
 {
         public static class Dictionaries

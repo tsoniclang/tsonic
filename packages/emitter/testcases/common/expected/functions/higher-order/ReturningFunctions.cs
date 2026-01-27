@@ -1,7 +1,3 @@
-// Generated from: ReturningFunctions.ts
-// Generated at: 2026-01-17T15:37:11.243Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.functions.higherorder
 {
         public static class ReturningFunctions

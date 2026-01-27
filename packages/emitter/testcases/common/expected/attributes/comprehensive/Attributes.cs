@@ -1,7 +1,3 @@
-// Generated from: Attributes.ts
-// Generated at: 2026-01-17T15:36:40.340Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.attributes.comprehensive
 {
     [global::System.SerializableAttribute]
@@ -13,7 +9,7 @@ namespace TestCases.common.attributes.comprehensive
 
             }
 
-        private string _nameField;
+        private string _nameField { get; set; }
 
         [global::System.ObsoleteAttribute("prop")]
         public string name
@@ -42,6 +38,6 @@ namespace TestCases.common.attributes.comprehensive
 
             }
 
-        public double value;
+        public double value { get; set; }
     }
 }

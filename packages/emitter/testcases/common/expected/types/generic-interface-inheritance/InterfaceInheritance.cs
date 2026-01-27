@@ -1,12 +1,8 @@
-// Generated from: InterfaceInheritance.ts
-// Generated at: 2026-01-17T15:37:36.318Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.genericinterfaceinheritance
 {
     public class Identifiable<T>
     {
-        public T id;
+        public T id { get; set; }
 
         public Identifiable(T id)
             {
@@ -15,7 +11,7 @@ namespace TestCases.common.types.genericinterfaceinheritance
     }
     public class Named<T> : Identifiable<T>
     {
-        public string name;
+        public string name { get; set; }
 
         public Named(T id, string name) : base(id)
             {

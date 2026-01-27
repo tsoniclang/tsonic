@@ -1,16 +1,12 @@
-// Generated from: TypeAssertions.ts
-// Generated at: 2026-01-17T15:37:43.284Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.typeassertions
 {
     internal class Animal
     {
-        public string name;
+        public string name { get; set; }
     }
     internal class Dog : Animal
     {
-        public string breed;
+        public string breed { get; set; }
     }
 
             public static class TypeAssertions

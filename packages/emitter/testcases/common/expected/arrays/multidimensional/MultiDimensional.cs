@@ -1,7 +1,3 @@
-// Generated from: MultiDimensional.ts
-// Generated at: 2026-01-17T15:36:34.270Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.arrays.multidimensional
 {
         public static class MultiDimensional

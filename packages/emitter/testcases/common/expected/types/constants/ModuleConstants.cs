@@ -1,7 +1,3 @@
-// Generated from: ModuleConstants.ts
-// Generated at: 2026-01-17T15:37:20.172Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.constants
 {
         public static class ModuleConstants

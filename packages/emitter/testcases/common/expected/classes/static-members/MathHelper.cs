@@ -1,14 +1,10 @@
-// Generated from: MathHelper.ts
-// Generated at: 2026-01-17T15:36:51.965Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.staticmembers
 {
     public class MathHelper
     {
-        public static double PI = 3.14159;
+        public static double PI { get; set; } = 3.14159;
 
-        public static double E = 2.71828;
+        public static double E { get; set; } = 2.71828;
 
         public static double square(double x)
             {

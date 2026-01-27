@@ -1,7 +1,3 @@
-// Generated from: ArrowInference.ts
-// Generated at: 2026-01-17T15:37:04.516Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.functions.arrowinference
 {
         public static class ArrowInference

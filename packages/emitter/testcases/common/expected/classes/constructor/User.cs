@@ -1,16 +1,12 @@
-// Generated from: User.ts
-// Generated at: 2026-01-17T15:36:42.603Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.classes.constructor
 {
     public class User
     {
-        public string name;
+        public string name { get; set; }
 
-        public string email;
+        public string email { get; set; }
 
-        private string password;
+        private string password { get; set; }
 
         public User(string name, string email, string password)
             {

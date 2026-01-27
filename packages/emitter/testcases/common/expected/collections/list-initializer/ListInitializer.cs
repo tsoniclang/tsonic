@@ -1,12 +1,8 @@
-// Generated from: ListInitializer.ts
-// Generated at: 2026-01-17T15:36:53.716Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.collections.listinitializer
 {
     public class User
     {
-        public int id;
+        public int id { get; set; }
 
         public User(int id)
             {

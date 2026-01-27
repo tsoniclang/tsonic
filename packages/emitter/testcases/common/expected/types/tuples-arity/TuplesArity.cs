@@ -1,7 +1,3 @@
-// Generated from: TuplesArity.ts
-// Generated at: 2026-01-17T15:37:42.167Z
-// WARNING: Do not modify this file manually
-
 namespace TestCases.common.types.tuplesarity
 {
         public static class TuplesArity
