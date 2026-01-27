@@ -48,6 +48,16 @@ const emitAttributeArg = (
       const [typeStr, newContext] = emitType(arg.type, context);
       return [`${typeStr}.${arg.member}`, newContext];
     }
+    case "array": {
+      const parts: string[] = [];
+      let currentContext = context;
+      for (const el of arg.elements) {
+        const [elStr, newContext] = emitAttributeArg(el, currentContext);
+        parts.push(elStr);
+        currentContext = newContext;
+      }
+      return [`new[] { ${parts.join(", ")} }`, currentContext];
+    }
   }
 };
 

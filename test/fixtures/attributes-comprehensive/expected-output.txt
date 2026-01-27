@@ -1,4 +1,5 @@
 User.Serializable: ok
+User.Names: ok
 User.ctor.Obsolete: ok
 User.save.Obsolete: ok
 User.name.Obsolete: ok

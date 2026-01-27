@@ -36,9 +36,11 @@ import {
   IrFunctionDeclaration,
   IrAttribute,
   IrAttributeArg,
+  IrAttributePrimitiveArg,
   IrType,
   IrVariableDeclaration,
   IrArrowFunctionExpression,
+  IrArrayExpression,
   IrObjectExpression,
 } from "../types.js";
 
@@ -73,6 +75,13 @@ type AttributeMarker = {
 const tryExtractAttributeArg = (
   expr: IrExpression
 ): IrAttributeArg | undefined => {
+  const tryExtractPrimitive = (e: IrExpression): IrAttributePrimitiveArg | undefined => {
+    const extracted = tryExtractAttributeArg(e);
+    if (!extracted) return undefined;
+    if (extracted.kind === "array") return undefined;
+    return extracted;
+  };
+
   if (expr.kind === "literal") {
     if (typeof expr.value === "string") {
       return { kind: "string", value: expr.value };
@@ -83,6 +92,23 @@ const tryExtractAttributeArg = (
     if (typeof expr.value === "boolean") {
       return { kind: "boolean", value: expr.value };
     }
+  }
+
+  // Arrays of compile-time constants are valid attribute arguments in C#.
+  // Example: [Index(new[] { "PropertyId", "Ts" })]
+  if (expr.kind === "array") {
+    const arr = expr as IrArrayExpression;
+    const elements: IrAttributePrimitiveArg[] = [];
+    if (arr.elements.length === 0) return undefined;
+    for (const el of arr.elements) {
+      if (!el || el.kind === "spread") {
+        return undefined;
+      }
+      const v = tryExtractPrimitive(el);
+      if (!v) return undefined;
+      elements.push(v);
+    }
+    return { kind: "array", elements };
   }
 
   // typeof(SomeType) → C# typeof(SomeType) attribute argument
@@ -526,7 +552,7 @@ const parseAttrDescriptorCall = (
         diagnostic: createDiagnostic(
           "TSN4006",
           "error",
-          `Invalid attribute argument: attribute arguments must be compile-time constants (string/number/boolean/typeof/enum)`,
+          `Invalid attribute argument: attribute arguments must be compile-time constants (string/number/boolean/typeof/enum/array)`,
           createLocation(module.filePath, arg.sourceSpan)
         ),
       };
@@ -790,7 +816,7 @@ const tryDetectAttributeMarker = (
         diagnostic: createDiagnostic(
           "TSN4006",
           "error",
-          `Invalid attribute argument: attribute arguments must be compile-time constants (string/number/boolean/typeof/enum)`,
+          `Invalid attribute argument: attribute arguments must be compile-time constants (string/number/boolean/typeof/enum/array)`,
           createLocation(module.filePath, arg.sourceSpan)
         ),
       };
