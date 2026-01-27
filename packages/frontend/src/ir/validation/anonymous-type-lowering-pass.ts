@@ -706,6 +706,7 @@ const lowerExpression = (
         };
 
       case "functionExpression": {
+        const loweredParams = expr.parameters.map((p) => lowerParameter(p, ctx));
         const loweredReturnType = expr.returnType
           ? lowerType(expr.returnType, ctx)
           : undefined;
@@ -713,15 +714,25 @@ const lowerExpression = (
           ...ctx,
           currentFunctionReturnType: loweredReturnType,
         };
+        const loweredInferredType =
+          expr.inferredType?.kind === "functionType"
+            ? {
+                ...expr.inferredType,
+                parameters: loweredParams,
+                returnType: loweredReturnType ?? lowerType(expr.inferredType.returnType, ctx),
+              }
+            : expr.inferredType;
         return {
           ...expr,
-          parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+          parameters: loweredParams,
           returnType: loweredReturnType,
           body: lowerBlockStatement(expr.body, bodyCtx),
+          inferredType: loweredInferredType,
         };
       }
 
       case "arrowFunction": {
+        const loweredParams = expr.parameters.map((p) => lowerParameter(p, ctx));
         const loweredReturnType = expr.returnType
           ? lowerType(expr.returnType, ctx)
           : undefined;
@@ -729,13 +740,22 @@ const lowerExpression = (
           ...ctx,
           currentFunctionReturnType: loweredReturnType,
         };
+        const loweredInferredType =
+          expr.inferredType?.kind === "functionType"
+            ? {
+                ...expr.inferredType,
+                parameters: loweredParams,
+                returnType: loweredReturnType ?? lowerType(expr.inferredType.returnType, ctx),
+              }
+            : expr.inferredType;
         // For expression body arrow functions, we need to handle inferredType directly
         if (expr.body.kind === "blockStatement") {
           return {
             ...expr,
-            parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+            parameters: loweredParams,
             returnType: loweredReturnType,
             body: lowerBlockStatement(expr.body, bodyCtx),
+            inferredType: loweredInferredType,
           };
         } else {
           const loweredBody = lowerExpression(expr.body, ctx);
@@ -746,9 +766,10 @@ const lowerExpression = (
               : loweredBody;
           return {
             ...expr,
-            parameters: expr.parameters.map((p) => lowerParameter(p, ctx)),
+            parameters: loweredParams,
             returnType: loweredReturnType,
             body: bodyWithType,
+            inferredType: loweredInferredType,
           };
         }
       }
