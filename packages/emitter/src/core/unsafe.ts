@@ -327,6 +327,12 @@ export const statementUsesPointer = (stmt: IrStatement): boolean => {
         statementUsesPointer(stmt.body)
       );
 
+    case "forInStatement":
+      return (
+        expressionUsesPointer(stmt.expression) ||
+        statementUsesPointer(stmt.body)
+      );
+
     case "switchStatement":
       return (
         expressionUsesPointer(stmt.expression) ||

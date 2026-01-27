@@ -15,6 +15,7 @@ import {
   stripNullish,
   resolveTypeAlias,
 } from "../core/type-resolution.js";
+import { emitType } from "../type-emitter.js";
 
 /**
  * Get the C# literal suffix for a numeric type.
@@ -105,6 +106,20 @@ export const emitLiteral = (
   }
 
   if (value === undefined) {
+    // `undefined` is represented as `default` in C#, but in contexts like:
+    //   var x = cond ? 1 : undefined
+    // the untyped `default` literal will be inferred as `int` instead of `int?`.
+    //
+    // When we have an expected type, emit a typed default to preserve optional/nullable intent.
+    if (expectedType) {
+      try {
+        const [typeStr, next] = emitType(expectedType, context);
+        return [{ text: `default(${typeStr})` }, next];
+      } catch {
+        // Fallback: keep emission valid even if the expected type is not directly nameable here.
+        return [{ text: "default" }, context];
+      }
+    }
     return [{ text: "default" }, context];
   }
 

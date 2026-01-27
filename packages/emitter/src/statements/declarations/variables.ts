@@ -199,11 +199,6 @@ export const emitVariableDeclaration = (
       );
       currentContext = newContext;
       varDecl += `${typeName} `;
-    } else if (context.isStatic && decl.type) {
-      // Static fields: emit explicit type (required - can't use 'var' for fields)
-      const [typeName, newContext] = emitType(decl.type, currentContext);
-      currentContext = newContext;
-      varDecl += `${typeName} `;
     } else if (
       decl.initializer &&
       decl.initializer.kind === "arrowFunction" &&
@@ -211,6 +206,7 @@ export const emitVariableDeclaration = (
     ) {
       // For arrow functions in static context without explicit type, infer Func<> type
       const arrowFunc = decl.initializer;
+
       const paramTypes: string[] = [];
 
       for (const param of arrowFunc.parameters) {
@@ -244,12 +240,146 @@ export const emitVariableDeclaration = (
         );
       }
 
+      // Generic functions cannot be represented as values in C#.
+      // Detect out-of-scope type parameters (e.g., `<T>(x: T) => ...`) and fail
+      // instead of generating invalid C# that references an undeclared `T`.
+      const inScopeTypeParams = currentContext.typeParameters ?? new Set<string>();
+      const findOutOfScopeTypeParam = (type: IrType): string | undefined => {
+        switch (type.kind) {
+          case "typeParameterType":
+            return inScopeTypeParams.has(type.name) ? undefined : type.name;
+          case "arrayType":
+            return findOutOfScopeTypeParam(type.elementType);
+          case "dictionaryType": {
+            const key = findOutOfScopeTypeParam(type.keyType);
+            return key ?? findOutOfScopeTypeParam(type.valueType);
+          }
+          case "referenceType":
+            if (type.typeArguments) {
+              for (const arg of type.typeArguments) {
+                const hit = findOutOfScopeTypeParam(arg);
+                if (hit) return hit;
+              }
+            }
+            return undefined;
+          case "unionType":
+            for (const t of type.types) {
+              const hit = findOutOfScopeTypeParam(t);
+              if (hit) return hit;
+            }
+            return undefined;
+          case "tupleType":
+            for (const e of type.elementTypes) {
+              const hit = findOutOfScopeTypeParam(e);
+              if (hit) return hit;
+            }
+            return undefined;
+          case "functionType": {
+            for (const p of type.parameters) {
+              if (!p.type) continue;
+              const hit = findOutOfScopeTypeParam(p.type);
+              if (hit) return hit;
+            }
+            return type.returnType
+              ? findOutOfScopeTypeParam(type.returnType)
+              : undefined;
+          }
+          default:
+            return undefined;
+        }
+      };
+
+      for (const param of arrowFunc.parameters) {
+        if (!param.type) continue;
+        const hit = findOutOfScopeTypeParam(param.type);
+        if (hit) {
+          throw new Error(
+            `ICE: Generic arrow functions are not supported as values (type parameter '${hit}' is not in scope). Use a named function declaration instead.`
+          );
+        }
+      }
+
+      const retHit = findOutOfScopeTypeParam(arrowReturnType);
+      if (retHit) {
+        throw new Error(
+          `ICE: Generic arrow functions are not supported as values (type parameter '${retHit}' is not in scope). Use a named function declaration instead.`
+        );
+      }
+
       const [returnType, retCtx] = emitType(arrowReturnType, currentContext);
       currentContext = retCtx;
 
-      const allTypes = [...paramTypes, returnType];
-      const funcType = `global::System.Func<${allTypes.join(", ")}>`;
-      varDecl += `${funcType} `;
+      const needsOptionalArgs = arrowFunc.parameters.some(
+        (p) => p.isOptional || !!p.initializer
+      );
+
+      if (needsOptionalArgs) {
+        // C# lambdas do not support optional/default parameters, and Func<> cannot encode them.
+        // Emit a custom delegate type with optional parameters so call sites like `f(a, b)`
+        // remain valid when the TS source omits optional args.
+        //
+        // NOTE: We currently do not support parameter initializers for arrow-function values.
+        // Optional-only (`x?: T`) is supported via `= default` on the delegate signature.
+        const hasInitializer = arrowFunc.parameters.some((p) => !!p.initializer);
+        if (hasInitializer) {
+          throw new Error(
+            "ICE: Arrow function values with default parameter initializers are not supported. Use a named function declaration instead."
+          );
+        }
+
+        if (decl.name.kind !== "identifierPattern") {
+          throw new Error(
+            "ICE: Arrow function value with optional params must use an identifier binding."
+          );
+        }
+
+        const originalFieldName = decl.name.name;
+        const emittedFieldName = emitCSharpName(originalFieldName, "fields", context);
+        const delegateTypeName = `${emittedFieldName}__Delegate`;
+        const access = stmt.isExported ? "public" : "private";
+
+        const delegateParams: string[] = [];
+        for (let i = 0; i < arrowFunc.parameters.length; i++) {
+          const param = arrowFunc.parameters[i];
+          if (!param?.type) continue;
+
+          const [paramType, newCtx] = emitType(param.type, currentContext);
+          currentContext = newCtx;
+
+          const paramName =
+            param.pattern.kind === "identifierPattern"
+              ? escapeCSharpIdentifier(param.pattern.name)
+              : `p${i}`;
+
+          const optionalSuffix = param.isOptional ? "?" : "";
+          const defaultSuffix = param.isOptional ? " = default" : "";
+          delegateParams.push(
+            `${paramType}${optionalSuffix} ${paramName}${defaultSuffix}`
+          );
+        }
+
+        declarations.push(
+          `${ind}${access} delegate ${returnType} ${delegateTypeName}(${delegateParams.join(", ")});`
+        );
+        varDecl += `${delegateTypeName} `;
+      } else {
+        if (returnType === "void") {
+          const actionType =
+            paramTypes.length === 0
+              ? "global::System.Action"
+              : `global::System.Action<${paramTypes.join(", ")}>`;
+          varDecl += `${actionType} `;
+        } else {
+          const allTypes = [...paramTypes, returnType];
+          const funcType = `global::System.Func<${allTypes.join(", ")}>`;
+          varDecl += `${funcType} `;
+        }
+      }
+    } else if (context.isStatic && decl.type) {
+      // Static fields: emit explicit type (required - can't use 'var' for fields)
+      const [typeName, newContext] = emitType(decl.type, currentContext);
+      currentContext = newContext;
+      varDecl += `${typeName} `;
     } else if (context.isStatic) {
       // Static fields cannot use 'var' - infer type from initializer if possible
       // Priority: 1) new expression with type args, 2) literals, 3) fall back to object

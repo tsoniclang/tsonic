@@ -14,7 +14,9 @@ import {
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
+  getAllPropertySignatures,
 } from "../core/type-resolution.js";
+import { emitBooleanCondition } from "../core/boolean-context.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { lowerAssignmentPattern } from "../patterns.js";
 
@@ -155,6 +157,88 @@ export const emitBinary = (
 
   const op = operatorMap[expr.operator] ?? expr.operator;
   const parentPrecedence = getPrecedence(expr.operator);
+
+  // Handle `"prop" in x` (union narrowing / dictionary membership)
+  if (expr.operator === "in") {
+    // LHS must be a string literal for deterministic lowering.
+    if (expr.left.kind !== "literal" || typeof expr.left.value !== "string") {
+      throw new Error(
+        "ICE: Unsupported `in` operator form. Left-hand side must be a string literal."
+      );
+    }
+
+    const rhsType = expr.right.inferredType;
+    if (!rhsType) {
+      throw new Error("ICE: `in` operator RHS missing inferredType.");
+    }
+
+    const [rhsFrag, rhsCtx] = emitExpression(expr.right, context);
+    const rhsText = rhsFrag.text;
+
+    const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
+
+    // Union<T1..Tn>: `"error" in auth` → auth.IsN() (where member N has the prop)
+    if (resolvedRhs.kind === "unionType") {
+      const propName = expr.left.value;
+      const matchingMembers: number[] = [];
+
+      for (let i = 0; i < resolvedRhs.types.length; i++) {
+        const member = resolvedRhs.types[i];
+        if (!member || member.kind !== "referenceType") continue;
+
+        const info = rhsCtx.localTypes?.get(member.name);
+        if (!info) continue;
+
+        if (info.kind === "interface") {
+          const props = getAllPropertySignatures(member, rhsCtx);
+          if (props?.some((p) => p.name === propName)) {
+            matchingMembers.push(i + 1);
+          }
+          continue;
+        }
+
+        if (info.kind === "class") {
+          if (
+            info.members.some(
+              (m) => m.kind === "propertyDeclaration" && m.name === propName
+            )
+          ) {
+            matchingMembers.push(i + 1);
+          }
+          continue;
+        }
+      }
+
+      if (matchingMembers.length === 0) {
+        return [{ text: "false", precedence: parentPrecedence }, rhsCtx];
+      }
+
+      const checks = matchingMembers.map((n) => `${rhsText}.Is${n}()`).join(" || ");
+      return [{ text: checks, precedence: parentPrecedence }, rhsCtx];
+    }
+
+    // Dictionary<K,V>: `"k" in dict` → dict.ContainsKey("k")
+    if (resolvedRhs.kind === "dictionaryType") {
+      const keyType = stripNullish(resolvedRhs.keyType);
+      const isStringKey =
+        (keyType.kind === "primitiveType" && keyType.name === "string") ||
+        (keyType.kind === "referenceType" && keyType.name === "string");
+
+      if (!isStringKey) {
+        throw new Error(
+          "ICE: Unsupported `in` operator on dictionary with non-string keys."
+        );
+      }
+
+      const [keyFrag, keyCtx] = emitExpression(expr.left, rhsCtx);
+      const text = `${rhsText}.ContainsKey(${keyFrag.text})`;
+      return [{ text, precedence: parentPrecedence }, keyCtx];
+    }
+
+    throw new Error(
+      "ICE: Unsupported `in` operator. Only union shape guards and Dictionary<string, T> membership are supported."
+    );
+  }
 
   // Handle typeof operator specially
   if (expr.operator === "instanceof") {
@@ -318,6 +402,18 @@ export const emitUnary = (
   context: EmitterContext,
   _expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
+  // In TypeScript, `!x` applies JS ToBoolean semantics to *any* operand.
+  // In C#, `!` only works on booleans, so we must coerce to a boolean condition.
+  if (expr.operator === "!") {
+    const [condText, condCtx] = emitBooleanCondition(
+      expr.expression,
+      (e, ctx) => emitExpression(e, ctx),
+      context
+    );
+    const text = `!(${condText})`;
+    return [{ text, precedence: 15 }, condCtx];
+  }
+
   const [operandFrag, newContext] = emitExpression(expr.expression, context);
 
   if (expr.operator === "typeof") {
@@ -585,6 +681,11 @@ export const emitConditional = (
   context: EmitterContext,
   expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
+  // When no contextual expectedType is provided (e.g., `var x = cond ? a : b`),
+  // use the conditional expression's own inferred type to guide null/undefined → default
+  // conversions and keep C# type inference consistent with TS.
+  const branchExpectedType = expectedType ?? expr.inferredType;
+
   // Try to detect type predicate guard in condition
   const guard = tryResolveTernaryGuard(expr.condition, context);
 
@@ -612,13 +713,13 @@ export const emitConditional = (
     // Apply narrowing to the appropriate branch
     const [trueFrag, trueContext] =
       polarity === "positive"
-        ? emitExpression(expr.whenTrue, narrowedContext, expectedType)
-        : emitExpression(expr.whenTrue, context, expectedType);
+        ? emitExpression(expr.whenTrue, narrowedContext, branchExpectedType)
+        : emitExpression(expr.whenTrue, context, branchExpectedType);
 
     const [falseFrag, falseContext] =
       polarity === "negative"
-        ? emitExpression(expr.whenFalse, narrowedContext, expectedType)
-        : emitExpression(expr.whenFalse, trueContext, expectedType);
+        ? emitExpression(expr.whenFalse, narrowedContext, branchExpectedType)
+        : emitExpression(expr.whenFalse, trueContext, branchExpectedType);
 
     const text = `${condText} ? ${trueFrag.text} : ${falseFrag.text}`;
 
@@ -631,19 +732,24 @@ export const emitConditional = (
   }
 
   // Standard ternary emission (no narrowing)
-  const [condFrag, condContext] = emitExpression(expr.condition, context);
-  // Pass expectedType to both branches for null → default conversion
+  const [condText, condContext] = emitBooleanCondition(
+    expr.condition,
+    (e, ctx) => emitExpression(e, ctx),
+    context
+  );
+
+  // Pass expectedType (or inferred type) to both branches for null/undefined → default conversion
   const [trueFrag, trueContext] = emitExpression(
     expr.whenTrue,
     condContext,
-    expectedType
+    branchExpectedType
   );
   const [falseFrag, falseContext] = emitExpression(
     expr.whenFalse,
     trueContext,
-    expectedType
+    branchExpectedType
   );
 
-  const text = `${condFrag.text} ? ${trueFrag.text} : ${falseFrag.text}`;
+  const text = `${condText} ? ${trueFrag.text} : ${falseFrag.text}`;
   return [{ text, precedence: 4 }, falseContext];
 };

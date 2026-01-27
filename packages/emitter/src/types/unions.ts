@@ -46,6 +46,42 @@ export const emitUnionType = (
       )
   );
 
+  const hasNullish = nonNullTypes.length !== type.types.length;
+
+  // Literal unions (e.g. "a" | "b" | "c") are just the base primitive at runtime.
+  // Emit them as the primitive type (optionally nullable) rather than a runtime Union wrapper.
+  //
+  // This preserves TS-level narrowing while producing correct, idiomatic C#.
+  const literalBase = (() => {
+    let base: "string" | "number" | "boolean" | undefined = undefined;
+
+    for (const t of nonNullTypes) {
+      if (t.kind !== "literalType") return undefined;
+      const v = t.value;
+      const next =
+        typeof v === "string"
+          ? "string"
+          : typeof v === "number"
+            ? "number"
+            : typeof v === "boolean"
+              ? "boolean"
+              : undefined;
+      if (!next) return undefined;
+      if (!base) base = next;
+      else if (base !== next) return undefined;
+    }
+
+    return base;
+  })();
+
+  if (literalBase) {
+    const [baseType, newContext] = emitType(
+      { kind: "primitiveType", name: literalBase },
+      context
+    );
+    return [hasNullish ? `${baseType}?` : baseType, newContext];
+  }
+
   if (nonNullTypes.length === 1) {
     // This is a nullable type (T | null | undefined)
     const firstType = nonNullTypes[0];

@@ -9,6 +9,7 @@ import type {
   ExportSource,
   ExportMap,
 } from "../emitter-types/core.js";
+import { buildLocalTypes } from "./local-types.js";
 
 // Re-export types for backward compatibility
 export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
@@ -108,7 +109,8 @@ export const buildModuleMap = (
     const hasTypeCollision = module.body.some(
       (stmt) =>
         (stmt.kind === "classDeclaration" ||
-          stmt.kind === "interfaceDeclaration") &&
+          stmt.kind === "interfaceDeclaration" ||
+          stmt.kind === "enumDeclaration") &&
         stmt.name === module.className
     );
 
@@ -159,6 +161,7 @@ export const buildModuleMap = (
       filePath: canonicalPath,
       hasTypeCollision,
       exportedValueKinds,
+      localTypes: buildLocalTypes(module),
     });
   }
 

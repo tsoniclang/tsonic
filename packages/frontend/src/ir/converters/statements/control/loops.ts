@@ -9,6 +9,7 @@ import {
   IrWhileStatement,
   IrForStatement,
   IrForOfStatement,
+  IrForInStatement,
   IrType,
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
@@ -87,7 +88,11 @@ export const convertForOfStatement = (
     variable,
     expression: convertExpression(node.expression, ctx, undefined),
     body: body ?? { kind: "emptyStatement" },
-    isAwait: !!node.awaitModifier,
+    // TS parser marks `for await` loops with both `awaitModifier` and AwaitContext flags.
+    // Use both to be resilient across TS versions/host implementations.
+    isAwait:
+      node.awaitModifier !== undefined ||
+      (node.flags & ts.NodeFlags.AwaitContext) !== 0,
   };
 };
 
@@ -100,17 +105,27 @@ export const convertForInStatement = (
   node: ts.ForInStatement,
   ctx: ProgramContext,
   expectedReturnType?: IrType
-): IrForStatement => {
-  // Note: for...in needs special handling in C# - variable extraction will be handled in emitter
-  // We'll need to extract the variable info in the emitter phase
+): IrForInStatement => {
+  const firstDecl = ts.isVariableDeclarationList(node.initializer)
+    ? node.initializer.declarations[0]
+    : undefined;
+
+  const variable = ts.isVariableDeclarationList(node.initializer)
+    ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
+    : ts.isIdentifier(node.initializer)
+      ? convertBindingName(node.initializer)
+      : convertBindingName(ts.factory.createIdentifier("_"));
+
+  const typedVariable =
+    variable.kind === "identifierPattern"
+      ? { ...variable, type: { kind: "primitiveType", name: "string" } as const }
+      : variable;
 
   const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
-  // Note: for...in needs special handling in C#
   return {
-    kind: "forStatement",
-    initializer: undefined,
-    condition: undefined,
-    update: undefined,
+    kind: "forInStatement",
+    variable: typedVariable,
+    expression: convertExpression(node.expression, ctx, undefined),
     body: body ?? { kind: "emptyStatement" },
   };
 };

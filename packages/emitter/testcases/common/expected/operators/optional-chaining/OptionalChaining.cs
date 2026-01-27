@@ -4,16 +4,16 @@
 
 namespace TestCases.common.operators.optionalchaining
 {
+    public class address
+    {
+        public string? street { get; set; }
+        public string? city { get; set; }
+    }
     public class User
     {
         public string? name { get; set; }
 
         public address? address { get; set; }
-    }
-    public class address
-    {
-        public string? street { get; set; }
-        public string? city { get; set; }
     }
 
             public static class OptionalChaining

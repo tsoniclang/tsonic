@@ -8,6 +8,7 @@ export {
   emitWhileStatement,
   emitForStatement,
   emitForOfStatement,
+  emitForInStatement,
   emitSwitchStatement,
   emitTryStatement,
   emitThrowStatement,

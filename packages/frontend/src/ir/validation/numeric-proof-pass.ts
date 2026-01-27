@@ -1085,6 +1085,13 @@ const processStatement = <T extends IrStatement>(
         body: processStatement(stmt.body, ctx),
       } as T;
 
+    case "forInStatement":
+      return {
+        ...stmt,
+        expression: processExpression(stmt.expression, ctx),
+        body: processStatement(stmt.body, ctx),
+      } as T;
+
     case "switchStatement":
       return {
         ...stmt,

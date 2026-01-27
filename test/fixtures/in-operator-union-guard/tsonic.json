@@ -1,0 +1,9 @@
+{
+  "runtime": "dotnet",
+  "rootNamespace": "InOperatorUnionGuard",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "in-operator-union-guard"
+}
+

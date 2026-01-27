@@ -21,6 +21,7 @@ export const isStatement = (
     "whileStatement",
     "forStatement",
     "forOfStatement",
+    "forInStatement",
     "switchStatement",
     "throwStatement",
     "tryStatement",

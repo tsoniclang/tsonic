@@ -30,6 +30,7 @@ export type {
   IrWhileStatement,
   IrForStatement,
   IrForOfStatement,
+  IrForInStatement,
   IrSwitchStatement,
   IrSwitchCase,
   IrThrowStatement,

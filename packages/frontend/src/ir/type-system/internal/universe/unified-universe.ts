@@ -160,9 +160,18 @@ const convertRegistryEntry = (
 ): NominalEntry => {
   const stableId = makeSourceStableId(projectName, entry.fullyQualifiedName);
 
+  // C# has no type-alias syntax at use sites. For `type X = { ... }` (objectType),
+  // the emitter materializes a concrete CLR class named `X__Alias`.
+  // The unified universe must reflect that CLR name so cross-module emission
+  // (via TypeId.clrName) remains correct and deterministic.
+  const clrName =
+    entry.kind === "typeAlias" && entry.aliasedType?.kind === "objectType"
+      ? `${entry.fullyQualifiedName}__Alias`
+      : entry.fullyQualifiedName;
+
   const typeId = makeTypeId(
     stableId,
-    entry.fullyQualifiedName, // CLR name = FQ name for source types
+    clrName,
     projectName,
     entry.name // TS name = simple name
   );

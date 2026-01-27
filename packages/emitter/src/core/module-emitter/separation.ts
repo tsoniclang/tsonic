@@ -25,7 +25,9 @@ export const separateStatements = (module: IrModule): SeparatedStatements => {
   for (const stmt of module.body) {
     if (
       stmt.kind === "classDeclaration" ||
-      stmt.kind === "interfaceDeclaration"
+      stmt.kind === "interfaceDeclaration" ||
+      stmt.kind === "enumDeclaration" ||
+      (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType")
     ) {
       namespaceLevelDecls.push(stmt);
     } else {

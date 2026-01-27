@@ -2,3 +2,7 @@ String dict 'one': 1
 String dict 'two': 2
 Number dict 1: one
 Number dict 2: two
+String dict sum: 6
+Int dict sum: 30
+Index sig interface total: 123
+Index sig type alias total: 7

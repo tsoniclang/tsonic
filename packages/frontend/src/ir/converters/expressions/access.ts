@@ -115,6 +115,46 @@ const getDeclaredPropertyType = (
 };
 
 /**
+ * Normalize a receiver type for computed access classification.
+ *
+ * This supports common TS shapes that appear at runtime:
+ * - Nullish unions (`T | undefined` / `T | null | undefined`)
+ * - tsbindgen-style intersection views (`T$instance & __T$views`, and primitives like
+ *   `string & String$instance & __String$views`)
+ *
+ * The goal is to preserve deterministic proof behavior without heuristics.
+ */
+const normalizeForComputedAccess = (type: IrType | undefined): IrType | undefined => {
+  if (!type) return undefined;
+
+  if (type.kind === "unionType") {
+    const nonNullish = type.types.filter(
+      (t) =>
+        !(
+          t.kind === "primitiveType" &&
+          (t.name === "null" || t.name === "undefined")
+        )
+    );
+    if (nonNullish.length === 1) {
+      const only = nonNullish[0];
+      return only ? normalizeForComputedAccess(only) : undefined;
+    }
+  }
+
+  if (type.kind === "intersectionType") {
+    const pick =
+      type.types.find((t) => t.kind === "arrayType") ??
+      type.types.find((t) => t.kind === "dictionaryType") ??
+      type.types.find((t) => t.kind === "primitiveType" && t.name === "string") ??
+      type.types.find((t) => t.kind === "referenceType");
+
+    return pick ? normalizeForComputedAccess(pick) : type;
+  }
+
+  return type;
+};
+
+/**
  * Classify computed member access for proof pass.
  * This determines whether Int32 proof is required for the index.
  *
@@ -130,7 +170,9 @@ const getDeclaredPropertyType = (
 const classifyComputedAccess = (
   objectType: IrType | undefined
 ): ComputedAccessKind => {
-  if (!objectType) return "unknown";
+  const normalized = normalizeForComputedAccess(objectType);
+  if (!normalized) return "unknown";
+  objectType = normalized;
 
   // TypeScript array type (number[], T[], etc.)
   // Requires Int32 proof
@@ -659,6 +701,7 @@ const resolveExtensionMethodsBinding = (
 const deriveElementType = (
   objectType: IrType | undefined
 ): IrType | undefined => {
+  objectType = normalizeForComputedAccess(objectType);
   if (!objectType) return undefined;
 
   if (objectType.kind === "arrayType") {

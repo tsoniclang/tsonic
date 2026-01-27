@@ -29,6 +29,7 @@ import {
   emitWhileStatement,
   emitForStatement,
   emitForOfStatement,
+  emitForInStatement,
   emitSwitchStatement,
   emitTryStatement,
   emitThrowStatement,
@@ -81,9 +82,8 @@ export const emitStatement = (
     case "forOfStatement":
       return emitForOfStatement(stmt, context);
 
-    // Note: forInStatement not in current IR types
-    // case "forInStatement":
-    //   return emitForInStatement(stmt, context);
+    case "forInStatement":
+      return emitForInStatement(stmt, context);
 
     case "switchStatement":
       return emitSwitchStatement(stmt, context);

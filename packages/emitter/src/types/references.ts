@@ -128,15 +128,23 @@ export const emitReferenceType = (
 ): [string, EmitterContext] => {
   const { name, typeArguments, resolvedClrType, typeId } = type;
 
-  // Check if this is a local type alias for a tuple type - must resolve since C# has no type alias for ValueTuple
-  // Tuple type aliases: RESOLVE to ValueTuple<...> (C# has no equivalent type alias syntax)
-  // Union/intersection type aliases: PRESERVE names for readability (emitted as comments elsewhere)
-  // Object type aliases: PRESERVE names (emitted as classes)
+  // Check if this is a local type alias.
+  //
+  // C# has no general-purpose type alias syntax at the use-site, so type aliases must be
+  // resolved to their underlying type *except* for `objectType` aliases, which are emitted
+  // as concrete classes with a `__Alias` suffix.
+  //
+  // Examples:
+  // - `type Pair = [number, number]`      → `global::System.ValueTuple<double, double>`
+  // - `type Auth = { ok: true } | { error: string }`
+  //                                   → `global::Tsonic.Runtime.Union<Auth__0, Auth__1>`
+  // - `type Point = { x: number; y: number }`
+  //                                   → `Point__Alias` (class emitted elsewhere)
   const typeInfo = context.localTypes?.get(name);
   if (typeInfo && typeInfo.kind === "typeAlias") {
     const underlyingKind = typeInfo.type.kind;
-    // Only resolve tuple type aliases - all others preserve their names
-    const shouldResolve = underlyingKind === "tupleType";
+    // Resolve all non-object type aliases; object aliases are emitted as classes.
+    const shouldResolve = underlyingKind !== "objectType";
 
     if (shouldResolve) {
       // Substitute type arguments if present
@@ -150,7 +158,8 @@ export const emitReferenceType = (
           : typeInfo.type;
       return emitType(underlyingType, context);
     }
-    // For union types, object types, etc. - fall through and emit the alias name
+    // For `objectType` aliases - fall through and emit the alias name; it will be
+    // rewritten to `__Alias` in the local-type handling below.
   }
 
   // If the type has a pre-resolved CLR type (from IR), use it
@@ -318,7 +327,10 @@ export const emitReferenceType = (
       const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
       const container = context.moduleStaticClassName;
       const isNestedInStaticContainer =
-        localTypeInfo.kind === "typeAlias" || localTypeInfo.kind === "enum";
+        localTypeInfo.kind === "typeAlias" &&
+        // Structural aliases (objectType) are emitted as namespace-level classes.
+        // Only non-structural aliases (comments/erased types) are nested in the static container.
+        localTypeInfo.type.kind !== "objectType";
       const qualifiedPrefix =
         isNestedInStaticContainer && container
           ? `${moduleNamespace}.${container}`
@@ -334,7 +346,8 @@ export const emitReferenceType = (
     const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
     const container = context.moduleStaticClassName;
     const isNestedInStaticContainer =
-      localTypeInfo.kind === "typeAlias" || localTypeInfo.kind === "enum";
+      localTypeInfo.kind === "typeAlias" &&
+      localTypeInfo.type.kind !== "objectType";
     const qualifiedPrefix =
       isNestedInStaticContainer && container
         ? `${moduleNamespace}.${container}`
