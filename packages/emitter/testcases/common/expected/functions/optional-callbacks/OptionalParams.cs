@@ -11,7 +11,7 @@ namespace TestCases.common.functions.optionalcallbacks
             public static int compute(int value, global::System.Action<int>? callback = default)
                 {
                 var result = value * 2;
-                if (callback is not null)
+                if (callback != null)
                     {
                     callback(result);
                     }
@@ -20,7 +20,7 @@ namespace TestCases.common.functions.optionalcallbacks
 
             public static int maybeTransform(int value, global::System.Func<int, int>? transform)
                 {
-                if (transform is not null)
+                if (transform != null)
                     {
                     return transform(value);
                     }

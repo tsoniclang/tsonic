@@ -68,6 +68,31 @@ export type TypeMemberKind = "method" | "property" | "field" | "enumMember";
  */
 export type TypeMemberIndex = ReadonlyMap<string, ReadonlyMap<string, TypeMemberKind>>;
 
+export type TypeAliasIndexEntry = {
+  /** Fully-qualified type name (without global::), e.g. "MyApp.Models.Result" */
+  readonly fqn: string;
+  /** Unqualified alias name, e.g. "Result" */
+  readonly name: string;
+  /** Underlying IR type of the alias */
+  readonly type: IrType;
+  /** Type parameter names (in order) */
+  readonly typeParameters: readonly string[];
+};
+
+/**
+ * Cross-module type alias index.
+ *
+ * The frontend may preserve type aliases in inferredType (as referenceType by alias name)
+ * even when the alias is declared in a different module. The emitter needs to resolve
+ * such aliases deterministically to support features like `"prop" in x` union narrowing.
+ */
+export type TypeAliasIndex = {
+  /** Lookup by unqualified alias name (may be ambiguous across modules). */
+  readonly byName: ReadonlyMap<string, readonly TypeAliasIndexEntry[]>;
+  /** Lookup by fully-qualified alias name. */
+  readonly byFqn: ReadonlyMap<string, TypeAliasIndexEntry>;
+};
+
 /**
  * Options for C# code generation
  */
@@ -76,6 +101,8 @@ export type EmitterOptions = {
   readonly rootNamespace: string;
   /** Member-kind index for locally-emitted types (populated during batch emission) */
   readonly typeMemberIndex?: TypeMemberIndex;
+  /** Cross-module type alias index (populated during batch emission) */
+  readonly typeAliasIndex?: TypeAliasIndex;
   /** Whether to include source map comments */
   readonly includeSourceMaps?: boolean;
   /** Indentation style (spaces) */

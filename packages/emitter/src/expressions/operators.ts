@@ -15,6 +15,7 @@ import {
   stripNullish,
   findUnionMemberIndex,
   getAllPropertySignatures,
+  isDefinitelyValueType,
 } from "../core/type-resolution.js";
 import { emitBooleanCondition } from "../core/boolean-context.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
@@ -186,10 +187,8 @@ export const emitBinary = (
         const member = resolvedRhs.types[i];
         if (!member || member.kind !== "referenceType") continue;
 
-        const info = rhsCtx.localTypes?.get(member.name);
-        if (!info) continue;
-
-        if (info.kind === "interface") {
+        const localInfo = rhsCtx.localTypes?.get(member.name);
+        if (localInfo?.kind === "interface") {
           const props = getAllPropertySignatures(member, rhsCtx);
           if (props?.some((p) => p.name === propName)) {
             matchingMembers.push(i + 1);
@@ -197,15 +196,65 @@ export const emitBinary = (
           continue;
         }
 
-        if (info.kind === "class") {
+        if (localInfo?.kind === "class") {
           if (
-            info.members.some(
-              (m) => m.kind === "propertyDeclaration" && m.name === propName
+            localInfo.members.some(
+              (m) =>
+                (m.kind === "propertyDeclaration" || m.kind === "methodDeclaration") &&
+                m.name === propName
             )
           ) {
             matchingMembers.push(i + 1);
           }
           continue;
+        }
+
+        // Cross-module union members: consult the batch type-member index.
+        // This enables `"prop" in x` narrowing even when the union member types
+        // are declared in a different TS module.
+        const candidates: string[] = [];
+
+        const stripGlobalPrefix = (name: string): string =>
+          name.startsWith("global::") ? name.slice("global::".length) : name;
+
+        if (member.resolvedClrType) {
+          candidates.push(stripGlobalPrefix(member.resolvedClrType));
+        }
+        if (member.name.includes(".")) {
+          candidates.push(member.name);
+        }
+
+        if (!member.name.includes(".") && rhsCtx.options.typeMemberIndex) {
+          const matches: string[] = [];
+          for (const fqn of rhsCtx.options.typeMemberIndex.keys()) {
+            if (fqn.endsWith(`.${member.name}`) || fqn.endsWith(`.${member.name}__Alias`)) {
+              matches.push(fqn);
+            }
+          }
+
+          if (matches.length === 1) {
+            candidates.push(matches[0]!);
+          } else if (matches.length > 1) {
+            const list = matches.sort().join(", ");
+            throw new Error(
+              `ICE: Ambiguous union member type '${member.name}' for \`in\` narrowing. Candidates: ${list}`
+            );
+          }
+        }
+
+        // Single-file fallback (no batch indexes): assume same namespace.
+        if (rhsCtx.moduleNamespace) {
+          candidates.push(`${rhsCtx.moduleNamespace}.${member.name}`);
+          candidates.push(`${rhsCtx.moduleNamespace}.${member.name}__Alias`);
+        }
+
+        const hasMember = candidates.some((fqn) => {
+          const perType = rhsCtx.options.typeMemberIndex?.get(fqn);
+          return perType?.has(propName) ?? false;
+        });
+
+        if (hasMember) {
+          matchingMembers.push(i + 1);
         }
       }
 
@@ -286,15 +335,21 @@ export const emitBinary = (
     }
   }
 
-  // MODERN C# NULLABLE CHECK (C# 9+):
-  // Use `is null` / `is not null` pattern matching for nullish comparisons.
-  // This is more idiomatic than `== default` / `!= default` and works correctly
-  // with nullable value types (long?, int?, etc.) without needing .Value access.
+  // NULLISH COMPARISONS:
   //
-  // TypeScript:  x === undefined  →  C#: x is null
-  // TypeScript:  x !== undefined  →  C#: x is not null
-  // TypeScript:  x === null       →  C#: x is null
-  // TypeScript:  x !== null       →  C#: x is not null
+  // Prefer `== null` / `!= null` for normal reference/nullable types so the result
+  // is expression-tree friendly (EF Core query providers do not support pattern matching).
+  //
+  // For unconstrained generics (T), `== null` is not always valid, so we instead cast
+  // to `object` to force reference-equality semantics and avoid operator overloads:
+  //   ((object)x) == null
+  // This also avoids emitting pattern matching (`is null`) which is rejected inside
+  // expression trees (EF Core query providers).
+  //
+  // TypeScript:  x === undefined  →  C#: x == null
+  // TypeScript:  x !== undefined  →  C#: x != null
+  // TypeScript:  x === null       →  C#: x == null
+  // TypeScript:  x !== null       →  C#: x != null
   const isNullishLiteral = (e: IrExpression): boolean =>
     (e.kind === "literal" && (e.value === undefined || e.value === null)) ||
     (e.kind === "identifier" && (e.name === "undefined" || e.name === "null"));
@@ -307,7 +362,7 @@ export const emitBinary = (
     (leftIsNullish || rightIsNullish);
 
   if (isNullishComparison) {
-    // One side is null/undefined literal, emit the other side with pattern matching
+    // One side is null/undefined literal, emit the other side as a C# null check.
     // Clear narrowedBindings so we emit the raw identifier (not .Value)
     const nonNullishExpr = leftIsNullish ? expr.right : expr.left;
     const nonNullishContext = { ...context, narrowedBindings: undefined };
@@ -316,9 +371,45 @@ export const emitBinary = (
       nonNullishContext
     );
 
-    // Use `is null` for == and `is not null` for !=
-    const pattern = op === "==" ? "is null" : "is not null";
-    const text = `${nonNullishFrag.text} ${pattern}`;
+    const inferred = nonNullishExpr.inferredType;
+    const base = inferred ? stripNullish(inferred) : undefined;
+    const bareTypeParamName = (() => {
+      if (!base) return undefined;
+      if (base.kind === "typeParameterType") return base.name;
+      if (
+        base.kind === "referenceType" &&
+        (resultContext.typeParameters?.has(base.name) ?? false) &&
+        (!base.typeArguments || base.typeArguments.length === 0)
+      ) {
+        return base.name;
+      }
+      return undefined;
+    })();
+
+    // If the operand is definitely a non-nullable value type, fold comparison to a constant.
+    if (inferred && inferred.kind !== "unionType" && isDefinitelyValueType(inferred)) {
+      const folded = op === "==" ? "false" : "true";
+      return [{ text: folded, precedence: getPrecedence(expr.operator) }, resultContext];
+    }
+
+    const typeParamConstraint =
+      bareTypeParamName !== undefined
+        ? (resultContext.typeParamConstraints?.get(bareTypeParamName) ??
+          "unconstrained")
+        : undefined;
+
+    if (typeParamConstraint === "struct") {
+      const folded = op === "==" ? "false" : "true";
+      return [{ text: folded, precedence: getPrecedence(expr.operator) }, resultContext];
+    }
+
+    const needsObjectCast =
+      bareTypeParamName !== undefined && typeParamConstraint === "unconstrained";
+
+    const nullOp = op === "==" ? "== null" : "!= null";
+    const text = needsObjectCast
+      ? `((global::System.Object)(${nonNullishFrag.text})) ${nullOp}`
+      : `${nonNullishFrag.text} ${nullOp}`;
 
     return [{ text, precedence: getPrecedence(expr.operator) }, resultContext];
   }
@@ -375,13 +466,30 @@ export const emitLogical = (
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
   const [leftFrag, leftContext] = emitExpression(expr.left, context);
-  const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
 
   // If || is used with non-boolean left operand, use ?? instead for nullish coalescing
   const operator =
     expr.operator === "||" && !isBooleanType(expr.left.inferredType)
       ? "??"
       : expr.operator;
+
+  // If the left operand is a non-nullable value type, `??` is invalid in C# and the
+  // fallback is unreachable. Emit only the left operand.
+  if (
+    operator === "??" &&
+    expr.left.inferredType &&
+    expr.left.inferredType.kind !== "unionType" &&
+    isDefinitelyValueType(expr.left.inferredType) &&
+    // Conditional access (`?.` / `?[`) produces nullable value types in C# even when the
+    // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).
+    // In that case the fallback is still meaningful and must be preserved.
+    !leftFrag.text.includes("?.") &&
+    !leftFrag.text.includes("?[")
+  ) {
+    return [leftFrag, leftContext];
+  }
+
+  const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
 
   const text = `${leftFrag.text} ${operator} ${rightFrag.text}`;
   return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];

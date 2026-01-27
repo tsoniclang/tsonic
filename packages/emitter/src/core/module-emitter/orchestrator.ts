@@ -20,6 +20,7 @@ import { emitNamespaceDeclarations } from "./namespace.js";
 import {
   emitStaticContainer,
   hasMatchingClassName,
+  collectStaticContainerValueSymbols,
 } from "./static-container.js";
 import { assembleOutput, type AssemblyParts } from "./assembly.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -79,10 +80,16 @@ export const emitModule = (
         : escapedModuleClassName
       : undefined;
 
+  const valueSymbols =
+    staticContainerMembers.length > 0
+      ? collectStaticContainerValueSymbols(staticContainerMembers, exchangesContext)
+      : undefined;
+
   const moduleContext = {
     ...exchangesContext,
     moduleNamespace: module.namespace,
     moduleStaticClassName,
+    valueSymbols,
   };
 
   // Emit namespace-level declarations (classes, interfaces)

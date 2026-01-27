@@ -107,6 +107,59 @@ const hasLocalProperty = (
 };
 
 /**
+ * Check if a nominal type has a property, including cross-module local types.
+ *
+ * For same-module types, consult `context.localTypes`.
+ * For cross-module types, consult the batch `typeMemberIndex` and resolve the
+ * member's fully-qualified name deterministically.
+ */
+const hasProperty = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  propertyName: string,
+  context: EmitterContext
+): boolean => {
+  if (hasLocalProperty(type, propertyName, context)) {
+    return true;
+  }
+
+  const index = context.options.typeMemberIndex;
+  if (!index) return false;
+
+  const stripGlobalPrefix = (name: string): string =>
+    name.startsWith("global::") ? name.slice("global::".length) : name;
+
+  const candidates: string[] = [];
+
+  if (type.resolvedClrType) {
+    candidates.push(stripGlobalPrefix(type.resolvedClrType));
+  } else if (type.name.includes(".")) {
+    candidates.push(type.name);
+  } else {
+    // Resolve by suffix match in the type member index.
+    const matches: string[] = [];
+    for (const fqn of index.keys()) {
+      if (fqn.endsWith(`.${type.name}`) || fqn.endsWith(`.${type.name}__Alias`)) {
+        matches.push(fqn);
+      }
+    }
+
+    if (matches.length === 1) {
+      candidates.push(matches[0]!);
+    } else if (matches.length > 1) {
+      const list = matches.sort().join(", ");
+      throw new Error(
+        `ICE: Ambiguous union member type '${type.name}' for \`in\` narrowing. Candidates: ${list}`
+      );
+    }
+  }
+
+  return candidates.some((fqn) => {
+    const perType = index.get(fqn);
+    return perType?.has(propertyName) ?? false;
+  });
+};
+
+/**
  * Try to extract guard info from an `("prop" in x)` binary expression.
  */
 const tryResolveInGuard = (
@@ -140,7 +193,7 @@ const tryResolveInGuard = (
   for (let i = 0; i < resolved.types.length; i++) {
     const member = resolved.types[i];
     if (!member || member.kind !== "referenceType") continue;
-    if (hasLocalProperty(member, propertyName, context)) {
+    if (hasProperty(member, propertyName, context)) {
       matchingMembers.push(i + 1);
     }
   }

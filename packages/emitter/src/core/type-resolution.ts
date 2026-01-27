@@ -686,25 +686,61 @@ export const resolveTypeAlias = (
   type: IrType,
   context: EmitterContext
 ): IrType => {
-  if (type.kind !== "referenceType" || !context.localTypes) {
+  if (type.kind !== "referenceType") {
     return type;
   }
 
-  const typeInfo = context.localTypes.get(type.name);
-  if (!typeInfo || typeInfo.kind !== "typeAlias") {
+  const localTypeInfo = context.localTypes?.get(type.name);
+  if (localTypeInfo?.kind === "typeAlias") {
+    // Substitute type arguments if present
+    if (type.typeArguments && type.typeArguments.length > 0) {
+      return substituteTypeArgs(
+        localTypeInfo.type,
+        localTypeInfo.typeParameters,
+        type.typeArguments
+      );
+    }
+
+    return localTypeInfo.type;
+  }
+
+  const aliasIndex = context.options.typeAliasIndex;
+  if (!aliasIndex) {
     return type;
   }
 
-  // Substitute type arguments if present
+  const stripGlobalPrefix = (name: string): string =>
+    name.startsWith("global::") ? name.slice("global::".length) : name;
+
+  const name = stripGlobalPrefix(type.name);
+  const aliasEntry =
+    name.includes(".")
+      ? aliasIndex.byFqn.get(name)
+      : (() => {
+          const matches = aliasIndex.byName.get(name) ?? [];
+
+          if (matches.length === 0) return undefined;
+          if (matches.length === 1) return matches[0];
+
+          const candidates = matches.map((m) => m.fqn).sort().join(", ");
+          throw new Error(
+            `ICE: Ambiguous type alias reference '${name}'. Candidates: ${candidates}`
+          );
+        })();
+
+  if (!aliasEntry) {
+    return type;
+  }
+
   if (type.typeArguments && type.typeArguments.length > 0) {
     return substituteTypeArgs(
-      typeInfo.type,
-      typeInfo.typeParameters,
+      aliasEntry.type,
+      aliasEntry.typeParameters,
       type.typeArguments
     );
   }
 
-  return typeInfo.type;
+  return aliasEntry.type;
 };
 
 /**

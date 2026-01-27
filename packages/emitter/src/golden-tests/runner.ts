@@ -64,7 +64,26 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   // Step 1: Compile TypeScript → Program
   const typeRoots = [globalsPath, corePath];
 
-  const compileResult = compile([scenario.inputPath], {
+  // Compile ALL .ts files in the scenario directory so that cross-module behaviors
+  // (imports, re-exports, union narrowing across files, etc.) are testable.
+  const tsFiles: string[] = [];
+  const collectTs = (dir: string): void => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        collectTs(full);
+        continue;
+      }
+      if (entry.isFile() && entry.name.endsWith(".ts")) {
+        tsFiles.push(full);
+      }
+    }
+  };
+  collectTs(sourceRoot);
+  tsFiles.sort();
+
+  const compileResult = compile(tsFiles.length ? tsFiles : [scenario.inputPath], {
     projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
     sourceRoot,
     rootNamespace,
