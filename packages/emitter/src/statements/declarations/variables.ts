@@ -170,8 +170,9 @@ export const emitVariableDeclaration = (
 
     // In static contexts, variable declarations become fields with modifiers
     if (context.isStatic) {
-      // Exported: public, non-exported: private
-      varDecl = stmt.isExported ? "public static " : "private static ";
+      // Exported: public, non-exported: internal (module-local helpers may be used by
+      // namespace-level declarations emitted outside the static container class).
+      varDecl = stmt.isExported ? "public static " : "internal static ";
       if (stmt.declarationKind === "const") {
         varDecl += "readonly ";
       }
@@ -336,7 +337,11 @@ export const emitVariableDeclaration = (
         const originalFieldName = decl.name.name;
         const emittedFieldName = emitCSharpName(originalFieldName, "fields", context);
         const delegateTypeName = `${emittedFieldName}__Delegate`;
-        const access = stmt.isExported ? "public" : "private";
+        const access = stmt.isExported
+          ? "public"
+          : context.isStatic
+            ? "internal"
+            : "private";
 
         const delegateParams: string[] = [];
         for (let i = 0; i < arrowFunc.parameters.length; i++) {

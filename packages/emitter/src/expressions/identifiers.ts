@@ -59,7 +59,17 @@ export const emitIdentifier = (
   // These are emitted with namingPolicy (e.g., `main` → `Main` under `clr`).
   const valueSymbol = context.valueSymbols?.get(expr.name);
   if (valueSymbol) {
-    return [{ text: escapeCSharpIdentifier(valueSymbol.csharpName) }, context];
+    const memberName = escapeCSharpIdentifier(valueSymbol.csharpName);
+    if (
+      context.moduleStaticClassName &&
+      context.className !== context.moduleStaticClassName
+    ) {
+      return [
+        { text: `${context.moduleStaticClassName}.${memberName}` },
+        context,
+      ];
+    }
+    return [{ text: memberName }, context];
   }
 
   // Use custom C# name from binding if specified (with global:: prefix)

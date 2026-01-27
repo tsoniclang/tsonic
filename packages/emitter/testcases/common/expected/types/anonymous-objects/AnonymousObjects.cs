@@ -37,7 +37,7 @@ namespace TestCases.common.types.anonymousobjects
 
                 public static readonly __Anon_AnonymousObjects_12_24 handler = new __Anon_AnonymousObjects_12_24 { id = 1, process = (double x) => x * 2 };
 
-                private static readonly int value = 100;
+                internal static readonly int value = 100;
 
                 public static readonly __Anon_AnonymousObjects_19_26 shorthand = new __Anon_AnonymousObjects_19_26 { value = value };
             }

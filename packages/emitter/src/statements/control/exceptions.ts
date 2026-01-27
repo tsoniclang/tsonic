@@ -6,6 +6,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 /**
  * Emit a try statement
@@ -25,12 +26,13 @@ export const emitTryStatement = (
       stmt.catchClause.parameter?.kind === "identifierPattern"
         ? stmt.catchClause.parameter.name
         : "ex";
+    const escapedParam = escapeCSharpIdentifier(param);
 
     const [catchBlock, catchContext] = emitBlockStatement(
       stmt.catchClause.body,
       currentContext
     );
-    code += `\n${ind}catch (Exception ${param})\n${catchBlock}`;
+    code += `\n${ind}catch (global::System.Exception ${escapedParam})\n${catchBlock}`;
     currentContext = catchContext;
   }
 

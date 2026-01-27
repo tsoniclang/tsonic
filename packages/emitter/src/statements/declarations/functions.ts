@@ -80,7 +80,17 @@ export const emitFunctionDeclaration = (
   let currentContext = typeParamContext;
 
   // Access modifiers
-  const accessibility = stmt.isExported ? "public" : "private";
+  //
+  // Top-level (module) functions are emitted as static methods on the module's
+  // container class. When a module also has namespace-level declarations
+  // (classes/interfaces/enums), those types must still be able to call module-local
+  // helpers. `private` would make them inaccessible, so use `internal` for
+  // non-exported module functions.
+  const accessibility = stmt.isExported
+    ? "public"
+    : context.isStatic
+      ? "internal"
+      : "private";
   parts.push(accessibility);
 
   if (context.isStatic) {

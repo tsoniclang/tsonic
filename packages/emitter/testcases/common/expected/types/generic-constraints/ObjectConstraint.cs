@@ -16,7 +16,7 @@ namespace TestCases.common.types.genericconstraints
 
         public bool isNull()
             {
-            return this.value is null;
+            return this.value == null;
             }
     }
 }

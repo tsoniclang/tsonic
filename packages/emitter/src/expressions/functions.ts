@@ -93,7 +93,9 @@ const emitLambdaParameters = (
       const [typeStr, newContext] = emitType(actualType, currentContext);
       currentContext = newContext;
 
-      parts.push(`${modifier}${typeStr} ${name}`);
+      const optionalSuffix =
+        param.isOptional && !typeStr.trimEnd().endsWith("?") ? "?" : "";
+      parts.push(`${modifier}${typeStr}${optionalSuffix} ${name}`);
     } else {
       // Emit untyped parameter (name only)
       // Note: modifiers don't work without types in C# lambdas
@@ -118,12 +120,17 @@ export const emitFunctionExpression = (
   );
 
   // Function expressions always have block bodies
-  const blockContextBase = paramContext.isStatic
-    ? indent(paramContext)
-    : paramContext;
+  const returnType =
+    expr.inferredType?.kind === "functionType"
+      ? expr.inferredType.returnType
+      : undefined;
+  const blockContextBase = paramContext.isStatic ? indent(paramContext) : paramContext;
   const [blockCode] = emitStatement(
     expr.body,
-    withStatic(blockContextBase, false)
+    {
+      ...withStatic(blockContextBase, false),
+      returnType,
+    }
   );
 
   const asyncPrefix = expr.isAsync ? "async " : "";
@@ -145,6 +152,10 @@ export const emitArrowFunction = (
   );
 
   const asyncPrefix = expr.isAsync ? "async " : "";
+  const returnType =
+    expr.inferredType?.kind === "functionType"
+      ? expr.inferredType.returnType
+      : undefined;
 
   // Arrow function body can be block or expression
   if (expr.body.kind === "blockStatement") {
@@ -154,13 +165,16 @@ export const emitArrowFunction = (
       : paramContext;
     const [blockCode] = emitStatement(
       expr.body,
-      withStatic(blockContextBase, false)
+      {
+        ...withStatic(blockContextBase, false),
+        returnType,
+      }
     );
     const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
     return [{ text }, paramContext];
   } else {
     // Expression body: (params) => expression
-    const [exprCode, newContext] = emitExpression(expr.body, paramContext);
+    const [exprCode, newContext] = emitExpression(expr.body, paramContext, returnType);
     const text = `${asyncPrefix}(${paramList}) => ${exprCode.text}`;
     return [{ text }, newContext];
   }

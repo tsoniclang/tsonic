@@ -9,6 +9,7 @@ import { EmitterOptions, JsonAotRegistry } from "./types.js";
 import { emitModule } from "./core/module-emitter.js";
 import { buildModuleMap } from "./core/module-map.js";
 import { buildTypeMemberIndex } from "./core/type-member-index.js";
+import { buildTypeAliasIndex } from "./core/type-alias-index.js";
 import { validateNamingPolicyCollisions } from "./core/naming-collisions.js";
 
 /**
@@ -52,6 +53,7 @@ export const emitCSharpFiles = (
   const exportMap = moduleMapResult.exportMap;
   const results = new Map<string, string>();
   const typeMemberIndex = buildTypeMemberIndex(modules);
+  const typeAliasIndex = buildTypeAliasIndex(modules);
 
   // Create JSON AOT registry (shared across all modules)
   const jsonAotRegistry: JsonAotRegistry = {
@@ -81,6 +83,7 @@ export const emitCSharpFiles = (
       moduleMap, // Pass module map to each module emission
       exportMap, // Pass export map for re-export resolution
       typeMemberIndex, // Pass type member index for member naming policy
+      typeAliasIndex, // Pass type alias index for cross-module alias resolution
       jsonAotRegistry, // Pass JSON AOT registry for type collection
     };
     const code = emitModule(module, moduleOptions);

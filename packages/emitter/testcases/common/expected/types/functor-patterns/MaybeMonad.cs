@@ -40,7 +40,7 @@ namespace TestCases.common.types.functorpatterns
         public override Maybe<U> map<U>(global::System.Func<T, U> fn)
             where U : class
             {
-            if (this.value is null)
+            if (this.value == null)
                 {
                 return Maybe.nothing<U>();
                 }
@@ -50,7 +50,7 @@ namespace TestCases.common.types.functorpatterns
         public Maybe<U> flatMap<U>(global::System.Func<T, Maybe<U>> fn)
             where U : class
             {
-            if (this.value is null)
+            if (this.value == null)
                 {
                 return Maybe.nothing<U>();
                 }
@@ -59,7 +59,7 @@ namespace TestCases.common.types.functorpatterns
 
         public T getOrElse(T defaultValue)
             {
-            return this.value is not null ? this.value : defaultValue;
+            return this.value != null ? this.value : defaultValue;
             }
     }
 }

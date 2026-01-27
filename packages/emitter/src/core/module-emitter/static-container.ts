@@ -9,6 +9,7 @@ import {
   indent,
   getIndent,
   withStatic,
+  withClassName,
 } from "../../types.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { emitExport } from "../exports.js";
@@ -19,6 +20,34 @@ import { getCSharpName } from "../../naming-policy.js";
 export type StaticContainerResult = {
   readonly code: string;
   readonly context: EmitterContext;
+};
+
+export const collectStaticContainerValueSymbols = (
+  members: readonly IrStatement[],
+  context: EmitterContext
+): ReadonlyMap<string, ValueSymbolInfo> => {
+  const valueSymbols = new Map<string, ValueSymbolInfo>();
+
+  for (const member of members) {
+    if (member.kind === "functionDeclaration") {
+      valueSymbols.set(member.name, {
+        kind: "function",
+        csharpName: getCSharpName(member.name, "methods", context),
+      });
+      continue;
+    }
+    if (member.kind === "variableDeclaration") {
+      for (const decl of member.declarations) {
+        if (decl.name.kind !== "identifierPattern") continue;
+        valueSymbols.set(decl.name.name, {
+          kind: "variable",
+          csharpName: getCSharpName(decl.name.name, "fields", context),
+        });
+      }
+    }
+  }
+
+  return valueSymbols;
 };
 
 /**
@@ -48,41 +77,26 @@ export const emitStaticContainer = (
   hasInheritance: boolean,
   useModuleSuffix: boolean = false
 ): StaticContainerResult => {
-  const valueSymbols = new Map<string, ValueSymbolInfo>();
-  for (const member of members) {
-    if (member.kind === "functionDeclaration") {
-      valueSymbols.set(member.name, {
-        kind: "function",
-        csharpName: getCSharpName(member.name, "methods", baseContext),
-      });
-      continue;
-    }
-    if (member.kind === "variableDeclaration") {
-      for (const decl of member.declarations) {
-        if (decl.name.kind !== "identifierPattern") continue;
-        valueSymbols.set(decl.name.name, {
-          kind: "variable",
-          csharpName: getCSharpName(decl.name.name, "fields", baseContext),
-        });
-      }
-    }
-  }
+  const escapedClassName = escapeCSharpIdentifier(module.className);
+  // Use __Module suffix when there's a collision with namespace-level type declarations
+  const containerName = useModuleSuffix
+    ? `${escapedClassName}__Module`
+    : escapedClassName;
 
-  const classContext = {
-    ...withStatic(indent(baseContext), true),
-    valueSymbols,
-  };
+  const valueSymbols = collectStaticContainerValueSymbols(members, baseContext);
+  const classContext = withClassName(
+    {
+      ...withStatic(indent(baseContext), true),
+      valueSymbols,
+    },
+    containerName
+  );
   const bodyContext = indent(classContext);
   const ind = getIndent(classContext);
   const bodyInd = getIndent(bodyContext);
   const needsUnsafe = members.some((m) => statementUsesPointer(m));
 
   const containerParts: string[] = [];
-  const escapedClassName = escapeCSharpIdentifier(module.className);
-  // Use __Module suffix when there's a collision with namespace-level type declarations
-  const containerName = useModuleSuffix
-    ? `${escapedClassName}__Module`
-    : escapedClassName;
   containerParts.push(
     `${ind}public static${needsUnsafe ? " unsafe" : ""} class ${containerName}`
   );
