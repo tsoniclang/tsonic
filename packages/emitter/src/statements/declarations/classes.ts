@@ -225,14 +225,19 @@ export const emitClassDeclaration = (
     if (impl.kind !== "referenceType") continue;
 
     const localInfo = context.localTypes?.get(impl.name);
-    const isEmittedAsCSharpInterface =
-      localInfo?.kind === "interface"
-        ? localInfo.members.some((m) => m.kind === "methodSignature")
-        : impl.resolvedClrType !== undefined;
+    const isLocalCSharpInterface =
+      localInfo?.kind === "interface" &&
+      localInfo.members.some((m) => m.kind === "methodSignature");
 
-    if (!isEmittedAsCSharpInterface) {
-      continue;
-    }
+    // For CLR bindings, `resolvedClrType` is preferred, but some binding-only
+    // interfaces exist purely as types (no value export), so the frontend may
+    // omit `resolvedClrType`. In that case, fall back to the bindingsRegistry
+    // to decide whether this referenceType is a CLR interface.
+    const regBinding = context.bindingsRegistry?.get(impl.name);
+    const isClrInterface =
+      impl.resolvedClrType !== undefined || regBinding?.kind === "interface";
+
+    if (!isLocalCSharpInterface && !isClrInterface) continue;
 
     const [implType, newContext] = emitType(impl, currentContext);
     currentContext = newContext;

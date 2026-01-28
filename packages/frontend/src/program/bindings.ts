@@ -115,6 +115,14 @@ export type TsbindgenField = {
 export type TsbindgenType = {
   readonly clrName: string; // Full CLR type name (e.g., "System.Console")
   readonly assemblyName: string;
+  /**
+   * CLR type kind from tsbindgen (e.g., "Class", "Interface", "Struct", "Enum").
+   *
+   * This is used for airplane-grade emission decisions (e.g., whether a name in
+   * a TS `implements` clause is a CLR interface and should be emitted in the C#
+   * heritage list).
+   */
+  readonly kind?: "Class" | "Interface" | "Struct" | "Enum";
   readonly methods: readonly TsbindgenMethod[];
   readonly properties: readonly TsbindgenProperty[];
   readonly fields: readonly TsbindgenField[];
@@ -497,11 +505,25 @@ export class BindingRegistry {
 
         const tsAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
 
+        const kindFromBindings = (() => {
+          switch (tsbType.kind) {
+            case "Interface":
+              return "interface" as const;
+            case "Struct":
+              return "struct" as const;
+            case "Enum":
+              return "enum" as const;
+            case "Class":
+            default:
+              return "class" as const;
+          }
+        })();
+
         // Create TypeBinding - TS alias is derived deterministically from CLR name.
         const typeBinding: TypeBinding = {
           name: tsbType.clrName,
           alias: tsAlias,
-          kind: "class", // Default to class; could be refined with more metadata
+          kind: kindFromBindings,
           members,
         };
 
