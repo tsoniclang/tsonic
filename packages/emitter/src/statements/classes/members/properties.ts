@@ -47,6 +47,11 @@ export const emitPropertyMember = (
     parts.push("override");
   }
 
+  // Base property virtual (required when overridden in derived types)
+  if (!member.isStatic && !member.isOverride && member.isVirtual) {
+    parts.push("virtual");
+  }
+
   // Required modifier (C# 11) - must be set in object initializer
   if (member.isRequired) {
     parts.push("required");
