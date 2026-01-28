@@ -10,6 +10,12 @@ import type { ProgramContext } from "../../../../program-context.js";
 export type OverrideInfo = {
   readonly isOverride: boolean;
   readonly isShadow: boolean;
+  /**
+   * Required C# accessibility for an override against a CLR base member.
+   *
+   * TypeScript cannot express `protected internal`, so we infer it from bindings.json.
+   */
+  readonly requiredAccessibility?: "public" | "protected" | "internal" | "protected internal" | "private";
 };
 
 /**
@@ -44,9 +50,9 @@ export const detectOverride = (
     ts.isIdentifier(superClass.expression) &&
     ctx.binding.resolveIdentifier(superClass.expression);
 
-  // Get qualified name from the resolved declaration if available
+  // Get qualified name from Binding (works for both TS and tsbindgen declarations).
   const qualifiedName = declId
-    ? ctx.typeSystem.getFQNameOfDecl(declId)
+    ? ctx.binding.getFullyQualifiedName(declId)
     : baseClassName;
 
   // Check if this is a .NET type (starts with "System." or other .NET namespaces)
@@ -110,12 +116,26 @@ const detectDotNetOverride = (
     const signature = `${memberName}(${parameterTypes.join(",")})`;
     const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, signature);
     const isSealed = ctx.metadata.isSealedMember(qualifiedName, signature);
-    return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
+    const visibility = ctx.metadata.getMemberVisibility(qualifiedName, signature);
+    const requiredAccessibility =
+      isVirtual && !isSealed ? visibility : undefined;
+    return {
+      isOverride: isVirtual && !isSealed,
+      isShadow: !isVirtual,
+      requiredAccessibility,
+    };
   } else if (memberKind === "property") {
     // For properties, check without parameters
     const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, memberName);
     const isSealed = ctx.metadata.isSealedMember(qualifiedName, memberName);
-    return { isOverride: isVirtual && !isSealed, isShadow: !isVirtual };
+    const visibility = ctx.metadata.getMemberVisibility(qualifiedName, memberName);
+    const requiredAccessibility =
+      isVirtual && !isSealed ? visibility : undefined;
+    return {
+      isOverride: isVirtual && !isSealed,
+      isShadow: !isVirtual,
+      requiredAccessibility,
+    };
   }
 
   return { isOverride: false, isShadow: false };

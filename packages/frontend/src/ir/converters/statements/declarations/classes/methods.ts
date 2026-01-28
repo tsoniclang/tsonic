@@ -13,6 +13,8 @@ import {
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
 import type { ProgramContext } from "../../../../program-context.js";
+import { createDiagnostic } from "../../../../../types/diagnostic.js";
+import { getSourceSpan } from "../../../expressions/helpers.js";
 
 /**
  * DETERMINISTIC: Convert a TypeNode to a string for signature matching.
@@ -91,6 +93,41 @@ export const convertMethod = (
     parameterTypes
   );
 
+  const declaredAccessibility = getAccessibility(node);
+  const accessibility = (() => {
+    if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
+      return declaredAccessibility;
+    }
+
+    const required = overrideInfo.requiredAccessibility;
+
+    // Airplane-grade: C# forbids changing accessibility when overriding.
+    // For CLR `protected internal`, TypeScript cannot express the `internal` portion,
+    // so we accept `protected` in TS and emit `protected internal` in C#.
+    const ok =
+      required === "public"
+        ? declaredAccessibility === "public"
+        : required === "protected"
+          ? declaredAccessibility === "protected"
+          : required === "protected internal"
+            ? declaredAccessibility === "protected"
+            : false;
+
+    if (!ok) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN6201",
+          "error",
+          `Invalid override accessibility for '${memberName}'. CLR base member is '${required}', but this override is declared '${declaredAccessibility}'.`,
+          getSourceSpan(node)
+        )
+      );
+    }
+
+    // Emit the CLR-required accessibility.
+    return required;
+  })();
+
   // Get return type from declared annotation for contextual typing
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const returnType = node.type
@@ -112,7 +149,7 @@ export const convertMethod = (
       (m) => m.kind === ts.SyntaxKind.AsyncKeyword
     ),
     isGenerator: !!node.asteriskToken,
-    accessibility: getAccessibility(node),
+    accessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,
   };

@@ -16,6 +16,14 @@ export type DotnetMemberMetadata = {
   readonly virtual?: boolean; // True if method is virtual/abstract
   readonly sealed?: boolean; // True if method is sealed (cannot override)
   readonly abstract?: boolean; // True if method is abstract
+  /**
+   * CLR visibility for this member.
+   *
+   * Used for airplane-grade override emission: C# does not allow changing
+   * accessibility when overriding. TypeScript cannot express `protected internal`,
+   * so we infer it from bindings and emit correct C# when TS uses `protected`.
+   */
+  readonly visibility?: "public" | "protected" | "internal" | "protected internal" | "private";
 };
 
 /**
@@ -49,6 +57,7 @@ export type TsbindgenBindingsMethod = {
   readonly isSealed?: boolean;
   readonly isAbstract?: boolean;
   readonly parameterCount?: number;
+  readonly visibility?: string;
 };
 
 export type TsbindgenBindingsProperty = {
@@ -57,6 +66,7 @@ export type TsbindgenBindingsProperty = {
   readonly isVirtual?: boolean;
   readonly isSealed?: boolean;
   readonly isAbstract?: boolean;
+  readonly visibility?: string;
 };
 
 /**
@@ -80,6 +90,14 @@ export class DotnetMetadataRegistry {
 
       const kind = kindMap[type.kind ?? ""] ?? "class";
 
+      const visibilityMap: Record<string, DotnetMemberMetadata["visibility"]> = {
+        Public: "public",
+        Protected: "protected",
+        ProtectedInternal: "protected internal",
+        Internal: "internal",
+        Private: "private",
+      };
+
       const properties = new Map<string, DotnetMemberMetadata>();
       for (const prop of type.properties ?? []) {
         if (prop.isStatic) continue;
@@ -88,6 +106,7 @@ export class DotnetMetadataRegistry {
           virtual: prop.isVirtual === true || prop.isAbstract === true,
           sealed: prop.isSealed === true,
           abstract: prop.isAbstract === true,
+          visibility: visibilityMap[prop.visibility ?? ""] ?? undefined,
         });
       }
 
@@ -109,12 +128,14 @@ export class DotnetMetadataRegistry {
                 method.isAbstract === true,
               sealed: existing.sealed === true || method.isSealed === true,
               abstract: existing.abstract === true || method.isAbstract === true,
+              visibility: existing.visibility ?? (visibilityMap[method.visibility ?? ""] ?? undefined),
             }
           : {
               kind: "method",
               virtual: method.isVirtual === true || method.isAbstract === true,
               sealed: method.isSealed === true,
               abstract: method.isAbstract === true,
+              visibility: visibilityMap[method.visibility ?? ""] ?? undefined,
             };
 
         byCount.set(paramCount, next);
@@ -197,6 +218,20 @@ export class DotnetMetadataRegistry {
       memberSignature
     );
     return memberMetadata?.sealed === true;
+  }
+
+  /**
+   * Get the CLR visibility for a member, if known.
+   */
+  getMemberVisibility(
+    qualifiedTypeName: string,
+    memberSignature: string
+  ): DotnetMemberMetadata["visibility"] | undefined {
+    const memberMetadata = this.getMemberMetadata(
+      qualifiedTypeName,
+      memberSignature
+    );
+    return memberMetadata?.visibility;
   }
 
   /**

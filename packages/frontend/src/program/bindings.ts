@@ -593,7 +593,18 @@ export class BindingRegistry {
    */
   getMember(typeAlias: string, memberAlias: string): MemberBinding | undefined {
     const key = `${typeAlias}.${memberAlias}`;
-    return this.members.get(key);
+    const direct = this.members.get(key);
+    if (direct) return direct;
+
+    // tsbindgen encodes protected CLR members on a synthetic `${TypeName}$protected` class.
+    // Those members are still declared on the real CLR type, so bindings must resolve
+    // through the owning type alias.
+    if (typeAlias.endsWith("$protected")) {
+      const ownerAlias = typeAlias.slice(0, -"$protected".length);
+      return this.members.get(`${ownerAlias}.${memberAlias}`);
+    }
+
+    return undefined;
   }
 
   /**
@@ -608,7 +619,18 @@ export class BindingRegistry {
     memberAlias: string
   ): readonly MemberBinding[] | undefined {
     const key = `${typeAlias}.${memberAlias}`;
-    return this.memberOverloads.get(key);
+    const direct = this.memberOverloads.get(key);
+    if (direct && direct.length > 0) return direct;
+
+    // See getMember(): map `${TypeName}$protected` to `${TypeName}` for CLR binding lookup.
+    if (typeAlias.endsWith("$protected")) {
+      const ownerAlias = typeAlias.slice(0, -"$protected".length);
+      const ownerKey = `${ownerAlias}.${memberAlias}`;
+      const owner = this.memberOverloads.get(ownerKey);
+      if (owner && owner.length > 0) return owner;
+    }
+
+    return undefined;
   }
 
   /**
