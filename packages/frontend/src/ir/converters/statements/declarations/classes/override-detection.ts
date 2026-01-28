@@ -114,27 +114,25 @@ const detectDotNetOverride = (
 ): OverrideInfo => {
   if (memberKind === "method" && parameterTypes) {
     const signature = `${memberName}(${parameterTypes.join(",")})`;
-    const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, signature);
-    const isSealed = ctx.metadata.isSealedMember(qualifiedName, signature);
-    const visibility = ctx.metadata.getMemberVisibility(qualifiedName, signature);
-    const requiredAccessibility =
-      isVirtual && !isSealed ? visibility : undefined;
+    const meta = ctx.metadata.getMemberMetadata(qualifiedName, signature);
+    if (!meta) return { isOverride: false, isShadow: false };
+
+    const canOverride = meta.virtual === true && meta.sealed !== true;
     return {
-      isOverride: isVirtual && !isSealed,
-      isShadow: !isVirtual,
-      requiredAccessibility,
+      isOverride: canOverride,
+      isShadow: !canOverride,
+      requiredAccessibility: canOverride ? meta.visibility : undefined,
     };
   } else if (memberKind === "property") {
     // For properties, check without parameters
-    const isVirtual = ctx.metadata.isVirtualMember(qualifiedName, memberName);
-    const isSealed = ctx.metadata.isSealedMember(qualifiedName, memberName);
-    const visibility = ctx.metadata.getMemberVisibility(qualifiedName, memberName);
-    const requiredAccessibility =
-      isVirtual && !isSealed ? visibility : undefined;
+    const meta = ctx.metadata.getMemberMetadata(qualifiedName, memberName);
+    if (!meta) return { isOverride: false, isShadow: false };
+
+    const canOverride = meta.virtual === true && meta.sealed !== true;
     return {
-      isOverride: isVirtual && !isSealed,
-      isShadow: !isVirtual,
-      requiredAccessibility,
+      isOverride: canOverride,
+      isShadow: !canOverride,
+      requiredAccessibility: canOverride ? meta.visibility : undefined,
     };
   }
 
