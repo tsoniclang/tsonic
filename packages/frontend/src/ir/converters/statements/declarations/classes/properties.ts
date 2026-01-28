@@ -21,6 +21,8 @@ import {
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
 import type { ProgramContext } from "../../../../program-context.js";
+import { createDiagnostic } from "../../../../../types/diagnostic.js";
+import { getSourceSpan } from "../../../expressions/helpers.js";
 
 /**
  * Derive type from a converted IR expression (deterministic).
@@ -85,6 +87,37 @@ export const convertProperty = (
 
   const overrideInfo = detectOverride(memberName, "property", superClass, ctx);
 
+  const declaredAccessibility = getAccessibility(node);
+  const accessibility = (() => {
+    if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
+      return declaredAccessibility;
+    }
+
+    const required = overrideInfo.requiredAccessibility;
+
+    const ok =
+      required === "public"
+        ? declaredAccessibility === "public"
+        : required === "protected"
+          ? declaredAccessibility === "protected"
+          : required === "protected internal"
+            ? declaredAccessibility === "protected"
+            : false;
+
+    if (!ok) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN6202",
+          "error",
+          `Invalid override accessibility for '${memberName}'. CLR base member is '${required}', but this override is declared '${declaredAccessibility}'.`,
+          getSourceSpan(node)
+        )
+      );
+    }
+
+    return required;
+  })();
+
   // Get explicit type annotation (if present) for contextual typing
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const explicitType = node.type
@@ -113,7 +146,7 @@ export const convertProperty = (
     initializer: convertedInitializer,
     isStatic: hasStaticModifier(node),
     isReadonly: hasReadonlyModifier(node),
-    accessibility: getAccessibility(node),
+    accessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,
   };
@@ -168,6 +201,35 @@ export const convertAccessorProperty = (
       ? getAccessibility(setter)
       : "public";
 
+  const finalAccessibility = (() => {
+    if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
+      return accessibility;
+    }
+
+    const required = overrideInfo.requiredAccessibility;
+    const ok =
+      required === "public"
+        ? accessibility === "public"
+        : required === "protected"
+          ? accessibility === "protected"
+          : required === "protected internal"
+            ? accessibility === "protected"
+            : false;
+
+    if (!ok) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN6203",
+          "error",
+          `Invalid override accessibility for '${memberName}'. CLR base member is '${required}', but this override is declared '${accessibility}'.`,
+          getter ? getSourceSpan(getter) : setter ? getSourceSpan(setter) : undefined
+        )
+      );
+    }
+
+    return required;
+  })();
+
   const setterParamName = (() => {
     if (!setterBody) return undefined;
     const param = setter?.parameters[0];
@@ -185,7 +247,7 @@ export const convertAccessorProperty = (
     initializer: undefined,
     isStatic,
     isReadonly: false,
-    accessibility,
+    accessibility: finalAccessibility,
     isOverride: overrideInfo.isOverride ? true : undefined,
     isShadow: overrideInfo.isShadow ? true : undefined,
   };

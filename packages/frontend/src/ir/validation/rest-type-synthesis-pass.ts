@@ -16,6 +16,8 @@ import {
   IrStatement,
   IrType,
   IrPattern,
+  IrExpression,
+  IrObjectExpression,
   IrObjectPattern,
   IrInterfaceMember,
   IrPropertySignature,
@@ -205,47 +207,58 @@ const synthesizeObjectPattern = (
   rhsType: IrType | undefined,
   ctx: SynthesisContext
 ): IrObjectPattern => {
-  // Find if there's a rest property
-  const restProp = pattern.properties.find((p) => p.kind === "rest");
-  if (!restProp) {
-    // No rest property, just recursively process nested patterns
+  const rhsMembers = rhsType ? extractMembers(rhsType) : undefined;
+
+  const drillPropertyType = (key: string): IrType | undefined => {
+    if (!rhsMembers) return undefined;
+    const prop = rhsMembers.find(
+      (m): m is IrPropertySignature =>
+        m.kind === "propertySignature" && m.name === key
+    );
+    return prop?.type;
+  };
+
+  // Always process nested object patterns (including nested rest).
+  const processedProperties = pattern.properties.map((p) => {
+    if (p.kind !== "property") return p;
+    if (p.value.kind !== "objectPattern") return p;
+
     return {
-      ...pattern,
-      properties: pattern.properties.map((p) => {
-        if (p.kind === "property" && p.value.kind === "objectPattern") {
-          // Would need RHS type drilling - skip for now
-          return p;
-        }
-        return p;
-      }),
+      ...p,
+      value: synthesizeObjectPattern(p.value, drillPropertyType(p.key), ctx),
     };
+  });
+
+  // Find if there's a rest property
+  const restProp = processedProperties.find((p) => p.kind === "rest");
+  if (!restProp) {
+    return { ...pattern, properties: processedProperties };
   }
 
   // We have a rest property, compute its type
-  if (!rhsType) {
+  if (!rhsType || !rhsMembers) {
     // No type info available, can't synthesize
-    return pattern;
+    return { ...pattern, properties: processedProperties };
   }
 
-  const sourceMembers = extractMembers(rhsType);
-  if (!sourceMembers || sourceMembers.length === 0) {
+  if (rhsMembers.length === 0) {
     // Can't determine source members
-    return pattern;
+    return { ...pattern, properties: processedProperties };
   }
 
-  const pickedKeys = getPickedKeys(pattern.properties);
-  const restMembers = computeRestMembers(sourceMembers, pickedKeys);
+  const pickedKeys = getPickedKeys(processedProperties);
+  const restMembers = computeRestMembers(rhsMembers, pickedKeys);
 
   if (restMembers.length === 0) {
     // Rest is empty - could use empty object
-    return pattern;
+    return { ...pattern, properties: processedProperties };
   }
 
   // Generate or reuse a type name for the rest shape
   const restTypeName = getOrCreateRestTypeName(restMembers, ctx);
 
   // Update the rest property with shape info
-  const updatedProperties = pattern.properties.map((p) => {
+  const updatedProperties = processedProperties.map((p) => {
     if (p.kind === "rest") {
       return {
         ...p,
@@ -285,6 +298,51 @@ const synthesizePattern = (
 };
 
 /**
+ * Derive a structural object type from an object-literal expression.
+ *
+ * This is a fallback for cases where the IR has already lowered the expression
+ * to a synthesized anonymous type reference (e.g. __Anon_*), which erases member
+ * information from inferredType. Rest synthesis requires member shapes.
+ */
+const deriveObjectTypeFromObjectExpression = (
+  expr: IrObjectExpression
+): IrType | undefined => {
+  const members: IrInterfaceMember[] = [];
+
+  for (const prop of expr.properties) {
+    if (prop.kind !== "property") {
+      // Spreads/computed keys are not deterministically representable here.
+      return undefined;
+    }
+    if (typeof prop.key !== "string") {
+      return undefined;
+    }
+
+    const valueType = deriveTypeFromExpressionForShape(prop.value);
+    if (!valueType) return undefined;
+
+    members.push({
+      kind: "propertySignature",
+      name: prop.key,
+      type: valueType,
+      isOptional: false,
+      isReadonly: false,
+    });
+  }
+
+  return { kind: "objectType", members };
+};
+
+const deriveTypeFromExpressionForShape = (
+  expr: IrExpression
+): IrType | undefined => {
+  if (expr.kind === "object") {
+    return deriveObjectTypeFromObjectExpression(expr);
+  }
+  return expr.inferredType;
+};
+
+/**
  * Process a variable declarator to synthesize rest types
  */
 const processDeclarator = (
@@ -297,7 +355,13 @@ const processDeclarator = (
   }
 
   // Get the RHS type - either from annotation or inferred
-  const rhsType = decl.type ?? decl.initializer?.inferredType;
+  const rhsTypeRaw = decl.type ?? decl.initializer?.inferredType;
+  const rhsType =
+    rhsTypeRaw && extractMembers(rhsTypeRaw)
+      ? rhsTypeRaw
+      : decl.initializer && decl.initializer.kind === "object"
+        ? deriveObjectTypeFromObjectExpression(decl.initializer) ?? rhsTypeRaw
+        : rhsTypeRaw;
 
   const synthesizedPattern = synthesizePattern(decl.name, rhsType, ctx);
   if (synthesizedPattern === decl.name) {

@@ -90,6 +90,7 @@ export type {
   IrNeverType,
   // Attribute types
   IrAttribute,
+  IrAttributePrimitiveArg,
   IrAttributeArg,
   // Helper types
   IrPattern,

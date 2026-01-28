@@ -16,6 +16,14 @@ export type DotnetMemberMetadata = {
   readonly virtual?: boolean; // True if method is virtual/abstract
   readonly sealed?: boolean; // True if method is sealed (cannot override)
   readonly abstract?: boolean; // True if method is abstract
+  /**
+   * CLR visibility for this member.
+   *
+   * Used for airplane-grade override emission: C# does not allow changing
+   * accessibility when overriding. TypeScript cannot express `protected internal`,
+   * so we infer it from bindings and emit correct C# when TS uses `protected`.
+   */
+  readonly visibility?: "public" | "protected" | "internal" | "protected internal" | "private";
 };
 
 /**
@@ -23,7 +31,20 @@ export type DotnetMemberMetadata = {
  */
 export type DotnetTypeMetadata = {
   readonly kind: "class" | "interface" | "struct" | "enum";
-  readonly methods: ReadonlyMap<string, ReadonlyMap<number, DotnetMemberMetadata>>;
+  /**
+   * Methods indexed by:
+   * - CLR method name
+   * - parameter count
+   * - signature key: "Type1,Type2|mods=1:out,3:ref"
+   *
+   * NOTE: We intentionally include parameter modifiers because CLR signatures
+   * encode ref/out/in via byref + attributes; tsbindgen exposes this as
+   * `parameterModifiers` for deterministic matching.
+   */
+  readonly methods: ReadonlyMap<
+    string,
+    ReadonlyMap<number, ReadonlyMap<string, DotnetMemberMetadata>>
+  >;
   readonly properties: ReadonlyMap<string, DotnetMemberMetadata>;
 };
 
@@ -49,6 +70,9 @@ export type TsbindgenBindingsMethod = {
   readonly isSealed?: boolean;
   readonly isAbstract?: boolean;
   readonly parameterCount?: number;
+  readonly visibility?: string;
+  readonly canonicalSignature?: string;
+  readonly parameterModifiers?: readonly { index: number; modifier: string }[];
 };
 
 export type TsbindgenBindingsProperty = {
@@ -57,6 +81,7 @@ export type TsbindgenBindingsProperty = {
   readonly isVirtual?: boolean;
   readonly isSealed?: boolean;
   readonly isAbstract?: boolean;
+  readonly visibility?: string;
 };
 
 /**
@@ -65,6 +90,60 @@ export type TsbindgenBindingsProperty = {
  */
 export class DotnetMetadataRegistry {
   private readonly metadata = new Map<string, DotnetTypeMetadata>();
+
+  private buildModifiersKey(
+    mods: readonly { index: number; modifier: string }[] | undefined
+  ): string {
+    if (!mods || mods.length === 0) return "";
+    return [...mods]
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .map((m) => `${m.index}:${m.modifier}`)
+      .join(",");
+  }
+
+  private buildSignatureKey(
+    parameterTypes: readonly string[],
+    modifiersKey: string
+  ): string {
+    const typesKey = parameterTypes.join(",");
+    const mods = modifiersKey ? `mods=${modifiersKey}` : "mods=";
+    return `${typesKey}|${mods}`;
+  }
+
+  private parseCanonicalParamTypes(
+    canonicalSignature: string | undefined
+  ): readonly string[] | undefined {
+    if (!canonicalSignature) return undefined;
+    const match = canonicalSignature.match(/^\((.*)\):/);
+    if (!match) return undefined;
+    const paramsStr = match[1]?.trim() ?? "";
+    if (paramsStr.length === 0) return [];
+
+    // Split a comma-delimited type list, respecting nested bracket depth.
+    // tsbindgen signatures use CLR-style nested generic brackets in some contexts.
+    const result: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const ch of paramsStr) {
+      if (ch === "[") {
+        depth++;
+        current += ch;
+      } else if (ch === "]") {
+        depth--;
+        current += ch;
+      } else if (ch === "," && depth === 0) {
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) {
+      result.push(current.trim());
+    }
+    return result;
+  }
 
   /**
    * Load a tsbindgen bindings.json file and add its types to the registry.
@@ -80,6 +159,14 @@ export class DotnetMetadataRegistry {
 
       const kind = kindMap[type.kind ?? ""] ?? "class";
 
+      const visibilityMap: Record<string, DotnetMemberMetadata["visibility"]> = {
+        Public: "public",
+        Protected: "protected",
+        ProtectedInternal: "protected internal",
+        Internal: "internal",
+        Private: "private",
+      };
+
       const properties = new Map<string, DotnetMemberMetadata>();
       for (const prop of type.properties ?? []) {
         if (prop.isStatic) continue;
@@ -88,18 +175,29 @@ export class DotnetMetadataRegistry {
           virtual: prop.isVirtual === true || prop.isAbstract === true,
           sealed: prop.isSealed === true,
           abstract: prop.isAbstract === true,
+          visibility: visibilityMap[prop.visibility ?? ""] ?? undefined,
         });
       }
 
-      const methods = new Map<string, Map<number, DotnetMemberMetadata>>();
+      const methods = new Map<string, Map<number, Map<string, DotnetMemberMetadata>>>();
       for (const method of type.methods ?? []) {
         if (method.isStatic) continue;
         const paramCount = method.parameterCount;
         if (typeof paramCount !== "number") continue;
 
-        const byCount = methods.get(method.clrName) ?? new Map<number, DotnetMemberMetadata>();
+        const paramTypes = this.parseCanonicalParamTypes(method.canonicalSignature);
+        if (!paramTypes) continue;
 
-        const existing = byCount.get(paramCount);
+        const modifiersKey = this.buildModifiersKey(method.parameterModifiers);
+        const signatureKey = this.buildSignatureKey(paramTypes, modifiersKey);
+
+        const byCount =
+          methods.get(method.clrName) ??
+          new Map<number, Map<string, DotnetMemberMetadata>>();
+
+        const bySignature = byCount.get(paramCount) ?? new Map<string, DotnetMemberMetadata>();
+
+        const existing = bySignature.get(signatureKey);
         const next: DotnetMemberMetadata = existing
           ? {
               kind: "method",
@@ -109,15 +207,18 @@ export class DotnetMetadataRegistry {
                 method.isAbstract === true,
               sealed: existing.sealed === true || method.isSealed === true,
               abstract: existing.abstract === true || method.isAbstract === true,
+              visibility: existing.visibility ?? (visibilityMap[method.visibility ?? ""] ?? undefined),
             }
           : {
               kind: "method",
               virtual: method.isVirtual === true || method.isAbstract === true,
               sealed: method.isSealed === true,
               abstract: method.isAbstract === true,
+              visibility: visibilityMap[method.visibility ?? ""] ?? undefined,
             };
 
-        byCount.set(paramCount, next);
+        bySignature.set(signatureKey, next);
+        byCount.set(paramCount, bySignature);
         methods.set(method.clrName, byCount);
       }
 
@@ -137,54 +238,62 @@ export class DotnetMetadataRegistry {
   }
 
   /**
-   * Look up metadata for a specific member of a .NET type
-   * @param qualifiedTypeName Fully-qualified type name (e.g., "System.IO.StringWriter")
-   * @param memberSignature Member signature (e.g., "ToString()" or "Write(string)")
+   * Look up metadata for a specific CLR method overload by signature.
+   *
+   * Airplane-grade: requires a deterministic match by full parameter types + modifiers.
    */
-  getMemberMetadata(
+  getMethodMetadata(
     qualifiedTypeName: string,
-    memberSignature: string
+    methodName: string,
+    parameterTypes: readonly string[],
+    modifiersKey: string
   ): DotnetMemberMetadata | undefined {
     const typeMetadata = this.metadata.get(qualifiedTypeName);
     if (!typeMetadata) {
       return undefined;
     }
 
-    // Method signature: Name(type1,type2,...) — we only use arity (count) here.
-    const sigMatch = memberSignature.match(/^([^(]+)\((.*)\)$/);
-    if (sigMatch) {
-      const methodName = sigMatch[1];
-      if (!methodName) return undefined;
-      const rawParams = sigMatch[2]?.trim() ?? "";
-      const paramCount =
-        rawParams.length === 0 ? 0 : rawParams.split(",").filter(Boolean).length;
+    const byCount = typeMetadata.methods.get(methodName);
+    if (!byCount) return undefined;
 
-      const byCount = typeMetadata.methods.get(methodName);
-      if (!byCount) return undefined;
+    const paramCount = parameterTypes.length;
+    const bySignature = byCount.get(paramCount);
+    if (!bySignature) return undefined;
 
-      const exact = byCount.get(paramCount);
-      if (exact) return exact;
+    const signatureKey = this.buildSignatureKey(parameterTypes, modifiersKey);
+    return bySignature.get(signatureKey);
+  }
 
-      // If there's exactly one overload for this name, accept it as the only candidate.
-      if (byCount.size === 1) {
-        return Array.from(byCount.values())[0];
-      }
+  getMethodOverloadCount(
+    qualifiedTypeName: string,
+    methodName: string,
+    parameterCount: number
+  ): number {
+    const typeMetadata = this.metadata.get(qualifiedTypeName);
+    if (!typeMetadata) return 0;
 
-      return undefined;
-    }
+    const byCount = typeMetadata.methods.get(methodName);
+    if (!byCount) return 0;
 
-    // Property lookup
-    return typeMetadata.properties.get(memberSignature);
+    const bySignature = byCount.get(parameterCount);
+    return bySignature?.size ?? 0;
+  }
+
+  getPropertyMetadata(
+    qualifiedTypeName: string,
+    propertyName: string
+  ): DotnetMemberMetadata | undefined {
+    const typeMetadata = this.metadata.get(qualifiedTypeName);
+    if (!typeMetadata) return undefined;
+    return typeMetadata.properties.get(propertyName);
   }
 
   /**
    * Check if a member is virtual (can be overridden)
    */
   isVirtualMember(qualifiedTypeName: string, memberSignature: string): boolean {
-    const memberMetadata = this.getMemberMetadata(
-      qualifiedTypeName,
-      memberSignature
-    );
+    // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
+    const memberMetadata = this.getPropertyMetadata(qualifiedTypeName, memberSignature);
     return memberMetadata?.virtual === true;
   }
 
@@ -192,11 +301,21 @@ export class DotnetMetadataRegistry {
    * Check if a member is sealed (cannot be overridden)
    */
   isSealedMember(qualifiedTypeName: string, memberSignature: string): boolean {
-    const memberMetadata = this.getMemberMetadata(
-      qualifiedTypeName,
-      memberSignature
-    );
+    // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
+    const memberMetadata = this.getPropertyMetadata(qualifiedTypeName, memberSignature);
     return memberMetadata?.sealed === true;
+  }
+
+  /**
+   * Get the CLR visibility for a member, if known.
+   */
+  getMemberVisibility(
+    qualifiedTypeName: string,
+    memberSignature: string
+  ): DotnetMemberMetadata["visibility"] | undefined {
+    // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
+    const memberMetadata = this.getPropertyMetadata(qualifiedTypeName, memberSignature);
+    return memberMetadata?.visibility;
   }
 
   /**

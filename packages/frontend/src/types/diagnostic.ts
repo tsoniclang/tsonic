@@ -36,6 +36,9 @@ export type DiagnosticCode =
   | "TSN5001" // NativeAOT limitation
   | "TSN5002" // Runtime implementation missing
   | "TSN6001" // Internal compiler error
+  | "TSN6201" // Invalid CLR override accessibility (method)
+  | "TSN6202" // Invalid CLR override accessibility (property)
+  | "TSN6203" // Invalid CLR override accessibility (accessor property)
   | "TSN7101" // Recursive mapped types not supported
   | "TSN7102" // Conditional types using infer not supported
   | "TSN7103" // `this` typing not supported

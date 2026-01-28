@@ -253,7 +253,7 @@ const lowerObjectPattern = (
     }
 
     // Get property type if available
-    const propType = getPropertyType(inputType, prop.key);
+    const propType = getPropertyType(inputType, prop.key, currentCtx);
 
     const result = lowerPattern(
       prop.value,
@@ -274,7 +274,8 @@ const lowerObjectPattern = (
  */
 const getPropertyType = (
   type: IrType | undefined,
-  key: string
+  key: string,
+  ctx: EmitterContext
 ): IrType | undefined => {
   if (!type) return undefined;
 
@@ -293,6 +294,35 @@ const getPropertyType = (
     );
     if (prop && prop.kind === "propertySignature") {
       return prop.type;
+    }
+  }
+
+  if (type.kind === "referenceType") {
+    const localType = ctx.localTypes?.get(type.name);
+    if (!localType) return undefined;
+
+    if (localType.kind === "interface") {
+      const prop = localType.members.find(
+        (m) => m.kind === "propertySignature" && m.name === key
+      );
+      if (prop && prop.kind === "propertySignature") {
+        return prop.type;
+      }
+      return undefined;
+    }
+
+    if (localType.kind === "class") {
+      const prop = localType.members.find(
+        (m) => m.kind === "propertyDeclaration" && m.name === key
+      );
+      if (prop && prop.kind === "propertyDeclaration") {
+        return prop.type;
+      }
+      return undefined;
+    }
+
+    if (localType.kind === "typeAlias") {
+      return getPropertyType(localType.type, key, ctx);
     }
   }
 
@@ -513,7 +543,7 @@ export const lowerAssignmentPattern = (
       }
 
       // Regular property
-      const propType = getPropertyType(type, prop.key);
+      const propType = getPropertyType(type, prop.key, currentCtx);
       const result = lowerAssignmentPatternElement(
         prop.value,
         `${tempName}.${prop.key}`,

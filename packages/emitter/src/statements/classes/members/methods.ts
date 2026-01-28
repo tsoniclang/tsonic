@@ -82,6 +82,12 @@ export const emitMethodMember = (
     parts.push("static");
   }
 
+  // Shadowing/hiding modifier (from metadata).
+  // C# warns when a member hides a base member; emit `new` for clarity.
+  if (!member.isStatic && !member.isOverride && member.isShadow) {
+    parts.push("new");
+  }
+
   // Override modifier (from metadata or TS base class detection)
   if (member.isOverride) {
     parts.push("override");

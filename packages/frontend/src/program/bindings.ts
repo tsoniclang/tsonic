@@ -115,6 +115,14 @@ export type TsbindgenField = {
 export type TsbindgenType = {
   readonly clrName: string; // Full CLR type name (e.g., "System.Console")
   readonly assemblyName: string;
+  /**
+   * CLR type kind from tsbindgen (e.g., "Class", "Interface", "Struct", "Enum").
+   *
+   * This is used for airplane-grade emission decisions (e.g., whether a name in
+   * a TS `implements` clause is a CLR interface and should be emitted in the C#
+   * heritage list).
+   */
+  readonly kind?: "Class" | "Interface" | "Struct" | "Enum";
   readonly methods: readonly TsbindgenMethod[];
   readonly properties: readonly TsbindgenProperty[];
   readonly fields: readonly TsbindgenField[];
@@ -497,11 +505,25 @@ export class BindingRegistry {
 
         const tsAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
 
+        const kindFromBindings = (() => {
+          switch (tsbType.kind) {
+            case "Interface":
+              return "interface" as const;
+            case "Struct":
+              return "struct" as const;
+            case "Enum":
+              return "enum" as const;
+            case "Class":
+            default:
+              return "class" as const;
+          }
+        })();
+
         // Create TypeBinding - TS alias is derived deterministically from CLR name.
         const typeBinding: TypeBinding = {
           name: tsbType.clrName,
           alias: tsAlias,
-          kind: "class", // Default to class; could be refined with more metadata
+          kind: kindFromBindings,
           members,
         };
 
@@ -571,7 +593,18 @@ export class BindingRegistry {
    */
   getMember(typeAlias: string, memberAlias: string): MemberBinding | undefined {
     const key = `${typeAlias}.${memberAlias}`;
-    return this.members.get(key);
+    const direct = this.members.get(key);
+    if (direct) return direct;
+
+    // tsbindgen encodes protected CLR members on a synthetic `${TypeName}$protected` class.
+    // Those members are still declared on the real CLR type, so bindings must resolve
+    // through the owning type alias.
+    if (typeAlias.endsWith("$protected")) {
+      const ownerAlias = typeAlias.slice(0, -"$protected".length);
+      return this.members.get(`${ownerAlias}.${memberAlias}`);
+    }
+
+    return undefined;
   }
 
   /**
@@ -586,7 +619,18 @@ export class BindingRegistry {
     memberAlias: string
   ): readonly MemberBinding[] | undefined {
     const key = `${typeAlias}.${memberAlias}`;
-    return this.memberOverloads.get(key);
+    const direct = this.memberOverloads.get(key);
+    if (direct && direct.length > 0) return direct;
+
+    // See getMember(): map `${TypeName}$protected` to `${TypeName}` for CLR binding lookup.
+    if (typeAlias.endsWith("$protected")) {
+      const ownerAlias = typeAlias.slice(0, -"$protected".length);
+      const ownerKey = `${ownerAlias}.${memberAlias}`;
+      const owner = this.memberOverloads.get(ownerKey);
+      if (owner && owner.length > 0) return owner;
+    }
+
+    return undefined;
   }
 
   /**

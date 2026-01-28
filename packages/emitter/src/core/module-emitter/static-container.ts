@@ -154,7 +154,9 @@ export const emitStaticContainer = (
     mainParts.push(`${bodyInd}public static void __TopLevel()`);
     mainParts.push(`${bodyInd}{`);
 
-    const mainBodyContext = indent(bodyCurrentContext);
+    // Even though __TopLevel is a static method, its body should be treated as
+    // a "local variable" context (not a static field context).
+    const mainBodyContext = withStatic(indent(bodyCurrentContext), false);
     let mainCurrentContext = mainBodyContext;
 
     for (const stmt of mainBodyStmts) {

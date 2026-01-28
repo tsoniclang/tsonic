@@ -795,8 +795,11 @@ const processStatement = (stmt: IrStatement, ctx: CoercionContext): void => {
     }
 
     case "returnStatement": {
-      // We'd need function context to know expected return type
-      // For now, skip - this requires threading function return type through
+      // Even without return type context, still scan return expressions for
+      // call-site coercion checks (argument validation).
+      if (stmt.expression) {
+        scanExpressionForCalls(stmt.expression, ctx);
+      }
       break;
     }
 
@@ -922,13 +925,14 @@ const processStatementWithReturnType = (
 ): void => {
   switch (stmt.kind) {
     case "returnStatement": {
-      if (stmt.expression && returnType) {
-        validateExpression(
-          stmt.expression,
-          returnType,
-          ctx,
-          "in return statement"
-        );
+      if (!stmt.expression) break;
+
+      if (returnType) {
+        validateExpression(stmt.expression, returnType, ctx, "in return statement");
+      } else {
+        // Even when the return type is unknown, we still need to validate any
+        // call-site coercions inside the returned expression (argument validation).
+        scanExpressionForCalls(stmt.expression, ctx);
       }
       break;
     }

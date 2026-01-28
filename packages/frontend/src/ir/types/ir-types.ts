@@ -196,9 +196,13 @@ export type IrAttribute = {
  * Attribute argument value - must be a constant expression.
  * C# attributes only accept compile-time constants.
  */
-export type IrAttributeArg =
+export type IrAttributePrimitiveArg =
   | { readonly kind: "string"; readonly value: string }
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
   | { readonly kind: "typeof"; readonly type: IrType }
   | { readonly kind: "enum"; readonly type: IrType; readonly member: string };
+
+export type IrAttributeArg =
+  | IrAttributePrimitiveArg
+  | { readonly kind: "array"; readonly elements: readonly IrAttributePrimitiveArg[] };

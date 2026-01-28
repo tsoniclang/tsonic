@@ -1,8 +1,8 @@
 /**
  * Virtual Marking Pass
  *
- * For each method with isOverride=true in derived classes,
- * finds and marks the corresponding base class method with isVirtual=true.
+ * For each method/property with isOverride=true in derived classes,
+ * finds and marks the corresponding base class member with isVirtual=true.
  */
 
 import {
@@ -44,6 +44,7 @@ export const runVirtualMarkingPass = (
 
   // Find all override methods and mark their base methods as virtual
   const virtualMethods = new Set<string>(); // "ClassName.methodName"
+  const virtualProperties = new Set<string>(); // "ClassName.propertyName"
 
   const normalizeBaseClassName = (raw: string): string => {
     // `Functor<T>` → `Functor`
@@ -68,20 +69,36 @@ export const runVirtualMarkingPass = (
           virtualMethods.add(`${baseClassName}.${member.name}`);
         }
       }
+
+      if (
+        member.kind === "propertyDeclaration" &&
+        member.isOverride &&
+        !member.isStatic
+      ) {
+        if (classDecl.superClass?.kind === "referenceType") {
+          const baseClassName = normalizeBaseClassName(
+            classDecl.superClass.name
+          );
+          virtualProperties.add(`${baseClassName}.${member.name}`);
+        }
+      }
     }
   }
 
   // Transform modules to mark virtual methods
   const transformedModules = modules.map((module) => ({
     ...module,
-    body: module.body.map((stmt) => transformStatement(stmt, virtualMethods)),
+    body: module.body.map((stmt) =>
+      transformStatement(stmt, virtualMethods, virtualProperties)
+    ),
     exports: module.exports.map((exp) =>
       exp.kind === "declaration"
         ? {
             ...exp,
             declaration: transformStatement(
               exp.declaration,
-              virtualMethods
+              virtualMethods,
+              virtualProperties
             ) as IrStatement,
           }
         : exp
@@ -93,7 +110,8 @@ export const runVirtualMarkingPass = (
 
 const transformStatement = (
   stmt: IrStatement,
-  virtualMethods: Set<string>
+  virtualMethods: Set<string>,
+  virtualProperties: Set<string>
 ): IrStatement => {
   if (stmt.kind !== "classDeclaration") return stmt;
 
@@ -108,5 +126,18 @@ const transformStatement = (
     return member;
   });
 
-  return { ...stmt, members: transformedMembers };
+  const transformedMembersWithProps = transformedMembers.map(
+    (member): IrClassMember => {
+      if (member.kind !== "propertyDeclaration") return member;
+      if (member.isStatic || member.isOverride) return member;
+
+      const key = `${stmt.name}.${member.name}`;
+      if (virtualProperties.has(key)) {
+        return { ...member, isVirtual: true };
+      }
+      return member;
+    }
+  );
+
+  return { ...stmt, members: transformedMembersWithProps };
 };

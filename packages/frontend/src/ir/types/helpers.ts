@@ -116,7 +116,12 @@ export type IrMethodSignature = {
 // Accessibility and Operators
 // ============================================================================
 
-export type IrAccessibility = "public" | "private" | "protected";
+export type IrAccessibility =
+  | "public"
+  | "private"
+  | "protected"
+  | "internal"
+  | "protected internal";
 
 export type IrBinaryOperator =
   | "+"

@@ -1,8 +1,17 @@
 import { attributes as A } from "@tsonic/core/attributes.js";
-import { Console, ObsoleteAttribute, SerializableAttribute } from "@tsonic/dotnet/System.js";
+import { Attribute, Console, ObsoleteAttribute, SerializableAttribute } from "@tsonic/dotnet/System.js";
 import type { Object as ClrObject, Type } from "@tsonic/dotnet/System.js";
 import type { ICustomAttributeProvider } from "@tsonic/dotnet/System.Reflection.js";
 import "@tsonic/dotnet/System.Reflection.js";
+
+export class NamesAttribute extends Attribute {
+  Names!: string[];
+
+  constructor(names: string[]) {
+    super();
+    this.Names = names;
+  }
+}
 
 export class User {
   private _nameField!: string;
@@ -26,6 +35,7 @@ const d = A.attr(ObsoleteAttribute, "type");
 
 A.on(User).type.add(SerializableAttribute);
 A.on(User).type.add(d);
+A.on(User).type.add(NamesAttribute, ["Alice", "Bob"]);
 
 A.on(User).ctor.add(ObsoleteAttribute, "ctor");
 A.on(User).method((u) => u.save).add(ObsoleteAttribute, "method");
@@ -56,6 +66,19 @@ const userType = user.GetType();
 Console.WriteLine(
   `User.Serializable: ${ok(hasAttribute(userType as unknown as ICustomAttributeProvider, "System.SerializableAttribute"))}`
 );
+
+let namesOk = false;
+const typeAttrs = userType.GetCustomAttributes(true);
+for (const a of typeAttrs) {
+  const obj = a as unknown as ClrObject;
+  const t = obj.GetType() as Type;
+  if (t.FullName === "AttributesComprehensive.NamesAttribute") {
+    const na = a as unknown as NamesAttribute;
+    namesOk = na.Names.Length === 2 && na.Names[0] === "Alice" && na.Names[1] === "Bob";
+    break;
+  }
+}
+Console.WriteLine(`User.Names: ${ok(namesOk)}`);
 
 const ctors = userType.GetConstructors();
 let ctorHasObsolete = false;

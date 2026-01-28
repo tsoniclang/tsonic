@@ -146,6 +146,8 @@ export type IrPropertyDeclaration = {
   readonly isOverride?: boolean;
   /** True if this property shadows a non-virtual base property (future: emit 'new' keyword) */
   readonly isShadow?: boolean;
+  /** True if this property should be emitted as virtual (overridden in derived class) */
+  readonly isVirtual?: boolean;
   /** C# attributes to emit before the property declaration */
   readonly attributes?: readonly IrAttribute[];
   /** True if property must be set in object initializer (C# 11 'required' modifier) */

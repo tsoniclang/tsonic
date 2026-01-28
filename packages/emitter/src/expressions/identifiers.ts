@@ -19,6 +19,12 @@ export const emitIdentifier = (
     return [{ text: "default" }, context];
   }
 
+  // TypeScript `super` maps to C# `base` for member access/calls.
+  // (`super()` constructor calls are handled separately in constructor emission.)
+  if (expr.name === "super") {
+    return [{ text: "base" }, context];
+  }
+
   // Narrowing remap for union type guards
   // - "rename": account -> account__1_3 (if-statements with temp var)
   // - "expr": account -> (account.As1()) (ternary expressions, inline)

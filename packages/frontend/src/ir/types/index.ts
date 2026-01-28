@@ -99,6 +99,7 @@ export type {
   IrNeverType,
   // Attribute types
   IrAttribute,
+  IrAttributePrimitiveArg,
   IrAttributeArg,
 } from "./ir-types.js";
 

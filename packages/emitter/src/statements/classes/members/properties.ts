@@ -42,13 +42,24 @@ export const emitPropertyMember = (
     parts.push("static");
   }
 
+  // Shadowing/hiding modifier (from metadata).
+  // C# warns when a property hides a base property; emit `new` for clarity.
+  if (!member.isStatic && !member.isOverride && member.isShadow) {
+    parts.push("new");
+  }
+
   // Override modifier (from metadata or TS base class detection)
   if (member.isOverride) {
     parts.push("override");
   }
 
+  // Base property virtual (required when overridden in derived types)
+  if (!member.isStatic && !member.isOverride && member.isVirtual) {
+    parts.push("virtual");
+  }
+
   // Required modifier (C# 11) - must be set in object initializer
-  if (member.isRequired) {
+  if (!member.isStatic && member.isRequired) {
     parts.push("required");
   }
 
@@ -75,7 +86,13 @@ export const emitPropertyMember = (
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
 
   if (!hasAccessors) {
-    const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
+    // C# does not allow `init` on static members. For static readonly fields, emit a
+    // get-only auto-property with initializer.
+    const accessors = member.isReadonly
+      ? member.isStatic
+        ? "{ get; }"
+        : "{ get; init; }"
+      : "{ get; set; }";
 
     let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
     if (member.initializer) {

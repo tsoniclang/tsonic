@@ -240,6 +240,30 @@ describe("Attribute Emission", () => {
       expect(result).to.include("Newtonsoft.Json.Required.Always");
     });
 
+    it("should emit array argument", () => {
+      const context = createContext();
+      const attr: IrAttribute = {
+        kind: "attribute",
+        attributeType: {
+          kind: "referenceType",
+          name: "IndexAttribute",
+          resolvedClrType: "Microsoft.EntityFrameworkCore.IndexAttribute",
+        },
+        positionalArgs: [
+          {
+            kind: "array",
+            elements: [
+              { kind: "string", value: "PropertyId" },
+              { kind: "string", value: "Ts" },
+            ],
+          },
+        ],
+        namedArgs: new Map(),
+      };
+      const [result, _ctx] = emitAttributes([attr], context);
+      expect(result).to.include('new[] { "PropertyId", "Ts" }');
+    });
+
     it("should escape special characters in string arguments", () => {
       const context = createContext();
       const attr: IrAttribute = {
