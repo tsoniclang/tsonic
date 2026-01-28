@@ -59,7 +59,7 @@ export const emitPropertyMember = (
   }
 
   // Required modifier (C# 11) - must be set in object initializer
-  if (member.isRequired) {
+  if (!member.isStatic && member.isRequired) {
     parts.push("required");
   }
 
@@ -86,7 +86,13 @@ export const emitPropertyMember = (
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
 
   if (!hasAccessors) {
-    const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
+    // C# does not allow `init` on static members. For static readonly fields, emit a
+    // get-only auto-property with initializer.
+    const accessors = member.isReadonly
+      ? member.isStatic
+        ? "{ get; }"
+        : "{ get; init; }"
+      : "{ get; set; }";
 
     let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
     if (member.initializer) {
