@@ -20,6 +20,7 @@ import { runCharValidationPass } from "../ir/validation/char-validation-pass.js"
 import { runYieldLoweringPass } from "../ir/validation/yield-lowering-pass.js";
 import { runAttributeCollectionPass } from "../ir/validation/attribute-collection-pass.js";
 import { runAnonymousTypeLoweringPass } from "../ir/validation/anonymous-type-lowering-pass.js";
+import { runRestTypeSynthesisPass } from "../ir/validation/rest-type-synthesis-pass.js";
 import { runVirtualMarkingPass } from "../ir/validation/virtual-marking-pass.js";
 import { validateProgram } from "../validation/orchestrator.js";
 
@@ -300,9 +301,17 @@ export const buildModuleDependencyGraph = (
 
   const modules: IrModule[] = [...irResult.value];
 
+  // Run rest type synthesis pass - attaches rest shape info for object rest destructuring
+  // and generates synthetic types for rest objects.
+  //
+  // IMPORTANT: This must run BEFORE anonymous type lowering. Anonymous lowering
+  // replaces objectType shapes with synthesized named types, which would otherwise
+  // erase the member information needed to compute rest shapes.
+  const restResult = runRestTypeSynthesisPass(modules);
+
   // Run anonymous type lowering pass - transforms objectType to generated named types
   // This must run before soundness validation so the emitter never sees objectType
-  const anonTypeResult = runAnonymousTypeLoweringPass(modules);
+  const anonTypeResult = runAnonymousTypeLoweringPass(restResult.modules);
   // Note: This pass always succeeds (no diagnostics), but we use the lowered modules
   const loweredModules = anonTypeResult.modules;
 
