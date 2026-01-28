@@ -17,57 +17,6 @@ import { createDiagnostic } from "../../../../../types/diagnostic.js";
 import { getSourceSpan } from "../../../expressions/helpers.js";
 
 /**
- * DETERMINISTIC: Convert a TypeNode to a string for signature matching.
- * Uses only AST structure, not TypeScript's type inference.
- */
-const typeNodeToSignatureString = (typeNode: ts.TypeNode): string => {
-  // Handle type references: Foo, List<T>, etc.
-  if (ts.isTypeReferenceNode(typeNode)) {
-    // EntityName is Identifier | QualifiedName - handle both
-    const name = ts.isIdentifier(typeNode.typeName)
-      ? typeNode.typeName.text
-      : typeNode.typeName.right.text; // QualifiedName: get rightmost identifier
-    return name;
-  }
-
-  // Handle keyword types
-  switch (typeNode.kind) {
-    case ts.SyntaxKind.NumberKeyword:
-      return "number";
-    case ts.SyntaxKind.StringKeyword:
-      return "string";
-    case ts.SyntaxKind.BooleanKeyword:
-      return "boolean";
-    case ts.SyntaxKind.VoidKeyword:
-      return "void";
-    case ts.SyntaxKind.AnyKeyword:
-      return "any";
-    case ts.SyntaxKind.UnknownKeyword:
-      return "unknown";
-    case ts.SyntaxKind.NeverKeyword:
-      return "never";
-    case ts.SyntaxKind.ObjectKeyword:
-      return "object";
-    case ts.SyntaxKind.SymbolKeyword:
-      return "symbol";
-    case ts.SyntaxKind.BigIntKeyword:
-      return "bigint";
-    case ts.SyntaxKind.UndefinedKeyword:
-      return "undefined";
-    case ts.SyntaxKind.NullKeyword:
-      return "null";
-  }
-
-  // Handle array types: T[]
-  if (ts.isArrayTypeNode(typeNode)) {
-    return `${typeNodeToSignatureString(typeNode.elementType)}[]`;
-  }
-
-  // For other complex types, fall back to any
-  return "any";
-};
-
-/**
  * Convert method declaration to IR
  */
 export const convertMethod = (
@@ -77,20 +26,14 @@ export const convertMethod = (
 ): IrClassMember => {
   const memberName = ts.isIdentifier(node.name) ? node.name.text : "[computed]";
 
-  // DETERMINISTIC: Extract parameter types directly from TypeNodes
-  const parameterTypes = node.parameters.map((param) => {
-    if (param.type) {
-      return typeNodeToSignatureString(param.type);
-    }
-    return "any";
-  });
+  const parameters = convertParameters(node.parameters, ctx);
 
   const overrideInfo = detectOverride(
     memberName,
     "method",
     superClass,
     ctx,
-    parameterTypes
+    parameters
   );
 
   const declaredAccessibility = getAccessibility(node);
@@ -138,7 +81,7 @@ export const convertMethod = (
     kind: "methodDeclaration",
     name: memberName,
     typeParameters: convertTypeParameters(node.typeParameters, ctx),
-    parameters: convertParameters(node.parameters, ctx),
+    parameters,
     returnType,
     // Pass return type to body for contextual typing of return statements
     body: node.body
