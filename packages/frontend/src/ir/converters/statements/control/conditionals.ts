@@ -19,7 +19,7 @@ import {
 } from "../../../statement-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
-  collectInstanceofNarrowingsInTruthyExpr,
+  collectTypeNarrowingsInTruthyExpr,
   withAppliedNarrowings,
 } from "../../flow-narrowing.js";
 
@@ -36,7 +36,7 @@ export const convertIfStatement = (
 ): IrIfStatement => {
   const thenCtx = withAppliedNarrowings(
     ctx,
-    collectInstanceofNarrowingsInTruthyExpr(node.expression, ctx)
+    collectTypeNarrowingsInTruthyExpr(node.expression, ctx)
   );
 
   const elseCtx = (() => {
@@ -55,7 +55,7 @@ export const convertIfStatement = (
     ) {
       return withAppliedNarrowings(
         ctx,
-        collectInstanceofNarrowingsInTruthyExpr(unwrapped.operand, ctx)
+        collectTypeNarrowingsInTruthyExpr(unwrapped.operand, ctx)
       );
     }
 

@@ -8,13 +8,14 @@
  * Currently supports:
  * - `x instanceof T` in boolean (truthy) contexts
  * - Conjunction: `(x instanceof T) && ...` (collects narrowings from both sides)
+ * - `isType<T>(x)` in boolean (truthy) contexts (compiler-only type guard)
  */
 
 import * as ts from "typescript";
 import type { ProgramContext } from "../program-context.js";
 import type { IrType } from "../types.js";
 
-export type InstanceofNarrowing = {
+export type TypeNarrowing = {
   readonly declId: number;
   readonly targetType: IrType;
 };
@@ -27,11 +28,38 @@ const unwrapExpr = (expr: ts.Expression): ts.Expression => {
   return current;
 };
 
-const tryResolveInstanceofNarrowing = (
+const tryResolveTruthyNarrowing = (
   expr: ts.Expression,
   ctx: ProgramContext
-): InstanceofNarrowing | undefined => {
+): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
+
+  // isType<T>(x)
+  if (
+    ts.isCallExpression(unwrapped) &&
+    ts.isIdentifier(unwrapped.expression) &&
+    unwrapped.expression.text === "isType" &&
+    unwrapped.typeArguments &&
+    unwrapped.typeArguments.length === 1 &&
+    unwrapped.arguments.length === 1
+  ) {
+    const typeArg = unwrapped.typeArguments[0];
+    const valueArg = unwrapExpr(unwrapped.arguments[0]!);
+    if (!typeArg) return undefined;
+    if (!ts.isIdentifier(valueArg)) return undefined;
+
+    const targetType = ctx.typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(typeArg)
+    );
+    if (targetType.kind === "unknownType") return undefined;
+
+    const narrowedDeclId = ctx.binding.resolveIdentifier(valueArg);
+    if (!narrowedDeclId) return undefined;
+
+    return { declId: narrowedDeclId.id, targetType };
+  }
+
+  // x instanceof T
   if (!ts.isBinaryExpression(unwrapped)) return undefined;
   if (unwrapped.operatorToken.kind !== ts.SyntaxKind.InstanceOfKeyword) return undefined;
 
@@ -59,20 +87,20 @@ const tryResolveInstanceofNarrowing = (
  * We only collect from conjunctions (&&) because truthiness of `A && B` implies both
  * `A` and `B` are truthy; for `A || B` it does not guarantee either side.
  */
-export const collectInstanceofNarrowingsInTruthyExpr = (
+export const collectTypeNarrowingsInTruthyExpr = (
   expr: ts.Expression,
   ctx: ProgramContext
-): readonly InstanceofNarrowing[] => {
+): readonly TypeNarrowing[] => {
   const unwrapped = unwrapExpr(expr);
 
-  const direct = tryResolveInstanceofNarrowing(unwrapped, ctx);
+  const direct = tryResolveTruthyNarrowing(unwrapped, ctx);
   if (direct) return [direct];
 
   if (ts.isBinaryExpression(unwrapped)) {
     if (unwrapped.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
       return [
-        ...collectInstanceofNarrowingsInTruthyExpr(unwrapped.left, ctx),
-        ...collectInstanceofNarrowingsInTruthyExpr(unwrapped.right, ctx),
+        ...collectTypeNarrowingsInTruthyExpr(unwrapped.left, ctx),
+        ...collectTypeNarrowingsInTruthyExpr(unwrapped.right, ctx),
       ];
     }
   }
@@ -82,7 +110,7 @@ export const collectInstanceofNarrowingsInTruthyExpr = (
 
 export const withAppliedNarrowings = (
   ctx: ProgramContext,
-  narrowings: readonly InstanceofNarrowing[]
+  narrowings: readonly TypeNarrowing[]
 ): ProgramContext => {
   if (narrowings.length === 0) return ctx;
 
@@ -92,4 +120,3 @@ export const withAppliedNarrowings = (
   }
   return { ...ctx, typeEnv: next };
 };
-

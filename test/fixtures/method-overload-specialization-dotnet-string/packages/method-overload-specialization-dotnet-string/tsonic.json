@@ -1,0 +1,8 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "MethodOverloadSpecializationDotnetString",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "method-overload-specialization-dotnet-string"
+}
