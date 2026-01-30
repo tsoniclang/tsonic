@@ -80,6 +80,10 @@ Notes:
 - Use `unknown` for the implementation signature’s parameters/return type.
 - `isType<T>(...)` must be called with a simple parameter identifier (`p0`, `p1`, …).
 - If `isType<T>(...)` reaches emission, Tsonic hard-errors with `TSN7441`.
+- For CLR overrides, **avoid TypeScript visibility modifiers** (`public`/`protected`/`private`) on the
+  implementation. Bindings don’t encode CLR visibility in the `$instance` surface, so writing
+  `protected override ...` can fail vanilla `tsc` even though the override is valid in CLR.
+  Prefer `override Method(...) { ... }` and let Tsonic emit the correct CLR accessibility from bindings.
 
 ## Authoring CLR Bindings Packages (tsbindgen)
 
