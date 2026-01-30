@@ -871,6 +871,14 @@ const lowerExpression = (
           inferredType: lowerType(expr.inferredType, ctx),
         };
 
+      case "asinterface":
+        return {
+          ...expr,
+          expression: lowerExpression(expr.expression, ctx),
+          targetType: lowerType(expr.targetType, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
+
       case "trycast":
         return {
           ...expr,

@@ -130,6 +130,12 @@ export const expressionUsesPointer = (
   if (!expr) return false;
 
   switch (expr.kind) {
+    case "asinterface":
+      return (
+        expressionUsesPointer(expr.expression) ||
+        typeUsesPointer(expr.targetType)
+      );
+
     case "typeAssertion":
       return (
         expressionUsesPointer(expr.expression) ||

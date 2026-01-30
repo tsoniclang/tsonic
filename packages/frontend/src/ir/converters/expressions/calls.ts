@@ -9,6 +9,7 @@ import * as ts from "typescript";
 import {
   IrCallExpression,
   IrNewExpression,
+  IrAsInterfaceExpression,
   IrTryCastExpression,
   IrStackAllocExpression,
 } from "../../types.js";
@@ -436,19 +437,15 @@ const extractArgumentPassingFromBinding = (
 export const convertCallExpression = (
   node: ts.CallExpression,
   ctx: ProgramContext
-): IrCallExpression | IrTryCastExpression | IrStackAllocExpression => {
-  // Check for isType<T>(x) - compiler-only type guard used for overload specialization.
+): IrCallExpression | IrAsInterfaceExpression | IrTryCastExpression | IrStackAllocExpression => {
+  // Check for asinterface<T>(x) - compile-time-only interface view.
   //
   // Airplane-grade rule:
-  // - isType must be erased by the compiler (no runtime emission).
-  // - It is only valid in contexts where the compiler can prove the result is constant
-  //   (e.g., when specializing an overload implementation).
-  //
-  // We still convert it into an IR call so it can participate in control-flow narrowing
-  // and later specialization passes.
+  // - Must not introduce runtime casts in emitted C#.
+  // - Used to treat a value as a CLR interface/nominal type for TS type-checking.
   if (
     ts.isIdentifier(node.expression) &&
-    node.expression.text === "isType" &&
+    node.expression.text === "asinterface" &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1
@@ -457,7 +454,46 @@ export const convertCallExpression = (
     const argNode = node.arguments[0];
     if (!targetTypeNode || !argNode) {
       throw new Error(
-        "ICE: isType requires exactly 1 type argument and 1 argument"
+        "ICE: asinterface requires exactly 1 type argument and 1 argument"
+      );
+    }
+
+    const typeSystem = ctx.typeSystem;
+    const targetType = typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(targetTypeNode)
+    );
+    const argExpr = convertExpression(argNode, ctx, targetType);
+
+    return {
+      kind: "asinterface",
+      expression: argExpr,
+      targetType,
+      inferredType: targetType,
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
+  // Check for istype<T>(x) - compiler-only type guard used for overload specialization.
+  //
+  // Airplane-grade rule:
+  // - istype must be erased by the compiler (no runtime emission).
+  // - It is only valid in contexts where the compiler can prove the result is constant
+  //   (e.g., when specializing an overload implementation).
+  //
+  // We still convert it into an IR call so it can participate in control-flow narrowing
+  // and later specialization passes.
+  if (
+    ts.isIdentifier(node.expression) &&
+    (node.expression.text === "istype" || node.expression.text === "isType") &&
+    node.typeArguments &&
+    node.typeArguments.length === 1 &&
+    node.arguments.length === 1
+  ) {
+    const targetTypeNode = node.typeArguments[0];
+    const argNode = node.arguments[0];
+    if (!targetTypeNode || !argNode) {
+      throw new Error(
+        "ICE: istype requires exactly 1 type argument and 1 argument"
       );
     }
 

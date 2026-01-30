@@ -17,7 +17,6 @@ import {
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import type {
   Result,
   TsonicProjectConfig,
@@ -179,14 +178,6 @@ export const resolveTsbindgenDllPath = (
   const direct =
     (projectReq ? tryResolve(projectReq) : null) ?? tryResolve(selfReq);
   if (direct) return { ok: true, value: direct };
-
-  // Development fallback: sibling checkout next to the tsonic repo.
-  const here = fileURLToPath(import.meta.url);
-  // <repoRoot>/packages/cli/src/commands/add-common.ts
-  const repoRoot = resolve(join(dirname(here), "../../../.."));
-  const sibling = resolve(join(repoRoot, "..", "tsbindgen"));
-  const siblingDll = join(sibling, "lib", "tsbindgen.dll");
-  if (existsSync(siblingDll)) return { ok: true, value: siblingDll };
 
   return {
     ok: false,

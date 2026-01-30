@@ -1,5 +1,5 @@
 import { Console } from "@tsonic/dotnet/System.js";
-import { isType } from "@tsonic/core/lang.js";
+import { istype } from "@tsonic/core/lang.js";
 
 class X {}
 class Y {}
@@ -10,11 +10,11 @@ class Overloads {
   Foo(a: X, b: Y): string;
   Foo(a: P, b: Q): string;
   Foo(p0: unknown, p1: unknown): unknown {
-    if (isType<X>(p0) && isType<Y>(p1)) {
+    if (istype<X>(p0) && istype<Y>(p1)) {
       return "xy";
     }
 
-    if (isType<P>(p0) && isType<Q>(p1)) {
+    if (istype<P>(p0) && istype<Q>(p1)) {
       return "pq";
     }
 

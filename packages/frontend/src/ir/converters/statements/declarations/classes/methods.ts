@@ -149,7 +149,7 @@ const typesEqualForIsType = (
       return true;
     }
     default:
-      // isType is only supported for primitive/array/nominal/type-param equality during overload specialization.
+      // istype is only supported for primitive/array/nominal/type-param equality during overload specialization.
       return false;
   }
 };
@@ -172,10 +172,10 @@ const specializeExpression = (
           : specializeExpression(a, paramTypesByDeclId)
       );
 
-      // Compile-time-only isType<T>(param)
+      // Compile-time-only istype<T>(param)
       if (
         callee.kind === "identifier" &&
-        callee.name === "isType" &&
+        (callee.name === "istype" || callee.name === "isType") &&
         expr.typeArguments &&
         expr.typeArguments.length === 1 &&
         args.length === 1 &&
@@ -536,7 +536,10 @@ const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
         );
       case "call":
         return (
-          !(expr.callee.kind === "identifier" && expr.callee.name === "isType") &&
+          !(
+            expr.callee.kind === "identifier" &&
+            (expr.callee.name === "istype" || expr.callee.name === "isType")
+          ) &&
           visitExpr(expr.callee) &&
           expr.arguments.every((a) =>
             a.kind === "spread" ? visitExpr(a.expression) : visitExpr(a)
@@ -803,7 +806,7 @@ const assertNoMissingParamRefs = (
  * Convert a TypeScript overload group (`sig; sig; impl {}`) into one C# method per signature.
  *
  * The implementation body is written once and specialized per overload by erasing
- * `isType<T>(pN)` branches that don't match the current overload signature.
+ * `istype<T>(pN)` branches that don't match the current overload signature.
  */
 export const convertMethodOverloadGroup = (
   nodes: readonly ts.MethodDeclaration[],
@@ -905,7 +908,7 @@ export const convertMethodOverloadGroup = (
     const specialized = specializeStatement(implBody, paramTypesByDeclId);
     if (!assertNoIsTypeCalls(specialized)) {
       throw new Error(
-        `ICE: isType<T>(...) must be erased during overload specialization for '${memberName}'.`
+        `ICE: istype<T>(...) must be erased during overload specialization for '${memberName}'.`
       );
     }
     if (sigParams.length < implParams.length) {

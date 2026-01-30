@@ -49,6 +49,7 @@ export type IrExpression =
   | IrYieldExpression
   | IrNumericNarrowingExpression
   | IrTypeAssertionExpression
+  | IrAsInterfaceExpression
   | IrTryCastExpression
   | IrStackAllocExpression;
 
@@ -406,6 +407,31 @@ export type IrTypeAssertionExpression = {
   /** The expression being cast */
   readonly expression: IrExpression;
   /** The target type for the cast */
+  readonly targetType: IrType;
+  /** Inferred type (same as targetType) */
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
+/**
+ * Represents an interface upcast (asinterface<T>(x)).
+ *
+ * Airplane-grade rule:
+ * - This must never emit an explicit runtime cast in C#.
+ * - It exists to let TypeScript treat a value as an interface (or other nominal type)
+ *   when the value's declared TS type is narrower (e.g., DbSet<TEntity> vs IQueryable<TEntity>).
+ *
+ * Emits as the underlying expression `x` (type-only), relying on contextual typing in C#:
+ * - `const q = asinterface<IQueryable<T>>(db.Events);` → `global::System.Linq.IQueryable<T> q = db.Events;`
+ *
+ * NOTE: If you need to access members that are implemented explicitly on the CLR type,
+ * prefer assigning to a typed local first (so C# has the interface static type).
+ */
+export type IrAsInterfaceExpression = {
+  readonly kind: "asinterface";
+  /** The expression being re-typed */
+  readonly expression: IrExpression;
+  /** The target type for the interface view */
   readonly targetType: IrType;
   /** Inferred type (same as targetType) */
   readonly inferredType: IrType;

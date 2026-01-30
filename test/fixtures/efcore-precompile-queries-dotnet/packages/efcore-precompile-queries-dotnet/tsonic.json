@@ -1,0 +1,8 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "EfCorePrecompileQueriesDotnet",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "efcore-precompile-queries-dotnet"
+}

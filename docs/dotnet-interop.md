@@ -54,22 +54,22 @@ In Tsonic you author these using standard TypeScript overload syntax:
 
 1. Write one overload signature per CLR signature you want to support/override
 2. Provide exactly one implementation body
-3. Use `isType<T>(pN)` (from `@tsonic/core/lang.js`) to let the compiler specialize the single body
+3. Use `istype<T>(pN)` (from `@tsonic/core/lang.js`) to let the compiler specialize the single body
    into one CLR method per signature
 
-`isType<T>(...)` is **compile-time only** — the compiler must erase it before emitting C#.
+`istype<T>(...)` is **compile-time only** — the compiler must erase it before emitting C#.
 
 Example (single-parameter overload family):
 
 ```ts
-import { isType } from "@tsonic/core/lang.js";
+import { istype } from "@tsonic/core/lang.js";
 
 class Overloads {
   Foo(x: string): string;
   Foo(x: boolean): string;
   Foo(p0: unknown): unknown {
-    if (isType<string>(p0)) return `s:${p0}`;
-    if (isType<boolean>(p0)) return p0 ? "t" : "f";
+    if (istype<string>(p0)) return `s:${p0}`;
+    if (istype<boolean>(p0)) return p0 ? "t" : "f";
     throw new Error("unreachable");
   }
 }
@@ -78,8 +78,8 @@ class Overloads {
 Notes:
 
 - Use `unknown` for the implementation signature’s parameters/return type.
-- `isType<T>(...)` must be called with a simple parameter identifier (`p0`, `p1`, …).
-- If `isType<T>(...)` reaches emission, Tsonic hard-errors with `TSN7441`.
+- `istype<T>(...)` must be called with a simple parameter identifier (`p0`, `p1`, …).
+- If `istype<T>(...)` reaches emission, Tsonic hard-errors with `TSN7441`.
 - For CLR overrides, **avoid TypeScript visibility modifiers** (`public`/`protected`/`private`) on the
   implementation. Bindings don’t encode CLR visibility in the `$instance` surface, so writing
   `protected override ...` can fail vanilla `tsc` even though the override is valid in CLR.

@@ -148,15 +148,116 @@ else
 
         cd "$fixture_dir"
 
+        # E2E fixtures should not rely on pre-existing per-fixture node_modules.
+        # Prefer:
+        # - npm install (when E2E_NPM_INSTALL=1), OR
+        # - symlinked local @tsonic/* checkouts (dev workflow, no network).
+        #
+        # This keeps tests deterministic and avoids stale shadowing.
+        if [ "${E2E_NPM_INSTALL:-0}" != "1" ]; then
+            rm -rf node_modules 2>/dev/null || true
+        fi
+
         # Optional per-fixture dependency install (off by default).
         # E2E fixtures live inside the monorepo, so they can resolve @tsonic/*
         # from the repo root node_modules without local installs.
         if [ -f "package.json" ] && [ "${E2E_NPM_INSTALL:-0}" = "1" ]; then
             npm install --silent --no-package-lock
+        elif [ -f "package.json" ]; then
+            # Offline/dev mode: create minimal node_modules with @tsonic/* symlinks.
+            # This is intentionally test-only; production Tsonic must use normal npm
+            # resolution and never assume sibling checkouts.
+            mkdir -p node_modules/@tsonic
+
+            # Determine .NET major (prefer fixture config, fall back to 10).
+            dotnet_major=$(node -e 'const fs=require("fs"); try { const cfg=JSON.parse(fs.readFileSync("tsonic.workspace.json","utf8")); const dv=String(cfg.dotnetVersion ?? "net10.0"); const m=dv.match(/net(\\d+)/); console.log(m ? m[1] : "10"); } catch { console.log("10"); }' 2>/dev/null || echo "10")
+
+            # List @tsonic/* deps from package.json
+            deps=$(
+                node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); const deps=Object.assign({}, p.dependencies||{}, p.devDependencies||{}); for (const k of Object.keys(deps)) { if (k.startsWith("@tsonic/")) console.log(k); }' 2>/dev/null || true
+            )
+
+            while IFS= read -r pkg; do
+                [ -n "$pkg" ] || continue
+                name="${pkg#@tsonic/}"
+                dest="node_modules/@tsonic/$name"
+                if [ -e "$dest" ]; then
+                    continue
+                fi
+
+                # Prefer sibling repo checkouts next to this monorepo (dev workflow).
+                sibling="$ROOT_DIR/../$name"
+
+                # Versioned repos: <repo>/versions/<major> contains the real package.
+                if [ -f "$sibling/versions/$dotnet_major/package.json" ]; then
+                    ln -s "$sibling/versions/$dotnet_major" "$dest"
+                    continue
+                fi
+
+                # Non-versioned repos: <repo>/package.json contains the real package.
+                if [ -f "$sibling/package.json" ]; then
+                    ln -s "$sibling" "$dest"
+                    continue
+                fi
+
+                # Fall back to already-installed repo root packages.
+                root_pkg="$ROOT_DIR/node_modules/@tsonic/$name"
+                if [ -e "$root_pkg" ]; then
+                    ln -s "$root_pkg" "$dest"
+                    continue
+                fi
+
+                echo "FAIL: missing dependency $pkg. Set E2E_NPM_INSTALL=1 to install from npm, or clone the repo at $sibling." >>"$error_file"
+                result="FAIL (missing deps)"
+                echo "$result" > "$result_file"
+                echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+                return
+            done <<<"$deps"
         fi
 
         # Build and run - capture errors to file
         if node "$cli_path" build --project "$fixture_name" --config tsonic.workspace.json 2>"$error_file"; then
+            # Optional post-build commands (for fixtures that need extra validation steps).
+            # Example: EF Core query precompilation (`dotnet ef dbcontext optimize`).
+            meta_file="$fixture_dir/e2e.meta.json"
+            if [ -f "$meta_file" ]; then
+                postbuild_items=()
+                while IFS= read -r -d '' item; do
+                    postbuild_items+=("$item")
+                done < <(node -e 'const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const pb=m.postBuild; if(!pb||!Array.isArray(pb.commands)||pb.commands.length===0){process.exit(0);} const parts=[String(pb.workingDirectory ?? ""), ...pb.commands.map(String)]; process.stdout.write(parts.join("\\0") + "\\0");' "$meta_file" 2>/dev/null || true)
+
+                if [ "${#postbuild_items[@]}" -gt 1 ]; then
+                    postbuild_cwd="${postbuild_items[0]}"
+                    postbuild_cmds=("${postbuild_items[@]:1}")
+
+                    # Run post-build commands from the configured working directory.
+                    if [ -n "$postbuild_cwd" ]; then
+                        pushd "$fixture_dir/$postbuild_cwd" >/dev/null || {
+                            echo "FAIL: postBuild workingDirectory not found: $postbuild_cwd" >>"$error_file"
+                            result="FAIL (post-build error)"
+                            echo "$result" > "$result_file"
+                            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+                            return
+                        }
+                    else
+                        pushd "$fixture_dir" >/dev/null
+                    fi
+
+                    for cmd in "${postbuild_cmds[@]}"; do
+                        echo "=== postBuild: $cmd" >>"$error_file"
+                        if ! bash -lc "$cmd" >>"$error_file" 2>&1; then
+                            popd >/dev/null
+                            result="FAIL (post-build error)"
+                            echo "$result" > "$result_file"
+                            echo -e "  $fixture_name: \033[0;31m$result\033[0m"
+                            return
+                        fi
+                    done
+
+                    popd >/dev/null
+                fi
+            fi
+
             # Find executable
             # Some .NET publish outputs mark DLLs as executable; filter those out.
             exe_path=""
