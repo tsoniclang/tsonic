@@ -428,7 +428,7 @@ const validateExpression = (
       // It must never reach emission; overload-group conversion erases it.
       if (
         expr.callee.kind === "identifier" &&
-        (expr.callee.name === "istype" || expr.callee.name === "isType")
+        expr.callee.name === "istype"
       ) {
         ctx.diagnostics.push(
           createDiagnostic(

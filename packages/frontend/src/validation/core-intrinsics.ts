@@ -67,8 +67,6 @@ const CORE_LANG_VALUE_NAMES = new Set([
   "asinterface",
   // Compile-time type guard used for overload-specialization (must be erased by the compiler)
   "istype",
-  // Back-compat alias (deprecated) - prefer istype
-  "isType",
   // Declared in @tsonic/core/lang.js (reserve now to avoid future ambiguity)
   "nameof",
   "sizeof",
