@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@tsonic/core": "10.0.1",
+    "@tsonic/core": "10.0.2",
     "@tsonic/dotnet": "10.0.3",
     "@tsonic/globals": "10.0.3"
   }
