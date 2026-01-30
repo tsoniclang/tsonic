@@ -22,6 +22,7 @@ describe("emitLiteral", () => {
     isStatic: false,
     isAsync: false,
     typeParameters,
+    usings: new Set<string>(),
   });
 
   describe("null literal", () => {

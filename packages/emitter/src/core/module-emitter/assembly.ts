@@ -1,8 +1,11 @@
 /**
  * Final output assembly
  *
- * NOTE: No using statements are emitted. All type and member references
- * use fully-qualified global:: names to eliminate any ambiguity.
+ * NOTE: Tsonic generally avoids `using` statements. All type and member references
+ * use fully-qualified `global::` names to eliminate ambiguity.
+ *
+ * However, some language/tooling features require namespace `using` directives
+ * (e.g., extension-method invocation syntax for EF query precompilation).
  */
 
 import { IrModule } from "@tsonic/frontend";
@@ -23,12 +26,21 @@ export type AssemblyParts = {
 export const assembleOutput = (
   module: IrModule,
   parts: AssemblyParts,
-  _finalContext: EmitterContext
+  finalContext: EmitterContext
 ): string => {
   const result: string[] = [];
 
   if (parts.header) {
     result.push(parts.header);
+  }
+
+  const usings = Array.from(finalContext.usings);
+  if (usings.length > 0) {
+    usings.sort();
+    for (const ns of usings) {
+      result.push(`using ${ns};`);
+    }
+    result.push("");
   }
 
   result.push(`namespace ${module.namespace}`);

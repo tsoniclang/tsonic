@@ -19,6 +19,7 @@ const createContext = (): EmitterContext => ({
   options: defaultOptions,
   isStatic: false,
   isAsync: false,
+  usings: new Set<string>(),
 });
 
 describe("Shadowing member emission", () => {
@@ -57,4 +58,3 @@ describe("Shadowing member emission", () => {
     expect(code).to.include("public new string Value");
   });
 });
-

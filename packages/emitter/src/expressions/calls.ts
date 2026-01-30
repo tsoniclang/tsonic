@@ -111,6 +111,13 @@ const isInstanceMemberAccess = (
     if (importBinding?.kind === "type") {
       return false;
     }
+
+    // If this isn't an import and we don't have a receiver type, default to instance.
+    // This matches emitMemberAccess's behavior and prevents local variables from being
+    // misclassified as static type receivers (which breaks extension method lowering).
+    if (!expr.object.inferredType) {
+      return true;
+    }
   }
 
   const objectType = expr.object.inferredType;
@@ -120,8 +127,39 @@ const isInstanceMemberAccess = (
     objectType?.kind === "intersectionType" ||
     objectType?.kind === "unionType" ||
     objectType?.kind === "primitiveType" ||
-    objectType?.kind === "literalType"
+    objectType?.kind === "literalType" ||
+    objectType?.kind === "typeParameterType" ||
+    objectType?.kind === "unknownType"
   );
+};
+
+/**
+ * Whether to emit an extension method call using fluent instance syntax (receiver.Method(...))
+ * instead of explicit static invocation (Type.Method(receiver, ...)).
+ *
+ * Default: prefer static invocation to avoid relying on `using` directives and to avoid
+ * accidental binding to an instance member when a type has both an instance method and
+ * an extension method with the same name.
+ *
+ * Exception: certain toolchains (notably EF query precompilation) require the *syntax*
+ * of extension-method invocation so the analyzer can locate queries in user code.
+ */
+const shouldEmitFluentExtensionCall = (bindingType: string): boolean => {
+  // EF Core query precompilation requires fluent/extension syntax specifically for Queryable.
+  // Keep Enumerable as explicit static invocation by default to avoid accidental binding to
+  // instance methods on custom enumerable types.
+  if (bindingType.startsWith("System.Linq.Queryable")) return true;
+
+  // EF Core query operators (Include/ThenInclude/AsNoTracking/etc.)
+  if (bindingType.startsWith("Microsoft.EntityFrameworkCore.")) return true;
+
+  return false;
+};
+
+const getTypeNamespace = (typeName: string): string | undefined => {
+  const lastDot = typeName.lastIndexOf(".");
+  if (lastDot <= 0) return undefined;
+  return typeName.slice(0, lastDot);
 };
 
 /**
@@ -349,6 +387,72 @@ export const emitCall = (
     );
     currentContext = receiverContext;
 
+    // Some ecosystems (notably EF Core query precompilation) require fluent syntax
+    // so the tooling can locate queries in syntax trees. For those namespaces,
+    // emit `receiver.Method(...)` and add a `using` directive for the namespace.
+    if (shouldEmitFluentExtensionCall(binding.type)) {
+      const ns = getTypeNamespace(binding.type);
+      if (ns) {
+        currentContext.usings.add(ns);
+      }
+
+      // Handle generic type arguments
+      let typeArgsStr = "";
+      if (expr.typeArguments && expr.typeArguments.length > 0) {
+        const [typeArgs, typeContext] = emitTypeArguments(
+          expr.typeArguments,
+          currentContext
+        );
+        typeArgsStr = typeArgs;
+        currentContext = typeContext;
+      }
+
+      // Get parameter types from IR (extracted from resolved signature in frontend)
+      const parameterTypes = expr.parameterTypes ?? [];
+
+      const args: string[] = [];
+      for (let i = 0; i < expr.arguments.length; i++) {
+        const arg = expr.arguments[i];
+        if (!arg) continue;
+
+        const expectedType = parameterTypes[i];
+
+        if (arg.kind === "spread") {
+          const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
+          args.push(`params ${spreadFrag.text}`);
+          currentContext = ctx;
+        } else {
+          const castModifier = getPassingModifierFromCast(arg);
+          if (castModifier && isLValue(arg)) {
+            const [argFrag, ctx] = emitExpression(arg, currentContext);
+            args.push(`${castModifier} ${argFrag.text}`);
+            currentContext = ctx;
+          } else {
+            const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
+            const passingMode = expr.argumentPassing?.[i];
+            const prefix =
+              passingMode && passingMode !== "value" && isLValue(arg)
+                ? `${passingMode} `
+                : "";
+            args.push(`${prefix}${argFrag.text}`);
+            currentContext = ctx;
+          }
+        }
+      }
+
+      const receiverText = formatPostfixExpressionText(
+        receiverExpr,
+        receiverFrag.text
+      );
+      const op = expr.isOptional ? "?." : ".";
+      const baseCallText = `${receiverText}${op}${binding.member}${typeArgsStr}(${args.join(", ")})`;
+
+      const text = needsIntCast(expr, binding.member)
+        ? `(int)${baseCallText}`
+        : baseCallText;
+      return [{ text }, currentContext];
+    }
+
     let finalCalleeName = `global::${binding.type}.${binding.member}`;
 
     // Handle generic type arguments
@@ -503,10 +607,13 @@ export const emitCall = (
     }
   }
 
-  const calleeText = formatPostfixExpressionText(
-    expr.callee,
-    `${finalCalleeName}${typeArgsStr}`
-  );
+  // For member-access calls, the receiver parenthesization is already handled inside
+  // `emitMemberAccess`. Wrapping the full `obj.Member` in parentheses can change meaning
+  // in C# (e.g., `(obj.Member)()` attempts to invoke a delegate rather than calling a method).
+  const calleeText =
+    expr.callee.kind === "memberAccess"
+      ? `${finalCalleeName}${typeArgsStr}`
+      : formatPostfixExpressionText(expr.callee, `${finalCalleeName}${typeArgsStr}`);
 
   const callOp = expr.isOptional ? "?." : "";
   const callText = `${calleeText}${callOp}(${args.join(", ")})`;

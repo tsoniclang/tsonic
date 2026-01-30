@@ -21,6 +21,7 @@ const createContext = (indentLevel = 0): EmitterContext => ({
   options: defaultOptions,
   isStatic: false,
   isAsync: false,
+  usings: new Set<string>(),
 });
 
 describe("Attribute Emission", () => {

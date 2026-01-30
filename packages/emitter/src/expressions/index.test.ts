@@ -304,6 +304,99 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("path.split");
   });
 
+  it("should emit fluent LINQ extension method calls (required for EF query precompilation)", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "q",
+                inferredType: { kind: "primitiveType", name: "boolean" }, // doesn't matter; only needs to be instance-style
+              },
+              property: "Count",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                assembly: "System.Linq",
+                type: "System.Linq.Queryable",
+                member: "Count",
+                isExtensionMethod: true,
+              },
+            },
+            arguments: [],
+            isOptional: false,
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Fluent invocation + namespace using.
+    expect(result).to.include("using System.Linq;");
+    expect(result).to.include("q.Count()");
+
+    // Must not emit nested/static Queryable.* calls (EF query precompiler flags them as "dynamic").
+    expect(result).not.to.include("System.Linq.Queryable.Count");
+  });
+
+  it("should preserve logical operator grouping with parentheses", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "logical",
+            operator: "&&",
+            left: {
+              kind: "identifier",
+              name: "a",
+              inferredType: { kind: "primitiveType", name: "boolean" },
+            },
+            right: {
+              kind: "logical",
+              operator: "||",
+              left: {
+                kind: "identifier",
+                name: "b",
+                inferredType: { kind: "primitiveType", name: "boolean" },
+              },
+              right: {
+                kind: "identifier",
+                name: "c",
+                inferredType: { kind: "primitiveType", name: "boolean" },
+              },
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    // Without parentheses this becomes a && b || c, which changes meaning.
+    expect(result).to.include("a && (b || c)");
+  });
+
   it("should unwrap nullable value types when a non-nullable value is expected", () => {
     const module: IrModule = {
       kind: "module",
