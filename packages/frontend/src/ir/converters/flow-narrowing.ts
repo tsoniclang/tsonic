@@ -38,8 +38,7 @@ const tryResolveTruthyNarrowing = (
   if (
     ts.isCallExpression(unwrapped) &&
     ts.isIdentifier(unwrapped.expression) &&
-    (unwrapped.expression.text === "istype" ||
-      unwrapped.expression.text === "isType") &&
+    unwrapped.expression.text === "istype" &&
     unwrapped.typeArguments &&
     unwrapped.typeArguments.length === 1 &&
     unwrapped.arguments.length === 1

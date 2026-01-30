@@ -175,7 +175,7 @@ const specializeExpression = (
       // Compile-time-only istype<T>(param)
       if (
         callee.kind === "identifier" &&
-        (callee.name === "istype" || callee.name === "isType") &&
+        callee.name === "istype" &&
         expr.typeArguments &&
         expr.typeArguments.length === 1 &&
         args.length === 1 &&
@@ -538,7 +538,7 @@ const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
         return (
           !(
             expr.callee.kind === "identifier" &&
-            (expr.callee.name === "istype" || expr.callee.name === "isType")
+            expr.callee.name === "istype"
           ) &&
           visitExpr(expr.callee) &&
           expr.arguments.every((a) =>

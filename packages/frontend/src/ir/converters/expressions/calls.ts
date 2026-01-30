@@ -484,7 +484,7 @@ export const convertCallExpression = (
   // and later specialization passes.
   if (
     ts.isIdentifier(node.expression) &&
-    (node.expression.text === "istype" || node.expression.text === "isType") &&
+    node.expression.text === "istype" &&
     node.typeArguments &&
     node.typeArguments.length === 1 &&
     node.arguments.length === 1
