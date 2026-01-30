@@ -106,5 +106,49 @@ describe("DotnetMetadataRegistry", () => {
     );
     expect(refMeta?.virtual).to.equal(true);
   });
-});
 
+  it("resolves members through the base type chain (override/shadow detection)", () => {
+    const registry = new DotnetMetadataRegistry();
+
+    registry.loadBindingsFile("fake", {
+      namespace: "Test",
+      types: [
+        {
+          clrName: "Test.Base",
+          kind: "Class",
+          methods: [
+            {
+              clrName: "Dispose",
+              parameterCount: 0,
+              canonicalSignature: "():System.Void",
+              isVirtual: false,
+              isStatic: false,
+              visibility: "Public",
+            },
+          ],
+          properties: [
+            {
+              clrName: "Count",
+              isStatic: false,
+              isVirtual: false,
+              visibility: "Public",
+            },
+          ],
+        },
+        {
+          clrName: "Test.Derived",
+          kind: "Class",
+          baseType: { clrName: "Test.Base" },
+          methods: [],
+          properties: [],
+        },
+      ],
+    });
+
+    const disposeMeta = registry.getMethodMetadata("Test.Derived", "Dispose", [], "");
+    expect(disposeMeta?.virtual).to.equal(false);
+
+    const countMeta = registry.getPropertyMetadata("Test.Derived", "Count");
+    expect(countMeta?.kind).to.equal("property");
+  });
+});

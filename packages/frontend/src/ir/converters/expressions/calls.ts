@@ -437,6 +437,48 @@ export const convertCallExpression = (
   node: ts.CallExpression,
   ctx: ProgramContext
 ): IrCallExpression | IrTryCastExpression | IrStackAllocExpression => {
+  // Check for isType<T>(x) - compiler-only type guard used for overload specialization.
+  //
+  // Airplane-grade rule:
+  // - isType must be erased by the compiler (no runtime emission).
+  // - It is only valid in contexts where the compiler can prove the result is constant
+  //   (e.g., when specializing an overload implementation).
+  //
+  // We still convert it into an IR call so it can participate in control-flow narrowing
+  // and later specialization passes.
+  if (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "isType" &&
+    node.typeArguments &&
+    node.typeArguments.length === 1 &&
+    node.arguments.length === 1
+  ) {
+    const targetTypeNode = node.typeArguments[0];
+    const argNode = node.arguments[0];
+    if (!targetTypeNode || !argNode) {
+      throw new Error(
+        "ICE: isType requires exactly 1 type argument and 1 argument"
+      );
+    }
+
+    const typeSystem = ctx.typeSystem;
+    const targetType = typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(targetTypeNode)
+    );
+    const argExpr = convertExpression(argNode, ctx, undefined);
+    const callee = convertExpression(node.expression, ctx, undefined);
+
+    return {
+      kind: "call",
+      callee,
+      arguments: [argExpr],
+      isOptional: false,
+      inferredType: { kind: "primitiveType", name: "boolean" },
+      typeArguments: [targetType],
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
   // Check for trycast<T>(x) - special intrinsic for safe casting
   // trycast<T>(x) compiles to C#: x as T (safe cast, returns null on failure)
   if (

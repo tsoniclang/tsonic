@@ -19,7 +19,7 @@ import {
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import {
-  collectInstanceofNarrowingsInTruthyExpr,
+  collectTypeNarrowingsInTruthyExpr,
   withAppliedNarrowings,
 } from "../flow-narrowing.js";
 import {
@@ -234,7 +234,7 @@ export const convertBinaryExpression = (
       operator === "&&"
         ? withAppliedNarrowings(
             ctx,
-            collectInstanceofNarrowingsInTruthyExpr(node.left, ctx)
+            collectTypeNarrowingsInTruthyExpr(node.left, ctx)
           )
         : ctx;
     const rightExpr = convertExpression(node.right, rhsCtx, rhsExpectedType);

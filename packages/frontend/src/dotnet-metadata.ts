@@ -31,6 +31,8 @@ export type DotnetMemberMetadata = {
  */
 export type DotnetTypeMetadata = {
   readonly kind: "class" | "interface" | "struct" | "enum";
+  readonly baseType?: string;
+  readonly interfaces?: readonly string[];
   /**
    * Methods indexed by:
    * - CLR method name
@@ -59,6 +61,8 @@ export type TsbindgenBindingsFile = {
 export type TsbindgenBindingsType = {
   readonly clrName: string;
   readonly kind?: string;
+  readonly baseType?: { readonly clrName: string };
+  readonly interfaces?: readonly { readonly clrName: string }[];
   readonly methods?: readonly TsbindgenBindingsMethod[];
   readonly properties?: readonly TsbindgenBindingsProperty[];
 };
@@ -224,6 +228,8 @@ export class DotnetMetadataRegistry {
 
       this.metadata.set(type.clrName, {
         kind,
+        baseType: type.baseType?.clrName,
+        interfaces: type.interfaces?.map((i) => i.clrName) ?? [],
         methods,
         properties,
       });
@@ -248,20 +254,30 @@ export class DotnetMetadataRegistry {
     parameterTypes: readonly string[],
     modifiersKey: string
   ): DotnetMemberMetadata | undefined {
-    const typeMetadata = this.metadata.get(qualifiedTypeName);
-    if (!typeMetadata) {
-      return undefined;
+    const signatureKey = this.buildSignatureKey(parameterTypes, modifiersKey);
+    const visited = new Set<string>();
+
+    let current: string | undefined = qualifiedTypeName;
+    while (current && !visited.has(current)) {
+      visited.add(current);
+
+      const typeMetadata = this.metadata.get(current);
+      if (!typeMetadata) return undefined;
+
+      const byCount = typeMetadata.methods.get(methodName);
+      if (byCount) {
+        const paramCount = parameterTypes.length;
+        const bySignature = byCount.get(paramCount);
+        if (bySignature) {
+          const found = bySignature.get(signatureKey);
+          if (found) return found;
+        }
+      }
+
+      current = typeMetadata.baseType;
     }
 
-    const byCount = typeMetadata.methods.get(methodName);
-    if (!byCount) return undefined;
-
-    const paramCount = parameterTypes.length;
-    const bySignature = byCount.get(paramCount);
-    if (!bySignature) return undefined;
-
-    const signatureKey = this.buildSignatureKey(parameterTypes, modifiersKey);
-    return bySignature.get(signatureKey);
+    return undefined;
   }
 
   getMethodOverloadCount(
@@ -283,9 +299,17 @@ export class DotnetMetadataRegistry {
     qualifiedTypeName: string,
     propertyName: string
   ): DotnetMemberMetadata | undefined {
-    const typeMetadata = this.metadata.get(qualifiedTypeName);
-    if (!typeMetadata) return undefined;
-    return typeMetadata.properties.get(propertyName);
+    const visited = new Set<string>();
+    let current: string | undefined = qualifiedTypeName;
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const typeMetadata = this.metadata.get(current);
+      if (!typeMetadata) return undefined;
+      const found = typeMetadata.properties.get(propertyName);
+      if (found) return found;
+      current = typeMetadata.baseType;
+    }
+    return undefined;
   }
 
   /**

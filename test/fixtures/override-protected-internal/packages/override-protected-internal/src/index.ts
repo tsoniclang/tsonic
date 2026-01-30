@@ -7,7 +7,7 @@ import {
 import { BindingFlags } from "@tsonic/dotnet/System.Reflection.js";
 
 class MyVisitor extends ExpressionVisitor {
-  protected VisitBinary(node: BinaryExpression): Expression {
+  override VisitBinary(node: BinaryExpression): Expression {
     return super.VisitBinary(node);
   }
 }

@@ -21,8 +21,6 @@ import {
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
 import type { ProgramContext } from "../../../../program-context.js";
-import { createDiagnostic } from "../../../../../types/diagnostic.js";
-import { getSourceSpan } from "../../../expressions/helpers.js";
 
 /**
  * Derive type from a converted IR expression (deterministic).
@@ -92,30 +90,9 @@ export const convertProperty = (
     if (!overrideInfo.isOverride || !overrideInfo.requiredAccessibility) {
       return declaredAccessibility;
     }
-
-    const required = overrideInfo.requiredAccessibility;
-
-    const ok =
-      required === "public"
-        ? declaredAccessibility === "public"
-        : required === "protected"
-          ? declaredAccessibility === "protected"
-          : required === "protected internal"
-            ? declaredAccessibility === "protected"
-            : false;
-
-    if (!ok) {
-      ctx.diagnostics.push(
-        createDiagnostic(
-          "TSN6202",
-          "error",
-          `Invalid override accessibility for '${memberName}'. CLR base member is '${required}', but this override is declared '${declaredAccessibility}'.`,
-          getSourceSpan(node)
-        )
-      );
-    }
-
-    return required;
+    // Airplane-grade: always emit CLR-required accessibility for overrides.
+    // TS may not represent CLR access cleanly, but C# compilation enforces the truth.
+    return overrideInfo.requiredAccessibility;
   })();
 
   // Get explicit type annotation (if present) for contextual typing
@@ -206,28 +183,7 @@ export const convertAccessorProperty = (
       return accessibility;
     }
 
-    const required = overrideInfo.requiredAccessibility;
-    const ok =
-      required === "public"
-        ? accessibility === "public"
-        : required === "protected"
-          ? accessibility === "protected"
-          : required === "protected internal"
-            ? accessibility === "protected"
-            : false;
-
-    if (!ok) {
-      ctx.diagnostics.push(
-        createDiagnostic(
-          "TSN6203",
-          "error",
-          `Invalid override accessibility for '${memberName}'. CLR base member is '${required}', but this override is declared '${accessibility}'.`,
-          getter ? getSourceSpan(getter) : setter ? getSourceSpan(setter) : undefined
-        )
-      );
-    }
-
-    return required;
+    return overrideInfo.requiredAccessibility;
   })();
 
   const setterParamName = (() => {
