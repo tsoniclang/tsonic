@@ -255,6 +255,15 @@ export type EmitterContext = {
   readonly localNameMap?: ReadonlyMap<string, string>;
   /** Counter for generating unique temp variable names */
   readonly tempVarId?: number;
+  /**
+   * Required C# `using` directives for this module.
+   *
+   * Tsonic normally emits fully-qualified `global::` references and avoids `using` directives
+   * to eliminate ambiguity. However, some features (notably C# extension-method invocation
+   * syntax required by certain tooling, e.g. EF query precompilation) require namespace `using`
+   * directives to be present.
+   */
+  readonly usings: Set<string>;
 };
 
 /**

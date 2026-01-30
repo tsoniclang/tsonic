@@ -29,6 +29,51 @@ const isBooleanCondition = (expr: IrExpression): boolean => {
 };
 
 /**
+ * Expressions that are always boolean in JS/TS, even if the IR is missing inferredType.
+ *
+ * This makes boolean-context emission robust: comparisons and `!expr` are already valid
+ * C# conditions and should not be rewritten to `!= null` fallbacks.
+ */
+const isInherentlyBooleanExpression = (expr: IrExpression): boolean => {
+  if (expr.kind === "binary") {
+    return (
+      expr.operator === "==" ||
+      expr.operator === "!=" ||
+      expr.operator === "===" ||
+      expr.operator === "!==" ||
+      expr.operator === "<" ||
+      expr.operator === ">" ||
+      expr.operator === "<=" ||
+      expr.operator === ">=" ||
+      expr.operator === "instanceof" ||
+      expr.operator === "in"
+    );
+  }
+
+  if (expr.kind === "unary") {
+    return expr.operator === "!";
+  }
+
+  return false;
+};
+
+const isSimpleOperandExpression = (expr: IrExpression): boolean => {
+  // These IR kinds emit C# primary/postfix expressions that don't need parentheses
+  // before appending a comparison like `!= null` / `!= 0`.
+  switch (expr.kind) {
+    case "identifier":
+    case "memberAccess":
+    case "call":
+    case "new":
+    case "this":
+    case "literal":
+      return true;
+    default:
+      return false;
+  }
+};
+
+/**
  * Convert an expression to a valid C# boolean condition.
  *
  * Rules (deterministic):
@@ -66,6 +111,11 @@ export const toBooleanCondition = (
     return [emittedText, context];
   }
 
+  // If we can prove from syntax alone that this is a boolean expression, use as-is.
+  if (isInherentlyBooleanExpression(expr)) {
+    return [emittedText, context];
+  }
+
   // For reference types (non-primitive), add != null check
   const type = expr.inferredType;
   if (type && type.kind !== "primitiveType") {
@@ -81,13 +131,15 @@ export const toBooleanCondition = (
         return [type.value.length === 0 ? "false" : "true", context];
       }
     }
-    return [`${emittedText} != null`, context];
+    const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+    return [`${operand} != null`, context];
   }
 
   // Default: assume it's a reference type and add null check
   // This handles cases where type inference didn't work
   if (!type) {
-    return [`${emittedText} != null`, context];
+    const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+    return [`${operand} != null`, context];
   }
 
   // For primitives that are not boolean
@@ -101,10 +153,16 @@ export const toBooleanCondition = (
         return [`!string.IsNullOrEmpty(${emittedText})`, context];
 
       case "int":
-        return [`${emittedText} != 0`, context];
+        return [
+          `${isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`} != 0`,
+          context,
+        ];
 
       case "char":
-        return [`${emittedText} != '\\0'`, context];
+        return [
+          `${isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`} != '\\0'`,
+          context,
+        ];
 
       case "number": {
         // JS truthiness for numbers: falsy iff 0 or NaN.
@@ -137,10 +195,28 @@ export const emitBooleanCondition = (
   emitExpr: EmitExprFn,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const getLogicalPrecedence = (op: "&&" | "||"): number => (op === "&&" ? 6 : 5);
+
+  const maybeParenthesizeLogicalOperand = (
+    operandExpr: IrExpression,
+    operandText: string,
+    parentOp: "&&" | "||"
+  ): string => {
+    if (operandExpr.kind !== "logical") return operandText;
+    if (operandExpr.operator !== "&&" && operandExpr.operator !== "||") return operandText;
+
+    const parentPrec = getLogicalPrecedence(parentOp);
+    const childPrec = getLogicalPrecedence(operandExpr.operator);
+    return childPrec < parentPrec ? `(${operandText})` : operandText;
+  };
+
   if (expr.kind === "logical" && (expr.operator === "&&" || expr.operator === "||")) {
     const [lhsText, lhsCtx] = emitBooleanCondition(expr.left, emitExpr, context);
     const [rhsText, rhsCtx] = emitBooleanCondition(expr.right, emitExpr, lhsCtx);
-    return [`${lhsText} ${expr.operator} ${rhsText}`, rhsCtx];
+
+    const lhsWrapped = maybeParenthesizeLogicalOperand(expr.left, lhsText, expr.operator);
+    const rhsWrapped = maybeParenthesizeLogicalOperand(expr.right, rhsText, expr.operator);
+    return [`${lhsWrapped} ${expr.operator} ${rhsWrapped}`, rhsCtx];
   }
 
   const [frag, next] = emitExpr(expr, context);
@@ -155,4 +231,3 @@ export const emitBooleanCondition = (
 export const isBooleanType = (type: IrType | undefined): boolean => {
   return !!type && type.kind === "primitiveType" && type.name === "boolean";
 };
-

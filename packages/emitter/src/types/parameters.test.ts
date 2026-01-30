@@ -14,6 +14,7 @@ describe("Parameter modifiers (ref/out/in)", () => {
     isStatic: false,
     isAsync: false,
     options: { rootNamespace: "Test" },
+    usings: new Set<string>(),
   };
 
   it("should emit out parameter with out modifier", () => {

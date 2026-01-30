@@ -170,6 +170,7 @@ describe("type-resolution", () => {
       isStatic: false,
       isAsync: false,
       localTypes,
+      usings: new Set<string>(),
     });
 
     it("returns property type from interface", () => {

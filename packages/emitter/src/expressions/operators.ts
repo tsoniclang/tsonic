@@ -47,7 +47,8 @@ const hasInt32Proof = (expr: IrExpression): boolean => {
 const getPrecedence = (operator: string): number => {
   const precedences: Record<string, number> = {
     "||": 5,
-    "??": 5,
+    // C# precedence: `??` binds less tightly than `||` / `&&` but more tightly than `?:`.
+    "??": 4,
     "&&": 6,
     "|": 7,
     "^": 8,
@@ -263,7 +264,8 @@ export const emitBinary = (
       }
 
       const checks = matchingMembers.map((n) => `${rhsText}.Is${n}()`).join(" || ");
-      return [{ text: checks, precedence: parentPrecedence }, rhsCtx];
+      // Lowering emits an `||` chain; wrap to preserve grouping in any surrounding expression.
+      return [{ text: `(${checks})`, precedence: 16 }, rhsCtx];
     }
 
     // Dictionary<K,V>: `"k" in dict` → dict.ContainsKey("k")
@@ -289,12 +291,12 @@ export const emitBinary = (
     );
   }
 
-  // Handle typeof operator specially
+  // Handle instanceof operator specially
   if (expr.operator === "instanceof") {
     const [leftFrag, leftContext] = emitExpression(expr.left, context);
     const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
     const text = `${leftFrag.text} is ${rightFrag.text}`;
-    return [{ text, precedence: 7 }, rightContext];
+    return [{ text, precedence: parentPrecedence }, rightContext];
   }
 
   // CHAR VS STRING COMPARISON FIX:
@@ -407,9 +409,22 @@ export const emitBinary = (
       bareTypeParamName !== undefined && typeParamConstraint === "unconstrained";
 
     const nullOp = op === "==" ? "== null" : "!= null";
+    const nullOperandText = (() => {
+      switch (nonNullishExpr.kind) {
+        case "identifier":
+        case "memberAccess":
+        case "call":
+        case "new":
+        case "this":
+        case "literal":
+          return nonNullishFrag.text;
+        default:
+          return `(${nonNullishFrag.text})`;
+      }
+    })();
     const text = needsObjectCast
       ? `((global::System.Object)(${nonNullishFrag.text})) ${nullOp}`
-      : `${nonNullishFrag.text} ${nullOp}`;
+      : `${nullOperandText} ${nullOp}`;
 
     return [{ text, precedence: getPrecedence(expr.operator) }, resultContext];
   }
@@ -473,6 +488,8 @@ export const emitLogical = (
       ? "??"
       : expr.operator;
 
+  const parentPrecedence = getPrecedence(operator);
+
   // If the left operand is a non-nullable value type, `??` is invalid in C# and the
   // fallback is unreachable. Emit only the left operand.
   if (
@@ -491,8 +508,19 @@ export const emitLogical = (
 
   const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
 
-  const text = `${leftFrag.text} ${operator} ${rightFrag.text}`;
-  return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];
+  const leftText =
+    leftFrag.precedence !== undefined && leftFrag.precedence < parentPrecedence
+      ? `(${leftFrag.text})`
+      : leftFrag.text;
+
+  const rightText =
+    rightFrag.precedence !== undefined &&
+    rightFrag.precedence <= parentPrecedence
+      ? `(${rightFrag.text})`
+      : rightFrag.text;
+
+  const text = `${leftText} ${operator} ${rightText}`;
+  return [{ text, precedence: getPrecedence(operator) }, rightContext];
 };
 
 /**
@@ -622,7 +650,7 @@ export const emitAssignment = (
 
     // Use native CLR indexer
     const text = `${objectFrag.text}[${indexFrag.text}] = ${rightFrag.text}`;
-    return [{ text, precedence: 3 }, rightContext];
+    return [{ text, precedence: 2 }, rightContext];
   }
 
   // Left side can be an expression or a pattern (for destructuring)
@@ -647,7 +675,7 @@ export const emitAssignment = (
       rightContext
     );
 
-    return [{ text: result.expression, precedence: 3 }, result.context];
+    return [{ text: result.expression, precedence: 2 }, result.context];
   }
 
   // Standard assignment (expression on left side)
@@ -700,7 +728,7 @@ export const emitAssignment = (
   );
 
   const text = `${leftText} ${expr.operator} ${rightFrag.text}`;
-  return [{ text, precedence: 3 }, rightContext];
+  return [{ text, precedence: 2 }, rightContext];
 };
 
 /**
@@ -836,7 +864,7 @@ export const emitConditional = (
       ...falseContext,
       narrowedBindings: context.narrowedBindings,
     };
-    return [{ text, precedence: 4 }, finalContext];
+    return [{ text, precedence: 3 }, finalContext];
   }
 
   // Standard ternary emission (no narrowing)
@@ -859,5 +887,5 @@ export const emitConditional = (
   );
 
   const text = `${condText} ? ${trueFrag.text} : ${falseFrag.text}`;
-  return [{ text, precedence: 4 }, falseContext];
+  return [{ text, precedence: 3 }, falseContext];
 };

@@ -19,6 +19,7 @@ export const createContext = (options: EmitterOptions): EmitterContext => {
     isStatic: false,
     isAsync: false,
     bindingsRegistry,
+    usings: new Set<string>(),
   };
 };
 

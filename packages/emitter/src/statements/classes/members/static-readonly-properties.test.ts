@@ -18,6 +18,7 @@ const createContext = (): EmitterContext => ({
   options: defaultOptions,
   isStatic: false,
   isAsync: false,
+  usings: new Set<string>(),
 });
 
 describe("Static readonly property emission", () => {
@@ -39,4 +40,3 @@ describe("Static readonly property emission", () => {
     expect(code).to.not.include("init");
   });
 });
-
