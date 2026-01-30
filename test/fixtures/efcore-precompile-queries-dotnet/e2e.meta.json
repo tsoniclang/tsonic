@@ -1,0 +1,13 @@
+{
+  "modes": ["dotnet"],
+  "description": "EF Core: dotnet-ef query precompilation (NativeAOT) accepts emitted LINQ without runtime casts.",
+  "postBuild": {
+    "workingDirectory": "packages/efcore-precompile-queries-dotnet/generated",
+    "commands": [
+      "rm -rf ef-compiled-model",
+      "dotnet tool restore",
+      "if grep -q \"(global::System.Linq.IQueryable\" index.cs; then echo \"Found IQueryable cast in emitted C# (should be cast-free for ExtensionMethods assertions)\"; exit 1; fi",
+      "dotnet ef dbcontext optimize --project tsonic.csproj --output-dir ef-compiled-model --precompile-queries --nativeaot --namespace EfCorePrecompileQueriesDotnet --context AppDbContext"
+    ]
+  }
+}

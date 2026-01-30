@@ -8,6 +8,7 @@ import {
   IrType,
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,
+  IrAsInterfaceExpression,
   IrTryCastExpression,
   IrStackAllocExpression,
 } from "@tsonic/frontend";
@@ -276,6 +277,63 @@ const emitTypeAssertion = (
 ): [CSharpFragment, EmitterContext] => {
   const [innerCode, ctx1] = emitExpression(expr.expression, context, expr.targetType);
 
+  const resolveLocalTypeAliases = (target: IrType): IrType => {
+    if (target.kind === "referenceType" && ctx1.localTypes) {
+      const typeInfo = ctx1.localTypes.get(target.name);
+      if (typeInfo?.kind === "typeAlias") {
+        const substituted =
+          target.typeArguments && target.typeArguments.length > 0
+            ? substituteTypeArgs(
+                typeInfo.type,
+                typeInfo.typeParameters,
+                target.typeArguments
+              )
+            : typeInfo.type;
+        return resolveLocalTypeAliases(substituted);
+      }
+    }
+    return target;
+  };
+
+  const shouldEraseTypeAssertion = (target: IrType): boolean => {
+    // tsbindgen `ExtensionMethods<TShape>` is a TYPE-ONLY helper used to surface C#
+    // extension methods as instance-style members in TypeScript. It must never
+    // introduce runtime casts in emitted C# (notably for EF Core query precompilation).
+    //
+    // `x as ExtensionMethods<T>` (or a local alias that expands to it) is a no-op
+    // at runtime; preserve the original expression verbatim.
+    const resolved = resolveLocalTypeAliases(target);
+
+    // TypeScript `as unknown` is also type-only. Casting to `object` in C# is a
+    // semantic no-op and can break analyzers that expect idiomatic syntax.
+    if (resolved.kind === "unknownType") {
+      return true;
+    }
+
+    if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
+      const importBinding = ctx1.importBindings?.get(resolved.name);
+      const clrName = importBinding?.kind === "type" ? importBinding.clrName : "";
+      if (clrName.endsWith(".ExtensionMethods")) {
+        return true;
+      }
+    }
+
+    // ExtensionMethods_* aliases often normalize to an intersection that includes one
+    // or more `__Ext_*` constituents. Those `__Ext_*` types have no runtime
+    // representation, so the assertion must be erased.
+    if (resolved.kind === "intersectionType") {
+      return resolved.types.some(
+        (t) => t.kind === "referenceType" && t.name.startsWith("__Ext_")
+      );
+    }
+
+    return false;
+  };
+
+  if (shouldEraseTypeAssertion(expr.targetType)) {
+    return [innerCode, ctx1];
+  }
+
   const resolveRuntimeCastTarget = (
     target: IrType,
     ctx: EmitterContext
@@ -332,6 +390,22 @@ const emitTypeAssertion = (
   const [typeName, ctx2] = emitType(runtimeTarget, ctx1);
   const operandText = formatCastOperandText(expr.expression, innerCode.text);
   return [{ text: `(${typeName})${operandText}` }, ctx2];
+};
+
+/**
+ * Emit an asinterface expression.
+ *
+ * `asinterface<T>(x)` is a compile-time-only intrinsic. It must never emit a runtime
+ * cast or function call. Emission relies on contextual typing in C# (typed locals,
+ * parameter types, return types) to apply the interface conversion.
+ */
+const emitAsInterface = (
+  expr: IrAsInterfaceExpression,
+  context: EmitterContext,
+  expectedType?: IrType
+): [CSharpFragment, EmitterContext] => {
+  const expected = expectedType ?? expr.targetType;
+  return emitExpression(expr.expression, context, expected);
 };
 
 /**
@@ -441,6 +515,9 @@ export const emitExpression = (
 
     case "numericNarrowing":
       return emitNumericNarrowing(expr, context);
+
+    case "asinterface":
+      return emitAsInterface(expr, context, expectedType);
 
     case "typeAssertion":
       return emitTypeAssertion(expr, context);

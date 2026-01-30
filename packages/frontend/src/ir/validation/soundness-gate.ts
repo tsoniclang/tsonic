@@ -424,16 +424,19 @@ const validateExpression = (
       break;
 
     case "call":
-      // isType<T>(x) is a compiler-only marker used for overload specialization.
+      // istype<T>(x) is a compiler-only marker used for overload specialization.
       // It must never reach emission; overload-group conversion erases it.
-      if (expr.callee.kind === "identifier" && expr.callee.name === "isType") {
+      if (
+        expr.callee.kind === "identifier" &&
+        (expr.callee.name === "istype" || expr.callee.name === "isType")
+      ) {
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN7441",
             "error",
-            "isType<T>(...) is a compile-time-only marker and must be erased during overload specialization.",
+            "istype<T>(...) is a compile-time-only marker and must be erased during overload specialization.",
             expr.sourceSpan ?? moduleLocation(ctx),
-            "Use isType<T>(pN) only inside overload implementations that are being specialized, or remove it."
+            "Use istype<T>(pN) only inside overload implementations that are being specialized, or remove it."
           )
         );
       }

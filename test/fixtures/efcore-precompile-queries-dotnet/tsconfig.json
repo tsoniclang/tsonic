@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "noLib": true,
+    "types": ["@tsonic/globals"],
+    "moduleResolution": "nodenext",
+    "module": "nodenext",
+    "target": "ES2022",
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": false,
+    "checkJs": false,
+    "noEmit": true,
+    "resolveJsonModule": false,
+    "verbatimModuleSyntax": false,
+    "noImplicitAny": false,
+    "allowImportingTsExtensions": true
+  }
+}

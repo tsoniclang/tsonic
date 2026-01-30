@@ -1,11 +1,11 @@
 {
-  "name": "tsonic-e2e-test",
+  "name": "tsonic-e2e-asinterface",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
     "@tsonic/core": "10.0.2",
-    "@tsonic/dotnet": "10.0.1",
-    "@tsonic/globals": "10.0.1"
+    "@tsonic/dotnet": "10.0.3",
+    "@tsonic/globals": "10.0.3"
   }
 }

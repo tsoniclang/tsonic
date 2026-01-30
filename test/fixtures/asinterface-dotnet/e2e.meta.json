@@ -1,0 +1,4 @@
+{
+  "modes": ["dotnet"],
+  "description": "asinterface<T>(...) erases to typed C# locals without runtime casts"
+}

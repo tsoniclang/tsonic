@@ -9,6 +9,8 @@ import {
   nameof,
   defaultof,
   trycast,
+  asinterface,
+  istype,
 } from "@tsonic/core/lang.js";
 ```
 
@@ -26,7 +28,7 @@ export function main(): void {
   buffer[0] = 42;
 
   Console.WriteLine(`First: ${buffer[0]}`);
-  Console.WriteLine(`Length: ${buffer.length}`);
+  Console.WriteLine(`Length: ${buffer.Length}`);
 }
 ```
 
@@ -95,6 +97,48 @@ export function main(animal: Animal): void {
   if (dog !== null) {
     Console.WriteLine(dog.breed);
   }
+}
+```
+
+## asinterface
+
+`asinterface<T>(x)` is a **compile-time-only** interface view.
+
+It exists to treat a value as a CLR interface/nominal type in TypeScript without emitting
+runtime casts in C#.
+
+```typescript
+import { asinterface } from "@tsonic/core/lang.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";
+import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
+
+type Seq<T> = Linq<IEnumerable<T>>;
+
+const xs = new List<number>([1, 2, 3]);
+const seq = asinterface<Seq<number>>(xs);
+
+// Note: asinterface is particularly important for EF Core query precompilation,
+// where runtime casts can break query analyzers.
+seq.Count();
+```
+
+## istype (overload specialization)
+
+`istype<T>(x)` is a **compile-time-only** marker used to specialize a single overload implementation
+into one CLR method per signature.
+
+Tsonic must erase `istype<T>(...)` before emitting C#. If it reaches emission, compilation fails with `TSN7441`.
+
+```typescript
+import { istype } from "@tsonic/core/lang.js";
+
+Foo(x: string): string;
+Foo(x: boolean): string;
+Foo(p0: unknown): unknown {
+  if (istype<string>(p0)) return `s:${p0}`;
+  if (istype<boolean>(p0)) return p0 ? "t" : "f";
+  throw new Error("unreachable");
 }
 ```
 

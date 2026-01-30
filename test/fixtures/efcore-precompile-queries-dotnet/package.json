@@ -1,0 +1,14 @@
+{
+  "name": "tsonic-e2e-efcore-precompile-queries",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "10.0.2",
+    "@tsonic/dotnet": "10.0.3",
+    "@tsonic/efcore": "10.0.2",
+    "@tsonic/efcore-sqlite": "10.0.2",
+    "@tsonic/globals": "10.0.3",
+    "@tsonic/microsoft-extensions": "10.0.2"
+  }
+}

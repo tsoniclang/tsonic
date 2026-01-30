@@ -115,6 +115,47 @@ const needsExplicitLocalType = (
 };
 
 /**
+ * Resolve a C#-emittable runtime type for `asinterface<T>(x)` locals.
+ *
+ * `T` may be a type alias or an intersection type (e.g. extension-method overlays).
+ * We must pick a nominal/runtime constituent that has a CLR representation.
+ */
+const resolveAsInterfaceTargetType = (
+  type: IrType,
+  context: EmitterContext
+): IrType => {
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+
+  // Unwrap tsbindgen's `ExtensionMethods<TShape>` wrapper (type-only).
+  if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
+    const importBinding = context.importBindings?.get(resolved.name);
+    const clrName = importBinding?.kind === "type" ? importBinding.clrName : "";
+    if (clrName.endsWith(".ExtensionMethods")) {
+      const shape = resolved.typeArguments[0];
+      if (shape) return resolveAsInterfaceTargetType(shape, context);
+    }
+  }
+
+  if (resolved.kind === "intersectionType") {
+    for (const part of resolved.types) {
+      const candidate = resolveAsInterfaceTargetType(part, context);
+      if (
+        candidate.kind === "referenceType" &&
+        candidate.name.startsWith("__Ext_")
+      ) {
+        continue;
+      }
+      if (candidate.kind === "objectType" || candidate.kind === "intersectionType") {
+        continue;
+      }
+      return candidate;
+    }
+  }
+
+  return resolved;
+};
+
+/**
  * Emit a variable declaration
  */
 export const emitVariableDeclaration = (
@@ -182,6 +223,7 @@ export const emitVariableDeclaration = (
     // Priority:
     // 1) numericNarrowing initializer (e.g., `1000 as int`) - use CLR type
     // 2) typeAssertion initializer (e.g., `obj as Person`) - use target type
+    // 3) asinterface initializer (e.g., `asinterface<IQueryable<T>>(db.Events)`) - use target type
     // 3) Explicit/inferred IR type
     // 4) Arrow function inference
     // 5) var
@@ -198,6 +240,15 @@ export const emitVariableDeclaration = (
         assertExpr.targetType,
         currentContext
       );
+      currentContext = newContext;
+      varDecl += `${typeName} `;
+    } else if (context.isStatic && decl.initializer?.kind === "asinterface") {
+      const ifaceExpr = decl.initializer;
+      const targetType = resolveAsInterfaceTargetType(
+        ifaceExpr.targetType,
+        currentContext
+      );
+      const [typeName, newContext] = emitType(targetType, currentContext);
       currentContext = newContext;
       varDecl += `${typeName} `;
     } else if (
@@ -443,6 +494,20 @@ export const emitVariableDeclaration = (
       } else {
         varDecl += "object ";
       }
+    } else if (
+      !context.isStatic &&
+      !decl.type &&
+      decl.initializer?.kind === "asinterface"
+    ) {
+      // `asinterface<T>(x)` is type-only. For locals, preserve the target type in the LHS
+      // so C# gets an interface-typed variable without emitting a cast.
+      const targetType = resolveAsInterfaceTargetType(
+        decl.initializer.targetType,
+        currentContext
+      );
+      const [typeName, newContext] = emitType(targetType, currentContext);
+      currentContext = newContext;
+      varDecl += `${typeName} `;
     } else if (
       !context.isStatic &&
       decl.type &&

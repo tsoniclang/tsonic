@@ -8,7 +8,7 @@
  * Currently supports:
  * - `x instanceof T` in boolean (truthy) contexts
  * - Conjunction: `(x instanceof T) && ...` (collects narrowings from both sides)
- * - `isType<T>(x)` in boolean (truthy) contexts (compiler-only type guard)
+ * - `istype<T>(x)` in boolean (truthy) contexts (compiler-only type guard)
  */
 
 import * as ts from "typescript";
@@ -34,11 +34,12 @@ const tryResolveTruthyNarrowing = (
 ): TypeNarrowing | undefined => {
   const unwrapped = unwrapExpr(expr);
 
-  // isType<T>(x)
+  // istype<T>(x)
   if (
     ts.isCallExpression(unwrapped) &&
     ts.isIdentifier(unwrapped.expression) &&
-    unwrapped.expression.text === "isType" &&
+    (unwrapped.expression.text === "istype" ||
+      unwrapped.expression.text === "isType") &&
     unwrapped.typeArguments &&
     unwrapped.typeArguments.length === 1 &&
     unwrapped.arguments.length === 1

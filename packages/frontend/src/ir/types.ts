@@ -67,6 +67,7 @@ export type {
   IrYieldExpression,
   IrNumericNarrowingExpression,
   IrTypeAssertionExpression,
+  IrAsInterfaceExpression,
   IrTryCastExpression,
   IrStackAllocExpression,
   NumericProof,
