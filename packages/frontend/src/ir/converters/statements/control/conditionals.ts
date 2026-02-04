@@ -6,10 +6,12 @@
 
 import * as ts from "typescript";
 import {
+  IrStatement,
   IrIfStatement,
   IrSwitchStatement,
   IrSwitchCase,
   IrType,
+  IrVariableDeclaration,
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import {
@@ -22,6 +24,7 @@ import {
   collectTypeNarrowingsInTruthyExpr,
   withAppliedNarrowings,
 } from "../../flow-narrowing.js";
+import { withVariableTypeEnv } from "../../type-env.js";
 
 /**
  * Convert if statement
@@ -108,13 +111,33 @@ export const convertSwitchCase = (
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrSwitchCase => {
+  let currentCtx = ctx;
+  const statements: IrStatement[] = [];
+
+  for (const s of node.statements) {
+    const converted = convertStatement(s, currentCtx, expectedReturnType);
+    statements.push(...flattenStatementResult(converted));
+
+    if (
+      ts.isVariableStatement(s) &&
+      converted !== null &&
+      !Array.isArray(converted)
+    ) {
+      const single = converted as IrStatement;
+      if (single.kind !== "variableDeclaration") continue;
+      currentCtx = withVariableTypeEnv(
+        currentCtx,
+        s.declarationList.declarations,
+        single as IrVariableDeclaration
+      );
+    }
+  }
+
   return {
     kind: "switchCase",
     test: ts.isCaseClause(node)
       ? convertExpression(node.expression, ctx, undefined)
       : undefined,
-    statements: node.statements.flatMap((s) =>
-      flattenStatementResult(convertStatement(s, ctx, expectedReturnType))
-    ),
+    statements,
   };
 };

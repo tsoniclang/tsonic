@@ -17,6 +17,7 @@ import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { convertStatementSingle } from "../../../statement-converter.js";
 import { convertVariableDeclarationList } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
+import { withVariableTypeEnv } from "../../type-env.js";
 
 /**
  * Convert while statement
@@ -46,19 +47,28 @@ export const convertForStatement = (
   ctx: ProgramContext,
   expectedReturnType?: IrType
 ): IrForStatement => {
-  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
+  let initializer: IrForStatement["initializer"] | undefined;
+  let bodyCtx: ProgramContext = ctx;
+
+  if (node.initializer) {
+    if (ts.isVariableDeclarationList(node.initializer)) {
+      const converted = convertVariableDeclarationList(node.initializer, ctx);
+      initializer = converted;
+      bodyCtx = withVariableTypeEnv(ctx, node.initializer.declarations, converted);
+    } else {
+      initializer = convertExpression(node.initializer, ctx, undefined);
+    }
+  }
+
+  const body = convertStatementSingle(node.statement, bodyCtx, expectedReturnType);
   return {
     kind: "forStatement",
-    initializer: node.initializer
-      ? ts.isVariableDeclarationList(node.initializer)
-        ? convertVariableDeclarationList(node.initializer, ctx)
-        : convertExpression(node.initializer, ctx, undefined)
-      : undefined,
+    initializer,
     condition: node.condition
-      ? convertExpression(node.condition, ctx, undefined)
+      ? convertExpression(node.condition, bodyCtx, undefined)
       : undefined,
     update: node.incrementor
-      ? convertExpression(node.incrementor, ctx, undefined)
+      ? convertExpression(node.incrementor, bodyCtx, undefined)
       : undefined,
     body: body ?? { kind: "emptyStatement" },
   };
@@ -82,11 +92,42 @@ export const convertForOfStatement = (
     ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
     : convertBindingName(node.initializer as ts.BindingName);
 
-  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
+  const expression = convertExpression(node.expression, ctx, undefined);
+
+  // Thread inferred loop variable type into the body (deterministic, TS-free).
+  // This is required for correct boolean-context lowering (e.g., `if (s)` for strings).
+  let bodyCtx = ctx;
+  if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
+    const srcType = expression.inferredType;
+    const elementType =
+      srcType?.kind === "arrayType"
+        ? srcType.elementType
+        : srcType?.kind === "tupleType"
+          ? srcType.elementTypes.length === 1
+            ? srcType.elementTypes[0]
+            : ({ kind: "unionType", types: srcType.elementTypes } as const)
+          : undefined;
+    if (elementType) {
+      bodyCtx = withVariableTypeEnv(
+        ctx,
+        [firstDecl],
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          declarations: [
+            { kind: "variableDeclarator", name: variable, type: elementType },
+          ],
+          isExported: false,
+        }
+      );
+    }
+  }
+
+  const body = convertStatementSingle(node.statement, bodyCtx, expectedReturnType);
   return {
     kind: "forOfStatement",
     variable,
-    expression: convertExpression(node.expression, ctx, undefined),
+    expression,
     body: body ?? { kind: "emptyStatement" },
     // TS parser marks `for await` loops with both `awaitModifier` and AwaitContext flags.
     // Use both to be resilient across TS versions/host implementations.
@@ -121,7 +162,30 @@ export const convertForInStatement = (
       ? { ...variable, type: { kind: "primitiveType", name: "string" } as const }
       : variable;
 
-  const body = convertStatementSingle(node.statement, ctx, expectedReturnType);
+  // `for (k in obj)` binds `k` as a string. Thread this into the body for
+  // correct boolean-context lowering (empty string is falsy in JS).
+  let bodyCtx = ctx;
+  const stringType = { kind: "primitiveType" as const, name: "string" as const };
+  if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
+    bodyCtx = withVariableTypeEnv(
+      ctx,
+      [firstDecl],
+      {
+        kind: "variableDeclaration",
+        declarationKind: "const",
+        declarations: [
+          { kind: "variableDeclarator", name: typedVariable, type: stringType },
+        ],
+        isExported: false,
+      }
+    );
+  } else if (ts.isIdentifier(node.initializer)) {
+    // Assignment form: for (k in obj) { ... } where k is pre-declared.
+    // Do not override its declaration type here.
+    bodyCtx = ctx;
+  }
+
+  const body = convertStatementSingle(node.statement, bodyCtx, expectedReturnType);
   return {
     kind: "forInStatement",
     variable: typedVariable,

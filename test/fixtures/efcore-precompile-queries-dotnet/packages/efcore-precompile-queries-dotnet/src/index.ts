@@ -43,6 +43,12 @@ export function countEventsByCampaign(db: AppDbContext, campaignId: string): int
   return q.Where((e) => e.CampaignId === campaignId).Count();
 }
 
+export function countEventsWithOptionalFilter(db: AppDbContext, campaignId?: string): int {
+  const hasCampaign = campaignId !== undefined && campaignId !== "";
+  const q = asinterface<LinqQ<EventEntity>>(db.Events);
+  return q.Where((e) => !hasCampaign || e.CampaignId === campaignId).Count();
+}
+
 export function main(): void {
   // This fixture's purpose is post-build validation (dotnet-ef precompile).
 }
