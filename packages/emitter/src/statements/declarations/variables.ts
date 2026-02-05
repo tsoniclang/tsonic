@@ -2,9 +2,15 @@
  * Variable declaration emission
  */
 
-import { IrStatement, IrType, NUMERIC_KIND_TO_CSHARP } from "@tsonic/frontend";
-import { EmitterContext, getIndent } from "../../types.js";
+import {
+  IrParameter,
+  IrStatement,
+  IrType,
+  NUMERIC_KIND_TO_CSHARP,
+} from "@tsonic/frontend";
+import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
+import { emitStatement } from "../../statement-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
@@ -153,6 +159,19 @@ const resolveAsInterfaceTargetType = (
   }
 
   return resolved;
+};
+
+const seedLocalNameMapFromParameters = (
+  params: readonly IrParameter[],
+  context: EmitterContext
+): EmitterContext => {
+  const map = new Map(context.localNameMap ?? []);
+  for (const p of params) {
+    if (p.pattern.kind === "identifierPattern") {
+      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+    }
+  }
+  return { ...context, localNameMap: map };
 };
 
 /**
@@ -597,6 +616,85 @@ export const emitVariableDeclaration = (
 
       // Add initializer if present
       if (decl.initializer) {
+        if (context.isStatic && decl.initializer.kind === "arrowFunction") {
+          const arrowFunc = decl.initializer;
+          const implName = `${localName}__Impl`;
+
+          const arrowReturnType =
+            arrowFunc.returnType ??
+            (arrowFunc.inferredType?.kind === "functionType"
+              ? arrowFunc.inferredType.returnType
+              : undefined);
+          if (!arrowReturnType) {
+            throw new Error(
+              "ICE: Arrow function without return type reached emitter - neither explicit nor inferred type available"
+            );
+          }
+
+          const [returnTypeName, returnCtx] = emitType(
+            arrowReturnType,
+            currentContext
+          );
+
+          // Emit typed method parameters (method groups cannot infer types like lambdas can).
+          const methodParams: string[] = [];
+          let paramCtx = returnCtx;
+          for (let i = 0; i < arrowFunc.parameters.length; i++) {
+            const param = arrowFunc.parameters[i];
+            if (!param?.type) continue;
+
+            const [paramType, newCtx] = emitType(param.type, paramCtx);
+            paramCtx = newCtx;
+
+            const paramName =
+              param.pattern.kind === "identifierPattern"
+                ? escapeCSharpIdentifier(param.pattern.name)
+                : `p${i}`;
+
+            const optionalSuffix = param.isOptional ? "?" : "";
+            const defaultSuffix = param.isOptional ? " = default" : "";
+            methodParams.push(
+              `${paramType}${optionalSuffix} ${paramName}${defaultSuffix}`
+            );
+          }
+
+          const accessibility = "private";
+          const staticPrefix = "static";
+          const asyncPrefix = arrowFunc.isAsync ? "async " : "";
+          const signature = `${ind}${accessibility} ${staticPrefix} ${asyncPrefix}${returnTypeName} ${implName}(${methodParams.join(", ")})`;
+
+          const bodyBaseContext = seedLocalNameMapFromParameters(
+            arrowFunc.parameters,
+            withStatic(indent(paramCtx), false)
+          );
+
+          let bodyText = "";
+          if (arrowFunc.body.kind === "blockStatement") {
+            const [blockCode] = emitStatement(arrowFunc.body, {
+              ...bodyBaseContext,
+              returnType: arrowReturnType,
+            });
+            bodyText = `\n${blockCode}`;
+          } else {
+            const [exprCode] = emitExpression(
+              arrowFunc.body,
+              bodyBaseContext,
+              arrowReturnType
+            );
+            const bodyInd = getIndent(bodyBaseContext);
+            const retOrExpr =
+              returnTypeName === "void" ? `${exprCode.text};` : `return ${exprCode.text};`;
+            bodyText = `\n${ind}{\n${bodyInd}${retOrExpr}\n${ind}}`;
+          }
+
+          // Assign the field to a single delegate instance (method group) while keeping the
+          // implementation in a regular method body (needed for EF query precompilation).
+          varDecl += ` = ${implName}`;
+          declarations.push(`${ind}${varDecl};`);
+          declarations.push(`${signature}${bodyText}`);
+          continue;
+        }
+
         const [initFrag, newContext] = emitExpression(
           decl.initializer,
           currentContext,
