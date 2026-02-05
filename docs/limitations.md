@@ -41,3 +41,26 @@ These are rejected by the compiler front-end:
 C# cannot represent every TypeScript generic/nullability combination. A common example is `T | null` with an unconstrained `T`.
 
 When you hit these diagnostics, add appropriate constraints (`T extends object`) or use boxing (`object | null`) depending on the intent.
+
+## EF Core + NativeAOT (Experimental)
+
+EF Core’s NativeAOT support relies on **query precompilation**, which performs static analysis of your source code and generates C# **interceptors**. This is an EF Core feature (not Tsonic-specific) and is still experimental.
+
+- **Dynamic queries are not supported** by EF query precompilation. Avoid composing a query across multiple statements (e.g. `let q = ...; if (...) q = q.Where(...);`).
+- Interceptors are **invalidated by any source change**. Treat precompilation as part of a publish/CI pipeline, not an inner-loop workflow.
+- Some runtime operations are not supported under NativeAOT (e.g. `EnsureCreated()`); prefer **migrations** / migration bundles.
+
+If you are publishing a Tsonic + EF Core app with NativeAOT, you generally need to run EF’s optimizer against the generated C# project (or use EF’s MSBuild integration):
+
+```bash
+# 1) Generate C# (and the .csproj)
+tsonic build
+
+# 2) Run EF optimization in the generated project directory
+dotnet ef dbcontext optimize --precompile-queries --nativeaot \
+  --project tsonic.csproj \
+  --output-dir ef-compiled-model \
+  --context AppDbContext
+```
+
+See EF Core docs for the current limitations and recommended rewrites.

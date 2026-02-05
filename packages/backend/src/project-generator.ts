@@ -127,6 +127,7 @@ const generateExecutableProperties = (
     <StartupObject>Program</StartupObject>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>${nativeAotSettings}
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>`;
 };
@@ -178,6 +179,7 @@ const generateLibraryProperties = (
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>${docSettings}${symbolSettings}${nativeAotSettings}
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>${libConfig.packable}</IsPackable>${packageSettings}
   </PropertyGroup>`;
@@ -198,6 +200,7 @@ const generateConsoleAppProperties = (
     <StartupObject>Program</StartupObject>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishSingleFile>${consoleConfig.singleFile}</PublishSingleFile>
     <SelfContained>${consoleConfig.selfContained}</SelfContained>

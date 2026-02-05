@@ -37,6 +37,9 @@ describe("Project Generator", () => {
       expect(result).to.include(
         "<OptimizationPreference>Speed</OptimizationPreference>"
       );
+      expect(result).to.include(
+        "<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>"
+      );
     });
 
     it("should include assembly references when provided", () => {
@@ -171,6 +174,9 @@ describe("Project Generator", () => {
       );
       expect(result).to.include("<DebugType>embedded</DebugType>");
       expect(result).to.include("<IsPackable>false</IsPackable>");
+      expect(result).to.include(
+        "<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>"
+      );
     });
 
     it("should generate NativeAOT shared library .csproj when enabled", () => {

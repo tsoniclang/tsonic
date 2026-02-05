@@ -8,6 +8,7 @@ import {
   existsSync,
   readdirSync,
   copyFileSync,
+  rmSync,
 } from "node:fs";
 import { join, dirname, relative, resolve, isAbsolute } from "node:path";
 import {
@@ -303,7 +304,22 @@ export const generateCommand = (
     const csFiles = emitResult.files;
 
     // Create output directory
-    const outputDir = join(projectRoot, outputDirectory);
+    const outputDir = resolve(projectRoot, outputDirectory);
+
+    // Airplane-grade determinism: never accumulate stale generated artifacts.
+    // Wipe the entire output directory before writing new C# files.
+    //
+    // Safety: refuse to delete outside the project root (or the project root itself),
+    // even if misconfigured (e.g. outputDirectory="../").
+    const outputRel = relative(projectRoot, outputDir);
+    if (!outputRel || outputRel.startsWith("..") || isAbsolute(outputRel)) {
+      return {
+        ok: false,
+        error: `Refusing to write output outside project root. outputDirectory='${outputDirectory}' resolved to '${outputDir}'.`,
+      };
+    }
+
+    rmSync(outputDir, { recursive: true, force: true });
     mkdirSync(outputDir, { recursive: true });
 
     // Write C# files preserving directory structure
