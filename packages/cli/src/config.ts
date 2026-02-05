@@ -499,6 +499,7 @@ export const resolveConfig = (
       workspaceConfig.buildOptions?.invariantGlobalization ??
       true,
     keepTemp: cliOptions.keepTemp ?? false,
+    noGenerate: cliOptions.noGenerate ?? false,
     verbose: cliOptions.verbose ?? false,
     quiet: cliOptions.quiet ?? false,
     typeRoots,

@@ -10,12 +10,41 @@ import {
   IrInterfaceMember,
   IrVariableDeclaration,
   IrVariableDeclarator,
+  IrType,
 } from "../../types.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";
 import type { ProgramContext } from "../../program-context.js";
 import { withVariableDeclaratorTypeEnv } from "../type-env.js";
+
+/**
+ * Optional class fields (`foo?: T`) are semantically `T | undefined` in TS.
+ *
+ * For value types, this is the only correct way to emit nullable C# (`T?`).
+ * We encode this deterministically in IR so the existing union emitter can
+ * map it to C# nullability correctly.
+ */
+export const makeOptionalType = (t: IrType): IrType => {
+  if (t.kind === "unionType") {
+    const hasUndefined = t.types.some(
+      (x) => x.kind === "primitiveType" && x.name === "undefined"
+    );
+    if (hasUndefined) return t;
+    return {
+      kind: "unionType",
+      types: [...t.types, { kind: "primitiveType", name: "undefined" }],
+    };
+  }
+
+  // Avoid double-wrapping `undefined`.
+  if (t.kind === "primitiveType" && t.name === "undefined") return t;
+
+  return {
+    kind: "unionType",
+    types: [t, { kind: "primitiveType", name: "undefined" }],
+  };
+};
 
 /**
  * Convert TypeScript type parameters to IR, detecting structural constraints

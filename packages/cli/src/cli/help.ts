@@ -45,6 +45,7 @@ GENERATE/BUILD/RUN OPTIONS:
   -r, --rid <rid>           Runtime identifier (e.g., linux-x64)
   -O, --optimize <level>    Optimization: size or speed
   -k, --keep-temp           Keep build artifacts
+  --no-generate             Build/run from existing generated output (do not re-run generate)
   --no-strip                Keep debug symbols
   -L, --lib <path>          External library path (repeatable)
 
