@@ -3,3 +3,4 @@ With null: default
 With undefined: default
 Number with value: 42
 Number with null: 0
+Bool holder: False

@@ -72,6 +72,47 @@ const numericKindToIrType = (kind: NumericKind): IrType => {
   return { kind: "referenceType", name: alias };
 };
 
+const isNullishPrimitiveType = (type: IrType): boolean =>
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
+
+const hasNullish = (type: IrType): boolean => {
+  if (isNullishPrimitiveType(type)) return true;
+  if (type.kind !== "unionType") return false;
+  return type.types.some((t) => isNullishPrimitiveType(t));
+};
+
+const stripNullishFromUnion = (type: IrType): IrType | undefined => {
+  if (isNullishPrimitiveType(type)) return undefined;
+
+  if (type.kind !== "unionType") return type;
+
+  const filtered = type.types.filter((t) => !isNullishPrimitiveType(t));
+  if (filtered.length === 0) return undefined;
+  if (filtered.length === 1) return filtered[0];
+  return { kind: "unionType", types: filtered };
+};
+
+const makeUnionType = (types: readonly IrType[]): IrType => {
+  const flattened: IrType[] = [];
+  for (const t of types) {
+    if (t.kind === "unionType") flattened.push(...t.types);
+    else flattened.push(t);
+  }
+
+  const seen = new Set<string>();
+  const unique: IrType[] = [];
+  for (const t of flattened) {
+    const key = JSON.stringify(t);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(t);
+  }
+
+  if (unique.length === 1 && unique[0]) return unique[0];
+  return { kind: "unionType", types: unique };
+};
+
 /**
  * Derive result type from binary operator and operand types.
  *
@@ -127,9 +168,23 @@ const deriveBinaryResultType = (
     }
   }
 
+  // Nullish coalescing: A ?? B returns (A without null/undefined) | B.
+  // If A is provably non-nullish, the result is just A (B is unreachable).
+  if (operator === "??") {
+    if (!leftType) return rightType;
+    if (!rightType) return leftType;
+
+    if (!hasNullish(leftType)) return leftType;
+
+    const nonNullLeft = stripNullishFromUnion(leftType);
+    if (!nonNullLeft) return rightType;
+
+    return makeUnionType([nonNullLeft, rightType]);
+  }
+
   // Logical operators: result type is one of the operand types
-  // For &&, ||, ?? the result depends on which branch is taken
-  if (["&&", "||", "??"].includes(operator)) {
+  // For &&, || the result depends on which branch is taken
+  if (operator === "&&" || operator === "||") {
     return leftType ?? rightType;
   }
 
