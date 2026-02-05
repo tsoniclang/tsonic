@@ -9,11 +9,13 @@ import {
   IrTypeParameter,
   IrInterfaceMember,
   IrVariableDeclaration,
+  IrVariableDeclarator,
 } from "../../types.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import { convertExpression } from "../../expression-converter.js";
 import { convertInterfaceMember } from "./declarations.js";
 import type { ProgramContext } from "../../program-context.js";
+import { withVariableDeclaratorTypeEnv } from "../type-env.js";
 
 /**
  * Convert TypeScript type parameters to IR, detecting structural constraints
@@ -142,24 +144,31 @@ export const convertVariableDeclarationList = (
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = ctx.typeSystem;
 
-  return {
-    kind: "variableDeclaration",
-    declarationKind,
-    declarations: node.declarations.map((decl) => {
-      const declType = decl.type
-        ? typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(decl.type))
-        : undefined;
-      return {
-        kind: "variableDeclarator" as const,
-        name: convertBindingName(decl.name),
-        type: declType,
-        initializer: decl.initializer
-          ? convertExpression(decl.initializer, ctx, declType)
-          : undefined,
-      };
-    }),
-    isExported: false,
-  };
+  let currentCtx = ctx;
+  const declarations: IrVariableDeclarator[] = [];
+
+  // Convert sequentially so later declarators can refer to earlier ones.
+  for (const decl of node.declarations) {
+    const declType = decl.type
+      ? typeSystem.typeFromSyntax(currentCtx.binding.captureTypeSyntax(decl.type))
+      : undefined;
+
+    const initializer = decl.initializer
+      ? convertExpression(decl.initializer, currentCtx, declType)
+      : undefined;
+
+    const irDecl = {
+      kind: "variableDeclarator" as const,
+      name: convertBindingName(decl.name),
+      type: declType,
+      initializer,
+    };
+
+    declarations.push(irDecl);
+    currentCtx = withVariableDeclaratorTypeEnv(currentCtx, decl.name, irDecl);
+  }
+
+  return { kind: "variableDeclaration", declarationKind, declarations, isExported: false };
 };
 
 /**

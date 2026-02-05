@@ -1,0 +1,9 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "BooleanContextLocalsDotnet",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "boolean-context-locals-dotnet"
+}
+

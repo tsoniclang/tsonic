@@ -5,7 +5,7 @@
  */
 
 import * as ts from "typescript";
-import { IrStatement } from "../types.js";
+import { IrStatement, IrVariableDeclaration } from "../types.js";
 import {
   convertStatement,
   flattenStatementResult,
@@ -15,6 +15,7 @@ import {
   getSyntheticDeclarations,
 } from "../converters/anonymous-synthesis.js";
 import type { ProgramContext } from "../program-context.js";
+import { withVariableTypeEnv } from "../converters/type-env.js";
 
 /**
  * Extract statements from source file.
@@ -36,19 +37,34 @@ export const extractStatements = (
   resetSyntheticRegistry();
 
   const statements: IrStatement[] = [];
+  let currentCtx = ctx;
 
-  sourceFile.statements.forEach((stmt) => {
+  for (const stmt of sourceFile.statements) {
     // Skip imports and exports (handled separately)
     if (
       !ts.isImportDeclaration(stmt) &&
       !ts.isExportDeclaration(stmt) &&
       !ts.isExportAssignment(stmt)
     ) {
-      const converted = convertStatement(stmt, ctx, undefined);
+      const converted = convertStatement(stmt, currentCtx, undefined);
       // Flatten result (handles both single statements and arrays)
       statements.push(...flattenStatementResult(converted));
+
+      if (
+        ts.isVariableStatement(stmt) &&
+        converted !== null &&
+        !Array.isArray(converted)
+      ) {
+        const single = converted as IrStatement;
+        if (single.kind !== "variableDeclaration") continue;
+        currentCtx = withVariableTypeEnv(
+          currentCtx,
+          stmt.declarationList.declarations,
+          single as IrVariableDeclaration
+        );
+      }
     }
-  });
+  }
 
   // Collect synthetic declarations and prepend them
   const syntheticDecls = getSyntheticDeclarations();

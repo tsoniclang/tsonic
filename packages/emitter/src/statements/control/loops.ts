@@ -9,6 +9,7 @@ import { emitStatement } from "../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
+import { emitBooleanCondition } from "../../core/boolean-context.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -138,11 +139,15 @@ export const emitWhileStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  const [condFrag, condContext] = emitExpression(stmt.condition, context);
+  const [condText, condContext] = emitBooleanCondition(
+    stmt.condition,
+    (e, ctx) => emitExpression(e, ctx),
+    context
+  );
 
   const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(condContext));
 
-  const code = `${ind}while (${condFrag.text})\n${bodyCode}`;
+  const code = `${ind}while (${condText})\n${bodyCode}`;
   return [code, dedent(bodyContext)];
 };
 
@@ -191,12 +196,13 @@ export const emitForStatement = (
   // Condition
   let cond = "";
   if (stmt.condition) {
-    const [condFrag, newContext] = emitExpression(
+    const [condText, newContext] = emitBooleanCondition(
       stmt.condition,
+      (e, ctx) => emitExpression(e, ctx),
       currentContext
     );
     currentContext = newContext;
-    cond = condFrag.text;
+    cond = condText;
   }
 
   // Update

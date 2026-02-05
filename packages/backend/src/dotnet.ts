@@ -13,6 +13,16 @@ export const checkDotnetInstalled = (): DotnetResult => {
     encoding: "utf-8",
   });
 
+  // In some sandboxed environments, Node can populate `result.error` (e.g. EPERM)
+  // even when the command succeeds (status 0 + stdout present).
+  // Treat status=0 as success and prefer it over `result.error`.
+  if (result.status === 0) {
+    return {
+      ok: true,
+      stdout: result.stdout.trim(),
+    };
+  }
+
   if (result.error) {
     return {
       ok: false,
@@ -28,10 +38,8 @@ export const checkDotnetInstalled = (): DotnetResult => {
     };
   }
 
-  return {
-    ok: true,
-    stdout: result.stdout.trim(),
-  };
+  // Unreachable: status 0 handled above.
+  return { ok: false, error: "dotnet command failed" };
 };
 
 /**
