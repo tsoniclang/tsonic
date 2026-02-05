@@ -412,4 +412,70 @@ describe("IR Soundness Gate", () => {
       expect(result.ok).to.be.true;
     });
   });
+
+  describe("Core Intrinsic Calls", () => {
+    const createModuleWithCallTo = (name: string): IrModule => ({
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "Test",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "x" },
+              type: { kind: "unknownType" },
+              initializer: {
+                kind: "call",
+                callee: { kind: "identifier", name },
+                arguments: [
+                  {
+                    kind: "literal",
+                    value: null,
+                    raw: "null",
+                  },
+                ],
+                isOptional: false,
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    });
+
+    it("should reject asinterface as a normal call (TSN7442)", () => {
+      const module = createModuleWithCallTo("asinterface");
+      const result = validateIrSoundness([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7442")).to.be.true;
+    });
+
+    it("should reject trycast as a normal call (TSN7442)", () => {
+      const module = createModuleWithCallTo("trycast");
+      const result = validateIrSoundness([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7442")).to.be.true;
+    });
+
+    it("should reject stackalloc as a normal call (TSN7442)", () => {
+      const module = createModuleWithCallTo("stackalloc");
+      const result = validateIrSoundness([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7442")).to.be.true;
+    });
+
+    it("should reject reserved intrinsics that are not implemented (TSN7443)", () => {
+      const module = createModuleWithCallTo("nameof");
+      const result = validateIrSoundness([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN7443")).to.be.true;
+    });
+  });
 });

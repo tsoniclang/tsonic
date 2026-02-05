@@ -440,6 +440,41 @@ const validateExpression = (
           )
         );
       }
+      // Core language intrinsics must never reach emission as normal calls.
+      //
+      // Airplane-grade rule:
+      // - If these appear as IrCallExpression, it means an intrinsic was not lowered
+      //   into its dedicated IR kind (or a not-yet-supported intrinsic was used).
+      if (expr.callee.kind === "identifier") {
+        const name = expr.callee.name;
+
+        // Intrinsics that MUST lower to dedicated IR nodes.
+        if (name === "asinterface" || name === "trycast" || name === "stackalloc") {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7442",
+              "error",
+              `'${name}<...>(...)' is a compiler intrinsic and cannot be emitted as a normal call.`,
+              expr.sourceSpan ?? moduleLocation(ctx),
+              `Ensure '${name}' is imported from "@tsonic/core/lang.js" and called with the correct signature.\n` +
+                `If this call is correct and this error persists, please report it with a minimal repro.`
+            )
+          );
+        }
+
+        // Reserved intrinsics (declared in @tsonic/core/lang.js) that are not implemented yet.
+        if (name === "nameof" || name === "sizeof" || name === "defaultof") {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7443",
+              "error",
+              `'${name}<...>(...)' is reserved but not implemented yet.`,
+              expr.sourceSpan ?? moduleLocation(ctx),
+              `Remove this call for now. (${name} will be added as a compile-time intrinsic in a future release.)`
+            )
+          );
+        }
+      }
       validateExpression(expr.callee, ctx);
       expr.arguments.forEach((a) => validateExpression(a, ctx));
       expr.typeArguments?.forEach((ta, i) =>
