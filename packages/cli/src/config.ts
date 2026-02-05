@@ -25,6 +25,7 @@ import type {
 
 export const WORKSPACE_CONFIG_FILE = "tsonic.workspace.json";
 export const PROJECT_CONFIG_FILE = "tsonic.json";
+const MSBUILD_PROPERTY_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
  * Find `tsonic.workspace.json` by walking up the directory tree.
@@ -171,6 +172,40 @@ export const loadWorkspaceConfig = (
       ok: false,
       error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.typeRoots' must be an array of strings`,
     };
+  }
+
+  const msbuildProperties = dotnet.msbuildProperties;
+  if (msbuildProperties !== undefined) {
+    if (
+      msbuildProperties === null ||
+      typeof msbuildProperties !== "object" ||
+      Array.isArray(msbuildProperties)
+    ) {
+      return {
+        ok: false,
+        error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.msbuildProperties' must be an object mapping MSBuild property names to string values`,
+      };
+    }
+
+    for (const [key, value] of Object.entries(
+      msbuildProperties as Record<string, unknown>
+    )) {
+      if (!MSBUILD_PROPERTY_NAME_RE.test(key)) {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.msbuildProperties' contains an invalid MSBuild property name: ${key}. ` +
+            `Property names must match ${String(MSBUILD_PROPERTY_NAME_RE)}.`,
+        };
+      }
+      if (typeof value !== "string") {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.msbuildProperties.${key}' must be a string`,
+        };
+      }
+    }
   }
 
   return { ok: true, value: config };
@@ -470,5 +505,6 @@ export const resolveConfig = (
     libraries,
     frameworkReferences,
     packageReferences,
+    msbuildProperties: workspaceConfig.dotnet?.msbuildProperties,
   };
 };

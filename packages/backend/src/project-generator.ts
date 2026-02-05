@@ -81,6 +81,38 @@ const capitalizeFirst = (str: string): string => {
   return str.charAt(0).toUpperCase() + str.slice(1);
 };
 
+const isValidMsbuildPropertyName = (name: string): boolean => {
+  // MSBuild properties are XML element names.
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+};
+
+const escapeXmlText = (value: string): string => {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+};
+
+const formatMsbuildProperties = (config: BuildConfig): string => {
+  const props = config.msbuildProperties;
+  if (!props) return "";
+
+  const keys = Object.keys(props).sort();
+  if (keys.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const key of keys) {
+    if (!isValidMsbuildPropertyName(key)) {
+      throw new Error(
+        `Invalid MSBuild property name: ${key}. Property names must match ${String(
+          /^[A-Za-z_][A-Za-z0-9_]*$/
+        )}.`
+      );
+    }
+
+    lines.push(`    <${key}>${escapeXmlText(props[key] ?? "")}</${key}>`);
+  }
+
+  return `\n${lines.join("\n")}`;
+};
+
 /**
  * Generate NuGet package metadata properties
  */
@@ -126,8 +158,7 @@ const generateExecutableProperties = (
     <AssemblyName>${config.outputName}</AssemblyName>
     <StartupObject>Program</StartupObject>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>false</ImplicitUsings>${nativeAotSettings}
-    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
+    <ImplicitUsings>false</ImplicitUsings>${nativeAotSettings}${formatMsbuildProperties(config)}
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>`;
 };
@@ -178,8 +209,7 @@ const generateLibraryProperties = (
     <RootNamespace>${config.rootNamespace}</RootNamespace>
     <AssemblyName>${config.outputName}</AssemblyName>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>false</ImplicitUsings>${docSettings}${symbolSettings}${nativeAotSettings}
-    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
+    <ImplicitUsings>false</ImplicitUsings>${docSettings}${symbolSettings}${nativeAotSettings}${formatMsbuildProperties(config)}
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>${libConfig.packable}</IsPackable>${packageSettings}
   </PropertyGroup>`;
@@ -199,8 +229,7 @@ const generateConsoleAppProperties = (
     <AssemblyName>${config.outputName}</AssemblyName>
     <StartupObject>Program</StartupObject>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>false</ImplicitUsings>
-    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
+    <ImplicitUsings>false</ImplicitUsings>${formatMsbuildProperties(config)}
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishSingleFile>${consoleConfig.singleFile}</PublishSingleFile>
     <SelfContained>${consoleConfig.selfContained}</SelfContained>

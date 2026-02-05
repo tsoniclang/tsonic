@@ -63,4 +63,9 @@ dotnet ef dbcontext optimize --precompile-queries --nativeaot \
   --context AppDbContext
 ```
 
+When using `--nativeaot`, EF generates C# interceptor source under the namespace `Microsoft.EntityFrameworkCore.GeneratedInterceptors`. The C# compiler requires an explicit MSBuild opt-in:
+
+- Add `dotnet.msbuildProperties.InterceptorsNamespaces` in `tsonic.workspace.json`, or
+- Provide your own `.csproj` at the project root and include `<InterceptorsNamespaces>...`.
+
 See EF Core docs for the current limitations and recommended rewrites.

@@ -37,6 +37,35 @@ describe("Project Generator", () => {
       expect(result).to.include(
         "<OptimizationPreference>Speed</OptimizationPreference>"
       );
+    });
+
+    it("should include user-provided MSBuild properties when provided", () => {
+      const config: BuildConfig = {
+        rootNamespace: "TestApp",
+        outputName: "test",
+        dotnetVersion: "net10.0",
+        msbuildProperties: {
+          InterceptorsNamespaces:
+            "$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors",
+          TreatWarningsAsErrors: "true",
+        },
+        outputConfig: {
+          type: "executable",
+          nativeAot: true,
+          singleFile: true,
+          trimmed: true,
+          stripSymbols: true,
+          optimization: "Speed",
+          invariantGlobalization: true,
+          selfContained: true,
+        },
+      };
+
+      const result = generateCsproj(config);
+
+      expect(result).to.include(
+        "<TreatWarningsAsErrors>true</TreatWarningsAsErrors>"
+      );
       expect(result).to.include(
         "<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>"
       );
@@ -174,9 +203,6 @@ describe("Project Generator", () => {
       );
       expect(result).to.include("<DebugType>embedded</DebugType>");
       expect(result).to.include("<IsPackable>false</IsPackable>");
-      expect(result).to.include(
-        "<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>"
-      );
     });
 
     it("should generate NativeAOT shared library .csproj when enabled", () => {

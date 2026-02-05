@@ -477,6 +477,7 @@ export const generateCommand = (
         assemblyReferences,
         frameworkReferences,
         packageReferences,
+        msbuildProperties: config.msbuildProperties,
         outputConfig,
       };
 
