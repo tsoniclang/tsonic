@@ -103,6 +103,13 @@ export type BuildConfig = {
   readonly frameworkReferences?: readonly string[];
   /** Optional NuGet package references (PackageReference) */
   readonly packageReferences?: readonly PackageReference[];
+  /**
+   * Optional MSBuild properties injected into the generated .csproj.
+   *
+   * This is intentionally explicit: Tsonic does not auto-enable experimental
+   * compiler features. If you need a property (e.g. interceptors), set it here.
+   */
+  readonly msbuildProperties?: Readonly<Record<string, string>>;
   readonly outputConfig: OutputConfig;
 };
 

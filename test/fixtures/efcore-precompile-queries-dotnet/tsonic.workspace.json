@@ -2,6 +2,9 @@
   "$schema": "https://tsonic.org/schema/workspace/v1.json",
   "dotnetVersion": "net10.0",
   "dotnet": {
+    "msbuildProperties": {
+      "InterceptorsNamespaces": "$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors"
+    },
     "packageReferences": [
       {
         "id": "Microsoft.EntityFrameworkCore",

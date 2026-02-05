@@ -127,6 +127,16 @@ export type TsonicWorkspaceConfig = {
     readonly frameworkReferences?: ReadonlyArray<FrameworkReferenceConfig>;
     /** Additional NuGet packages (PackageReference) */
     readonly packageReferences?: ReadonlyArray<PackageReferenceConfig>;
+    /**
+     * Optional MSBuild properties injected into the generated tsonic.csproj.
+     *
+     * This is an explicit escape hatch mirroring .csproj authoring in .NET.
+     * Example (EF Core precompiled queries / interceptors):
+     * {
+     *   "InterceptorsNamespaces": "$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors"
+     * }
+     */
+    readonly msbuildProperties?: Readonly<Record<string, string>>;
   };
 };
 
@@ -197,6 +207,7 @@ export type ResolvedConfig = {
     readonly id: string;
     readonly version: string;
   }>;
+  readonly msbuildProperties?: Readonly<Record<string, string>>;
 };
 
 /**

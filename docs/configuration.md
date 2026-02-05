@@ -39,6 +39,18 @@ Minimal example:
     - `{ "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }` (bindings supplied externally; no auto-generation)
 - `dotnet.frameworkReferences`: additional shared frameworks (e.g. `Microsoft.AspNetCore.App`).
 - `dotnet.packageReferences`: NuGet packages (pinned exact versions).
+- `dotnet.msbuildProperties` (optional): explicit MSBuild properties injected into the generated `tsonic.csproj`.
+  - Use this when you need to enable a compiler/runtime feature that would normally be set in a `.csproj`.
+  - Example (EF Core `dotnet ef dbcontext optimize --nativeaot` interceptors):
+    ```json
+    {
+      "dotnet": {
+        "msbuildProperties": {
+          "InterceptorsNamespaces": "$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors"
+        }
+      }
+    }
+    ```
 
 Most users should manage these via the CLI:
 

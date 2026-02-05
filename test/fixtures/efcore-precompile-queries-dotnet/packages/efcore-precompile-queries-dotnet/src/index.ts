@@ -39,19 +39,33 @@ export class AppDbContextFactory
 }
 
 export function countEventsByCampaign(db: AppDbContext, campaignId: string): int {
-  const q = asinterface<LinqQ<EventEntity>>(db.Events);
-  return q.Where((e) => e.CampaignId === campaignId).Count();
+  // NOTE: EF query precompilation (NativeAOT) currently requires locals (not parameter
+  // symbols) for values referenced inside query expressions.
+  const db0 = db;
+  const campaignId0 = campaignId;
+
+  return asinterface<LinqQ<EventEntity>>(db0.Events)
+    .Where((e) => e.CampaignId === campaignId0)
+    .Count();
 }
 
 export const countEventsByCampaignConst = (db: AppDbContext, campaignId: string): int => {
-  const q = asinterface<LinqQ<EventEntity>>(db.Events);
-  return q.Where((e) => e.CampaignId === campaignId).Count();
+  const db0 = db;
+  const campaignId0 = campaignId;
+
+  return asinterface<LinqQ<EventEntity>>(db0.Events)
+    .Where((e) => e.CampaignId === campaignId0)
+    .Count();
 };
 
 export function countEventsWithOptionalFilter(db: AppDbContext, campaignId?: string): int {
-  const hasCampaign = campaignId !== undefined && campaignId !== "";
-  const q = asinterface<LinqQ<EventEntity>>(db.Events);
-  return q.Where((e) => !hasCampaign || e.CampaignId === campaignId).Count();
+  const db0 = db;
+  const campaignId0 = campaignId;
+  const hasCampaign = campaignId0 !== undefined && campaignId0 !== "";
+
+  return asinterface<LinqQ<EventEntity>>(db0.Events)
+    .Where((e) => !hasCampaign || e.CampaignId === campaignId0)
+    .Count();
 }
 
 export function main(): void {

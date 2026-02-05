@@ -25,6 +25,7 @@ const needsParensForPostfixByKind = (kind: IrExpression["kind"]): boolean => {
     case "memberAccess":
     case "call":
     case "new":
+    case "asinterface":
     case "this":
     case "literal":
     case "array":
@@ -96,4 +97,3 @@ export const formatCastOperandText = (
   if (needsParensForCastOperandByKind(expr.kind)) return `(${text})`;
   return text;
 };
-
