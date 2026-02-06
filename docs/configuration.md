@@ -37,8 +37,12 @@ Minimal example:
   - Each entry can be either a string path, or an object with an explicit bindings package:
     - `"libs/MyLib.dll"`
     - `{ "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }` (bindings supplied externally; no auto-generation)
+    - `{ "path": "libs/MyLib.dll", "types": false }` (no bindings; csproj-only dependency)
 - `dotnet.frameworkReferences`: additional shared frameworks (e.g. `Microsoft.AspNetCore.App`).
 - `dotnet.packageReferences`: NuGet packages (pinned exact versions).
+  - Optional `types`:
+    - string: bindings supplied externally (no auto-generation)
+    - `false`: no bindings; csproj-only dependency
 - `dotnet.msbuildProperties` (optional): explicit MSBuild properties injected into the generated `tsonic.csproj`.
   - Use this when you need to enable a compiler/runtime feature that would normally be set in a `.csproj`.
   - Example (EF Core `dotnet ef dbcontext optimize --nativeaot` interceptors):
@@ -75,9 +79,9 @@ Example:
 {
   "testDotnet": {
     "packageReferences": [
-      { "id": "Microsoft.NET.Test.Sdk", "version": "17.11.1" },
+      { "id": "Microsoft.NET.Test.Sdk", "version": "17.11.1", "types": false },
       { "id": "xunit", "version": "2.9.2" },
-      { "id": "xunit.runner.visualstudio", "version": "2.5.6" }
+      { "id": "xunit.runner.visualstudio", "version": "2.5.6", "types": false }
     ]
   }
 }

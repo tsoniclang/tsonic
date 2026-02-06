@@ -70,7 +70,10 @@ export const addFrameworkCommand = (
     if (typesPackage) {
       if (typeof existing === "string") {
         frameworkRefs[idx] = { id: existing, types: typesPackage };
-      } else if (existing.types && existing.types !== typesPackage) {
+      } else if (
+        existing.types !== undefined &&
+        existing.types !== typesPackage
+      ) {
         return {
           ok: false,
           error:

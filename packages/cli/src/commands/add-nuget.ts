@@ -74,7 +74,7 @@ export const addNugetCommand = (
     }
 
     if (typesPackage) {
-      if (current?.types && current.types !== typesPackage) {
+      if (current?.types !== undefined && current.types !== typesPackage) {
         return {
           ok: false,
           error:
@@ -105,9 +105,12 @@ export const addNugetCommand = (
   const writeResult = writeTsonicJson(configPath, nextConfig);
   if (!writeResult.ok) return writeResult;
 
+  const declared = existing.find((p) => normalizePkgId(p.id) === normalizePkgId(id));
+  const declaredTypes = declared?.types;
+
   const bindings =
     typesPackage ??
-    existing.find((p) => normalizePkgId(p.id) === normalizePkgId(id))?.types ??
+    (typeof declaredTypes === "string" ? declaredTypes : undefined) ??
     defaultBindingsPackageNameForNuget(id);
 
   if (typesPackage) {

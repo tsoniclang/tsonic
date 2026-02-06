@@ -3,10 +3,9 @@
   "dotnetVersion": "net10.0",
   "testDotnet": {
     "packageReferences": [
-      { "id": "Microsoft.NET.Test.Sdk", "version": "17.11.1" },
+      { "id": "Microsoft.NET.Test.Sdk", "version": "17.11.1", "types": false },
       { "id": "xunit", "version": "2.9.2" },
-      { "id": "xunit.runner.visualstudio", "version": "2.5.6" }
+      { "id": "xunit.runner.visualstudio", "version": "2.5.6", "types": false }
     ]
   }
 }
-

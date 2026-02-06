@@ -81,7 +81,7 @@ export const loadWorkspaceConfig = (
       return {
         ok: false,
         error:
-          `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }`,
+          `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string|false }`,
       };
     }
 
@@ -91,7 +91,7 @@ export const loadWorkspaceConfig = (
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string }`,
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string|false }`,
         };
       }
 
@@ -104,11 +104,15 @@ export const loadWorkspaceConfig = (
             `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must include a non-empty 'path'`,
         };
       }
-      if (types !== undefined && typeof types !== "string") {
+      if (
+        types !== undefined &&
+        types !== false &&
+        (typeof types !== "string" || types.trim().length === 0)
+      ) {
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a string when present`,
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a non-empty string or false when present`,
         };
       }
     }
@@ -124,14 +128,20 @@ export const loadWorkspaceConfig = (
         const id = (r as { readonly id?: unknown }).id;
         const types = (r as { readonly types?: unknown }).types;
         if (typeof id !== "string") return true;
-        if (types !== undefined && typeof types !== "string") return true;
+        if (
+          types !== undefined &&
+          types !== false &&
+          (typeof types !== "string" || types.trim().length === 0)
+        ) {
+          return true;
+        }
         return false;
       }))
   ) {
     return {
       ok: false,
       error:
-        `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }`,
+        `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
     };
   }
 
@@ -152,12 +162,14 @@ export const loadWorkspaceConfig = (
         typeof (entry as { readonly id?: unknown }).id !== "string" ||
         typeof (entry as { readonly version?: unknown }).version !== "string" ||
         ((entry as { readonly types?: unknown }).types !== undefined &&
-          typeof (entry as { readonly types?: unknown }).types !== "string")
+          (entry as { readonly types?: unknown }).types !== false &&
+          (typeof (entry as { readonly types?: unknown }).types !== "string" ||
+            String((entry as { readonly types?: unknown }).types).trim().length === 0))
       ) {
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string }`,
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
         };
       }
     }
@@ -221,14 +233,20 @@ export const loadWorkspaceConfig = (
         const id = (r as { readonly id?: unknown }).id;
         const types = (r as { readonly types?: unknown }).types;
         if (typeof id !== "string") return true;
-        if (types !== undefined && typeof types !== "string") return true;
+        if (
+          types !== undefined &&
+          types !== false &&
+          (typeof types !== "string" || types.trim().length === 0)
+        ) {
+          return true;
+        }
         return false;
       }))
   ) {
     return {
       ok: false,
       error:
-        `${WORKSPACE_CONFIG_FILE}: 'testDotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }`,
+        `${WORKSPACE_CONFIG_FILE}: 'testDotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
     };
   }
 
@@ -249,12 +267,14 @@ export const loadWorkspaceConfig = (
         typeof (entry as { readonly id?: unknown }).id !== "string" ||
         typeof (entry as { readonly version?: unknown }).version !== "string" ||
         ((entry as { readonly types?: unknown }).types !== undefined &&
-          typeof (entry as { readonly types?: unknown }).types !== "string")
+          (entry as { readonly types?: unknown }).types !== false &&
+          (typeof (entry as { readonly types?: unknown }).types !== "string" ||
+            String((entry as { readonly types?: unknown }).types).trim().length === 0))
       ) {
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' entries must be { id: string, version: string, types?: string }`,
+            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
         };
       }
     }

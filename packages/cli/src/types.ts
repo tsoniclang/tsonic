@@ -86,10 +86,11 @@ export type LibraryReferenceConfig =
       /** Path to a DLL or a TypeScript type root. Resolved relative to the workspace root. */
       readonly path: string;
       /**
-       * If provided, bindings are expected from this npm package (no auto-generation).
-       * Intended for DLL paths.
+       * Bindings ownership for this reference:
+       * - string: bindings are expected from this npm package (no auto-generation)
+       * - false: no bindings are required (csproj-only dependency; skip generation)
        */
-      readonly types?: string;
+      readonly types?: string | false;
     };
 
 export type FrameworkReferenceConfig =
@@ -97,14 +98,14 @@ export type FrameworkReferenceConfig =
   | {
       readonly id: string;
       /** If provided, bindings are expected from this npm package (no auto-generation). */
-      readonly types?: string;
+      readonly types?: string | false;
     };
 
 export type PackageReferenceConfig = {
   readonly id: string;
   readonly version: string;
   /** If provided, bindings are expected from this npm package (no auto-generation). */
-  readonly types?: string;
+  readonly types?: string | false;
 };
 
 /**

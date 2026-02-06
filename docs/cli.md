@@ -162,6 +162,7 @@ Requirements:
 
 - `packages/<project>/tsonic.json` must define `tests.entryPoint`
 - `tsonic.workspace.json` should declare test frameworks under `testDotnet.*`
+  - For csproj-only test tooling packages (e.g. `Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio`), set `"types": false` since you typically won’t import them from TypeScript.
 
 Example:
 
