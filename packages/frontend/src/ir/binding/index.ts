@@ -550,10 +550,19 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       return false;
     };
 
+    const stringType = checker.getStringType();
+
     const prefersStringOverChar = (arg: ts.Expression): boolean => {
       const expr = stripParens(arg);
       if (isCharishArgument(expr)) return false;
-      return ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr);
+
+      // In TS, `char` is erased to `string`, so we must prefer `string` overloads
+      // for *any* string-typed argument unless the user explicitly marks it as char.
+      //
+      // This keeps common code like `Console.WriteLine(condition ? "OK" : "BAD")`
+      // from accidentally binding to `WriteLine(char)` (due to declaration order).
+      const t = checker.getTypeAtLocation(expr);
+      return checker.isTypeAssignableTo(t, stringType);
     };
 
     type ParamClass = "char" | "string" | "other";

@@ -9,6 +9,7 @@ import {
   hasReadonlyModifier,
   getAccessibility,
   convertParameters,
+  makeOptionalType,
 } from "../../helpers.js";
 import type { ProgramContext } from "../../../../program-context.js";
 
@@ -107,14 +108,17 @@ export const extractParameterProperties = (
     if (ts.isIdentifier(param.name)) {
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const accessibility = getAccessibility(param);
+      const rawType = param.type
+        ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(param.type))
+        : undefined;
+
+      const type =
+        rawType && param.questionToken ? makeOptionalType(rawType) : rawType;
+
       parameterProperties.push({
         kind: "propertyDeclaration",
         name: param.name.text,
-        type: param.type
-          ? ctx.typeSystem.typeFromSyntax(
-              ctx.binding.captureTypeSyntax(param.type)
-            )
-          : undefined,
+        type,
         initializer: undefined, // Will be assigned in constructor
         isStatic: false,
         isReadonly: hasReadonlyModifier(param),

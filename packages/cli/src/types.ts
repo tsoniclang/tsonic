@@ -160,6 +160,14 @@ export type CliOptions = {
   rid?: string;
   optimize?: "size" | "speed";
   keepTemp?: boolean;
+  /**
+   * Build/run from an existing generated output directory without re-running
+   * `tsonic generate` (and therefore without wiping the output directory).
+   *
+   * Required for workflows where external tools generate additional C# sources
+   * into the generated directory (e.g. EF Core compiled models / interceptors).
+   */
+  noGenerate?: boolean;
   noStrip?: boolean;
   lib?: string[]; // External library paths for .NET interop
   deps?: string[]; // Additional directories to probe for referenced assemblies/DLLs
@@ -198,6 +206,11 @@ export type ResolvedConfig = {
   readonly stripSymbols: boolean;
   readonly invariantGlobalization: boolean;
   readonly keepTemp: boolean;
+  /**
+   * When true, `tsonic build/run` will reuse the existing generated output
+   * directory instead of re-generating C#.
+   */
+  readonly noGenerate: boolean;
   readonly verbose: boolean;
   readonly quiet: boolean;
   readonly typeRoots: readonly string[];

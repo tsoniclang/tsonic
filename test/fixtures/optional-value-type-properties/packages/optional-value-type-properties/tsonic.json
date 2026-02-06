@@ -1,0 +1,9 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "OptionalValueTypeProperties",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "optional-value-type-properties"
+}
+

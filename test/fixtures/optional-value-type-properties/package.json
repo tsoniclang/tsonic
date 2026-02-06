@@ -1,0 +1,11 @@
+{
+  "name": "tsonic-e2e-optional-value-type-properties",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "^10.0.0",
+    "@tsonic/dotnet": "^10.0.0",
+    "@tsonic/globals": "^10.0.0"
+  }
+}
+

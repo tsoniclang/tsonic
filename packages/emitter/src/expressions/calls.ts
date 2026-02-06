@@ -144,7 +144,10 @@ const isInstanceMemberAccess = (
  * Exception: certain toolchains (notably EF query precompilation) require the *syntax*
  * of extension-method invocation so the analyzer can locate queries in user code.
  */
-const shouldEmitFluentExtensionCall = (bindingType: string): boolean => {
+const shouldEmitFluentExtensionCall = (
+  bindingType: string,
+  memberName: string
+): boolean => {
   // EF Core query precompilation requires fluent/extension syntax specifically for Queryable.
   // Keep Enumerable as explicit static invocation by default to avoid accidental binding to
   // instance methods on custom enumerable types.
@@ -152,6 +155,17 @@ const shouldEmitFluentExtensionCall = (bindingType: string): boolean => {
 
   // EF Core query operators (Include/ThenInclude/AsNoTracking/etc.)
   if (bindingType.startsWith("Microsoft.EntityFrameworkCore.")) return true;
+
+  // EF Core query precompilation also requires fluent syntax for certain Enumerable terminal ops
+  // (e.g., IQueryable<T>.ToList()/ToArray()). When emitted as explicit static calls
+  // (Enumerable.ToList(query)), dotnet-ef may not generate interceptors, causing runtime failure
+  // under NativeAOT ("Query wasn't precompiled and dynamic code isn't supported").
+  if (
+    bindingType.startsWith("System.Linq.Enumerable") &&
+    (memberName === "ToList" || memberName === "ToArray")
+  ) {
+    return true;
+  }
 
   return false;
 };
@@ -369,6 +383,48 @@ export const emitCall = (
     return emitJsonSerializerCall(expr, context, globalJsonCall.method);
   }
 
+  // EF Core query precompilation has a known limitation: `query.ToList().ToArray()`
+  // fails to precompile (captured locals may be treated as "unknown identifiers").
+  // Since `ToList().ToArray()` is equivalent to `ToArray()` for IEnumerable<T>,
+  // canonicalize this pattern to `query.ToArray()` so NativeAOT precompilation works.
+  if (
+    expr.callee.kind === "memberAccess" &&
+    expr.callee.property === "ToArray" &&
+    expr.arguments.length === 0 &&
+    expr.callee.object.kind === "call"
+  ) {
+    const innerCall = expr.callee.object;
+
+    if (
+      innerCall.callee.kind === "memberAccess" &&
+      innerCall.callee.memberBinding?.isExtensionMethod &&
+      isInstanceMemberAccess(innerCall.callee, context) &&
+      innerCall.callee.memberBinding.type.startsWith("System.Linq.Enumerable") &&
+      innerCall.callee.memberBinding.member === "ToList" &&
+      innerCall.arguments.length === 0
+    ) {
+      let currentContext = context;
+
+      // Ensure extension methods are in scope.
+      currentContext.usings.add("System.Linq");
+
+      const receiverExpr = innerCall.callee.object;
+      const [receiverFrag, receiverCtx] = emitExpression(
+        receiverExpr,
+        currentContext
+      );
+      currentContext = receiverCtx;
+
+      const receiverText = formatPostfixExpressionText(
+        receiverExpr,
+        receiverFrag.text
+      );
+
+      const text = `${receiverText}.ToArray()`;
+      return [{ text }, currentContext];
+    }
+  }
+
   // Extension method lowering: emit explicit static invocation with receiver as first arg.
   // This avoids relying on C# `using` directives for extension method discovery.
   if (
@@ -390,7 +446,7 @@ export const emitCall = (
     // Some ecosystems (notably EF Core query precompilation) require fluent syntax
     // so the tooling can locate queries in syntax trees. For those namespaces,
     // emit `receiver.Method(...)` and add a `using` directive for the namespace.
-    if (shouldEmitFluentExtensionCall(binding.type)) {
+    if (shouldEmitFluentExtensionCall(binding.type, binding.member)) {
       const ns = getTypeNamespace(binding.type);
       if (ns) {
         currentContext.usings.add(ns);

@@ -147,6 +147,9 @@ export const parseArgs = (
       case "--keep-temp":
         options.keepTemp = true;
         break;
+      case "--no-generate":
+        options.noGenerate = true;
+        break;
       case "--no-strip":
         options.noStrip = true;
         break;

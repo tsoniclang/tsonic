@@ -18,6 +18,7 @@ import {
   hasStaticModifier,
   hasReadonlyModifier,
   getAccessibility,
+  makeOptionalType,
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
 import type { ProgramContext } from "../../../../program-context.js";
@@ -110,11 +111,16 @@ export const convertProperty = (
   // 1. Use explicit annotation if present
   // 2. Otherwise derive from converted initializer (NO TypeScript fallback)
   // 3. If no initializer and no annotation, undefined (error at emit time)
-  const propertyType = explicitType
+  const rawPropertyType = explicitType
     ? explicitType
     : convertedInitializer
       ? deriveTypeFromExpression(convertedInitializer)
       : undefined;
+
+  const propertyType =
+    rawPropertyType && node.questionToken
+      ? makeOptionalType(rawPropertyType)
+      : rawPropertyType;
 
   return {
     kind: "propertyDeclaration",

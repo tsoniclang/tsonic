@@ -231,6 +231,11 @@ describe("CLI Parser", () => {
         expect(result.options.keepTemp).to.equal(true);
       });
 
+      it("should parse --no-generate option", () => {
+        const result = parseArgs(["build", "--no-generate"]);
+        expect(result.options.noGenerate).to.equal(true);
+      });
+
       it("should parse --no-strip option", () => {
         const result = parseArgs(["build", "--no-strip"]);
         expect(result.options.noStrip).to.equal(true);
