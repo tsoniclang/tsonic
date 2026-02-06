@@ -8,6 +8,7 @@
       "dotnet tool restore",
       "if grep -q \"(global::System.Linq.IQueryable\" index.cs; then echo \"Found IQueryable cast in emitted C# (should be cast-free for ExtensionMethods assertions)\"; exit 1; fi",
       "if grep -q \"hasCampaign != null\" index.cs; then echo \"Found truthiness null-check for boolean local (hasCampaign != null)\"; exit 1; fi",
+      "if rg -q \"\\.ToList\\(\\)\\.ToArray\\(\\)\" index.cs; then echo \"Found ToList().ToArray() in emitted C# (EF precompiler fails; should be canonicalized to ToArray())\"; exit 1; fi",
       "dotnet ef dbcontext optimize --project tsonic.csproj --output-dir ef-compiled-model --precompile-queries --nativeaot --namespace EfCorePrecompileQueriesDotnet --context AppDbContext",
       "if ! rg -q \"_ToArray\" ef-compiled-model/*.cs; then echo \"Missing EF interceptor for ToArray (required for NativeAOT query precompilation)\"; exit 1; fi",
       "if ! rg -q \"_ToList\" ef-compiled-model/*.cs; then echo \"Missing EF interceptor for ToList (required for NativeAOT query precompilation)\"; exit 1; fi",

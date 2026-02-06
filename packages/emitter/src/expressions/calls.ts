@@ -383,6 +383,48 @@ export const emitCall = (
     return emitJsonSerializerCall(expr, context, globalJsonCall.method);
   }
 
+  // EF Core query precompilation has a known limitation: `query.ToList().ToArray()`
+  // fails to precompile (captured locals may be treated as "unknown identifiers").
+  // Since `ToList().ToArray()` is equivalent to `ToArray()` for IEnumerable<T>,
+  // canonicalize this pattern to `query.ToArray()` so NativeAOT precompilation works.
+  if (
+    expr.callee.kind === "memberAccess" &&
+    expr.callee.property === "ToArray" &&
+    expr.arguments.length === 0 &&
+    expr.callee.object.kind === "call"
+  ) {
+    const innerCall = expr.callee.object;
+
+    if (
+      innerCall.callee.kind === "memberAccess" &&
+      innerCall.callee.memberBinding?.isExtensionMethod &&
+      isInstanceMemberAccess(innerCall.callee, context) &&
+      innerCall.callee.memberBinding.type.startsWith("System.Linq.Enumerable") &&
+      innerCall.callee.memberBinding.member === "ToList" &&
+      innerCall.arguments.length === 0
+    ) {
+      let currentContext = context;
+
+      // Ensure extension methods are in scope.
+      currentContext.usings.add("System.Linq");
+
+      const receiverExpr = innerCall.callee.object;
+      const [receiverFrag, receiverCtx] = emitExpression(
+        receiverExpr,
+        currentContext
+      );
+      currentContext = receiverCtx;
+
+      const receiverText = formatPostfixExpressionText(
+        receiverExpr,
+        receiverFrag.text
+      );
+
+      const text = `${receiverText}.ToArray()`;
+      return [{ text }, currentContext];
+    }
+  }
+
   // Extension method lowering: emit explicit static invocation with receiver as first arg.
   // This avoids relying on C# `using` directives for extension method discovery.
   if (

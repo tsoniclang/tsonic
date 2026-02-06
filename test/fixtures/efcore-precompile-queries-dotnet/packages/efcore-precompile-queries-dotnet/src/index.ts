@@ -80,6 +80,19 @@ export function listEventsByCampaignToList(
     .ToList();
 }
 
+export function listEventsByCampaignToArrayViaList(
+  db: AppDbContext,
+  campaignId: string
+): EventEntity[] {
+  const db0 = db;
+  const campaignId0 = campaignId;
+
+  return asinterface<LinqQ<EventEntity>>(db0.Events)
+    .Where((e) => e.CampaignId === campaignId0)
+    .ToList()
+    .ToArray();
+}
+
 export function countEventsWithOptionalFilter(db: AppDbContext, campaignId?: string): int {
   const db0 = db;
   const campaignId0 = campaignId;
