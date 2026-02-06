@@ -19,6 +19,7 @@ import { generateCommand } from "../commands/generate.js";
 import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
+import { testCommand } from "../commands/test.js";
 import { addJsCommand } from "../commands/add-js.js";
 import { addNodejsCommand } from "../commands/add-nodejs.js";
 import { addPackageCommand } from "../commands/add-package.js";
@@ -32,6 +33,58 @@ import { VERSION } from "./constants.js";
 import { showHelp } from "./help.js";
 import { parseArgs } from "./parser.js";
 import type { Result } from "../types.js";
+
+const mergeUniqueFrameworkReferences = (
+  a: readonly (string | { readonly id: string })[],
+  b: readonly (string | { readonly id: string })[]
+): readonly (string | { readonly id: string })[] => {
+  const out: Array<string | { readonly id: string }> = [];
+  const seen = new Set<string>();
+  const push = (ref: string | { readonly id: string }): void => {
+    const id = (typeof ref === "string" ? ref : ref.id).toLowerCase();
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(ref);
+  };
+  for (const r of a) push(r);
+  for (const r of b) push(r);
+  return out;
+};
+
+const mergeUniquePackageReferences = (
+  a: readonly { readonly id: string; readonly version: string }[],
+  b: readonly { readonly id: string; readonly version: string }[]
+): Result<readonly { readonly id: string; readonly version: string }[], string> => {
+  const byId = new Map<string, { readonly id: string; readonly version: string }>();
+  const add = (p: { readonly id: string; readonly version: string }): Result<void, string> => {
+    const key = p.id.toLowerCase();
+    const existing = byId.get(key);
+    if (existing && existing.version !== p.version) {
+      return {
+        ok: false,
+        error:
+          `Conflicting PackageReference versions for '${p.id}': '${existing.version}' vs '${p.version}'.\n` +
+          `Use a single version at the workspace level.`,
+      };
+    }
+    byId.set(key, p);
+    return { ok: true, value: undefined };
+  };
+
+  for (const p of a) {
+    const r = add(p);
+    if (!r.ok) return r;
+  }
+  for (const p of b) {
+    const r = add(p);
+    if (!r.ok) return r;
+  }
+
+  const merged = Array.from(byId.values()).sort((x, y) =>
+    x.id.localeCompare(y.id)
+  );
+  return { ok: true, value: merged };
+};
 
 /**
  * Main CLI entry point
@@ -261,12 +314,17 @@ export const runCli = async (args: string[]): Promise<number> => {
     parsed.command === "generate" ||
     parsed.command === "build" ||
     parsed.command === "run" ||
-    parsed.command === "pack"
+    parsed.command === "pack" ||
+    parsed.command === "test"
   ) {
+    const testDotnet = rawWorkspaceConfig.testDotnet ?? {};
+    const includeTestDeps = parsed.command === "test";
     const hasFrameworkRefs =
-      (rawWorkspaceConfig.dotnet?.frameworkReferences?.length ?? 0) > 0;
+      (rawWorkspaceConfig.dotnet?.frameworkReferences?.length ?? 0) > 0 ||
+      (includeTestDeps ? (testDotnet.frameworkReferences?.length ?? 0) > 0 : false);
     const hasPackageRefs =
-      (rawWorkspaceConfig.dotnet?.packageReferences?.length ?? 0) > 0;
+      (rawWorkspaceConfig.dotnet?.packageReferences?.length ?? 0) > 0 ||
+      (includeTestDeps ? (testDotnet.packageReferences?.length ?? 0) > 0 : false);
     const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some((entry) => {
       const p = typeof entry === "string" ? entry : entry.path;
       const normalized = p.replace(/\\/g, "/").toLowerCase();
@@ -349,15 +407,88 @@ export const runCli = async (args: string[]): Promise<number> => {
     return 1;
   }
 
-  const entryFile = parsed.positionals[0];
-  const config = resolveConfig(
-    rawWorkspaceConfig,
-    projectConfigResult.value,
-    parsed.options,
+  // Command-specific configuration resolution (e.g. `tsonic test`).
+  const baseProjectConfig = projectConfigResult.value;
+  const entryFile =
+    parsed.command === "test"
+      ? baseProjectConfig.tests?.entryPoint
+      : parsed.positionals[0];
+
+  const cliOptionsForCommand = { ...parsed.options };
+  let workspaceConfigForCommand = rawWorkspaceConfig;
+
+  if (parsed.command === "test") {
+    if (!baseProjectConfig.tests) {
+      console.error("Error: Project does not define tests configuration");
+      console.error(
+        `Add a 'tests' block to ${projectConfigPath} and retry.`
+      );
+      return 1;
+    }
+
+    // Test builds are MSIL (non-NativeAOT) libraries.
+    cliOptionsForCommand.type = "library";
+    cliOptionsForCommand.noAot = true;
+
+    const prodDotnet = rawWorkspaceConfig.dotnet ?? {};
+    const testDotnet = rawWorkspaceConfig.testDotnet ?? {};
+
+    const mergedPackageRefs = mergeUniquePackageReferences(
+      (prodDotnet.packageReferences ?? []) as readonly { readonly id: string; readonly version: string }[],
+      (testDotnet.packageReferences ?? []) as readonly { readonly id: string; readonly version: string }[]
+    );
+    if (!mergedPackageRefs.ok) {
+      console.error(`Error: ${mergedPackageRefs.error}`);
+      return 1;
+    }
+
+    workspaceConfigForCommand = {
+      ...rawWorkspaceConfig,
+      dotnet: {
+        ...prodDotnet,
+        frameworkReferences: mergeUniqueFrameworkReferences(
+          (prodDotnet.frameworkReferences ?? []) as readonly (string | { readonly id: string })[],
+          (testDotnet.frameworkReferences ?? []) as readonly (string | { readonly id: string })[]
+        ) as unknown as typeof prodDotnet.frameworkReferences,
+        packageReferences: mergedPackageRefs.value as unknown as typeof prodDotnet.packageReferences,
+        msbuildProperties: {
+          ...(prodDotnet.msbuildProperties ?? {}),
+          ...(testDotnet.msbuildProperties ?? {}),
+          IsTestProject: "true",
+        },
+      },
+    };
+  }
+
+  const resolvedConfig = resolveConfig(
+    workspaceConfigForCommand,
+    baseProjectConfig,
+    cliOptionsForCommand,
     workspaceRoot,
     projectRoot,
     entryFile
   );
+
+  const config =
+    parsed.command === "test"
+      ? (() => {
+          const testsCfg = baseProjectConfig.tests!;
+          const outDir =
+            testsCfg.outputDirectory ?? `${resolvedConfig.outputDirectory}-test`;
+          const outName =
+            testsCfg.outputName ?? `${resolvedConfig.outputName}.tests`;
+
+          return {
+            ...resolvedConfig,
+            outputDirectory: outDir,
+            outputName: outName,
+            outputConfig: {
+              ...resolvedConfig.outputConfig,
+              generateDocumentation: false,
+            },
+          };
+        })()
+      : resolvedConfig;
 
   // Dispatch to command handlers
   switch (parsed.command) {
@@ -395,6 +526,15 @@ export const runCli = async (args: string[]): Promise<number> => {
         return 9;
       }
       return 0;
+    }
+
+    case "test": {
+      const result = testCommand(config);
+      if (!result.ok) {
+        console.error(`Error: ${result.error}`);
+        return 10;
+      }
+      return result.value.exitCode;
     }
 
     default:

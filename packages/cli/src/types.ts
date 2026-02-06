@@ -46,6 +46,23 @@ export type TsonicProjectConfig = {
   readonly outputName?: string;
   readonly optimize?: "size" | "speed";
   readonly output?: TsonicOutputConfig;
+  /**
+   * Optional unit test build configuration.
+   *
+   * Used by `tsonic test` to generate a non-NativeAOT test assembly and run
+   * `dotnet test` (xUnit/NUnit/MSTest, etc).
+   */
+  readonly tests?: {
+    /** Entry point that imports/includes all test files. */
+    readonly entryPoint: string;
+    /**
+     * Output directory for test generation/build (separate from the main build).
+     * Resolved relative to the project root.
+     */
+    readonly outputDirectory?: string;
+    /** Assembly name for the test project. */
+    readonly outputName?: string;
+  };
   readonly buildOptions?: {
     readonly stripSymbols?: boolean;
     readonly invariantGlobalization?: boolean;
@@ -136,6 +153,20 @@ export type TsonicWorkspaceConfig = {
      *   "InterceptorsNamespaces": "$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors"
      * }
      */
+    readonly msbuildProperties?: Readonly<Record<string, string>>;
+  };
+  /**
+   * Test-only .NET dependencies.
+   *
+   * These are included when running `tsonic test`, but are not injected into
+   * production builds.
+   */
+  readonly testDotnet?: {
+    /** Additional shared frameworks (FrameworkReference) for tests */
+    readonly frameworkReferences?: ReadonlyArray<FrameworkReferenceConfig>;
+    /** Additional NuGet packages (PackageReference) for tests */
+    readonly packageReferences?: ReadonlyArray<PackageReferenceConfig>;
+    /** Optional MSBuild properties injected into the generated test csproj. */
     readonly msbuildProperties?: Readonly<Record<string, string>>;
   };
 };

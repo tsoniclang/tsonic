@@ -240,10 +240,90 @@ export const restoreCommand = (
   const dotnetLib = dotnetRoot.value;
 
   const dotnet = config.dotnet ?? {};
+  const testDotnet = config.testDotnet ?? {};
+
+  const normalizeFrameworkId = (id: string): string => id.trim().toLowerCase();
+
+  const mergeFrameworkReferences = (
+    a: readonly FrameworkReferenceConfig[],
+    b: readonly FrameworkReferenceConfig[]
+  ): readonly FrameworkReferenceConfig[] => {
+    const out: FrameworkReferenceConfig[] = [];
+    const byId = new Map<string, FrameworkReferenceConfig>();
+
+    const upsert = (ref: FrameworkReferenceConfig): void => {
+      const id = typeof ref === "string" ? ref : ref.id;
+      const key = normalizeFrameworkId(id);
+      const existing = byId.get(key);
+      if (!existing) {
+        byId.set(key, ref);
+        return;
+      }
+
+      const existingId = typeof existing === "string" ? existing : existing.id;
+      const existingTypes = typeof existing === "string" ? undefined : existing.types;
+      const nextTypes = typeof ref === "string" ? undefined : ref.types;
+      const mergedTypes = existingTypes ?? nextTypes;
+
+      byId.set(key, mergedTypes ? { id: existingId, types: mergedTypes } : existingId);
+    };
+
+    for (const r of a) upsert(r);
+    for (const r of b) upsert(r);
+
+    out.push(
+      ...Array.from(byId.values()).sort((x, y) => {
+        const xi = typeof x === "string" ? x : x.id;
+        const yi = typeof y === "string" ? y : y.id;
+        return xi.localeCompare(yi);
+      })
+    );
+    return out;
+  };
+
+  const mergePackageReferences = (
+    a: readonly PackageReferenceConfig[],
+    b: readonly PackageReferenceConfig[]
+  ): Result<readonly PackageReferenceConfig[], string> => {
+    const byId = new Map<string, PackageReferenceConfig>();
+    for (const p of [...a, ...b]) {
+      const key = normalizePkgId(p.id);
+      const existing = byId.get(key);
+      if (!existing) {
+        byId.set(key, p);
+        continue;
+      }
+      if (existing.version !== p.version) {
+        return {
+          ok: false,
+          error:
+            `Conflicting PackageReference versions for '${p.id}': '${existing.version}' vs '${p.version}'.\n` +
+            `Use a single version at the workspace level.`,
+        };
+      }
+      const mergedTypes = existing.types ?? p.types;
+      byId.set(key, mergedTypes ? { id: existing.id, version: existing.version, types: mergedTypes } : existing);
+    }
+
+    return {
+      ok: true,
+      value: Array.from(byId.values()).sort((x, y) => x.id.localeCompare(y.id)),
+    };
+  };
+
+  const frameworkReferencesAll = mergeFrameworkReferences(
+    (dotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[],
+    (testDotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[]
+  );
+
+  const packageReferencesAllResult = mergePackageReferences(
+    (dotnet.packageReferences ?? []) as PackageReferenceConfig[],
+    (testDotnet.packageReferences ?? []) as PackageReferenceConfig[]
+  );
+  if (!packageReferencesAllResult.ok) return packageReferencesAllResult;
 
   // 1) FrameworkReferences bindings
-  for (const entry of (dotnet.frameworkReferences ??
-    []) as FrameworkReferenceConfig[]) {
+  for (const entry of frameworkReferencesAll) {
     const frameworkRef = typeof entry === "string" ? entry : entry.id;
     const typesPackage = typeof entry === "string" ? undefined : entry.types;
     if (typesPackage) {
@@ -291,8 +371,7 @@ export const restoreCommand = (
   }
 
   // 2) NuGet PackageReferences bindings (including transitive deps)
-  const packageReferencesAll = (dotnet.packageReferences ??
-    []) as PackageReferenceConfig[];
+  const packageReferencesAll = packageReferencesAllResult.value;
   if (packageReferencesAll.length > 0) {
     const targetFramework = config.dotnetVersion;
     const restoreDir = join(workspaceRoot, ".tsonic", "nuget");
