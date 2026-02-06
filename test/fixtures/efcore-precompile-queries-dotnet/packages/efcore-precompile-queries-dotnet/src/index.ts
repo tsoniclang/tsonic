@@ -6,6 +6,7 @@ import { DbContext, DbContextOptionsBuilder, DbSet } from "@tsonic/efcore/Micros
 import type { DbContextOptions } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 import type { IDesignTimeDbContextFactory } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.Design.js";
 import { SqliteDbContextOptionsBuilderExtensions } from "@tsonic/efcore-sqlite/Microsoft.EntityFrameworkCore.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 
 type LinqQ<T> = Linq<IQueryable<T>>;
 
@@ -57,6 +58,27 @@ export const countEventsByCampaignConst = (db: AppDbContext, campaignId: string)
     .Where((e) => e.CampaignId === campaignId0)
     .Count();
 };
+
+export function listEventsByCampaign(db: AppDbContext, campaignId: string): EventEntity[] {
+  const db0 = db;
+  const campaignId0 = campaignId;
+
+  return asinterface<LinqQ<EventEntity>>(db0.Events)
+    .Where((e) => e.CampaignId === campaignId0)
+    .ToArray();
+}
+
+export function listEventsByCampaignToList(
+  db: AppDbContext,
+  campaignId: string
+): List<EventEntity> {
+  const db0 = db;
+  const campaignId0 = campaignId;
+
+  return asinterface<LinqQ<EventEntity>>(db0.Events)
+    .Where((e) => e.CampaignId === campaignId0)
+    .ToList();
+}
 
 export function countEventsWithOptionalFilter(db: AppDbContext, campaignId?: string): int {
   const db0 = db;

@@ -144,7 +144,10 @@ const isInstanceMemberAccess = (
  * Exception: certain toolchains (notably EF query precompilation) require the *syntax*
  * of extension-method invocation so the analyzer can locate queries in user code.
  */
-const shouldEmitFluentExtensionCall = (bindingType: string): boolean => {
+const shouldEmitFluentExtensionCall = (
+  bindingType: string,
+  memberName: string
+): boolean => {
   // EF Core query precompilation requires fluent/extension syntax specifically for Queryable.
   // Keep Enumerable as explicit static invocation by default to avoid accidental binding to
   // instance methods on custom enumerable types.
@@ -152,6 +155,17 @@ const shouldEmitFluentExtensionCall = (bindingType: string): boolean => {
 
   // EF Core query operators (Include/ThenInclude/AsNoTracking/etc.)
   if (bindingType.startsWith("Microsoft.EntityFrameworkCore.")) return true;
+
+  // EF Core query precompilation also requires fluent syntax for certain Enumerable terminal ops
+  // (e.g., IQueryable<T>.ToList()/ToArray()). When emitted as explicit static calls
+  // (Enumerable.ToList(query)), dotnet-ef may not generate interceptors, causing runtime failure
+  // under NativeAOT ("Query wasn't precompiled and dynamic code isn't supported").
+  if (
+    bindingType.startsWith("System.Linq.Enumerable") &&
+    (memberName === "ToList" || memberName === "ToArray")
+  ) {
+    return true;
+  }
 
   return false;
 };
@@ -390,7 +404,7 @@ export const emitCall = (
     // Some ecosystems (notably EF Core query precompilation) require fluent syntax
     // so the tooling can locate queries in syntax trees. For those namespaces,
     // emit `receiver.Method(...)` and add a `using` directive for the namespace.
-    if (shouldEmitFluentExtensionCall(binding.type)) {
+    if (shouldEmitFluentExtensionCall(binding.type, binding.member)) {
       const ns = getTypeNamespace(binding.type);
       if (ns) {
         currentContext.usings.add(ns);
