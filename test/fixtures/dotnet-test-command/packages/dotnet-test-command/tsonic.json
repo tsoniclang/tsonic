@@ -1,0 +1,16 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "DotnetTestCommand",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "dotnet-test-command",
+  "output": {
+    "type": "library",
+    "nativeAot": false
+  },
+  "tests": {
+    "entryPoint": "src/tests/index.ts"
+  }
+}
+
