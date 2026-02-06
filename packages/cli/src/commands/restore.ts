@@ -118,8 +118,6 @@ const collectPackageTargets = (
             .map((p) => join(packageFolder, libInfo.path as string, p))
         : [];
 
-    if (dlls.length === 0 && dependencies.length === 0) continue;
-
     byLibrary.set(libKey, {
       libKey,
       packageId: parsed.id,
@@ -240,13 +238,138 @@ export const restoreCommand = (
   const dotnetLib = dotnetRoot.value;
 
   const dotnet = config.dotnet ?? {};
+  const testDotnet = config.testDotnet ?? {};
+
+  const normalizeFrameworkId = (id: string): string => id.trim().toLowerCase();
+
+  const mergeFrameworkReferences = (
+    a: readonly FrameworkReferenceConfig[],
+    b: readonly FrameworkReferenceConfig[]
+  ): Result<readonly FrameworkReferenceConfig[], string> => {
+    const out: FrameworkReferenceConfig[] = [];
+    const byId = new Map<string, FrameworkReferenceConfig>();
+
+    const upsert = (ref: FrameworkReferenceConfig): Result<void, string> => {
+      const id = typeof ref === "string" ? ref : ref.id;
+      const key = normalizeFrameworkId(id);
+      const existing = byId.get(key);
+      if (!existing) {
+        byId.set(key, ref);
+        return { ok: true, value: undefined };
+      }
+
+      const existingId = typeof existing === "string" ? existing : existing.id;
+      const existingTypes = typeof existing === "string" ? undefined : existing.types;
+      const nextTypes = typeof ref === "string" ? undefined : ref.types;
+      if (
+        existingTypes !== undefined &&
+        nextTypes !== undefined &&
+        existingTypes !== nextTypes
+      ) {
+        return {
+          ok: false,
+          error:
+            `Conflicting FrameworkReference 'types' mapping for '${existingId}'.\n` +
+            `Existing: ${String(existingTypes)}\n` +
+            `New: ${String(nextTypes)}\n` +
+            `Use a single mapping at the workspace level.`,
+        };
+      }
+      const mergedTypes = existingTypes !== undefined ? existingTypes : nextTypes;
+
+      byId.set(
+        key,
+        mergedTypes === undefined ? existingId : { id: existingId, types: mergedTypes }
+      );
+      return { ok: true, value: undefined };
+    };
+
+    for (const r of a) {
+      const res = upsert(r);
+      if (!res.ok) return res;
+    }
+    for (const r of b) {
+      const res = upsert(r);
+      if (!res.ok) return res;
+    }
+
+    out.push(
+      ...Array.from(byId.values()).sort((x, y) => {
+        const xi = typeof x === "string" ? x : x.id;
+        const yi = typeof y === "string" ? y : y.id;
+        return xi.localeCompare(yi);
+      })
+    );
+    return { ok: true, value: out };
+  };
+
+  const mergePackageReferences = (
+    a: readonly PackageReferenceConfig[],
+    b: readonly PackageReferenceConfig[]
+  ): Result<readonly PackageReferenceConfig[], string> => {
+    const byId = new Map<string, PackageReferenceConfig>();
+    for (const p of [...a, ...b]) {
+      const key = normalizePkgId(p.id);
+      const existing = byId.get(key);
+      if (!existing) {
+        byId.set(key, p);
+        continue;
+      }
+      if (existing.version !== p.version) {
+        return {
+          ok: false,
+          error:
+            `Conflicting PackageReference versions for '${p.id}': '${existing.version}' vs '${p.version}'.\n` +
+            `Use a single version at the workspace level.`,
+        };
+      }
+      if (
+        existing.types !== undefined &&
+        p.types !== undefined &&
+        existing.types !== p.types
+      ) {
+        return {
+          ok: false,
+          error:
+            `Conflicting PackageReference 'types' mapping for '${existing.id}'.\n` +
+            `Existing: ${String(existing.types)}\n` +
+            `New: ${String(p.types)}\n` +
+            `Use a single mapping at the workspace level.`,
+        };
+      }
+      const mergedTypes =
+        existing.types !== undefined ? existing.types : p.types;
+      byId.set(
+        key,
+        mergedTypes === undefined
+          ? existing
+          : { id: existing.id, version: existing.version, types: mergedTypes }
+      );
+    }
+
+    return {
+      ok: true,
+      value: Array.from(byId.values()).sort((x, y) => x.id.localeCompare(y.id)),
+    };
+  };
+
+  const frameworkReferencesAll = mergeFrameworkReferences(
+    (dotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[],
+    (testDotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[]
+  );
+  if (!frameworkReferencesAll.ok) return frameworkReferencesAll;
+
+  const packageReferencesAllResult = mergePackageReferences(
+    (dotnet.packageReferences ?? []) as PackageReferenceConfig[],
+    (testDotnet.packageReferences ?? []) as PackageReferenceConfig[]
+  );
+  if (!packageReferencesAllResult.ok) return packageReferencesAllResult;
 
   // 1) FrameworkReferences bindings
-  for (const entry of (dotnet.frameworkReferences ??
-    []) as FrameworkReferenceConfig[]) {
+  for (const entry of frameworkReferencesAll.value) {
     const frameworkRef = typeof entry === "string" ? entry : entry.id;
     const typesPackage = typeof entry === "string" ? undefined : entry.types;
-    if (typesPackage) {
+    if (typesPackage !== undefined) {
       continue; // bindings supplied externally; do not auto-generate.
     }
 
@@ -291,8 +414,7 @@ export const restoreCommand = (
   }
 
   // 2) NuGet PackageReferences bindings (including transitive deps)
-  const packageReferencesAll = (dotnet.packageReferences ??
-    []) as PackageReferenceConfig[];
+  const packageReferencesAll = packageReferencesAllResult.value;
   if (packageReferencesAll.length > 0) {
     const targetFramework = config.dotnetVersion;
     const restoreDir = join(workspaceRoot, ".tsonic", "nuget");
@@ -350,7 +472,7 @@ export const restoreCommand = (
     }
 
     const shouldAutoGenerate = (p: PackageReferenceConfig): boolean =>
-      p.types === undefined || p.types.trim().length === 0;
+      p.types === undefined;
 
     const roots: string[] = [];
     for (const pr of packageReferencesAll.filter(shouldAutoGenerate)) {
@@ -428,9 +550,14 @@ export const restoreCommand = (
       for (const dll of node.dlls) compileDirs.add(dirname(dll));
     }
 
+    const typesFalsePkgIds = new Set<string>();
     const typesPackageByPkgId = new Map<string, string>();
     for (const pr of packageReferencesAll) {
-      if (pr.types && pr.types.trim().length > 0) {
+      if (pr.types === false) {
+        typesFalsePkgIds.add(normalizePkgId(pr.id));
+        continue;
+      }
+      if (typeof pr.types === "string" && pr.types.trim().length > 0) {
         typesPackageByPkgId.set(normalizePkgId(pr.id), pr.types);
       }
     }
@@ -466,17 +593,223 @@ export const restoreCommand = (
 
     const bindingsDirByLibKey = new Map<string, string>();
 
-    for (const libKey of topo) {
-      const node = packagesByLibKey.get(libKey);
+    // Meta-package planning
+    //
+    // Some NuGet packages ship no compile-time DLLs (e.g., `xunit`), but are still
+    // the ergonomic package ID that users expect to reference.
+    //
+    // Airplane-grade rule: imports must resolve to real CLR bindings via bindings.json.
+    // Therefore meta packages must produce a bindings package with real bindings.json
+    // (not merely `.d.ts` re-exports).
+    //
+    // Approach:
+    // - For each declared meta root (direct PackageReference with no DLLs), claim a
+    //   subset of its dependency closure to generate into the meta root’s bindings
+    //   package.
+    // - We only claim packages that are:
+    //   - not direct roots themselves (so roots remain independently addressable), and
+    //   - not explicitly mapped to external bindings (types: "<pkg>"), and
+    //   - not shared by multiple roots (to preserve unambiguous ownership).
+    //
+    // Any remaining dependencies are referenced via `--lib` (external mappings or
+    // their own generated bindings packages).
+    const rootsSet = new Set<string>(roots);
+    const rootReachCount = new Map<string, number>();
+    for (const root of roots) {
+      rootReachCount.set(root, (rootReachCount.get(root) ?? 0) + 1);
+      for (const dep of transitiveDeps.get(root) ?? []) {
+        rootReachCount.set(dep, (rootReachCount.get(dep) ?? 0) + 1);
+      }
+    }
+
+    type MetaPlan = {
+      readonly outDir: string;
+      readonly claimedLibKeys: ReadonlySet<string>;
+      readonly seedDlls: readonly string[];
+    };
+    const metaPlanByLibKey = new Map<string, MetaPlan>();
+    const claimedByLibKey = new Map<string, string>(); // dep libKey -> meta root libKey
+
+    for (const rootLibKey of roots) {
+      const node = packagesByLibKey.get(rootLibKey);
       if (!node) continue;
-      const seedDlls = [...node.dlls];
-      if (seedDlls.length === 0) continue; // meta-package
+      if (node.dlls.length > 0) continue; // not a meta package
 
       const declared = packageReferencesAll.find(
         (p) => normalizePkgId(p.id) === normalizePkgId(node.packageId)
       );
-      if (declared?.types) {
+      if (!declared || declared.types !== undefined) continue;
+
+      const packageName = defaultBindingsPackageNameForNuget(node.packageId);
+      const outDir = bindingsStoreDir(workspaceRoot, "nuget", packageName);
+
+      const claimed = new Set<string>();
+      const seedSet = new Set<string>();
+
+      for (const depKey of transitiveDeps.get(rootLibKey) ?? []) {
+        if (rootsSet.has(depKey)) continue; // other direct roots remain independent
+        const depNode = packagesByLibKey.get(depKey);
+        if (!depNode) continue;
+        if (depNode.dlls.length === 0) continue; // nothing to emit for meta deps
+
+        const depPkgNorm = normalizePkgId(depNode.packageId);
+        if (typesFalsePkgIds.has(depPkgNorm)) {
+          return {
+            ok: false,
+            error:
+              `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
+              `It is required by meta-package root '${node.packageId}', which must produce real CLR bindings.\n` +
+              `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+          };
+        }
+
+        // If user provided an external bindings package, do not claim it.
+        if (typesPackageByPkgId.has(depPkgNorm)) continue;
+
+        // If multiple roots depend on this package, keep it generated independently.
+        const reach = rootReachCount.get(depKey) ?? 0;
+        if (reach > 1) continue;
+
+        const existingOwner = claimedByLibKey.get(depKey);
+        if (existingOwner && existingOwner !== rootLibKey) {
+          return {
+            ok: false,
+            error:
+              `Cannot auto-generate meta-package bindings for '${node.packageId}': shared dependency ownership conflict.\n` +
+              `Dependency '${depNode.packageId}' is claimed by multiple meta roots:\n` +
+              `- ${packagesByLibKey.get(existingOwner)?.packageId ?? existingOwner}\n` +
+              `- ${node.packageId}\n` +
+              `Fix: provide explicit 'types' mappings for one of the roots to avoid auto-generation ambiguity.`,
+          };
+        }
+
+        claimedByLibKey.set(depKey, rootLibKey);
+        claimed.add(depKey);
+        for (const dll of depNode.dlls) seedSet.add(dll);
+      }
+
+      const seedDlls = Array.from(seedSet).sort((a, b) => a.localeCompare(b));
+      if (seedDlls.length === 0) {
+        return {
+          ok: false,
+          error:
+            `Cannot auto-generate meta-package bindings for '${node.packageId}': no seed DLLs found.\n` +
+            `This package contains no compile-time DLLs and none of its dependency DLLs are eligible for claiming.\n` +
+            `Fix: provide an explicit bindings package via 'types: \"<pkg>\"' or reference a non-meta package that contains the required APIs.`,
+        };
+      }
+
+      metaPlanByLibKey.set(rootLibKey, {
+        outDir,
+        claimedLibKeys: claimed,
+        seedDlls,
+      });
+
+      // Expose claimed packages as being provided by the meta root bindings dir so
+      // any later generators can resolve constraints deterministically.
+      for (const depKey of claimed) {
+        bindingsDirByLibKey.set(depKey, outDir);
+      }
+    }
+
+    for (const libKey of topo) {
+      const node = packagesByLibKey.get(libKey);
+      if (!node) continue;
+      if (claimedByLibKey.has(libKey) && !metaPlanByLibKey.has(libKey)) {
+        // This package’s types are generated into its meta root’s bindings package.
+        continue;
+      }
+      const seedDlls = [...node.dlls];
+
+      const declared = packageReferencesAll.find(
+        (p) => normalizePkgId(p.id) === normalizePkgId(node.packageId)
+      );
+      if (declared?.types === false) {
+        return {
+          ok: false,
+          error:
+            `PackageReference '${declared.id}' is marked as 'types: false' but it contains CLR assemblies.\n` +
+            `This package is part of the bindings dependency closure and therefore requires bindings.\n` +
+            `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+        };
+      }
+      if (declared?.types !== undefined) {
         continue; // bindings supplied externally; do not auto-generate.
+      }
+
+      if (seedDlls.length === 0) {
+        // Meta-package root generation (e.g., xunit): emit real bindings by
+        // generating from claimed dependency DLLs.
+        const plan = metaPlanByLibKey.get(libKey);
+        if (!plan) {
+          // Meta package not declared as a root (not user-facing); ignore.
+          continue;
+        }
+
+        const packageName = defaultBindingsPackageNameForNuget(node.packageId);
+        const outDir = plan.outDir;
+        bindingsDirByLibKey.set(libKey, outDir);
+
+        const pkgJsonResult = ensureGeneratedBindingsPackageJson(outDir, packageName, {
+          kind: "nuget",
+          source: { packageId: node.packageId, version: node.version },
+        });
+        if (!pkgJsonResult.ok) return pkgJsonResult;
+
+        const generateArgs: string[] = [
+          ...plan.seedDlls.flatMap((p) => ["-a", p]),
+          "-o",
+          outDir,
+          "--lib",
+          dotnetLib,
+        ];
+
+        const libDirs = new Set<string>();
+        for (const depKey of transitiveDeps.get(libKey) ?? []) {
+          if (plan.claimedLibKeys.has(depKey)) continue;
+          const depNode = packagesByLibKey.get(depKey);
+          if (!depNode) continue;
+
+          const depPkgNorm = normalizePkgId(depNode.packageId);
+          if (typesFalsePkgIds.has(depPkgNorm) && depNode.dlls.length > 0) {
+            return {
+              ok: false,
+              error:
+                `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
+                `It is required by '${node.packageId}' and therefore requires bindings.\n` +
+                `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+            };
+          }
+
+          const typesPkg = typesPackageByPkgId.get(depPkgNorm);
+          if (typesPkg) {
+            const dirRes = resolveTypesLibDir(depNode.packageId);
+            if (!dirRes.ok) return dirRes;
+            libDirs.add(dirRes.value);
+            continue;
+          }
+
+          const generated = bindingsDirByLibKey.get(depKey);
+          if (generated) libDirs.add(generated);
+        }
+
+        for (const depDir of Array.from(libDirs).sort((a, b) => a.localeCompare(b))) {
+          generateArgs.push("--lib", depDir);
+        }
+
+        for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
+        for (const d of compileDirs) generateArgs.push("--ref-dir", d);
+        for (const dep of options.deps ?? []) {
+          generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
+        }
+
+        const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
+        if (!genResult.ok) return genResult;
+
+        const installResult = installGeneratedBindingsPackage(workspaceRoot, packageName, outDir);
+        if (!installResult.ok) return installResult;
+
+        continue;
       }
 
       const packageName = defaultBindingsPackageNameForNuget(node.packageId);
@@ -503,6 +836,15 @@ export const restoreCommand = (
         if (!depNode) continue;
 
         const depPkgNorm = normalizePkgId(depNode.packageId);
+        if (typesFalsePkgIds.has(depPkgNorm) && depNode.dlls.length > 0) {
+          return {
+            ok: false,
+            error:
+              `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
+              `It is required by '${node.packageId}' and therefore requires bindings.\n` +
+              `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+          };
+        }
         const typesPkg = typesPackageByPkgId.get(depPkgNorm);
         if (typesPkg) {
           const dirRes = resolveTypesLibDir(depNode.packageId);
@@ -534,7 +876,7 @@ export const restoreCommand = (
   }
 
   // 3) Local DLL bindings (dotnet.libraries)
-  const typesPackageByLibraryPathKey = new Map<string, string>();
+  const typesPackageByLibraryPathKey = new Map<string, string | false>();
   const libraryPaths: string[] = [];
   for (const entry of (dotnet.libraries ?? []) as LibraryReferenceConfig[]) {
     if (typeof entry === "string") {
@@ -555,7 +897,7 @@ export const restoreCommand = (
     }
 
     const existing = typesPackageByLibraryPathKey.get(key);
-    if (existing && existing !== entry.types) {
+    if (existing !== undefined && existing !== entry.types) {
       return {
         ok: false,
         error:
@@ -694,6 +1036,7 @@ export const restoreCommand = (
     }
 
     const libDirById = new Map<string, string>();
+    const noTypesIds = new Set<string>();
     for (const id of order) {
       const asm = byId.get(id);
       const destPath = destPathById.get(id);
@@ -702,7 +1045,11 @@ export const restoreCommand = (
       const typesPkg = typesPackageByLibraryPathKey.get(
         normalizeLibraryKey(`libs/${basename(destPath)}`)
       );
-      if (typesPkg) {
+      if (typesPkg !== undefined) {
+        if (typesPkg === false) {
+          noTypesIds.add(id);
+          continue; // csproj-only dependency; do not generate bindings.
+        }
         const typesRoot = resolvePackageRoot(workspaceRoot, typesPkg);
         if (!typesRoot.ok) {
           return {
@@ -735,7 +1082,21 @@ export const restoreCommand = (
         dotnetLib,
       ];
 
-      const libs = Array.from(transitiveDeps.get(id) ?? [])
+      const transitive = Array.from(transitiveDeps.get(id) ?? []);
+      for (const depId of transitive) {
+        if (noTypesIds.has(depId)) {
+          const depAsm = byId.get(depId);
+          return {
+            ok: false,
+            error:
+              `Assembly '${asm.name}' depends on '${depAsm?.name ?? depId}', but that dependency is configured with 'types: false'.\n` +
+              `Bindings generation for '${asm.name}' requires bindings for all referenced assemblies.\n` +
+              `Fix: remove 'types: false' for '${depAsm?.name ?? depId}' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+          };
+        }
+      }
+
+      const libs = transitive
         .map((depId) => libDirById.get(depId))
         .filter((p): p is string => typeof p === "string")
         .sort((a, b) => a.localeCompare(b));

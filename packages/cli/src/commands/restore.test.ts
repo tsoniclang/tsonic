@@ -29,6 +29,79 @@ const linkDir = (target: string, linkPath: string): void => {
   symlinkSync(target, linkPath, "dir");
 };
 
+const run = (cwd: string, command: string, args: readonly string[]): void => {
+  const result = spawnSync(command, args, { cwd, encoding: "utf-8" });
+  if (result.status !== 0) {
+    const msg = result.stderr || result.stdout || `Exit code ${result.status}`;
+    throw new Error(`${command} ${args.join(" ")} failed:\n${msg}`);
+  }
+};
+
+const writeNugetConfig = (projectRoot: string, feedDir: string): void => {
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="local" value="${feedDir}" />
+  </packageSources>
+</configuration>
+`;
+  writeFileSync(join(projectRoot, "nuget.config"), xml, "utf-8");
+};
+
+const createNugetPackage = (
+  workDir: string,
+  feedDir: string,
+  pkg: {
+    id: string;
+    version: string;
+    deps?: readonly { id: string; version: string }[];
+    includeBuildOutput?: boolean;
+  }
+): void => {
+  const projDir = join(workDir, `${pkg.id}.${pkg.version}`);
+  mkdirSync(projDir, { recursive: true });
+
+  const includeBuildOutput =
+    pkg.includeBuildOutput === undefined ? true : pkg.includeBuildOutput;
+
+  const deps =
+    pkg.deps && pkg.deps.length > 0
+      ? `<ItemGroup>\n${pkg.deps
+          .map(
+            (d) =>
+              `  <PackageReference Include="${d.id}" Version="${d.version}" />`
+          )
+          .join("\n")}\n</ItemGroup>\n`
+      : "";
+
+  const includeBuildOutputProp = includeBuildOutput
+    ? ""
+    : "    <IncludeBuildOutput>false</IncludeBuildOutput>\n";
+
+  const csproj = `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>enable</Nullable>
+${includeBuildOutputProp}
+    <PackageId>${pkg.id}</PackageId>
+    <Version>${pkg.version}</Version>
+  </PropertyGroup>
+${deps}</Project>
+`;
+  writeFileSync(join(projDir, `${pkg.id}.csproj`), csproj, "utf-8");
+  writeFileSync(
+    join(projDir, "Class1.cs"),
+    `namespace ${pkg.id.replace(/\./g, "_")};\npublic sealed class ${pkg.id
+      .split(".")
+      .pop()}Type { }\n`,
+    "utf-8"
+  );
+
+  run(projDir, "dotnet", ["pack", "-c", "Release", "-o", feedDir, "--nologo"]);
+};
+
 describe("restore command", function () {
   this.timeout(10 * 60 * 1000);
 
@@ -311,6 +384,192 @@ describe("restore command", function () {
         expect(result.error).to.include("Bindings package not found");
         expect(result.error).to.include("@acme/acme-test-types");
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips bindings generation for NuGet packages with 'types: false'", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-nuget-types-false-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
+          "\n",
+        "utf-8"
+      );
+
+      // Provide required standard bindings packages (no network).
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const feedDir = join(dir, "feed");
+      mkdirSync(feedDir, { recursive: true });
+      writeNugetConfig(dir, feedDir);
+
+      createNugetPackage(dir, feedDir, { id: "Acme.A", version: "1.0.0" });
+      createNugetPackage(dir, feedDir, { id: "Acme.Tooling", version: "1.0.0" });
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              frameworkReferences: [],
+              libraries: [],
+              packageReferences: [
+                { id: "Acme.A", version: "1.0.0" },
+                { id: "Acme.Tooling", version: "1.0.0", types: false },
+              ],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      expect(result.ok).to.equal(true);
+
+      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(true);
+      expect(existsSync(join(dir, "node_modules", "acme-tooling-types"))).to.equal(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails fast when a generated NuGet package depends on a 'types: false' package", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-nuget-types-false-dep-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
+          "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const feedDir = join(dir, "feed");
+      mkdirSync(feedDir, { recursive: true });
+      writeNugetConfig(dir, feedDir);
+
+      createNugetPackage(dir, feedDir, { id: "Acme.B", version: "1.0.0" });
+      createNugetPackage(dir, feedDir, {
+        id: "Acme.A",
+        version: "1.0.0",
+        deps: [{ id: "Acme.B", version: "1.0.0" }],
+      });
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              frameworkReferences: [],
+              libraries: [],
+              packageReferences: [
+                { id: "Acme.A", version: "1.0.0" },
+                { id: "Acme.B", version: "1.0.0", types: false },
+              ],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.include("types: false");
+        expect(result.error).to.include("Acme.B");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("generates real bindings for meta-package roots by claiming dependency DLLs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-nuget-meta-root-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
+          "\n",
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+
+      const feedDir = join(dir, "feed");
+      mkdirSync(feedDir, { recursive: true });
+      writeNugetConfig(dir, feedDir);
+
+      createNugetPackage(dir, feedDir, { id: "Acme.A", version: "1.0.0" });
+      createNugetPackage(dir, feedDir, {
+        id: "Acme.Meta",
+        version: "1.0.0",
+        includeBuildOutput: false,
+        deps: [{ id: "Acme.A", version: "1.0.0" }],
+      });
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              frameworkReferences: [],
+              libraries: [],
+              packageReferences: [{ id: "Acme.Meta", version: "1.0.0" }],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      expect(result.ok).to.equal(true);
+
+      const metaTypesDir = join(dir, "node_modules", "acme-meta-types");
+      const aTypesDir = join(dir, "node_modules", "acme-a-types");
+      expect(existsSync(metaTypesDir)).to.equal(true);
+      expect(existsSync(aTypesDir)).to.equal(false);
+
+      // Meta root bindings package must contain real bindings.json for dependency namespaces.
+      expect(existsSync(join(metaTypesDir, "Acme_A", "bindings.json"))).to.equal(true);
+      expect(existsSync(join(metaTypesDir, "Acme_A.js"))).to.equal(true);
+      expect(existsSync(join(metaTypesDir, "Acme_A.d.ts"))).to.equal(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

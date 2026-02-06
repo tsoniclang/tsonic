@@ -1,0 +1,12 @@
+{
+  "name": "tsonic-e2e-test-dotnet-test-command",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "^10.0.0",
+    "@tsonic/dotnet": "^10.0.0",
+    "@tsonic/globals": "^10.0.0"
+  }
+}
+

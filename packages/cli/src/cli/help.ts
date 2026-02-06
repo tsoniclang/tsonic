@@ -27,6 +27,7 @@ COMMANDS:
   generate [entry]          Generate C# code only
   build [entry]             Build executable or library
   run [entry] [-- args...]  Build and run executable
+  test                      Generate a test assembly and run dotnet test
   pack                      Create a NuGet package from a library
 
 GLOBAL OPTIONS:
@@ -75,6 +76,7 @@ EXAMPLES:
   tsonic generate src/App.ts --project my-app
   tsonic build src/App.ts --rid linux-x64 --project my-app
   tsonic run src/App.ts --project my-app -- --arg1 value1
+  tsonic test --project my-app
   tsonic pack
 
 LEARN MORE:

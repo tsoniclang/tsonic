@@ -81,7 +81,7 @@ export const loadWorkspaceConfig = (
       return {
         ok: false,
         error:
-          `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string }`,
+          `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string|false }`,
       };
     }
 
@@ -91,7 +91,7 @@ export const loadWorkspaceConfig = (
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string }`,
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string|false }`,
         };
       }
 
@@ -104,11 +104,15 @@ export const loadWorkspaceConfig = (
             `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must include a non-empty 'path'`,
         };
       }
-      if (types !== undefined && typeof types !== "string") {
+      if (
+        types !== undefined &&
+        types !== false &&
+        (typeof types !== "string" || types.trim().length === 0)
+      ) {
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a string when present`,
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a non-empty string or false when present`,
         };
       }
     }
@@ -124,14 +128,20 @@ export const loadWorkspaceConfig = (
         const id = (r as { readonly id?: unknown }).id;
         const types = (r as { readonly types?: unknown }).types;
         if (typeof id !== "string") return true;
-        if (types !== undefined && typeof types !== "string") return true;
+        if (
+          types !== undefined &&
+          types !== false &&
+          (typeof types !== "string" || types.trim().length === 0)
+        ) {
+          return true;
+        }
         return false;
       }))
   ) {
     return {
       ok: false,
       error:
-        `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string }`,
+        `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
     };
   }
 
@@ -152,12 +162,14 @@ export const loadWorkspaceConfig = (
         typeof (entry as { readonly id?: unknown }).id !== "string" ||
         typeof (entry as { readonly version?: unknown }).version !== "string" ||
         ((entry as { readonly types?: unknown }).types !== undefined &&
-          typeof (entry as { readonly types?: unknown }).types !== "string")
+          (entry as { readonly types?: unknown }).types !== false &&
+          (typeof (entry as { readonly types?: unknown }).types !== "string" ||
+            String((entry as { readonly types?: unknown }).types).trim().length === 0))
       ) {
         return {
           ok: false,
           error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string }`,
+            `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
         };
       }
     }
@@ -208,6 +220,100 @@ export const loadWorkspaceConfig = (
     }
   }
 
+  // Test-only .NET deps validation
+  const testDotnet = (config.testDotnet ?? {}) as Record<string, unknown>;
+
+  const testFrameworkReferences = testDotnet.frameworkReferences;
+  if (
+    testFrameworkReferences !== undefined &&
+    (!Array.isArray(testFrameworkReferences) ||
+      testFrameworkReferences.some((r) => {
+        if (typeof r === "string") return false;
+        if (r === null || typeof r !== "object") return true;
+        const id = (r as { readonly id?: unknown }).id;
+        const types = (r as { readonly types?: unknown }).types;
+        if (typeof id !== "string") return true;
+        if (
+          types !== undefined &&
+          types !== false &&
+          (typeof types !== "string" || types.trim().length === 0)
+        ) {
+          return true;
+        }
+        return false;
+      }))
+  ) {
+    return {
+      ok: false,
+      error:
+        `${WORKSPACE_CONFIG_FILE}: 'testDotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
+    };
+  }
+
+  const testPackageReferences = testDotnet.packageReferences;
+  if (testPackageReferences !== undefined) {
+    if (!Array.isArray(testPackageReferences)) {
+      return {
+        ok: false,
+        error:
+          `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' must be an array of { id, version }`,
+      };
+    }
+
+    for (const entry of testPackageReferences as unknown[]) {
+      if (
+        entry === null ||
+        typeof entry !== "object" ||
+        typeof (entry as { readonly id?: unknown }).id !== "string" ||
+        typeof (entry as { readonly version?: unknown }).version !== "string" ||
+        ((entry as { readonly types?: unknown }).types !== undefined &&
+          (entry as { readonly types?: unknown }).types !== false &&
+          (typeof (entry as { readonly types?: unknown }).types !== "string" ||
+            String((entry as { readonly types?: unknown }).types).trim().length === 0))
+      ) {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
+        };
+      }
+    }
+  }
+
+  const testMsbuildProperties = testDotnet.msbuildProperties;
+  if (testMsbuildProperties !== undefined) {
+    if (
+      testMsbuildProperties === null ||
+      typeof testMsbuildProperties !== "object" ||
+      Array.isArray(testMsbuildProperties)
+    ) {
+      return {
+        ok: false,
+        error: `${WORKSPACE_CONFIG_FILE}: 'testDotnet.msbuildProperties' must be an object mapping MSBuild property names to string values`,
+      };
+    }
+
+    for (const [key, value] of Object.entries(
+      testMsbuildProperties as Record<string, unknown>
+    )) {
+      if (!MSBUILD_PROPERTY_NAME_RE.test(key)) {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.msbuildProperties' contains an invalid MSBuild property name: ${key}. ` +
+            `Property names must match ${String(MSBUILD_PROPERTY_NAME_RE)}.`,
+        };
+      }
+      if (typeof value !== "string") {
+        return {
+          ok: false,
+          error:
+            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.msbuildProperties.${key}' must be a string`,
+        };
+      }
+    }
+  }
+
   return { ok: true, value: config };
 };
 
@@ -248,6 +354,37 @@ export const loadProjectConfig = (
       return {
         ok: false,
         error: `${PROJECT_CONFIG_FILE}: 'references.libraries' must be an array of strings`,
+      };
+    }
+  }
+
+  const tests = (parsed.value as { readonly tests?: unknown }).tests;
+  if (tests !== undefined) {
+    if (tests === null || typeof tests !== "object" || Array.isArray(tests)) {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'tests' must be an object`,
+      };
+    }
+    const entryPoint = (tests as { readonly entryPoint?: unknown }).entryPoint;
+    if (typeof entryPoint !== "string" || entryPoint.trim().length === 0) {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'tests.entryPoint' must be a non-empty string`,
+      };
+    }
+    const outputDirectory = (tests as { readonly outputDirectory?: unknown }).outputDirectory;
+    if (outputDirectory !== undefined && typeof outputDirectory !== "string") {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'tests.outputDirectory' must be a string when present`,
+      };
+    }
+    const outputName = (tests as { readonly outputName?: unknown }).outputName;
+    if (outputName !== undefined && typeof outputName !== "string") {
+      return {
+        ok: false,
+        error: `${PROJECT_CONFIG_FILE}: 'tests.outputName' must be a string when present`,
       };
     }
   }

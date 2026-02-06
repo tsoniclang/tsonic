@@ -151,6 +151,25 @@ Build an executable or library.
 
 Build and run an executable.
 
+### `tsonic test`
+
+Generate a **non-NativeAOT** test assembly and run `dotnet test`.
+
+This gives you a normal .NET unit test workflow (xUnit/NUnit/MSTest) while keeping
+your production build in NativeAOT.
+
+Requirements:
+
+- `packages/<project>/tsonic.json` must define `tests.entryPoint`
+- `tsonic.workspace.json` should declare test frameworks under `testDotnet.*`
+  - For csproj-only test tooling packages (e.g. `Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio`), set `"types": false` since you typically won’t import them from TypeScript.
+
+Example:
+
+```bash
+tsonic test --project my-app
+```
+
 ### `tsonic pack`
 
 Create a NuGet package from a library project.
