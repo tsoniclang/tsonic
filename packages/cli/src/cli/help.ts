@@ -27,7 +27,7 @@ COMMANDS:
   generate [entry]          Generate C# code only
   build [entry]             Build executable or library
   run [entry] [-- args...]  Build and run executable
-  test                      Generate a test assembly and run `dotnet test`
+  test                      Generate a test assembly and run dotnet test
   pack                      Create a NuGet package from a library
 
 GLOBAL OPTIONS:

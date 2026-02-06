@@ -3,7 +3,6 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
 import type { ResolvedConfig, Result } from "../types.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
 import { generateCommand } from "./generate.js";
@@ -66,4 +65,3 @@ export const testCommand = (
     value: { exitCode: 0 },
   };
 };
-
