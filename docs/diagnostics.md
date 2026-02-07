@@ -495,18 +495,6 @@ takesChar(s[0]);    // OK (context expects char)
 
 **Fix:** Use a single-character literal in a `char` position, or obtain a `char` from an API returning `char` (for example `System.Char.parse("Q")`).
 
-### TSN7420: ref/out/In Are Parameter Modifiers
-
-`ref`, `out`, and `In` are parameter passing modifiers, not types.
-
-```typescript
-// Error
-function foo(x: ref<number>) {} // Wrong - ref is not a type
-
-// Correct: Use type annotation on the .NET side
-// These are handled via metadata, not TypeScript syntax
-```
-
 ### TSN7421: Anonymous Object Type Not Lowered
 
 Internal compiler error indicating an anonymous object type was not properly lowered to a synthesized class. This is a compiler bug - please report it.

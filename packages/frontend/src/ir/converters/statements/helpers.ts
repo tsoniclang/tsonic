@@ -223,6 +223,20 @@ export const hasStaticModifier = (node: ts.Node): boolean => {
 };
 
 /**
+ * Check if node has declare modifier.
+ *
+ * `declare` class members are type-only in TypeScript and should not emit runtime code.
+ * Tsonic mirrors this by skipping them during IR conversion.
+ */
+export const hasDeclareModifier = (node: ts.Node): boolean => {
+  if (!ts.canHaveModifiers(node)) return false;
+  const modifiers = ts.getModifiers(node);
+  return (
+    modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false
+  );
+};
+
+/**
  * Check if node has readonly modifier
  */
 export const hasReadonlyModifier = (node: ts.Node): boolean => {

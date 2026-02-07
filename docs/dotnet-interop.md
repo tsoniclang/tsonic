@@ -510,7 +510,8 @@ public class LegacyService
 
 ```typescript
 import { Console } from "@tsonic/dotnet/System.js";
-import { int, out } from "@tsonic/core/types.js";
+import type { int } from "@tsonic/core/types.js";
+import { defaultof, out } from "@tsonic/core/lang.js";
 
 // Dictionary.TryGetValue has an 'out' parameter
 import { Dictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
@@ -519,8 +520,8 @@ const dict = new Dictionary<string, int>();
 dict.Add("key", 42);
 
 // The 'out' parameter is handled automatically
-let value: int = 0;
-if (dict.TryGetValue("key", value as out<int>)) {
+let value = defaultof<int>();
+if (dict.TryGetValue("key", out(value))) {
   Console.WriteLine(value); // 42
 }
 ```
@@ -542,6 +543,15 @@ Parameter modifier types:
 | `out`    | `out`      | Return additional values          |
 | `ref`    | `ref`      | Pass by reference, may be mutated |
 | `inref`  | `in`       | Pass by reference, read-only      |
+
+Alternate call-site form (also supported):
+
+```typescript
+import type { int, out } from "@tsonic/core/types.js";
+
+let value: int = 0;
+dict.TryGetValue("key", value as out<int>);
+```
 
 ## Nullable Value Type Narrowing
 

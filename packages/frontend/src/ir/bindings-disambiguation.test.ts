@@ -39,6 +39,9 @@ describe("CLR member binding disambiguation", () => {
           types: [
             {
               clrName: "nodejs.Http.Server",
+              methods: [],
+              properties: [],
+              fields: [],
             },
           ],
         },
@@ -252,6 +255,9 @@ describe("CLR member binding disambiguation", () => {
           types: [
             {
               clrName: "nodejs.Http.NotServer",
+              methods: [],
+              properties: [],
+              fields: [],
             },
           ],
         },
@@ -427,6 +433,9 @@ describe("CLR member binding disambiguation", () => {
           types: [
             {
               clrName: "nodejs.Http.Server",
+              methods: [],
+              properties: [],
+              fields: [],
             },
           ],
         },

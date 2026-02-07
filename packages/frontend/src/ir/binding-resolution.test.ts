@@ -736,4 +736,101 @@ describe("Binding Resolution in IR", () => {
       expect(returnStmt.expression.argumentPassing).to.deep.equal(["value", "out"]);
     });
   });
+
+  describe("Call-site argument modifier intrinsics (out/ref/inref)", () => {
+    it("should erase out(x) marker for out-parameter extension methods", () => {
+      const source = `
+        interface IEnumerable_1<T> {}
+
+        export function test() {
+          interface __Ext_System_Linq_IEnumerable_1<T> {
+            // Extension marker surface; binding provides the real parameter modifiers.
+            TryGetNonEnumeratedCount(count: number): boolean;
+          }
+
+          type ExtensionMethods_System_Linq<TShape> =
+            TShape & (TShape extends IEnumerable_1<infer T0> ? __Ext_System_Linq_IEnumerable_1<T0> : {});
+
+          type LinqSeq<T> = ExtensionMethods_System_Linq<IEnumerable_1<T>>;
+
+          declare const xs: LinqSeq<number>;
+
+          let count = 0;
+          return xs.TryGetNonEnumeratedCount(out(count));
+        }
+      `;
+
+      const bindings = new BindingRegistry();
+      bindings.addBindings("/test/System.Linq/bindings.json", {
+        namespace: "System.Linq",
+        types: [
+          {
+            clrName: "System.Linq.Enumerable",
+            assemblyName: "System.Linq",
+            methods: [
+              {
+                clrName: "TryGetNonEnumeratedCount",
+                normalizedSignature:
+                  "TryGetNonEnumeratedCount|(IEnumerable_1,System.Int32&):System.Boolean|static=true",
+                declaringClrType: "System.Linq.Enumerable",
+                declaringAssemblyName: "System.Linq",
+                isExtensionMethod: true,
+                parameterModifiers: [{ index: 1, modifier: "out" }],
+              },
+            ],
+            properties: [],
+            fields: [],
+          },
+        ],
+      });
+
+      const { testProgram, ctx, options } = createTestProgram(source, bindings);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      // No deterministic diagnostics should be emitted for marker usage here.
+      expect(ctx.diagnostics.map((d) => d.code)).to.deep.equal([]);
+
+      const module = result.value;
+      const funcDecl = module.body[0];
+      if (funcDecl?.kind !== "functionDeclaration") return;
+
+      const returnStmt = funcDecl.body.statements[1];
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) return;
+      if (returnStmt.expression.kind !== "call") return;
+
+      // Marker should be erased and surfaced as passing mode.
+      expect(returnStmt.expression.argumentPassing).to.deep.equal(["out"]);
+
+      const firstArg = returnStmt.expression.arguments[0];
+      if (!firstArg || firstArg.kind !== "identifier") return;
+      expect(firstArg.name).to.equal("count");
+    });
+
+    it("should emit TSN7444 when call-site out conflicts with a resolved signature", () => {
+      const source = `
+        export function f(x: number): void {}
+
+        export function test() {
+          let x = 0;
+          f(out(x));
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const codes = ctx.diagnostics.map((d) => d.code);
+      expect(codes).to.include("TSN7444");
+    });
+  });
 });

@@ -34,6 +34,8 @@ export const createDbOptions = (): DbContextOptions => {
 export class AppDbContextFactory
   implements IDesignTimeDbContextFactory<AppDbContext>
 {
+  declare readonly __tsonic_iface_Microsoft_EntityFrameworkCore_Design_IDesignTimeDbContextFactory_1: never;
+
   CreateDbContext(_args: string[]): AppDbContext {
     return new AppDbContext(createDbOptions());
   }

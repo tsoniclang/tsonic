@@ -44,6 +44,23 @@ const registerLocalName = (
   return { ...context, localNameMap: nextMap };
 };
 
+const getAsyncBodyReturnType = (
+  isAsync: boolean,
+  returnType: IrType | undefined
+): IrType | undefined => {
+  if (!isAsync || !returnType) return returnType;
+  if (
+    returnType.kind === "referenceType" &&
+    (returnType.name === "Promise" ||
+      returnType.name === "Task" ||
+      returnType.name === "ValueTask") &&
+    returnType.typeArguments?.length === 1
+  ) {
+    return returnType.typeArguments[0];
+  }
+  return returnType;
+};
+
 /**
  * Types that require explicit LHS type because C# has no literal suffix for them.
  * For these types, `var x = 200;` would infer `int`, not the intended type.
@@ -668,22 +685,32 @@ export const emitVariableDeclaration = (
             withStatic(indent(paramCtx), false)
           );
 
+          const bodyReturnType = getAsyncBodyReturnType(
+            arrowFunc.isAsync,
+            arrowReturnType
+          );
+
           let bodyText = "";
           if (arrowFunc.body.kind === "blockStatement") {
             const [blockCode] = emitStatement(arrowFunc.body, {
               ...bodyBaseContext,
-              returnType: arrowReturnType,
+              returnType: bodyReturnType,
             });
             bodyText = `\n${blockCode}`;
           } else {
             const [exprCode] = emitExpression(
               arrowFunc.body,
               bodyBaseContext,
-              arrowReturnType
+              bodyReturnType
             );
             const bodyInd = getIndent(bodyBaseContext);
+            const isVoidReturn =
+              !bodyReturnType ||
+              bodyReturnType.kind === "voidType" ||
+              (bodyReturnType.kind === "primitiveType" &&
+                bodyReturnType.name === "undefined");
             const retOrExpr =
-              returnTypeName === "void" ? `${exprCode.text};` : `return ${exprCode.text};`;
+              isVoidReturn ? `${exprCode.text};` : `return ${exprCode.text};`;
             bodyText = `\n${ind}{\n${bodyInd}${retOrExpr}\n${ind}}`;
           }
 
