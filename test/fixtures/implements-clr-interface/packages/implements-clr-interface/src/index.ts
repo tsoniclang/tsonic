@@ -2,6 +2,8 @@ import { Console } from "@tsonic/dotnet/System.js";
 import type { IDisposable, Type } from "@tsonic/dotnet/System.js";
 
 export class Thing implements IDisposable {
+  declare readonly __tsonic_iface_System_IDisposable: never;
+
   Dispose(): void {
     Console.WriteLine("disposed");
   }

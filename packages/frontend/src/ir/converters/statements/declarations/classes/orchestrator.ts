@@ -8,6 +8,7 @@ import {
   hasExportModifier,
   convertTypeParameters,
   hasStaticModifier,
+  hasDeclareModifier,
 } from "../../helpers.js";
 import { convertAccessorProperty, convertProperty } from "./properties.js";
 import { convertMethod, convertMethodOverloadGroup } from "./methods.js";
@@ -46,7 +47,9 @@ const filterOwnMembers = (
 ): readonly ts.ClassElement[] => {
   // All members directly on node.members ARE own members by definition
   // The AST doesn't include inherited members in the class's members array
-  return node.members;
+  //
+  // NOTE: `declare` members are type-only in TypeScript and must not emit.
+  return node.members.filter((m) => !hasDeclareModifier(m));
 };
 
 /**
