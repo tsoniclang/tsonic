@@ -355,6 +355,7 @@ describe("Reference Type Emission", () => {
                     },
                     isComputed: true,
                     isOptional: false,
+                    accessKind: "clrIndexer",
                   },
                 },
               ],

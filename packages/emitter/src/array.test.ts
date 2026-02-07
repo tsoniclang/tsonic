@@ -279,6 +279,7 @@ describe("Array Emission", () => {
                 },
                 isComputed: true,
                 isOptional: false,
+                accessKind: "clrIndexer",
               },
             },
           ],
