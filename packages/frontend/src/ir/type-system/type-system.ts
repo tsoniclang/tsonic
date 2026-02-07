@@ -103,6 +103,18 @@ export interface TypeAuthority {
    */
   typeOfMember(receiver: IrType, member: MemberRef, site?: Site): IrType;
 
+  /**
+   * Get CLR indexer information for a receiver type (if any).
+   *
+   * Used to deterministically lower computed access (`obj[key]`) using CLR metadata
+   * rather than heuristics. This includes string-keyed indexers from ASP.NET Core
+   * collections like IQueryCollection / IHeaderDictionary.
+   */
+  getIndexerInfo(
+    receiver: IrType,
+    site?: Site
+  ): { readonly keyClrType: string; readonly valueType: IrType } | undefined;
+
   // ─────────────────────────────────────────────────────────────────────────
   // Call Resolution — THE HEART OF DETERMINISM
   // ─────────────────────────────────────────────────────────────────────────
@@ -141,7 +153,7 @@ export interface TypeAuthority {
    * - ReturnType/Parameters: F must be single function
    * - NonNullable: Works on any type
    * - Exclude/Extract: Works on any types
-   * - Awaited: Recursive on Promise<T>
+   * - Awaited: Recursive on Promise<T>, Task<T>, ValueTask<T>
    * - Record: K must be string/number or literal union
    *
    * Returns unknownType + TSN7414 diagnostic on constraint violation.
@@ -1093,13 +1105,45 @@ export const createTypeSystem = (
 	   * 1) AliasTable (primitives/globals/System.* canonicalization)
 	   * 2) UnifiedTypeCatalog by tsName
 	   * 3) UnifiedTypeCatalog by clrName
+	   *
+	   * IMPORTANT (airplane-grade):
+	   * Resolution must be arity-aware when type arguments are present. Facade
+	   * types often omit the `_N` generic arity suffix (e.g. `IList<T>` is a
+	   * facade over `IList_1<T>`). When `arity` is provided and the direct
+	   * resolution doesn't match, we deterministically try `<name>_<arity>`.
 	   */
-	  const resolveTypeIdByName = (name: string): TypeId | undefined => {
-	    return (
+	  const resolveTypeIdByName = (
+	    name: string,
+	    arity?: number
+	  ): TypeId | undefined => {
+	    const direct =
 	      aliasTable.get(name) ??
 	      unifiedCatalog.resolveTsName(name) ??
-	      unifiedCatalog.resolveClrName(name)
-	    );
+	      unifiedCatalog.resolveClrName(name);
+
+	    if (arity === undefined) return direct;
+
+	    if (direct) {
+	      const directArity = unifiedCatalog.getTypeParameters(direct).length;
+	      if (directArity === arity) return direct;
+	    }
+
+	    // Facade name without arity suffix → try tsbindgen's structural encoding.
+	    if (arity > 0) {
+	      const suffixed = `${name}_${arity}`;
+	      const candidate =
+	        aliasTable.get(suffixed) ??
+	        unifiedCatalog.resolveTsName(suffixed) ??
+	        unifiedCatalog.resolveClrName(suffixed);
+
+	      if (candidate) {
+	        const candidateArity =
+	          unifiedCatalog.getTypeParameters(candidate).length;
+	        if (candidateArity === arity) return candidate;
+	      }
+	    }
+
+	    return undefined;
 	  };
 
 	  /**
@@ -1140,7 +1184,10 @@ export const createTypeSystem = (
 	      case "referenceType": {
 	        const typeId =
 	          type.typeId ??
-	          resolveTypeIdByName(type.resolvedClrType ?? type.name);
+	          resolveTypeIdByName(
+	            type.resolvedClrType ?? type.name,
+	            type.typeArguments?.length
+	          );
 
 	        return {
 	          ...type,
@@ -1217,23 +1264,25 @@ export const createTypeSystem = (
 	    type: IrType
 	  ): { typeId: TypeId; typeArgs: readonly IrType[] } | undefined => {
 	    if (type.kind === "referenceType") {
+	      const arity = type.typeArguments?.length;
 	      const typeId =
 	        type.typeId ??
 	        (type.resolvedClrType
-	          ? resolveTypeIdByName(type.resolvedClrType)
-	          : undefined) ?? resolveTypeIdByName(type.name);
+	          ? resolveTypeIdByName(type.resolvedClrType, arity)
+	          : undefined) ??
+	        resolveTypeIdByName(type.name, arity);
 	      if (!typeId) return undefined;
 	      return { typeId, typeArgs: type.typeArguments ?? [] };
 	    }
 
 	    if (type.kind === "primitiveType") {
-	      const typeId = resolveTypeIdByName(type.name);
+	      const typeId = resolveTypeIdByName(type.name, 0);
 	      if (!typeId) return undefined;
 	      return { typeId, typeArgs: [] };
 	    }
 
 	    if (type.kind === "arrayType") {
-	      const arrayTypeId = resolveTypeIdByName("Array");
+	      const arrayTypeId = resolveTypeIdByName("Array", 1);
 	      if (!arrayTypeId) return undefined;
 	      return { typeId: arrayTypeId, typeArgs: [type.elementType] };
 	    }
@@ -1448,6 +1497,13 @@ export const createTypeSystem = (
 	  };
 
 	  const unwrapAwaitedForInference = (type: IrType): IrType => {
+	    if (type.kind === "unionType") {
+	      return {
+	        kind: "unionType",
+	        types: type.types.map((t) => (t ? unwrapAwaitedForInference(t) : t)),
+	      };
+	    }
+
 	    if (
 	      type.kind === "referenceType" &&
 	      (type.name === "Promise" || type.name === "PromiseLike")
@@ -1455,6 +1511,25 @@ export const createTypeSystem = (
 	      const inner = type.typeArguments?.[0];
 	      if (inner) return unwrapAwaitedForInference(inner);
 	    }
+
+	    if (type.kind === "referenceType") {
+	      const clrName = type.typeId?.clrName;
+	      if (
+	        clrName === "System.Threading.Tasks.Task" ||
+	        clrName === "System.Threading.Tasks.ValueTask"
+	      ) {
+	        return voidType;
+	      }
+
+	      if (
+	        clrName?.startsWith("System.Threading.Tasks.Task`") ||
+	        clrName?.startsWith("System.Threading.Tasks.ValueTask`")
+	      ) {
+	        const inner = type.typeArguments?.[0];
+	        if (inner) return unwrapAwaitedForInference(inner);
+	      }
+	    }
+
 	    return type;
 	  };
 
@@ -1556,6 +1631,10 @@ export const createTypeSystem = (
 
       if (objectType.kind === "primitiveType" && objectType.name === "string") {
         return { kind: "primitiveType", name: "string" };
+      }
+
+      if (objectType.kind === "referenceType") {
+        return getIndexerInfo(objectType)?.valueType;
       }
 
       return undefined;
@@ -2297,6 +2376,99 @@ export const createTypeSystem = (
     // 5. Member not found anywhere
     emitDiagnostic("TSN5203", `Member '${memberName}' not found`, site);
     return unknownType;
+  };
+
+  const parseIndexerKeyClrType = (stableId: string): string | undefined => {
+    const memberSep = stableId.indexOf("::");
+    if (memberSep < 0) return undefined;
+
+    const bracketStart = stableId.indexOf("[", memberSep);
+    if (bracketStart < 0) return undefined;
+
+    let depth = 0;
+    let bracketEnd = -1;
+    for (let i = bracketStart; i < stableId.length; i++) {
+      const ch = stableId[i];
+      if (ch === "[") depth++;
+      if (ch === "]") {
+        depth--;
+        if (depth === 0) {
+          bracketEnd = i;
+          break;
+        }
+      }
+    }
+    if (bracketEnd < 0) return undefined;
+
+    const rawParams = stableId.slice(bracketStart + 1, bracketEnd);
+
+    // Split on top-level commas to support nested generic types.
+    const splitTopLevel = (value: string): string[] => {
+      const parts: string[] = [];
+      let start = 0;
+      let bracketDepth = 0;
+      for (let i = 0; i < value.length; i++) {
+        const c = value[i];
+        if (c === "[") bracketDepth++;
+        else if (c === "]" && bracketDepth > 0) bracketDepth--;
+        else if (c === "," && bracketDepth === 0) {
+          parts.push(value.slice(start, i).trim());
+          start = i + 1;
+        }
+      }
+      parts.push(value.slice(start).trim());
+      return parts.filter((p) => p.length > 0);
+    };
+
+    const params = splitTopLevel(rawParams);
+    if (params.length !== 1) return undefined;
+
+    const first = params[0];
+    if (!first) return undefined;
+
+    // Strip assembly qualification (", Assembly, Version=..., ...") if present.
+    const withoutAsm = first.includes(",") ? (first.split(",")[0] ?? first) : first;
+    return withoutAsm.trim();
+  };
+
+  const getIndexerInfo = (
+    receiver: IrType,
+    _site?: Site
+  ): { readonly keyClrType: string; readonly valueType: IrType } | undefined => {
+    const normalized = normalizeToNominal(receiver);
+    if (!normalized) return undefined;
+
+    // Walk inheritance chain to find the first indexer property.
+    const chain = nominalEnv.getInheritanceChain(normalized.typeId);
+    for (const typeId of chain) {
+      const members = unifiedCatalog.getMembers(typeId);
+      const indexers = Array.from(members.values()).filter(
+        (m) => m.memberKind === "property" && m.isIndexer
+      );
+
+      if (indexers.length === 0) continue;
+      if (indexers.length > 1) return undefined;
+
+      const indexer = indexers[0];
+      if (!indexer?.type) return undefined;
+
+      const keyClrType = parseIndexerKeyClrType(indexer.stableId);
+      if (!keyClrType) return undefined;
+
+      const inst = nominalEnv.getInstantiation(
+        normalized.typeId,
+        normalized.typeArgs,
+        typeId
+      );
+      const valueType =
+        inst && inst.size > 0
+          ? irSubstitute(indexer.type, inst as IrSubstitutionMap)
+          : indexer.type;
+
+      return { keyClrType, valueType };
+    }
+
+    return undefined;
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -3107,7 +3279,7 @@ export const createTypeSystem = (
   // - ReturnType/Parameters: F must be function type
   // - NonNullable: Works on any type
   // - Exclude/Extract: Works on any types
-  // - Awaited: Recursive on Promise<T>
+  // - Awaited: Recursive on Promise<T>, Task<T>, ValueTask<T>
   // - Record: K must be finite literal union (string/number infinite → dictionary)
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -3485,9 +3657,13 @@ export const createTypeSystem = (
   };
 
   /**
-   * Expand Awaited<T>: Unwrap Promise types recursively
+   * Expand Awaited<T>: Unwrap Promise / Task / ValueTask types recursively.
    */
   const expandAwaitedUtility = (type: IrType): IrType => {
+    if (type.kind === "unionType") {
+      return { kind: "unionType", types: type.types.map((t) => expandAwaitedUtility(t)) };
+    }
+
     // Check for Promise<T>
     if (
       type.kind === "referenceType" &&
@@ -3499,7 +3675,30 @@ export const createTypeSystem = (
         return expandAwaitedUtility(innerType);
       }
     }
-    // Not a Promise - return as-is
+
+    // CLR awaitables: Task / ValueTask
+    if (type.kind === "referenceType") {
+      const clrName = type.typeId?.clrName;
+
+      // Non-generic: await Task / await ValueTask => void
+      if (
+        clrName === "System.Threading.Tasks.Task" ||
+        clrName === "System.Threading.Tasks.ValueTask"
+      ) {
+        return voidType;
+      }
+
+      // Generic: await Task<T> / await ValueTask<T> => T (recursively)
+      if (
+        clrName?.startsWith("System.Threading.Tasks.Task`") ||
+        clrName?.startsWith("System.Threading.Tasks.ValueTask`")
+      ) {
+        const innerType = type.typeArguments?.[0];
+        if (innerType) return expandAwaitedUtility(innerType);
+      }
+    }
+
+    // Not an awaitable - return as-is
     return type;
   };
 
@@ -4061,6 +4260,7 @@ export const createTypeSystem = (
     typeFromSyntax,
     typeOfDecl,
     typeOfMember,
+    getIndexerInfo,
     typeOfMemberId,
     getFQNameOfDecl,
     isTypeDecl,

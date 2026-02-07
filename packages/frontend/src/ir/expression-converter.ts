@@ -310,13 +310,14 @@ export const convertExpression = (
     };
   }
   if (ts.isAwaitExpression(node)) {
-    // await unwraps Promise - for now pass through the expression's type
-    // (full unwrapping would require detecting Promise<T> and returning T)
     const awaitedExpr = convertExpression(node.expression, ctx, undefined);
+    const awaitedType = awaitedExpr.inferredType
+      ? ctx.typeSystem.expandUtility("Awaited", [awaitedExpr.inferredType])
+      : undefined;
     return {
       kind: "await",
       expression: awaitedExpr,
-      inferredType: undefined, // Would need Promise unwrapping
+      inferredType: awaitedType,
       sourceSpan: getSourceSpan(node),
     };
   }

@@ -161,14 +161,16 @@ const normalizeForComputedAccess = (type: IrType | undefined): IrType | undefine
  * Classification is based on IR type kinds, NOT string matching.
  * CLR indexers (arrays, List<T>, etc.) require Int32 proof for indices.
  *
- * IMPORTANT: If classification cannot be determined reliably, returns "unknown"
- * which causes a compile-time error (TSN5109). This is safer than misclassifying.
+ * IMPORTANT: If classification cannot be determined reliably for a CLR-bound
+ * reference type, we conservatively assume `clrIndexer` (requires Int32 proof).
+ * This is safer than allowing arbitrary dictionary access without proof.
  *
  * @param objectType - The inferred type of the object being accessed
  * @returns The access kind classification
  */
 const classifyComputedAccess = (
-  objectType: IrType | undefined
+  objectType: IrType | undefined,
+  ctx: ProgramContext
 ): ComputedAccessKind => {
   const normalized = normalizeForComputedAccess(objectType);
   if (!normalized) return "unknown";
@@ -191,29 +193,10 @@ const classifyComputedAccess = (
     return "stringChar";
   }
 
-  // Reference types - default to clrIndexer (safe: requires Int32 proof)
-  // Dictionary detection requires resolvedClrType to be reliable
   if (objectType.kind === "referenceType") {
-    const clr = objectType.resolvedClrType;
-
-    // Dictionary types: no Int32 requirement (key is typed K)
-    // Use exact prefix matching for System.Collections.Generic.Dictionary
-    // Only detect if resolvedClrType is present (guaranteed by bindings)
-    if (clr) {
-      if (
-        clr.startsWith("global::System.Collections.Generic.Dictionary`") ||
-        clr.startsWith("System.Collections.Generic.Dictionary`")
-      ) {
-        return "dictionary";
-      }
-    }
-
-    // All other reference types (List<T>, Array, Span<T>, IList<T>, etc.)
-    // default to clrIndexer which requires Int32 proof.
-    // This is SAFE: if this is actually a Dictionary without resolvedClrType,
-    // the user would get a compile error (TSN5107) when using non-Int32 key,
-    // which is a safe failure mode (fails at compile time, not runtime).
-    return "clrIndexer";
+    const indexer = ctx.typeSystem.getIndexerInfo(objectType);
+    if (!indexer) return "clrIndexer";
+    return indexer.keyClrType === "System.Int32" ? "clrIndexer" : "dictionary";
   }
 
   return "unknown";
@@ -699,7 +682,8 @@ const resolveExtensionMethodsBinding = (
  * - Other → undefined
  */
 const deriveElementType = (
-  objectType: IrType | undefined
+  objectType: IrType | undefined,
+  ctx: ProgramContext
 ): IrType | undefined => {
   objectType = normalizeForComputedAccess(objectType);
   if (!objectType) return undefined;
@@ -724,6 +708,10 @@ const deriveElementType = (
     objectType.typeArguments.length === 1
   ) {
     return objectType.typeArguments[0];
+  }
+
+  if (objectType.kind === "referenceType") {
+    return ctx.typeSystem.getIndexerInfo(objectType)?.valueType;
   }
 
   return undefined;
@@ -818,10 +806,10 @@ export const convertMemberExpression = (
 
     // Classify the access kind for proof pass
     // This determines whether Int32 proof is required for the index
-    const accessKind = classifyComputedAccess(objectType);
+    const accessKind = classifyComputedAccess(objectType, ctx);
 
     // Derive element type from object type
-    const elementType = deriveElementType(objectType);
+    const elementType = deriveElementType(objectType, ctx);
 
     return {
       kind: "memberAccess",
