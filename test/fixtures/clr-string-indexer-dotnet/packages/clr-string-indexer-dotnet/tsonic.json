@@ -1,0 +1,9 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "ClrStringIndexerDotnet",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "clr-string-indexer-dotnet"
+}
+

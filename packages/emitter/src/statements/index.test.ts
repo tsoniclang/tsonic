@@ -178,6 +178,7 @@ describe("Statement Emission", () => {
                             },
                             isComputed: true,
                             isOptional: false,
+                            accessKind: "clrIndexer",
                           },
                         ],
                         isOptional: false,

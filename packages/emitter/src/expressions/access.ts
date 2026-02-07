@@ -297,38 +297,14 @@ export const emitMemberAccess = (
   const receiverText = formatPostfixExpressionText(expr.object, objectFrag.text);
 
   if (expr.isComputed) {
-    // Check if this is array index access
-    const objectType = expr.object.inferredType
-      ? stripNullish(expr.object.inferredType)
-      : undefined;
-    const isArrayType = objectType?.kind === "arrayType";
-
-    // TypeScript array access - unified for both js and dotnet modes
-    // HARD GATE: Index must be proven Int32 (validated by proof pass)
-    if (isArrayType) {
-      const indexContext = { ...newContext, isArrayIndex: true };
-      const [propFrag, contextWithIndex] = emitExpression(
-        expr.property as IrExpression,
-        indexContext
+    const accessKind = expr.accessKind;
+    if (accessKind === undefined || accessKind === "unknown") {
+      throw new Error(
+        `Internal Compiler Error: Computed accessKind was not classified during IR build ` +
+          `(accessKind=${accessKind ?? "undefined"}).`
       );
-      const finalContext = { ...contextWithIndex, isArrayIndex: false };
-      const indexExpr = expr.property as IrExpression;
-
-      if (!hasInt32Proof(indexExpr)) {
-        // ICE: Unproven index should have been caught by proof pass (TSN5107)
-        throw new Error(
-          `Internal Compiler Error: Array index must be proven Int32. ` +
-            `Expression '${propFrag.text}' has no Int32 proof. ` +
-            `This should have been caught by the numeric proof pass (TSN5107).`
-        );
-      }
-
-      // Use native CLR indexer
-      const text = `${receiverText}${expr.isOptional ? "?[" : "["}${propFrag.text}]`;
-      return [{ text }, finalContext];
     }
 
-    // CLR indexer access (non-TS-array types like List<T>, string, Dictionary, etc.)
     const indexContext = { ...newContext, isArrayIndex: true };
     const [propFrag, contextWithIndex] = emitExpression(
       expr.property as IrExpression,
@@ -337,33 +313,23 @@ export const emitMemberAccess = (
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
     const accessor = expr.isOptional ? "?[" : "[";
 
-    // Check if this is dictionary access (no cast needed - use key type directly)
-    const isDictionaryType = objectType?.kind === "dictionaryType";
-
-    if (isDictionaryType) {
-      // Dictionary: use key as-is (double for number keys, string for string keys)
+    if (accessKind === "dictionary") {
       const text = `${receiverText}${accessor}${propFrag.text}]`;
       return [{ text }, finalContext];
     }
 
-    // HARD GATE: Non-dictionary CLR indexers (List<T>, string) require Int32 proof
+    // HARD GATE: clrIndexer + stringChar require Int32 proof (validated by proof pass).
     const indexExpr = expr.property as IrExpression;
-
     if (!hasInt32Proof(indexExpr)) {
-      // ICE: Unproven index should have been caught by proof pass (TSN5107)
       throw new Error(
-        `Internal Compiler Error: CLR indexer requires Int32 index. ` +
+        `Internal Compiler Error: CLR indexer requires Int32 index (accessKind=${accessKind}). ` +
           `Expression '${propFrag.text}' has no Int32 proof. ` +
           `This should have been caught by the numeric proof pass (TSN5107).`
       );
     }
 
-    // String indexer: str[i] returns char in C#, but string in TypeScript.
-    // Emit .ToString() to convert char back to string for TypeScript semantics.
-    const isStringIndexer =
-      objectType?.kind === "primitiveType" && objectType.name === "string";
-
-    if (isStringIndexer) {
+    if (accessKind === "stringChar") {
+      // str[i] returns char in C#, but string in TypeScript. Convert char → string.
       const text = `${receiverText}${accessor}${propFrag.text}].ToString()`;
       return [{ text }, finalContext];
     }

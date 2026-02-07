@@ -1,0 +1,12 @@
+{
+  "name": "defaultof-intrinsic-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/core": "*",
+    "@tsonic/dotnet": "*",
+    "@tsonic/globals": "*"
+  }
+}
+

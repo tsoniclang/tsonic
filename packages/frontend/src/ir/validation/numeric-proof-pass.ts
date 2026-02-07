@@ -874,6 +874,9 @@ const processExpression = (
         size: processExpression(expr.size, ctx),
       };
 
+    case "defaultof":
+      return expr;
+
     case "templateLiteral":
       return {
         ...expr,

@@ -894,6 +894,13 @@ const lowerExpression = (
           size: lowerExpression(expr.size, ctx),
           inferredType: lowerType(expr.inferredType, ctx),
         };
+
+      case "defaultof":
+        return {
+          ...expr,
+          targetType: lowerType(expr.targetType, ctx),
+          inferredType: lowerType(expr.inferredType, ctx),
+        };
     }
   })();
   return lowered;

@@ -26,6 +26,7 @@ const needsParensForPostfixByKind = (kind: IrExpression["kind"]): boolean => {
     case "call":
     case "new":
     case "asinterface":
+    case "defaultof":
     case "this":
     case "literal":
     case "array":
@@ -84,6 +85,7 @@ const needsParensForCastOperandByKind = (kind: IrExpression["kind"]): boolean =>
     case "typeAssertion":
     case "trycast":
     case "stackalloc":
+    case "defaultof":
       return false;
     default:
       return true;

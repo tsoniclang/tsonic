@@ -12,6 +12,7 @@ import {
   IrAsInterfaceExpression,
   IrTryCastExpression,
   IrStackAllocExpression,
+  IrDefaultOfExpression,
 } from "../../types.js";
 import {
   getSourceSpan,
@@ -437,7 +438,12 @@ const extractArgumentPassingFromBinding = (
 export const convertCallExpression = (
   node: ts.CallExpression,
   ctx: ProgramContext
-): IrCallExpression | IrAsInterfaceExpression | IrTryCastExpression | IrStackAllocExpression => {
+):
+  | IrCallExpression
+  | IrAsInterfaceExpression
+  | IrTryCastExpression
+  | IrStackAllocExpression
+  | IrDefaultOfExpression => {
   // Check for asinterface<T>(x) - compile-time-only interface view.
   //
   // Airplane-grade rule:
@@ -511,6 +517,33 @@ export const convertCallExpression = (
       isOptional: false,
       inferredType: { kind: "primitiveType", name: "boolean" },
       typeArguments: [targetType],
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+
+  // Check for defaultof<T>() - language intrinsic for default value.
+  // defaultof<T>() compiles to C#: default(T)
+  if (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "defaultof" &&
+    node.typeArguments &&
+    node.typeArguments.length === 1 &&
+    node.arguments.length === 0
+  ) {
+    const targetTypeNode = node.typeArguments[0];
+    if (!targetTypeNode) {
+      throw new Error("ICE: defaultof requires exactly 1 type argument");
+    }
+
+    const typeSystem = ctx.typeSystem;
+    const targetType = typeSystem.typeFromSyntax(
+      ctx.binding.captureTypeSyntax(targetTypeNode)
+    );
+
+    return {
+      kind: "defaultof",
+      targetType,
+      inferredType: targetType,
       sourceSpan: getSourceSpan(node),
     };
   }
