@@ -2,7 +2,7 @@
  * Method member emission
  */
 
-import { IrClassMember, type IrParameter } from "@tsonic/frontend";
+import { IrClassMember, IrType, type IrParameter } from "@tsonic/frontend";
 import {
   EmitterContext,
   getIndent,
@@ -20,6 +20,23 @@ import {
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
 import { emitCSharpName } from "../../../naming-policy.js";
+
+const getAsyncBodyReturnType = (
+  isAsync: boolean,
+  returnType: IrType | undefined
+): IrType | undefined => {
+  if (!isAsync || !returnType) return returnType;
+  if (
+    returnType.kind === "referenceType" &&
+    (returnType.name === "Promise" ||
+      returnType.name === "Task" ||
+      returnType.name === "ValueTask") &&
+    returnType.typeArguments?.length === 1
+  ) {
+    return returnType.typeArguments[0];
+  }
+  return returnType;
+};
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -174,7 +191,7 @@ export const emitMethodMember = (
     baseBodyContext,
     {
       typeParameters: methodTypeParams,
-      returnType: member.returnType,
+      returnType: getAsyncBodyReturnType(member.isAsync, member.returnType),
     },
     (scopedCtx) => emitBlockStatement(body, scopedCtx)
   );

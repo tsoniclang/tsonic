@@ -2,7 +2,7 @@
  * Function declaration emission
  */
 
-import { IrStatement, type IrParameter } from "@tsonic/frontend";
+import { IrStatement, IrType, type IrParameter } from "@tsonic/frontend";
 import {
   EmitterContext,
   getIndent,
@@ -25,6 +25,23 @@ import {
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
+
+const getAsyncBodyReturnType = (
+  isAsync: boolean,
+  returnType: IrType | undefined
+): IrType | undefined => {
+  if (!isAsync || !returnType) return returnType;
+  if (
+    returnType.kind === "referenceType" &&
+    (returnType.name === "Promise" ||
+      returnType.name === "Task" ||
+      returnType.name === "ValueTask") &&
+    returnType.typeArguments?.length === 1
+  ) {
+    return returnType.typeArguments[0];
+  }
+  return returnType;
+};
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -168,7 +185,10 @@ export const emitFunctionDeclaration = (
     baseBodyContext,
     {
       typeParameters: funcTypeParams,
-      returnType: stmt.returnType,
+      returnType:
+        stmt.isAsync && !stmt.isGenerator
+          ? getAsyncBodyReturnType(stmt.isAsync, stmt.returnType)
+          : stmt.returnType,
     },
     (scopedCtx) => emitBlockStatement(stmt.body, scopedCtx)
   );
