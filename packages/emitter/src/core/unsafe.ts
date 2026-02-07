@@ -155,6 +155,9 @@ export const expressionUsesPointer = (
         typeUsesPointer(expr.inferredType)
       );
 
+    case "defaultof":
+      return typeUsesPointer(expr.targetType);
+
     case "call": {
       if (expressionUsesPointer(expr.callee)) return true;
       if (expr.typeArguments?.some((t) => typeUsesPointer(t))) return true;

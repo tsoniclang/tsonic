@@ -449,7 +449,12 @@ const validateExpression = (
         const name = expr.callee.name;
 
         // Intrinsics that MUST lower to dedicated IR nodes.
-        if (name === "asinterface" || name === "trycast" || name === "stackalloc") {
+        if (
+          name === "asinterface" ||
+          name === "trycast" ||
+          name === "stackalloc" ||
+          name === "defaultof"
+        ) {
           ctx.diagnostics.push(
             createDiagnostic(
               "TSN7442",
@@ -463,7 +468,7 @@ const validateExpression = (
         }
 
         // Reserved intrinsics (declared in @tsonic/core/lang.js) that are not implemented yet.
-        if (name === "nameof" || name === "sizeof" || name === "defaultof") {
+        if (name === "nameof" || name === "sizeof") {
           ctx.diagnostics.push(
             createDiagnostic(
               "TSN7443",

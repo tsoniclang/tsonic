@@ -11,6 +11,7 @@ import {
   IrAsInterfaceExpression,
   IrTryCastExpression,
   IrStackAllocExpression,
+  IrDefaultOfExpression,
 } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
 import { emitType } from "./type-emitter.js";
@@ -442,6 +443,19 @@ const emitStackAlloc = (
 };
 
 /**
+ * Emit a defaultof expression.
+ *
+ * TypeScript `defaultof<T>()` becomes C# `default(T)`.
+ */
+const emitDefaultOf = (
+  expr: IrDefaultOfExpression,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const [typeName, ctx1] = emitType(expr.targetType, context);
+  return [{ text: `default(${typeName})` }, ctx1];
+};
+
+/**
  * Emit a C# expression from an IR expression
  * @param expr The IR expression to emit
  * @param context The emitter context
@@ -527,6 +541,9 @@ export const emitExpression = (
 
     case "stackalloc":
       return emitStackAlloc(expr, context);
+
+    case "defaultof":
+      return emitDefaultOf(expr, context);
 
     default:
       throw new Error(

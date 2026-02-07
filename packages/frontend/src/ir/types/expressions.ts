@@ -51,7 +51,8 @@ export type IrExpression =
   | IrTypeAssertionExpression
   | IrAsInterfaceExpression
   | IrTryCastExpression
-  | IrStackAllocExpression;
+  | IrStackAllocExpression
+  | IrDefaultOfExpression;
 
 export type IrLiteralExpression = {
   readonly kind: "literal";
@@ -476,6 +477,23 @@ export type IrStackAllocExpression = {
   /** Number of elements to allocate */
   readonly size: IrExpression;
   /** Inferred type is Span<T> */
+  readonly inferredType: IrType;
+  readonly sourceSpan?: SourceLocation;
+};
+
+/**
+ * Represents a default value intrinsic (defaultof<T>()).
+ *
+ * Emits as C# default expression: `default(T)`.
+ *
+ * Example:
+ * - `defaultof<int>()` → `default(int)` in C#
+ */
+export type IrDefaultOfExpression = {
+  readonly kind: "defaultof";
+  /** The type whose default value is requested */
+  readonly targetType: IrType;
+  /** Inferred type is the same as targetType */
   readonly inferredType: IrType;
   readonly sourceSpan?: SourceLocation;
 };
