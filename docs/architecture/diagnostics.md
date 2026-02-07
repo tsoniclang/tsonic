@@ -52,7 +52,6 @@ type SourceLocation = {
 | TSN7410 | Intersection types not supported (A & B)             |
 | TSN7413 | Dictionary key type restriction (string/number only) |
 | TSN7414 | Type cannot be represented in compiler subset        |
-| TSN7420 | ref/out/In are parameter modifiers, not types        |
 
 ## Creating Diagnostics
 
