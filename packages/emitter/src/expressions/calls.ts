@@ -918,9 +918,21 @@ export const emitNew = (
       currentContext = ctx;
     } else {
       const expectedType = parameterTypes[i];
-      const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
-      args.push(argFrag.text);
-      currentContext = ctx;
+      const castModifier = getPassingModifierFromCast(arg);
+      if (castModifier && isLValue(arg)) {
+        const [argFrag, ctx] = emitExpression(arg, currentContext);
+        args.push(`${castModifier} ${argFrag.text}`);
+        currentContext = ctx;
+      } else {
+        const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
+        const passingMode = expr.argumentPassing?.[i];
+        const prefix =
+          passingMode && passingMode !== "value" && isLValue(arg)
+            ? `${passingMode} `
+            : "";
+        args.push(`${prefix}${argFrag.text}`);
+        currentContext = ctx;
+      }
     }
   }
 

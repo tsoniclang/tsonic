@@ -453,13 +453,16 @@ const validateExpression = (
           name === "asinterface" ||
           name === "trycast" ||
           name === "stackalloc" ||
-          name === "defaultof"
+          name === "defaultof" ||
+          name === "out" ||
+          name === "ref" ||
+          name === "inref"
         ) {
           ctx.diagnostics.push(
             createDiagnostic(
               "TSN7442",
               "error",
-              `'${name}<...>(...)' is a compiler intrinsic and cannot be emitted as a normal call.`,
+              `'${name}(...)' is a compiler intrinsic and cannot be emitted as a normal call.`,
               expr.sourceSpan ?? moduleLocation(ctx),
               `Ensure '${name}' is imported from "@tsonic/core/lang.js" and called with the correct signature.\n` +
                 `If this call is correct and this error persists, please report it with a minimal repro.`

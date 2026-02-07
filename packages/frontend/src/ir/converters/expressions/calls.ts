@@ -23,6 +23,94 @@ import { convertExpression } from "../../expression-converter.js";
 import { IrType } from "../../types.js";
 import type { ProgramContext } from "../../program-context.js";
 import type { MemberBinding } from "../../../program/bindings.js";
+import { createDiagnostic } from "../../../types/diagnostic.js";
+
+type CallSiteArgModifier = "ref" | "out" | "in";
+
+/**
+ * Unwrap call-site argument modifier markers.
+ *
+ * @tsonic/core/lang.js exports compile-time-only intrinsics:
+ * - out(x)   → emit `out x` at the call site
+ * - ref(x)   → emit `ref x`
+ * - inref(x) → emit `in x`
+ *
+ * These markers must be erased by the compiler and must never reach emission as
+ * normal calls.
+ */
+const unwrapCallSiteArgumentModifier = (
+  expr: ts.Expression
+): { readonly expression: ts.Expression; readonly modifier?: CallSiteArgModifier } => {
+  // Unwrap parentheses first (out((x)) etc).
+  let current: ts.Expression = expr;
+  while (ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+
+  if (!ts.isCallExpression(current)) return { expression: expr };
+  if (!ts.isIdentifier(current.expression)) return { expression: expr };
+
+  const name = current.expression.text;
+  if (name !== "out" && name !== "ref" && name !== "inref") {
+    return { expression: expr };
+  }
+
+  // Markers are non-generic and take exactly one argument.
+  if (current.typeArguments && current.typeArguments.length > 0) {
+    return { expression: expr };
+  }
+  if (current.arguments.length !== 1) {
+    return { expression: expr };
+  }
+
+  const inner = current.arguments[0];
+  if (!inner) return { expression: expr };
+
+  const modifier: CallSiteArgModifier =
+    name === "inref" ? "in" : (name as "out" | "ref");
+  return { expression: inner, modifier };
+};
+
+const applyCallSiteArgumentModifiers = (
+  base:
+    | readonly ("value" | "ref" | "out" | "in")[]
+    | undefined,
+  overrides: readonly (CallSiteArgModifier | undefined)[],
+  argCount: number,
+  ctx: ProgramContext,
+  node: ts.CallExpression | ts.NewExpression
+): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
+  const hasOverrides = overrides.some((m) => m !== undefined);
+  if (!hasOverrides) return base;
+
+  const passing: ("value" | "ref" | "out" | "in")[] =
+    base?.slice(0, argCount) ?? Array(argCount).fill("value");
+
+  for (let i = 0; i < argCount; i++) {
+    const override = overrides[i];
+    if (!override) continue;
+
+    const existing = passing[i];
+    // If we have a resolved signature, call-site modifiers must match it exactly.
+    // (We do not currently use call-site modifiers to influence overload resolution.)
+    if (base !== undefined && existing !== override) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7444",
+          "error",
+          `Call-site passing modifier '${override}' conflicts with resolved signature (expected '${existing}' at argument ${i}).`,
+          getSourceSpan(node),
+          "Remove the call-site modifier, or call the correct overload that matches ref/out/in."
+        )
+      );
+      continue;
+    }
+
+    passing[i] = override;
+  }
+
+  return passing;
+};
 
 /**
  * Extract argument passing modes from resolved signature.
@@ -644,6 +732,9 @@ export const convertCallExpression = (
   const typeSystem = ctx.typeSystem;
   const sigId = ctx.binding.resolveCallSignature(node);
   const argumentCount = node.arguments.length;
+  const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
+    argumentCount
+  ).fill(undefined);
 
   const explicitTypeArgs = node.typeArguments
     ? node.typeArguments.map((ta) =>
@@ -687,8 +778,20 @@ export const convertCallExpression = (
         continue;
       }
 
-      args.push(convertExpression(arg, ctx, expectedType));
+      const unwrapped = unwrapCallSiteArgumentModifier(arg);
+      if (unwrapped.modifier) {
+        callSiteArgModifiers[i] = unwrapped.modifier;
+      }
+      args.push(convertExpression(unwrapped.expression, ctx, expectedType));
     }
+
+    const argumentPassing = applyCallSiteArgumentModifiers(
+      extractArgumentPassing(node, ctx),
+      callSiteArgModifiers,
+      argumentCount,
+      ctx,
+      node
+    );
 
     return {
       kind: "call",
@@ -699,7 +802,7 @@ export const convertCallExpression = (
       sourceSpan: getSourceSpan(node),
       typeArguments,
       requiresSpecialization,
-      argumentPassing: extractArgumentPassing(node, ctx),
+      argumentPassing,
       parameterTypes: paramTypesForArgs,
     };
   }
@@ -763,14 +866,19 @@ export const convertCallExpression = (
       continue;
     }
 
-    if (shouldDeferLambdaForInference(arg)) {
+    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    if (unwrapped.modifier) {
+      callSiteArgModifiers[index] = unwrapped.modifier;
+    }
+
+    if (shouldDeferLambdaForInference(unwrapped.expression)) {
       // Defer *untyped* lambda conversion until after we infer generic type args
       // from other arguments. Explicitly typed lambdas are safe to convert early
       // and often provide the only deterministic inference signal.
       continue;
     }
 
-    const converted = convertExpression(arg, ctx, expectedType);
+    const converted = convertExpression(unwrapped.expression, ctx, expectedType);
     argsWorking[index] = converted;
     argTypesForInference[index] = converted.inferredType;
   }
@@ -794,7 +902,11 @@ export const convertCallExpression = (
     const arg = node.arguments[index];
     if (!arg) continue;
     if (ts.isSpreadElement(arg)) continue;
-    if (!isLambdaArg(arg)) continue;
+    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    if (unwrapped.modifier) {
+      callSiteArgModifiers[index] = unwrapped.modifier;
+    }
+    if (!isLambdaArg(unwrapped.expression)) continue;
 
     const expectedType = parameterTypesForLambdaContext?.[index];
     const lambdaExpectedType =
@@ -804,7 +916,11 @@ export const convertCallExpression = (
           ? typeSystem.delegateToFunctionType(expectedType) ?? expectedType
           : undefined;
 
-    argsWorking[index] = convertExpression(arg, ctx, lambdaExpectedType);
+    argsWorking[index] = convertExpression(
+      unwrapped.expression,
+      ctx,
+      lambdaExpectedType
+    );
   }
 
   const convertedArgs = argsWorking.map((a) => {
@@ -842,6 +958,13 @@ export const convertCallExpression = (
     (finalResolved
       ? finalResolved.parameterModes.slice(0, node.arguments.length)
       : extractArgumentPassing(node, ctx));
+  const argumentPassingWithOverrides = applyCallSiteArgumentModifiers(
+    argumentPassing,
+    callSiteArgModifiers,
+    argumentCount,
+    ctx,
+    node
+  );
 
   const narrowing: IrCallExpression["narrowing"] = (() => {
     const pred = finalResolved?.typePredicate;
@@ -865,7 +988,7 @@ export const convertCallExpression = (
     sourceSpan: getSourceSpan(node),
     typeArguments,
     requiresSpecialization,
-    argumentPassing,
+    argumentPassing: argumentPassingWithOverrides,
     parameterTypes,
     narrowing,
   };
@@ -899,6 +1022,9 @@ export const convertNewExpression = (
   const typeSystem = ctx.typeSystem;
   const sigId = ctx.binding.resolveConstructorSignature(node);
   const argumentCount = node.arguments?.length ?? 0;
+  const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
+    argumentCount
+  ).fill(undefined);
 
   // Extract explicit type arguments from call site
   const explicitTypeArgs = node.typeArguments
@@ -948,12 +1074,17 @@ export const convertNewExpression = (
       continue;
     }
 
-    if (isLambdaArg(arg)) {
+    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    if (unwrapped.modifier) {
+      callSiteArgModifiers[index] = unwrapped.modifier;
+    }
+
+    if (isLambdaArg(unwrapped.expression)) {
       // Defer lambda conversion until after generic type arg inference
       continue;
     }
 
-    const converted = convertExpression(arg, ctx, expectedType);
+    const converted = convertExpression(unwrapped.expression, ctx, expectedType);
     argsWorking[index] = converted;
     argTypesForInference[index] = converted.inferredType;
   }
@@ -977,7 +1108,11 @@ export const convertNewExpression = (
     const arg = args[index];
     if (!arg) continue;
     if (ts.isSpreadElement(arg)) continue;
-    if (!isLambdaArg(arg)) continue;
+    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    if (unwrapped.modifier) {
+      callSiteArgModifiers[index] = unwrapped.modifier;
+    }
+    if (!isLambdaArg(unwrapped.expression)) continue;
 
     const expectedType = parameterTypesForLambdaContext?.[index];
     const lambdaExpectedType =
@@ -987,7 +1122,11 @@ export const convertNewExpression = (
           ? typeSystem.delegateToFunctionType(expectedType) ?? expectedType
           : undefined;
 
-    argsWorking[index] = convertExpression(arg, ctx, lambdaExpectedType);
+    argsWorking[index] = convertExpression(
+      unwrapped.expression,
+      ctx,
+      lambdaExpectedType
+    );
   }
 
   // Fill any remaining undefined slots (shouldn't happen, but be safe)
@@ -997,7 +1136,20 @@ export const convertNewExpression = (
     if (!arg) {
       throw new Error("ICE: new expression argument conversion produced a hole");
     }
-    return convertExpression(arg, ctx, undefined);
+    if (ts.isSpreadElement(arg)) {
+      const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+      return {
+        kind: "spread" as const,
+        expression: spreadExpr,
+        inferredType: spreadExpr.inferredType,
+        sourceSpan: getSourceSpan(arg),
+      };
+    }
+    const unwrapped = unwrapCallSiteArgumentModifier(arg);
+    if (unwrapped.modifier) {
+      callSiteArgModifiers[index] = unwrapped.modifier;
+    }
+    return convertExpression(unwrapped.expression, ctx, undefined);
   });
 
   // Collect final argTypes
@@ -1019,6 +1171,16 @@ export const convertNewExpression = (
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
   const inferredType: IrType = finalResolved?.returnType ?? { kind: "unknownType" };
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
+  const argumentPassingBase = finalResolved
+    ? finalResolved.parameterModes.slice(0, argumentCount)
+    : extractArgumentPassing(node, ctx);
+  const argumentPassing = applyCallSiteArgumentModifiers(
+    argumentPassingBase,
+    callSiteArgModifiers,
+    argumentCount,
+    ctx,
+    node
+  );
 
   // Phase 18: IrNewExpression.typeArguments must include inferred type arguments.
   // The emitter relies on this field to emit generic constructor calls (e.g., new Box<int>(...)).
@@ -1036,6 +1198,7 @@ export const convertNewExpression = (
     arguments: convertedArgs,
     inferredType,
     sourceSpan: getSourceSpan(node),
+    argumentPassing,
     parameterTypes,
     typeArguments: typeArgumentsForIr,
     requiresSpecialization,

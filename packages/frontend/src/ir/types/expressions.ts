@@ -220,6 +220,8 @@ export type IrNewExpression = {
   readonly sourceSpan?: SourceLocation;
   // Opaque handle to the resolved constructor signature (from Binding layer)
   readonly signatureId?: SignatureId;
+  /** Passing mode for each constructor argument (ref/out/in/value). */
+  readonly argumentPassing?: readonly ("value" | "ref" | "out" | "in")[];
   /** Parameter types from resolved constructor signature (for expectedType threading). */
   readonly parameterTypes?: readonly (IrType | undefined)[];
   readonly typeArguments?: readonly IrType[]; // Explicit or inferred type arguments

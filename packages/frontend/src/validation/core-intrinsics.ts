@@ -63,6 +63,10 @@ const CORE_LANG_VALUE_NAMES = new Set([
   // Currently implemented intrinsics
   "stackalloc",
   "trycast",
+  // Call-site argument modifiers (compile-time-only; must be erased by the compiler)
+  "out",
+  "ref",
+  "inref",
   // Type-only interface view (must be erased by the compiler)
   "asinterface",
   // Compile-time type guard used for overload-specialization (must be erased by the compiler)
