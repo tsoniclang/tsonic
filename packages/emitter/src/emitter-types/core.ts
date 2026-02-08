@@ -239,6 +239,10 @@ export type EmitterContext = {
   readonly typeParameterNameMap?: ReadonlyMap<string, string>;
   /** Return type of current function/method (for contextual typing in return statements) */
   readonly returnType?: IrType;
+  /** Generator exchange local name (used by yield lowering). */
+  readonly generatorExchangeVar?: string;
+  /** Generator return-value capture local name (used by generatorReturnStatement lowering). */
+  readonly generatorReturnValueVar?: string;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
   /** Current module namespace (used for fully qualifying local types when required) */
@@ -253,6 +257,16 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /**
+   * Set of emitted C# local identifiers that have been used anywhere in the current method body.
+   *
+   * C# forbids reusing a local name in an outer scope after it has been declared in a nested scope
+   * (CS0136), even when the nested-scope local is not visible at that later point.
+   *
+   * To preserve TypeScript lexical scoping while keeping generated C# valid, we reserve all local
+   * identifiers globally within a method and deterministically rename later declarations as needed.
+   */
+  readonly usedLocalNames?: ReadonlySet<string>;
   /** Counter for generating unique temp variable names */
   readonly tempVarId?: number;
   /**

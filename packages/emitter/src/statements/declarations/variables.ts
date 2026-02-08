@@ -14,35 +14,9 @@ import { emitStatement } from "../../statement-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
+import { allocateLocalName, registerLocalName } from "../../core/local-names.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
-
-const computeLocalName = (
-  originalName: string,
-  context: EmitterContext
-): { emittedName: string; updatedContext: EmitterContext } => {
-  const alreadyDeclared = context.localNameMap?.has(originalName) ?? false;
-  if (!alreadyDeclared) {
-    return { emittedName: escapeCSharpIdentifier(originalName), updatedContext: context };
-  }
-
-  const nextId = (context.tempVarId ?? 0) + 1;
-  const renamed = `${originalName}__${nextId}`;
-  return {
-    emittedName: escapeCSharpIdentifier(renamed),
-    updatedContext: { ...context, tempVarId: nextId },
-  };
-};
-
-const registerLocalName = (
-  originalName: string,
-  emittedName: string,
-  context: EmitterContext
-): EmitterContext => {
-  const nextMap = new Map(context.localNameMap ?? []);
-  nextMap.set(originalName, emittedName);
-  return { ...context, localNameMap: nextMap };
-};
 
 const getAsyncBodyReturnType = (
   isAsync: boolean,
@@ -183,12 +157,15 @@ const seedLocalNameMapFromParameters = (
   context: EmitterContext
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  const used = new Set<string>();
   for (const p of params) {
     if (p.pattern.kind === "identifierPattern") {
-      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+      const emitted = escapeCSharpIdentifier(p.pattern.name);
+      map.set(p.pattern.name, emitted);
+      used.add(emitted);
     }
   }
-  return { ...context, localNameMap: map };
+  return { ...context, localNameMap: map, usedLocalNames: used };
 };
 
 /**
@@ -624,11 +601,14 @@ export const emitVariableDeclaration = (
     if (decl.name.kind === "identifierPattern") {
       // Simple identifier pattern (escape C# keywords)
       const originalName = decl.name.name;
-      const localNameInfo = context.isStatic
-        ? { emittedName: emitCSharpName(originalName, "fields", context), updatedContext: currentContext }
-        : computeLocalName(originalName, currentContext);
-      const localName = localNameInfo.emittedName;
-      currentContext = localNameInfo.updatedContext;
+      const localName =
+        context.isStatic
+          ? emitCSharpName(originalName, "fields", context)
+          : (() => {
+              const alloc = allocateLocalName(originalName, currentContext);
+              currentContext = alloc.context;
+              return alloc.emittedName;
+            })();
       varDecl += localName;
 
       // Add initializer if present

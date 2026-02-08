@@ -18,12 +18,15 @@ const seedLocalNameMapFromParameters = (
   context: EmitterContext
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  const used = new Set<string>();
   for (const p of params) {
     if (p.pattern.kind === "identifierPattern") {
-      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+      const emitted = escapeCSharpIdentifier(p.pattern.name);
+      map.set(p.pattern.name, emitted);
+      used.add(emitted);
     }
   }
-  return { ...context, localNameMap: map };
+  return { ...context, localNameMap: map, usedLocalNames: used };
 };
 
 /**
@@ -39,6 +42,7 @@ export const emitConstructorMember = (
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    usedLocalNames: context.usedLocalNames,
   };
 
   const ind = getIndent(context);
@@ -102,25 +106,31 @@ export const emitConstructorMember = (
   }
 
   // Emit body without the super() call
-  const bodyContext = indent(currentContext);
+  let bodyContext = indent(currentContext);
   const modifiedBody: typeof member.body = {
     ...member.body,
     statements: bodyStatements,
   };
-  const [bodyCode, finalContext] = emitBlockStatement(
-    modifiedBody,
-    bodyContext
-  );
+
+  // Generate parameter destructuring statements BEFORE emitting the body so
+  // any renamed locals are visible to the body emitter via localNameMap.
+  const bodyInd = getIndent(bodyContext);
+  const [parameterDestructuringStmts, destructuringContext] =
+    paramsResult.destructuringParams.length > 0
+      ? generateParameterDestructuring(
+          paramsResult.destructuringParams,
+          bodyInd,
+          bodyContext
+        )
+      : [[], bodyContext];
+  bodyContext = destructuringContext;
+
+  const [bodyCode, finalContext] = emitBlockStatement(modifiedBody, bodyContext);
 
   // Inject parameter destructuring statements at the start of the body
   let finalBodyCode = bodyCode;
-  if (paramsResult.destructuringParams.length > 0) {
-    const bodyInd = getIndent(bodyContext);
-    const [destructuringStmts] = generateParameterDestructuring(
-      paramsResult.destructuringParams,
-      bodyInd,
-      finalContext
-    );
+  if (parameterDestructuringStmts.length > 0) {
+    const destructuringStmts = parameterDestructuringStmts;
 
     // Inject lines after opening brace
     const lines = bodyCode.split("\n");

@@ -12,10 +12,10 @@ import {
 } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitType } from "../../../type-emitter.js";
-import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/attributes.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { emitCSharpName } from "../../../naming-policy.js";
+import { allocateLocalName } from "../../../core/local-names.js";
 
 /**
  * Emit a property declaration
@@ -114,51 +114,65 @@ export const emitPropertyMember = (
   if (member.getterBody) {
     lines.push(`${bodyInd}get`);
     const getterBodyContext = indent(bodyContext);
+    const savedUsed = getterBodyContext.usedLocalNames;
+    const getterEmitContext: EmitterContext = {
+      ...getterBodyContext,
+      usedLocalNames: new Set<string>(),
+    };
     const [getterBlock, getterCtx] = withScoped(
-      getterBodyContext,
+      getterEmitContext,
       { returnType: member.type },
       (scopedCtx) => emitBlockStatement(member.getterBody!, scopedCtx)
     );
     lines.push(getterBlock);
-    bodyContext = dedent(getterCtx);
+    bodyContext = { ...dedent(getterCtx), usedLocalNames: savedUsed };
   }
 
   if (member.setterBody) {
     lines.push(`${bodyInd}set`);
     const setterBodyContext = indent(bodyContext);
+    const savedUsed = setterBodyContext.usedLocalNames;
+
+    // C# property setters have an implicit `value` parameter. Seed it to avoid CS0136 when
+    // user code declares `value` as a local (valid in TS when setter param name differs).
+    let setterEmitContext: EmitterContext = {
+      ...setterBodyContext,
+      usedLocalNames: new Set<string>(["value"]),
+    };
+
     const setterParamName = member.setterParamName;
+    let aliasLine: string | undefined;
+    let scopedLocalNameMap: ReadonlyMap<string, string> | undefined =
+      setterBodyContext.localNameMap;
+    if (setterParamName && setterParamName !== "value") {
+      const alloc = allocateLocalName(setterParamName, setterEmitContext);
+      setterEmitContext = alloc.context;
+      const nextMap = new Map(setterBodyContext.localNameMap ?? []);
+      nextMap.set(setterParamName, alloc.emittedName);
+      scopedLocalNameMap = nextMap;
+      const stmtInd = getIndent(setterBodyContext);
+      aliasLine = `${stmtInd}var ${alloc.emittedName} = value;`;
+    }
 
     const [rawSetterBlock, setterCtx] = withScoped(
-      setterBodyContext,
-      {
-        localNameMap:
-          setterParamName && setterParamName !== "value"
-            ? new Map([
-                ...(setterBodyContext.localNameMap ?? []),
-                [setterParamName, escapeCSharpIdentifier(setterParamName)],
-              ])
-            : setterBodyContext.localNameMap,
-      },
+      setterEmitContext,
+      { localNameMap: scopedLocalNameMap },
       (scopedCtx) => emitBlockStatement(member.setterBody!, scopedCtx)
     );
 
     const setterBlock = (() => {
-      if (!setterParamName || setterParamName === "value") return rawSetterBlock;
-
-      const escapedParam = escapeCSharpIdentifier(setterParamName);
-      const stmtInd = getIndent(setterBodyContext);
-      const injectLine = `${stmtInd}var ${escapedParam} = value;`;
+      if (!aliasLine) return rawSetterBlock;
 
       const blockLines = rawSetterBlock.split("\n");
       if (blockLines.length > 1) {
-        blockLines.splice(1, 0, injectLine, "");
+        blockLines.splice(1, 0, aliasLine, "");
         return blockLines.join("\n");
       }
       return rawSetterBlock;
     })();
 
     lines.push(setterBlock);
-    bodyContext = dedent(setterCtx);
+    bodyContext = { ...dedent(setterCtx), usedLocalNames: savedUsed };
   }
 
   lines.push(`${bodyInd}}`);

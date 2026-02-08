@@ -6,10 +6,10 @@ import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitStatement } from "../../statement-emitter.js";
-import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 import { emitBooleanCondition } from "../../core/boolean-context.js";
+import { allocateLocalName, registerLocalName } from "../../core/local-names.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -164,7 +164,11 @@ export const emitForStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  let currentContext = context;
+  const outerNameMap = context.localNameMap;
+  let currentContext: EmitterContext = {
+    ...context,
+    localNameMap: new Map(outerNameMap ?? []),
+  };
 
   // Check for canonical integer loop pattern
   const canonicalLoop = detectCanonicalIntLoop(stmt);
@@ -174,7 +178,13 @@ export const emitForStatement = (
   if (stmt.initializer) {
     if (canonicalLoop) {
       // Canonical integer loop: emit `int varName = value` directly
-      init = `int ${escapeCSharpIdentifier(canonicalLoop.varName)} = ${canonicalLoop.initialValue}`;
+      const alloc = allocateLocalName(canonicalLoop.varName, currentContext);
+      currentContext = registerLocalName(
+        canonicalLoop.varName,
+        alloc.emittedName,
+        alloc.context
+      );
+      init = `int ${alloc.emittedName} = ${canonicalLoop.initialValue}`;
     } else if (stmt.initializer.kind === "variableDeclaration") {
       const [initCode, newContext] = emitStatement(
         stmt.initializer,
@@ -220,7 +230,10 @@ export const emitForStatement = (
   let bodyContext: EmitterContext;
   if (canonicalLoop) {
     const existingIntVars = currentContext.intLoopVars ?? new Set<string>();
-    const newIntVars = new Set([...existingIntVars, canonicalLoop.varName]);
+    const emittedName =
+      currentContext.localNameMap?.get(canonicalLoop.varName) ??
+      canonicalLoop.varName;
+    const newIntVars = new Set([...existingIntVars, emittedName]);
     const contextWithIntVar = {
       ...indent(currentContext),
       intLoopVars: newIntVars,
@@ -229,14 +242,16 @@ export const emitForStatement = (
     // Remove the var from intLoopVars after body (restore previous scope)
     bodyContext = { ...ctx, intLoopVars: existingIntVars };
     const finalCode = `${ind}for (${init}; ${cond}; ${update})\n${code}`;
-    return [finalCode, dedent(bodyContext)];
+    const finalContext = dedent(bodyContext);
+    return [finalCode, { ...finalContext, localNameMap: outerNameMap }];
   }
 
   const [bodyCode, ctx] = emitStatement(stmt.body, indent(currentContext));
   bodyContext = ctx;
 
   const code = `${ind}for (${init}; ${cond}; ${update})\n${bodyCode}`;
-  return [code, dedent(bodyContext)];
+  const finalContext = dedent(bodyContext);
+  return [code, { ...finalContext, localNameMap: outerNameMap }];
 };
 
 /**
@@ -254,25 +269,40 @@ export const emitForOfStatement = (
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
   const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
+  const outerNameMap = exprContext.localNameMap;
+  let loopContext: EmitterContext = {
+    ...exprContext,
+    localNameMap: new Map(outerNameMap ?? []),
+  };
 
   // Use foreach in C#, with await prefix for async iteration
   const foreachKeyword = stmt.isAwait ? "await foreach" : "foreach";
 
   if (stmt.variable.kind === "identifierPattern") {
     // Simple identifier: for (const x of items) -> foreach (var x in items)
-    const varName = escapeCSharpIdentifier(stmt.variable.name);
+    const originalName = stmt.variable.name;
+    const alloc = allocateLocalName(originalName, loopContext);
+    loopContext = registerLocalName(
+      originalName,
+      alloc.emittedName,
+      alloc.context
+    );
+    const varName = alloc.emittedName;
     const [bodyCode, bodyContext] = emitStatement(
       stmt.body,
-      indent(exprContext)
+      indent(loopContext)
     );
     const code = `${ind}${foreachKeyword} (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
-    return [code, dedent(bodyContext)];
+    const finalContext = dedent(bodyContext);
+    return [code, { ...finalContext, localNameMap: outerNameMap }];
   }
 
   // Complex pattern: for (const [a, b] of items) or for (const {x, y} of items)
   // Generate: foreach (var __item in items) { var a = __item[0]; var b = __item[1]; ...body... }
-  const tempVar = "__item";
-  const bodyIndent = getIndent(indent(exprContext));
+  const tempAlloc = allocateLocalName("__item", loopContext);
+  const tempVar = tempAlloc.emittedName;
+  loopContext = tempAlloc.context;
+  const bodyIndent = getIndent(indent(loopContext));
 
   // Get element type from the expression's inferred type
   const elementType =
@@ -286,7 +316,7 @@ export const emitForOfStatement = (
     tempVar,
     elementType,
     bodyIndent,
-    exprContext
+    loopContext
   );
 
   // Emit the original loop body
@@ -302,7 +332,8 @@ export const emitForOfStatement = (
       : bodyCode;
 
   const code = `${ind}${foreachKeyword} (var ${tempVar} in ${exprFrag.text})\n${combinedBody}`;
-  return [code, dedent(bodyContext)];
+  const finalContext = dedent(bodyContext);
+  return [code, { ...finalContext, localNameMap: outerNameMap }];
 };
 
 /**
@@ -319,6 +350,11 @@ export const emitForInStatement = (
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
   const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
+  const outerNameMap = exprContext.localNameMap;
+  let loopContext: EmitterContext = {
+    ...exprContext,
+    localNameMap: new Map(outerNameMap ?? []),
+  };
 
   if (stmt.variable.kind !== "identifierPattern") {
     throw new Error(`for...in requires an identifier binding pattern`);
@@ -338,10 +374,14 @@ export const emitForInStatement = (
     );
   }
 
-  const varName = escapeCSharpIdentifier(stmt.variable.name);
+  const originalName = stmt.variable.name;
+  const alloc = allocateLocalName(originalName, loopContext);
+  loopContext = registerLocalName(originalName, alloc.emittedName, alloc.context);
+  const varName = alloc.emittedName;
   const iterExpr = `(${exprFrag.text}).Keys`;
 
-  const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(exprContext));
+  const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(loopContext));
   const code = `${ind}foreach (var ${varName} in ${iterExpr})\n${bodyCode}`;
-  return [code, dedent(bodyContext)];
+  const finalContext = dedent(bodyContext);
+  return [code, { ...finalContext, localNameMap: outerNameMap }];
 };

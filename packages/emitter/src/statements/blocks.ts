@@ -7,6 +7,7 @@ import { EmitterContext, getIndent } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
 import { lowerPattern } from "../patterns.js";
+import { allocateLocalName } from "../core/local-names.js";
 
 /**
  * Emit a block statement
@@ -94,8 +95,12 @@ export const emitYieldExpression = (
       const foreachKeyword = currentContext.isAsync
         ? "await foreach"
         : "foreach";
-      parts.push(`${ind}${foreachKeyword} (var item in ${delegateFrag.text})`);
-      parts.push(`${ind}    yield return item;`);
+      const itemAlloc = allocateLocalName("item", currentContext);
+      currentContext = itemAlloc.context;
+      parts.push(
+        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${delegateFrag.text})`
+      );
+      parts.push(`${ind}    yield return ${itemAlloc.emittedName};`);
     }
   } else {
     // Regular yield
@@ -105,11 +110,13 @@ export const emitYieldExpression = (
         currentContext
       );
       currentContext = newContext;
-      parts.push(`${ind}exchange.Output = ${valueFrag.text};`);
-      parts.push(`${ind}yield return exchange;`);
+      const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+      parts.push(`${ind}${exchangeVar}.Output = ${valueFrag.text};`);
+      parts.push(`${ind}yield return ${exchangeVar};`);
     } else {
       // Bare yield (no value)
-      parts.push(`${ind}yield return exchange;`);
+      const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+      parts.push(`${ind}yield return ${exchangeVar};`);
     }
   }
 
@@ -151,8 +158,12 @@ export const emitYieldStatement = (
       const foreachKeyword = currentContext.isAsync
         ? "await foreach"
         : "foreach";
-      parts.push(`${ind}${foreachKeyword} (var item in ${delegateFrag.text})`);
-      parts.push(`${ind}    yield return item;`);
+      const itemAlloc = allocateLocalName("item", currentContext);
+      currentContext = itemAlloc.context;
+      parts.push(
+        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${delegateFrag.text})`
+      );
+      parts.push(`${ind}    yield return ${itemAlloc.emittedName};`);
     }
   } else {
     // Regular yield with optional bidirectional support
@@ -162,15 +173,17 @@ export const emitYieldStatement = (
         currentContext
       );
       currentContext = newContext;
-      parts.push(`${ind}exchange.Output = ${valueFrag.text};`);
+      const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+      parts.push(`${ind}${exchangeVar}.Output = ${valueFrag.text};`);
     }
-    parts.push(`${ind}yield return exchange;`);
+    const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
+    parts.push(`${ind}yield return ${exchangeVar};`);
 
     // Handle receiveTarget for bidirectional communication
     if (stmt.receiveTarget) {
       const lowered = lowerPattern(
         stmt.receiveTarget,
-        "(exchange.Input ?? default!)",
+        `(${exchangeVar}.Input ?? default!)`,
         stmt.receivedType,
         ind,
         currentContext
@@ -225,6 +238,7 @@ export const emitGeneratorReturnStatement = (
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
   let currentContext = context;
+  const returnVar = currentContext.generatorReturnValueVar ?? "__returnValue";
   const parts: string[] = [];
 
   if (stmt.expression) {
@@ -234,7 +248,7 @@ export const emitGeneratorReturnStatement = (
       currentContext
     );
     currentContext = newContext;
-    parts.push(`${ind}__returnValue = ${valueFrag.text};`);
+    parts.push(`${ind}${returnVar} = ${valueFrag.text};`);
   }
 
   // Terminate the iterator
