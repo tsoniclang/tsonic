@@ -69,6 +69,30 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
 };
 
 /**
+ * Unwrap `Interface<T>` in heritage clauses.
+ *
+ * Nominal CLR interface brands add internal `__tsonic_iface_*` members. We provide
+ * `Interface<IFoo>` (from @tsonic/core/lang) to strip those at the TS layer.
+ *
+ * For IR + C# emission, we want the underlying CLR interface `IFoo`.
+ */
+const unwrapInterfaceHeritageType = (
+  typeRef: ts.ExpressionWithTypeArguments
+): ts.TypeNode => {
+  if (
+    ts.isIdentifier(typeRef.expression) &&
+    typeRef.expression.text === "Interface" &&
+    typeRef.typeArguments?.length === 1
+  ) {
+    const only = typeRef.typeArguments[0];
+    if (only) return only;
+  }
+
+  // ExpressionWithTypeArguments is a TypeNode in TS's AST for heritage clauses.
+  return typeRef as unknown as ts.TypeNode;
+};
+
+/**
  * Check if an interface has only index signatures (no property/method members).
  * Returns the dictionary type info if so, undefined otherwise.
  *
@@ -193,7 +217,9 @@ export const convertInterfaceDeclaration = (
         return true;
       })
       .map((t) =>
-        ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(t))
+        ctx.typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(unwrapInterfaceHeritageType(t))
+        )
       ) ?? [];
 
   const allMembers = node.members

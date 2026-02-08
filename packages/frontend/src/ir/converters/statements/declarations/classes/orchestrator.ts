@@ -91,6 +91,31 @@ const isStructMarker = (typeRef: ts.ExpressionWithTypeArguments): boolean => {
 };
 
 /**
+ * Unwrap `Interface<T>` in heritage clauses.
+ *
+ * TypeScript nominal interface brands add internal `__tsonic_iface_*` members that
+ * make `implements IFoo` noisy for user-authored classes. We provide
+ * `Interface<IFoo>` (from @tsonic/core/lang) to strip those members at the TS layer.
+ *
+ * For IR + C# emission, we want the underlying CLR interface `IFoo`.
+ */
+const unwrapInterfaceHeritageType = (
+  typeRef: ts.ExpressionWithTypeArguments
+): ts.TypeNode => {
+  if (
+    ts.isIdentifier(typeRef.expression) &&
+    typeRef.expression.text === "Interface" &&
+    typeRef.typeArguments?.length === 1
+  ) {
+    const only = typeRef.typeArguments[0];
+    if (only) return only;
+  }
+
+  // ExpressionWithTypeArguments is a TypeNode in TS's AST for heritage clauses.
+  return typeRef as unknown as ts.TypeNode;
+};
+
+/**
  * Convert class declaration to IR
  */
 export const convertClassDeclaration = (
@@ -118,7 +143,9 @@ export const convertClassDeclaration = (
         return true;
       })
       .map((t) =>
-        ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(t))
+        ctx.typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(unwrapInterfaceHeritageType(t))
+        )
       ) ?? [];
 
   // Extract parameter properties from constructor
