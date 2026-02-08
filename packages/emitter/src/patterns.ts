@@ -46,6 +46,7 @@ import {
 import { EmitterContext } from "./emitter-types/index.js";
 import { emitType } from "./types/emitter.js";
 import { escapeCSharpIdentifier } from "./emitter-types/identifiers.js";
+import { allocateLocalName, registerLocalName } from "./core/local-names.js";
 
 /**
  * Result of pattern lowering - a list of C# statements
@@ -80,19 +81,29 @@ const lowerIdentifier = (
   indent: string,
   ctx: EmitterContext
 ): LoweringResult => {
-  const escapedName = escapeCSharpIdentifier(name);
-
   // In static context, we can't use 'var' - need explicit type with modifiers
   if (ctx.isStatic) {
+    const escapedName = escapeCSharpIdentifier(name);
     const typeStr = type ? emitType(type, ctx)[0] : "object";
     const stmt = `${indent}private static readonly ${typeStr} ${escapedName} = ${inputExpr};`;
     return { statements: [stmt], context: ctx };
   }
 
+  const alloc = allocateLocalName(name, ctx);
+  const localName = alloc.emittedName;
+  let currentCtx = alloc.context;
+
   // Local context: use var when type not available
-  const typeStr = type ? emitType(type, ctx)[0] : "var";
-  const stmt = `${indent}${typeStr} ${escapedName} = ${inputExpr};`;
-  return { statements: [stmt], context: ctx };
+  let typeStr = "var";
+  if (type) {
+    const [emittedType, next] = emitType(type, currentCtx);
+    typeStr = emittedType;
+    currentCtx = next;
+  }
+
+  const stmt = `${indent}${typeStr} ${localName} = ${inputExpr};`;
+  currentCtx = registerLocalName(name, localName, currentCtx);
+  return { statements: [stmt], context: currentCtx };
 };
 
 /**
@@ -110,8 +121,13 @@ const lowerArrayPattern = (
   let currentCtx = ctx;
 
   // Create temporary for the input to avoid re-evaluation
-  const [tempName, ctx1] = generateTemp("arr", currentCtx);
+  let [tempName, ctx1] = generateTemp("arr", currentCtx);
   currentCtx = ctx1;
+  if (!ctx.isStatic) {
+    const alloc = allocateLocalName(tempName, currentCtx);
+    tempName = alloc.emittedName;
+    currentCtx = alloc.context;
+  }
 
   // In static context, we can't use 'var' - need explicit type
   if (ctx.isStatic && arrayType) {
@@ -194,8 +210,13 @@ const lowerObjectPattern = (
   let currentCtx = ctx;
 
   // Create temporary for the input to avoid re-evaluation
-  const [tempName, ctx1] = generateTemp("obj", currentCtx);
+  let [tempName, ctx1] = generateTemp("obj", currentCtx);
   currentCtx = ctx1;
+  if (!ctx.isStatic) {
+    const alloc = allocateLocalName(tempName, currentCtx);
+    tempName = alloc.emittedName;
+    currentCtx = alloc.context;
+  }
 
   // In static context, we can't use 'var' - need explicit type with modifiers
   if (ctx.isStatic && inputType) {

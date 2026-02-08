@@ -13,6 +13,7 @@
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { CSharpFragment, EmitterContext } from "../types.js";
+import { allocateLocalName } from "./local-names.js";
 
 export type EmitExprFn = (
   expr: IrExpression,
@@ -168,8 +169,10 @@ export const toBooleanCondition = (
         // JS truthiness for numbers: falsy iff 0 or NaN.
         // Use a pattern var to avoid evaluating the expression twice.
         const nextId = (context.tempVarId ?? 0) + 1;
-        const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-        const tmp = `__tsonic_truthy_num_${nextId}`;
+        let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+        const alloc = allocateLocalName(`__tsonic_truthy_num_${nextId}`, ctxWithId);
+        ctxWithId = alloc.context;
+        const tmp = alloc.emittedName;
         return [
           `(${emittedText} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
           ctxWithId,

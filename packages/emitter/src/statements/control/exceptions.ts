@@ -6,7 +6,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
-import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { allocateLocalName, registerLocalName } from "../../core/local-names.js";
 
 /**
  * Emit a try statement
@@ -26,14 +26,26 @@ export const emitTryStatement = (
       stmt.catchClause.parameter?.kind === "identifierPattern"
         ? stmt.catchClause.parameter.name
         : "ex";
-    const escapedParam = escapeCSharpIdentifier(param);
+    const outerMap = currentContext.localNameMap;
+    let catchScopeContext: EmitterContext = {
+      ...currentContext,
+      localNameMap: new Map(outerMap ?? []),
+    };
+
+    const alloc = allocateLocalName(param, catchScopeContext);
+    catchScopeContext = registerLocalName(
+      param,
+      alloc.emittedName,
+      alloc.context
+    );
+    const escapedParam = alloc.emittedName;
 
     const [catchBlock, catchContext] = emitBlockStatement(
       stmt.catchClause.body,
-      currentContext
+      catchScopeContext
     );
     code += `\n${ind}catch (global::System.Exception ${escapedParam})\n${catchBlock}`;
-    currentContext = catchContext;
+    currentContext = { ...catchContext, localNameMap: outerMap };
   }
 
   if (stmt.finallyBlock) {

@@ -9,6 +9,22 @@ import { emitStatement } from "../statement-emitter.js";
 import { emitType } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
+const seedLocalNameMapFromParameters = (
+  params: readonly IrParameter[],
+  context: EmitterContext
+): EmitterContext => {
+  const map = new Map(context.localNameMap ?? []);
+  const used = new Set(context.usedLocalNames ?? []);
+  for (const p of params) {
+    if (p.pattern.kind === "identifierPattern") {
+      const emitted = escapeCSharpIdentifier(p.pattern.name);
+      map.set(p.pattern.name, emitted);
+      used.add(emitted);
+    }
+  }
+  return { ...context, localNameMap: map, usedLocalNames: used };
+};
+
 /**
  * Unwrap ref/out/in wrapper types (e.g., ref<T> -> T)
  * Returns the inner type if it's a wrapper, null otherwise.
@@ -118,13 +134,19 @@ export const emitFunctionExpression = (
     expr.parameters,
     context
   );
+  const bodyContextSeeded = seedLocalNameMapFromParameters(
+    expr.parameters,
+    paramContext
+  );
 
   // Function expressions always have block bodies
   const returnType =
     expr.inferredType?.kind === "functionType"
       ? expr.inferredType.returnType
       : undefined;
-  const blockContextBase = paramContext.isStatic ? indent(paramContext) : paramContext;
+  const blockContextBase = bodyContextSeeded.isStatic
+    ? indent(bodyContextSeeded)
+    : bodyContextSeeded;
   const [blockCode] = emitStatement(
     expr.body,
     {
@@ -150,6 +172,10 @@ export const emitArrowFunction = (
     expr.parameters,
     context
   );
+  const bodyContextSeeded = seedLocalNameMapFromParameters(
+    expr.parameters,
+    paramContext
+  );
 
   const asyncPrefix = expr.isAsync ? "async " : "";
   const returnType =
@@ -160,9 +186,9 @@ export const emitArrowFunction = (
   // Arrow function body can be block or expression
   if (expr.body.kind === "blockStatement") {
     // Block body: (params) => { ... }
-    const blockContextBase = paramContext.isStatic
-      ? indent(paramContext)
-      : paramContext;
+    const blockContextBase = bodyContextSeeded.isStatic
+      ? indent(bodyContextSeeded)
+      : bodyContextSeeded;
     const [blockCode] = emitStatement(
       expr.body,
       {
@@ -174,8 +200,14 @@ export const emitArrowFunction = (
     return [{ text }, paramContext];
   } else {
     // Expression body: (params) => expression
-    const [exprCode, newContext] = emitExpression(expr.body, paramContext, returnType);
+    const [exprCode] = emitExpression(
+      expr.body,
+      bodyContextSeeded,
+      returnType
+    );
     const text = `${asyncPrefix}(${paramList}) => ${exprCode.text}`;
-    return [{ text }, newContext];
+    // Arrow/function expressions are separate CLR methods; do not leak lexical
+    // remaps / local allocations to the outer scope.
+    return [{ text }, paramContext];
   }
 };

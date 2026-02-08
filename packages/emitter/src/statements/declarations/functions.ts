@@ -25,6 +25,7 @@ import {
 } from "../../generator-wrapper.js";
 import { emitAttributes } from "../../core/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
+import { allocateLocalName } from "../../core/local-names.js";
 
 const getAsyncBodyReturnType = (
   isAsync: boolean,
@@ -48,12 +49,15 @@ const seedLocalNameMapFromParameters = (
   context: EmitterContext
 ): EmitterContext => {
   const map = new Map(context.localNameMap ?? []);
+  const used = new Set<string>();
   for (const p of params) {
     if (p.pattern.kind === "identifierPattern") {
-      map.set(p.pattern.name, escapeCSharpIdentifier(p.pattern.name));
+      const emitted = escapeCSharpIdentifier(p.pattern.name);
+      map.set(p.pattern.name, emitted);
+      used.add(emitted);
     }
   }
-  return { ...context, localNameMap: map };
+  return { ...context, localNameMap: map, usedLocalNames: used };
 };
 
 /**
@@ -69,6 +73,7 @@ export const emitFunctionDeclaration = (
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
     localNameMap: context.localNameMap,
+    usedLocalNames: context.usedLocalNames,
   };
 
   const ind = getIndent(context);
@@ -120,6 +125,8 @@ export const emitFunctionDeclaration = (
 
   // Check if this is a bidirectional generator (has TNext type)
   const isBidirectional = needsBidirectionalSupport(stmt);
+  const generatorHasReturnType =
+    stmt.isGenerator && isBidirectional ? hasGeneratorReturnType(stmt) : false;
 
   // Return type
   if (stmt.isGenerator) {
@@ -174,15 +181,56 @@ export const emitFunctionDeclaration = (
 
   // Function body (not a static context - local variables)
   // Use withScoped to set typeParameters and returnType for nested expressions
-  const baseBodyContext = seedLocalNameMapFromParameters(
+  let baseBodyContext = seedLocalNameMapFromParameters(
     stmt.parameters,
     withAsync(withStatic(indent(currentContext), false), stmt.isAsync)
   );
 
+  // Reserve generator-internal locals BEFORE emitting the body so user locals can safely
+  // use these names (and get deterministically renamed) without colliding in C#.
+  let generatorExchangeVar = "exchange";
+  let generatorIteratorFn = "__iterator";
+  let generatorReturnValueVar = "__returnValue";
+  if (stmt.isGenerator) {
+    const exchangeAlloc = allocateLocalName(generatorExchangeVar, baseBodyContext);
+    generatorExchangeVar = exchangeAlloc.emittedName;
+    baseBodyContext = {
+      ...exchangeAlloc.context,
+      generatorExchangeVar,
+    };
+
+    if (isBidirectional) {
+      const iterAlloc = allocateLocalName(generatorIteratorFn, baseBodyContext);
+      generatorIteratorFn = iterAlloc.emittedName;
+      baseBodyContext = iterAlloc.context;
+
+      if (generatorHasReturnType) {
+        const retAlloc = allocateLocalName(generatorReturnValueVar, baseBodyContext);
+        generatorReturnValueVar = retAlloc.emittedName;
+        baseBodyContext = {
+          ...retAlloc.context,
+          generatorReturnValueVar,
+        };
+      }
+    }
+  }
+
+  // Generate parameter destructuring statements BEFORE emitting the body so
+  // any renamed locals are visible to the body emitter via localNameMap.
+  const bodyInd = getIndent(baseBodyContext);
+  const [parameterDestructuringStmts, destructuringContext] =
+    paramsResult.destructuringParams.length > 0
+      ? generateParameterDestructuring(
+          paramsResult.destructuringParams,
+          bodyInd,
+          baseBodyContext
+        )
+      : [[], baseBodyContext];
+
   // Emit body with scoped typeParameters and returnType
   // funcTypeParams was already built at the start of this function
   const [bodyCode] = withScoped(
-    baseBodyContext,
+    destructuringContext,
     {
       typeParameters: funcTypeParams,
       returnType:
@@ -213,18 +261,11 @@ export const emitFunctionDeclaration = (
 
   // Inject initialization code for generators, out parameters, and destructuring
   let finalBodyCode = bodyCode;
-  const bodyInd = getIndent(baseBodyContext);
   const injectLines: string[] = [];
 
   // Generate parameter destructuring statements
-  if (paramsResult.destructuringParams.length > 0) {
-    const [destructuringStmts, newCtx] = generateParameterDestructuring(
-      paramsResult.destructuringParams,
-      bodyInd,
-      currentContext
-    );
-    currentContext = newCtx;
-    injectLines.push(...destructuringStmts);
+  if (parameterDestructuringStmts.length > 0) {
+    injectLines.push(...parameterDestructuringStmts);
   }
 
   // Handle bidirectional generators specially
@@ -236,8 +277,8 @@ export const emitFunctionDeclaration = (
       : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
     const asyncModifier = stmt.isAsync ? "async " : "";
 
-    // Check if generator has a return type (TReturn is not void/undefined)
-    const hasReturnType = hasGeneratorReturnType(stmt);
+    // generatorHasReturnType was computed earlier so we can reserve locals before body emission.
+    const hasReturnType = generatorHasReturnType;
 
     // Extract return type for __returnValue variable
     let returnTypeStr = "object";
@@ -260,16 +301,20 @@ export const emitFunctionDeclaration = (
     // Construct the bidirectional generator body
     const bodyLines = [
       `${ind}{`,
-      `${bodyInd}var exchange = new ${exchangeName}();`,
+      `${bodyInd}var ${generatorExchangeVar} = new ${exchangeName}();`,
     ];
 
     // Add __returnValue capture if TReturn is not void
     if (hasReturnType) {
-      bodyLines.push(`${bodyInd}${returnTypeStr} __returnValue = default!;`);
+      bodyLines.push(
+        `${bodyInd}${returnTypeStr} ${generatorReturnValueVar} = default!;`
+      );
     }
 
     bodyLines.push(``);
-    bodyLines.push(`${bodyInd}${asyncModifier}${enumerableType} __iterator()`);
+    bodyLines.push(
+      `${bodyInd}${asyncModifier}${enumerableType} ${generatorIteratorFn}()`
+    );
     bodyLines.push(`${bodyInd}{`);
     bodyLines.push(iteratorBody);
     bodyLines.push(`${bodyInd}}`);
@@ -278,11 +323,11 @@ export const emitFunctionDeclaration = (
     // Wrapper constructor call - pass return value getter if needed
     if (hasReturnType) {
       bodyLines.push(
-        `${bodyInd}return new ${wrapperName}(__iterator(), exchange, () => __returnValue);`
+        `${bodyInd}return new ${wrapperName}(${generatorIteratorFn}(), ${generatorExchangeVar}, () => ${generatorReturnValueVar});`
       );
     } else {
       bodyLines.push(
-        `${bodyInd}return new ${wrapperName}(__iterator(), exchange);`
+        `${bodyInd}return new ${wrapperName}(${generatorIteratorFn}(), ${generatorExchangeVar});`
       );
     }
 
@@ -293,7 +338,9 @@ export const emitFunctionDeclaration = (
     // Add generator exchange initialization for unidirectional generators
     if (stmt.isGenerator) {
       const exchangeName = `${csharpBaseName}_exchange`;
-      injectLines.push(`${bodyInd}var exchange = new ${exchangeName}();`);
+      injectLines.push(
+        `${bodyInd}var ${generatorExchangeVar} = new ${exchangeName}();`
+      );
     }
 
     // Add out parameter initializations
