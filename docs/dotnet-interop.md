@@ -268,21 +268,27 @@ export function main(): void {
 
 tsbindgen-generated packages expose **type-only** `ExtensionMethods` helpers that model C# `using` semantics.
 
-Bring a namespace’s extension methods into scope by wrapping the receiver type:
+Bring a namespace’s extension methods into scope by wrapping the receiver type.
+
+Use `asinterface<T>(x)` to apply the wrapper **without emitting runtime casts** in C#:
 
 ```typescript
+import { asinterface } from "@tsonic/core/lang.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
 
 type LinqList<T> = Linq<List<T>>;
 
-const numbers = new List<number>() as unknown as LinqList<number>;
+const numbers = asinterface<LinqList<number>>(new List<number>());
 numbers.Add(1);
 numbers.Add(2);
 numbers.Add(3);
 
 const doubled = numbers.Where((x) => x % 2 === 0).Select((x) => x * 2).ToList();
 ```
+
+Extension method scopes are **sticky** across fluent chains: you should only need to apply
+`ExtensionMethods<...>` once at the root.
 
 The same pattern works for `IEnumerable<T>` and `IQueryable<T>` (for example when using EF Core):
 
