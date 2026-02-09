@@ -29,6 +29,18 @@ export function main(): void {
     .ToList();
   Console.WriteLine(`Doubled count: ${doubled.Count}`);
 
+  // PLINQ: AsParallel() should switch the chain to ParallelEnumerable.* overloads.
+  const doubledParallel = numbers
+    .AsParallel()
+    .Where((n) => n % 2 === 0)
+    // If `Where` accidentally binds to Enumerable.Where (IEnumerable), the chain loses
+    // ParallelQuery<T> and this call disappears. Keep this here as a compile-time guard
+    // that we’re still on PLINQ.
+    .WithDegreeOfParallelism(1)
+    .Select((n) => n * 2)
+    .ToList();
+  Console.WriteLine(`Parallel doubled count: ${doubledParallel.Count}`);
+
   let count: int = 0;
   const ok = numbers.TryGetNonEnumeratedCount(count);
   Console.WriteLine(`TryGetNonEnumeratedCount: ${ok} ${count}`);
