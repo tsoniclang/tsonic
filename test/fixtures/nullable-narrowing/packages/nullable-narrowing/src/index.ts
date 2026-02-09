@@ -2,7 +2,7 @@
 // When checking `id !== undefined`, the identifier should emit as `id.Value` in C#
 
 import { int } from "@tsonic/core/types.js";
-import { Console } from "@tsonic/dotnet/System.js";
+import { Console, DateTime } from "@tsonic/dotnet/System.js";
 
 // Test Case 1: Basic nullable narrowing with int
 function handleInt(id: int | undefined): int {
@@ -97,6 +97,32 @@ function bumpUpdate(id: int | undefined): int {
   return -1;
 }
 
+// Test Case 11: Shadowing + nullable narrowing
+// This triggers C# CS0136 rename logic: a local declared after a nested-scope local
+// with the same TS name must be remapped (id -> id__1, etc). The narrowing rewrite
+// must respect that remap when generating `.Value`.
+function shadowingNullable(): int {
+  {
+    // Inner declaration reserves the base name `id` for CS0136.
+    // Use a non-constant input to avoid constant folding.
+    const id: int | undefined = getMaybeId();
+    if (id === undefined) return -999;
+  }
+
+  // Outer declaration occurs after the nested scope, so it must be remapped in C#
+  // (e.g. `id__1`). Nullable narrowing must respect that remap.
+  const id: int | undefined = getMaybeId();
+  if (id !== undefined) {
+    return id + 1;
+  }
+  return -1;
+}
+
+function getMaybeId(): int | undefined {
+  // Use a runtime value so the compiler cannot fold the checks.
+  return DateTime.Now.Ticks > 0 ? 1 : undefined;
+}
+
 export function main(): void {
   // Test Case 1: Basic narrowing
   const r1 = handleInt(42);
@@ -146,6 +172,10 @@ export function main(): void {
   // Test Case 10: Update in narrowed branch
   const r10 = bumpUpdate(5);
   Console.WriteLine("Test 10: " + (r10 === 6 ? "PASS" : "FAIL"));
+
+  // Test Case 11: Shadowing + narrowing must respect remapped identifier names.
+  const r11 = shadowingNullable();
+  Console.WriteLine("Test 11: " + (r11 === 2 ? "PASS" : "FAIL"));
 
   Console.WriteLine("All tests complete!");
 }
