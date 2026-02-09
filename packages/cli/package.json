@@ -28,7 +28,7 @@
     "@tsonic/backend": "0.0.39",
     "@tsonic/emitter": "0.0.39",
     "@tsonic/frontend": "0.0.39",
-    "@tsonic/tsbindgen": "0.7.30"
+    "@tsonic/tsbindgen": "0.7.33"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",

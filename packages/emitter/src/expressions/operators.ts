@@ -18,7 +18,7 @@ import {
   isDefinitelyValueType,
 } from "../core/type-resolution.js";
 import { emitBooleanCondition } from "../core/boolean-context.js";
-import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { emitRemappedLocalName } from "../core/local-names.js";
 import { lowerAssignmentPattern } from "../patterns.js";
 
 /**
@@ -687,7 +687,7 @@ export const emitAssignment = (
     // Identifier pattern with compound assignment (+=, etc.)
     const pattern = expr.left as IrPattern;
     if (pattern.kind === "identifierPattern") {
-      leftText = escapeCSharpIdentifier(pattern.name);
+      leftText = emitRemappedLocalName(pattern.name, context);
       leftContext = context;
       leftType = pattern.type;
     } else {
@@ -776,7 +776,7 @@ const tryResolveTernaryGuard = (
     return {
       originalName,
       memberN: idx + 1,
-      escapedOrig: escapeCSharpIdentifier(originalName),
+      escapedOrig: emitRemappedLocalName(originalName, context),
       polarity: "positive",
     };
   };

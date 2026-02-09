@@ -46,7 +46,11 @@ import {
 import { EmitterContext } from "./emitter-types/index.js";
 import { emitType } from "./types/emitter.js";
 import { escapeCSharpIdentifier } from "./emitter-types/identifiers.js";
-import { allocateLocalName, registerLocalName } from "./core/local-names.js";
+import {
+  allocateLocalName,
+  emitRemappedLocalName,
+  registerLocalName,
+} from "./core/local-names.js";
 
 /**
  * Result of pattern lowering - a list of C# statements
@@ -353,7 +357,7 @@ const getPropertyType = (
 /**
  * Emit a default expression (simplified - just literals for now)
  */
-const emitDefaultExpr = (expr: IrExpression, _ctx: EmitterContext): string => {
+const emitDefaultExpr = (expr: IrExpression, ctx: EmitterContext): string => {
   // Simplified default expression emission
   if (expr.kind === "literal") {
     if (typeof expr.value === "string") {
@@ -370,10 +374,12 @@ const emitDefaultExpr = (expr: IrExpression, _ctx: EmitterContext): string => {
     }
   }
   if (expr.kind === "identifier") {
-    return escapeCSharpIdentifier(expr.name);
+    return emitRemappedLocalName(expr.name, ctx);
   }
-  // For complex expressions, emit a placeholder
-  return "default!";
+  throw new Error(
+    `Unsupported destructuring default expression kind '${expr.kind}'. ` +
+      "Only literals and identifiers are supported (airplane-grade: no silent placeholder emission)."
+  );
 };
 
 /**
@@ -500,7 +506,7 @@ export const lowerAssignmentPattern = (
 ): AssignmentLoweringResult => {
   // For identifier pattern, just emit simple assignment
   if (pattern.kind === "identifierPattern") {
-    const escapedName = escapeCSharpIdentifier(pattern.name);
+    const escapedName = emitRemappedLocalName(pattern.name, ctx);
     return {
       expression: `${escapedName} = ${rhsExpr}`,
       context: ctx,
@@ -555,7 +561,7 @@ export const lowerAssignmentPattern = (
       if (prop.kind === "rest") {
         // Rest property - would need synthetic type
         if (prop.pattern.kind === "identifierPattern") {
-          const escapedName = escapeCSharpIdentifier(prop.pattern.name);
+          const escapedName = emitRemappedLocalName(prop.pattern.name, currentCtx);
           assignments.push(
             `/* ${escapedName} = rest of ${tempName} - needs synthetic type */`
           );
@@ -593,7 +599,7 @@ const lowerAssignmentPatternElement = (
   ctx: EmitterContext
 ): AssignmentLoweringResult => {
   if (pattern.kind === "identifierPattern") {
-    const escapedName = escapeCSharpIdentifier(pattern.name);
+    const escapedName = emitRemappedLocalName(pattern.name, ctx);
     return {
       expression: `${escapedName} = ${inputExpr}`,
       context: ctx,

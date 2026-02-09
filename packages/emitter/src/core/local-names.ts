@@ -59,3 +59,14 @@ export const registerLocalName = (
   nextMap.set(originalName, emittedName);
   return { ...context, localNameMap: nextMap };
 };
+
+/**
+ * Emit a local/parameter identifier using lexical remaps (CS0136 shadowing avoidance).
+ *
+ * This intentionally does not consult import bindings or valueSymbols: it is only for
+ * identifiers that are known to refer to locals/parameters in the current scope.
+ */
+export const emitRemappedLocalName = (
+  originalName: string,
+  context: EmitterContext
+): string => context.localNameMap?.get(originalName) ?? escapeCSharpIdentifier(originalName);

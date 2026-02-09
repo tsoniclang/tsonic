@@ -89,8 +89,11 @@ export const convertForOfStatement = (
     : undefined;
 
   const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
-    : convertBindingName(node.initializer as ts.BindingName);
+    ? convertBindingName(
+        firstDecl?.name ?? ts.factory.createIdentifier("_"),
+        ctx
+      )
+    : convertBindingName(node.initializer as ts.BindingName, ctx);
 
   const expression = convertExpression(node.expression, ctx, undefined);
 
@@ -152,10 +155,10 @@ export const convertForInStatement = (
     : undefined;
 
   const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"))
+    ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"), ctx)
     : ts.isIdentifier(node.initializer)
-      ? convertBindingName(node.initializer)
-      : convertBindingName(ts.factory.createIdentifier("_"));
+      ? convertBindingName(node.initializer, ctx)
+      : convertBindingName(ts.factory.createIdentifier("_"), ctx);
 
   const typedVariable =
     variable.kind === "identifierPattern"

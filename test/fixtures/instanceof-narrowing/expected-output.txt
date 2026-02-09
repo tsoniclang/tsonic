@@ -3,5 +3,15 @@ True
 123
 False
 True
+False
+42
+a
+a
+123
+a
+False
+True
+inner
+outer
 888
 999
