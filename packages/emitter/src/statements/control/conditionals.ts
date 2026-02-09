@@ -953,13 +953,30 @@ export const emitIfStatement = (
 
   // Case D: Nullable value type narrowing
   // if (id !== null) { ... } → id becomes id.Value in then-branch
-  const nullableGuard = tryResolveNullableGuard(stmt.condition, context);
+  const simpleNullableGuard = tryResolveSimpleNullableGuard(stmt.condition);
+  const nullableGuard =
+    simpleNullableGuard ?? tryResolveNullableGuard(stmt.condition, context);
   if (nullableGuard && nullableGuard.isValueType) {
     const { identifierName, identifierExpr, narrowsInThen, strippedType } =
       nullableGuard;
-    // IMPORTANT: The identifier may be remapped due to CS0136 shadowing avoidance.
-    // Use the normal identifier emitter so we respect `localNameMap`.
-    const [idFrag] = emitIdentifier(identifierExpr, context);
+
+    // IMPORTANT: Avoid stacking `.Value` when:
+    // - we are emitting an else-if chain, and
+    // - an outer nullable guard already narrowed the identifier in the else-branch.
+    //
+    // Example (TS):
+    //   if (x === undefined) { ... } else if (x !== undefined) { use(x) }
+    //
+    // In C#, we might narrow `x` in the outer ELSE (x.Value). If we build a new
+    // narrowed binding by reading `x` via emitIdentifier (which consults narrowedBindings),
+    // we'd accidentally create `x.Value.Value`.
+    //
+    // So: build the `.Value` access from the *raw* identifier (respecting CS0136 remaps),
+    // but ignoring existing narrowedBindings.
+    const [idFrag] = emitIdentifier(identifierExpr, {
+      ...context,
+      narrowedBindings: undefined,
+    });
 
     // Create narrowed binding: id → id.Value
     const narrowedMap = new Map(context.narrowedBindings ?? []);
@@ -969,52 +986,71 @@ export const emitIfStatement = (
       type: strippedType,
     });
 
-    // Emit condition (boolean context)
-    const [condText, condCtxAfterCond] = emitBooleanCondition(
-      stmt.condition,
-      (e, ctx) => emitExpression(e, ctx),
-      context
-    );
-
-    // Apply narrowing to appropriate branch
-    const thenCtx: EmitterContext = {
-      ...indent(condCtxAfterCond),
-      narrowedBindings: narrowsInThen
-        ? narrowedMap
-        : condCtxAfterCond.narrowedBindings,
-    };
-
-    const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
-
-    let code = `${ind}if (${condText})\n${thenCode}`;
-    let finalContext = dedent(thenCtxAfter);
-
-    // Clear narrowing after branch
-    finalContext = {
-      ...finalContext,
-      narrowedBindings: context.narrowedBindings,
-    };
-
-    if (stmt.elseStatement) {
-      const elseCtx: EmitterContext = {
-        ...indent(finalContext),
-        narrowedBindings: !narrowsInThen
-          ? narrowedMap
-          : context.narrowedBindings,
-      };
-      const [elseCode, elseCtxAfter] = emitStatement(
-        stmt.elseStatement,
-        elseCtx
+    // Soundness: In compound conditions (A && B), we must NOT apply "else" narrowing.
+    // `!(A && (id == null))` does not imply `id != null` unless A is provably true.
+    //
+    // Therefore:
+    // - For simple guards: allow both THEN (id != null) and ELSE (id == null) narrowing.
+    // - For &&-nested guards: only allow THEN narrowing when the guard is `!= null`.
+    const isAndCondition =
+      stmt.condition.kind === "logical" && stmt.condition.operator === "&&";
+    if (isAndCondition && !simpleNullableGuard && !narrowsInThen) {
+      // `id == null` inside `&&` - narrowing would only be valid in the THEN branch
+      // (and even then it's "id is null", not `.Value`-usable). Skip nullable rewrite.
+      // Fall through to standard if emission.
+    } else {
+      // Emit condition (boolean context)
+      const [condText, condCtxAfterCond] = emitBooleanCondition(
+        stmt.condition,
+        (e, ctx) => emitExpression(e, ctx),
+        context
       );
-      code += `\n${ind}else\n${elseCode}`;
-      finalContext = dedent(elseCtxAfter);
+
+      // Apply narrowing to appropriate branch
+      const thenCtx: EmitterContext = {
+        ...indent(condCtxAfterCond),
+        narrowedBindings: narrowsInThen
+          ? narrowedMap
+          : condCtxAfterCond.narrowedBindings,
+      };
+
+      const [thenCode, thenCtxAfter] = emitStatement(
+        stmt.thenStatement,
+        thenCtx
+      );
+
+      let code = `${ind}if (${condText})\n${thenCode}`;
+      let finalContext = dedent(thenCtxAfter);
+
+      // Clear narrowing after branch
       finalContext = {
         ...finalContext,
         narrowedBindings: context.narrowedBindings,
       };
-    }
 
-    return [code, finalContext];
+      if (stmt.elseStatement) {
+        const elseCtx: EmitterContext = {
+          ...indent(finalContext),
+          narrowedBindings: !narrowsInThen
+            ? simpleNullableGuard
+              ? narrowedMap
+              : context.narrowedBindings
+            : context.narrowedBindings,
+        };
+        const [elseCode, elseCtxAfter] = emitStatement(
+          stmt.elseStatement,
+          elseCtx
+        );
+        code += `\n${ind}else\n${elseCode}`;
+        finalContext = dedent(elseCtxAfter);
+        finalContext = {
+          ...finalContext,
+          narrowedBindings: context.narrowedBindings,
+        };
+      }
+
+      return [code, finalContext];
+    }
   }
 
   // Standard if-statement emission (no narrowing)
