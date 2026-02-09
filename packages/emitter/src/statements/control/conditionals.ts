@@ -11,6 +11,7 @@ import {
   NarrowedBinding,
 } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
+import { emitIdentifier } from "../../expressions/identifiers.js";
 import { emitStatement } from "../../statement-emitter.js";
 import {
   resolveTypeAlias,
@@ -208,7 +209,8 @@ const tryResolveInGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const escapedOrig = escapeCSharpIdentifier(originalName);
+  const [rhsFrag] = emitIdentifier(condition.right, context);
+  const escapedOrig = rhsFrag.text;
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -290,7 +292,8 @@ const tryResolvePredicateGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const escapedOrig = escapeCSharpIdentifier(originalName);
+  const [argFrag] = emitIdentifier(arg, context);
+  const escapedOrig = argFrag.text;
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -330,10 +333,11 @@ const tryResolveInstanceofGuard = (
   if (condition.left.kind !== "identifier") return undefined;
 
   const originalName = condition.left.name;
-  const escapedOrig = escapeCSharpIdentifier(originalName);
+  const [lhsFrag, ctxAfterLhs] = emitIdentifier(condition.left, context);
+  const escapedOrig = lhsFrag.text;
 
-  const nextId = (context.tempVarId ?? 0) + 1;
-  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+  const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
+  const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
 
   // Emit RHS as a type name (e.g., global::System.String)
   const [rhsFrag, ctxAfterRhs] = emitExpression(condition.right, ctxWithId);
@@ -392,7 +396,7 @@ const isNullOrUndefined = (expr: IrExpression): boolean => {
  */
 type NullableGuardInfo = {
   readonly identifierName: string;
-  readonly identifierExpr: IrExpression;
+  readonly identifierExpr: Extract<IrExpression, { kind: "identifier" }>;
   readonly strippedType: IrType;
   readonly narrowsInThen: boolean; // true for !== null, false for === null
   readonly isValueType: boolean;
@@ -951,14 +955,17 @@ export const emitIfStatement = (
   // if (id !== null) { ... } → id becomes id.Value in then-branch
   const nullableGuard = tryResolveNullableGuard(stmt.condition, context);
   if (nullableGuard && nullableGuard.isValueType) {
-    const { identifierName, narrowsInThen, strippedType } = nullableGuard;
-    const escapedName = escapeCSharpIdentifier(identifierName);
+    const { identifierName, identifierExpr, narrowsInThen, strippedType } =
+      nullableGuard;
+    // IMPORTANT: The identifier may be remapped due to CS0136 shadowing avoidance.
+    // Use the normal identifier emitter so we respect `localNameMap`.
+    const [idFrag] = emitIdentifier(identifierExpr, context);
 
     // Create narrowed binding: id → id.Value
     const narrowedMap = new Map(context.narrowedBindings ?? []);
     narrowedMap.set(identifierName, {
       kind: "expr",
-      exprText: `${escapedName}.Value`,
+      exprText: `${idFrag.text}.Value`,
       type: strippedType,
     });
 
