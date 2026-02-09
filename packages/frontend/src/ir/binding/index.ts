@@ -388,20 +388,92 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   const resolveTypeReference = (
     node: ts.TypeReferenceNode
   ): DeclId | undefined => {
-    const typeName = node.typeName;
-    const symbol = ts.isIdentifier(typeName)
-      ? checker.getSymbolAtLocation(typeName)
-      : checker.getSymbolAtLocation(typeName.right);
+    const resolveEntityNameSymbol = (
+      typeName: ts.EntityName
+    ): ts.Symbol | undefined => {
+      const symbol = ts.isIdentifier(typeName)
+        ? checker.getSymbolAtLocation(typeName)
+        : checker.getSymbolAtLocation(typeName.right);
+      if (!symbol) return undefined;
 
-    if (!symbol) return undefined;
-
-    // Follow aliases
-    const resolvedSymbol =
-      symbol.flags & ts.SymbolFlags.Alias
+      return symbol.flags & ts.SymbolFlags.Alias
         ? checker.getAliasedSymbol(symbol)
         : symbol;
+    };
 
-    return getOrCreateDeclId(resolvedSymbol);
+    let symbol = resolveEntityNameSymbol(node.typeName);
+    if (!symbol) return undefined;
+
+    // Follow type aliases that are pure renames to another type reference:
+    //   type Foo<T> = Bar<T>
+    //
+    // This is required for tsbindgen facades, where ergonomic types are often
+    // exported as aliases to arity-qualified internal CLR types.
+    //
+    // DETERMINISTIC: AST inspection only (no ts.Type queries).
+    const seen = new Set<ts.Symbol>();
+    while (!seen.has(symbol)) {
+      seen.add(symbol);
+
+      const decls = symbol.getDeclarations() ?? [];
+      const typeAliasDecl = decls.find(ts.isTypeAliasDeclaration);
+      if (!typeAliasDecl) break;
+
+      const aliasedType = typeAliasDecl.type;
+      if (!ts.isTypeReferenceNode(aliasedType)) break;
+
+      // Only follow aliases that forward type parameters 1:1.
+      //
+      // SAFE EXAMPLES:
+      //   type Foo<T> = Bar<T>
+      //   type Foo<T1, T2> = Bar<T1, T2>
+      //   type Foo = Bar
+      //
+      // UNSAFE (requires substitution / rewrapping, so we must NOT follow):
+      //   type Foo<T> = Bar<Baz<T>>
+      //   type Foo<T, U> = Bar<U, T>              // reorders args
+      //   type Foo = Bar<string>                  // applies args
+      const aliasTypeParams = typeAliasDecl.typeParameters ?? [];
+      const rhsArgs = aliasedType.typeArguments ?? [];
+
+      if (aliasTypeParams.length === 0) {
+        if (rhsArgs.length > 0) break;
+      } else {
+        if (rhsArgs.length !== aliasTypeParams.length) break;
+
+        let forwardsIdentity = true;
+        for (let i = 0; i < aliasTypeParams.length; i++) {
+          const p = aliasTypeParams[i];
+          const a = rhsArgs[i];
+          if (!p || !a) {
+            forwardsIdentity = false;
+            break;
+          }
+
+          if (!ts.isTypeReferenceNode(a) || !ts.isIdentifier(a.typeName)) {
+            forwardsIdentity = false;
+            break;
+          }
+          if (a.typeArguments && a.typeArguments.length > 0) {
+            forwardsIdentity = false;
+            break;
+          }
+          if (a.typeName.text !== p.name.text) {
+            forwardsIdentity = false;
+            break;
+          }
+        }
+
+        if (!forwardsIdentity) break;
+      }
+
+      const next = resolveEntityNameSymbol(aliasedType.typeName);
+      if (!next) break;
+
+      symbol = next;
+    }
+
+    return getOrCreateDeclId(symbol);
   };
 
   const resolvePropertyAccess = (
