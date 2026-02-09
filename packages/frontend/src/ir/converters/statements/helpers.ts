@@ -145,7 +145,7 @@ export const convertParameters = (
 
     return {
       kind: "parameter",
-      pattern: convertBindingName(param.name),
+      pattern: convertBindingName(param.name, ctx),
       type: paramType,
       // Pass parameter type for contextual typing of default value
       initializer: param.initializer
@@ -188,7 +188,7 @@ export const convertVariableDeclarationList = (
 
     const irDecl = {
       kind: "variableDeclarator" as const,
-      name: convertBindingName(decl.name),
+      name: convertBindingName(decl.name, currentCtx),
       type: declType,
       initializer,
     };

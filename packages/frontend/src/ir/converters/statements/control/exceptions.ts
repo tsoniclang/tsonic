@@ -45,7 +45,7 @@ export const convertCatchClause = (
   return {
     kind: "catchClause",
     parameter: node.variableDeclaration
-      ? convertBindingName(node.variableDeclaration.name)
+      ? convertBindingName(node.variableDeclaration.name, ctx)
       : undefined,
     body: convertBlockStatement(node.block, ctx, expectedReturnType),
   };

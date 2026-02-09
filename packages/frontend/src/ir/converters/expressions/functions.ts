@@ -96,7 +96,7 @@ const convertLambdaParameters = (
 
     return {
       kind: "parameter" as const,
-      pattern: convertBindingName(param.name),
+      pattern: convertBindingName(param.name, ctx),
       type: irType,
       // Pass parameter type for contextual typing of default value
       initializer: param.initializer

@@ -137,7 +137,7 @@ export const convertVariableStatement = (
 
     const irDecl: IrVariableDeclarator = {
       kind: "variableDeclarator",
-      name: convertBindingName(decl.name),
+      name: convertBindingName(decl.name, currentCtx),
       type: declaredType,
       initializer: convertedInitializer,
     };
