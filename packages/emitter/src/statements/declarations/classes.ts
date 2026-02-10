@@ -229,13 +229,26 @@ export const emitClassDeclaration = (
       localInfo?.kind === "interface" &&
       localInfo.members.some((m) => m.kind === "methodSignature");
 
-    // For CLR bindings, `resolvedClrType` is preferred, but some binding-only
-    // interfaces exist purely as types (no value export), so the frontend may
-    // omit `resolvedClrType`. In that case, fall back to the bindingsRegistry
-    // to decide whether this referenceType is a CLR interface.
-    const regBinding = context.bindingsRegistry?.get(impl.name);
-    const isClrInterface =
-      impl.resolvedClrType !== undefined || regBinding?.kind === "interface";
+    // For CLR bindings, determine interface-ness from the bindings registry.
+    //
+    // IMPORTANT: referenceType.name may refer to a tsbindgen companion type
+    // (e.g. `Foo_1$instance` or `__Foo$views`) even though the canonical binding
+    // key is `Foo_1`. Prefer the canonical `typeId.tsName` when available and
+    // fall back to deterministic name normalization.
+    const bindingKeyCandidates: string[] = [impl.name];
+    if (impl.typeId?.tsName) bindingKeyCandidates.push(impl.typeId.tsName);
+    if (impl.name.endsWith("$instance")) {
+      bindingKeyCandidates.push(impl.name.slice(0, -"$instance".length));
+    }
+    if (impl.name.startsWith("__") && impl.name.endsWith("$views")) {
+      bindingKeyCandidates.push(impl.name.slice("__".length, -"$views".length));
+    }
+
+    const regBinding = bindingKeyCandidates
+      .map((k) => context.bindingsRegistry?.get(k))
+      .find((b): b is NonNullable<typeof b> => b !== undefined);
+
+    const isClrInterface = regBinding?.kind === "interface";
 
     if (!isLocalCSharpInterface && !isClrInterface) continue;
 
