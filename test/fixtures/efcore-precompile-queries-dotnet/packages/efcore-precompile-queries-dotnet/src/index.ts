@@ -1,5 +1,6 @@
 import { int } from "@tsonic/core/types.js";
 import { asinterface } from "@tsonic/core/lang.js";
+import type { Interface } from "@tsonic/core/lang.js";
 import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
 import type { IQueryable } from "@tsonic/dotnet/System.Linq.js";
 import { DbContext, DbContextOptionsBuilder, DbSet } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
@@ -32,10 +33,8 @@ export const createDbOptions = (): DbContextOptions => {
 };
 
 export class AppDbContextFactory
-  implements IDesignTimeDbContextFactory<AppDbContext>
+  implements Interface<IDesignTimeDbContextFactory<AppDbContext>>
 {
-  declare readonly __tsonic_iface_Microsoft_EntityFrameworkCore_Design_IDesignTimeDbContextFactory_1: never;
-
   CreateDbContext(_args: string[]): AppDbContext {
     return new AppDbContext(createDbOptions());
   }
