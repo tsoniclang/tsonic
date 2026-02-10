@@ -961,7 +961,7 @@ const processStatement = <T extends IrStatement>(
           const declaredKind = getNumericKindFromType(d.type);
           if (declaredKind !== undefined) {
             ctx.provenVariables.set(d.name.name, declaredKind);
-          } else if (processedInit !== undefined) {
+          } else if (d.type === undefined && processedInit !== undefined) {
             // First check for explicit numericNarrowing
             if (
               processedInit.kind === "numericNarrowing" &&

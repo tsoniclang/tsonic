@@ -1,6 +1,18 @@
 import { Console } from "@tsonic/dotnet/System.js";
 import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-import type { int } from "@tsonic/core/types.js";
+import type { int, long } from "@tsonic/core/types.js";
+
+type BoolBox = { readonly __kind: "BoolBox"; readonly value: boolean };
+type WrappedBool = boolean | BoolBox;
+
+type IntBox = { readonly __kind: "IntBox"; readonly value: int };
+type WrappedInt = int | IntBox;
+
+type LongBox = { readonly __kind: "LongBox"; readonly value: long };
+type WrappedLong = long | LongBox;
+
+type StringBox = { readonly __kind: "StringBox"; readonly value: string };
+type WrappedString = string | StringBox;
 
 export function main(): void {
   // 1) Boolean local used in boolean context must not degrade to `!= null`.
@@ -68,4 +80,21 @@ export function main(): void {
 
   const unkObj = new List<int>() as unknown;
   Console.WriteLine(unkObj ? "T" : "F");
+
+  // 10) Union wrappers around falsy CLR primitives must not degrade to `!= null`.
+  //
+  // Union/intersection types can appear via bindings and generics. If boolean-context lowering
+  // emits `x != null` for these, C# can silently box value types (bool/int/...) and become
+  // always-true, which is a catastrophic miscompile.
+  const wrappedFalse: WrappedBool = false;
+  Console.WriteLine(wrappedFalse ? "T" : "F");
+
+  const wrappedZero: WrappedInt = 0 as int;
+  Console.WriteLine(wrappedZero ? "T" : "F");
+
+  const wrappedLongZero: WrappedLong = 0 as long;
+  Console.WriteLine(wrappedLongZero ? "T" : "F");
+
+  const wrappedEmpty: WrappedString = "";
+  Console.WriteLine(wrappedEmpty ? "T" : "F");
 }
