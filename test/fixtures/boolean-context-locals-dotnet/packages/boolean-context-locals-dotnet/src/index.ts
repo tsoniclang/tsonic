@@ -1,4 +1,5 @@
 import { Console } from "@tsonic/dotnet/System.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import type { int } from "@tsonic/core/types.js";
 
 export function main(): void {
@@ -47,5 +48,24 @@ export function main(): void {
   let d = 0 as int;
   if (n) d = 1 as int;
   Console.WriteLine(d);
-}
 
+  // 8) CLR bool return types (System.Boolean) must not degrade to `!= null`.
+  // This catches a subtle miscompile where `if (bclBool)` becomes `if (bclBool != null)`,
+  // which silently compiles (boxing) but is always true for value types.
+  const bclBool = "x".Contains("y");
+  Console.WriteLine(bclBool ? "T" : "F");
+
+  // 9) Unknown/any typed locals must use JS truthiness, not `!= null`.
+  // `false as unknown` boxes to a non-null object in C#, so `!= null` would miscompile to true.
+  const unkBool = false as unknown;
+  Console.WriteLine(unkBool ? "T" : "F");
+
+  const unkInt = 0 as unknown;
+  Console.WriteLine(unkInt ? "T" : "F");
+
+  const unkString = "" as unknown;
+  Console.WriteLine(unkString ? "T" : "F");
+
+  const unkObj = new List<int>() as unknown;
+  Console.WriteLine(unkObj ? "T" : "F");
+}
