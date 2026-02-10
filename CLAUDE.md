@@ -709,6 +709,9 @@ npm test -- --grep "pattern"
 # Run E2E tests
 ./test/scripts/run-all.sh
 
+# Run a subset of E2E fixtures (iteration only)
+./test/scripts/run-all.sh --filter <pattern>
+
 # Clean build artifacts
 ./scripts/build/clean.sh
 
@@ -721,6 +724,11 @@ npm test -- --grep "pattern"
 # Lint code
 ./scripts/build/lint.sh
 ```
+
+Test workflow (airplane-grade):
+- During iteration (e.g. on an external testbed project), it’s OK to use `./test/scripts/run-all.sh --quick` or `./test/scripts/run-all.sh --filter ...` for fast feedback.
+- Before merging/publishing, ALWAYS run the full suite: `./test/scripts/run-all.sh` (no `--quick` / `--filter`).
+- If a change is substantial (emitter/type system/CLI/runtime behavior), run the full suite even during development.
 
 ## Git Workflow
 

@@ -23,8 +23,17 @@ test/
 # Run all tests (unit, golden, E2E dotnet, negative)
 ./test/scripts/run-all.sh
 
+# Fast iteration: fixtures only (typecheck + E2E, skip unit/golden)
+./test/scripts/run-e2e.sh --filter linq
+
 # Quick mode - unit and golden tests only (skip E2E)
 ./test/scripts/run-all.sh --quick
+
+# Filtered run - only matching E2E fixtures (substring match on fixture name)
+./test/scripts/run-all.sh --filter linq
+
+# Filtered fixtures run without unit/golden (iteration only)
+./test/scripts/run-all.sh --no-unit --filter linq
 ```
 
 The unified test runner:

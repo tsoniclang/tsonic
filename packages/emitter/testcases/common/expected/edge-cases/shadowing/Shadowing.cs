@@ -76,7 +76,7 @@ namespace TestCases.common.edgecases.shadowing
                     {
                     var __tsonic_truthy_num_1 = 1;
                     double n = 2;
-                    if (n != 0)
+                    if ((n is double __tsonic_truthy_num_1__1 && __tsonic_truthy_num_1__1 != 0 && !double.IsNaN(__tsonic_truthy_num_1__1)))
                         {
                         return __tsonic_truthy_num_1 + 1;
                         }

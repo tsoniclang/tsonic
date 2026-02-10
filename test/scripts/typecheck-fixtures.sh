@@ -14,6 +14,69 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FIXTURES_DIR="$ROOT_DIR/test/fixtures"
 
+FILTER_PATTERNS=()
+
+print_help() {
+  cat <<EOF
+Usage: ./test/scripts/typecheck-fixtures.sh [--filter <pattern>]
+
+Options:
+  --filter <pattern>   Only typecheck fixtures whose directory name contains <pattern>.
+                       Can be repeated, or comma-separated (e.g. --filter linq,efcore).
+  -h, --help           Show this help.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "${1:-}" in
+    --filter)
+      shift
+      if [ -z "${1:-}" ]; then
+        echo "FAIL: --filter requires a value"
+        exit 2
+      fi
+      FILTER_PATTERNS+=("$1")
+      shift
+      ;;
+    --filter=*)
+      FILTER_PATTERNS+=("${1#*=}")
+      shift
+      ;;
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+    *)
+      echo "FAIL: unknown argument: $1"
+      print_help
+      exit 2
+      ;;
+  esac
+done
+
+matches_filter() {
+  local name="$1"
+  if [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  local raw
+  for raw in "${FILTER_PATTERNS[@]}"; do
+    local IFS=','
+    local -a parts
+    read -ra parts <<<"$raw"
+    local pat
+    for pat in "${parts[@]}"; do
+      [ -n "$pat" ] || continue
+      if [[ "$name" == *"$pat"* ]]; then
+        return 0
+      fi
+    done
+  done
+
+  return 1
+}
+
 TSC="$ROOT_DIR/node_modules/.bin/tsc"
 if [ ! -x "$TSC" ]; then
   echo "FAIL: tsc not found at $TSC (run npm install in repo root)"
@@ -57,10 +120,17 @@ tmp_dir="$(mktemp -d)"
 trap "rm -rf \"$tmp_dir\"" EXIT
 
 echo "=== TypeScript Typecheck (E2E fixtures) ==="
+if [ ${#FILTER_PATTERNS[@]} -gt 0 ]; then
+  echo "Filter: ${FILTER_PATTERNS[*]}"
+fi
 
 for fixture_dir in "$FIXTURES_DIR"/*/; do
   [ -d "$fixture_dir" ] || continue
   fixture_name="$(basename "$fixture_dir")"
+
+  if ! matches_filter "$fixture_name"; then
+    continue
+  fi
 
   # Only workspace fixtures (dotnet E2E)
   if [ ! -f "$fixture_dir/tsonic.workspace.json" ]; then
