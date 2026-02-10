@@ -1,8 +1,11 @@
 #!/bin/bash
 # Unified test runner: unit tests, golden tests, E2E tests, and summary report
 #
-# Usage: ./test/scripts/run-all.sh [--quick]
+# Usage: ./test/scripts/run-all.sh [--quick] [--filter <pattern>]
 #   --quick: Skip E2E tests, only run unit/golden tests
+#   --no-unit: Skip unit/golden tests (fixtures only). Intended for iteration.
+#   --filter: Run only matching E2E fixtures (substring match on fixture name).
+#             Can be repeated, or use comma-separated patterns.
 #
 # Environment variables:
 #   TEST_CONCURRENCY: Number of parallel E2E tests (default: 4)
@@ -40,9 +43,84 @@ TSC_STATUS="unknown"
 RUNTIME_SYNC_STATUS="unknown"
 
 QUICK_MODE=false
-if [ "${1:-}" = "--quick" ]; then
-    QUICK_MODE=true
-fi
+SKIP_UNIT=false
+FILTER_PATTERNS=()
+
+print_help() {
+    cat <<EOF
+Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--filter <pattern>]
+
+Options:
+  --quick                Skip E2E tests (unit + golden + fixture typecheck only).
+  --no-unit              Skip unit + golden tests (fixtures only). Intended for iteration.
+  --filter <pattern>     Only run E2E fixtures whose directory name contains <pattern>.
+                         Can be repeated, or comma-separated (e.g. --filter linq,efcore).
+  -h, --help             Show this help.
+
+Notes:
+  - --filter is intended for iteration. Final verification must run without --filter.
+  - --no-unit is intended for iteration. Final verification must include unit + golden tests.
+  - Concurrency is controlled via TEST_CONCURRENCY (default: 4).
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "${1:-}" in
+        --quick)
+            QUICK_MODE=true
+            shift
+            ;;
+        --no-unit)
+            SKIP_UNIT=true
+            shift
+            ;;
+        --filter)
+            shift
+            if [ -z "${1:-}" ]; then
+                echo "FAIL: --filter requires a value"
+                exit 2
+            fi
+            FILTER_PATTERNS+=("$1")
+            shift
+            ;;
+        --filter=*)
+            FILTER_PATTERNS+=("${1#*=}")
+            shift
+            ;;
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        *)
+            echo "FAIL: unknown argument: $1"
+            print_help
+            exit 2
+            ;;
+    esac
+done
+
+matches_filter() {
+    local name="$1"
+    if [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    local raw
+    for raw in "${FILTER_PATTERNS[@]}"; do
+        local IFS=','
+        local -a parts
+        read -ra parts <<<"$raw"
+        local pat
+        for pat in "${parts[@]}"; do
+            [ -n "$pat" ] || continue
+            if [[ "$name" == *"$pat"* ]]; then
+                return 0
+            fi
+        done
+    done
+
+    return 1
+}
 
 # Create logs directory
 mkdir -p "$ROOT_DIR/.tests"
@@ -50,6 +128,12 @@ LOG_FILE="$ROOT_DIR/.tests/run-all-$(date +%Y%m%d-%H%M%S).log"
 
 echo "=== Tsonic Test Suite ===" | tee "$LOG_FILE"
 echo "Started: $(date)" | tee -a "$LOG_FILE"
+if [ ${#FILTER_PATTERNS[@]} -gt 0 ]; then
+    echo -e "${YELLOW}NOTE: FILTERED RUN (${FILTER_PATTERNS[*]}). Do not use this as the final verification.${NC}" | tee -a "$LOG_FILE"
+fi
+if [ "$SKIP_UNIT" = true ]; then
+    echo -e "${YELLOW}NOTE: UNIT TESTS SKIPPED (--no-unit). Do not use this as the final verification.${NC}" | tee -a "$LOG_FILE"
+fi
 echo "" | tee -a "$LOG_FILE"
 
 # ============================================================
@@ -58,27 +142,32 @@ echo "" | tee -a "$LOG_FILE"
 echo -e "${BLUE}--- Running Unit & Golden Tests ---${NC}" | tee -a "$LOG_FILE"
 cd "$ROOT_DIR"
 
-if npm test 2>&1 | tee -a "$LOG_FILE"; then
-    UNIT_STATUS="passed"
+if [ "$SKIP_UNIT" = true ]; then
+    echo -e "${YELLOW}SKIP: unit + golden tests (--no-unit)${NC}" | tee -a "$LOG_FILE"
+    UNIT_STATUS="skipped"
 else
-    UNIT_STATUS="failed"
-fi
-
-# Extract pass/fail counts from npm test output
-while IFS= read -r line; do
-    if [[ "$line" =~ ([0-9]+)\ passing ]]; then
-        count="${BASH_REMATCH[1]}"
-        UNIT_PASSED=$((UNIT_PASSED + count))
+    if npm test 2>&1 | tee -a "$LOG_FILE"; then
+        UNIT_STATUS="passed"
+    else
+        UNIT_STATUS="failed"
     fi
-    if [[ "$line" =~ ([0-9]+)\ failing ]]; then
-        count="${BASH_REMATCH[1]}"
-        UNIT_FAILED=$((UNIT_FAILED + count))
-    fi
-done < <(grep -E "passing|failing" "$LOG_FILE" || true)
 
-# Ensure failures are surfaced even when a workspace fails to build before running mocha.
-if [ "$UNIT_STATUS" = "failed" ] && [ "$UNIT_FAILED" -eq 0 ]; then
-    UNIT_FAILED=1
+    # Extract pass/fail counts from npm test output
+    while IFS= read -r line; do
+        if [[ "$line" =~ ([0-9]+)\ passing ]]; then
+            count="${BASH_REMATCH[1]}"
+            UNIT_PASSED=$((UNIT_PASSED + count))
+        fi
+        if [[ "$line" =~ ([0-9]+)\ failing ]]; then
+            count="${BASH_REMATCH[1]}"
+            UNIT_FAILED=$((UNIT_FAILED + count))
+        fi
+    done < <(grep -E "passing|failing" "$LOG_FILE" || true)
+
+    # Ensure failures are surfaced even when a workspace fails to build before running mocha.
+    if [ "$UNIT_STATUS" = "failed" ] && [ "$UNIT_FAILED" -eq 0 ]; then
+        UNIT_FAILED=1
+    fi
 fi
 
 echo "" | tee -a "$LOG_FILE"
@@ -87,7 +176,12 @@ echo "" | tee -a "$LOG_FILE"
 # 1.25 TypeScript typecheck (fixtures must pass vanilla tsc)
 # ============================================================
 echo -e "${BLUE}--- Running TypeScript Typecheck (E2E fixtures) ---${NC}" | tee -a "$LOG_FILE"
-if bash "$ROOT_DIR/test/scripts/typecheck-fixtures.sh" 2>&1 | tee -a "$LOG_FILE"; then
+typecheck_cmd=(bash "$ROOT_DIR/test/scripts/typecheck-fixtures.sh")
+for pat in "${FILTER_PATTERNS[@]}"; do
+    typecheck_cmd+=(--filter "$pat")
+done
+
+if "${typecheck_cmd[@]}" 2>&1 | tee -a "$LOG_FILE"; then
     TSC_STATUS="passed"
 else
     TSC_STATUS="failed"
@@ -337,6 +431,9 @@ else
         if [ -f "$meta_file" ] && grep -q '"expectFailure": true' "$meta_file"; then
             continue
         fi
+        if ! matches_filter "$(basename "$fixture_dir")"; then
+            continue
+        fi
         DOTNET_FIXTURES+=("$fixture_dir")
     done
 
@@ -432,6 +529,9 @@ else
     for fixture_dir in "$FIXTURES_DIR"/*; do
         meta_file="$fixture_dir/e2e.meta.json"
         if [ -f "$meta_file" ] && grep -q '"expectFailure": true' "$meta_file"; then
+            if ! matches_filter "$(basename "$fixture_dir")"; then
+                continue
+            fi
             NEGATIVE_FIXTURES+=("$fixture_dir")
         fi
     done
@@ -484,11 +584,15 @@ TOTAL_PASSED=$((UNIT_PASSED + TSC_PASSED + E2E_DOTNET_PASSED + E2E_NEGATIVE_PASS
 TOTAL_FAILED=$((UNIT_FAILED + TSC_FAILED + E2E_DOTNET_FAILED + E2E_NEGATIVE_FAILED))
 
 echo "Unit & Golden Tests:" | tee -a "$LOG_FILE"
-echo -e "  ${GREEN}Passed: $UNIT_PASSED${NC}" | tee -a "$LOG_FILE"
-if [ $UNIT_FAILED -gt 0 ]; then
-    echo -e "  ${RED}Failed: $UNIT_FAILED${NC}" | tee -a "$LOG_FILE"
+if [ "$UNIT_STATUS" = "skipped" ]; then
+    echo -e "  ${YELLOW}Skipped (--no-unit)${NC}" | tee -a "$LOG_FILE"
 else
-    echo "  Failed: 0" | tee -a "$LOG_FILE"
+    echo -e "  ${GREEN}Passed: $UNIT_PASSED${NC}" | tee -a "$LOG_FILE"
+    if [ $UNIT_FAILED -gt 0 ]; then
+        echo -e "  ${RED}Failed: $UNIT_FAILED${NC}" | tee -a "$LOG_FILE"
+    else
+        echo "  Failed: 0" | tee -a "$LOG_FILE"
+    fi
 fi
 echo "" | tee -a "$LOG_FILE"
 

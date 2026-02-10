@@ -179,11 +179,19 @@ NativeAOT provides:
 # Build all packages
 ./scripts/build/all.sh
 
-# Run tests
+# Run unit/golden tests (all workspaces)
 npm test
 
-# Run E2E tests
+# Run a focused subset (Mocha)
+npm run test:emitter -- --grep <pattern>
+npm run test:frontend -- --grep <pattern>
+npm run test:cli -- --grep <pattern>
+
+# Run full E2E suite (final gate)
 ./test/scripts/run-all.sh
+
+# Run a subset of fixtures (iteration only; skips unit/golden)
+./test/scripts/run-e2e.sh --filter <pattern>
 
 # Format code
 ./scripts/build/format.sh
