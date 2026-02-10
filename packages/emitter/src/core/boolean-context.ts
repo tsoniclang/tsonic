@@ -20,13 +20,62 @@ export type EmitExprFn = (
   context: EmitterContext
 ) => [CSharpFragment, EmitterContext];
 
+const stripGlobalPrefix = (name: string): string =>
+  name.startsWith("global::") ? name.slice("global::".length) : name;
+
+/**
+ * Coerce CLR primitive reference types (System.Boolean, System.Int32, ...) to IR primitiveType.
+ *
+ * This prevents boolean-context lowering from emitting `x != null` for CLR value types,
+ * which is both semantically wrong and can silently miscompile (it compiles with boxing).
+ */
+const coerceClrPrimitiveToPrimitiveType = (type: IrType): IrType | undefined => {
+  if (type.kind !== "referenceType") return undefined;
+
+  const resolved = type.resolvedClrType ?? type.typeId?.clrName;
+  if (!resolved) return undefined;
+
+  const clr = stripGlobalPrefix(resolved);
+
+  switch (clr) {
+    case "System.Boolean":
+    case "bool":
+      return { kind: "primitiveType", name: "boolean" } as IrType;
+
+    case "System.String":
+    case "string":
+      return { kind: "primitiveType", name: "string" } as IrType;
+
+    case "System.Int32":
+    case "int":
+      return { kind: "primitiveType", name: "int" } as IrType;
+
+    case "System.Double":
+    case "double":
+      return { kind: "primitiveType", name: "number" } as IrType;
+
+    case "System.Char":
+    case "char":
+      return { kind: "primitiveType", name: "char" } as IrType;
+  }
+
+  return undefined;
+};
+
 /**
  * Check if an expression's inferred type is boolean.
  */
 const isBooleanCondition = (expr: IrExpression): boolean => {
   const type = expr.inferredType;
   if (!type) return false;
-  return type.kind === "primitiveType" && type.name === "boolean";
+  if (type.kind === "primitiveType") {
+    return type.name === "boolean";
+  }
+
+  // Some CLR APIs (via bindings) surface as referenceType with a resolved CLR primitive
+  // (e.g. System.Boolean). Treat those as booleans for C# conditions.
+  const coerced = coerceClrPrimitiveToPrimitiveType(type);
+  return !!coerced && coerced.kind === "primitiveType" && coerced.name === "boolean";
 };
 
 /**
@@ -74,6 +123,30 @@ const isSimpleOperandExpression = (expr: IrExpression): boolean => {
   }
 };
 
+const emitUnknownTruthinessCondition = (
+  expr: IrExpression,
+  emittedText: string,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  // Use a pattern variable to evaluate the operand exactly once, then apply JS-like truthiness.
+  //
+  // This is the airplane-grade fallback when we cannot trust inferredType:
+  // - Never emit `x != null` for unknowns (silently miscompiles boxed value types like bool/int).
+  // - Use runtime type checks to preserve semantics deterministically.
+  const nextId = (context.tempVarId ?? 0) + 1;
+  let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+  const alloc = allocateLocalName(`__tsonic_truthy_${nextId}`, ctxWithId);
+  ctxWithId = alloc.context;
+  const tmp = alloc.emittedName;
+
+  const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+
+  // Note: avoid pattern variables inside the switch arms to prevent C# name collisions.
+  const truthySwitch = `${tmp} switch { bool => (bool)${tmp}, string => ((string)${tmp}).Length != 0, int => (int)${tmp} != 0, long => (long)${tmp} != 0L, double => ((double)${tmp}) != 0d && !double.IsNaN((double)${tmp}), float => ((float)${tmp}) != 0f && !float.IsNaN((float)${tmp}), decimal => (decimal)${tmp} != 0m, char => (char)${tmp} != '\\0', _ => true }`;
+
+  return [`(${operand} is object ${tmp} && (${truthySwitch}))`, ctxWithId];
+};
+
 /**
  * Convert an expression to a valid C# boolean condition.
  *
@@ -91,6 +164,9 @@ export const toBooleanCondition = (
   emittedText: string,
   context: EmitterContext
 ): [string, EmitterContext] => {
+  const inferredType = expr.inferredType;
+  const type = inferredType ? coerceClrPrimitiveToPrimitiveType(inferredType) ?? inferredType : undefined;
+
   // Literal truthiness can be fully resolved without re-evaluating anything.
   if (expr.kind === "literal") {
     if (expr.value === null || expr.value === undefined) {
@@ -117,8 +193,13 @@ export const toBooleanCondition = (
     return [emittedText, context];
   }
 
+  // Unknown/any/missing type: use a safe runtime truthiness check instead of `!= null`,
+  // which can silently miscompile boxed value types (e.g., bool).
+  if (!type || type.kind === "unknownType" || type.kind === "anyType") {
+    return emitUnknownTruthinessCondition(expr, emittedText, context);
+  }
+
   // For reference types (non-primitive), add != null check
-  const type = expr.inferredType;
   if (type && type.kind !== "primitiveType") {
     // Special-case literalType (which behaves like its primitive base) to avoid `0 != null` etc.
     if (type.kind === "literalType") {
@@ -132,13 +213,6 @@ export const toBooleanCondition = (
         return [type.value.length === 0 ? "false" : "true", context];
       }
     }
-    const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
-    return [`${operand} != null`, context];
-  }
-
-  // Default: assume it's a reference type and add null check
-  // This handles cases where type inference didn't work
-  if (!type) {
     const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
     return [`${operand} != null`, context];
   }
