@@ -33,32 +33,29 @@ export const convertType = (
   // as ExpressionWithTypeArguments in the TS AST. This must be treated like a normal
   // type reference so NominalEnv can compute substitution through inheritance chains.
   if (ts.isExpressionWithTypeArguments(typeNode)) {
-    const name = (() => {
-      const expr = typeNode.expression;
-
-      if (ts.isIdentifier(expr)) return expr.text;
-
+    const toEntityName = (expr: ts.Expression): ts.EntityName | undefined => {
+      if (ts.isIdentifier(expr)) return expr;
       if (ts.isPropertyAccessExpression(expr)) {
-        const parts: string[] = [];
-        let current: ts.Expression = expr;
-
-        while (ts.isPropertyAccessExpression(current)) {
-          parts.unshift(current.name.text);
-          current = current.expression;
-        }
-
-        if (ts.isIdentifier(current)) {
-          parts.unshift(current.text);
-          return parts.join(".");
-        }
+        if (!ts.isIdentifier(expr.name)) return undefined;
+        const left = toEntityName(expr.expression);
+        return left ? ts.factory.createQualifiedName(left, expr.name) : undefined;
       }
+      return undefined;
+    };
 
-      return expr.getText();
-    })();
+    const entityName = toEntityName(typeNode.expression);
+    if (entityName) {
+      const ref = ts.factory.createTypeReferenceNode(
+        entityName,
+        typeNode.typeArguments
+      );
+      return convertTypeReference(ref, binding, convertType);
+    }
 
+    // Fallback: preserve text form (should be rare; computed expressions).
     return {
       kind: "referenceType",
-      name,
+      name: typeNode.expression.getText(),
       typeArguments: typeNode.typeArguments?.map((t) => convertType(t, binding)),
     };
   }

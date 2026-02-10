@@ -277,6 +277,46 @@ describe("Binding Resolution in IR", () => {
     });
   });
 
+  describe("Type Alias Resolution", () => {
+    it("should follow type-alias-to-interface references in implements clauses", () => {
+      const source = `
+        export interface IFoo_1<T> {
+          bar(): void;
+        }
+
+        // Facade-style ergonomic alias (tsbindgen does this frequently).
+        export type IFoo<T> = IFoo_1<T>;
+
+        export class C implements IFoo<number> {
+          bar(): void {}
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const module = result.value;
+      const classDecl = module.body.find((s) => s.kind === "classDeclaration");
+      expect(classDecl?.kind).to.equal("classDeclaration");
+      if (!classDecl || classDecl.kind !== "classDeclaration") return;
+
+      expect(classDecl.implements).to.have.length.greaterThan(0);
+      const impl = classDecl.implements[0];
+      expect(impl?.kind).to.equal("referenceType");
+      if (!impl || impl.kind !== "referenceType") return;
+
+      // Without alias-following, this becomes IFoo (type alias) and the class
+      // does not emit any C# interface implementation.
+      expect(impl.name).to.equal("IFoo_1");
+    });
+  });
+
   describe("Identifier Renaming with csharpName", () => {
     it("should use csharpName when provided in binding", () => {
       const source = `
