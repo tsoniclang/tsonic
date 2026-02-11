@@ -128,9 +128,37 @@ export type TsbindgenType = {
   readonly fields: readonly TsbindgenField[];
 };
 
+/**
+ * tsbindgen "flattened named export" descriptor.
+ *
+ * This is an additive surface to support JS-style named imports that bind to
+ * a stable declaring CLR type + member (typically module container static types).
+ *
+ * Example (user code):
+ *   import { buildSite } from "@tsumo/engine/Tsumo.Engine.js";
+ *   buildSite(req);
+ *
+ * Example (bindings.json excerpt):
+ *   "exports": {
+ *     "buildSite": {
+ *       "kind": "method",
+ *       "clrName": "buildSite",
+ *       "declaringClrType": "Tsumo.Engine.BuildSite",
+ *       "declaringAssemblyName": "Tsumo.Engine"
+ *     }
+ *   }
+ */
+export type TsbindgenExport = {
+  readonly kind: "method" | "property" | "field";
+  readonly clrName: string;
+  readonly declaringClrType: string;
+  readonly declaringAssemblyName: string;
+};
+
 export type TsbindgenBindingFile = {
   readonly namespace: string;
   readonly types: readonly TsbindgenType[];
+  readonly exports?: Readonly<Record<string, TsbindgenExport>>;
 };
 
 /**
@@ -226,6 +254,7 @@ export class BindingRegistry {
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
   private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
   private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
+  private readonly tsbindgenExports = new Map<string, Map<string, TsbindgenExport>>();
 
   /**
    * Extension method index for instance-style calls.
@@ -559,6 +588,22 @@ export class BindingRegistry {
           }
         }
       }
+
+      // Optional flattened named exports.
+      // These are stable value exports for CLR namespace facade modules and are
+      // resolved by Tsonic during import binding (so `import { x }` maps to
+      // `global::<DeclaringType>.<member>` in C#).
+      if (manifest.exports) {
+        const nsExports =
+          this.tsbindgenExports.get(manifest.namespace) ??
+          new Map<string, TsbindgenExport>();
+
+        for (const [exportName, exp] of Object.entries(manifest.exports)) {
+          nsExports.set(exportName, exp);
+        }
+
+        this.tsbindgenExports.set(manifest.namespace, nsExports);
+      }
     } else {
       // Simple format: global/module bindings
       for (const [name, descriptor] of Object.entries(manifest.bindings)) {
@@ -647,6 +692,16 @@ export class BindingRegistry {
   }
 
   /**
+   * Look up a tsbindgen flattened named export by CLR namespace + export name.
+   */
+  getTsbindgenExport(
+    namespace: string,
+    exportName: string
+  ): TsbindgenExport | undefined {
+    return this.tsbindgenExports.get(namespace)?.get(exportName);
+  }
+
+  /**
    * Get all loaded simple bindings
    */
   getAllBindings(): readonly [string, SimpleBindingDescriptor][] {
@@ -680,6 +735,7 @@ export class BindingRegistry {
     this.memberOverloads.clear();
     this.clrMemberOverloads.clear();
     this.extensionMethods.clear();
+    this.tsbindgenExports.clear();
   }
 }
 

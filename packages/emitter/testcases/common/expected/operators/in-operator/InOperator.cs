@@ -1,5 +1,6 @@
 namespace TestCases.common.operators.inoperator
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class InOperator
         {
             public static readonly global::System.Func<bool, string> check = check__Impl;

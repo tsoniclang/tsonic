@@ -1,5 +1,6 @@
 namespace TestCases.common.extensions.system
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class Overlaps
         {
             // type Ext = T

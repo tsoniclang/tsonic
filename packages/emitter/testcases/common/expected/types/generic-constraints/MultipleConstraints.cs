@@ -32,6 +32,7 @@ namespace TestCases.common.types.genericconstraints
             }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class MultipleConstraints
             {
                 public static string maxAndShow<T>(T a, T b)

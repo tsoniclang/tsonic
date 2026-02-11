@@ -1,5 +1,6 @@
 namespace TestCases.common.types.expectedtypethreading
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class TernaryTyping
         {
             public static readonly int ternaryInt = true ? 5 : 10;

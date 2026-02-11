@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.delegates
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ActionFunc
         {
             public static void runAction(global::System.Action action)

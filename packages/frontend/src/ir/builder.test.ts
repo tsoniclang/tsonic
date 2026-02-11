@@ -150,6 +150,66 @@ describe("IR Builder", () => {
       }
     });
 
+    it("should attach resolvedClrValue for tsbindgen flattened named exports", () => {
+      const source = `
+        import { buildSite } from "@demo/pkg/Demo.js";
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+
+      // Stub CLR resolution for this unit test (no filesystem / node resolution).
+      (ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }).clrResolver =
+        {
+          resolve: (s: string) =>
+            s === "@demo/pkg/Demo.js"
+              ? {
+                  isClr: true,
+                  packageName: "@demo/pkg",
+                  resolvedNamespace: "Demo",
+                  bindingsPath: "/x/bindings.json",
+                  assembly: "Demo",
+                }
+              : { isClr: false },
+        };
+
+      // Provide a minimal tsbindgen bindings.json excerpt with exports.
+      ctx.bindings.addBindings("/x/bindings.json", {
+        namespace: "Demo",
+        types: [],
+        exports: {
+          buildSite: {
+            kind: "method",
+            clrName: "buildSite",
+            declaringClrType: "Demo.BuildSite",
+            declaringAssemblyName: "Demo",
+          },
+        },
+      });
+
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (!result.ok) return;
+
+      const imp = result.value.imports[0];
+      if (!imp) throw new Error("Missing imports");
+      expect(imp.isClr).to.equal(true);
+      expect(imp.resolvedNamespace).to.equal("Demo");
+
+      const spec = imp.specifiers[0];
+      if (!spec || spec.kind !== "named") throw new Error("Missing named specifier");
+      expect(spec.name).to.equal("buildSite");
+      expect(spec.isType).to.not.equal(true);
+      expect(spec.resolvedClrValue).to.deep.equal({
+        declaringClrType: "Demo.BuildSite",
+        declaringAssemblyName: "Demo",
+        memberName: "buildSite",
+      });
+    });
+
     it("should not detect bare imports as .NET without package bindings", () => {
       // Import-driven resolution: bare imports like "System.IO" are only detected as .NET
       // if they come from a package with bindings.json. Without an actual package,

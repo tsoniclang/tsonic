@@ -48,6 +48,36 @@ export const extractImports = (
         ctx.typeSystem
       );
 
+      // Resolve optional tsbindgen flattened named exports for CLR imports.
+      // This is used to bind named value imports (`import { x }`) to their
+      // declaring CLR type/member (so the emitter can output valid C#).
+      const resolvedSpecifiers =
+        isClr && resolvedNamespace
+          ? specifiers.map((spec) => {
+              if (
+                spec.kind !== "named" ||
+                spec.isType === true
+              ) {
+                return spec;
+              }
+
+              const exp = ctx.bindings.getTsbindgenExport(
+                resolvedNamespace,
+                spec.name
+              );
+              if (!exp) return spec;
+
+              return {
+                ...spec,
+                resolvedClrValue: {
+                  declaringClrType: exp.declaringClrType,
+                  declaringAssemblyName: exp.declaringAssemblyName,
+                  memberName: exp.clrName,
+                },
+              };
+            })
+          : specifiers;
+
       // Check for module binding (Node.js API, etc.)
       const moduleBinding = ctx.bindings.getBinding(source);
       const hasModuleBinding = moduleBinding?.kind === "module";
@@ -61,7 +91,7 @@ export const extractImports = (
         source,
         isLocal,
         isClr,
-        specifiers,
+        specifiers: resolvedSpecifiers,
         resolvedNamespace,
         resolvedClrType: hasModuleBinding ? moduleBinding.type : undefined,
         resolvedAssembly,

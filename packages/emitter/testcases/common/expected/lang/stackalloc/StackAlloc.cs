@@ -1,5 +1,6 @@
 namespace TestCases.common.lang.stackalloc
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class StackAlloc
         {
             public static void run()

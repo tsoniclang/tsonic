@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.defaultparams
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class DefaultParams
         {
             public static string greet(string name, string greeting = "Hello")

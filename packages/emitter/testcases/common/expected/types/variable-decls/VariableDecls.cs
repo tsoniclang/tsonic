@@ -1,5 +1,6 @@
 namespace TestCases.common.types.variabledecls
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class VariableDecls
         {
             public static readonly double inferredDouble = 42.5;

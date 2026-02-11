@@ -7,6 +7,7 @@ namespace TestCases.common.arrays.constructor
         public required int age { get; set; }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class ArrayConstructor
             {
                 public static int[] createIntArray(int size)

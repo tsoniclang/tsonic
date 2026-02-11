@@ -39,6 +39,22 @@ export type IrImportSpecifier =
       readonly localName: string;
       /** Whether this import is a type (interface/class) - emitted at namespace level in C# */
       readonly isType?: boolean;
+      /**
+       * For CLR namespace imports, tsbindgen can optionally provide a stable "flattened"
+       * named export surface (e.g. `export const buildSite = BuildSite.buildSite`).
+       *
+       * When present, Tsonic binds the imported identifier to the declaring CLR type
+       * + member (so `buildSite(req)` emits as `global::<DeclaringType>.<member>(req)`).
+       *
+       * This is ONLY used for value imports (`isType !== true`).
+       */
+      readonly resolvedClrValue?:
+        | {
+            readonly declaringClrType: string;
+            readonly declaringAssemblyName: string;
+            readonly memberName: string;
+          }
+        | undefined;
     };
 
 export type IrExport =

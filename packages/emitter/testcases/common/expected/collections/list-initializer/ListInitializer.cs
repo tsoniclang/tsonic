@@ -10,6 +10,7 @@ namespace TestCases.common.collections.listinitializer
             }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class ListInitializer
             {
                 public static global::System.Collections.Generic.List<int> makeInts()

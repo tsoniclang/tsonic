@@ -1,5 +1,6 @@
 namespace TestCases.common.extensions.linq
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ExtensionMethods
         {
             // type LinqSeq = global::System.Collections.Generic.IEnumerable<T>

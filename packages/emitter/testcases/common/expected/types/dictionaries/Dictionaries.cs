@@ -1,5 +1,6 @@
 namespace TestCases.common.types.dictionaries
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class Dictionaries
         {
             public static global::System.Collections.Generic.Dictionary<string, double> getStringDict()

@@ -1,5 +1,6 @@
 namespace TestCases.common.arrays.multidimensional
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class MultiDimensional
         {
             public static double getElement(double[][] matrix)

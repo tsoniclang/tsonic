@@ -1,5 +1,6 @@
 namespace TestCases.common.arrays.destructuring
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ArrayDestructure
         {
             public static double destructure(double[] arr)

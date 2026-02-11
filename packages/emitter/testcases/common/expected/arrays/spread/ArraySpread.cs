@@ -1,5 +1,6 @@
 namespace TestCases.common.arrays.spread
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ArraySpread
         {
             public static double[] spreadArray(double[] arr1, double[] arr2)

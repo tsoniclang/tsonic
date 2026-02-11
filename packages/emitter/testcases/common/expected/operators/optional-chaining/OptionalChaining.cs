@@ -13,6 +13,7 @@ namespace TestCases.common.operators.optionalchaining
         public address? address { get; set; }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class OptionalChaining
             {
                 public static string? getCity(User? user)
