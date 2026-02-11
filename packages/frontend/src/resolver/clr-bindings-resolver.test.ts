@@ -196,4 +196,49 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
     expect(result.bindingsPath).to.equal(bindingsPath);
     expect(result.resolvedNamespace).to.equal("System.Text");
   });
+
+  it("prefers <Namespace>/bindings.json over a root bindings.json when resolving a namespace facade", () => {
+    const workspaceRoot = createWorkspaceRoot();
+
+    // Emulates packages like `xunit-types` that ship:
+    // - a root bindings.json for the empty namespace ("")
+    // - a namespace-specific bindings.json for `Xunit`
+    // - a root facade stub `Xunit.js`
+    const packageName = "xunit-types";
+    const namespaceKey = "Xunit";
+    const pkgRoot = createUnscopedPackageRoot(workspaceRoot, packageName);
+    mkdirSync(pkgRoot, { recursive: true });
+    writeJson(join(pkgRoot, "package.json"), {
+      name: packageName,
+      private: true,
+      type: "module",
+    });
+
+    // Facade stub at package root
+    writeText(join(pkgRoot, `${namespaceKey}.js`), "export {};\n");
+    writeText(join(pkgRoot, `${namespaceKey}.d.ts`), "export type __test = 1;\n");
+
+    // Root bindings.json (empty namespace)
+    writeJson(join(pkgRoot, "bindings.json"), {
+      namespace: "",
+      types: [{ assemblyName: "xunit.execution.dotnet" }],
+    });
+
+    // Namespace bindings.json
+    const nsDir = join(pkgRoot, namespaceKey);
+    mkdirSync(join(nsDir, "internal"), { recursive: true });
+    const nsBindingsPath = join(nsDir, "bindings.json");
+    writeJson(nsBindingsPath, {
+      namespace: namespaceKey,
+      types: [{ assemblyName: "xunit.core" }],
+    });
+
+    const resolver = createClrBindingsResolver(workspaceRoot);
+    const result = resolver.resolve(`${packageName}/${namespaceKey}.js`);
+    expect(result.isClr).to.equal(true);
+    if (!result.isClr) return;
+    expect(result.bindingsPath).to.equal(nsBindingsPath);
+    expect(result.resolvedNamespace).to.equal(namespaceKey);
+    expect(result.assembly).to.equal("xunit.core");
+  });
 });

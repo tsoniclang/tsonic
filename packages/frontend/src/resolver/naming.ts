@@ -4,8 +4,11 @@
 
 import * as path from "node:path";
 
-const normalizePathFragment = (fragment: string): string =>
-  fragment.replace(/-/g, "");
+const normalizePathFragment = (fragment: string): string => {
+  const cleaned = fragment.replace(/[^a-zA-Z0-9_]/g, "");
+  if (cleaned.length === 0) return "_";
+  return /^\d/.test(cleaned) ? `_${cleaned}` : cleaned;
+};
 
 /**
  * Generate class name from file path
