@@ -9,6 +9,22 @@ import { IrImport, IrImportSpecifier } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
 import type { Binding } from "../binding/index.js";
 import type { TypeAuthority } from "../type-system/type-system.js";
+import { createDiagnostic } from "../../types/diagnostic.js";
+import { getSourceLocation } from "../../program/diagnostics.js";
+
+const getSourceSpan = (node: ts.Node): ReturnType<typeof getSourceLocation> | undefined => {
+  try {
+    const sourceFile = node.getSourceFile();
+    if (!sourceFile) return undefined;
+    return getSourceLocation(
+      sourceFile,
+      node.getStart(sourceFile),
+      node.getWidth(sourceFile)
+    );
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * Extract import declarations from source file.
@@ -42,11 +58,26 @@ export const extractImports = (
         ? clrResolution.assembly
         : undefined;
 
+      // Check for module binding (Node.js API, etc.)
+      const moduleBinding = ctx.bindings.getBinding(source);
+      const hasModuleBinding = moduleBinding?.kind === "module";
+
       const specifiers = extractImportSpecifiers(
         node,
         ctx.binding,
         ctx.typeSystem
       );
+
+      // Map imported export name -> specifier node for accurate diagnostics.
+      const namedSpecifierNodes = new Map<string, ts.ImportSpecifier>();
+      if (
+        node.importClause?.namedBindings &&
+        ts.isNamedImports(node.importClause.namedBindings)
+      ) {
+        for (const spec of node.importClause.namedBindings.elements) {
+          namedSpecifierNodes.set((spec.propertyName ?? spec.name).text, spec);
+        }
+      }
 
       // Resolve optional tsbindgen flattened named exports for CLR imports.
       // This is used to bind named value imports (`import { x }`) to their
@@ -61,11 +92,41 @@ export const extractImports = (
                 return spec;
               }
 
+              // Airplane-grade fallback: if TypeScript resolution can't prove this is a type
+              // (e.g. due to module resolution / declaration file quirks), consult loaded
+              // CLR bindings directly. CLR namespace imports frequently import types as
+              // values (e.g. `import { List } ...`), and we must not misclassify those as
+              // "value exports" requiring a flattened exports map.
+              if (ctx.bindings.getType(spec.name)) {
+                return { ...spec, isType: true };
+              }
+
               const exp = ctx.bindings.getTsbindgenExport(
                 resolvedNamespace,
                 spec.name
               );
-              if (!exp) return spec;
+              if (!exp) {
+                // Airplane-grade: C# has no namespace-level values.
+                // If TS imports a *value* from a CLR namespace facade, we must have
+                // an explicit binding to a declaring CLR type + member (tsbindgen exports mapping),
+                // otherwise we would have to guess or emit invalid C#.
+                //
+                // Skip module bindings (e.g. @tsonic/nodejs/index.js) since those are
+                // not CLR namespace facades.
+                if (!hasModuleBinding) {
+                  const specNode = namedSpecifierNodes.get(spec.name);
+                  ctx.diagnostics.push(
+                    createDiagnostic(
+                      "TSN4004",
+                      "error",
+                      `Missing CLR binding for named value import '${spec.name}' from namespace '${resolvedNamespace}'.`,
+                      specNode ? getSourceSpan(specNode) : getSourceSpan(node),
+                      `This import refers to a value (function/const), but CLR namespaces cannot contain values. Regenerate bindings with tsbindgen so '${resolvedNamespace}/bindings.json' includes an 'exports' entry for '${spec.name}', or import the declaring container type and call it as a static member instead.`
+                    )
+                  );
+                }
+                return spec;
+              }
 
               return {
                 ...spec,
@@ -77,10 +138,6 @@ export const extractImports = (
               };
             })
           : specifiers;
-
-      // Check for module binding (Node.js API, etc.)
-      const moduleBinding = ctx.bindings.getBinding(source);
-      const hasModuleBinding = moduleBinding?.kind === "module";
 
       // Assembly comes from CLR resolution (bindings.json) or module binding
       const resolvedAssembly =
