@@ -97,4 +97,57 @@ export function main(): void {
 
   const wrappedEmpty: WrappedString = "";
   Console.WriteLine(wrappedEmpty ? "T" : "F");
+
+  // 11) Unary `!` must apply JS truthiness (not require a boolean operand).
+  const z0 = 0 as int;
+  Console.WriteLine(!z0 ? "T" : "F");
+
+  const z1 = 1 as int;
+  Console.WriteLine(!z1 ? "T" : "F");
+
+  // 12) Logical short-circuit must be preserved (side effects must not run when skipped).
+  let calls = 0 as int;
+  const hit = (): boolean => {
+    calls++;
+    return true;
+  };
+
+  const s1 = false && hit();
+  Console.WriteLine(calls);
+
+  const s2 = true || hit();
+  Console.WriteLine(calls);
+
+  const s3 = true && hit();
+  Console.WriteLine(calls);
+
+  const s4 = false || hit();
+  Console.WriteLine(calls);
+
+  // 13) Precedence between && and || must match JS/TS.
+  const g1 = false && false || true;
+  Console.WriteLine(g1 ? "T" : "F");
+
+  const g2 = false && (false || true);
+  Console.WriteLine(g2 ? "T" : "F");
+
+  // 14) Numeric truthiness must parenthesize non-simple expressions like `a ?? b`
+  // under pattern matching (`is double tmp`) to avoid precedence bugs in C#.
+  const maybe0: number | undefined = undefined;
+  Console.WriteLine((maybe0 ?? 0) ? "T" : "F");
+
+  const maybe1: number | undefined = 1;
+  Console.WriteLine((maybe1 ?? 0) ? "T" : "F");
+
+  // 15) Same precedence hazard for conditional (ternary) expressions producing numbers.
+  const t1 = true;
+  Console.WriteLine((t1 ? 0 : 1) ? "T" : "F");
+
+  const t2 = false;
+  Console.WriteLine((t2 ? 0 : 1) ? "T" : "F");
+
+  // 16) NaN must be falsy under JS truthiness rules for numbers.
+  const n0: number = 0;
+  const nan = n0 / n0;
+  Console.WriteLine(nan ? "T" : "F");
 }
