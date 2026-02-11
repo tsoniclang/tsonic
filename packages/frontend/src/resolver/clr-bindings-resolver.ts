@@ -228,13 +228,18 @@ export class ClrBindingsResolver {
 
     let currentDir = dirname(resolvedFacadePath);
     while (true) {
-      // Case 1: bindings.json is directly in this directory (e.g. "<ns>/bindings.json").
-      const direct = join(currentDir, "bindings.json");
-      if (this.hasBindings(direct)) return direct;
-
-      // Case 2: facade stub "<ns>.js" sits next to "<ns>/bindings.json".
+      // Case 1: facade stub "<ns>.js" sits next to "<ns>/bindings.json".
+      //
+      // Prefer this over "bindings.json in currentDir", because some bindings packages
+      // also provide a *root* bindings.json for the empty namespace (""). If we pick
+      // that for a non-empty namespace import (e.g. "xunit-types/Xunit.js"), we end up
+      // with missing CLR bindings for the imported symbols.
       const sibling = join(currentDir, namespaceKey, "bindings.json");
-      if (this.hasBindings(sibling)) return sibling;
+      if (this.hasBindingsForNamespace(sibling, namespaceKey)) return sibling;
+
+      // Case 2: bindings.json is directly in this directory (e.g. "<ns>/bindings.json").
+      const direct = join(currentDir, "bindings.json");
+      if (this.hasBindingsForNamespace(direct, namespaceKey)) return direct;
 
       if (currentDir === pkgRoot) return null;
 
@@ -393,6 +398,12 @@ export class ClrBindingsResolver {
     const exists = existsSync(bindingsPath);
     this.bindingsExistsCache.set(bindingsPath, exists);
     return exists;
+  }
+
+  private hasBindingsForNamespace(bindingsPath: string, expectedNamespace: string): boolean {
+    if (!this.hasBindings(bindingsPath)) return false;
+    const resolvedNamespace = this.extractNamespace(bindingsPath, expectedNamespace);
+    return resolvedNamespace === expectedNamespace;
   }
 
   /**
