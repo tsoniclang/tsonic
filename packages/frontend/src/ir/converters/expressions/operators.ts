@@ -179,6 +179,17 @@ const deriveBinaryResultType = (
     const nonNullLeft = stripNullishFromUnion(leftType);
     if (!nonNullLeft) return rightType;
 
+    // Numeric special-case (airplane-grade, CLR-aligned):
+    // Even though TS would typically model `A ?? B` as a union, in our numeric model
+    // we allow implicit widening (e.g., `double? ?? int` → double). Preserve that
+    // deterministically for numeric kinds.
+    const leftKind = getNumericKindFromIrType(nonNullLeft);
+    const rightKind = getNumericKindFromIrType(rightType);
+    if (leftKind !== undefined && rightKind !== undefined) {
+      const resultKind = getBinaryResultKind(leftKind, rightKind);
+      return numericKindToIrType(resultKind);
+    }
+
     return makeUnionType([nonNullLeft, rightType]);
   }
 
@@ -282,9 +293,17 @@ export const convertBinaryExpression = (
   // For ?? and ||, the RHS is the fallback value, so it gets expectedType
   // For &&, the RHS is only reached if LHS is truthy, no type coercion needed
   if (operator === "&&" || operator === "||" || operator === "??") {
-    const rhsExpectedType =
-      operator === "??" || operator === "||" ? expectedType : undefined;
     const leftExpr = convertExpression(node.left, ctx, undefined);
+    const lhsFallbackExpectedType =
+      operator === "??" || operator === "||"
+        ? leftExpr.inferredType
+          ? stripNullishFromUnion(leftExpr.inferredType)
+          : undefined
+        : undefined;
+    const rhsExpectedType =
+      operator === "??" || operator === "||"
+        ? expectedType ?? lhsFallbackExpectedType
+        : undefined;
     const rhsCtx =
       operator === "&&"
         ? withAppliedNarrowings(

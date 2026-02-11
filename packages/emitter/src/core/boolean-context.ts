@@ -452,8 +452,9 @@ export const toBooleanCondition = (
         const alloc = allocateLocalName(`__tsonic_truthy_num_${nextId}`, ctxWithId);
         ctxWithId = alloc.context;
         const tmp = alloc.emittedName;
+        const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
         return [
-          `(${emittedText} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
+          `(${operand} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
           ctxWithId,
         ];
       }
