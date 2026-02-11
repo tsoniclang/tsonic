@@ -153,6 +153,7 @@ describe("Module Resolver", () => {
       );
       expect(getClassNameFromPath("index.ts")).to.equal("index");
       expect(getClassNameFromPath("/src/todo-list.ts")).to.equal("todolist");
+      expect(getClassNameFromPath("/src/math.test.ts")).to.equal("mathtest");
     });
   });
 });
