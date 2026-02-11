@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.optionalcallbacks
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class OptionalParams
         {
             // type Callback = global::System.Action<int>

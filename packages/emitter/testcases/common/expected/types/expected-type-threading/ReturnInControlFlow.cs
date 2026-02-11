@@ -1,5 +1,6 @@
 namespace TestCases.common.types.expectedtypethreading
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ReturnInControlFlow
         {
             public static int getInIf(bool condition)

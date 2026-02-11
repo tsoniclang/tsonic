@@ -24,6 +24,55 @@ Bindings packages contain (at minimum):
 
 > tsbindgen uses a **unified** `bindings.json` format (no `.metadata.json` sidecars).
 
+### Flattened Named Exports (Optional)
+
+CLR namespaces can only contain **types**, not free functions/values. However, Tsonic emits
+module “static containers” (C# static types) for files that only export functions/constants,
+and it’s often nicer to import those exports directly:
+
+```ts
+import { buildSite } from "@acme/engine/Tsumo.Engine.js";
+buildSite(req);
+```
+
+To make this airplane-grade, **tsbindgen** can emit an `exports` map inside each namespace
+`bindings.json`, describing how a named value export maps to its declaring CLR type + member.
+
+Example (`Tsumo.Engine/bindings.json` excerpt):
+
+```json
+{
+  "namespace": "Tsumo.Engine",
+  "types": [],
+  "exports": {
+    "buildSite": {
+      "kind": "method",
+      "clrName": "buildSite",
+      "declaringClrType": "Tsumo.Engine.BuildSite",
+      "declaringAssemblyName": "Tsumo.Engine"
+    }
+  }
+}
+```
+
+With this, Tsonic can compile `buildSite(req)` to:
+
+```csharp
+global::Tsumo.Engine.BuildSite.buildSite(req)
+```
+
+Notes:
+
+- This is **additive**: the container type remains importable:
+
+  ```ts
+  import { BuildSite } from "@acme/engine/Tsumo.Engine.js";
+  BuildSite.buildSite(req);
+  ```
+
+- For **Tsonic-built** libraries, tsbindgen detects module containers automatically.
+- For **external** assemblies, you can opt in explicitly with tsbindgen (e.g. `--flatten-class <ClrType>`).
+
 ## Workspace Model (Required)
 
 Tsonic always operates in a workspace:

@@ -9,6 +9,7 @@ namespace TestCases.common.types.functioncollections
         public required global::System.Func<int, int, int> multiply { get; set; }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class FunctionArrays
             {
                 // type Operation = global::System.Func<int, int, int>

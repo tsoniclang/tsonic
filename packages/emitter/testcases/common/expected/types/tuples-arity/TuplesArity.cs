@@ -1,5 +1,6 @@
 namespace TestCases.common.types.tuplesarity
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class TuplesArity
         {
             // type T8 = global::System.ValueTuple<double, double, double, double, double, double, double, global::System.ValueTuple<double>>

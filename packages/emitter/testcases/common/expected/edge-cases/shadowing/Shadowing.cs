@@ -16,6 +16,7 @@ namespace TestCases.common.edgecases.shadowing
             }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class Shadowing
             {
                 public static double shadowedVariable()

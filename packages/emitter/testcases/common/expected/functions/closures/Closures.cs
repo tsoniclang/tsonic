@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.closures
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class Closures
         {
             public static global::System.Func<double> makeCounter()

@@ -128,7 +128,22 @@ const createClrImportBinding = (
         },
       };
     } else {
-      // Value import: clrName is namespace, member is the export name
+      // Value import:
+      // - If tsbindgen provided a flattened export mapping, bind directly to
+      //   the declaring CLR type + member.
+      // - Otherwise fall back to "namespace.member" (legacy), though this will
+      //   typically be invalid C# for true values. We rely on frontend validation
+      //   to prevent missing export bindings in airplane-grade builds.
+      if (spec.resolvedClrValue) {
+        return {
+          localName,
+          importBinding: {
+            kind: "value",
+            clrName: `global::${spec.resolvedClrValue.declaringClrType}`,
+            member: spec.resolvedClrValue.memberName,
+          },
+        };
+      }
       return {
         localName,
         importBinding: {

@@ -9,6 +9,7 @@ namespace TestCases.common.types.typeassertions
         public string breed { get; set; }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class TypeAssertions
             {
                 public static readonly int intFromLiteral = 1000;

@@ -17,6 +17,7 @@ namespace TestCases.common.edgecases.genericnulldefault
             }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class GenericNullDefault
             {
                 public static Result<T> wrapError<T>(string error)

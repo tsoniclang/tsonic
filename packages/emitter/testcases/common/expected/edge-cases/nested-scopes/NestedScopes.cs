@@ -1,5 +1,6 @@
 namespace TestCases.common.edgecases.nestedscopes
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class NestedScopes
         {
             public static double nestedScopes(double x)

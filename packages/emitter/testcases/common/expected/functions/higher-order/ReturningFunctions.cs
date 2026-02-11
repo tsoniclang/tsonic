@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.higherorder
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ReturningFunctions
         {
             public static global::System.Func<int, int> add(int a)

@@ -1,5 +1,6 @@
 namespace TestCases.common.types.functiontypealiases
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class GenericAliases
         {
             // type Predicate = global::System.Func<T, bool>

@@ -44,6 +44,38 @@ Two common examples:
 
 These are regular CLR bindings: you install them and import them like any other package.
 
+## Flattened Named Imports (Module Containers)
+
+Tsonic emits a **module container** (a C# static type) for files that only export functions/constants.
+
+Example (library source):
+
+```ts
+// packages/engine/src/build-site.ts
+export function buildSite(req: Request): Response {
+  // ...
+}
+```
+
+You can always import the container type and call its static member:
+
+```ts
+import { BuildSite } from "@acme/engine/Tsumo.Engine.js";
+BuildSite.buildSite(req);
+```
+
+For better JS ergonomics, **tsbindgen** can also “flatten” those exports so you can do:
+
+```ts
+import { buildSite } from "@acme/engine/Tsumo.Engine.js";
+buildSite(req);
+```
+
+This is airplane-grade because the bindings include a deterministic mapping in `bindings.json`
+(`exports: { <name>: { declaringClrType, memberName, ... } }`), so Tsonic never guesses.
+
+For external assemblies, you can opt into flattening explicitly in tsbindgen (e.g. `--flatten-class <ClrType>`).
+
 ## Overriding .NET Virtual Methods (including overload families)
 
 .NET libraries frequently expose **protected virtual** members that you’re expected to override

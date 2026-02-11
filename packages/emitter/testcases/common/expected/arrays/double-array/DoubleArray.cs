@@ -1,5 +1,6 @@
 namespace TestCases.common.arrays.doublearray
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class DoubleArray
         {
             public static double[] createDoubleArray()

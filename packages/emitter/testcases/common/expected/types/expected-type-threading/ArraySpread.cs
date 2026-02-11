@@ -1,5 +1,6 @@
 namespace TestCases.common.types.expectedtypethreading
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ArraySpread
         {
             internal static readonly int[] source = new int[] { 1, 2, 3 };

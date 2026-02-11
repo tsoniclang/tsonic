@@ -1,5 +1,6 @@
 namespace TestCases.common.controlflow.switch
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class SwitchStatement
         {
             public static string getDayType(double day)

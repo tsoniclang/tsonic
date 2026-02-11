@@ -25,6 +25,7 @@ namespace TestCases.common.types.anonymousobjects
         public required int value { get; set; }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class AnonymousObjects
             {
                 public static readonly __Anon_AnonymousObjects_2_22 point = new __Anon_AnonymousObjects_2_22 { x = 10, y = 20 };

@@ -120,6 +120,7 @@ namespace TestCases.common.types.utilitytypes
         public required string _3 { get; set; }
     }
 
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class UtilityTypes
         {
             // type MaybeString = string?

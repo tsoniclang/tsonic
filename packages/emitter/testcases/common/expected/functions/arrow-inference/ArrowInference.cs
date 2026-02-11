@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.arrowinference
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ArrowInference
         {
             // type NumberToNumber = global::System.Func<double, double>

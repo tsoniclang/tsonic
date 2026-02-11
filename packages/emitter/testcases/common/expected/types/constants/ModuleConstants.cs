@@ -1,5 +1,6 @@
 namespace TestCases.common.types.constants
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ModuleConstants
         {
             public static readonly double PI = 3.14159;

@@ -232,7 +232,7 @@ Tsonic doesn’t “guess” CLR types from strings. It relies on **bindings pac
 
 - Given a `.dll` (or a directory of assemblies), tsbindgen produces:
   - ESM namespace facades (`*.js`) + TypeScript types (`*.d.ts`)
-  - `bindings.json` (namespace → CLR mapping)
+  - `bindings.json` (namespace → CLR mapping, plus optional flattened named exports)
   - `internal/index.d.ts` (full type declarations)
 - Tsonic uses these artifacts to resolve imports like:
   - `import { Console } from "@tsonic/dotnet/System.js"`

@@ -15,6 +15,7 @@ namespace TestCases.common.types.generics
             }
     }
 
+            [global::Tsonic.Internal.ModuleContainerAttribute]
             public static class Generics
             {
                 public static T identity<T>(T value)

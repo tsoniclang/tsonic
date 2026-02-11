@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.asynchof
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class AsyncReturningFunctions
         {
             public static async global::System.Threading.Tasks.Task<global::System.Func<int, int>> createMultiplier(int factor)

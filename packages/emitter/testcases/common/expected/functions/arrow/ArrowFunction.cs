@@ -1,5 +1,6 @@
 namespace TestCases.common.functions.arrow
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class ArrowFunction
         {
             public static readonly global::System.Func<double, double, double> add = add__Impl;

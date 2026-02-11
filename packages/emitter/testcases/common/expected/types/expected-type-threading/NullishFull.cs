@@ -1,5 +1,6 @@
 namespace TestCases.common.types.expectedtypethreading
 {
+        [global::Tsonic.Internal.ModuleContainerAttribute]
         public static class NullishFull
         {
             public static int basicNullish(int? value)
