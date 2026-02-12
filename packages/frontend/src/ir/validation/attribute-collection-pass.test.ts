@@ -36,7 +36,7 @@ describe("Attribute Collection Pass", () => {
     imports: [
       {
         kind: "import",
-        source: "@tsonic/core/attributes.js",
+        source: "@tsonic/core/lang.js",
         isLocal: false,
         isClr: false,
         specifiers: [
@@ -622,7 +622,7 @@ describe("Attribute Collection Pass", () => {
   });
 
   describe("Alias imports", () => {
-    it("should recognize any local name imported from @tsonic/core/attributes.js", () => {
+    it("should recognize any local name imported from @tsonic/core/lang.js", () => {
       const module = createModule(
         [
           {

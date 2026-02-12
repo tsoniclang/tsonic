@@ -489,7 +489,7 @@ try {
 Apply .NET attributes to classes using the marker-call API:
 
 ```typescript
-import { attributes as A } from "@tsonic/core/attributes.js";
+import { attributes as A } from "@tsonic/core/lang.js";
 
 // Declare attribute types (from @tsonic/dotnet or custom)
 declare class SerializableAttribute {}
