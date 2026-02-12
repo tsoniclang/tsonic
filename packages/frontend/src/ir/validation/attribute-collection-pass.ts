@@ -44,7 +44,7 @@ import {
   IrObjectExpression,
 } from "../types.js";
 
-const ATTRIBUTES_IMPORT_SPECIFIER = "@tsonic/core/attributes.js";
+const ATTRIBUTES_IMPORT_SPECIFIER = "@tsonic/core/lang.js";
 
 /**
  * Result of attribute collection pass

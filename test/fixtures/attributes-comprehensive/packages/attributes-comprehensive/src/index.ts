@@ -1,4 +1,4 @@
-import { attributes as A } from "@tsonic/core/attributes.js";
+import { attributes as A } from "@tsonic/core/lang.js";
 import { Attribute, Console, ObsoleteAttribute, SerializableAttribute } from "@tsonic/dotnet/System.js";
 import type { Object as ClrObject, Type } from "@tsonic/dotnet/System.js";
 import type { ICustomAttributeProvider } from "@tsonic/dotnet/System.Reflection.js";

@@ -82,8 +82,7 @@ export const resolveImport = (
   // @tsonic/core packages are type-only (phantom types, attributes) - no runtime code
   if (
     importSpecifier === "@tsonic/core/types.js" ||
-    importSpecifier === "@tsonic/core/lang.js" ||
-    importSpecifier === "@tsonic/core/attributes.js"
+    importSpecifier === "@tsonic/core/lang.js"
   ) {
     return ok({
       resolvedPath: "", // No file path for type-only packages
