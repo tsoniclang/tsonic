@@ -113,44 +113,7 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-# 5. Check runtime dependencies are on main
-echo "=== Checking runtime dependencies ==="
-RUNTIME_PROJECTS=(
-    "$RUNTIME_DIR:runtime"
-    "$NODEJS_CLR_DIR:nodejs-clr"
-)
-
-for entry in "${RUNTIME_PROJECTS[@]}"; do
-    DIR="${entry%%:*}"
-    NAME="${entry##*:}"
-
-    BRANCH=$(cd "$DIR" && git branch --show-current)
-    if [ "$BRANCH" != "main" ]; then
-        echo "Error: $NAME is not on main branch (currently on: $BRANCH)"
-        exit 1
-    fi
-    echo "  $NAME: on main ✓"
-done
-
-# 6. Build runtime projects and copy DLLs
-echo "=== Building runtime projects ==="
-
-echo "  Building runtime..."
-cd "$RUNTIME_DIR"
-dotnet build -c Release --verbosity quiet
-
-echo "  Building nodejs-clr..."
-cd "$NODEJS_CLR_DIR"
-dotnet build -c Release --verbosity quiet
-
-cd "$ROOT_DIR"
-
-echo "=== Copying runtime DLLs ==="
-cp "$RUNTIME_DIR/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll" "$ROOT_DIR/packages/cli/runtime/"
-cp "$NODEJS_CLR_DIR/artifacts/bin/nodejs/Release/net10.0/nodejs.dll" "$ROOT_DIR/packages/cli/runtime/"
-echo "  Copied all runtime DLLs ✓"
-
-# 7. Ensure all packages have the same version (including wrapper)
+# 5. Ensure all packages have the same version (including wrapper)
 echo "=== Checking package version consistency ==="
 PACKAGES=(frontend emitter backend cli)
 FIRST_VERSION=$(node -p "require('./packages/cli/package.json').version")
@@ -178,7 +141,7 @@ fi
 
 echo "  All packages at version $FIRST_VERSION ✓"
 
-# 8. Check all package versions against npm
+# 6. Check all package versions against npm
 echo "=== Checking versions against npm ==="
 NEEDS_BUMP=()
 ALL_GREATER=true
@@ -219,15 +182,11 @@ fi
 echo ""
 
 # ============================================================
-# DETERMINE ACTION
+# VERSION BUMP (PR REQUIRED) OR PUBLISH
 # ============================================================
 
-if [ "$ALL_GREATER" = true ]; then
-    echo "=== All local versions are greater than npm - publishing directly ==="
-    NEED_BRANCH=false
-else
+if [ "$ALL_GREATER" != true ]; then
     echo "=== Some packages need version bump: ${NEEDS_BUMP[*]} ==="
-    NEED_BRANCH=true
 
     # Calculate new version (based on cli package)
     CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
@@ -235,26 +194,12 @@ else
     NEW_VERSION="$major.$minor.$((patch + 1))"
 
     RELEASE_BRANCH="release/v$NEW_VERSION"
-    echo "=== Creating release branch: $RELEASE_BRANCH ==="
+    echo "=== Preparing release branch (NO PUBLISH): $RELEASE_BRANCH ==="
+    echo "This repo requires PRs for main. We prepare the version bump branch and exit."
+    echo ""
+
     git checkout -b "$RELEASE_BRANCH"
-fi
 
-# ============================================================
-# BUILD AND TEST
-# ============================================================
-
-echo "=== Building all packages ==="
-./scripts/build/all.sh --no-format
-
-echo "=== Running ALL tests (unit, golden, E2E) ==="
-./test/scripts/run-all.sh
-echo "All tests passed"
-
-# ============================================================
-# VERSION BUMP (if needed)
-# ============================================================
-
-if [ "$NEED_BRANCH" = true ]; then
     echo "=== Bumping versions to $NEW_VERSION ==="
 
     # Update all package.json files
@@ -264,7 +209,7 @@ if [ "$NEED_BRANCH" = true ]; then
             const path = './packages/$pkg/package.json';
             const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
             pkg.version = '$NEW_VERSION';
-            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
         "
     done
 
@@ -276,7 +221,7 @@ if [ "$NEED_BRANCH" = true ]; then
         pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
         pkg.dependencies['@tsonic/emitter'] = '$NEW_VERSION';
         pkg.dependencies['@tsonic/backend'] = '$NEW_VERSION';
-        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
     # Update internal dependencies in emitter/package.json
@@ -285,7 +230,7 @@ if [ "$NEED_BRANCH" = true ]; then
         const path = './packages/emitter/package.json';
         const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
         pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
-        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
     # Update internal dependencies in backend/package.json
@@ -295,7 +240,7 @@ if [ "$NEED_BRANCH" = true ]; then
         const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
         pkg.dependencies['@tsonic/frontend'] = '$NEW_VERSION';
         pkg.dependencies['@tsonic/emitter'] = '$NEW_VERSION';
-        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
     # Update wrapper package.json
@@ -305,7 +250,7 @@ if [ "$NEED_BRANCH" = true ]; then
         const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
         pkg.version = '$NEW_VERSION';
         pkg.dependencies['@tsonic/cli'] = '$NEW_VERSION';
-        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+        fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
     "
 
     echo "=== Committing version changes ==="
@@ -313,10 +258,66 @@ if [ "$NEED_BRANCH" = true ]; then
     git commit -m "chore: bump version to $NEW_VERSION"
     git push -u origin HEAD
 
-    CLI_VERSION="$NEW_VERSION"
-else
-    CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
+    echo ""
+    echo "=== Next steps ==="
+    echo "1) Open a PR for '$RELEASE_BRANCH' and merge it to main."
+    echo "2) Pull latest main."
+    echo "3) Re-run: ./scripts/publish-npm.sh"
+    exit 0
 fi
+
+echo "=== All local versions are greater than npm - publishing directly ==="
+
+# ============================================================
+# RUNTIME DEPENDENCIES (publish path only)
+# ============================================================
+
+echo "=== Checking runtime dependencies ==="
+RUNTIME_PROJECTS=(
+    "$RUNTIME_DIR:runtime"
+    "$NODEJS_CLR_DIR:nodejs-clr"
+)
+
+for entry in "${RUNTIME_PROJECTS[@]}"; do
+    DIR="${entry%%:*}"
+    NAME="${entry##*:}"
+
+    BRANCH=$(cd "$DIR" && git branch --show-current)
+    if [ "$BRANCH" != "main" ]; then
+        echo "Error: $NAME is not on main branch (currently on: $BRANCH)"
+        exit 1
+    fi
+    echo "  $NAME: on main ✓"
+done
+
+echo "=== Building runtime projects ==="
+
+echo "  Building runtime..."
+cd "$RUNTIME_DIR"
+dotnet build -c Release --verbosity quiet
+
+echo "  Building nodejs-clr..."
+cd "$NODEJS_CLR_DIR"
+dotnet build -c Release --verbosity quiet
+
+cd "$ROOT_DIR"
+
+echo "=== Copying runtime DLLs ==="
+cp "$RUNTIME_DIR/artifacts/bin/Tsonic.Runtime/Release/net10.0/Tsonic.Runtime.dll" "$ROOT_DIR/packages/cli/runtime/"
+cp "$NODEJS_CLR_DIR/artifacts/bin/nodejs/Release/net10.0/nodejs.dll" "$ROOT_DIR/packages/cli/runtime/"
+echo "  Copied all runtime DLLs ✓"
+
+# ============================================================
+# BUILD AND TEST (publish path only)
+# ============================================================
+
+echo "=== Building all packages ==="
+./scripts/build/all.sh --no-format
+
+echo "=== Running ALL tests (unit, golden, E2E) ==="
+./test/scripts/run-all.sh
+echo "All tests passed"
+CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
 
 # ============================================================
 # PUBLISH @tsonic/* PACKAGES
@@ -353,9 +354,3 @@ for pkg in "${PACKAGES[@]}"; do
     echo "  - @tsonic/$pkg@$PKG_VERSION"
 done
 echo "  - tsonic@$CLI_VERSION"
-
-if [ "$NEED_BRANCH" = true ]; then
-    echo ""
-    echo "Note: Changes were made on branch '$RELEASE_BRANCH'"
-    echo "Please create a PR to merge back to main."
-fi
