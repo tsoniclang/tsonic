@@ -2,6 +2,11 @@
 
 This repo is “airplane-grade”: correctness > speed, but we still want fast iteration loops.
 
+## Remote Safety (IMPORTANT)
+
+- Never delete remote branches/tags, and never force-push.
+- Only push new branches and open PRs; the maintainer will handle remote cleanup.
+
 ## Testing Workflow
 
 Fast iteration (OK while developing / on external testbed projects):
