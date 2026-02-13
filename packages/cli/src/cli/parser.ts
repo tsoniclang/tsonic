@@ -56,11 +56,8 @@ export const parseArgs = (
         } else if (nextArg === "framework") {
           command = "add:framework";
           i++;
-        } else if (nextArg === "js") {
-          command = "add:js";
-          i++;
-        } else if (nextArg === "nodejs") {
-          command = "add:nodejs";
+        } else if (nextArg === "npm") {
+          command = "add:npm";
           i++;
         }
       }
@@ -132,12 +129,6 @@ export const parseArgs = (
         break;
       case "--types-version":
         options.typesVersion = args[++i] ?? "";
-        break;
-      case "--nodejs":
-        options.nodejs = true;
-        break;
-      case "--js":
-        options.js = true;
         break;
       case "-O":
       case "--optimize":

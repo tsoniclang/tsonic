@@ -272,10 +272,11 @@ Setup:
 
 ```bash
 # New project
-tsonic init --js
+tsonic init
+tsonic add npm @tsonic/js
 
 # Existing project
-tsonic add js
+tsonic add npm @tsonic/js
 ```
 
 ```typescript

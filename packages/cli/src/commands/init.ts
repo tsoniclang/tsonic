@@ -23,13 +23,10 @@ import type {
   TsonicProjectConfig,
   TsonicWorkspaceConfig,
 } from "../types.js";
-import { copyRuntimeDllsToWorkspaceLibs } from "../dotnet/runtime-assets.js";
 
 type InitOptions = {
   readonly skipTypes?: boolean;
   readonly typesVersion?: string;
-  readonly js?: boolean;
-  readonly nodejs?: boolean;
 };
 
 type TypePackageInfo = {
@@ -41,20 +38,12 @@ type TypePackageInfo = {
 const CLI_PACKAGE = { name: "tsonic", version: "latest" };
 
 export const getTypePackageInfo = (
-  options: {
-    readonly js?: boolean;
-    readonly nodejs?: boolean;
-  } = {}
+  _options: Record<string, never> = {}
 ): TypePackageInfo => {
-  const js = options.js === true;
-  const nodejs = options.nodejs === true;
-
   const packages = [
     CLI_PACKAGE,
     { name: "@tsonic/core", version: "latest" },
     { name: "@tsonic/globals", version: "latest" },
-    ...(js ? [{ name: "@tsonic/js", version: "latest" }] : []),
-    ...(nodejs ? [{ name: "@tsonic/nodejs", version: "latest" }] : []),
   ];
 
   return {
@@ -88,23 +77,6 @@ export function main(): void {
   Console.WriteLine("Reading README.md...");
   const content = File.ReadAllText("./README.md");
   Console.WriteLine(content);
-}
-`;
-
-const SAMPLE_MAIN_TS_JS = `import { Console } from "@tsonic/dotnet/System.js";
-import { console, JSON } from "@tsonic/js/index.js";
-
-export function main(): void {
-  Console.WriteLine("JSRuntime JSON example...");
-  const value = JSON.parse<{ x: number }>('{"x": 1}');
-  console.log(JSON.stringify(value));
-}
-`;
-
-const SAMPLE_MAIN_TS_NODEJS = `import { console } from "@tsonic/nodejs/index.js";
-
-export function main(): void {
-  console.log("Hello from @tsonic/nodejs");
 }
 `;
 
@@ -210,43 +182,14 @@ export const initWorkspace = (
 
     // Install type declarations at workspace root
     const shouldInstallTypes = options.skipTypes !== true;
-    const js = options.js === true;
-    const nodejs = options.nodejs === true;
 
     if (shouldInstallTypes) {
-      const typeInfo = getTypePackageInfo({ js, nodejs });
+      const typeInfo = getTypePackageInfo();
       for (const pkg of typeInfo.packages) {
         const version = options.typesVersion ?? pkg.version;
         const r = npmInstallDev(workspaceRoot, `${pkg.name}@${version}`);
         if (!r.ok) return r;
       }
-    }
-
-    // Optional runtime assemblies (JSRuntime + nodejs) are treated like any other DLL:
-    // copy them into ./libs and add to workspace dotnet.libraries so csproj references them.
-    if (js || nodejs) {
-      const copyResult = copyRuntimeDllsToWorkspaceLibs(workspaceRoot, {
-        includeJsRuntime: true,
-        includeNodejs: nodejs,
-      });
-      if (!copyResult.ok) return copyResult;
-
-      const libs = (workspaceConfig.dotnet?.libraries ?? []).map((p) =>
-        typeof p === "string" ? p : p.path
-      );
-      if (copyResult.value.includes("libs/Tsonic.JSRuntime.dll")) {
-        libs.push("libs/Tsonic.JSRuntime.dll");
-      }
-      if (copyResult.value.includes("libs/nodejs.dll")) {
-        libs.push("libs/nodejs.dll");
-      }
-      workspaceConfig = {
-        ...workspaceConfig,
-        dotnet: {
-          ...(workspaceConfig.dotnet ?? {}),
-          libraries: Array.from(new Set(libs)),
-        },
-      };
     }
 
     writeWorkspaceConfig(workspaceRoot, workspaceConfig);
@@ -284,8 +227,7 @@ export const initWorkspace = (
     // Sample source
     const appTsPath = join(projectRoot, "src", "App.ts");
     if (!existsSync(appTsPath)) {
-      const sample = nodejs ? SAMPLE_MAIN_TS_NODEJS : js ? SAMPLE_MAIN_TS_JS : SAMPLE_MAIN_TS;
-      writeFileSync(appTsPath, sample, "utf-8");
+      writeFileSync(appTsPath, SAMPLE_MAIN_TS, "utf-8");
     }
 
     // Root .gitignore

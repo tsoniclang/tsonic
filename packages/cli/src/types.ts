@@ -206,8 +206,6 @@ export type CliOptions = {
   // Project init options
   skipTypes?: boolean;
   typesVersion?: string;
-  js?: boolean; // Enable JSRuntime interop (installs @tsonic/js)
-  nodejs?: boolean; // Enable Node.js interop (installs @tsonic/nodejs)
   // Output type options
   type?: OutputType;
   targetFramework?: string;

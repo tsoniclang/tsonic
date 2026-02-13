@@ -241,26 +241,10 @@ describe("CLI Parser", () => {
         expect(result.options.noStrip).to.equal(true);
       });
 
-      it("should parse --nodejs option", () => {
-        const result = parseArgs(["project", "init", "--nodejs"]);
-        expect(result.options.nodejs).to.equal(true);
-      });
-
-      it("should parse --js option", () => {
-        const result = parseArgs(["project", "init", "--js"]);
-        expect(result.options.js).to.equal(true);
-      });
-
-      it("should parse add js as two-word command", () => {
-        const result = parseArgs(["add", "js"]);
-        expect(result.command).to.equal("add:js");
-        expect(result.positionals).to.deep.equal([]);
-      });
-
-      it("should parse add nodejs as two-word command", () => {
-        const result = parseArgs(["add", "nodejs"]);
-        expect(result.command).to.equal("add:nodejs");
-        expect(result.positionals).to.deep.equal([]);
+      it("should parse add npm as two-word command", () => {
+        const result = parseArgs(["add", "npm", "@tsonic/js@10.0.0"]);
+        expect(result.command).to.equal("add:npm");
+        expect(result.positionals).to.deep.equal(["@tsonic/js@10.0.0"]);
       });
 
       it("should parse --deps option (repeatable)", () => {

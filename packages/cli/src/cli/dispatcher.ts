@@ -20,8 +20,7 @@ import { buildCommand } from "../commands/build.js";
 import { runCommand } from "../commands/run.js";
 import { packCommand } from "../commands/pack.js";
 import { testCommand } from "../commands/test.js";
-import { addJsCommand } from "../commands/add-js.js";
-import { addNodejsCommand } from "../commands/add-nodejs.js";
+import { addNpmCommand } from "../commands/add-npm.js";
 import { addPackageCommand } from "../commands/add-package.js";
 import { addNugetCommand } from "../commands/add-nuget.js";
 import { addFrameworkCommand } from "../commands/add-framework.js";
@@ -108,8 +107,6 @@ export const runCli = async (args: string[]): Promise<number> => {
     const result = initWorkspace(process.cwd(), {
       skipTypes: parsed.options.skipTypes,
       typesVersion: parsed.options.typesVersion,
-      js: parsed.options.js,
-      nodejs: parsed.options.nodejs,
     });
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
@@ -153,20 +150,15 @@ export const runCli = async (args: string[]): Promise<number> => {
   let rawWorkspaceConfig = workspaceConfigResult.value;
 
   // Add/restore commands operate on the WORKSPACE config.
-  if (parsed.command === "add:js") {
-    const result = addJsCommand(workspaceConfigPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-    });
-    if (!result.ok) {
-      console.error(`Error: ${result.error}`);
+  if (parsed.command === "add:npm") {
+    const packageSpec = parsed.positionals[0];
+    if (!packageSpec) {
+      console.error("Error: npm package spec required");
+      console.error("Usage: tsonic add npm <packageSpec>");
       return 1;
     }
-    return 0;
-  }
 
-  if (parsed.command === "add:nodejs") {
-    const result = addNodejsCommand(workspaceConfigPath, {
+    const result = addNpmCommand(packageSpec, workspaceConfigPath, {
       verbose: parsed.options.verbose,
       quiet: parsed.options.quiet,
     });

@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b && chmod +x dist/index.js",
+    "build": "npm run clean && tsc -b && chmod +x dist/index.js",
     "clean": "rm -rf dist *.tsbuildinfo",
     "pretest": "npm run build",
     "test": "mocha --parallel 'dist/**/*.test.js'",
