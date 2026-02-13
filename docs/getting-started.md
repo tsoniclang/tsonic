@@ -96,12 +96,6 @@ my-app/
 ### Init Options
 
 ```bash
-# Enable JavaScript runtime APIs (@tsonic/js)
-tsonic init --js
-
-# Enable Node.js compatibility APIs (@tsonic/nodejs)
-tsonic init --nodejs
-
 # Skip installing type packages
 tsonic init --skip-types
 
@@ -109,13 +103,13 @@ tsonic init --skip-types
 tsonic init --types-version <ver>
 ```
 
-### Adding JS/NodeJS to an existing workspace
+### Adding JS / Node.js APIs
 
-If you already have a Tsonic workspace and want JSRuntime or Node.js APIs later:
+Install optional libraries via npm bindings packages:
 
 ```bash
-tsonic add js
-tsonic add nodejs
+tsonic add npm @tsonic/js
+tsonic add npm @tsonic/nodejs
 ```
 
 ## Building and Running

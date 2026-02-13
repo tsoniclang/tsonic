@@ -121,7 +121,7 @@ export const npmInstallDevDependency = (
   options: AddCommandOptions,
   exec: Exec = defaultExec
 ): Result<void, string> => {
-  const args = ["install", "--save-dev", packageSpec];
+  const args = ["install", "--save-dev", packageSpec, "--no-fund", "--no-audit"];
   if (options.quiet) args.push("--silent");
 
   const result = exec(

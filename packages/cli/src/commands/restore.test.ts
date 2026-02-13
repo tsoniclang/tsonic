@@ -117,7 +117,7 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      // Built-in runtime DLLs (JSRuntime / nodejs) should never trigger bindings generation.
+      // Built-in runtime DLLs should never trigger bindings generation.
       writeFileSync(
         join(dir, "tsonic.workspace.json"),
         JSON.stringify(
@@ -125,7 +125,7 @@ describe("restore command", function () {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
             dotnetVersion: "net10.0",
             dotnet: {
-              libraries: ["libs/Tsonic.JSRuntime.dll"],
+              libraries: ["libs/Tsonic.Runtime.dll"],
               frameworkReferences: [],
               packageReferences: [],
             },
@@ -138,8 +138,8 @@ describe("restore command", function () {
 
       // Provide the runtime DLL.
       copyFileSync(
-        join(repoRoot, "packages/cli/runtime/Tsonic.JSRuntime.dll"),
-        join(dir, "libs/Tsonic.JSRuntime.dll")
+        join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll"),
+        join(dir, "libs/Tsonic.Runtime.dll")
       );
 
       // Provide required standard bindings packages (no network).
@@ -156,7 +156,7 @@ describe("restore command", function () {
       expect(result.ok).to.equal(true);
 
       // Should not generate bindings for the runtime DLL.
-      expect(existsSync(join(dir, "node_modules", "tsonic-jsruntime-types"))).to.equal(
+      expect(existsSync(join(dir, "node_modules", "tsonic-runtime-types"))).to.equal(
         false
       );
 
@@ -164,7 +164,7 @@ describe("restore command", function () {
       const updated = JSON.parse(readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")) as {
         dotnet?: { libraries?: unknown };
       };
-      expect(updated.dotnet?.libraries).to.deep.equal(["libs/Tsonic.JSRuntime.dll"]);
+      expect(updated.dotnet?.libraries).to.deep.equal(["libs/Tsonic.Runtime.dll"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

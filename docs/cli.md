@@ -28,8 +28,6 @@ tsonic init
 
 Options:
 
-- `--js` — install `@tsonic/js` and add `libs/Tsonic.JSRuntime.dll`
-- `--nodejs` — install `@tsonic/nodejs` and add `libs/nodejs.dll` (also includes JSRuntime)
 - `--skip-types` — skip installing type packages
 - `--types-version <ver>` — pin the installed type package versions
 
@@ -37,24 +35,31 @@ Creates:
 
 - `tsonic.workspace.json`, `libs/`, `packages/<name>/tsonic.json`, workspace `package.json`, `.gitignore`
 
-### `tsonic add js`
+### `tsonic add npm <packageSpec>`
 
-Add JSRuntime interop to an existing workspace:
+Install an npm bindings package and apply its `.NET` dependency manifest to the workspace.
 
-- Installs `@tsonic/js` (if missing)
-- Copies runtime DLLs into `libs/` (idempotent):
-  - `Tsonic.JSRuntime.dll`
-- Adds `libs/Tsonic.JSRuntime.dll` to `tsonic.workspace.json` `dotnet.libraries`
+Airplane-grade rule: the npm package must include a `tsonic.bindings.json` at its root. That file is the
+only way Tsonic discovers the `.NET` dependencies for an npm bindings package.
 
-### `tsonic add nodejs`
+Examples:
 
-Add Node.js compatibility APIs to an existing workspace:
+```bash
+tsonic add npm @tsonic/js
+tsonic add npm @tsonic/nodejs
+tsonic add npm @tsonic/express
+```
 
-- Installs `@tsonic/nodejs` (if missing)
-- Copies runtime DLLs into `libs/` (idempotent):
-  - `Tsonic.JSRuntime.dll`
-  - `nodejs.dll`
-- Adds `libs/Tsonic.JSRuntime.dll` and `libs/nodejs.dll` to `tsonic.workspace.json` `dotnet.libraries`
+Behavior:
+
+- `npm install --save-dev <packageSpec>`
+- Reads `<pkg>/tsonic.bindings.json`
+- Merges `dotnet.frameworkReferences`, `dotnet.packageReferences`, `dotnet.msbuildProperties` (and `testDotnet.*`)
+  into `tsonic.workspace.json`
+- Installs any additional `types` packages referenced by the manifest
+
+After adding a bindings package, run `tsonic restore` to materialize NuGet dependencies and generate any missing
+bindings packages.
 
 ### `tsonic add package <dll> [types]`
 

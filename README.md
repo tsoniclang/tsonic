@@ -60,12 +60,6 @@ mkdir my-app && cd my-app
 
 # Basic workspace + default project
 tsonic init
-
-# Or: include JavaScript runtime APIs (console, JSON, timers, etc.)
-tsonic init --js
-
-# Or: include Node-style APIs (fs, path, crypto, http, etc.)
-tsonic init --nodejs
 ```
 
 This creates:
@@ -165,10 +159,11 @@ First, enable JSRuntime APIs:
 
 ```bash
 # New project
-tsonic init --js
+tsonic init
+tsonic add npm @tsonic/js
 
 # Existing project
-tsonic add js
+tsonic add npm @tsonic/js
 ```
 
 Then write:
@@ -188,10 +183,11 @@ First, enable Node-style APIs:
 
 ```bash
 # New project
-tsonic init --nodejs
+tsonic init
+tsonic add npm @tsonic/nodejs
 
 # Existing project
-tsonic add nodejs
+tsonic add npm @tsonic/nodejs
 ```
 
 Then write:
@@ -258,8 +254,7 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 | `tsonic generate [entry]` | Generate C# code only |
 | `tsonic build [entry]` | Build native executable |
 | `tsonic run [entry]`   | Build and run           |
-| `tsonic add js`        | Add `@tsonic/js` + JSRuntime DLLs |
-| `tsonic add nodejs`    | Add `@tsonic/nodejs` + NodeJS DLLs |
+| `tsonic add npm <pkg>` | Install an npm bindings package (tsonic.bindings.json) |
 | `tsonic add package <dll> [types]` | Add a local DLL + bindings |
 | `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings |
 | `tsonic add framework <ref> [types]` | Add a FrameworkReference + bindings |
