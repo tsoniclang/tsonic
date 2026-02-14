@@ -31,6 +31,123 @@ type ProjectAssets = {
   readonly packageFolders?: Record<string, unknown>;
 };
 
+type AssemblyNameConflict = {
+  readonly assemblyName: string;
+  readonly library: string;
+  readonly assetPath: string;
+};
+
+const readProjectAssets = (assetsPath: string): Result<ProjectAssets, string> => {
+  if (!existsSync(assetsPath)) {
+    return { ok: false, error: `Restore assets not found at ${assetsPath}` };
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(assetsPath, "utf-8")) as ProjectAssets;
+    return { ok: true, value: parsed };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to parse ${assetsPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+const findAssemblyNameConflicts = (
+  assets: ProjectAssets,
+  outputName: string
+): readonly AssemblyNameConflict[] => {
+  const targets = assets.targets ?? {};
+  const wanted = `${outputName}.dll`.toLowerCase();
+  const librariesById = assets.libraries ?? {};
+
+  const conflicts: AssemblyNameConflict[] = [];
+  for (const [targetKey, targetValue] of Object.entries(targets)) {
+    if (!targetKey || !targetValue || typeof targetValue !== "object") continue;
+
+    for (const [libKey, libValue] of Object.entries(targetValue as Record<string, unknown>)) {
+      if (!libKey || !libValue || typeof libValue !== "object") continue;
+
+      // Ignore the root project (and any project references) to avoid false positives:
+      // project.assets.json lists project outputs under a `type: project` library entry.
+      if (librariesById[libKey]?.type === "project") continue;
+
+      for (const sectionName of ["compile", "runtime"] as const) {
+        const section = (libValue as Record<string, unknown>)[sectionName];
+        if (!section || typeof section !== "object") continue;
+
+        for (const assetPath of Object.keys(section as Record<string, unknown>)) {
+          const normalized = assetPath.replace(/\\/g, "/");
+          const parts = normalized.split("/");
+          const file = parts.length > 0 ? parts[parts.length - 1] : undefined;
+          if (!file || !file.toLowerCase().endsWith(".dll")) continue;
+          if (file.toLowerCase() !== wanted) continue;
+          conflicts.push({ assemblyName: outputName, library: libKey, assetPath });
+        }
+      }
+    }
+  }
+
+  // Dedupe: multiple targets can report the same conflict.
+  const seen = new Set<string>();
+  const unique: AssemblyNameConflict[] = [];
+  for (const c of conflicts) {
+    const key = `${c.library}::${c.assetPath}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(c);
+  }
+
+  unique.sort((a, b) => a.library.localeCompare(b.library) || a.assetPath.localeCompare(b.assetPath));
+  return unique;
+};
+
+const assertNoOutputAssemblyNameConflicts = (
+  generatedDir: string,
+  outputName: string,
+  libraries: readonly string[]
+): Result<void, string> => {
+  const wantedDll = `${outputName}.dll`.toLowerCase();
+
+  const libraryConflicts = libraries
+    .map((p) => p.replace(/\\/g, "/"))
+    .filter((p) => {
+      const parts = p.split("/");
+      const file = parts.length > 0 ? parts[parts.length - 1] : undefined;
+      return file?.toLowerCase() === wantedDll;
+    })
+    .sort((a, b) => a.localeCompare(b));
+
+  const assetsPath = join(generatedDir, "obj", "project.assets.json");
+  const assetsResult = readProjectAssets(assetsPath);
+  if (!assetsResult.ok) return assetsResult;
+
+  const nugetConflicts = findAssemblyNameConflicts(assetsResult.value, outputName);
+
+  if (libraryConflicts.length === 0 && nugetConflicts.length === 0) {
+    return { ok: true, value: undefined };
+  }
+
+  const lines: string[] = [];
+  lines.push(
+    `outputName '${outputName}' conflicts with a referenced assembly named '${outputName}.dll'.`
+  );
+  lines.push("");
+  lines.push("Conflicting references:");
+  for (const lib of libraryConflicts) {
+    lines.push(`  - ${lib}`);
+  }
+  for (const c of nugetConflicts) {
+    lines.push(`  - ${c.library} (${c.assetPath})`);
+  }
+  lines.push("");
+  lines.push(
+    "Fix: change `outputName` in your project's tsonic.json to a unique name and rebuild."
+  );
+
+  return { ok: false, error: lines.join("\n") };
+};
+
 const pickPackageFolder = (assets: ProjectAssets): string | undefined => {
   const folders = assets.packageFolders ? Object.keys(assets.packageFolders) : [];
   if (folders.length === 0) return undefined;
@@ -228,6 +345,13 @@ const buildExecutable = (
     };
   }
 
+  const conflictResult = assertNoOutputAssemblyNameConflicts(
+    generatedDir,
+    outputName,
+    config.libraries
+  );
+  if (!conflictResult.ok) return conflictResult;
+
   // Copy output binary
   const binaryName =
     process.platform === "win32" ? `${outputName}.exe` : outputName;
@@ -376,6 +500,13 @@ const buildLibrary = (
       };
     }
   }
+
+  const conflictResult = assertNoOutputAssemblyNameConflicts(
+    generatedDir,
+    outputName,
+    config.libraries
+  );
+  if (!conflictResult.ok) return conflictResult;
 
   // Copy output library artifacts
   const outputDir = join(config.projectRoot, "dist");

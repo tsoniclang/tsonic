@@ -3,8 +3,15 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { constants as osConstants } from "node:os";
 import type { ResolvedConfig, Result } from "../types.js";
 import { buildCommand } from "./build.js";
+
+const signalToExitCode = (signal: NodeJS.Signals): number => {
+  const signalNumber = (osConstants.signals as Record<string, number | undefined>)[signal];
+  if (typeof signalNumber === "number") return 128 + signalNumber;
+  return 1;
+};
 
 /**
  * Build and run the executable
@@ -39,13 +46,24 @@ export const runCommand = (
     };
   }
 
+  const exitCode =
+    typeof runResult.status === "number"
+      ? runResult.status
+      : runResult.signal
+        ? signalToExitCode(runResult.signal)
+        : 1;
+
   if (!config.quiet) {
     console.log("─".repeat(50));
-    console.log(`\nProcess exited with code ${runResult.status ?? 0}`);
+    if (runResult.signal) {
+      console.log(`\nProcess terminated by signal ${runResult.signal} (exit code ${exitCode})`);
+    } else {
+      console.log(`\nProcess exited with code ${exitCode}`);
+    }
   }
 
   return {
     ok: true,
-    value: { exitCode: runResult.status ?? 0 },
+    value: { exitCode },
   };
 };

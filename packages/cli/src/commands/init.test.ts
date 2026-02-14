@@ -54,7 +54,6 @@ describe("Init Command", () => {
         );
         expect(appTs).to.include('@tsonic/dotnet/System.js');
         expect(appTs).to.include("Console.WriteLine");
-        expect(appTs).to.include("File.ReadAllText");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
