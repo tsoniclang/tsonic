@@ -378,8 +378,33 @@ export const emitObject = (
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
 
-  // Use expectedType if provided, fall back to contextualType
-  const effectiveType = expectedType ?? expr.contextualType;
+  // Use expectedType if provided, fall back to contextualType.
+  //
+  // IMPORTANT: Do not allow non-instantiable expected types (unknown/object/any)
+  // to override a synthesized contextual type (TSN7403 anonymous object synthesis).
+  //
+  // Example:
+  //   function f(x: unknown): void {}
+  //   f({ ok: true })
+  //
+  // The object literal is synthesized to a nominal `__Anon_*` type, but the call
+  // argument's expectedType is still `unknown`. We must instantiate the synthesized
+  // type, not `new object { ok = true }` (invalid C#).
+  const effectiveType: IrType | undefined = (() => {
+    if (!expectedType) return expr.contextualType;
+
+    const strippedExpected = stripNullish(expectedType);
+    if (
+      strippedExpected.kind === "unknownType" ||
+      strippedExpected.kind === "anyType" ||
+      (strippedExpected.kind === "referenceType" &&
+        strippedExpected.name === "object")
+    ) {
+      return expr.contextualType ?? expectedType;
+    }
+
+    return expectedType;
+  })();
 
   // Check if contextual type is a dictionary type
   if (effectiveType?.kind === "dictionaryType") {
