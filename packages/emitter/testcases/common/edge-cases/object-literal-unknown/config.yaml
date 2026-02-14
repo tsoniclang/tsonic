@@ -1,0 +1,1 @@
+- ObjectLiteralUnknown.ts: should lower object literals to Dictionary when contextual type is unknown/any/object
