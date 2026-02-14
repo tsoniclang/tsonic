@@ -8,6 +8,7 @@ import {
   IrArrayExpression,
   IrObjectExpression,
   IrObjectProperty,
+  IrDictionaryType,
   IrReferenceType,
   IrType,
   IrExpression,
@@ -251,6 +252,43 @@ export const convertObjectLiteral = (
 ): IrObjectExpression => {
   const properties: IrObjectProperty[] = [];
 
+  // Contextual type priority:
+  // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
+  // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
+  const contextualCandidate = expectedType ?? getContextualType(node, ctx);
+
+  // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
+  //
+  // Historically we treated these as "no contextual type" and relied on TSN7403 synthesis to
+  // produce a nominal `__Anon_*` type. That works for many cases, but it is a poor fit when
+  // the target surface is truly dynamic (e.g. JSON payloads passed as `unknown`).
+  //
+  // For those dynamic contexts, we deterministically lower a "plain" object literal to a
+  // Dictionary<string, object?> shape. This is:
+  // - a valid CLR instantiation target (unlike `object`)
+  // - stable and structurally faithful to JS object semantics for string keys
+  // - AOT-friendly (no runtime reflection required by downstream libraries)
+  //
+  // Non-plain literals (spreads, computed keys) still fall back to TSN7403 synthesis.
+  const isObjectLikeContext =
+    contextualCandidate?.kind === "anyType" ||
+    contextualCandidate?.kind === "unknownType" ||
+    (contextualCandidate?.kind === "referenceType" &&
+      contextualCandidate.name === "object");
+
+  const isPlainObjectLiteralAst =
+    node.properties.length > 0 &&
+    node.properties.every(
+      (p) =>
+        (ts.isPropertyAssignment(p) &&
+          !ts.isComputedPropertyName(p.name) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) ||
+        ts.isShorthandPropertyAssignment(p)
+    );
+
+  const shouldLowerToDictionary = isObjectLikeContext && isPlainObjectLiteralAst;
+  const dictionaryValueExpectedType: IrType = { kind: "unknownType" };
+
   // Track if we have any spreads (needed for emitter IIFE lowering)
   let hasSpreads = false;
 
@@ -270,8 +308,11 @@ export const convertObjectLiteral = (
 
       // Look up property expected type from parent expected type
       const propExpectedType = keyName
-        ? getPropertyExpectedType(keyName, expectedType, ctx)
-        : undefined;
+        ? getPropertyExpectedType(keyName, expectedType, ctx) ??
+          (shouldLowerToDictionary ? dictionaryValueExpectedType : undefined)
+        : shouldLowerToDictionary
+          ? dictionaryValueExpectedType
+          : undefined;
 
       properties.push({
         kind: "property",
@@ -317,19 +358,16 @@ export const convertObjectLiteral = (
     // Skip getters/setters/methods for now (can add later if needed)
   });
 
-  // Contextual type priority:
-  // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
-  // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
-  let contextualType = expectedType ?? getContextualType(node, ctx);
+  let contextualType = contextualCandidate;
 
-  // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
-  // Treat them as "no contextual type" so TSN7403 synthesis can produce a concrete shape type.
-  if (
-    contextualType?.kind === "anyType" ||
-    contextualType?.kind === "unknownType" ||
-    (contextualType?.kind === "referenceType" && contextualType.name === "object")
-  ) {
-    contextualType = undefined;
+  if (isObjectLikeContext) {
+    contextualType = shouldLowerToDictionary
+      ? ({
+          kind: "dictionaryType",
+          keyType: { kind: "primitiveType", name: "string" },
+          valueType: { kind: "unknownType" },
+        } satisfies IrDictionaryType)
+      : undefined;
   }
 
   // If no contextual type, check if eligible for synthesis
