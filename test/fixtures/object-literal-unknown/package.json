@@ -1,0 +1,10 @@
+{
+  "name": "object-literal-unknown",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@tsonic/globals": "^0.3.3"
+  }
+}
+
