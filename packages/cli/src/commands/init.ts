@@ -71,12 +71,9 @@ node_modules/
 `;
 
 const SAMPLE_MAIN_TS = `import { Console } from "@tsonic/dotnet/System.js";
-import { File } from "@tsonic/dotnet/System.IO.js";
 
 export function main(): void {
-  Console.WriteLine("Reading README.md...");
-  const content = File.ReadAllText("./README.md");
-  Console.WriteLine(content);
+  Console.WriteLine("Hello from Tsonic!");
 }
 `;
 
@@ -220,7 +217,7 @@ export const initWorkspace = (
       entryPoint: "src/App.ts",
       sourceRoot: "src",
       outputDirectory: "generated",
-      outputName: name,
+      outputName: `${name}.App`,
       output: { type: "executable" },
     });
 
