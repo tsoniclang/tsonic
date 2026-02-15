@@ -54,9 +54,9 @@ const scanForDeclarationFiles = (dir: string): readonly string[] => {
 export const createCompilerOptions = (
   options: CompilerOptions
 ): ts.CompilerOptions => {
-  const baseConfig = {
+  const baseConfig: ts.CompilerOptions = {
     ...defaultTsConfig,
-    strict: options.strict ?? true,
+    ...(options.strict === undefined ? {} : { strict: options.strict }),
     rootDir: options.sourceRoot,
   };
 

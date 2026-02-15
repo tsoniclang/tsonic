@@ -15,7 +15,13 @@ export const defaultTsConfig: ts.CompilerOptions = {
   // The BCL bindings include a globals.d.ts that provides minimal types
   noLib: true,
   types: [], // No npm packages - globals come from BCL bindings typeRoots
-  strict: false, // Disabled to allow .NET type usage
+  // Airplane-grade default: full TypeScript strictness.
+  // We rely on strict TS diagnostics to prevent “TS accepts it, C# cannot” cases
+  // (especially around overload selection and delegate assignability).
+  strict: true,
+  // Keep function-parameter variance strict (redundant under `strict`, but
+  // explicit for clarity).
+  strictFunctionTypes: true,
   esModuleInterop: true,
   skipLibCheck: true,
   forceConsistentCasingInFileNames: true,
@@ -25,6 +31,5 @@ export const defaultTsConfig: ts.CompilerOptions = {
   resolveJsonModule: false,
   isolatedModules: true, // Re-enabled - safe now that DOM globals are gone
   verbatimModuleSyntax: false, // Disabled to allow .NET type imports
-  noImplicitAny: false, // Allow any for .NET types
   allowImportingTsExtensions: true, // ESM requires .ts/.js extensions
 };
