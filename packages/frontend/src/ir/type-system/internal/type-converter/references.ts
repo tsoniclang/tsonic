@@ -585,6 +585,29 @@ export const convertTypeReference = (
         }
 
         if (ts.isFunctionTypeNode(declNode.type)) {
+          // tsbindgen emits CLR delegates as type aliases to function types in .d.ts.
+          //
+          // Example (generated):
+          //   export type NextFunction = (control?: string) => Task;
+          //
+          // Airplane-grade rule: CLR delegate types are NOMINAL in C#.
+          // If we eagerly expand them into IrFunctionType, we lose the delegate's
+          // CLR identity and the emitter will incorrectly lower them to
+          // `System.Func` / `System.Action`, breaking overload resolution and
+          // delegate parameter typing.
+          //
+          // Keep declaration-file function aliases as reference types so the
+          // TypeSystem can resolve them to the CLR delegate type (and
+          // delegateToFunctionType() can still recover the Invoke signature for
+          // deterministic lambda typing at call sites).
+          if (declNode.getSourceFile().isDeclarationFile) {
+            return {
+              kind: "referenceType",
+              name: typeName,
+              typeArguments: node.typeArguments?.map((t) => convertType(t, binding)),
+            };
+          }
+
           const fnType = convertFunctionType(declNode.type, binding, convertType);
 
           // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
