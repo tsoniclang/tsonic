@@ -141,8 +141,12 @@ const assertNoOutputAssemblyNameConflicts = (
     lines.push(`  - ${c.library} (${c.assetPath})`);
   }
   lines.push("");
+  const suggested =
+    outputName.endsWith(".App") ? undefined : `${outputName}.App`;
   lines.push(
-    "Fix: change `outputName` in your project's tsonic.json to a unique name and rebuild."
+    suggested
+      ? `Fix: rename \`outputName\` in your project's tsonic.json (suggested: '${suggested}') and rebuild.`
+      : "Fix: rename `outputName` in your project's tsonic.json to a unique name and rebuild."
   );
 
   return { ok: false, error: lines.join("\n") };
