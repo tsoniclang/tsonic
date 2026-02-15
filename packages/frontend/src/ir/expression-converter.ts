@@ -155,14 +155,24 @@ export const convertExpression = (
     };
   }
   if (
-    node.kind === ts.SyntaxKind.UndefinedKeyword ||
-    ts.isVoidExpression(node)
+    node.kind === ts.SyntaxKind.UndefinedKeyword
   ) {
     // Undefined literal - type is void
     return {
       kind: "literal",
       value: undefined,
       raw: "undefined",
+      inferredType: { kind: "voidType" },
+      sourceSpan: getSourceSpan(node),
+    };
+  }
+  if (ts.isVoidExpression(node)) {
+    // `void expr` evaluates `expr` and yields `undefined` (void type).
+    // Do NOT drop the operand: `void foo()` must still call foo().
+    return {
+      kind: "unary",
+      operator: "void",
+      expression: convertExpression(node.expression, ctx, undefined),
       inferredType: { kind: "voidType" },
       sourceSpan: getSourceSpan(node),
     };
