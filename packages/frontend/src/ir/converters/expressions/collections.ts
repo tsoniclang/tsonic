@@ -25,6 +25,7 @@ import {
 } from "../anonymous-synthesis.js";
 import { NumericKind } from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
+import { createDiagnostic } from "../../../types/diagnostic.js";
 
 /**
  * Compute the element type for an array literal from its elements' types.
@@ -255,7 +256,23 @@ export const convertObjectLiteral = (
   // Contextual type priority:
   // 1) expectedType threaded from the parent converter (return, assignment, parameter, etc.)
   // 2) AST-based contextual typing from explicit TypeNodes (getContextualType)
-  const contextualCandidate = expectedType ?? getContextualType(node, ctx);
+  const contextualCandidateRaw = expectedType ?? getContextualType(node, ctx);
+
+  // Type parameters are NOT valid instantiation targets for object literals.
+  //
+  // If we treat `T` as a contextual nominal type, the emitter can end up producing
+  // `new T { ... }`, which is not valid C# and is not CLR-faithful.
+  //
+  // Example:
+  //   export function id<T>(x: T): T { return x; }
+  //   export const v = id({ ok: true });
+  //
+  // We must synthesize a nominal `__Anon_*` type for the literal so `T` can be
+  // inferred deterministically from the argument type.
+  const contextualCandidate =
+    contextualCandidateRaw?.kind === "typeParameterType"
+      ? undefined
+      : contextualCandidateRaw;
 
   // `object`/`any`/`unknown` are not valid nominal instantiation targets for object literals.
   //
@@ -277,7 +294,6 @@ export const convertObjectLiteral = (
       contextualCandidate.name === "object");
 
   const isPlainObjectLiteralAst =
-    node.properties.length > 0 &&
     node.properties.every(
       (p) =>
         (ts.isPropertyAssignment(p) &&
@@ -374,10 +390,21 @@ export const convertObjectLiteral = (
   // DETERMINISTIC IR TYPING (INV-0 compliant): Uses AST-based synthesis
   if (!contextualType) {
     const eligibility = checkSynthesisEligibility(node, ctx);
-    if (eligibility.eligible) {
+    if (!eligibility.eligible) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN7403",
+          "error",
+          `Object literal cannot be synthesized: ${eligibility.reason}`,
+          getSourceSpan(node),
+          "Use an explicit type annotation, or restructure to use only identifier keys, string literal keys, and arrow functions."
+        )
+      );
+    } else {
       // Extract property info from already-converted properties (AST-based)
       const propInfos: PropertyInfo[] = [];
       let canSynthesize = true;
+      let synthesisFailureReason: string | undefined;
 
       for (const prop of properties) {
         if (prop.kind === "property") {
@@ -385,6 +412,7 @@ export const convertObjectLiteral = (
           const keyName = typeof prop.key === "string" ? prop.key : undefined;
           if (!keyName) {
             canSynthesize = false;
+            synthesisFailureReason = "Computed property keys are not supported";
             break;
           }
 
@@ -397,6 +425,7 @@ export const convertObjectLiteral = (
           ) {
             // Cannot synthesize if property type is unknown/any
             canSynthesize = false;
+            synthesisFailureReason = `Property '${keyName}' type cannot be recovered deterministically`;
             break;
           }
 
@@ -420,19 +449,16 @@ export const convertObjectLiteral = (
                 });
               }
             }
-          } else if (spreadType?.kind === "referenceType") {
-            // Reference type spread - can still synthesize, the reference is kept
-            // The spread's type will be resolved at emit time
-            canSynthesize = false; // For now, require object type spreads
-            break;
           } else {
             canSynthesize = false;
+            synthesisFailureReason =
+              "Spread sources must have a deterministically known object literal shape";
             break;
           }
         }
       }
 
-      if (canSynthesize && propInfos.length > 0) {
+      if (canSynthesize) {
         // Compute shape signature for deduplication (AST-based)
         const shapeSignature = computeShapeSignature(propInfos);
 
@@ -470,6 +496,16 @@ export const convertObjectLiteral = (
         };
 
         contextualType = syntheticRef;
+      } else {
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN7403",
+            "error",
+            `Object literal cannot be synthesized: ${synthesisFailureReason ?? "not supported in this context"}`,
+            getSourceSpan(node),
+            "Use an explicit type annotation, or restructure to use only identifier keys, string literal keys, and arrow functions."
+          )
+        );
       }
     }
   }
