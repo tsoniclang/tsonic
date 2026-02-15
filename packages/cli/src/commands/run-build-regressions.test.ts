@@ -254,7 +254,8 @@ describe("CLI regressions (run/build)", function () {
       expect(build.status).to.not.equal(0);
       const combined = `${build.stdout ?? ""}\n${build.stderr ?? ""}`;
       expect(combined).to.include("outputName 'conflict' conflicts");
-      expect(combined).to.include("Fix: change `outputName`");
+      expect(combined).to.include("Fix: rename `outputName`");
+      expect(combined).to.include("suggested: 'conflict.App'");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

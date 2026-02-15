@@ -217,7 +217,7 @@ export const initWorkspace = (
       entryPoint: "src/App.ts",
       sourceRoot: "src",
       outputDirectory: "generated",
-      outputName: `${name}.App`,
+      outputName: name,
       output: { type: "executable" },
     });
 
