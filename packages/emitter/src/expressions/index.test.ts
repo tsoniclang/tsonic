@@ -258,6 +258,77 @@ describe("Expression Emission", () => {
     expect(result).not.to.include("using System.Linq");
   });
 
+  it("should escape C# keywords in hierarchical member bindings", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: {
+              kind: "memberAccess",
+              object: {
+                kind: "memberAccess",
+                object: { kind: "identifier", name: "express" },
+                property: "express",
+                isComputed: false,
+                isOptional: false,
+              },
+              property: "static",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                assembly: "express",
+                type: "Express.Express",
+                member: "static",
+              },
+            },
+            arguments: [{ kind: "literal", value: "./public" }],
+            isOptional: false,
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "req",
+                inferredType: { kind: "referenceType", name: "Express.Request" },
+              },
+              property: "params",
+              isComputed: false,
+              isOptional: false,
+              memberBinding: {
+                assembly: "express",
+                type: "Express.Request",
+                member: "params",
+              },
+            },
+            property: { kind: "literal", value: "id" },
+            isComputed: true,
+            isOptional: false,
+            accessKind: "dictionary",
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+
+    expect(result).to.include("global::Express.Express.@static");
+    expect(result).to.include("req.@params[\"id\"]");
+  });
+
   it("should lower extension method calls to explicit static invocation", () => {
     const module: IrModule = {
       kind: "module",

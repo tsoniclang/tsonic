@@ -20,6 +20,7 @@ import {
   formatCastOperandText,
   formatPostfixExpressionText,
 } from "./parentheses.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 // ============================================================================
 // CONTRACT: Emitter ONLY consumes proof markers.
@@ -274,11 +275,12 @@ export const emitMemberAccess = (
   // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
     const { type, member } = expr.memberBinding;
+    const escapedMember = escapeCSharpIdentifier(member);
 
     // Determine if this is a static or instance member access
     if (isStaticTypeReference(expr, context)) {
       // Static access: emit full CLR type and member with global:: prefix
-      const text = `global::${type}.${member}`;
+      const text = `global::${type}.${escapedMember}`;
       return [{ text }, context];
     } else {
       // Instance access: emit object.ClrMemberName
@@ -288,7 +290,7 @@ export const emitMemberAccess = (
         expr.object,
         objectFrag.text
       );
-      const text = `${receiverText}${accessor}${member}`;
+      const text = `${receiverText}${accessor}${escapedMember}`;
       return [{ text }, newContext];
     }
   }
