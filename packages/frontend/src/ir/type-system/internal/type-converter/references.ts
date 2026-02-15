@@ -596,46 +596,47 @@ export const convertTypeReference = (
           // `System.Func` / `System.Action`, breaking overload resolution and
           // delegate parameter typing.
           //
-          // Keep declaration-file function aliases as reference types so the
-          // TypeSystem can resolve them to the CLR delegate type (and
+          // Keep declaration-file function aliases as NOMINAL reference types.
+          //
+          // IMPORTANT: Don't early-return here. We still want the shared
+          // reference-type path at the end of this function so we pick up:
+          // - Binding-followed fqName (stabilizes identity for facades/aliases)
+          // - structuralMembers extraction (for TSN5110)
+          //
           // delegateToFunctionType() can still recover the Invoke signature for
-          // deterministic lambda typing at call sites).
+          // deterministic lambda typing at call sites.
           if (declNode.getSourceFile().isDeclarationFile) {
-            return {
-              kind: "referenceType",
-              name: typeName,
-              typeArguments: node.typeArguments?.map((t) => convertType(t, binding)),
-            };
-          }
+            // Fall through to the referenceType emission at the end of this function.
+          } else {
+            const fnType = convertFunctionType(declNode.type, binding, convertType);
 
-          const fnType = convertFunctionType(declNode.type, binding, convertType);
+            // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
+            // apply the reference site's type arguments so lambdas get a fully-instantiated
+            // expected type (critical for deterministic inference).
+            const aliasTypeParams = (declNode.typeParameters ?? []).map(
+              (tp) => tp.name.text
+            );
+            const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+              convertType(t, binding)
+            );
 
-          // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
-          // apply the reference site's type arguments so lambdas get a fully-instantiated
-          // expected type (critical for deterministic inference).
-          const aliasTypeParams = (declNode.typeParameters ?? []).map(
-            (tp) => tp.name.text
-          );
-          const refTypeArgs = (node.typeArguments ?? []).map((t) =>
-            convertType(t, binding)
-          );
+            if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
+              const subst = new Map<string, IrType>();
+              for (
+                let i = 0;
+                i < Math.min(aliasTypeParams.length, refTypeArgs.length);
+                i++
+              ) {
+                const name = aliasTypeParams[i];
+                const arg = refTypeArgs[i];
+                if (name && arg) subst.set(name, arg);
+              }
 
-          if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
-            const subst = new Map<string, IrType>();
-            for (
-              let i = 0;
-              i < Math.min(aliasTypeParams.length, refTypeArgs.length);
-              i++
-            ) {
-              const name = aliasTypeParams[i];
-              const arg = refTypeArgs[i];
-              if (name && arg) subst.set(name, arg);
+              return subst.size > 0 ? substituteIrType(fnType, subst) : fnType;
             }
 
-            return subst.size > 0 ? substituteIrType(fnType, subst) : fnType;
+            return fnType;
           }
-
-          return fnType;
         }
 
         // tsbindgen facade type families use conditional type aliases to map:
