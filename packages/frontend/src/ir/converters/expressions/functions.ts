@@ -185,7 +185,11 @@ export const convertArrowFunction = (
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const typeSystem = ctx.typeSystem;
   const expectedFnType =
-    expectedType?.kind === "functionType" ? expectedType : undefined;
+    expectedType?.kind === "functionType"
+      ? expectedType
+      : expectedType
+        ? typeSystem.delegateToFunctionType(expectedType)
+        : undefined;
 
   // Get return type from declared annotation, or from expectedType if available
   const declaredReturnType = node.type
@@ -204,7 +208,11 @@ export const convertArrowFunction = (
     (shouldUseExpectedReturnType ? expectedReturnType : undefined);
 
   // DETERMINISTIC: Pass expectedType for parameter type inference
-  const parameters = convertLambdaParameters(node, ctx, expectedType);
+  const parameters = convertLambdaParameters(
+    node,
+    ctx,
+    expectedFnType ?? expectedType
+  );
 
   const bodyCtx: ProgramContext = (() => {
     const env = new Map<number, IrType>(ctx.typeEnv ?? []);
