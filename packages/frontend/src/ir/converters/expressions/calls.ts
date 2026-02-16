@@ -897,8 +897,19 @@ export const convertCallExpression = (
     lambdaContextResolved?.parameterTypes ?? initialParameterTypes;
 
   // Pass 2: convert lambda arguments with inferred parameter types in scope.
+  //
+  // IMPORTANT (airplane-grade):
+  // Lambdas may have been converted in Pass 1 (e.g., because they have explicit
+  // parameter annotations) before we had a fully resolved call signature.
+  //
+  // In those cases, block-bodied arrows can lose contextual return types and be
+  // treated as `void`, which then mis-emits `return expr;` as:
+  //   expr;
+  //   return;
+  //
+  // Re-convert *all* lambda arguments here using the resolved parameter type so
+  // contextual parameter + return typing is applied deterministically.
   for (let index = 0; index < node.arguments.length; index++) {
-    if (argsWorking[index]) continue;
     const arg = node.arguments[index];
     if (!arg) continue;
     if (ts.isSpreadElement(arg)) continue;

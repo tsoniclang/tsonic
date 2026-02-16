@@ -1,5 +1,10 @@
 import { Console } from "@tsonic/dotnet/System.js";
-import { Task } from "@tsonic/dotnet/System.Threading.Tasks.js";
+import { Task, TaskExtensions } from "@tsonic/dotnet/System.Threading.Tasks.js";
+
+function writeTask(): Task {
+  Console.WriteLine("WRITE");
+  return Task.CompletedTask;
+}
 
 export function main(): void {
   const t1 = Task.CompletedTask.ContinueWith<Task>((_t, _state) => {
@@ -19,4 +24,10 @@ export function main(): void {
     return Task.CompletedTask;
   }, undefined);
   t3.Wait();
+
+  const t4 = Task.FromResult<string>("X").ContinueWith<Task>((t: Task<string>, _state) => {
+    Console.WriteLine(`CONT-4: ${t.Result}`);
+    return writeTask();
+  }, undefined);
+  TaskExtensions.Unwrap(t4).Wait();
 }
