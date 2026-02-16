@@ -1,0 +1,11 @@
+{
+  "name": "tsonic-e2e-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tsonic/dotnet": "10.0.16",
+    "@tsonic/globals": "10.0.16"
+  }
+}
+
