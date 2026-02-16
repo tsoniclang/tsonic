@@ -39,6 +39,7 @@ export type DiagnosticCode =
   | "TSN6201" // Invalid CLR override accessibility (method)
   | "TSN6202" // Invalid CLR override accessibility (property)
   | "TSN6203" // Invalid CLR override accessibility (accessor property)
+  | "TSN6204" // Invalid CLR override: fields cannot override
   | "TSN7101" // Recursive mapped types not supported
   | "TSN7102" // Conditional types using infer not supported
   | "TSN7103" // `this` typing not supported

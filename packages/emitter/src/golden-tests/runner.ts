@@ -62,7 +62,19 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   const rootNamespace = ["TestCases", ...namespaceParts].join(".");
 
   // Step 1: Compile TypeScript → Program
-  const typeRoots = [globalsPath, corePath];
+  // Allow per-scenario extra typeRoots (used by some tests to provide minimal
+  // declarations for upcoming core intrinsics without depending on published packages).
+  const scenarioTypeRootsDir = path.join(sourceRoot, "type-roots");
+  const scenarioTypeRoots = (() => {
+    if (!fs.existsSync(scenarioTypeRootsDir)) return [];
+    const entries = fs.readdirSync(scenarioTypeRootsDir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(scenarioTypeRootsDir, e.name))
+      .sort();
+  })();
+
+  const typeRoots = [...scenarioTypeRoots, globalsPath, corePath];
 
   // Compile ALL .ts files in the scenario directory so that cross-module behaviors
   // (imports, re-exports, union narrowing across files, etc.) are testable.

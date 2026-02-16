@@ -130,6 +130,13 @@ export type IrPropertyDeclaration = {
    * specifically "DTO-like / reflection-friendly" emission.
    */
   readonly emitAsAutoProperty?: boolean;
+  /**
+   * Emit as a C# field (no accessors) instead of an auto-property.
+   *
+   * Set when a TypeScript class property is annotated with `field<T>` from
+   * `@tsonic/core/lang.js`.
+   */
+  readonly emitAsField?: boolean;
   /** Getter body for accessor properties (`get foo() { ... }`). */
   readonly getterBody?: IrBlockStatement;
   /**

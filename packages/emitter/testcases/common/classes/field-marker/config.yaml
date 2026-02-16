@@ -1,0 +1,1 @@
+- FieldMarker.ts: should emit field<T> class members as C# fields
