@@ -49,6 +49,45 @@ export const emitReturnStatement = (
   const ind = getIndent(context);
 
   if (stmt.expression) {
+    // In TypeScript, `return expr;` is permitted in a `void`-returning function and
+    // simply returns `undefined` after evaluating `expr` for side effects.
+    //
+    // C# forbids `return <expr>;` in a `void` method, so lower it to:
+    //   <eval expr>;
+    //   return;
+    if (
+      context.returnType?.kind === "voidType" ||
+      context.returnType?.kind === "neverType"
+    ) {
+      const expr =
+        stmt.expression.kind === "unary" && stmt.expression.operator === "void"
+          ? stmt.expression.expression
+          : stmt.expression;
+
+      const isNoopExpr =
+        (expr.kind === "literal" && (expr.value === undefined || expr.value === null)) ||
+        (expr.kind === "identifier" &&
+          (expr.name === "undefined" || expr.name === "null"));
+
+      const [exprFrag, newContext] = emitExpression(expr, context);
+
+      if (isNoopExpr) {
+        return [`${ind}return;`, newContext];
+      }
+
+      if (
+        expr.kind === "call" ||
+        expr.kind === "new" ||
+        expr.kind === "assignment" ||
+        expr.kind === "update" ||
+        expr.kind === "await"
+      ) {
+        return [`${ind}${exprFrag.text};\n${ind}return;`, newContext];
+      }
+
+      return [`${ind}_ = ${exprFrag.text};\n${ind}return;`, newContext];
+    }
+
     // Pass returnType as expectedType for null → default conversion in generic contexts
     const [exprFrag, newContext] = emitExpression(
       stmt.expression,
@@ -210,6 +249,30 @@ export const emitExpressionStatement = (
   // This is kept for backward compatibility with unprocessed IR
   if (stmt.expression.kind === "yield") {
     return emitYieldExpression(stmt.expression, context);
+  }
+
+  // TypeScript `void expr;` evaluates `expr` and discards the result.
+  //
+  // In C#, expression statements are restricted (identifiers/literals can't stand
+  // alone). Emit a discard assignment so we can evaluate arbitrary expressions
+  // without introducing runtime helpers.
+  if (stmt.expression.kind === "unary" && stmt.expression.operator === "void") {
+    const operand = stmt.expression.expression;
+    const [operandFrag, newContext] = emitExpression(operand, context);
+
+    // If the operand is already a valid statement-expression (call/new/assignment/
+    // update/await), emit it directly. Otherwise, use a discard assignment.
+    if (
+      operand.kind === "call" ||
+      operand.kind === "new" ||
+      operand.kind === "assignment" ||
+      operand.kind === "update" ||
+      operand.kind === "await"
+    ) {
+      return [`${ind}${operandFrag.text};`, newContext];
+    }
+
+    return [`${ind}_ = ${operandFrag.text};`, newContext];
   }
 
   const [exprFrag, newContext] = emitExpression(stmt.expression, context);

@@ -2536,6 +2536,22 @@ export const createTypeSystem = (
         return inner ? tryUnify(inner, argumentType) : true;
       }
 
+      // Delegate unification: allow deterministic inference through the delegate's
+      // Invoke signature when a lambda (functionType) is passed to a CLR delegate
+      // parameter (Func/Action/custom delegates).
+      //
+      // Without this, generic methods like:
+      //   Select<TResult>(selector: Func<TSource, TResult>)
+      // cannot infer TResult from a lambda argument, causing TSN5201/TSN5202.
+      if (parameterType.kind === "referenceType" && argumentType.kind === "functionType") {
+        const delegateFn = delegateToFunctionType(parameterType);
+        if (delegateFn) return tryUnify(delegateFn, argumentType);
+      }
+      if (parameterType.kind === "functionType" && argumentType.kind === "referenceType") {
+        const delegateFn = delegateToFunctionType(argumentType);
+        if (delegateFn) return tryUnify(parameterType, delegateFn);
+      }
+
       // Array<T> ↔ T[] unification
       if (
         parameterType.kind === "referenceType" &&

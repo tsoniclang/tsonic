@@ -10,6 +10,7 @@
 import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment, NarrowedBinding } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
+import { emitType } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -536,7 +537,7 @@ export const emitLogical = (
 export const emitUnary = (
   expr: Extract<IrExpression, { kind: "unary" }>,
   context: EmitterContext,
-  _expectedType?: IrType
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
   // In TypeScript, `!x` applies JS ToBoolean semantics to *any* operand.
   // In C#, `!` only works on booleans, so we must coerce to a boolean condition.
@@ -559,9 +560,75 @@ export const emitUnary = (
   }
 
   if (expr.operator === "void") {
-    // void expression - evaluate and discard
-    const text = `(${operandFrag.text}, default)`;
-    return [{ text }, newContext];
+    // `void expr` evaluates `expr` and yields `undefined`.
+    //
+    // In expression position we must produce a value, so use an IIFE:
+    //   (() => { <eval expr>; return default(<T>); })()
+    //
+    // In statement position, emitExpressionStatement handles this separately
+    // (so we don't pay this cost for the common `void x;` marker).
+    const operand = expr.expression;
+
+    // If the operand is a literal null/undefined, evaluation is a no-op and can be skipped.
+    // This avoids generating invalid discard assignments like `_ = default;`.
+    const isNoopOperand =
+      (operand.kind === "literal" &&
+        (operand.value === undefined || operand.value === null)) ||
+      (operand.kind === "identifier" &&
+        (operand.name === "undefined" || operand.name === "null"));
+
+    let currentContext = newContext;
+
+    const effectiveExpectedType =
+      expectedType && expectedType.kind !== "voidType" && expectedType.kind !== "neverType"
+        ? expectedType
+        : undefined;
+
+    let returnTypeText = "object?";
+    let defaultText = "default";
+    if (effectiveExpectedType) {
+      try {
+        const [typeText, next] = emitType(effectiveExpectedType, currentContext);
+        currentContext = next;
+        returnTypeText = typeText;
+        defaultText = `default(${typeText})`;
+      } catch {
+        // Fall back to object? + default literal.
+      }
+    }
+
+    const operandStatement = (() => {
+      if (isNoopOperand) return "";
+
+      // If the operand is already a valid statement-expression (call/new/assignment/
+      // update/await), emit it directly. Otherwise, use a discard assignment.
+      if (
+        operand.kind === "call" ||
+        operand.kind === "new" ||
+        operand.kind === "assignment" ||
+        operand.kind === "update" ||
+        operand.kind === "await"
+      ) {
+        return `${operandFrag.text}; `;
+      }
+
+      return `_ = ${operandFrag.text}; `;
+    })();
+
+    if (operand.kind === "await") {
+      if (!currentContext.isAsync) {
+        throw new Error(
+          "ICE: `void await <expr>` reached emitter in a non-async context."
+        );
+      }
+
+      const taskReturnType = `global::System.Threading.Tasks.Task<${returnTypeText}>`;
+      const text = `await ((global::System.Func<${taskReturnType}>)(async () => { ${operandStatement}return ${defaultText}; }))()`;
+      return [{ text }, currentContext];
+    }
+
+    const text = `((global::System.Func<${returnTypeText}>)(() => { ${operandStatement}return ${defaultText}; }))()`;
+    return [{ text }, currentContext];
   }
 
   if (expr.operator === "delete") {
