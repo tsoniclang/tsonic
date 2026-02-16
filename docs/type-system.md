@@ -228,7 +228,13 @@ Both generate `Dictionary<TKey, TValue>` with appropriate key types.
 type StringOrNumber = string | number;
 ```
 
-Generates `object` with runtime type checking.
+For 2–8 union members, Tsonic generates `Tsonic.Runtime.Union<...>`:
+
+```csharp
+// Union<string, double>
+```
+
+(For 9+ members, it falls back to `object`.)
 
 ### Discriminated Unions
 
@@ -236,7 +242,16 @@ Generates `object` with runtime type checking.
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 ```
 
-Generates separate classes with a common base.
+Tsonic synthesizes nominal CLR types for each inline object member (generic when needed),
+and represents the union as `Tsonic.Runtime.Union<...>`.
+
+Narrowing is done via explicit guards like `"error" in r` (lowered to `r.IsN()` / `r.AsN()`).
+
+Generic discriminated unions with inline object members are supported as well:
+
+```typescript
+type Result2<T, E> = { ok: true; value: T } | { ok: false; error: E };
+```
 
 ### Nullable Types
 
