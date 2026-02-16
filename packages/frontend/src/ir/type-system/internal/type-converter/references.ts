@@ -471,6 +471,13 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
+  // `field<T>` is a TS-only marker used to force C# field emission for class members.
+  // For IR typing it must erase to the underlying T.
+  if (typeName === "field" && node.typeArguments?.length === 1) {
+    const inner = node.typeArguments[0];
+    return inner ? convertType(inner, binding) : { kind: "unknownType" };
+  }
+
   // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
   // These are type aliases that should NOT be resolved - we preserve them
   // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.

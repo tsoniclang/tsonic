@@ -22,6 +22,8 @@ import {
 } from "../../helpers.js";
 import { detectOverride } from "./override-detection.js";
 import type { ProgramContext } from "../../../../program-context.js";
+import { createDiagnostic } from "../../../../../types/diagnostic.js";
+import { getSourceLocation } from "../../../../../program/diagnostics.js";
 
 /**
  * Derive type from a converted IR expression (deterministic).
@@ -96,10 +98,51 @@ export const convertProperty = (
     return overrideInfo.requiredAccessibility;
   })();
 
+  // Detect wrapper types:
+  // - field<T> marks a TS class property that should emit as a C# field (no accessors).
+  //
+  // Wrappers may be nested; unwrap repeatedly.
+  let emitAsField = false;
+  let actualTypeNode: ts.TypeNode | undefined = node.type;
+  while (actualTypeNode) {
+    if (ts.isParenthesizedTypeNode(actualTypeNode)) {
+      actualTypeNode = actualTypeNode.type;
+      continue;
+    }
+
+    if (!ts.isTypeReferenceNode(actualTypeNode)) break;
+    if (!ts.isIdentifier(actualTypeNode.typeName)) break;
+    if (!actualTypeNode.typeArguments || actualTypeNode.typeArguments.length !== 1) break;
+    const inner: ts.TypeNode | undefined = actualTypeNode.typeArguments[0];
+    if (!inner) break;
+
+    const wrapperName = actualTypeNode.typeName.text;
+    if (wrapperName === "field") {
+      emitAsField = true;
+      actualTypeNode = inner;
+      continue;
+    }
+
+    break;
+  }
+
+  if (emitAsField && overrideInfo.isOverride) {
+    const sf = node.getSourceFile();
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN6204",
+        "error",
+        "`field<T>` cannot be used on an overriding property. C# fields cannot override base members.",
+        getSourceLocation(sf, node.getStart(sf), node.getWidth(sf)),
+        "Remove the `field<T>` marker or override as a property instead."
+      )
+    );
+  }
+
   // Get explicit type annotation (if present) for contextual typing
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  const explicitType = node.type
-    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(node.type))
+  const explicitType = actualTypeNode
+    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(actualTypeNode))
     : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)
@@ -127,6 +170,7 @@ export const convertProperty = (
     name: memberName,
     type: propertyType,
     initializer: convertedInitializer,
+    emitAsField: emitAsField || undefined,
     isStatic: hasStaticModifier(node),
     isReadonly: hasReadonlyModifier(node),
     accessibility,

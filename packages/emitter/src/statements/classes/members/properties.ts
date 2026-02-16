@@ -28,6 +28,7 @@ export const emitPropertyMember = (
   let currentContext = context;
   const parts: string[] = [];
   const hasAccessors = !!(member.getterBody || member.setterBody);
+  const shouldEmitField = !!member.emitAsField && !hasAccessors;
   // TypeScript class fields map to C# auto-properties by default.
   // This is required for reflection-based libraries (e.g., EF Core, System.Text.Json),
   // and matches TypeScript’s object-model semantics more closely than C# fields.
@@ -42,6 +43,10 @@ export const emitPropertyMember = (
     parts.push("static");
   }
 
+  if (shouldEmitField && member.isReadonly) {
+    parts.push("readonly");
+  }
+
   // Shadowing/hiding modifier (from metadata).
   // C# warns when a property hides a base property; emit `new` for clarity.
   if (!member.isStatic && !member.isOverride && member.isShadow) {
@@ -49,17 +54,17 @@ export const emitPropertyMember = (
   }
 
   // Override modifier (from metadata or TS base class detection)
-  if (member.isOverride) {
+  if (!shouldEmitField && member.isOverride) {
     parts.push("override");
   }
 
   // Base property virtual (required when overridden in derived types)
-  if (!member.isStatic && !member.isOverride && member.isVirtual) {
+  if (!shouldEmitField && !member.isStatic && !member.isOverride && member.isVirtual) {
     parts.push("virtual");
   }
 
   // Required modifier (C# 11) - must be set in object initializer
-  if (!member.isStatic && member.isRequired) {
+  if (!shouldEmitField && !member.isStatic && member.isRequired) {
     parts.push("required");
   }
 
@@ -74,7 +79,9 @@ export const emitPropertyMember = (
   }
 
   // Property name (escape C# keywords)
-  parts.push(emitCSharpName(member.name, "properties", context));
+  parts.push(
+    emitCSharpName(member.name, shouldEmitField ? "fields" : "properties", context)
+  );
 
   // Emit attributes before the property declaration
   const [attributesCode, attrContext] = emitAttributes(
@@ -84,6 +91,16 @@ export const emitPropertyMember = (
   currentContext = attrContext;
 
   const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+
+  if (shouldEmitField) {
+    let code = `${attrPrefix}${ind}${parts.join(" ")};`;
+    if (member.initializer) {
+      const [initFrag, finalContext] = emitExpression(member.initializer, currentContext);
+      currentContext = finalContext;
+      code = `${attrPrefix}${ind}${parts.join(" ")} = ${initFrag.text};`;
+    }
+    return [code, currentContext];
+  }
 
   if (!hasAccessors) {
     // C# does not allow `init` on static members. For static readonly fields, emit a

@@ -57,6 +57,8 @@ const CORE_TYPES_TYPE_NAMES = new Set([
 const CORE_LANG_TYPE_NAMES = new Set([
   // Extension receiver marker (type-only)
   "thisarg",
+  // Class member emission marker (type-only)
+  "field",
 ]);
 
 const CORE_LANG_VALUE_NAMES = new Set([
