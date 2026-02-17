@@ -1,26 +1,27 @@
-// NEGATIVE TEST: Type aliases with inline object types containing type parameters
-// This triggers TSN7414: Unresolved reference type in anonymous object context.
-// Type parameters T and E in the inline union members cannot be resolved
-// because they're referenced inside anonymous object types, not at the top level.
+import { Console } from "@tsonic/dotnet/System.js";
+import { divide } from "./result.js";
 
-// ERROR: TSN7414 - Type alias with inline object types using type parameters
-// The properties 'value: T' and 'error: E' reference type parameters
-// that cannot be resolved by the IR soundness gate.
-export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+// E2E: Generic discriminated unions with inline object members.
+//
+// Requirements:
+// - This must be representable in the CLR subset (no TSN7414).
+// - Union members must synthesize generic CLR types (e.g., Result__0<T,E>).
+// - `"error" in r` must narrow the union (then-branch + else-branch).
+// NOTE: The union + helpers live in a separate module (result.ts) to ensure
+// generic union synthesis + narrowing works across module boundaries.
 
-// These functions would use Result but the type alias itself fails validation
-export function ok<T, E>(value: T): Result<T, E> {
-  return { ok: true, value };
-}
-
-export function err<T, E>(error: E): Result<T, E> {
-  return { ok: false, error };
-}
-
-// Example usage that would work if type param resolution was implemented
-export function divide(a: number, b: number): Result<number, string> {
-  if (b === 0) {
-    return err("Division by zero");
+export function main(): void {
+  const r1 = divide(1, 0);
+  if ("error" in r1) {
+    Console.WriteLine("E1:" + r1.error);
+  } else {
+    Console.WriteLine("V1:" + r1.value);
   }
-  return ok(a / b);
+
+  const r2 = divide(4, 2);
+  if ("error" in r2) {
+    Console.WriteLine("E2:" + r2.error);
+    return;
+  }
+  Console.WriteLine("V2:" + r2.value);
 }
