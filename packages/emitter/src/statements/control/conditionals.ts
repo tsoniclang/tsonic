@@ -8,6 +8,7 @@ import {
   getIndent,
   indent,
   dedent,
+  LocalTypeInfo,
   NarrowedBinding,
 } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
@@ -17,11 +18,13 @@ import {
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
+  getPropertyType,
   getAllPropertySignatures,
   isDefinitelyValueType,
 } from "../../core/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitBooleanCondition, toBooleanCondition } from "../../core/boolean-context.js";
+import { emitRemappedLocalName } from "../../core/local-names.js";
 
 /**
  * Information extracted from a type predicate guard call.
@@ -71,6 +74,35 @@ type InstanceofGuardInfo = {
 type InGuardInfo = {
   readonly originalName: string;
   readonly propertyName: string;
+  readonly memberN: number;
+  readonly unionArity: number;
+  readonly ctxWithId: EmitterContext;
+  readonly narrowedName: string;
+  readonly escapedOrig: string;
+  readonly escapedNarrow: string;
+  readonly narrowedMap: Map<string, NarrowedBinding>;
+};
+
+/**
+ * Information extracted from a discriminant literal equality check:
+ *   if (x.kind === "circle") { ... }
+ *
+ * Airplane-grade narrowing is only enabled when:
+ * - x is a union (2..8 members)
+ * - x is an identifier
+ * - kind is a non-computed property name
+ * - the compared value is a literal (string/number/boolean)
+ * - exactly ONE union member's discriminant property type includes that literal
+ *
+ * Lowering uses union tags (not runtime property equality):
+ *   x.kind === "circle"  ->  x.IsN()
+ *   x.kind !== "circle"  ->  !x.IsN()
+ */
+type DiscriminantEqualityGuardInfo = {
+  readonly originalName: string;
+  readonly propertyName: string;
+  readonly literal: string | number | boolean;
+  readonly operator: "===" | "!==" | "==" | "!=";
   readonly memberN: number;
   readonly unionArity: number;
   readonly ctxWithId: EmitterContext;
@@ -158,6 +190,256 @@ const hasProperty = (
     const perType = index.get(fqn);
     return perType?.has(propertyName) ?? false;
   });
+};
+
+/**
+ * Resolve a reference type's LocalTypeInfo map (possibly from a different module).
+ *
+ * This is required for airplane-grade narrowing features that depend on member *types*
+ * (not just member names), e.g. discriminant literal equality checks.
+ */
+const resolveLocalTypesForReference = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): ReadonlyMap<string, LocalTypeInfo> | undefined => {
+  const lookupName = type.name.includes(".")
+    ? type.name.split(".").pop() ?? type.name
+    : type.name;
+
+  if (context.localTypes?.has(lookupName)) {
+    return context.localTypes;
+  }
+
+  const moduleMap = context.options.moduleMap;
+  if (!moduleMap) return undefined;
+
+  const matches: {
+    readonly namespace: string;
+    readonly localTypes: ReadonlyMap<string, LocalTypeInfo>;
+  }[] = [];
+  for (const m of moduleMap.values()) {
+    if (!m.localTypes) continue;
+    if (m.localTypes.has(lookupName)) {
+      matches.push({
+        namespace: m.namespace,
+        localTypes: m.localTypes,
+      });
+    }
+  }
+
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return matches[0]!.localTypes;
+
+  // Disambiguate by CLR FQN when available.
+  const fqn = type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
+  if (fqn && fqn.includes(".")) {
+    const lastDot = fqn.lastIndexOf(".");
+    const ns = fqn.slice(0, lastDot);
+    const filtered = matches.filter((m) => m.namespace === ns);
+    if (filtered.length === 1) return filtered[0]!.localTypes;
+  }
+
+  // Ambiguous: refuse to guess.
+  return undefined;
+};
+
+/**
+ * Extract the set of allowed discriminant literal values from a type.
+ *
+ * Airplane-grade rule:
+ * - The discriminant property must be typed as a literal or a union of literals.
+ * - If it includes any non-literal members (including null/undefined), we refuse to treat
+ *   it as a discriminant for equality-guard narrowing.
+ */
+const tryGetLiteralSet = (
+  type: IrType,
+  context: EmitterContext
+): ReadonlySet<string | number | boolean> | undefined => {
+  const resolved = resolveTypeAlias(type, context);
+
+  if (resolved.kind === "literalType") {
+    return new Set([resolved.value]);
+  }
+
+  if (resolved.kind === "unionType") {
+    const out = new Set<string | number | boolean>();
+    for (const t of resolved.types) {
+      const r = resolveTypeAlias(t, context);
+      if (r.kind !== "literalType") return undefined;
+      out.add(r.value);
+    }
+    return out;
+  }
+
+  return undefined;
+};
+
+/**
+ * Try to extract guard info from `x.prop === <literal>` or `x.prop !== <literal>`.
+ *
+ * This supports airplane-grade discriminated union narrowing without relying on
+ * TypeScript flow analysis, by mapping the literal to exactly one union member.
+ */
+const tryResolveDiscriminantEqualityGuard = (
+  condition: IrExpression,
+  context: EmitterContext
+): DiscriminantEqualityGuardInfo | undefined => {
+  // Normalize `!(x.prop === lit)` to `x.prop !== lit` (and vice versa).
+  if (condition.kind === "unary" && condition.operator === "!") {
+    const inner = tryResolveDiscriminantEqualityGuard(condition.expression, context);
+    if (!inner) return undefined;
+
+    const flipped =
+      inner.operator === "===" ? "!==" :
+      inner.operator === "!==" ? "===" :
+      inner.operator === "==" ? "!=" :
+      inner.operator === "!=" ? "==" :
+      inner.operator;
+
+    return { ...inner, operator: flipped as typeof inner.operator };
+  }
+
+  if (condition.kind !== "binary") return undefined;
+  if (
+    condition.operator !== "===" &&
+    condition.operator !== "!==" &&
+    condition.operator !== "==" &&
+    condition.operator !== "!="
+  ) {
+    return undefined;
+  }
+
+  const extract = (
+    left: IrExpression,
+    right: IrExpression
+  ):
+    | {
+        readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
+        readonly propertyName: string;
+        readonly literal: string | number | boolean;
+      }
+    | undefined => {
+    if (left.kind !== "memberAccess") return undefined;
+    if (left.isOptional) return undefined;
+    if (left.isComputed) return undefined;
+    if (left.object.kind !== "identifier") return undefined;
+    if (typeof left.property !== "string") return undefined;
+    if (right.kind !== "literal") return undefined;
+    if (
+      typeof right.value !== "string" &&
+      typeof right.value !== "number" &&
+      typeof right.value !== "boolean"
+    ) {
+      return undefined;
+    }
+
+    return {
+      receiver: left.object,
+      propertyName: left.property,
+      literal: right.value,
+    };
+  };
+
+  const direct = extract(condition.left, condition.right);
+  const swapped = direct ? undefined : extract(condition.right, condition.left);
+  const match = direct ?? swapped;
+  if (!match) return undefined;
+
+  const { receiver, propertyName, literal } = match;
+  const originalName = receiver.name;
+
+  // If this identifier is already narrowed (union guard emitted earlier), do NOT try to
+  // apply another union narrowing rule. This avoids mis-emitting `.IsN()` on a narrowed member type.
+  if (context.narrowedBindings?.has(originalName)) return undefined;
+
+  const unionSourceType = receiver.inferredType;
+  if (!unionSourceType) return undefined;
+
+  const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
+  if (resolved.kind !== "unionType") return undefined;
+
+  const unionArity = resolved.types.length;
+  if (unionArity < 2 || unionArity > 8) return undefined;
+
+  // Find which union members have a discriminant property type that includes the literal.
+  const matchingMembers: number[] = [];
+
+  for (let i = 0; i < resolved.types.length; i++) {
+    const member = resolved.types[i];
+    if (!member) continue;
+
+    let propType: IrType | undefined;
+
+    if (member.kind === "objectType") {
+      const prop = member.members.find(
+        (
+          m
+        ): m is Extract<typeof m, { kind: "propertySignature" }> =>
+          m.kind === "propertySignature" && m.name === propertyName
+      );
+      propType = prop?.type;
+    } else if (member.kind === "referenceType") {
+      const localTypes = resolveLocalTypesForReference(member, context);
+      if (!localTypes) continue;
+
+      const lookupName = member.name.includes(".")
+        ? member.name.split(".").pop() ?? member.name
+        : member.name;
+
+      // Use the target module's localTypes for property type resolution.
+      propType = getPropertyType(
+        { ...member, name: lookupName },
+        propertyName,
+        { ...context, localTypes }
+      );
+    } else {
+      continue;
+    }
+
+    if (!propType) continue;
+
+    const literals = tryGetLiteralSet(propType, context);
+    if (!literals) continue;
+
+    if (literals.has(literal)) {
+      matchingMembers.push(i + 1);
+    }
+  }
+
+  // Only support the common airplane-grade case: exactly one matching member.
+  if (matchingMembers.length !== 1) return undefined;
+
+  const memberN = matchingMembers[0];
+  if (!memberN) return undefined;
+
+  const nextId = (context.tempVarId ?? 0) + 1;
+  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+
+  const narrowedName = `${originalName}__${memberN}_${nextId}`;
+  const escapedOrig = emitRemappedLocalName(originalName, context);
+  const escapedNarrow = escapeCSharpIdentifier(narrowedName);
+
+  const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+  const memberType = resolved.types[memberN - 1];
+  narrowedMap.set(originalName, {
+    kind: "rename",
+    name: narrowedName,
+    type: memberType,
+  });
+
+  return {
+    originalName,
+    propertyName,
+    literal,
+    operator: condition.operator,
+    memberN,
+    unionArity,
+    ctxWithId,
+    narrowedName,
+    escapedOrig,
+    escapedNarrow,
+    narrowedMap,
+  };
 };
 
 /**
@@ -661,6 +943,144 @@ export const emitIfStatement = (
     // Restore narrowedBindings to the incoming scope.
     finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
     return [code, finalContext];
+  }
+
+  // Case A4: if (shape.kind === "circle") { ... }
+  // Discriminant literal equality narrowing → if (shape.IsN()) / if (!shape.IsN())
+  const eqGuard = tryResolveDiscriminantEqualityGuard(stmt.condition, context);
+  if (eqGuard) {
+    const {
+      originalName,
+      operator,
+      memberN,
+      unionArity,
+      ctxWithId,
+      escapedOrig,
+      escapedNarrow,
+      narrowedMap,
+    } = eqGuard;
+
+    const isInequality = operator === "!==" || operator === "!=";
+    const condText = isInequality
+      ? `!${escapedOrig}.Is${memberN}()`
+      : `${escapedOrig}.Is${memberN}()`;
+
+    let code = `${ind}if (${condText})`;
+    let finalContext: EmitterContext = ctxWithId;
+
+    // Equality: narrow THEN to memberN. Inequality: narrow ELSE to memberN.
+    if (!isInequality) {
+      const thenCtx: EmitterContext = {
+        ...indent(ctxWithId),
+        narrowedBindings: narrowedMap,
+      };
+      const thenInd = getIndent(thenCtx);
+      const castLine = `${thenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
+      const [thenCode, thenBodyCtx] = emitForcedBlockWithPreamble(
+        castLine,
+        stmt.thenStatement,
+        thenCtx,
+        ind
+      );
+      code += `\n${thenCode}`;
+      finalContext = dedent(thenBodyCtx);
+
+      if (stmt.elseStatement) {
+        // Else-branch narrowing only for 2-member unions.
+        if (unionArity === 2) {
+          const otherMemberN = memberN === 1 ? 2 : 1;
+          const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+          const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+          elseNarrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+
+          const elseCtx: EmitterContext = {
+            ...indent({ ...finalContext, narrowedBindings: elseNarrowedMap }),
+          };
+
+          const [elseCode, elseCtxAfter] = emitStatement(stmt.elseStatement, elseCtx);
+          code += `\n${ind}else\n${elseCode}`;
+          finalContext = dedent(elseCtxAfter);
+          finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+          return [code, finalContext];
+        }
+
+        const [elseCode, elseCtx] = emitStatement(
+          stmt.elseStatement,
+          indent({ ...finalContext, narrowedBindings: ctxWithId.narrowedBindings })
+        );
+        code += `\n${ind}else\n${elseCode}`;
+        finalContext = dedent(elseCtx);
+        finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+        return [code, finalContext];
+      }
+
+      // Post-if narrowing for early-exit patterns (2-member unions only).
+      if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
+        const otherMemberN = memberN === 1 ? 2 : 1;
+        const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+        const postMap = new Map(ctxWithId.narrowedBindings ?? []);
+        postMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+        finalContext = { ...finalContext, narrowedBindings: postMap };
+        return [code, finalContext];
+      }
+
+      finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+      return [code, finalContext];
+    }
+
+    // Inequality: THEN is "not memberN" (no narrowing unless arity==2), ELSE is memberN.
+    {
+      // Emit THEN (optionally narrowed to other member when arity==2).
+      const [thenCode, thenCtxAfter] = (() => {
+        if (unionArity === 2) {
+          const otherMemberN = memberN === 1 ? 2 : 1;
+          const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+          const thenNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+          thenNarrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+          const thenCtx: EmitterContext = {
+            ...indent({ ...ctxWithId, narrowedBindings: thenNarrowedMap }),
+          };
+          return emitStatement(stmt.thenStatement, thenCtx);
+        }
+        return emitStatement(stmt.thenStatement, indent({ ...ctxWithId, narrowedBindings: ctxWithId.narrowedBindings }));
+      })();
+
+      code += `\n${thenCode}`;
+      finalContext = dedent(thenCtxAfter);
+
+      if (stmt.elseStatement) {
+        const elseCtx: EmitterContext = {
+          ...indent(ctxWithId),
+          narrowedBindings: narrowedMap,
+        };
+        const elseInd = getIndent(elseCtx);
+        const castLine = `${elseInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
+        const [elseCode, elseBodyCtx] = emitForcedBlockWithPreamble(
+          castLine,
+          stmt.elseStatement,
+          elseCtx,
+          ind
+        );
+        code += `\n${ind}else\n${elseCode}`;
+        finalContext = dedent(elseBodyCtx);
+        finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+        return [code, finalContext];
+      }
+
+      // Post-if narrowing for early-exit patterns (2-member unions only):
+      // if (!x.IsN()) return ...;
+      // // x is now member N
+      if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
+        const inlineExpr = `(${escapedOrig}.As${memberN}())`;
+        const postMap = new Map(ctxWithId.narrowedBindings ?? []);
+        postMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+        finalContext = { ...finalContext, narrowedBindings: postMap };
+        return [code, finalContext];
+      }
+
+      finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+      return [code, finalContext];
+    }
   }
 
   // Case A2: if (x instanceof Foo) { ... }

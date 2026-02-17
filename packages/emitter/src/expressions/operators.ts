@@ -8,13 +8,14 @@
  */
 
 import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, NarrowedBinding } from "../types.js";
+import { EmitterContext, CSharpFragment, LocalTypeInfo, NarrowedBinding } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitType } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
+  getPropertyType,
   getAllPropertySignatures,
   isDefinitelyValueType,
 } from "../core/type-resolution.js";
@@ -810,6 +811,68 @@ type TernaryGuardInfo = {
   readonly polarity: "positive" | "negative"; // positive = narrow whenTrue, negative = narrow whenFalse
 };
 
+const resolveLocalTypesForReference = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): ReadonlyMap<string, LocalTypeInfo> | undefined => {
+  const lookupName = type.name.includes(".")
+    ? type.name.split(".").pop() ?? type.name
+    : type.name;
+
+  if (context.localTypes?.has(lookupName)) {
+    return context.localTypes;
+  }
+
+  const moduleMap = context.options.moduleMap;
+  if (!moduleMap) return undefined;
+
+  const matches: {
+    readonly namespace: string;
+    readonly localTypes: ReadonlyMap<string, LocalTypeInfo>;
+  }[] = [];
+  for (const m of moduleMap.values()) {
+    if (!m.localTypes) continue;
+    if (m.localTypes.has(lookupName)) {
+      matches.push({ namespace: m.namespace, localTypes: m.localTypes });
+    }
+  }
+
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return matches[0]!.localTypes;
+
+  const fqn = type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
+  if (fqn && fqn.includes(".")) {
+    const ns = fqn.slice(0, fqn.lastIndexOf("."));
+    const filtered = matches.filter((m) => m.namespace === ns);
+    if (filtered.length === 1) return filtered[0]!.localTypes;
+  }
+
+  return undefined;
+};
+
+const tryGetLiteralSet = (
+  type: IrType,
+  context: EmitterContext
+): ReadonlySet<string | number | boolean> | undefined => {
+  const resolved = resolveTypeAlias(type, context);
+
+  if (resolved.kind === "literalType") {
+    return new Set([resolved.value]);
+  }
+
+  if (resolved.kind === "unionType") {
+    const out = new Set<string | number | boolean>();
+    for (const t of resolved.types) {
+      const r = resolveTypeAlias(t, context);
+      if (r.kind !== "literalType") return undefined;
+      out.add(r.value);
+    }
+    return out;
+  }
+
+  return undefined;
+};
+
 const tryResolveTernaryGuard = (
   condition: IrExpression,
   context: EmitterContext
@@ -852,6 +915,138 @@ const tryResolveTernaryGuard = (
   if (condition.kind === "call") {
     return resolveFromCall(condition);
   }
+
+  // Discriminant literal equality: x.kind === "circle"
+  const resolveFromDiscriminantEquality = (
+    expr: IrExpression
+  ): TernaryGuardInfo | undefined => {
+    // Normalize `!(x.prop === lit)` to `x.prop !== lit` (and vice versa) by flipping polarity.
+    if (expr.kind === "unary" && expr.operator === "!") {
+      const inner = resolveFromDiscriminantEquality(expr.expression);
+      if (!inner) return undefined;
+      return {
+        ...inner,
+        polarity: inner.polarity === "positive" ? "negative" : "positive",
+      };
+    }
+
+    if (expr.kind !== "binary") return undefined;
+    if (
+      expr.operator !== "===" &&
+      expr.operator !== "!==" &&
+      expr.operator !== "==" &&
+      expr.operator !== "!="
+    ) {
+      return undefined;
+    }
+
+    const extract = (
+      left: IrExpression,
+      right: IrExpression
+    ):
+      | {
+          readonly receiver: Extract<IrExpression, { kind: "identifier" }>;
+          readonly propertyName: string;
+          readonly literal: string | number | boolean;
+        }
+      | undefined => {
+      if (left.kind !== "memberAccess") return undefined;
+      if (left.isOptional) return undefined;
+      if (left.isComputed) return undefined;
+      if (left.object.kind !== "identifier") return undefined;
+      if (typeof left.property !== "string") return undefined;
+      if (right.kind !== "literal") return undefined;
+      if (
+        typeof right.value !== "string" &&
+        typeof right.value !== "number" &&
+        typeof right.value !== "boolean"
+      ) {
+        return undefined;
+      }
+      return {
+        receiver: left.object,
+        propertyName: left.property,
+        literal: right.value,
+      };
+    };
+
+    const direct = extract(expr.left, expr.right);
+    const swapped = direct ? undefined : extract(expr.right, expr.left);
+    const match = direct ?? swapped;
+    if (!match) return undefined;
+
+    const { receiver, propertyName, literal } = match;
+    const originalName = receiver.name;
+
+    if (context.narrowedBindings?.has(originalName)) return undefined;
+
+    const unionSourceType = receiver.inferredType;
+    if (!unionSourceType) return undefined;
+
+    const resolved = resolveTypeAlias(stripNullish(unionSourceType), context);
+    if (resolved.kind !== "unionType") return undefined;
+
+    const unionArity = resolved.types.length;
+    if (unionArity < 2 || unionArity > 8) return undefined;
+
+    const matchingMembers: number[] = [];
+
+    for (let i = 0; i < resolved.types.length; i++) {
+      const member = resolved.types[i];
+      if (!member) continue;
+
+      let propType: IrType | undefined;
+
+      if (member.kind === "objectType") {
+        const prop = member.members.find(
+          (
+            m
+          ): m is Extract<typeof m, { kind: "propertySignature" }> =>
+            m.kind === "propertySignature" && m.name === propertyName
+        );
+        propType = prop?.type;
+      } else if (member.kind === "referenceType") {
+        const localTypes = resolveLocalTypesForReference(member, context);
+        if (!localTypes) continue;
+
+        const lookupName = member.name.includes(".")
+          ? member.name.split(".").pop() ?? member.name
+          : member.name;
+
+        propType = getPropertyType(
+          { ...member, name: lookupName },
+          propertyName,
+          { ...context, localTypes }
+        );
+      } else {
+        continue;
+      }
+
+      if (!propType) continue;
+
+      const literals = tryGetLiteralSet(propType, context);
+      if (!literals) continue;
+      if (literals.has(literal)) {
+        matchingMembers.push(i + 1);
+      }
+    }
+
+    if (matchingMembers.length !== 1) return undefined;
+    const memberN = matchingMembers[0];
+    if (!memberN) return undefined;
+
+    const isInequality = expr.operator === "!==" || expr.operator === "!=";
+
+    return {
+      originalName,
+      memberN,
+      escapedOrig: emitRemappedLocalName(originalName, context),
+      polarity: isInequality ? "negative" : "positive",
+    };
+  };
+
+  const discr = resolveFromDiscriminantEquality(condition);
+  if (discr) return discr;
 
   // Negated call: !isUser(x) -> narrow whenFalse
   if (
