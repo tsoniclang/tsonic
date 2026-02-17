@@ -26,7 +26,8 @@ describe("Attribute Collection Pass", () => {
    */
   const createModule = (
     body: IrModule["body"],
-    attributesApiLocalName = "A"
+    attributesApiLocalName = "A",
+    attributeTargetsLocalName?: string
   ): IrModule => ({
     kind: "module",
     filePath: "test.ts",
@@ -41,6 +42,15 @@ describe("Attribute Collection Pass", () => {
         isClr: false,
         specifiers: [
           { kind: "named", name: "attributes", localName: attributesApiLocalName },
+          ...(attributeTargetsLocalName
+            ? [
+                {
+                  kind: "named" as const,
+                  name: "AttributeTargets",
+                  localName: attributeTargetsLocalName,
+                },
+              ]
+            : []),
         ],
       },
     ],
@@ -124,6 +134,11 @@ describe("Attribute Collection Pass", () => {
     expression: expression as any,
   });
 
+  const makeSpreadArg = (expression: unknown) => ({
+    kind: "spread" as const,
+    expression: expression as any,
+  });
+
   const makeParameter = (name: string) => ({
     kind: "parameter" as const,
     pattern: { kind: "identifierPattern" as const, name },
@@ -176,6 +191,33 @@ describe("Attribute Collection Pass", () => {
     ),
   });
 
+  const makeTypeMarkerCallWithTarget = (
+    targetName: string,
+    attrName: string,
+    targetArg: unknown,
+    apiObjectName = "A"
+  ) => ({
+    kind: "expressionStatement" as const,
+    expression: makeCall(
+      makeMemberAccess(
+        makeCall(
+          makeMemberAccess(
+            makeMemberAccess(
+              makeCall(makeMemberAccess(makeIdentifier(apiObjectName), "on"), [
+                makeIdentifier(targetName),
+              ]),
+              "type"
+            ),
+            "target"
+          ),
+          [targetArg]
+        ),
+        "add"
+      ),
+      [makeIdentifier(attrName, `Test.${attrName}`)]
+    ),
+  });
+
   const makeCtorMarkerCall = (targetName: string, attrName: string) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
@@ -185,6 +227,32 @@ describe("Attribute Collection Pass", () => {
             makeIdentifier(targetName),
           ]),
           "ctor"
+        ),
+        "add"
+      ),
+      [makeIdentifier(attrName, `Test.${attrName}`)]
+    ),
+  });
+
+  const makeCtorMarkerCallWithTarget = (
+    targetName: string,
+    attrName: string,
+    targetArg: unknown
+  ) => ({
+    kind: "expressionStatement" as const,
+    expression: makeCall(
+      makeMemberAccess(
+        makeCall(
+          makeMemberAccess(
+            makeMemberAccess(
+              makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                makeIdentifier(targetName),
+              ]),
+              "ctor"
+            ),
+            "target"
+          ),
+          [targetArg]
         ),
         "add"
       ),
@@ -215,6 +283,36 @@ describe("Attribute Collection Pass", () => {
     ),
   });
 
+  const makeMethodMarkerCallWithTarget = (
+    targetName: string,
+    attrName: string,
+    selector: unknown,
+    targetArg: unknown
+  ) => ({
+    kind: "expressionStatement" as const,
+    expression: makeCall(
+      makeMemberAccess(
+        makeCall(
+          makeMemberAccess(
+            makeCall(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier(targetName),
+                ]),
+                "method"
+              ),
+              [selector]
+            ),
+            "target"
+          ),
+          [targetArg]
+        ),
+        "add"
+      ),
+      [makeIdentifier(attrName, `Test.${attrName}`)]
+    ),
+  });
+
   const makePropMarkerCall = (
     targetName: string,
     propName: string,
@@ -231,6 +329,36 @@ describe("Attribute Collection Pass", () => {
             "prop"
           ),
           [makeSelector(propName)]
+        ),
+        "add"
+      ),
+      [makeIdentifier(attrName, `Test.${attrName}`)]
+    ),
+  });
+
+  const makePropMarkerCallWithTarget = (
+    targetName: string,
+    propName: string,
+    attrName: string,
+    targetArg: unknown
+  ) => ({
+    kind: "expressionStatement" as const,
+    expression: makeCall(
+      makeMemberAccess(
+        makeCall(
+          makeMemberAccess(
+            makeCall(
+              makeMemberAccess(
+                makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                  makeIdentifier(targetName),
+                ]),
+                "prop"
+              ),
+              [makeSelector(propName)]
+            ),
+            "target"
+          ),
+          [targetArg]
         ),
         "add"
       ),
@@ -619,6 +747,53 @@ describe("Attribute Collection Pass", () => {
         },
       ]);
     });
+
+    it("should support explicit type attribute target (type)", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        makeTypeMarkerCallWithTarget(
+          "User",
+          "SerializableAttribute",
+          makeLiteral("type")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const attr0 = assertDefined(classDecl.attributes?.[0]);
+      expect(attr0.target).to.equal("type");
+    });
+
+    it("should reject invalid type attribute targets", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        makeTypeMarkerCallWithTarget(
+          "User",
+          "SerializableAttribute",
+          makeLiteral("return")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
+    });
   });
 
   describe("Alias imports", () => {
@@ -673,6 +848,53 @@ describe("Attribute Collection Pass", () => {
       const classDecl = mod.body[0] as IrClassDeclaration;
       expect(classDecl.ctorAttributes).to.have.length(1);
     });
+
+    it("should support explicit constructor attribute target (method)", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        makeCtorMarkerCallWithTarget(
+          "User",
+          "ObsoleteAttribute",
+          makeLiteral("method")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const attr0 = assertDefined(classDecl.ctorAttributes?.[0]);
+      expect(attr0.target).to.equal("method");
+    });
+
+    it("should reject invalid constructor attribute targets", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [],
+          isExported: true,
+          isStruct: false,
+        } as IrClassDeclaration,
+        makeCtorMarkerCallWithTarget(
+          "User",
+          "ObsoleteAttribute",
+          makeLiteral("return")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
+    });
   });
 
   describe("A.on(Class).method(selector).add(Attr) pattern", () => {
@@ -706,6 +928,244 @@ describe("Attribute Collection Pass", () => {
       const classDecl = mod.body[0] as IrClassDeclaration;
       const method = classDecl.members.find((m) => m.kind === "methodDeclaration");
       expect(method && "attributes" in method ? method.attributes : undefined).to.have.length(1);
+    });
+
+    it("should support method attribute targets (e.g., return)", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makeMethodMarkerCallWithTarget(
+          "User",
+          "PureAttribute",
+          makeSelector("save"),
+          makeLiteral("return")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const method = classDecl.members.find((m) => m.kind === "methodDeclaration");
+      const attr0 = assertDefined(
+        method && "attributes" in method ? method.attributes?.[0] : undefined
+      );
+      expect(attr0.target).to.equal("return");
+    });
+
+    it("should accept AttributeTargets.<target> (aliased import)", () => {
+      const module = createModule(
+        [
+          {
+            kind: "classDeclaration",
+            name: "User",
+            implements: [],
+            members: [
+              {
+                kind: "methodDeclaration",
+                name: "save",
+                parameters: [],
+                body: { kind: "blockStatement", statements: [] },
+                isStatic: false,
+                isAsync: false,
+                isGenerator: false,
+                accessibility: "public",
+              },
+            ],
+            isExported: true,
+            isStruct: false,
+          } as unknown as IrClassDeclaration,
+          makeMethodMarkerCallWithTarget(
+            "User",
+            "PureAttribute",
+            makeSelector("save"),
+            makeMemberAccess(makeIdentifier("AT"), "return")
+          ),
+        ],
+        "A",
+        "AT"
+      );
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const method = classDecl.members.find((m) => m.kind === "methodDeclaration");
+      const attr0 = assertDefined(
+        method && "attributes" in method ? method.attributes?.[0] : undefined
+      );
+      expect(attr0.target).to.equal("return");
+    });
+
+    it("should reject invalid method attribute targets", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makeMethodMarkerCallWithTarget(
+          "User",
+          "PureAttribute",
+          makeSelector("save"),
+          makeLiteral("field")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
+    });
+
+    it("should reject invalid attribute targets", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makeMethodMarkerCallWithTarget(
+          "User",
+          "PureAttribute",
+          makeSelector("save"),
+          makeLiteral("not-a-target")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
+    });
+
+    it("should error when .target(...) has wrong arity", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        {
+          kind: "expressionStatement",
+          expression: makeCall(
+            makeMemberAccess(
+              makeCall(
+                makeMemberAccess(
+                  makeCall(
+                    makeMemberAccess(
+                      makeCall(makeMemberAccess(makeIdentifier("A"), "on"), [
+                        makeIdentifier("User"),
+                      ]),
+                      "method"
+                    ),
+                    [makeSelector("save")]
+                  ),
+                  "target"
+                ),
+                [] // wrong arity
+              ),
+              "add"
+            ),
+            [makeIdentifier("PureAttribute", "Test.PureAttribute")]
+          ),
+        },
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
+    });
+
+    it("should error when .target(...) receives a spread argument", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "methodDeclaration",
+              name: "save",
+              parameters: [],
+              body: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isAsync: false,
+              isGenerator: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makeMethodMarkerCallWithTarget(
+          "User",
+          "PureAttribute",
+          makeSelector("save"),
+          makeSpreadArg(makeIdentifier("x"))
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
     });
 
     it("should error when the selected method does not exist", () => {
@@ -795,6 +1255,75 @@ describe("Attribute Collection Pass", () => {
       const classDecl = mod.body[0] as IrClassDeclaration;
       const prop = classDecl.members.find((m) => m.kind === "propertyDeclaration");
       expect(prop && "attributes" in prop ? prop.attributes : undefined).to.have.length(1);
+    });
+
+    it("should support property attribute targets (e.g., field on auto-property)", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "name",
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makePropMarkerCallWithTarget(
+          "User",
+          "name",
+          "DataMemberAttribute",
+          makeLiteral("field")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.true;
+      const mod = assertDefined(result.modules[0]);
+      const classDecl = mod.body[0] as IrClassDeclaration;
+      const prop = classDecl.members.find((m) => m.kind === "propertyDeclaration");
+      const attr0 = assertDefined(
+        prop && "attributes" in prop ? prop.attributes?.[0] : undefined
+      );
+      expect(attr0.target).to.equal("field");
+    });
+
+    it("should reject [field: ...] on accessor properties", () => {
+      const module = createModule([
+        {
+          kind: "classDeclaration",
+          name: "User",
+          implements: [],
+          members: [
+            {
+              kind: "propertyDeclaration",
+              name: "name",
+              getterBody: { kind: "blockStatement", statements: [] },
+              isStatic: false,
+              isReadonly: false,
+              accessibility: "public",
+            },
+          ],
+          isExported: true,
+          isStruct: false,
+        } as unknown as IrClassDeclaration,
+        makePropMarkerCallWithTarget(
+          "User",
+          "name",
+          "DataMemberAttribute",
+          makeLiteral("field")
+        ),
+      ]);
+
+      const result = runAttributeCollectionPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN4005")).to.be.true;
     });
 
     it("should error when the selected property does not exist", () => {

@@ -1,0 +1,5 @@
+{
+  "name": "@tsonic/core",
+  "private": true,
+  "type": "module"
+}

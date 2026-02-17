@@ -100,6 +100,7 @@ export type {
   IrVoidType,
   IrNeverType,
   // Attribute types
+  IrAttributeTarget,
   IrAttribute,
   IrAttributePrimitiveArg,
   IrAttributeArg,
