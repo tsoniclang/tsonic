@@ -247,6 +247,22 @@ and represents the union as `Tsonic.Runtime.Union<...>`.
 
 Narrowing is done via explicit guards like `"error" in r` (lowered to `r.IsN()` / `r.AsN()`).
 
+When a discriminant property is typed as a literal (or union of literals), Tsonic also supports
+literal equality checks as narrowing guards:
+
+```typescript
+type Shape =
+  | { kind: "square"; side: number }
+  | { kind: "circle"; radius: number };
+
+function area(s: Shape): number {
+  if (s.kind === "circle") {
+    return s.radius * s.radius;
+  }
+  return s.side * s.side;
+}
+```
+
 Generic discriminated unions with inline object members are supported as well:
 
 ```typescript

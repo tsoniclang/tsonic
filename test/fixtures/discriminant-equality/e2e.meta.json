@@ -1,0 +1,4 @@
+{
+  "expectedOutput": "C:4\nS:9\nS2:16\nC2:25\nV:7\nE:oops\nT:6\nT2:7\n",
+  "notes": "Regression test: discriminant literal equality (x.kind === \"...\") must narrow Union<T1..Tn> deterministically (lowered to IsN/AsN). Covers string and boolean discriminants, plus inequality + post-if narrowing."
+}
