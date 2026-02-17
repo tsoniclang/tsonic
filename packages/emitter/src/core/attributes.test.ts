@@ -54,6 +54,35 @@ describe("Attribute Emission", () => {
       expect(result).to.include("[global::System.SerializableAttribute]");
     });
 
+    it("should emit attribute target specifier when provided", () => {
+      const context = createContext();
+      const attr: IrAttribute = {
+        kind: "attribute",
+        target: "return",
+        attributeType: {
+          kind: "referenceType",
+          name: "MarshalAsAttribute",
+          resolvedClrType: "System.Runtime.InteropServices.MarshalAsAttribute",
+        },
+        positionalArgs: [
+          {
+            kind: "enum",
+            type: {
+              kind: "referenceType",
+              name: "UnmanagedType",
+              resolvedClrType: "System.Runtime.InteropServices.UnmanagedType",
+            },
+            member: "Bool",
+          },
+        ],
+        namedArgs: new Map(),
+      };
+      const [result, _ctx] = emitAttributes([attr], context);
+      expect(result).to.include(
+        "[return: global::System.Runtime.InteropServices.MarshalAsAttribute(global::System.Runtime.InteropServices.UnmanagedType.Bool)]"
+      );
+    });
+
     it("should emit attribute with positional string argument", () => {
       const context = createContext();
       const attr: IrAttribute = {
@@ -304,6 +333,24 @@ describe("Attribute Emission", () => {
       const [result, _ctx] = emitParameterAttributes([attr], context);
       expect(result).to.match(/^\[.*\] $/);
       expect(result).to.include("NotNullAttribute");
+    });
+
+    it("should emit inline attribute target specifier when provided", () => {
+      const context = createContext();
+      const attr: IrAttribute = {
+        kind: "attribute",
+        target: "param",
+        attributeType: {
+          kind: "referenceType",
+          name: "InAttribute",
+          resolvedClrType: "System.Runtime.InteropServices.InAttribute",
+        },
+        positionalArgs: [],
+        namedArgs: new Map(),
+      };
+      const [result, _ctx] = emitParameterAttributes([attr], context);
+      expect(result).to.include("[param: global::System.Runtime.InteropServices.InAttribute]");
+      expect(result).to.match(/ $/);
     });
 
     it("should emit multiple inline attributes", () => {

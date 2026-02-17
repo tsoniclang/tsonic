@@ -2232,8 +2232,12 @@ export const createTypeSystem = (
     if (declInfo.typeNode) {
       // Explicit type annotation - convert to IR
       result = convertTypeNode(declInfo.typeNode);
-    } else if (declInfo.kind === "class" || declInfo.kind === "interface") {
-      // Class/interface - return reference type
+    } else if (
+      declInfo.kind === "class" ||
+      declInfo.kind === "interface" ||
+      declInfo.kind === "enum"
+    ) {
+      // Class/interface/enum - return reference type
       result = {
         kind: "referenceType",
         name: declInfo.fqName ?? "unknown",

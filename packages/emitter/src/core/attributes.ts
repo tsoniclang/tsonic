@@ -108,7 +108,8 @@ const emitAttribute = (
 
   // Build attribute text
   const argsStr = parts.length > 0 ? `(${parts.join(", ")})` : "";
-  return [`${typeName}${argsStr}`, currentContext];
+  const targetPrefix = attr.target ? `${attr.target}: ` : "";
+  return [`${targetPrefix}${typeName}${argsStr}`, currentContext];
 };
 
 /**

@@ -182,8 +182,27 @@ export type IrNeverType = {
  * public class User { ... }
  * ```
  */
+export type IrAttributeTarget =
+  | "assembly"
+  | "module"
+  | "type"
+  | "method"
+  | "property"
+  | "field"
+  | "event"
+  | "param"
+  | "return";
+
 export type IrAttribute = {
   readonly kind: "attribute";
+  /**
+   * C# attribute target specifier (e.g., `[return: Attr]`, `[field: Attr]`).
+   *
+   * Note:
+   * - Not all targets are valid for all declaration kinds.
+   * - Invalid combinations are rejected earlier in the pipeline.
+   */
+  readonly target?: IrAttributeTarget;
   /** The attribute class type (e.g., SerializableAttribute) */
   readonly attributeType: IrType;
   /** Positional constructor arguments (string, number, boolean, typeof) */
