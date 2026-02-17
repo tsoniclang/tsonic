@@ -490,7 +490,7 @@ try {
 Apply .NET attributes to classes using the marker-call API:
 
 ```typescript
-import { attributes as A } from "@tsonic/core/lang.js";
+import { attributes as A, AttributeTargets } from "@tsonic/core/lang.js";
 
 // Declare attribute types (from @tsonic/dotnet or custom)
 declare class SerializableAttribute {}
@@ -517,6 +517,37 @@ export class LegacyService {
 }
 A.on(LegacyService).type.add(SerializableAttribute);
 A.on(LegacyService).type.add(ObsoleteAttribute, "Deprecated");
+```
+
+You can optionally specify a C# **attribute target specifier** by calling `.target(...)`
+immediately before `.add(...)`:
+
+```typescript
+import { attributes as A, AttributeTargets } from "@tsonic/core/lang.js";
+
+declare class NonSerializedAttribute {}
+declare class MarshalAsAttribute {
+  constructor(unmanagedType: UnmanagedType);
+}
+declare enum UnmanagedType {
+  Bool,
+}
+
+export class Native {
+  bar: string = "";
+  foo(): boolean {
+    return false;
+  }
+}
+
+// [return: MarshalAs(UnmanagedType.Bool)]
+A.on(Native)
+  .method((x) => x.foo)
+  .target(AttributeTargets.return)
+  .add(MarshalAsAttribute, UnmanagedType.Bool);
+
+// [field: NonSerialized]
+A.on(Native).prop((x) => x.bar).target("field").add(NonSerializedAttribute);
 ```
 
 Generates:

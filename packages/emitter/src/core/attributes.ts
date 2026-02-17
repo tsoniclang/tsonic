@@ -5,14 +5,16 @@
  *
  * Example:
  * ```typescript
- * A.on(User).type(SerializableAttribute);
- * A.on(User).type(DataContractAttribute, { Name: "UserDTO" });
+ * A.on(User).type.add(SerializableAttribute);
+ * A.on(User).type.add(DataContractAttribute, { Name: "UserDTO" });
+ * A.on(User).method((x) => x.foo).target("return").add(MarshalAsAttribute, UnmanagedType.Bool);
  * ```
  *
  * Emits:
  * ```csharp
  * [global::System.SerializableAttribute]
  * [global::System.Runtime.Serialization.DataContractAttribute(Name = "UserDTO")]
+ * [return: global::System.Runtime.InteropServices.MarshalAsAttribute(global::System.Runtime.InteropServices.UnmanagedType.Bool)]
  * public class User { ... }
  * ```
  */
