@@ -17,6 +17,7 @@ import {
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
+import { augmentLibraryBindingsFromSource } from "./library-bindings-augment.js";
 import {
   listDotnetRuntimes,
   resolvePackageRoot,
@@ -297,6 +298,9 @@ const generateLibraryBindings = (
   const options: AddCommandOptions = { verbose, quiet };
   const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDllResult.value, args, options);
   if (!genResult.ok) return genResult;
+
+  const augmentResult = augmentLibraryBindingsFromSource(config, outDir);
+  if (!augmentResult.ok) return augmentResult;
 
   return { ok: true, value: undefined };
 };
