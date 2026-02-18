@@ -7,6 +7,12 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - Never delete remote branches/tags, and never force-push.
 - Only push new branches and open PRs; the maintainer will handle remote cleanup.
 
+## Work Hygiene (IMPORTANT)
+
+- Never use `git stash` (it hides work and creates dangling/unreviewed changes).
+- No dangling local work: if something matters, put it on a branch as commits (and ideally push + PR it).
+- Before switching tasks/repos, ensure `git status` is clean; otherwise commit to a branch or explicitly discard.
+
 ## Testing Workflow
 
 Fast iteration (OK while developing / on external testbed projects):
