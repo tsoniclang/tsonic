@@ -66,6 +66,7 @@ export type DiagnosticCode =
   | "TSN7416" // new Array() requires explicit type argument
   | "TSN7417" // Empty array literal requires type annotation
   | "TSN7418" // Invalid char value
+  | "TSN7419" // 'never' cannot be used as a generic type argument
   | "TSN7421" // Anonymous object type not lowered (ICE)
   // Destructuring validation (TSN7422-TSN7429)
   | "TSN7422" // Object rest requires finite object shape
@@ -73,6 +74,7 @@ export type DiagnosticCode =
   // Arrow function inference (TSN7430-TSN7439)
   | "TSN7430" // Arrow function requires explicit types (escape hatch)
   | "TSN7431" // Cannot infer arrow return type
+  | "TSN7432" // Generic function values not supported
   | "TSN7440" // Core intrinsic must resolve to @tsonic/core
   | "TSN7441" // istype<T>(...) must be erased
   | "TSN7442" // Core intrinsic call must be lowered (no runtime call)

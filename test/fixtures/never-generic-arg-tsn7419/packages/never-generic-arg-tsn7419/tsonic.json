@@ -1,0 +1,9 @@
+{
+  "$schema": "https://tsonic.org/schema/v1.json",
+  "rootNamespace": "NeverGenericArg",
+  "entryPoint": "src/index.ts",
+  "sourceRoot": "src",
+  "outputDirectory": "generated",
+  "outputName": "never-generic-arg-tsn7419"
+}
+

@@ -454,6 +454,27 @@ export const validateStaticSafety = (
         const name = typeName.text;
         const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
 
+        // TSN7419: 'never' cannot be used as a generic type argument.
+        //
+        // This is airplane-grade: CLR has no bottom type usable as a generic argument.
+        // Allowing `Foo<never>` would either require inventing a fake CLR type or
+        // emitting invalid C# (void is not a legal generic argument).
+        if (
+          hasTypeArgs &&
+          node.typeArguments?.some((a) => a.kind === ts.SyntaxKind.NeverKeyword)
+        ) {
+          currentCollector = addDiagnostic(
+            currentCollector,
+            createDiagnostic(
+              "TSN7419",
+              "error",
+              "'never' cannot be used as a generic type argument.",
+              getNodeLocation(sourceFile, node),
+              "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+            )
+          );
+        }
+
         // TSN7406: Mapped-type utility types (these expand to mapped types internally)
         // Only check when type arguments are present to avoid false positives for
         // user-defined types named "Partial", etc.
@@ -656,6 +677,29 @@ export const validateStaticSafety = (
           )
         );
       }
+    }
+
+    // TSN7432: Generic function values are not supported.
+    //
+    // Generic methods exist in CLR, but generic functions as first-class values do not.
+    // For airplane-grade emission, we require generic functions to be declared as
+    // named function declarations (which become CLR methods), not arrow/function
+    // expressions assigned to values.
+    if (
+      (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+      node.typeParameters &&
+      node.typeParameters.length > 0
+    ) {
+      currentCollector = addDiagnostic(
+        currentCollector,
+        createDiagnostic(
+          "TSN7432",
+          "error",
+          "Generic arrow/functions are not supported as values. Use a named function declaration instead.",
+          getNodeLocation(sourceFile, node),
+          "Rewrite: `export function f<T>(x: T): ... { ... }`"
+        )
+      );
     }
 
     // TSN7430: Arrow function escape hatch validation

@@ -359,7 +359,7 @@ export const emitVariableDeclaration = (
         const hit = findOutOfScopeTypeParam(param.type);
         if (hit) {
           throw new Error(
-            `ICE: Generic arrow functions are not supported as values (type parameter '${hit}' is not in scope). Use a named function declaration instead.`
+            `ICE: Generic function value reached emitter (type parameter '${hit}' is not in scope). Validation should have emitted TSN7432.`
           );
         }
       }
@@ -367,7 +367,7 @@ export const emitVariableDeclaration = (
       const retHit = findOutOfScopeTypeParam(arrowReturnType);
       if (retHit) {
         throw new Error(
-          `ICE: Generic arrow functions are not supported as values (type parameter '${retHit}' is not in scope). Use a named function declaration instead.`
+          `ICE: Generic function value reached emitter (type parameter '${retHit}' is not in scope). Validation should have emitted TSN7432.`
         );
       }
 

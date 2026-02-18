@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "'never' cannot be used as a generic type argument (TSN7419).",
+  "expectedErrors": ["TSN7419"],
+  "diagnosticCodes": ["TSN7419"]
+}
+
