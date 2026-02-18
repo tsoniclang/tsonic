@@ -102,7 +102,19 @@ const classifyExportKind = (
   const findDecl = (): IrStatement | undefined => {
     for (const stmt of module.body) {
       if (!("isExported" in stmt) || (stmt as { isExported?: unknown }).isExported !== true) continue;
+
       if (isNamed(stmt) && stmt.name === name) return stmt;
+
+      if (stmt.kind === "variableDeclaration") {
+        for (const decl of stmt.declarations) {
+          if (
+            decl.name.kind === "identifierPattern" &&
+            decl.name.name === name
+          ) {
+            return stmt;
+          }
+        }
+      }
     }
     return undefined;
   };

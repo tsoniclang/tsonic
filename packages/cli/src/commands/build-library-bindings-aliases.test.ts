@@ -45,6 +45,9 @@ describe("build command (library bindings)", function () {
       mkdirSync(join(dir, "packages", "lib", "src", "types"), {
         recursive: true,
       });
+      mkdirSync(join(dir, "packages", "lib", "src", "config"), {
+        recursive: true,
+      });
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
       writeFileSync(
@@ -119,10 +122,37 @@ describe("build command (library bindings)", function () {
       );
 
       writeFileSync(
+        join(dir, "packages", "lib", "src", "config", "server-config.ts"),
+        [
+          `export type ServerConfig = {`,
+          `  readonly mode: "dev" | "prod";`,
+          `};`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "config", "load-config.ts"),
+        [
+          `import type { ServerConfig } from "./server-config.ts";`,
+          ``,
+          `export const loadConfig = (): ServerConfig => {`,
+          `  return { mode: "dev" };`,
+          `};`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
         join(dir, "packages", "lib", "src", "index.ts"),
         [
           `export { ok, err } from "./types/result.ts";`,
           `export type { Id, Ok, Err, Result } from "./types/result.ts";`,
+          ``,
+          `export { loadConfig } from "./config/load-config.ts";`,
+          `export type { ServerConfig } from "./config/server-config.ts";`,
           ``,
         ].join("\n"),
         "utf-8"
@@ -177,9 +207,8 @@ describe("build command (library bindings)", function () {
       const entryFacade = all.find((f) =>
         f.content.includes("Tsonic entrypoint re-exports (generated)")
       );
-      const typesFacade = all.find((f) =>
-        f.content.includes("Tsonic source type aliases (generated)")
-      );
+      const typesFacade = all.find((f) => f.content.includes("// Namespace: Test.Lib.types"));
+      const configFacade = all.find((f) => f.content.includes("// Namespace: Test.Lib.config"));
 
       expect(
         entryFacade,
@@ -188,12 +217,18 @@ describe("build command (library bindings)", function () {
       ).to.not.equal(undefined);
       expect(
         typesFacade,
-        `Expected a types facade to include the source type aliases marker. Found:\n` +
+        `Expected a types facade for namespace Test.Lib.types. Found:\n` +
+          dtsFiles.map((p) => `- ${p}`).join("\n")
+      ).to.not.equal(undefined);
+      expect(
+        configFacade,
+        `Expected a config facade for namespace Test.Lib.config. Found:\n` +
           dtsFiles.map((p) => `- ${p}`).join("\n")
       ).to.not.equal(undefined);
 
       const rootContent = entryFacade?.content ?? "";
       const typesContent = typesFacade?.content ?? "";
+      const configContent = configFacade?.content ?? "";
 
       // Namespace facade for the "types" module must include TS-level aliases.
       expect(typesContent).to.include("Tsonic source type aliases (generated)");
@@ -204,18 +239,25 @@ describe("build command (library bindings)", function () {
         "export type Result<T, E = string> = Ok<T> | Err<E>;"
       );
 
+      // Structural aliases in non-types modules are also surfaced.
+      expect(configContent).to.include("Tsonic source type aliases (generated)");
+      expect(configContent).to.include("export type ServerConfig = Internal.ServerConfig__Alias;");
+
       // Root namespace facade must re-export the entrypoint's type/value surface.
       expect(rootContent).to.include("Tsonic entrypoint re-exports (generated)");
       expect(rootContent).to.include("from './");
       expect(rootContent).to.include(".types.js';");
+      expect(rootContent).to.include(".config.js';");
       expect(rootContent).to.include("export type {");
       expect(rootContent).to.include("Id");
       expect(rootContent).to.include("Ok");
       expect(rootContent).to.include("Err");
       expect(rootContent).to.include("Result");
+      expect(rootContent).to.include("ServerConfig");
       expect(rootContent).to.include("export {");
       expect(rootContent).to.include("ok");
       expect(rootContent).to.include("err");
+      expect(rootContent).to.include("loadConfig");
 
       // Runtime facade should include value re-exports (type re-exports are TS-only).
       const rootJsPath = (entryFacade?.path ?? "").replace(/\.d\.ts$/, ".js");
@@ -225,6 +267,7 @@ describe("build command (library bindings)", function () {
       expect(rootJs).to.include("export {");
       expect(rootJs).to.include("ok");
       expect(rootJs).to.include("err");
+      expect(rootJs).to.include("loadConfig");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
