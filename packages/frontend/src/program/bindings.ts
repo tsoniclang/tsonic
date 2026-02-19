@@ -112,9 +112,17 @@ export type TsbindgenField = {
   readonly declaringAssemblyName: string;
 };
 
+export type TsbindgenTypeRef = {
+  readonly stableId?: string;
+  readonly clrName: string;
+  readonly typeArguments?: readonly string[];
+};
+
 export type TsbindgenType = {
   readonly clrName: string; // Full CLR type name (e.g., "System.Console")
   readonly assemblyName: string;
+  readonly baseType?: TsbindgenTypeRef;
+  readonly interfaces?: readonly TsbindgenTypeRef[];
   /**
    * CLR type kind from tsbindgen (e.g., "Class", "Interface", "Struct", "Enum").
    *
@@ -255,6 +263,7 @@ export class BindingRegistry {
   private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
   private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
   private readonly tsbindgenExports = new Map<string, Map<string, TsbindgenExport>>();
+  private readonly tsSupertypes = new Map<string, Set<string>>();
 
   /**
    * Extension method index for instance-style calls.
@@ -282,6 +291,21 @@ export class BindingRegistry {
       ?.get(methodTsName);
   }
 
+  private addSupertype(typeAlias: string, superAlias: string): void {
+    if (!typeAlias || !superAlias) return;
+    if (typeAlias === superAlias) return;
+
+    const set = this.tsSupertypes.get(typeAlias) ?? new Set<string>();
+    set.add(superAlias);
+    this.tsSupertypes.set(typeAlias, set);
+  }
+
+  private getDirectSupertypes(typeAlias: string): readonly string[] {
+    const set = this.tsSupertypes.get(typeAlias);
+    if (!set || set.size === 0) return [];
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
   /**
    * Resolve an extension method binding target by extension interface name.
    *
@@ -296,12 +320,10 @@ export class BindingRegistry {
     const parsed = this.parseExtensionInterfaceName(extensionInterfaceName);
     if (!parsed) return undefined;
 
-    const candidates = this.getExtensionMethodCandidates(
-      parsed.namespaceKey,
-      parsed.receiverTypeName,
-      methodTsName
-    );
-    if (!candidates || candidates.length === 0) return undefined;
+    type ResolveResult =
+      | { readonly kind: "none" }
+      | { readonly kind: "ambiguous" }
+      | { readonly kind: "resolved"; readonly binding: MemberBinding };
 
     const getParameterCount = (binding: MemberBinding): number | undefined => {
       if (typeof binding.parameterCount === "number") {
@@ -316,9 +338,7 @@ export class BindingRegistry {
       return splitSignatureTypeList(paramsStr).length;
     };
 
-    const getModifiersKey = (
-      binding: MemberBinding
-    ): string => {
+    const getModifiersKey = (binding: MemberBinding): string => {
       const mods = (binding.parameterModifiers ?? []) as readonly ParameterModifier[];
       if (!Array.isArray(mods) || mods.length === 0) return "";
       return [...mods]
@@ -328,52 +348,119 @@ export class BindingRegistry {
         .join(",");
     };
 
-    let filteredCandidates: readonly MemberBinding[] = candidates;
-    if (typeof callArgumentCount === "number") {
-      const desiredParamCount = callArgumentCount + 1;
-
-      const exact = candidates.filter(
-        (c) => getParameterCount(c) === desiredParamCount
+    const resolveForReceiver = (receiverTypeName: string): ResolveResult => {
+      const candidates = this.getExtensionMethodCandidates(
+        parsed.namespaceKey,
+        receiverTypeName,
+        methodTsName
       );
+      if (!candidates || candidates.length === 0) return { kind: "none" };
 
-      if (exact.length > 0) {
-        filteredCandidates = exact;
-      } else {
-        // Optional-parameter safety: if no exact arity match, choose the smallest
-        // candidate arity that can still accept the provided arguments.
-        const larger = candidates
-          .map((c) => ({ c, count: getParameterCount(c) }))
-          .filter(
-            (x): x is { c: MemberBinding; count: number } =>
-              typeof x.count === "number" && x.count > desiredParamCount
-          );
+      let filteredCandidates: readonly MemberBinding[] = candidates;
+      if (typeof callArgumentCount === "number") {
+        const desiredParamCount = callArgumentCount + 1;
 
-        if (larger.length === 0) return undefined;
+        const exact = candidates.filter(
+          (c) => getParameterCount(c) === desiredParamCount
+        );
 
-        const minCount = Math.min(...larger.map((x) => x.count));
-        filteredCandidates = larger
-          .filter((x) => x.count === minCount)
-          .map((x) => x.c);
+        if (exact.length > 0) {
+          filteredCandidates = exact;
+        } else {
+          // Optional-parameter safety: if no exact arity match, choose the smallest
+          // candidate arity that can still accept the provided arguments.
+          const larger = candidates
+            .map((c) => ({ c, count: getParameterCount(c) }))
+            .filter(
+              (x): x is { c: MemberBinding; count: number } =>
+                typeof x.count === "number" && x.count > desiredParamCount
+            );
+
+          if (larger.length === 0) return { kind: "none" };
+
+          const minCount = Math.min(...larger.map((x) => x.count));
+          filteredCandidates = larger
+            .filter((x) => x.count === minCount)
+            .map((x) => x.c);
+        }
       }
+
+      // If multiple candidates map to different CLR targets, treat as unresolved (unsafe).
+      const first = filteredCandidates[0];
+      if (!first) return { kind: "none" };
+      const firstTarget = `${first.binding.type}::${first.binding.member}`;
+      const firstModsKey = getModifiersKey(first);
+      for (const c of filteredCandidates) {
+        const target = `${c.binding.type}::${c.binding.member}`;
+        if (target !== firstTarget) {
+          return { kind: "ambiguous" };
+        }
+
+        if (getModifiersKey(c) !== firstModsKey) {
+          return { kind: "ambiguous" };
+        }
+      }
+
+      return { kind: "resolved", binding: first };
+    };
+
+    // 1) Exact receiver match.
+    const direct = resolveForReceiver(parsed.receiverTypeName);
+    if (direct.kind === "resolved") return direct.binding;
+    if (direct.kind === "ambiguous") return undefined;
+
+    // 2) Airplane-grade fallback: CLR interface/base-type inheritance.
+    // This allows instance-style calls to resolve when TS surface selects a method
+    // declared on a derived type's extension bucket (e.g., IQueryable<T>.ToList)
+    // but the CLR binding is declared on a base interface (e.g., IEnumerable<T>).
+    //
+    // Determinism rules:
+    // - Prefer the closest base match (BFS).
+    // - If multiple matches exist at the same depth with different CLR targets,
+    //   treat as unresolved (unsafe).
+    const visited = new Set<string>([parsed.receiverTypeName]);
+    let frontier: readonly string[] = [parsed.receiverTypeName];
+
+    for (let depth = 0; depth < 20; depth++) {
+      const next: string[] = [];
+      for (const t of frontier) {
+        for (const sup of this.getDirectSupertypes(t)) {
+          if (visited.has(sup)) continue;
+          visited.add(sup);
+          next.push(sup);
+        }
+      }
+
+      if (next.length === 0) break;
+
+      const resolvedAtDepth: MemberBinding[] = [];
+      let sawAmbiguous = false;
+
+      for (const sup of next) {
+        const res = resolveForReceiver(sup);
+        if (res.kind === "ambiguous") sawAmbiguous = true;
+        if (res.kind === "resolved") resolvedAtDepth.push(res.binding);
+      }
+
+      if (resolvedAtDepth.length > 0 || sawAmbiguous) {
+        // If any ambiguity exists at the closest depth, do not guess.
+        if (sawAmbiguous) return undefined;
+        const first = resolvedAtDepth[0];
+        if (!first) return undefined;
+        const target0 = `${first.binding.type}::${first.binding.member}`;
+        const mods0 = getModifiersKey(first);
+        for (const b of resolvedAtDepth) {
+          const target = `${b.binding.type}::${b.binding.member}`;
+          if (target !== target0) return undefined;
+          if (getModifiersKey(b) !== mods0) return undefined;
+        }
+        return first;
+      }
+
+      frontier = next;
     }
 
-    // If multiple candidates map to different CLR targets, treat as unresolved (unsafe).
-    const first = filteredCandidates[0];
-    if (!first) return undefined;
-    const firstTarget = `${first.binding.type}::${first.binding.member}`;
-    const firstModsKey = getModifiersKey(first);
-    for (const c of filteredCandidates) {
-      const target = `${c.binding.type}::${c.binding.member}`;
-      if (target !== firstTarget) {
-        return undefined;
-      }
-
-      if (getModifiersKey(c) !== firstModsKey) {
-        return undefined;
-      }
-    }
-
-    return first;
+    return undefined;
   }
 
   private parseExtensionInterfaceName(
@@ -533,6 +620,19 @@ export class BindingRegistry {
         }
 
         const tsAlias = tsbindgenClrTypeNameToTsTypeName(tsbType.clrName);
+
+        // Record CLR inheritance relationships (base type + interfaces) so extension-method
+        // binding lookup can follow the CLR graph deterministically.
+        const baseAlias = tsbType.baseType?.clrName
+          ? tsbindgenClrTypeNameToTsTypeName(tsbType.baseType.clrName)
+          : undefined;
+        if (baseAlias) this.addSupertype(tsAlias, baseAlias);
+
+        for (const iface of tsbType.interfaces ?? []) {
+          if (!iface?.clrName) continue;
+          const ifaceAlias = tsbindgenClrTypeNameToTsTypeName(iface.clrName);
+          this.addSupertype(tsAlias, ifaceAlias);
+        }
 
         const kindFromBindings = (() => {
           switch (tsbType.kind) {
