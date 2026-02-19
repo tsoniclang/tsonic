@@ -154,6 +154,55 @@ describe("build command (library bindings)", function () {
           `export { loadConfig } from "./config/load-config.ts";`,
           `export type { ServerConfig } from "./config/server-config.ts";`,
           ``,
+          `export const withArg = (path: string): void => {`,
+          `  // placeholder`,
+          `};`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2) +
+          "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Test.App",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Test.App",
+            output: {
+              type: "executable",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "index.ts"),
+        [
+          `import { withArg } from "../../lib/dist/tsonic/bindings/Test.Lib.js";`,
+          ``,
+          `withArg("hello");`,
+          ``,
         ].join("\n"),
         "utf-8"
       );
@@ -188,6 +237,21 @@ describe("build command (library bindings)", function () {
       );
 
       expect(result.status, result.stderr || result.stdout).to.equal(0);
+
+      const appBuild = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "app",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+      expect(appBuild.status, appBuild.stderr || appBuild.stdout).to.equal(0);
 
       const bindingsDir = join(
         dir,
