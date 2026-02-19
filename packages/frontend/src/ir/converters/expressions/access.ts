@@ -124,7 +124,9 @@ const getDeclaredPropertyType = (
  *
  * The goal is to preserve deterministic proof behavior without heuristics.
  */
-const normalizeForComputedAccess = (type: IrType | undefined): IrType | undefined => {
+const normalizeForComputedAccess = (
+  type: IrType | undefined
+): IrType | undefined => {
   if (!type) return undefined;
 
   if (type.kind === "unionType") {
@@ -145,7 +147,9 @@ const normalizeForComputedAccess = (type: IrType | undefined): IrType | undefine
     const pick =
       type.types.find((t) => t.kind === "arrayType") ??
       type.types.find((t) => t.kind === "dictionaryType") ??
-      type.types.find((t) => t.kind === "primitiveType" && t.name === "string") ??
+      type.types.find(
+        (t) => t.kind === "primitiveType" && t.name === "string"
+      ) ??
       type.types.find((t) => t.kind === "referenceType");
 
     return pick ? normalizeForComputedAccess(pick) : type;
@@ -344,7 +348,9 @@ const resolveHierarchicalBinding = (
     };
 
     const modsKey = getModifiersKey(first);
-    const modsConsistent = overloads.every((m) => getModifiersKey(m) === modsKey);
+    const modsConsistent = overloads.every(
+      (m) => getModifiersKey(m) === modsKey
+    );
 
     return {
       assembly: first.binding.assembly,
@@ -353,7 +359,9 @@ const resolveHierarchicalBinding = (
       // IMPORTANT: Only attach parameterModifiers if consistent across all overloads.
       // Overloads can differ in ref/out/in, and those must be selected at call time.
       parameterModifiers:
-        modsConsistent && first.parameterModifiers && first.parameterModifiers.length > 0
+        modsConsistent &&
+        first.parameterModifiers &&
+        first.parameterModifiers.length > 0
           ? first.parameterModifiers
           : undefined,
       isExtensionMethod: first.isExtensionMethod,
@@ -381,7 +389,10 @@ const resolveHierarchicalBinding = (
       registry.getType(object.name) ??
       (object.originalName ? registry.getType(object.originalName) : undefined);
     if (directType) {
-      const overloads = registry.getMemberOverloads(directType.alias, propertyName);
+      const overloads = registry.getMemberOverloads(
+        directType.alias,
+        propertyName
+      );
       if (!overloads || overloads.length === 0) return undefined;
       return toIrMemberBinding(overloads);
     }
@@ -397,7 +408,10 @@ const resolveHierarchicalBinding = (
         const type = namespace.types.find((t) => t.alias === object.property);
         if (type) {
           // The object is a type reference (namespace.type), now check if property is a member
-          const overloads = registry.getMemberOverloads(type.alias, propertyName);
+          const overloads = registry.getMemberOverloads(
+            type.alias,
+            propertyName
+          );
           if (!overloads || overloads.length === 0) return undefined;
           return toIrMemberBinding(overloads);
         }
@@ -462,7 +476,9 @@ const disambiguateOverloadsByDeclaringType = (
   }) as { readonly clrName?: unknown } | undefined;
 
   const expectedClrType =
-    typeEntry && typeof typeEntry.clrName === "string" ? typeEntry.clrName : undefined;
+    typeEntry && typeof typeEntry.clrName === "string"
+      ? typeEntry.clrName
+      : undefined;
   if (!expectedClrType) return undefined;
 
   const filtered = overloads.filter((m) => m.binding.type === expectedClrType);
@@ -543,7 +559,9 @@ const resolveHierarchicalBindingFromMemberId = (
 
   let overloads: readonly MemberBinding[] = overloadsAll;
   const targetKeys = new Set(
-    overloads.map((m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`)
+    overloads.map(
+      (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`
+    )
   );
   if (targetKeys.size > 1) {
     const disambiguated = disambiguateOverloadsByDeclaringType(
@@ -563,7 +581,9 @@ const resolveHierarchicalBindingFromMemberId = (
   const targetKey = `${first.binding.assembly}:${first.binding.type}::${first.binding.member}`;
   if (
     overloads.some(
-      (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !== targetKey
+      (m) =>
+        `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !==
+        targetKey
     )
   ) {
     const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
@@ -576,7 +596,11 @@ const resolveHierarchicalBindingFromMemberId = (
     // TS declaration source (tsbindgen packages). Otherwise, fall back to "no binding"
     // and let local codepaths handle naming policy.
     if (bindingsPath) {
-      const targets = [...new Set(overloads.map((m) => `${m.binding.type}.${m.binding.member}`))]
+      const targets = [
+        ...new Set(
+          overloads.map((m) => `${m.binding.type}.${m.binding.member}`)
+        ),
+      ]
         .sort()
         .join(", ");
 
@@ -611,7 +635,9 @@ const resolveHierarchicalBindingFromMemberId = (
     type: first.binding.type,
     member: first.binding.member,
     parameterModifiers:
-      modsConsistent && first.parameterModifiers && first.parameterModifiers.length > 0
+      modsConsistent &&
+      first.parameterModifiers &&
+      first.parameterModifiers.length > 0
         ? first.parameterModifiers
         : undefined,
     isExtensionMethod: first.isExtensionMethod,
@@ -629,8 +655,11 @@ const resolveHierarchicalBindingFromMemberId = (
 const resolveExtensionMethodsBinding = (
   node: ts.PropertyAccessExpression,
   propertyName: string,
+  receiverType: IrType | undefined,
   ctx: ProgramContext
 ): IrMemberExpression["memberBinding"] => {
+  const DEBUG_EXT = process.env.DEBUG_EXT_RESOLVE === "1";
+
   const memberId = ctx.binding.resolvePropertyAccess(node);
   if (!memberId) return undefined;
 
@@ -647,11 +676,142 @@ const resolveExtensionMethodsBinding = (
     return undefined;
   })();
 
-  const resolved = ctx.bindings.resolveExtensionMethod(
-    declaringTypeName,
-    propertyName,
-    callArgumentCount
-  );
+  const resolved =
+    ctx.bindings.resolveExtensionMethod(
+      declaringTypeName,
+      propertyName,
+      callArgumentCount
+    ) ??
+    (() => {
+      if (!receiverType) return undefined;
+
+      const info = ctx.bindings.getExtensionInterfaceInfo(declaringTypeName);
+      if (!info) return undefined;
+
+      if (DEBUG_EXT) {
+        // eslint-disable-next-line no-console
+        console.log("[ext-resolve] fallback", {
+          declaringTypeName,
+          propertyName,
+          callArgumentCount,
+          receiverType,
+          namespaceKey: info.namespaceKey,
+          receiverTypeName: info.receiverTypeName,
+        });
+      }
+
+      // tsbindgen can place extension methods declared on *base* receiver types into
+      // the effective `__Ext_*` surface for a *derived* receiver type (e.g.
+      // IQueryable<T> includes Enumerable.ToArray/ToList). Our binding index is
+      // keyed by the CLR-declared receiver type, so we must select the best
+      // applicable receiver bucket based on assignability.
+      //
+      // Airplane-grade: when multiple receiver buckets are applicable, prefer the
+      // most specific receiver type (closest to the actual receiver). If there is
+      // no unique best candidate, treat as unresolved.
+      const candidateBuckets: {
+        readonly receiverTypeName: string;
+        readonly receiverIrType: IrType;
+        readonly binding: MemberBinding;
+      }[] = [];
+
+      const getArity = (typeName: string): number => {
+        const m = typeName.match(/_(\\d+)$/);
+        return m ? Number(m[1]) : 0;
+      };
+
+      const makeReceiverIrType = (
+        receiverTypeName: string,
+        actual: IrType
+      ): IrType | undefined => {
+        const arity = getArity(receiverTypeName);
+
+        const actualArgs =
+          actual.kind === "referenceType" ? (actual.typeArguments ?? []) : [];
+
+        if (arity === 0) {
+          return { kind: "referenceType", name: receiverTypeName };
+        }
+
+        if (actualArgs.length !== arity) {
+          return undefined;
+        }
+
+        return {
+          kind: "referenceType",
+          name: receiverTypeName,
+          typeArguments: actualArgs,
+        };
+      };
+
+      const uniqueReceiverTypeNames = new Set<string>();
+      const receiverTypeNames = ctx.bindings.getExtensionReceiverTypeNames(
+        info.namespaceKey
+      );
+
+      // Evaluate buckets deterministically in lexicographic order so the behavior
+      // is stable even if the underlying Map insertion order changes.
+      receiverTypeNames
+        .slice()
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((receiverTypeName) => {
+          if (uniqueReceiverTypeNames.has(receiverTypeName)) return;
+          uniqueReceiverTypeNames.add(receiverTypeName);
+
+          const fakeExtInterfaceName = `__Ext_${info.namespaceKey}_${receiverTypeName}`;
+          const binding = ctx.bindings.resolveExtensionMethod(
+            fakeExtInterfaceName,
+            propertyName,
+            callArgumentCount
+          );
+          if (!binding) return;
+
+          const receiverIrType = makeReceiverIrType(
+            receiverTypeName,
+            receiverType
+          );
+          if (!receiverIrType) return;
+
+          const assignable = ctx.typeSystem.isAssignableTo(
+            receiverType,
+            receiverIrType
+          );
+          if (DEBUG_EXT) {
+            // eslint-disable-next-line no-console
+            console.log("[ext-resolve] candidate", {
+              receiverTypeName,
+              receiverIrType,
+              assignable,
+              target: `${binding.binding.type}::${binding.binding.member}`,
+            });
+          }
+          if (!assignable) return;
+
+          candidateBuckets.push({ receiverTypeName, receiverIrType, binding });
+        });
+
+      if (candidateBuckets.length === 0) return undefined;
+      if (candidateBuckets.length === 1) return candidateBuckets[0]?.binding;
+
+      // Choose the most specific receiver bucket: a bucket whose receiver type is
+      // assignable to all other candidate receiver types.
+      const isMostSpecific = (i: number): boolean => {
+        const t = candidateBuckets[i]?.receiverIrType;
+        if (!t) return false;
+        return candidateBuckets.every((other, j) => {
+          if (i === j) return true;
+          return ctx.typeSystem.isAssignableTo(t, other.receiverIrType);
+        });
+      };
+
+      const mostSpecific = candidateBuckets
+        .map((c, i) => ({ c, i }))
+        .filter(({ i }) => isMostSpecific(i))
+        .map(({ c }) => c);
+
+      if (mostSpecific.length !== 1) return undefined;
+      return mostSpecific[0]?.binding;
+    })();
   if (!resolved) return undefined;
 
   // tsbindgen parameterModifiers indices include the extension receiver at index 0.
@@ -733,7 +893,12 @@ export const convertMemberExpression = (
 
     // Try to resolve hierarchical binding
     const memberBinding =
-      resolveExtensionMethodsBinding(node, propertyName, ctx) ??
+      resolveExtensionMethodsBinding(
+        node,
+        propertyName,
+        object.inferredType,
+        ctx
+      ) ??
       resolveHierarchicalBindingFromMemberId(node, propertyName, ctx) ??
       resolveHierarchicalBinding(object, propertyName, ctx);
 
@@ -762,8 +927,9 @@ export const convertMemberExpression = (
     // receiver as a static type, enabling global::Type.Member emission.
     const isNamespaceTypeReference =
       object.kind === "identifier" &&
-      ctx.bindings.getNamespace(object.name)?.types.some((t) => t.alias === propertyName) ===
-        true;
+      ctx.bindings
+        .getNamespace(object.name)
+        ?.types.some((t) => t.alias === propertyName) === true;
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
     // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).

@@ -478,6 +478,14 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
+  // `Rewrap<TReceiver, TNewShape>` is a TS-only typing helper used by tsbindgen to
+  // preserve extension scopes across fluent chains. At runtime the value is the
+  // new shape, so for IR typing it MUST erase to `TNewShape`.
+  if (typeName === "Rewrap" && node.typeArguments?.length === 2) {
+    const result = node.typeArguments[1];
+    return result ? convertType(result, binding) : { kind: "unknownType" };
+  }
+
   // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
   // These are type aliases that should NOT be resolved - we preserve them
   // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.
@@ -535,7 +543,9 @@ export const convertTypeReference = (
             : undefined;
         if (!typeElements) return undefined;
 
-        const indexSignatures = typeElements.filter(ts.isIndexSignatureDeclaration);
+        const indexSignatures = typeElements.filter(
+          ts.isIndexSignatureDeclaration
+        );
         const otherMembers = typeElements.filter(
           (m) => !ts.isIndexSignatureDeclaration(m)
         );
@@ -591,6 +601,25 @@ export const convertTypeReference = (
           return shape ? convertType(shape, binding) : { kind: "unknownType" };
         }
 
+        // Sticky extension scopes: tsbindgen extension surfaces return `Rewrap<this, TResult>`
+        // to preserve the current extension map across fluent chains.
+        //
+        // `Rewrap<_, TResult>` is a pure typing helper: the runtime value is `TResult`.
+        // For IR / emission, we must erase it to `TResult` so follow-up member accesses
+        // see the correct receiver type (e.g. `IQueryable<T>` after `.Where(...)`).
+        if (
+          declNode.name.text === "Rewrap" &&
+          node.typeArguments?.length === 2
+        ) {
+          const fileName = declNode.getSourceFile().fileName;
+          if (/[\\/]@tsonic[\\/]core[\\/]/.test(fileName)) {
+            const result = node.typeArguments[1];
+            return result
+              ? convertType(result, binding)
+              : { kind: "unknownType" };
+          }
+        }
+
         if (ts.isFunctionTypeNode(declNode.type)) {
           // tsbindgen emits CLR delegates as type aliases to function types in .d.ts.
           //
@@ -615,7 +644,11 @@ export const convertTypeReference = (
           if (declNode.getSourceFile().isDeclarationFile) {
             // Fall through to the referenceType emission at the end of this function.
           } else {
-            const fnType = convertFunctionType(declNode.type, binding, convertType);
+            const fnType = convertFunctionType(
+              declNode.type,
+              binding,
+              convertType
+            );
 
             // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
             // apply the reference site's type arguments so lambdas get a fully-instantiated
@@ -671,7 +704,10 @@ export const convertTypeReference = (
               ? param.default.typeName.text
               : param.default.typeName.getText()) === "__";
 
-          if (hasTsbindgenDefaultSentinel && ts.isConditionalTypeNode(declNode.type)) {
+          if (
+            hasTsbindgenDefaultSentinel &&
+            ts.isConditionalTypeNode(declNode.type)
+          ) {
             const expected = `${typeName}_${node.typeArguments.length}`;
             let found: string | undefined;
 
@@ -708,7 +744,9 @@ export const convertTypeReference = (
               return {
                 kind: "referenceType",
                 name: found,
-                typeArguments: node.typeArguments.map((t) => convertType(t, binding)),
+                typeArguments: node.typeArguments.map((t) =>
+                  convertType(t, binding)
+                ),
               };
             }
           }
@@ -735,7 +773,9 @@ export const convertTypeReference = (
   // identity stable for member lookup and generic substitution.
   const resolvedName = (() => {
     if (!declId) return typeName;
-    const declInfo = (binding as BindingInternal)._getHandleRegistry().getDecl(declId);
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
 
