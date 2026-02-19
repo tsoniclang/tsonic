@@ -161,17 +161,29 @@ describe("build command (library bindings)", function () {
       );
 
       mkdirSync(join(dir, "packages", "lib", "src", "db"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "db", "wrappers.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          `import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";`,
+          `import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";`,
+          `import type { ExtensionMethods as Tasks } from "@tsonic/dotnet/System.Threading.Tasks.js";`,
+          ``,
+          `export type Query<T> = Tasks<Linq<IEnumerable<T>>>;`,
+          `export type Numbers = Query<int>;`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
       writeFileSync(
         join(dir, "packages", "lib", "src", "db", "query-holder.ts"),
         [
           `import type { int } from "@tsonic/core/types.js";`,
-          `import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";`,
           `import { Enumerable } from "@tsonic/dotnet/System.Linq.js";`,
-          `import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";`,
-          `import type { ExtensionMethods as Tasks } from "@tsonic/dotnet/System.Threading.Tasks.js";`,
+          `import type { Numbers } from "./wrappers.ts";`,
           `import { asinterface } from "@tsonic/core/lang.js";`,
-          ``,
-          `type Numbers = Tasks<Linq<IEnumerable<int>>>;`,
           ``,
           `export class QueryHolder {`,
           `  get Numbers(): Numbers {`,
