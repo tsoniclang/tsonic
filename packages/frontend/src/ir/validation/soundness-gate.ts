@@ -173,6 +173,17 @@ const validateType = (
       break;
 
     case "dictionaryType":
+      if (type.keyType.kind === "neverType" || type.valueType.kind === "neverType") {
+        ctx.diagnostics.push(
+          createDiagnostic(
+            "TSN7419",
+            "error",
+            "'never' cannot be used as a generic type argument.",
+            moduleLocation(ctx),
+            "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+          )
+        );
+      }
       validateType(type.keyType, ctx, `${typeContext} key type`);
       validateType(type.valueType, ctx, `${typeContext} value type`);
       break;
@@ -229,9 +240,20 @@ const validateType = (
       }
 
       // Validate type arguments recursively
-      type.typeArguments?.forEach((ta, i) =>
-        validateType(ta, ctx, `${typeContext}<arg ${i}>`)
-      );
+      type.typeArguments?.forEach((ta, i) => {
+        if (ta.kind === "neverType") {
+          ctx.diagnostics.push(
+            createDiagnostic(
+              "TSN7419",
+              "error",
+              "'never' cannot be used as a generic type argument.",
+              moduleLocation(ctx),
+              "Rewrite the type to avoid never. For Result-like types, model explicit variants (Ok<T> | Err<E>) and have helpers return the specific variant type."
+            )
+          );
+        }
+        validateType(ta, ctx, `${typeContext}<arg ${i}>`);
+      });
       break;
     }
 

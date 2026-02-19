@@ -495,6 +495,32 @@ takesChar(s[0]);    // OK (context expects char)
 
 **Fix:** Use a single-character literal in a `char` position, or obtain a `char` from an API returning `char` (for example `System.Char.parse("Q")`).
 
+### TSN7419: `never` as Generic Type Argument Not Supported
+
+`never` cannot be used as a generic type argument (for example `Result<T, never>`).
+
+In CLR, there is no bottom/uninhabited type that can be used as a generic parameter. Emitting `void` is not valid C# in a generic argument position.
+
+```ts
+export type Result<T, E> = { success: true; data: T } | { success: false; error: E };
+
+export function ok<T>(data: T): Result<T, never> {
+  return { success: true, data };
+}
+```
+
+**Fix:** Model explicit variants and have helpers return the specific variant type:
+
+```ts
+export type Ok<T> = { success: true; data: T };
+export type Err<E> = { success: false; error: E };
+export type Result<T, E> = Ok<T> | Err<E>;
+
+export function ok<T>(data: T): Ok<T> {
+  return { success: true, data };
+}
+```
+
 ### TSN7421: Anonymous Object Type Not Lowered
 
 Internal compiler error indicating an anonymous object type was not properly lowered to a synthesized class. This is a compiler bug - please report it.
@@ -606,6 +632,23 @@ interface Result {
 }
 
 items.map((x): Result => ({ id: x, name: "test" }));
+```
+
+### TSN7432: Generic Function Values Not Supported
+
+Generic arrow functions and generic function expressions cannot be represented as first-class values in CLR.
+
+```ts
+// Error
+export const ok = <T>(data: T) => ({ success: true, data });
+```
+
+**Fix:** Use a named function declaration instead (emits as a CLR generic method):
+
+```ts
+export function ok<T>(data: T): { success: true; data: T } {
+  return { success: true, data };
+}
 ```
 
 ## TSN5xxx: Numeric Proof Errors
