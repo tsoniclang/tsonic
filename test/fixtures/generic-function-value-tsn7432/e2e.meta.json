@@ -1,0 +1,7 @@
+{
+  "expectFailure": true,
+  "description": "Generic arrow/function expressions are not supported as values (TSN7432). Use named function declarations instead.",
+  "expectedErrors": ["TSN7432"],
+  "diagnosticCodes": ["TSN7432"]
+}
+

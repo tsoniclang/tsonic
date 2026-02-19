@@ -13,6 +13,16 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - No dangling local work: if something matters, put it on a branch as commits (and ideally push + PR it).
 - Before switching tasks/repos, ensure `git status` is clean; otherwise commit to a branch or explicitly discard.
 
+## Branch Discipline (IMPORTANT)
+
+- Hard rule: **no unmerged parallel branches with unique commits**. Any branch that’s ahead of `main` must be either:
+  - the current active PR branch, or
+  - immediately turned into a PR (or explicitly abandoned) before starting new work.
+- **Do not create a new branch without explicit maintainer approval.**
+  - Before branching, first verify all current work is already PR’ed and merged (or is the one active PR branch).
+  - If any “dangling” branches exist (ahead of `main`), stop and ask what to do with them.
+- Prefer “one active branch” per repo: keep adding commits to the current PR branch until it’s merged.
+
 ## Testing Workflow
 
 Fast iteration (OK while developing / on external testbed projects):

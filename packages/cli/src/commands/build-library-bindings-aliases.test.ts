@@ -71,7 +71,22 @@ describe("build command (library bindings)", function () {
 
       writeFileSync(
         join(dir, "packages", "lib", "package.json"),
-        JSON.stringify({ name: "lib", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          {
+            name: "lib",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -145,6 +160,41 @@ describe("build command (library bindings)", function () {
         "utf-8"
       );
 
+      mkdirSync(join(dir, "packages", "lib", "src", "db"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "db", "wrappers.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          `import type { IEnumerable } from "@tsonic/dotnet/System.Collections.Generic.js";`,
+          `import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";`,
+          `import type { ExtensionMethods as Tasks } from "@tsonic/dotnet/System.Threading.Tasks.js";`,
+          ``,
+          `export type Query<T> = Tasks<Linq<IEnumerable<T>>>;`,
+          `export type Numbers = Query<int>;`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "lib", "src", "db", "query-holder.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          `import { Enumerable } from "@tsonic/dotnet/System.Linq.js";`,
+          `import type { Numbers } from "./wrappers.ts";`,
+          `import { asinterface } from "@tsonic/core/lang.js";`,
+          ``,
+          `export class QueryHolder {`,
+          `  get Numbers(): Numbers {`,
+          `    return asinterface<Numbers>(Enumerable.Empty<int>());`,
+          `  }`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
       writeFileSync(
         join(dir, "packages", "lib", "src", "index.ts"),
         [
@@ -153,6 +203,8 @@ describe("build command (library bindings)", function () {
           ``,
           `export { loadConfig } from "./config/load-config.ts";`,
           `export type { ServerConfig } from "./config/server-config.ts";`,
+          ``,
+          `export { QueryHolder } from "./db/query-holder.ts";`,
           ``,
         ].join("\n"),
         "utf-8"
@@ -189,14 +241,7 @@ describe("build command (library bindings)", function () {
 
       expect(result.status, result.stderr || result.stdout).to.equal(0);
 
-      const bindingsDir = join(
-        dir,
-        "packages",
-        "lib",
-        "dist",
-        "tsonic",
-        "bindings"
-      );
+      const bindingsDir = join(dir, "packages", "lib", "dist", "tsonic", "bindings");
 
       const dtsFiles = readdirSync(bindingsDir)
         .filter((n) => n.endsWith(".d.ts"))
@@ -229,6 +274,13 @@ describe("build command (library bindings)", function () {
       const rootContent = entryFacade?.content ?? "";
       const typesContent = typesFacade?.content ?? "";
       const configContent = configFacade?.content ?? "";
+
+      const dbInternalIndex = join(bindingsDir, "Test.Lib.db", "internal", "index.d.ts");
+      const dbInternalContent = readFileSync(dbInternalIndex, "utf-8");
+      expect(dbInternalContent).to.include("Tsonic source member type imports (generated)");
+      expect(dbInternalContent).to.include("ExtensionMethods as __TsonicExt_Linq");
+      expect(dbInternalContent).to.include("ExtensionMethods as __TsonicExt_Tasks");
+      expect(dbInternalContent).to.match(/readonly\s+Numbers:\s+__TsonicExt_Tasks<__TsonicExt_Linq</);
 
       // Namespace facade for the "types" module must include TS-level aliases.
       expect(typesContent).to.include("Tsonic source type aliases (generated)");
