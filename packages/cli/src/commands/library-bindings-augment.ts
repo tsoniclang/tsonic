@@ -3,6 +3,7 @@ import { basename, join, resolve, posix } from "node:path";
 import type { IrModule, IrStatement, IrType, IrTypeParameter } from "@tsonic/frontend";
 import { buildModuleDependencyGraph, type CompilerOptions, type Diagnostic } from "@tsonic/frontend";
 import type { ResolvedConfig, Result } from "../types.js";
+import * as ts from "typescript";
 
 type FacadeInfo = {
   readonly namespace: string;
@@ -10,6 +11,38 @@ type FacadeInfo = {
   readonly facadeJsPath: string;
   readonly moduleSpecifier: string; // "./Namespace.js"
   readonly internalIndexDtsPath: string;
+};
+
+type WrapperImport = {
+  readonly source: string;
+  readonly importedName: string;
+  readonly localName: string;
+  readonly aliasName: string;
+};
+
+type MemberOverride = {
+  readonly namespace: string;
+  readonly className: string;
+  readonly memberName: string;
+  readonly wrappers: readonly WrapperImport[];
+};
+
+type SourceTypeAliasDef = {
+  readonly typeParameters: readonly string[];
+  readonly type: ts.TypeNode;
+};
+
+type SourceTypeImport = {
+  readonly source: string;
+  readonly importedName: string;
+};
+
+type ModuleSourceIndex = {
+  readonly fileKey: string;
+  readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
+  readonly typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
+  readonly typeAliasesByName: ReadonlyMap<string, SourceTypeAliasDef>;
+  readonly memberTypesByClassAndMember: ReadonlyMap<string, ReadonlyMap<string, ts.TypeNode>>;
 };
 
 const renderDiagnostics = (diags: readonly Diagnostic[]): string => {
@@ -27,6 +60,10 @@ const escapeRegExp = (text: string): string => {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
 
+const normalizeModuleFileKey = (filePath: string): string => {
+  return posix.normalize(filePath).replace(/^(\.\/)+/, "").replace(/^\/+/, "");
+};
+
 const stripExistingSection = (
   text: string,
   startMarker: string,
@@ -37,6 +74,38 @@ const stripExistingSection = (
   const end = text.indexOf(endMarker, start);
   if (end < 0) return text;
   return text.slice(0, start) + text.slice(end + endMarker.length);
+};
+
+const upsertSectionAfterImports = (
+  text: string,
+  startMarker: string,
+  endMarker: string,
+  body: string
+): string => {
+  const stripped = stripExistingSection(text, startMarker, endMarker);
+  const lines = stripped.split("\n");
+
+  // Find insertion point before the first non-comment, non-import top-level statement.
+  let insertAt = 0;
+  while (insertAt < lines.length) {
+    const line = lines[insertAt] ?? "";
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("import ")) {
+      insertAt += 1;
+      continue;
+    }
+    break;
+  }
+
+  const head = lines.slice(0, insertAt).join("\n").trimEnd();
+  const tail = lines.slice(insertAt).join("\n").trimStart();
+  const section = `${startMarker}\n${body.trimEnd()}\n${endMarker}`;
+
+  const parts: string[] = [];
+  if (head) parts.push(head);
+  parts.push(section);
+  if (tail) parts.push(tail);
+  return parts.join("\n\n") + "\n";
 };
 
 const upsertSection = (
@@ -90,6 +159,140 @@ const indexFacadeFiles = (outDir: string): ReadonlyMap<string, FacadeInfo> => {
   }
 
   return result;
+};
+
+const applyWrappersToBaseType = (
+  baseType: string,
+  wrappers: readonly WrapperImport[]
+): string => {
+  let expr = baseType.trim();
+  for (const w of wrappers.slice().reverse()) {
+    expr = `${w.aliasName}<${expr}>`;
+  }
+  return expr;
+};
+
+const patchInternalIndexWithMemberOverrides = (
+  internalIndexDtsPath: string,
+  overrides: readonly MemberOverride[]
+): Result<void, string> => {
+  if (!existsSync(internalIndexDtsPath)) {
+    return { ok: false, error: `Internal index not found at ${internalIndexDtsPath}` };
+  }
+
+  const original = readFileSync(internalIndexDtsPath, "utf-8");
+
+  // Collect wrapper imports (dedupe + validate no alias conflicts).
+  const wrapperByAlias = new Map<string, WrapperImport>();
+  for (const o of overrides) {
+    for (const w of o.wrappers) {
+      const existing = wrapperByAlias.get(w.aliasName);
+      if (existing) {
+        if (existing.source !== w.source || existing.importedName !== w.importedName) {
+          return {
+            ok: false,
+            error:
+              `Conflicting wrapper import alias '${w.aliasName}' while augmenting ${internalIndexDtsPath}.\n` +
+              `- ${existing.importedName} from '${existing.source}'\n` +
+              `- ${w.importedName} from '${w.source}'\n` +
+              `Fix: rename one of the imported ExtensionMethods aliases in source code.`,
+          };
+        }
+        continue;
+      }
+      wrapperByAlias.set(w.aliasName, w);
+    }
+  }
+
+  const wrapperImports = Array.from(wrapperByAlias.values()).sort((a, b) =>
+    a.aliasName.localeCompare(b.aliasName)
+  );
+
+  const importLines = wrapperImports.map((w) => {
+    if (w.importedName === w.aliasName) {
+      return `import type { ${w.importedName} } from '${w.source}';`;
+    }
+    return `import type { ${w.importedName} as ${w.aliasName} } from '${w.source}';`;
+  });
+
+  const importStart = "// Tsonic source member type imports (generated)";
+  const importEnd = "// End Tsonic source member type imports";
+  const withImports =
+    importLines.length > 0
+      ? upsertSectionAfterImports(original, importStart, importEnd, importLines.join("\n"))
+      : stripExistingSection(original, importStart, importEnd);
+
+  // Patch interface member types within their $instance interface blocks.
+  let next = withImports;
+
+  const byClass = new Map<string, MemberOverride[]>();
+  for (const o of overrides) {
+    const list = byClass.get(o.className) ?? [];
+    list.push(o);
+    byClass.set(o.className, list);
+  }
+
+  for (const [className, list] of byClass) {
+    const ifaceName = `${className}$instance`;
+    const ifaceRe = new RegExp(
+      String.raw`export\s+interface\s+${escapeRegExp(ifaceName)}\b[^{]*\{[\s\S]*?^\}`,
+      "m"
+    );
+    const match = ifaceRe.exec(next);
+    if (!match || match.index === undefined) {
+      return {
+        ok: false,
+        error:
+          `Failed to locate interface '${ifaceName}' in ${internalIndexDtsPath}.\n` +
+          `Cannot apply TS source member type augmentation.`,
+      };
+    }
+
+    const block = match[0];
+    const open = block.indexOf("{");
+    const close = block.lastIndexOf("}");
+    if (open < 0 || close < 0 || close <= open) {
+      return {
+        ok: false,
+        error:
+          `Malformed interface '${ifaceName}' block in ${internalIndexDtsPath}.\n` +
+          `Cannot apply TS source member type augmentation.`,
+      };
+    }
+
+    const head = block.slice(0, open + 1);
+    let body = block.slice(open + 1, close);
+    const tail = block.slice(close);
+
+    for (const o of list.sort((a, b) => a.memberName.localeCompare(b.memberName))) {
+      const propRe = new RegExp(
+        String.raw`(^\s*(?:readonly\s+)?${escapeRegExp(o.memberName)}\s*:\s*)([^;]+)(;)`,
+        "m"
+      );
+      const propMatch = propRe.exec(body);
+      if (!propMatch) {
+        return {
+          ok: false,
+          error:
+            `Failed to locate property '${o.memberName}' on '${ifaceName}' in ${internalIndexDtsPath}.\n` +
+            `This property was annotated with extension wrappers in TS source and should exist in CLR metadata.`,
+        };
+      }
+
+      const baseType = propMatch[2] ?? "";
+      const wrappedType = applyWrappersToBaseType(baseType, o.wrappers);
+      body = body.replace(propRe, `$1${wrappedType}$3`);
+    }
+
+    const patchedBlock = head + body + tail;
+    next = next.slice(0, match.index) + patchedBlock + next.slice(match.index + block.length);
+  }
+
+  if (next !== original) {
+    writeFileSync(internalIndexDtsPath, next, "utf-8");
+  }
+
+  return { ok: true, value: undefined };
 };
 
 const classifyExportKind = (
@@ -171,6 +374,227 @@ const resolveLocalModuleFile = (
   }
 
   return undefined;
+};
+
+const buildModuleSourceIndex = (
+  absoluteFilePath: string,
+  fileKey: string
+): Result<ModuleSourceIndex, string> => {
+  if (!existsSync(absoluteFilePath)) {
+    return { ok: false, error: `Failed to read source file for bindings augmentation: ${absoluteFilePath}` };
+  }
+
+  const content = readFileSync(absoluteFilePath, "utf-8");
+  const scriptKind = absoluteFilePath.endsWith(".tsx")
+    ? ts.ScriptKind.TSX
+    : absoluteFilePath.endsWith(".js")
+      ? ts.ScriptKind.JS
+      : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(
+    absoluteFilePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind
+  );
+
+  const wrapperImportsByLocalName = new Map<string, SourceTypeImport>();
+  const typeImportsByLocalName = new Map<string, SourceTypeImport>();
+  const typeAliasesByName = new Map<string, SourceTypeAliasDef>();
+  const memberTypesByClassAndMember = new Map<string, Map<string, ts.TypeNode>>();
+
+  const getMemberName = (name: ts.PropertyName): string | undefined => {
+    if (ts.isIdentifier(name)) return name.text;
+    if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+    return undefined;
+  };
+
+  for (const stmt of sourceFile.statements) {
+    if (ts.isImportDeclaration(stmt)) {
+      const moduleSpecifier = ts.isStringLiteral(stmt.moduleSpecifier)
+        ? stmt.moduleSpecifier.text
+        : undefined;
+      if (!moduleSpecifier) continue;
+
+      const clause = stmt.importClause;
+      if (!clause) continue;
+
+      const namedBindings = clause.namedBindings;
+      if (!namedBindings || !ts.isNamedImports(namedBindings)) continue;
+
+      for (const spec of namedBindings.elements) {
+        const localName = spec.name.text;
+        const importedName = (spec.propertyName ?? spec.name).text;
+        const isTypeOnly = clause.isTypeOnly || spec.isTypeOnly;
+        if (!isTypeOnly) continue;
+
+        typeImportsByLocalName.set(localName, { source: moduleSpecifier, importedName });
+        if (importedName === "ExtensionMethods") {
+          wrapperImportsByLocalName.set(localName, { source: moduleSpecifier, importedName });
+        }
+      }
+
+      continue;
+    }
+
+    if (ts.isTypeAliasDeclaration(stmt)) {
+      const aliasName = stmt.name.text;
+      const typeParameters = (stmt.typeParameters ?? []).map((tp) => tp.name.text);
+      typeAliasesByName.set(aliasName, { typeParameters, type: stmt.type });
+      continue;
+    }
+
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      const className = stmt.name.text;
+      const members = memberTypesByClassAndMember.get(className) ?? new Map<string, ts.TypeNode>();
+
+      for (const member of stmt.members) {
+        if (ts.isGetAccessorDeclaration(member)) {
+          if (!member.name || !member.type) continue;
+          const name = getMemberName(member.name);
+          if (!name) continue;
+          members.set(name, member.type);
+          continue;
+        }
+
+        if (ts.isPropertyDeclaration(member)) {
+          if (!member.name || !member.type) continue;
+          const name = getMemberName(member.name);
+          if (!name) continue;
+          members.set(name, member.type);
+        }
+      }
+
+      if (members.size > 0) {
+        memberTypesByClassAndMember.set(className, members);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      fileKey,
+      wrapperImportsByLocalName,
+      typeImportsByLocalName,
+      typeAliasesByName,
+      memberTypesByClassAndMember,
+    },
+  };
+};
+
+const unwrapParens = (node: ts.TypeNode): ts.TypeNode => {
+  let current = node;
+  while (ts.isParenthesizedTypeNode(current)) {
+    current = current.type;
+  }
+  return current;
+};
+
+const collectExtensionWrapperImportsFromSourceType = (
+  opts: {
+    readonly startModuleKey: string;
+    readonly typeNode: ts.TypeNode;
+    readonly sourceIndexByFileKey: ReadonlyMap<string, ModuleSourceIndex>;
+    readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
+  }
+): Result<readonly WrapperImport[], string> => {
+  const wrappers: WrapperImport[] = [];
+
+  let currentModuleKey = opts.startModuleKey;
+  let currentNode: ts.TypeNode = opts.typeNode;
+  let subst = new Map<string, ts.TypeNode>();
+  const aliasStack: string[] = [];
+
+  while (true) {
+    currentNode = unwrapParens(currentNode);
+
+    if (!ts.isTypeReferenceNode(currentNode)) break;
+    if (!ts.isIdentifier(currentNode.typeName)) break;
+
+    const ident = currentNode.typeName.text;
+    const info = opts.sourceIndexByFileKey.get(currentModuleKey);
+    if (!info) break;
+
+    const substituted = subst.get(ident);
+    if (substituted) {
+      currentNode = substituted;
+      continue;
+    }
+
+    // Expand local or imported type aliases to reach wrapper chains.
+    const expandAlias = (
+      aliasKey: string,
+      alias: SourceTypeAliasDef,
+      typeArgs: readonly ts.TypeNode[]
+    ): void => {
+      const key = aliasKey;
+      if (aliasStack.includes(key)) return;
+      aliasStack.push(key);
+
+      if (alias.typeParameters.length === typeArgs.length) {
+        const next = new Map(subst);
+        for (let i = 0; i < alias.typeParameters.length; i += 1) {
+          const paramName = alias.typeParameters[i];
+          const arg = typeArgs[i];
+          if (!paramName || !arg) continue;
+          next.set(paramName, arg);
+        }
+        subst = next;
+      }
+
+      currentNode = alias.type;
+    };
+
+    const localAlias = info.typeAliasesByName.get(ident);
+    if (localAlias) {
+      expandAlias(`${currentModuleKey}:${ident}`, localAlias, currentNode.typeArguments ?? []);
+      continue;
+    }
+
+    const imported = info.typeImportsByLocalName.get(ident);
+    if (imported && (imported.source.startsWith(".") || imported.source.startsWith("/"))) {
+      const targetModule = resolveLocalModuleFile(imported.source, currentModuleKey, opts.modulesByFileKey);
+      if (targetModule) {
+        const targetKey = normalizeModuleFileKey(targetModule.filePath);
+        const targetInfo = opts.sourceIndexByFileKey.get(targetKey);
+        const targetAlias = targetInfo?.typeAliasesByName.get(imported.importedName);
+        if (targetAlias) {
+          currentModuleKey = targetKey;
+          expandAlias(
+            `${targetKey}:${imported.importedName}`,
+            targetAlias,
+            currentNode.typeArguments ?? []
+          );
+          continue;
+        }
+      }
+    }
+
+    const wrapperImport = info.wrapperImportsByLocalName.get(ident);
+    if (!wrapperImport) break;
+
+    const args = currentNode.typeArguments ?? [];
+    if (args.length !== 1) {
+      return {
+        ok: false,
+        error:
+          `ExtensionMethods wrapper '${ident}' must have exactly 1 type argument.\n` +
+          `Found: ${args.length} in ${currentModuleKey}.`,
+      };
+    }
+
+    wrappers.push({
+      source: wrapperImport.source,
+      importedName: wrapperImport.importedName,
+      localName: ident,
+      aliasName: `__TsonicExt_${ident}`,
+    });
+
+    currentNode = args[0]!;
+  }
+
+  return { ok: true, value: wrappers };
 };
 
 type TypePrinterContext = {
@@ -327,10 +751,7 @@ export const augmentLibraryBindingsFromSource = (
   const facadesByNamespace = new Map(indexFacadeFiles(bindingsOutDir));
   const modulesByFile = new Map<string, IrModule>();
   for (const m of modules) {
-    const key = posix
-      .normalize(m.filePath)
-      .replace(/^(\.\/)+/, "")
-      .replace(/^\/+/, "");
+    const key = normalizeModuleFileKey(m.filePath);
     modulesByFile.set(key, m);
   }
 
@@ -501,6 +922,72 @@ export const augmentLibraryBindingsFromSource = (
       const next = upsertSection(current, jsStart, jsEnd, valueStatements.join("\n"));
       writeFileSync(entryFacade.facadeJsPath, next, "utf-8");
     }
+  }
+
+  // 3) Preserve TS-authored extension wrapper annotations on exported class members.
+  // These wrapper types (ExtensionMethods<...>) do not exist in CLR metadata and therefore
+  // cannot be discovered by tsbindgen when generating bindings from the DLL. We can,
+  // however, safely re-apply them for Tsonic-authored libraries by reading the TS source
+  // graph and wrapping the CLR base member type in the published internal/index.d.ts.
+  const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
+  for (const m of modules) {
+    const key = normalizeModuleFileKey(m.filePath);
+    const absolutePath = resolve(absoluteSourceRoot, key);
+    const indexed = buildModuleSourceIndex(absolutePath, key);
+    if (!indexed.ok) return indexed;
+    sourceIndexByFileKey.set(key, indexed.value);
+  }
+
+  const overridesByInternalIndex = new Map<string, MemberOverride[]>();
+  for (const m of modules) {
+    const exportedClasses = m.body.filter(
+      (s): s is Extract<IrStatement, { kind: "classDeclaration" }> =>
+        s.kind === "classDeclaration" && s.isExported
+    );
+    if (exportedClasses.length === 0) continue;
+
+    const moduleKey = normalizeModuleFileKey(m.filePath);
+    const sourceIndex = sourceIndexByFileKey.get(moduleKey);
+    if (!sourceIndex) continue;
+
+    const info = facadesByNamespace.get(m.namespace) ?? ensureFacade(m.namespace);
+
+    for (const cls of exportedClasses) {
+      const memberTypes = sourceIndex.memberTypesByClassAndMember.get(cls.name);
+      if (!memberTypes) continue;
+
+      for (const member of cls.members) {
+        if (member.kind !== "propertyDeclaration") continue;
+        if (member.isStatic) continue;
+        if (member.accessibility === "private") continue;
+        const annotatedType = memberTypes.get(member.name);
+        if (!annotatedType) continue;
+
+        const wrappersResult = collectExtensionWrapperImportsFromSourceType({
+          startModuleKey: moduleKey,
+          typeNode: annotatedType,
+          sourceIndexByFileKey,
+          modulesByFileKey: modulesByFile,
+        });
+        if (!wrappersResult.ok) return wrappersResult;
+        const wrappers = wrappersResult.value;
+        if (wrappers.length === 0) continue;
+
+        const list = overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
+        list.push({
+          namespace: m.namespace,
+          className: cls.name,
+          memberName: member.name,
+          wrappers,
+        });
+        overridesByInternalIndex.set(info.internalIndexDtsPath, list);
+      }
+    }
+  }
+
+  for (const [internalIndex, overrides] of overridesByInternalIndex) {
+    const result = patchInternalIndexWithMemberOverrides(internalIndex, overrides);
+    if (!result.ok) return result;
   }
 
   return { ok: true, value: undefined };
