@@ -168,6 +168,14 @@ export interface Binding {
    */
   getTypePredicateOfSignature(sig: SignatureId): TypePredicateInfo | undefined;
 
+  /**
+   * Get the TypeScript `this:` parameter type node for a signature (if present).
+   *
+   * Used for airplane-grade lowering of extension-method calls emitted as method-table
+   * members with explicit `this:` receiver constraints.
+   */
+  getThisTypeNodeOfSignature(sig: SignatureId): ts.TypeNode | undefined;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -332,6 +340,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       signature,
       decl,
       parameters: extractParameterNodes(decl),
+      thisTypeNode: extractThisParameterTypeNode(decl),
       returnTypeNode,
       typeParameters: extractTypeParameterNodes(decl),
       declaringTypeTsName: declaringIdentity?.typeTsName,
@@ -354,15 +363,15 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
 
     const id = makeMemberId(ownerDeclId, memberName);
     const decl = memberSymbol.getDeclarations()?.[0];
-	    const entry: MemberEntry = {
-	      memberId: id,
-	      symbol: memberSymbol,
-	      decl,
-	      name: memberName,
-	      typeNode: decl ? getMemberTypeAnnotation(decl) : undefined,
-	      isOptional: isOptionalMember(memberSymbol),
-	      isReadonly: isReadonlyMember(decl),
-	    };
+    const entry: MemberEntry = {
+      memberId: id,
+      symbol: memberSymbol,
+      decl,
+      name: memberName,
+      typeNode: decl ? getMemberTypeAnnotation(decl) : undefined,
+      isOptional: isOptionalMember(memberSymbol),
+      isReadonly: isReadonlyMember(decl),
+    };
     memberMap.set(key, entry);
 
     return id;
@@ -941,6 +950,13 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     };
   };
 
+  const getThisTypeNodeOfSignature = (
+    sigId: SignatureId
+  ): ts.TypeNode | undefined => {
+    const entry = signatureMap.get(sigId.id);
+    return entry?.thisTypeNode;
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
   // HANDLE REGISTRY IMPLEMENTATION
   // ─────────────────────────────────────────────────────────────────────────
@@ -965,6 +981,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       if (!entry) return undefined;
       return {
         parameters: entry.parameters,
+        thisTypeNode: entry.thisTypeNode,
         returnTypeNode: entry.returnTypeNode,
         typeParameters: entry.typeParameters,
         // CRITICAL for Alice's spec: declaring identity for resolveCall()
@@ -1041,6 +1058,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     getSourceFilePathOfMember,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
+    getThisTypeNodeOfSignature,
     // Type syntax capture (Phase 2: TypeSyntaxId)
     captureTypeSyntax,
     captureTypeArgs,
@@ -1068,6 +1086,8 @@ interface SignatureEntry {
   readonly signature: ts.Signature;
   readonly decl?: ts.SignatureDeclaration;
   readonly parameters: readonly ParameterNode[];
+  /** Type node of a TypeScript `this:` parameter (if present). Excluded from `parameters`. */
+  readonly thisTypeNode?: ts.TypeNode;
   readonly returnTypeNode?: ts.TypeNode;
   readonly typeParameters?: readonly TypeParameterNode[];
   /**
@@ -1171,6 +1191,22 @@ const getReturnTypeNode = (
   return decl.type;
 };
 
+const isThisParameter = (p: ts.ParameterDeclaration): boolean => {
+  return ts.isIdentifier(p.name) && p.name.text === "this";
+};
+
+const extractThisParameterTypeNode = (
+  decl: ts.SignatureDeclaration | undefined
+): ts.TypeNode | undefined => {
+  if (!decl) return undefined;
+
+  const thisParam = decl.parameters.find(isThisParameter);
+  if (!thisParam) return undefined;
+
+  const normalized = normalizeParameterTypeNode(thisParam.type);
+  return normalized.typeNode;
+};
+
 /**
  * Extract and normalize parameter nodes from a signature declaration.
  *
@@ -1185,7 +1221,11 @@ const extractParameterNodes = (
   decl: ts.SignatureDeclaration | undefined
 ): readonly ParameterNode[] => {
   if (!decl) return [];
-  return decl.parameters.map((p) => {
+  // TypeScript `this:` parameters are not call arguments. Exclude them from arity,
+  // but keep the typeNode available via extractThisParameterTypeNode().
+  const params = decl.parameters.filter((p) => !isThisParameter(p));
+
+  return params.map((p) => {
     const normalized = normalizeParameterTypeNode(p.type);
     return {
       name: ts.isIdentifier(p.name) ? p.name.text : "param",

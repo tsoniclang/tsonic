@@ -320,6 +320,26 @@ export class BindingRegistry {
     const parsed = this.parseExtensionInterfaceName(extensionInterfaceName);
     if (!parsed) return undefined;
 
+    return this.resolveExtensionMethodByKey(
+      parsed.namespaceKey,
+      parsed.receiverTypeName,
+      methodTsName,
+      callArgumentCount
+    );
+  }
+
+  /**
+   * Resolve an extension method binding target by explicit (namespaceKey, receiverTypeName).
+   *
+   * Used when extension methods are emitted as method-table members with explicit `this:`
+   * receiver constraints (the declaring interface name no longer encodes the receiver type).
+   */
+  resolveExtensionMethodByKey(
+    namespaceKey: string,
+    receiverTypeName: string,
+    methodTsName: string,
+    callArgumentCount?: number
+  ): MemberBinding | undefined {
     type ResolveResult =
       | { readonly kind: "none" }
       | { readonly kind: "ambiguous" }
@@ -350,7 +370,7 @@ export class BindingRegistry {
 
     const resolveForReceiver = (receiverTypeName: string): ResolveResult => {
       const candidates = this.getExtensionMethodCandidates(
-        parsed.namespaceKey,
+        namespaceKey,
         receiverTypeName,
         methodTsName
       );
@@ -405,7 +425,7 @@ export class BindingRegistry {
     };
 
     // 1) Exact receiver match.
-    const direct = resolveForReceiver(parsed.receiverTypeName);
+    const direct = resolveForReceiver(receiverTypeName);
     if (direct.kind === "resolved") return direct.binding;
     if (direct.kind === "ambiguous") return undefined;
 
@@ -418,8 +438,8 @@ export class BindingRegistry {
     // - Prefer the closest base match (BFS).
     // - If multiple matches exist at the same depth with different CLR targets,
     //   treat as unresolved (unsafe).
-    const visited = new Set<string>([parsed.receiverTypeName]);
-    let frontier: readonly string[] = [parsed.receiverTypeName];
+    const visited = new Set<string>([receiverTypeName]);
+    let frontier: readonly string[] = [receiverTypeName];
 
     for (let depth = 0; depth < 20; depth++) {
       const next: string[] = [];

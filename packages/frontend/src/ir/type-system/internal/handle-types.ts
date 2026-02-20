@@ -88,6 +88,8 @@ export type DeclKind =
  */
 export interface SignatureInfo {
   readonly parameters: readonly ParameterNode[];
+  /** Type node of a TypeScript `this:` parameter (if present). Excluded from `parameters`. */
+  readonly thisTypeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly returnTypeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly typeParameters?: readonly TypeParameterNode[];
   /**

@@ -635,9 +635,7 @@ const resolveExtensionMethodsBinding = (
   if (!memberId) return undefined;
 
   const declaringTypeName = ctx.binding.getDeclaringTypeNameOfMember(memberId);
-  if (!declaringTypeName || !declaringTypeName.startsWith("__Ext_")) {
-    return undefined;
-  }
+  if (!declaringTypeName) return undefined;
 
   const callArgumentCount = (() => {
     const parent = node.parent;
@@ -647,12 +645,75 @@ const resolveExtensionMethodsBinding = (
     return undefined;
   })();
 
-  const resolved = ctx.bindings.resolveExtensionMethod(
-    declaringTypeName,
-    propertyName,
-    callArgumentCount
-  );
-  if (!resolved) return undefined;
+  const resolved = (() => {
+    // Legacy tsbindgen format: extension methods emitted on `__Ext_*` bucket interfaces.
+    if (declaringTypeName.startsWith("__Ext_")) {
+      return ctx.bindings.resolveExtensionMethod(
+        declaringTypeName,
+        propertyName,
+        callArgumentCount
+      );
+    }
+
+    // New format: extension methods emitted on method-table interfaces:
+    //   interface __TsonicExtMethods_System_Linq { Where(this: IQueryable_1<T>, ...): ... }
+    if (declaringTypeName.startsWith("__TsonicExtMethods_")) {
+      const namespaceKey = declaringTypeName.slice("__TsonicExtMethods_".length);
+      if (!namespaceKey) return undefined;
+
+      const parent = node.parent;
+      if (!ts.isCallExpression(parent) || parent.expression !== node) return undefined;
+
+      const sigId = ctx.binding.resolveCallSignature(parent);
+      if (!sigId) return undefined;
+
+      const thisTypeNode = ctx.binding.getThisTypeNodeOfSignature(sigId);
+      if (!thisTypeNode) return undefined;
+
+      const extractReceiverTypeName = (typeNode: ts.TypeNode): string | undefined => {
+        let current = typeNode;
+        while (ts.isParenthesizedTypeNode(current)) current = current.type;
+
+        if (ts.isTypeReferenceNode(current)) {
+          const tn = current.typeName;
+          if (ts.isIdentifier(tn)) return tn.text;
+          if (ts.isQualifiedName(tn)) return tn.right.text;
+        }
+
+        return undefined;
+      };
+
+      const receiverTypeName = extractReceiverTypeName(thisTypeNode);
+      if (!receiverTypeName) return undefined;
+
+      return ctx.bindings.resolveExtensionMethodByKey(
+        namespaceKey,
+        receiverTypeName,
+        propertyName,
+        callArgumentCount
+      );
+    }
+
+    return undefined;
+  })();
+
+  if (!resolved) {
+    // Airplane-grade: if the TS surface indicates this member comes from an extension-method
+    // module, failing to attach a CLR binding would emit an instance call that cannot exist
+    // at runtime. Treat as a hard error rather than miscompiling.
+    if (declaringTypeName.startsWith("__Ext_") || declaringTypeName.startsWith("__TsonicExtMethods_")) {
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN4004",
+          "error",
+          `Failed to resolve CLR extension-method binding for '${propertyName}' on '${declaringTypeName}'.`,
+          getSourceSpan(node),
+          "This indicates a mismatch between the generated .d.ts surface and bindings.json extension metadata. Regenerate bindings and ensure the correct packages are installed."
+        )
+      );
+    }
+    return undefined;
+  }
 
   // tsbindgen parameterModifiers indices include the extension receiver at index 0.
   // For instance-style calls, our call-site arguments exclude the receiver, so shift by -1.
