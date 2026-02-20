@@ -143,6 +143,32 @@ const structuralMembersCache = new Map<
 const typeAliasBodyCache = new Map<number, IrType | "in-progress">();
 
 /**
+ * Determine whether a TS-only type alias target is safe to erase to its underlying shape.
+ *
+ * We ONLY erase aliases whose targets are "reference-shaped" (type references / intersections
+ * / primitives / arrays, etc.). We intentionally DO NOT erase:
+ * - Union aliases (discriminated unions rely on the alias identity across lowering)
+ * - Tuple aliases (tuple alias resolution is handled via emitter-side type-alias resolution)
+ * - Type-literal aliases (structural alias → __Alias class; handled separately)
+ *
+ * This preserves the established lowering contracts while still enabling deterministic
+ * receiver-driven generic inference for aliases like:
+ *   type LinqList<T> = Linq<List<T>>;
+ */
+const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
+  // Peel parentheses (e.g., type X = (Y))
+  while (ts.isParenthesizedTypeNode(node)) {
+    node = node.type;
+  }
+
+  if (ts.isTypeLiteralNode(node)) return false;
+  if (ts.isUnionTypeNode(node)) return false;
+  if (ts.isTupleTypeNode(node)) return false;
+
+  return true;
+};
+
+/**
  * Check if a declaration should have structural members extracted.
  *
  * Only extract for:
@@ -691,7 +717,7 @@ export const convertTypeReference = (
         // which prevents interface/heritage-based inference through NominalEnv.
         if (
           !declNode.getSourceFile().isDeclarationFile &&
-          !ts.isTypeLiteralNode(declNode.type)
+          isSafeToEraseUserTypeAliasTarget(declNode.type)
         ) {
           const key = declId.id;
           const cached = typeAliasBodyCache.get(key);
