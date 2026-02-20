@@ -129,6 +129,20 @@ const structuralMembersCache = new Map<
 >();
 
 /**
+ * Cache for expanding non-declaration-file type aliases (TS-only) into their underlying shapes.
+ *
+ * Key: DeclId.id (numeric identifier)
+ * Value:
+ *  - IrType: the *uninstantiated* alias body converted to IR (with typeParameterType nodes)
+ *  - "in-progress": recursion guard for self-referential aliases
+ *
+ * NOTE:
+ * We intentionally cache the uninstantiated body and apply type-argument substitution at
+ * the reference site. This keeps the cache small and deterministic.
+ */
+const typeAliasBodyCache = new Map<number, IrType | "in-progress">();
+
+/**
  * Check if a declaration should have structural members extracted.
  *
  * Only extract for:
@@ -660,6 +674,62 @@ export const convertTypeReference = (
             }
 
             return fnType;
+          }
+        }
+
+        // User-defined type aliases are TS-only and have no CLR identity.
+        //
+        // For deterministic typing (especially generic inference), we must erase them to their
+        // underlying shapes.
+        //
+        // Example (extension methods):
+        //   type LinqList<T> = Linq<List<T>>;
+        //   const numbers = new List<int>() as unknown as LinqList<int>;
+        //   numbers.AsParallel(); // must infer TSource=int from the receiver
+        //
+        // Without this erasure, the receiver type becomes a non-nominal referenceType ("LinqList")
+        // which prevents interface/heritage-based inference through NominalEnv.
+        if (
+          !declNode.getSourceFile().isDeclarationFile &&
+          !ts.isTypeLiteralNode(declNode.type)
+        ) {
+          const key = declId.id;
+          const cached = typeAliasBodyCache.get(key);
+
+          if (cached === "in-progress") {
+            // Recursive alias expansion: fall through to the referenceType path to avoid infinite recursion.
+          } else {
+            const base =
+              cached ??
+              (() => {
+                typeAliasBodyCache.set(key, "in-progress");
+                const converted = convertType(declNode.type, binding);
+                typeAliasBodyCache.set(key, converted);
+                return converted;
+              })();
+
+            const aliasTypeParams = (declNode.typeParameters ?? []).map(
+              (tp) => tp.name.text
+            );
+            const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+              convertType(t, binding)
+            );
+
+            if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
+              const subst = new Map<string, IrType>();
+              for (
+                let i = 0;
+                i < Math.min(aliasTypeParams.length, refTypeArgs.length);
+                i++
+              ) {
+                const name = aliasTypeParams[i];
+                const arg = refTypeArgs[i];
+                if (name && arg) subst.set(name, arg);
+              }
+              return subst.size > 0 ? substituteIrType(base, subst) : base;
+            }
+
+            return base;
           }
         }
 
