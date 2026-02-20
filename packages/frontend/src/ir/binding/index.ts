@@ -176,6 +176,17 @@ export interface Binding {
    */
   getThisTypeNodeOfSignature(sig: SignatureId): ts.TypeNode | undefined;
 
+  /**
+   * Get the declaring TypeScript type name for a resolved signature (if present).
+   *
+   * For extension methods, this is the declaring interface/type that owns the selected
+   * overload signature (e.g., `__TsonicExtMethods_Microsoft_EntityFrameworkCore`).
+   *
+   * This is critical for airplane-grade extension method binding when the same method name
+   * exists in multiple extension namespaces (e.g., `ToArrayAsync` in BCL async LINQ vs EF Core).
+   */
+  getDeclaringTypeNameOfSignature(sig: SignatureId): string | undefined;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TYPE SYNTAX CAPTURE (Phase 2: TypeSyntaxId)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -566,7 +577,10 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         // Variable initializers: const f = (x) => ...
         if (ts.isVariableDeclaration(decl)) {
           const init = decl.initializer;
-          if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+          if (
+            init &&
+            (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+          ) {
             const sig = checker.getSignatureFromDeclaration(init);
             if (sig) return getOrCreateSignatureId(sig);
           }
@@ -620,7 +634,9 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
         const sym = checker.getSymbolAtLocation(expr);
         if (!sym) return false;
         const resolvedSym =
-          sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+          sym.flags & ts.SymbolFlags.Alias
+            ? checker.getAliasedSymbol(sym)
+            : sym;
         const decls = resolvedSym.getDeclarations() ?? [];
         for (const decl of decls) {
           const typeNode = getTypeNodeFromDeclaration(decl);
@@ -689,7 +705,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       }
     }
 
-    if (wantsStringAt.length === 0 && wantsCharAt.length === 0) return resolvedId;
+    if (wantsStringAt.length === 0 && wantsCharAt.length === 0)
+      return resolvedId;
 
     const scoreSignature = (sigId: SignatureId): number => {
       const entry = signatureMap.get(sigId.id);
@@ -751,7 +768,10 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     for (const decl of decls) {
       if (!ts.isFunctionLike(decl)) continue;
       // Exclude construct signatures / constructors for call expressions.
-      if (ts.isConstructSignatureDeclaration(decl) || ts.isConstructorDeclaration(decl)) {
+      if (
+        ts.isConstructSignatureDeclaration(decl) ||
+        ts.isConstructorDeclaration(decl)
+      ) {
         continue;
       }
 
@@ -801,7 +821,8 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
       const decl = resolvedSymbol?.getDeclarations()?.[0];
 
       const declaringTypeTsName = (() => {
-        if (decl && ts.isClassDeclaration(decl) && decl.name) return decl.name.text;
+        if (decl && ts.isClassDeclaration(decl) && decl.name)
+          return decl.name.text;
         if (resolvedSymbol) return resolvedSymbol.getName();
         if (ts.isIdentifier(expr)) return expr.text;
         if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
@@ -851,7 +872,10 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     for (const decl of decls) {
       if (!ts.isFunctionLike(decl)) continue;
       // Only include construct signatures / constructors for new expressions.
-      if (!ts.isConstructSignatureDeclaration(decl) && !ts.isConstructorDeclaration(decl)) {
+      if (
+        !ts.isConstructSignatureDeclaration(decl) &&
+        !ts.isConstructorDeclaration(decl)
+      ) {
         continue;
       }
 
@@ -885,16 +909,20 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     return getOrCreateDeclId(symbol);
   };
 
-  const getDeclaringTypeNameOfMember = (member: MemberId): string | undefined => {
+  const getDeclaringTypeNameOfMember = (
+    member: MemberId
+  ): string | undefined => {
     const key = `${member.declId.id}:${member.name}`;
     const entry = memberMap.get(key);
     const decl = entry?.decl;
     if (!decl) return undefined;
 
     const parent = decl.parent;
-    if (ts.isInterfaceDeclaration(parent) && parent.name) return parent.name.text;
+    if (ts.isInterfaceDeclaration(parent) && parent.name)
+      return parent.name.text;
     if (ts.isClassDeclaration(parent) && parent.name) return parent.name.text;
-    if (ts.isTypeAliasDeclaration(parent) && parent.name) return parent.name.text;
+    if (ts.isTypeAliasDeclaration(parent) && parent.name)
+      return parent.name.text;
 
     // tsbindgen static containers can be emitted as:
     //   export const Foo: { bar(...): ... }
@@ -904,7 +932,10 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     // name for binding disambiguation purposes.
     if (ts.isTypeLiteralNode(parent)) {
       const container = parent.parent;
-      if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
+      if (
+        ts.isVariableDeclaration(container) &&
+        ts.isIdentifier(container.name)
+      ) {
         return container.name.text;
       }
     }
@@ -955,6 +986,13 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
   ): ts.TypeNode | undefined => {
     const entry = signatureMap.get(sigId.id);
     return entry?.thisTypeNode;
+  };
+
+  const getDeclaringTypeNameOfSignature = (
+    sigId: SignatureId
+  ): string | undefined => {
+    const entry = signatureMap.get(sigId.id);
+    return entry?.declaringTypeTsName;
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1059,6 +1097,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     getFullyQualifiedName,
     getTypePredicateOfSignature,
     getThisTypeNodeOfSignature,
+    getDeclaringTypeNameOfSignature,
     // Type syntax capture (Phase 2: TypeSyntaxId)
     captureTypeSyntax,
     captureTypeArgs,
@@ -1460,7 +1499,10 @@ const extractDeclaringIdentity = (
     // TypeSystem can apply airplane-grade overload correction using CLR metadata.
     if (ts.isTypeLiteralNode(parent)) {
       const container = parent.parent;
-      if (ts.isVariableDeclaration(container) && ts.isIdentifier(container.name)) {
+      if (
+        ts.isVariableDeclaration(container) &&
+        ts.isIdentifier(container.name)
+      ) {
         const typeTsName = normalizeTsbindgenTypeName(container.name.text);
         return { typeTsName, memberName };
       }

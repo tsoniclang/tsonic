@@ -262,7 +262,10 @@ export class BindingRegistry {
   private readonly members = new Map<string, MemberBinding>(); // Flat lookup by "type.member"
   private readonly memberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by "type.member"
   private readonly clrMemberOverloads = new Map<string, MemberBinding[]>(); // Overload-aware lookup by CLR target key
-  private readonly tsbindgenExports = new Map<string, Map<string, TsbindgenExport>>();
+  private readonly tsbindgenExports = new Map<
+    string,
+    Map<string, TsbindgenExport>
+  >();
   private readonly tsSupertypes = new Map<string, Set<string>>();
 
   /**
@@ -359,7 +362,8 @@ export class BindingRegistry {
     };
 
     const getModifiersKey = (binding: MemberBinding): string => {
-      const mods = (binding.parameterModifiers ?? []) as readonly ParameterModifier[];
+      const mods = (binding.parameterModifiers ??
+        []) as readonly ParameterModifier[];
       if (!Array.isArray(mods) || mods.length === 0) return "";
       return [...mods]
         .slice()
@@ -485,7 +489,9 @@ export class BindingRegistry {
 
   private parseExtensionInterfaceName(
     extensionInterfaceName: string
-  ): { readonly namespaceKey: string; readonly receiverTypeName: string } | undefined {
+  ):
+    | { readonly namespaceKey: string; readonly receiverTypeName: string }
+    | undefined {
     if (!extensionInterfaceName.startsWith("__Ext_")) return undefined;
     const rest = extensionInterfaceName.slice("__Ext_".length);
 
@@ -493,7 +499,10 @@ export class BindingRegistry {
     let bestNamespaceKey: string | undefined;
     for (const namespaceKey of this.extensionMethods.keys()) {
       if (rest.startsWith(`${namespaceKey}_`)) {
-        if (!bestNamespaceKey || namespaceKey.length > bestNamespaceKey.length) {
+        if (
+          !bestNamespaceKey ||
+          namespaceKey.length > bestNamespaceKey.length
+        ) {
           bestNamespaceKey = namespaceKey;
         }
       }
@@ -587,8 +596,9 @@ export class BindingRegistry {
 
           // Index extension methods by (declaring namespace, receiver type, method name).
           if (method.isExtensionMethod && method.normalizedSignature) {
-            const receiverTypeName =
-              extractExtensionReceiverType(method.normalizedSignature);
+            const receiverTypeName = extractExtensionReceiverType(
+              method.normalizedSignature
+            );
             const namespaceKey = extractNamespaceKey(method.declaringClrType);
             if (receiverTypeName && namespaceKey) {
               const nsMap =
@@ -808,7 +818,9 @@ export class BindingRegistry {
     clrType: string,
     clrMember: string
   ): readonly MemberBinding[] | undefined {
-    return this.clrMemberOverloads.get(makeClrMemberKey(assembly, clrType, clrMember));
+    return this.clrMemberOverloads.get(
+      makeClrMemberKey(assembly, clrType, clrMember)
+    );
   }
 
   /**

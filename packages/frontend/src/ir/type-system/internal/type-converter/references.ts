@@ -478,6 +478,17 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
+  // `Rewrap<TReceiver, TNewShape>` is a TS-only helper used by generated extension method
+  // surfaces to keep extension scopes sticky across fluent chains.
+  //
+  // For IR typing / runtime shape, it MUST erase to the new shape. We intentionally do not
+  // attempt to interpret the `TReceiver` argument here (it is often `this`, which is not a
+  // resolvable CLR type in IR conversion).
+  if (typeName === "Rewrap" && node.typeArguments?.length === 2) {
+    const newShape = node.typeArguments[1];
+    return newShape ? convertType(newShape, binding) : { kind: "unknownType" };
+  }
+
   // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
   // These are type aliases that should NOT be resolved - we preserve them
   // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.
@@ -535,7 +546,9 @@ export const convertTypeReference = (
             : undefined;
         if (!typeElements) return undefined;
 
-        const indexSignatures = typeElements.filter(ts.isIndexSignatureDeclaration);
+        const indexSignatures = typeElements.filter(
+          ts.isIndexSignatureDeclaration
+        );
         const otherMembers = typeElements.filter(
           (m) => !ts.isIndexSignatureDeclaration(m)
         );
@@ -615,7 +628,11 @@ export const convertTypeReference = (
           if (declNode.getSourceFile().isDeclarationFile) {
             // Fall through to the referenceType emission at the end of this function.
           } else {
-            const fnType = convertFunctionType(declNode.type, binding, convertType);
+            const fnType = convertFunctionType(
+              declNode.type,
+              binding,
+              convertType
+            );
 
             // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
             // apply the reference site's type arguments so lambdas get a fully-instantiated
@@ -671,7 +688,10 @@ export const convertTypeReference = (
               ? param.default.typeName.text
               : param.default.typeName.getText()) === "__";
 
-          if (hasTsbindgenDefaultSentinel && ts.isConditionalTypeNode(declNode.type)) {
+          if (
+            hasTsbindgenDefaultSentinel &&
+            ts.isConditionalTypeNode(declNode.type)
+          ) {
             const expected = `${typeName}_${node.typeArguments.length}`;
             let found: string | undefined;
 
@@ -708,7 +728,9 @@ export const convertTypeReference = (
               return {
                 kind: "referenceType",
                 name: found,
-                typeArguments: node.typeArguments.map((t) => convertType(t, binding)),
+                typeArguments: node.typeArguments.map((t) =>
+                  convertType(t, binding)
+                ),
               };
             }
           }
@@ -735,7 +757,9 @@ export const convertTypeReference = (
   // identity stable for member lookup and generic substitution.
   const resolvedName = (() => {
     if (!declId) return typeName;
-    const declInfo = (binding as BindingInternal)._getHandleRegistry().getDecl(declId);
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
 
