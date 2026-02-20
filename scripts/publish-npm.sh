@@ -3,10 +3,12 @@ set -euo pipefail
 
 # Publish @tsonic/* packages and tsonic wrapper to npm
 #
-# Usage: ./scripts/publish-npm.sh [--ignore-branches-ahead]
+# Usage: ./scripts/publish-npm.sh [--ignore-branches-ahead] [--skip-tests]
 #
 # Options:
 #   --ignore-branches-ahead  Skip check for local branches ahead of main
+#   --skip-tests             Skip running tests iff a full unfiltered ./test/scripts/run-all.sh
+#                            stamp exists for the current HEAD commit.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -16,10 +18,14 @@ NODEJS_CLR_DIR="$(cd "$ROOT_DIR/../nodejs-clr" && pwd)"
 
 # Parse arguments
 IGNORE_BRANCHES_AHEAD=false
+SKIP_TESTS=false
 for arg in "$@"; do
     case $arg in
         --ignore-branches-ahead)
             IGNORE_BRANCHES_AHEAD=true
+            ;;
+        --skip-tests)
+            SKIP_TESTS=true
             ;;
     esac
 done
@@ -314,9 +320,54 @@ echo "  Copied all runtime DLLs ✓"
 echo "=== Building all packages ==="
 ./scripts/build/all.sh --no-format
 
-echo "=== Running ALL tests (unit, golden, E2E) ==="
-./test/scripts/run-all.sh
-echo "All tests passed"
+if [ "$SKIP_TESTS" = true ]; then
+    echo "=== Skipping tests (--skip-tests) ==="
+    STAMP_FILE="$ROOT_DIR/.tests/run-all-last-success.json"
+    HEAD_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+
+    if [ ! -f "$STAMP_FILE" ]; then
+        echo "Error: --skip-tests requested but no test stamp found: $STAMP_FILE"
+        echo "Run: ./test/scripts/run-all.sh"
+        exit 1
+    fi
+
+    STAMP_OK="$(
+        node -e '
+          const fs = require("fs");
+          const stampPath = process.argv[1];
+          const head = process.argv[2];
+          try {
+            const s = JSON.parse(fs.readFileSync(stampPath, "utf8"));
+            const args = s.args ?? {};
+            const full = args.quick === false
+              && args.skipUnit === false
+              && Array.isArray(args.filters)
+              && args.filters.length === 0
+              && args.resume === false;
+            const ok = s.gitHead === head && s.gitDirty === false && full;
+            process.stdout.write(ok ? "1" : "0");
+          } catch {
+            process.stdout.write("0");
+          }
+        ' "$STAMP_FILE" "$HEAD_SHA"
+    )"
+
+    if [ "$STAMP_OK" != "1" ]; then
+        STAMP_HEAD="$(node -e 'const fs=require("fs"); try{const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(s.gitHead ?? ""));}catch{}' "$STAMP_FILE")"
+        echo "Error: Cannot skip tests - no full-pass stamp for this commit."
+        echo "  HEAD:  $HEAD_SHA"
+        echo "  stamp: ${STAMP_HEAD:-<missing>}"
+        echo "Run: ./test/scripts/run-all.sh"
+        exit 1
+    fi
+
+    echo "  Verified full test stamp for HEAD ✓"
+else
+    echo "=== Running ALL tests (unit, golden, E2E) ==="
+    ./test/scripts/run-all.sh
+    echo "All tests passed"
+fi
+
 CLI_VERSION=$(node -p "require('./packages/cli/package.json').version")
 
 # ============================================================
