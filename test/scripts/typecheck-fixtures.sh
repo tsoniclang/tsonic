@@ -16,6 +16,14 @@ FIXTURES_DIR="$ROOT_DIR/test/fixtures"
 
 FILTER_PATTERNS=()
 
+CHECKPOINT_ROOT="${TSONIC_TEST_CHECKPOINT_DIR:-}"
+RESUME_MODE="${TSONIC_TEST_RESUME:-0}"
+TYPECHECK_CACHE_DIR=""
+if [ -n "$CHECKPOINT_ROOT" ]; then
+  TYPECHECK_CACHE_DIR="$CHECKPOINT_ROOT/typecheck"
+  mkdir -p "$TYPECHECK_CACHE_DIR"
+fi
+
 print_help() {
   cat <<EOF
 Usage: ./test/scripts/typecheck-fixtures.sh [--filter <pattern>]
@@ -143,6 +151,12 @@ for fixture_dir in "$FIXTURES_DIR"/*/; do
     continue
   fi
 
+  if [ "$RESUME_MODE" = "1" ] && [ -n "$TYPECHECK_CACHE_DIR" ] && [ -f "$TYPECHECK_CACHE_DIR/$fixture_name.pass" ]; then
+    echo "  $fixture_name: SKIP (cached PASS)"
+    passed=$((passed + 1))
+    continue
+  fi
+
   entry="$fixture_dir/packages/$fixture_name/src/index.ts"
   if [ ! -f "$entry" ]; then
     echo "  $fixture_name: SKIP (no packages/<project>/src/index.ts)"
@@ -201,10 +215,22 @@ EOF
   if "$TSC" -p "$tsconfig_file" >"$out_file" 2>&1; then
     echo "  $fixture_name: PASS"
     passed=$((passed + 1))
+    if [ -n "$TYPECHECK_CACHE_DIR" ]; then
+      tmp="$TYPECHECK_CACHE_DIR/$fixture_name.pass.tmp"
+      printf "%s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >"$tmp"
+      mv "$tmp" "$TYPECHECK_CACHE_DIR/$fixture_name.pass"
+      rm -f "$TYPECHECK_CACHE_DIR/$fixture_name.fail" 2>/dev/null || true
+    fi
   else
     echo "  $fixture_name: FAIL"
     failed=$((failed + 1))
     sed -n '1,200p' "$out_file"
+    if [ -n "$TYPECHECK_CACHE_DIR" ]; then
+      tmp="$TYPECHECK_CACHE_DIR/$fixture_name.fail.tmp"
+      printf "%s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >"$tmp"
+      mv "$tmp" "$TYPECHECK_CACHE_DIR/$fixture_name.fail"
+      rm -f "$TYPECHECK_CACHE_DIR/$fixture_name.pass" 2>/dev/null || true
+    fi
   fi
 done
 

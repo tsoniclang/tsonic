@@ -6,6 +6,8 @@
 #   --no-unit: Skip unit/golden tests (fixtures only). Intended for iteration.
 #   --filter: Run only matching E2E fixtures (substring match on fixture name).
 #             Can be repeated, or use comma-separated patterns.
+#   --resume: Resume from a previous (aborted) run for the same commit+args by
+#             skipping already-passed unit/golden tests and already-passed fixtures.
 #
 # Environment variables:
 #   TEST_CONCURRENCY: Number of parallel E2E tests (default: 4)
@@ -44,17 +46,20 @@ RUNTIME_SYNC_STATUS="unknown"
 
 QUICK_MODE=false
 SKIP_UNIT=false
+RESUME_MODE=false
 FILTER_PATTERNS=()
 
 print_help() {
     cat <<EOF
-Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--filter <pattern>]
+Usage: ./test/scripts/run-all.sh [--quick] [--no-unit] [--filter <pattern>] [--resume]
 
 Options:
   --quick                Skip E2E tests (unit + golden + fixture typecheck only).
   --no-unit              Skip unit + golden tests (fixtures only). Intended for iteration.
   --filter <pattern>     Only run E2E fixtures whose directory name contains <pattern>.
                          Can be repeated, or comma-separated (e.g. --filter linq,efcore).
+  --resume               Resume from a previous (aborted) run for the same commit+args.
+                         Skips already-passed unit/golden tests and already-passed fixtures.
   -h, --help             Show this help.
 
 Notes:
@@ -72,6 +77,10 @@ while [ $# -gt 0 ]; do
             ;;
         --no-unit)
             SKIP_UNIT=true
+            shift
+            ;;
+        --resume)
+            RESUME_MODE=true
             shift
             ;;
         --filter)
@@ -126,8 +135,57 @@ matches_filter() {
 mkdir -p "$ROOT_DIR/.tests"
 LOG_FILE="$ROOT_DIR/.tests/run-all-$(date +%Y%m%d-%H%M%S).log"
 
+# ============================================================
+# Resume/Checkpoint cache (per commit + args)
+# ============================================================
+GIT_HEAD="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+FILTERS_CANON_JSON="$(
+    node -e '
+      const raws = process.argv.slice(1);
+      const parts = [];
+      for (const r of raws) {
+        for (const p of String(r).split(",")) {
+          const t = p.trim();
+          if (t) parts.push(t);
+        }
+      }
+      const uniq = [...new Set(parts)].sort();
+      process.stdout.write(JSON.stringify(uniq));
+    ' "${FILTER_PATTERNS[@]}" 2>/dev/null || echo "[]"
+)"
+
+ARGS_HASH="$(
+    node -e '
+      const crypto = require("node:crypto");
+      const quick = process.argv[1] === "1";
+      const skipUnit = process.argv[2] === "1";
+      const filters = JSON.parse(process.argv[3] ?? "[]");
+      const args = { quick, skipUnit, filters };
+      process.stdout.write(crypto.createHash("sha256").update(JSON.stringify(args)).digest("hex"));
+    ' "$([ "$QUICK_MODE" = true ] && echo 1 || echo 0)" "$([ "$SKIP_UNIT" = true ] && echo 1 || echo 0)" "$FILTERS_CANON_JSON" 2>/dev/null || echo ""
+)"
+
+if [ -n "$GIT_HEAD" ] && [ -n "$ARGS_HASH" ]; then
+    CACHE_DIR="$ROOT_DIR/.tests/run-all-cache/$GIT_HEAD/$ARGS_HASH"
+    if [ "$RESUME_MODE" = true ]; then
+        mkdir -p "$CACHE_DIR"
+    else
+        rm -rf "$CACHE_DIR" 2>/dev/null || true
+        mkdir -p "$CACHE_DIR"
+    fi
+else
+    # Non-git/dev environments: resume isn't safe/meaningful.
+    RESUME_MODE=false
+    CACHE_DIR="$ROOT_DIR/.tests/run-all-cache/_nogit/$(date +%s)"
+    rm -rf "$CACHE_DIR" 2>/dev/null || true
+    mkdir -p "$CACHE_DIR"
+fi
+
 echo "=== Tsonic Test Suite ===" | tee "$LOG_FILE"
 echo "Started: $(date)" | tee -a "$LOG_FILE"
+if [ "$RESUME_MODE" = true ]; then
+    echo -e "${YELLOW}NOTE: RESUME MODE. Already-passed unit/golden tests and fixtures will be skipped.${NC}" | tee -a "$LOG_FILE"
+fi
 if [ ${#FILTER_PATTERNS[@]} -gt 0 ]; then
     echo -e "${YELLOW}NOTE: FILTERED RUN (${FILTER_PATTERNS[*]}). Do not use this as the final verification.${NC}" | tee -a "$LOG_FILE"
 fi
@@ -146,7 +204,7 @@ if [ "$SKIP_UNIT" = true ]; then
     echo -e "${YELLOW}SKIP: unit + golden tests (--no-unit)${NC}" | tee -a "$LOG_FILE"
     UNIT_STATUS="skipped"
 else
-    if npm test 2>&1 | tee -a "$LOG_FILE"; then
+    if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" npm test 2>&1 | tee -a "$LOG_FILE"; then
         UNIT_STATUS="passed"
     else
         UNIT_STATUS="failed"
@@ -181,7 +239,7 @@ for pat in "${FILTER_PATTERNS[@]}"; do
     typecheck_cmd+=(--filter "$pat")
 done
 
-if "${typecheck_cmd[@]}" 2>&1 | tee -a "$LOG_FILE"; then
+if TSONIC_TEST_CHECKPOINT_DIR="$CACHE_DIR" TSONIC_TEST_RESUME="$([ "$RESUME_MODE" = true ] && echo 1 || echo 0)" "${typecheck_cmd[@]}" 2>&1 | tee -a "$LOG_FILE"; then
     TSC_STATUS="passed"
 else
     TSC_STATUS="failed"
@@ -226,9 +284,9 @@ else
     FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
     CLI_PATH="$ROOT_DIR/packages/cli/dist/index.js"
 
-    # Temp directory for parallel results
-    RESULTS_DIR=$(mktemp -d)
-    trap "rm -rf $RESULTS_DIR" EXIT
+    # Persistent directory for per-fixture results (enables --resume).
+    RESULTS_DIR="$CACHE_DIR/e2e"
+    mkdir -p "$RESULTS_DIR"
 
     # Function to run a single E2E dotnet test (prints result immediately)
     run_dotnet_test() {
@@ -239,6 +297,14 @@ else
         local result_file="$results_dir/$fixture_name"
         local error_file="$results_dir/${fixture_name}.error"
         local result=""
+
+        if [ "$RESUME_MODE" = true ] && [ -f "$result_file" ]; then
+            prev=$(cat "$result_file" 2>/dev/null || true)
+            if [[ "$prev" == PASS* ]]; then
+                echo -e "  $fixture_name: \033[1;33mSKIP (cached PASS)\033[0m"
+                return
+            fi
+        fi
 
         cd "$fixture_dir"
 
@@ -492,6 +558,14 @@ else
         local result_file="$results_dir/neg_$fixture_name"
         local result=""
 
+        if [ "$RESUME_MODE" = true ] && [ -f "$result_file" ]; then
+            prev=$(cat "$result_file" 2>/dev/null || true)
+            if [[ "$prev" == PASS* ]]; then
+                echo -e "  $fixture_name: \033[1;33mSKIP (cached PASS)\033[0m"
+                return
+            fi
+        fi
+
         # Find config
         if [ ! -f "$fixture_dir/tsonic.workspace.json" ]; then
             result="FAIL (no config)"
@@ -637,6 +711,39 @@ if [ $TOTAL_FAILED -gt 0 ]; then
     echo -e "${RED}SOME TESTS FAILED${NC}" | tee -a "$LOG_FILE"
     exit 1
 else
+    # Write a "full test pass" stamp that publishing can trust to skip re-running tests.
+    #
+    # Airplane-grade rule:
+    # - Only stamp unfiltered, full runs (no --quick, no --no-unit, no --filter).
+    # - Never overwrite the stamp on filtered/partial runs.
+    if [ "$QUICK_MODE" = false ] && [ "$SKIP_UNIT" = false ] && [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
+        STAMP_FILE="$ROOT_DIR/.tests/run-all-last-success.json"
+        GIT_HEAD="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+        GIT_DIRTY="$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null || true)"
+        if [ -z "$GIT_DIRTY" ] && [ -n "$GIT_HEAD" ]; then
+            STAMP_TMP="${STAMP_FILE}.tmp"
+            STAMP_TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            cat >"$STAMP_TMP" <<EOF
+{
+  "gitHead": "$GIT_HEAD",
+  "gitDirty": false,
+  "timestamp": "$STAMP_TS",
+  "logFile": "$LOG_FILE",
+  "args": {
+    "quick": false,
+    "skipUnit": false,
+    "filters": [],
+    "resume": $([ "$RESUME_MODE" = true ] && echo true || echo false)
+  }
+}
+EOF
+            mv "$STAMP_TMP" "$STAMP_FILE"
+            echo "Full test stamp written to: $STAMP_FILE" | tee -a "$LOG_FILE"
+        elif [ -n "$GIT_HEAD" ]; then
+            echo -e "${YELLOW}NOTE: Full test stamp not written because repo has uncommitted changes.${NC}" | tee -a "$LOG_FILE"
+        fi
+    fi
+
     echo "" | tee -a "$LOG_FILE"
     echo -e "${GREEN}ALL TESTS PASSED${NC}" | tee -a "$LOG_FILE"
     exit 0
