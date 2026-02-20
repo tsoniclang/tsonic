@@ -124,7 +124,9 @@ const getDeclaredPropertyType = (
  *
  * The goal is to preserve deterministic proof behavior without heuristics.
  */
-const normalizeForComputedAccess = (type: IrType | undefined): IrType | undefined => {
+const normalizeForComputedAccess = (
+  type: IrType | undefined
+): IrType | undefined => {
   if (!type) return undefined;
 
   if (type.kind === "unionType") {
@@ -145,7 +147,9 @@ const normalizeForComputedAccess = (type: IrType | undefined): IrType | undefine
     const pick =
       type.types.find((t) => t.kind === "arrayType") ??
       type.types.find((t) => t.kind === "dictionaryType") ??
-      type.types.find((t) => t.kind === "primitiveType" && t.name === "string") ??
+      type.types.find(
+        (t) => t.kind === "primitiveType" && t.name === "string"
+      ) ??
       type.types.find((t) => t.kind === "referenceType");
 
     return pick ? normalizeForComputedAccess(pick) : type;
@@ -344,7 +348,9 @@ const resolveHierarchicalBinding = (
     };
 
     const modsKey = getModifiersKey(first);
-    const modsConsistent = overloads.every((m) => getModifiersKey(m) === modsKey);
+    const modsConsistent = overloads.every(
+      (m) => getModifiersKey(m) === modsKey
+    );
 
     return {
       assembly: first.binding.assembly,
@@ -353,7 +359,9 @@ const resolveHierarchicalBinding = (
       // IMPORTANT: Only attach parameterModifiers if consistent across all overloads.
       // Overloads can differ in ref/out/in, and those must be selected at call time.
       parameterModifiers:
-        modsConsistent && first.parameterModifiers && first.parameterModifiers.length > 0
+        modsConsistent &&
+        first.parameterModifiers &&
+        first.parameterModifiers.length > 0
           ? first.parameterModifiers
           : undefined,
       isExtensionMethod: first.isExtensionMethod,
@@ -381,7 +389,10 @@ const resolveHierarchicalBinding = (
       registry.getType(object.name) ??
       (object.originalName ? registry.getType(object.originalName) : undefined);
     if (directType) {
-      const overloads = registry.getMemberOverloads(directType.alias, propertyName);
+      const overloads = registry.getMemberOverloads(
+        directType.alias,
+        propertyName
+      );
       if (!overloads || overloads.length === 0) return undefined;
       return toIrMemberBinding(overloads);
     }
@@ -397,7 +408,10 @@ const resolveHierarchicalBinding = (
         const type = namespace.types.find((t) => t.alias === object.property);
         if (type) {
           // The object is a type reference (namespace.type), now check if property is a member
-          const overloads = registry.getMemberOverloads(type.alias, propertyName);
+          const overloads = registry.getMemberOverloads(
+            type.alias,
+            propertyName
+          );
           if (!overloads || overloads.length === 0) return undefined;
           return toIrMemberBinding(overloads);
         }
@@ -462,7 +476,9 @@ const disambiguateOverloadsByDeclaringType = (
   }) as { readonly clrName?: unknown } | undefined;
 
   const expectedClrType =
-    typeEntry && typeof typeEntry.clrName === "string" ? typeEntry.clrName : undefined;
+    typeEntry && typeof typeEntry.clrName === "string"
+      ? typeEntry.clrName
+      : undefined;
   if (!expectedClrType) return undefined;
 
   const filtered = overloads.filter((m) => m.binding.type === expectedClrType);
@@ -543,7 +559,9 @@ const resolveHierarchicalBindingFromMemberId = (
 
   let overloads: readonly MemberBinding[] = overloadsAll;
   const targetKeys = new Set(
-    overloads.map((m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`)
+    overloads.map(
+      (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}`
+    )
   );
   if (targetKeys.size > 1) {
     const disambiguated = disambiguateOverloadsByDeclaringType(
@@ -563,7 +581,9 @@ const resolveHierarchicalBindingFromMemberId = (
   const targetKey = `${first.binding.assembly}:${first.binding.type}::${first.binding.member}`;
   if (
     overloads.some(
-      (m) => `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !== targetKey
+      (m) =>
+        `${m.binding.assembly}:${m.binding.type}::${m.binding.member}` !==
+        targetKey
     )
   ) {
     const declSourceFilePath = ctx.binding.getSourceFilePathOfMember(memberId);
@@ -576,7 +596,11 @@ const resolveHierarchicalBindingFromMemberId = (
     // TS declaration source (tsbindgen packages). Otherwise, fall back to "no binding"
     // and let local codepaths handle naming policy.
     if (bindingsPath) {
-      const targets = [...new Set(overloads.map((m) => `${m.binding.type}.${m.binding.member}`))]
+      const targets = [
+        ...new Set(
+          overloads.map((m) => `${m.binding.type}.${m.binding.member}`)
+        ),
+      ]
         .sort()
         .join(", ");
 
@@ -611,7 +635,9 @@ const resolveHierarchicalBindingFromMemberId = (
     type: first.binding.type,
     member: first.binding.member,
     parameterModifiers:
-      modsConsistent && first.parameterModifiers && first.parameterModifiers.length > 0
+      modsConsistent &&
+      first.parameterModifiers &&
+      first.parameterModifiers.length > 0
         ? first.parameterModifiers
         : undefined,
     isExtensionMethod: first.isExtensionMethod,
@@ -635,9 +661,7 @@ const resolveExtensionMethodsBinding = (
   if (!memberId) return undefined;
 
   const declaringTypeName = ctx.binding.getDeclaringTypeNameOfMember(memberId);
-  if (!declaringTypeName || !declaringTypeName.startsWith("__Ext_")) {
-    return undefined;
-  }
+  if (!declaringTypeName) return undefined;
 
   const callArgumentCount = (() => {
     const parent = node.parent;
@@ -647,12 +671,113 @@ const resolveExtensionMethodsBinding = (
     return undefined;
   })();
 
-  const resolved = ctx.bindings.resolveExtensionMethod(
-    declaringTypeName,
-    propertyName,
-    callArgumentCount
-  );
-  if (!resolved) return undefined;
+  // Debug/diagnostic context for airplane-grade failures.
+  // These are populated during resolution and surfaced only if resolution fails.
+  let sigDeclaringTypeNameForError: string | undefined;
+  let namespaceKeyForError: string | undefined;
+  let receiverTypeNameForError: string | undefined;
+
+  const resolved = (() => {
+    const parent = node.parent;
+    if (!ts.isCallExpression(parent) || parent.expression !== node)
+      return undefined;
+
+    const sigId = ctx.binding.resolveCallSignature(parent);
+    if (!sigId) return undefined;
+
+    // IMPORTANT (airplane-grade): the same TS member name can exist in multiple extension
+    // namespaces (e.g., BCL async LINQ and EF Core both define ToArrayAsync). When the
+    // receiver expression is not an identifier, `resolvePropertyAccess` can key the member
+    // entry off the member symbol itself, which merges declarations. Always anchor to the
+    // resolved signature’s declaring type to choose the correct CLR extension binding.
+    const sigDeclaringTypeName =
+      ctx.binding.getDeclaringTypeNameOfSignature(sigId);
+    sigDeclaringTypeNameForError = sigDeclaringTypeName;
+    if (!sigDeclaringTypeName) return undefined;
+
+    // Legacy tsbindgen format: extension methods emitted on `__Ext_*` bucket interfaces.
+    if (sigDeclaringTypeName.startsWith("__Ext_")) {
+      return ctx.bindings.resolveExtensionMethod(
+        sigDeclaringTypeName,
+        propertyName,
+        callArgumentCount
+      );
+    }
+
+    // New format: extension methods emitted on method-table interfaces:
+    //   interface __TsonicExtMethods_System_Linq { Where(this: IQueryable_1<T>, ...): ... }
+    if (sigDeclaringTypeName.startsWith("__TsonicExtMethods_")) {
+      const namespaceKey = sigDeclaringTypeName.slice(
+        "__TsonicExtMethods_".length
+      );
+      namespaceKeyForError = namespaceKey;
+      if (!namespaceKey) return undefined;
+
+      const thisTypeNode = ctx.binding.getThisTypeNodeOfSignature(sigId);
+      if (!thisTypeNode) return undefined;
+
+      const extractReceiverTypeName = (
+        typeNode: ts.TypeNode
+      ): string | undefined => {
+        let current = typeNode;
+        while (ts.isParenthesizedTypeNode(current)) current = current.type;
+
+        if (ts.isTypeReferenceNode(current)) {
+          const tn = current.typeName;
+          if (ts.isIdentifier(tn)) return tn.text;
+          if (ts.isQualifiedName(tn)) return tn.right.text;
+        }
+
+        return undefined;
+      };
+
+      const receiverTypeName = extractReceiverTypeName(thisTypeNode);
+      receiverTypeNameForError = receiverTypeName;
+      if (!receiverTypeName) return undefined;
+
+      return ctx.bindings.resolveExtensionMethodByKey(
+        namespaceKey,
+        receiverTypeName,
+        propertyName,
+        callArgumentCount
+      );
+    }
+
+    return undefined;
+  })();
+
+  if (!resolved) {
+    // Airplane-grade: if the TS surface indicates this member comes from an extension-method
+    // module, failing to attach a CLR binding would emit an instance call that cannot exist
+    // at runtime. Treat as a hard error rather than miscompiling.
+    if (
+      declaringTypeName.startsWith("__Ext_") ||
+      declaringTypeName.startsWith("__TsonicExtMethods_")
+    ) {
+      const detail = [
+        sigDeclaringTypeNameForError
+          ? `Resolved signature declares: '${sigDeclaringTypeNameForError}'.`
+          : "Resolved signature declaring type: <unknown>.",
+        namespaceKeyForError
+          ? `Namespace key: '${namespaceKeyForError}'.`
+          : "Namespace key: <unknown>.",
+        receiverTypeNameForError
+          ? `Receiver type: '${receiverTypeNameForError}'.`
+          : "Receiver type: <unknown>.",
+      ].join(" ");
+
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN4004",
+          "error",
+          `Failed to resolve CLR extension-method binding for '${propertyName}' on '${declaringTypeName}'. ${detail}`,
+          getSourceSpan(node),
+          "This indicates a mismatch between the generated .d.ts surface and bindings.json extension metadata. Regenerate bindings and ensure the correct packages are installed."
+        )
+      );
+    }
+    return undefined;
+  }
 
   // tsbindgen parameterModifiers indices include the extension receiver at index 0.
   // For instance-style calls, our call-site arguments exclude the receiver, so shift by -1.
@@ -762,8 +887,9 @@ export const convertMemberExpression = (
     // receiver as a static type, enabling global::Type.Member emission.
     const isNamespaceTypeReference =
       object.kind === "identifier" &&
-      ctx.bindings.getNamespace(object.name)?.types.some((t) => t.alias === propertyName) ===
-        true;
+      ctx.bindings
+        .getNamespace(object.name)
+        ?.types.some((t) => t.alias === propertyName) === true;
 
     // DETERMINISTIC TYPING: Set inferredType for validation passes (like numeric proof).
     // The emitter uses memberBinding separately for C# casing (e.g., length -> Length).

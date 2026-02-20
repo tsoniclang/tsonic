@@ -1,0 +1,4 @@
+{
+  "modes": ["dotnet"],
+  "description": "EF Core + LINQ async extension chaining (typecheck regression guard: avoids TS2321 excessive stack depth)."
+}

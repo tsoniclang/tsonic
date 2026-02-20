@@ -39,7 +39,10 @@ import {
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
 import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
-import { getBinaryResultKind, TSONIC_TO_NUMERIC_KIND } from "../types/numeric-kind.js";
+import {
+  getBinaryResultKind,
+  TSONIC_TO_NUMERIC_KIND,
+} from "../types/numeric-kind.js";
 import type { NumericKind } from "../types/numeric-kind.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type {
@@ -448,6 +451,9 @@ export type RawSignatureInfo = {
   /** Parameter types (undefined = missing annotation → TSN5201) */
   readonly parameterTypes: readonly (IrType | undefined)[];
 
+  /** TypeScript `this:` parameter type (if present). Excluded from `parameterTypes`. */
+  readonly thisParameterType?: IrType;
+
   /** Return type (voidType if not specified) */
   readonly returnType: IrType;
 
@@ -544,7 +550,9 @@ export type TypeSystemConfig = {
    */
   readonly resolveIdentifier: (node: unknown) => DeclId | undefined;
   readonly resolveCallSignature: (node: unknown) => SignatureId | undefined;
-  readonly resolveConstructorSignature: (node: unknown) => SignatureId | undefined;
+  readonly resolveConstructorSignature: (
+    node: unknown
+  ) => SignatureId | undefined;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -632,6 +640,9 @@ export type DeclKind =
 export type SignatureInfo = {
   /** Parameter nodes */
   readonly parameters: readonly ParameterNode[];
+
+  /** Type node of a TypeScript `this:` parameter (if present). Excluded from `parameters`. */
+  readonly thisTypeNode?: unknown;
 
   /** Return type node (ts.TypeNode, cast to unknown) */
   readonly returnTypeNode?: unknown;
@@ -868,9 +879,7 @@ type NominalLookupResult = {
  * This is the single factory for TypeSystem. All type queries go through
  * the returned TypeSystem instance.
  */
-export const createTypeSystem = (
-  config: TypeSystemConfig
-): TypeAuthority => {
+export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   const {
     handleRegistry,
     typeRegistry,
@@ -1016,6 +1025,12 @@ export const createTypeSystem = (
       (p) => (p.typeNode ? convertTypeNode(p.typeNode) : undefined)
     );
 
+    // Convert a TypeScript `this:` parameter type (if present) to an IrType.
+    const thisParameterType: IrType | undefined = (() => {
+      const n = sigInfo.thisTypeNode as ts.TypeNode | undefined;
+      return n ? convertTypeNode(n) : undefined;
+    })();
+
     // Extract parameter modes
     const parameterModes: ParameterMode[] = sigInfo.parameters.map(
       (p) => p.mode ?? "value"
@@ -1039,7 +1054,8 @@ export const createTypeSystem = (
 
     // Convert return type
     const returnType: IrType = (() => {
-      if (sigInfo.returnTypeNode) return convertTypeNode(sigInfo.returnTypeNode);
+      if (sigInfo.returnTypeNode)
+        return convertTypeNode(sigInfo.returnTypeNode);
 
       // Class constructor declarations do not have return type annotations in TS syntax.
       // Deterministically synthesize the constructed instance type using the declaring
@@ -1047,7 +1063,11 @@ export const createTypeSystem = (
       // constructor signature.
       if (isConstructor && sigInfo.declaringTypeTsName) {
         const typeArguments = typeParameters.map(
-          (tp) => ({ kind: "typeParameterType" as const, name: tp.name }) satisfies IrType
+          (tp) =>
+            ({
+              kind: "typeParameterType" as const,
+              name: tp.name,
+            }) satisfies IrType
         );
 
         return {
@@ -1081,6 +1101,7 @@ export const createTypeSystem = (
 
     const rawSig: RawSignatureInfo = {
       parameterTypes,
+      thisParameterType,
       returnType,
       parameterModes,
       typeParameters,
@@ -1094,201 +1115,204 @@ export const createTypeSystem = (
     return rawSig;
   };
 
-	  // ─────────────────────────────────────────────────────────────────────────
-	  // STEP 5: TYPESYSTEM ALGORITHM IMPLEMENTATIONS
-	  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 5: TYPESYSTEM ALGORITHM IMPLEMENTATIONS
+  // ─────────────────────────────────────────────────────────────────────────
 
-	  /**
-	   * Resolve a surface name to a canonical TypeId.
-	   *
-	   * Order:
-	   * 1) AliasTable (primitives/globals/System.* canonicalization)
-	   * 2) UnifiedTypeCatalog by tsName
-	   * 3) UnifiedTypeCatalog by clrName
-	   *
-	   * IMPORTANT (airplane-grade):
-	   * Resolution must be arity-aware when type arguments are present. Facade
-	   * types often omit the `_N` generic arity suffix (e.g. `IList<T>` is a
-	   * facade over `IList_1<T>`). When `arity` is provided and the direct
-	   * resolution doesn't match, we deterministically try `<name>_<arity>`.
-	   */
-	  const resolveTypeIdByName = (
-	    name: string,
-	    arity?: number
-	  ): TypeId | undefined => {
-	    const direct =
-	      aliasTable.get(name) ??
-	      unifiedCatalog.resolveTsName(name) ??
-	      unifiedCatalog.resolveClrName(name);
+  /**
+   * Resolve a surface name to a canonical TypeId.
+   *
+   * Order:
+   * 1) AliasTable (primitives/globals/System.* canonicalization)
+   * 2) UnifiedTypeCatalog by tsName
+   * 3) UnifiedTypeCatalog by clrName
+   *
+   * IMPORTANT (airplane-grade):
+   * Resolution must be arity-aware when type arguments are present. Facade
+   * types often omit the `_N` generic arity suffix (e.g. `IList<T>` is a
+   * facade over `IList_1<T>`). When `arity` is provided and the direct
+   * resolution doesn't match, we deterministically try `<name>_<arity>`.
+   */
+  const resolveTypeIdByName = (
+    name: string,
+    arity?: number
+  ): TypeId | undefined => {
+    const direct =
+      aliasTable.get(name) ??
+      unifiedCatalog.resolveTsName(name) ??
+      unifiedCatalog.resolveClrName(name);
 
-	    if (arity === undefined) return direct;
+    if (arity === undefined) return direct;
 
-	    if (direct) {
-	      const directArity = unifiedCatalog.getTypeParameters(direct).length;
-	      if (directArity === arity) return direct;
-	    }
+    if (direct) {
+      const directArity = unifiedCatalog.getTypeParameters(direct).length;
+      if (directArity === arity) return direct;
+    }
 
-	    // Facade name without arity suffix → try tsbindgen's structural encoding.
-	    if (arity > 0) {
-	      const suffixed = `${name}_${arity}`;
-	      const candidate =
-	        aliasTable.get(suffixed) ??
-	        unifiedCatalog.resolveTsName(suffixed) ??
-	        unifiedCatalog.resolveClrName(suffixed);
+    // Facade name without arity suffix → try tsbindgen's structural encoding.
+    if (arity > 0) {
+      const suffixed = `${name}_${arity}`;
+      const candidate =
+        aliasTable.get(suffixed) ??
+        unifiedCatalog.resolveTsName(suffixed) ??
+        unifiedCatalog.resolveClrName(suffixed);
 
-	      if (candidate) {
-	        const candidateArity =
-	          unifiedCatalog.getTypeParameters(candidate).length;
-	        if (candidateArity === arity) return candidate;
-	      }
-	    }
+      if (candidate) {
+        const candidateArity =
+          unifiedCatalog.getTypeParameters(candidate).length;
+        if (candidateArity === arity) return candidate;
+      }
+    }
 
-	    return undefined;
-	  };
+    return undefined;
+  };
 
-	  /**
-	   * Attach canonical TypeIds to IR types where possible.
-	   *
-	   * This keeps nominal identity stable throughout the pipeline and enables
-	   * emit-time resolution without relying on string name matching.
-	   */
-	  const attachParameterTypeIds = (p: IrParameter): IrParameter => ({
-	    ...p,
-	    type: p.type ? attachTypeIds(p.type) : undefined,
-	  });
+  /**
+   * Attach canonical TypeIds to IR types where possible.
+   *
+   * This keeps nominal identity stable throughout the pipeline and enables
+   * emit-time resolution without relying on string name matching.
+   */
+  const attachParameterTypeIds = (p: IrParameter): IrParameter => ({
+    ...p,
+    type: p.type ? attachTypeIds(p.type) : undefined,
+  });
 
-	  const attachTypeParameterTypeIds = (tp: IrTypeParameter): IrTypeParameter => ({
-	    ...tp,
-	    constraint: tp.constraint ? attachTypeIds(tp.constraint) : undefined,
-	    default: tp.default ? attachTypeIds(tp.default) : undefined,
-	    structuralMembers: tp.structuralMembers?.map(attachInterfaceMemberTypeIds),
-	  });
+  const attachTypeParameterTypeIds = (
+    tp: IrTypeParameter
+  ): IrTypeParameter => ({
+    ...tp,
+    constraint: tp.constraint ? attachTypeIds(tp.constraint) : undefined,
+    default: tp.default ? attachTypeIds(tp.default) : undefined,
+    structuralMembers: tp.structuralMembers?.map(attachInterfaceMemberTypeIds),
+  });
 
-	  const attachInterfaceMemberTypeIds = (
-	    m: IrInterfaceMember
-	  ): IrInterfaceMember => {
-	    if (m.kind === "propertySignature") {
-	      return { ...m, type: attachTypeIds(m.type) };
-	    }
+  const attachInterfaceMemberTypeIds = (
+    m: IrInterfaceMember
+  ): IrInterfaceMember => {
+    if (m.kind === "propertySignature") {
+      return { ...m, type: attachTypeIds(m.type) };
+    }
 
-	    return {
-	      ...m,
-	      typeParameters: m.typeParameters?.map(attachTypeParameterTypeIds),
-	      parameters: m.parameters.map(attachParameterTypeIds),
-	      returnType: m.returnType ? attachTypeIds(m.returnType) : undefined,
-	    };
-	  };
+    return {
+      ...m,
+      typeParameters: m.typeParameters?.map(attachTypeParameterTypeIds),
+      parameters: m.parameters.map(attachParameterTypeIds),
+      returnType: m.returnType ? attachTypeIds(m.returnType) : undefined,
+    };
+  };
 
-	  const attachTypeIds = (type: IrType): IrType => {
-	    switch (type.kind) {
-	      case "referenceType": {
-	        const typeId =
-	          type.typeId ??
-	          resolveTypeIdByName(
-	            type.resolvedClrType ?? type.name,
-	            type.typeArguments?.length
-	          );
+  const attachTypeIds = (type: IrType): IrType => {
+    switch (type.kind) {
+      case "referenceType": {
+        const typeId =
+          type.typeId ??
+          resolveTypeIdByName(
+            type.resolvedClrType ?? type.name,
+            type.typeArguments?.length
+          );
 
-	        return {
-	          ...type,
-	          ...(type.typeArguments
-	            ? { typeArguments: type.typeArguments.map(attachTypeIds) }
-	            : {}),
-	          ...(type.structuralMembers
-	            ? {
-	                structuralMembers:
-	                  type.structuralMembers.map(attachInterfaceMemberTypeIds),
-	              }
-	            : {}),
-	          ...(typeId ? { typeId } : {}),
-	        };
-	      }
+        return {
+          ...type,
+          ...(type.typeArguments
+            ? { typeArguments: type.typeArguments.map(attachTypeIds) }
+            : {}),
+          ...(type.structuralMembers
+            ? {
+                structuralMembers: type.structuralMembers.map(
+                  attachInterfaceMemberTypeIds
+                ),
+              }
+            : {}),
+          ...(typeId ? { typeId } : {}),
+        };
+      }
 
-	      case "arrayType":
-	        return { ...type, elementType: attachTypeIds(type.elementType) };
+      case "arrayType":
+        return { ...type, elementType: attachTypeIds(type.elementType) };
 
-	      case "tupleType":
-	        return {
-	          ...type,
-	          elementTypes: type.elementTypes.map(attachTypeIds),
-	        };
+      case "tupleType":
+        return {
+          ...type,
+          elementTypes: type.elementTypes.map(attachTypeIds),
+        };
 
-	      case "functionType":
-	        return {
-	          ...type,
-	          parameters: type.parameters.map(attachParameterTypeIds),
-	          returnType: attachTypeIds(type.returnType),
-	        };
+      case "functionType":
+        return {
+          ...type,
+          parameters: type.parameters.map(attachParameterTypeIds),
+          returnType: attachTypeIds(type.returnType),
+        };
 
-	      case "objectType":
-	        return {
-	          ...type,
-	          members: type.members.map(attachInterfaceMemberTypeIds),
-	        };
+      case "objectType":
+        return {
+          ...type,
+          members: type.members.map(attachInterfaceMemberTypeIds),
+        };
 
-	      case "dictionaryType":
-	        return {
-	          ...type,
-	          keyType: attachTypeIds(type.keyType),
-	          valueType: attachTypeIds(type.valueType),
-	        };
+      case "dictionaryType":
+        return {
+          ...type,
+          keyType: attachTypeIds(type.keyType),
+          valueType: attachTypeIds(type.valueType),
+        };
 
-	      case "unionType":
-	      case "intersectionType":
-	        return { ...type, types: type.types.map(attachTypeIds) };
+      case "unionType":
+      case "intersectionType":
+        return { ...type, types: type.types.map(attachTypeIds) };
 
-	      default:
-	        return type;
-	    }
-	  };
+      default:
+        return type;
+    }
+  };
 
-	  /**
-	   * Deterministic type syntax conversion with canonical TypeId attachment.
-	   *
-	   * The underlying converter is syntax-only; this wrapper re-attaches the
-	   * nominal identity from the UnifiedUniverse so downstream passes (including
-	   * the emitter) can resolve CLR types without re-driving a parallel lookup.
-	   */
-	  const convertTypeNode = (node: unknown): IrType => {
-	    return attachTypeIds(convertTypeNodeRaw(node));
-	  };
+  /**
+   * Deterministic type syntax conversion with canonical TypeId attachment.
+   *
+   * The underlying converter is syntax-only; this wrapper re-attaches the
+   * nominal identity from the UnifiedUniverse so downstream passes (including
+   * the emitter) can resolve CLR types without re-driving a parallel lookup.
+   */
+  const convertTypeNode = (node: unknown): IrType => {
+    return attachTypeIds(convertTypeNodeRaw(node));
+  };
 
-	  /**
-	   * Normalize a receiver type to nominal form for member lookup.
-	   *
-	   * Phase 6: Returns TypeId + typeArgs for TypeId-based NominalEnv.
-	   *
-	   * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
-	   */
-	  const normalizeToNominal = (
-	    type: IrType
-	  ): { typeId: TypeId; typeArgs: readonly IrType[] } | undefined => {
-	    if (type.kind === "referenceType") {
-	      const arity = type.typeArguments?.length;
-	      const typeId =
-	        type.typeId ??
-	        (type.resolvedClrType
-	          ? resolveTypeIdByName(type.resolvedClrType, arity)
-	          : undefined) ??
-	        resolveTypeIdByName(type.name, arity);
-	      if (!typeId) return undefined;
-	      return { typeId, typeArgs: type.typeArguments ?? [] };
-	    }
+  /**
+   * Normalize a receiver type to nominal form for member lookup.
+   *
+   * Phase 6: Returns TypeId + typeArgs for TypeId-based NominalEnv.
+   *
+   * ALICE'S RULE R3: Primitive-to-nominal bridging is part of TypeSystem.
+   */
+  const normalizeToNominal = (
+    type: IrType
+  ): { typeId: TypeId; typeArgs: readonly IrType[] } | undefined => {
+    if (type.kind === "referenceType") {
+      const arity = type.typeArguments?.length;
+      const typeId =
+        type.typeId ??
+        (type.resolvedClrType
+          ? resolveTypeIdByName(type.resolvedClrType, arity)
+          : undefined) ??
+        resolveTypeIdByName(type.name, arity);
+      if (!typeId) return undefined;
+      return { typeId, typeArgs: type.typeArguments ?? [] };
+    }
 
-	    if (type.kind === "primitiveType") {
-	      const typeId = resolveTypeIdByName(type.name, 0);
-	      if (!typeId) return undefined;
-	      return { typeId, typeArgs: [] };
-	    }
+    if (type.kind === "primitiveType") {
+      const typeId = resolveTypeIdByName(type.name, 0);
+      if (!typeId) return undefined;
+      return { typeId, typeArgs: [] };
+    }
 
-	    if (type.kind === "arrayType") {
-	      const arrayTypeId = resolveTypeIdByName("Array", 1);
-	      if (!arrayTypeId) return undefined;
-	      return { typeId: arrayTypeId, typeArgs: [type.elementType] };
-	    }
+    if (type.kind === "arrayType") {
+      const arrayTypeId = resolveTypeIdByName("Array", 1);
+      if (!arrayTypeId) return undefined;
+      return { typeId: arrayTypeId, typeArgs: [type.elementType] };
+    }
 
-	    return undefined;
-	  };
+    return undefined;
+  };
 
   /**
    * Convert a nominal CLR delegate type to an IrFunctionType by reading its Invoke signature.
@@ -1328,7 +1352,11 @@ export const createTypeSystem = (
 
     const typeParams = unifiedCatalog.getTypeParameters(normalized.typeId);
     const subst = new Map<string, IrType>();
-    for (let i = 0; i < Math.min(typeParams.length, normalized.typeArgs.length); i++) {
+    for (
+      let i = 0;
+      i < Math.min(typeParams.length, normalized.typeArgs.length);
+      i++
+    ) {
       const tp = typeParams[i];
       const arg = normalized.typeArgs[i];
       if (tp && arg) subst.set(tp.name, arg);
@@ -1422,23 +1450,23 @@ export const createTypeSystem = (
    *
    * Phase 6: Uses TypeId-based NominalEnv.getInstantiation().
    */
-	  const computeReceiverSubstitution = (
-	    receiverType: IrType,
-	    declaringTypeTsName: string,
-	    _declaringMemberName: string
-	  ): TypeSubstitutionMap | undefined => {
-	    const normalized = normalizeToNominal(receiverType);
-	    if (!normalized) return undefined;
+  const computeReceiverSubstitution = (
+    receiverType: IrType,
+    declaringTypeTsName: string,
+    _declaringMemberName: string
+  ): TypeSubstitutionMap | undefined => {
+    const normalized = normalizeToNominal(receiverType);
+    if (!normalized) return undefined;
 
-	    const declaringTypeId = resolveTypeIdByName(declaringTypeTsName);
-	    if (!declaringTypeId) return undefined;
+    const declaringTypeId = resolveTypeIdByName(declaringTypeTsName);
+    if (!declaringTypeId) return undefined;
 
-	    return nominalEnv.getInstantiation(
-	      normalized.typeId,
-	      normalized.typeArgs,
-	      declaringTypeId
-	    );
-	  };
+    return nominalEnv.getInstantiation(
+      normalized.typeId,
+      normalized.typeArgs,
+      declaringTypeId
+    );
+  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // typeOfDecl — Get declared type of a declaration
@@ -1448,20 +1476,20 @@ export const createTypeSystem = (
    * Derive IrType from NumericKind (deterministic, no TypeScript).
    * Mirrors the logic in literals.ts deriveTypeFromNumericIntent.
    */
-	  const deriveTypeFromNumericKind = (kind: NumericKind): IrType => {
-	    if (kind === "Int32") return { kind: "referenceType", name: "int" };
-	    if (kind === "Int64") return { kind: "referenceType", name: "long" };
-	    if (kind === "Double") return { kind: "primitiveType", name: "number" };
-	    if (kind === "Single") return { kind: "referenceType", name: "float" };
+  const deriveTypeFromNumericKind = (kind: NumericKind): IrType => {
+    if (kind === "Int32") return { kind: "referenceType", name: "int" };
+    if (kind === "Int64") return { kind: "referenceType", name: "long" };
+    if (kind === "Double") return { kind: "primitiveType", name: "number" };
+    if (kind === "Single") return { kind: "referenceType", name: "float" };
     if (kind === "Byte") return { kind: "referenceType", name: "byte" };
     if (kind === "Int16") return { kind: "referenceType", name: "short" };
     if (kind === "UInt32") return { kind: "referenceType", name: "uint" };
     if (kind === "UInt64") return { kind: "referenceType", name: "ulong" };
     if (kind === "UInt16") return { kind: "referenceType", name: "ushort" };
     if (kind === "SByte") return { kind: "referenceType", name: "sbyte" };
-	    // Default to double for unknown
-	    return { kind: "primitiveType", name: "number" };
-	  };
+    // Default to double for unknown
+    return { kind: "primitiveType", name: "number" };
+  };
 
   const unwrapParens = (expr: ts.Expression): ts.Expression => {
     let current: ts.Expression = expr;
@@ -1476,97 +1504,101 @@ export const createTypeSystem = (
     return ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped);
   };
 
-	  const getNumericKindFromIrType = (type: IrType): NumericKind | undefined => {
-	    if (type.kind === "primitiveType" && type.name === "number") return "Double";
-	    if (type.kind === "primitiveType") {
-	      return TSONIC_TO_NUMERIC_KIND.get(type.name);
-	    }
-	    if (type.kind === "referenceType") {
-	      return TSONIC_TO_NUMERIC_KIND.get(type.name);
-	    }
-	    return undefined;
-	  };
+  const getNumericKindFromIrType = (type: IrType): NumericKind | undefined => {
+    if (type.kind === "primitiveType" && type.name === "number")
+      return "Double";
+    if (type.kind === "primitiveType") {
+      return TSONIC_TO_NUMERIC_KIND.get(type.name);
+    }
+    if (type.kind === "referenceType") {
+      return TSONIC_TO_NUMERIC_KIND.get(type.name);
+    }
+    return undefined;
+  };
 
-	  const stripNullishForInference = (type: IrType): IrType | undefined => {
-	    if (isNullishPrimitive(type)) return undefined;
-	    if (type.kind !== "unionType") return type;
-	    const filtered = type.types.filter((t) => !isNullishPrimitive(t));
-	    if (filtered.length === 0) return undefined;
-	    if (filtered.length === 1 && filtered[0]) return filtered[0];
-	    return { kind: "unionType", types: filtered };
-	  };
+  const stripNullishForInference = (type: IrType): IrType | undefined => {
+    if (isNullishPrimitive(type)) return undefined;
+    if (type.kind !== "unionType") return type;
+    const filtered = type.types.filter((t) => !isNullishPrimitive(t));
+    if (filtered.length === 0) return undefined;
+    if (filtered.length === 1 && filtered[0]) return filtered[0];
+    return { kind: "unionType", types: filtered };
+  };
 
-	  const unwrapAwaitedForInference = (type: IrType): IrType => {
-	    if (type.kind === "unionType") {
-	      return {
-	        kind: "unionType",
-	        types: type.types.map((t) => (t ? unwrapAwaitedForInference(t) : t)),
-	      };
-	    }
+  const unwrapAwaitedForInference = (type: IrType): IrType => {
+    if (type.kind === "unionType") {
+      return {
+        kind: "unionType",
+        types: type.types.map((t) => (t ? unwrapAwaitedForInference(t) : t)),
+      };
+    }
 
-	    if (
-	      type.kind === "referenceType" &&
-	      (type.name === "Promise" || type.name === "PromiseLike")
-	    ) {
-	      const inner = type.typeArguments?.[0];
-	      if (inner) return unwrapAwaitedForInference(inner);
-	    }
+    if (
+      type.kind === "referenceType" &&
+      (type.name === "Promise" || type.name === "PromiseLike")
+    ) {
+      const inner = type.typeArguments?.[0];
+      if (inner) return unwrapAwaitedForInference(inner);
+    }
 
-	    if (type.kind === "referenceType") {
-	      const clrName = type.typeId?.clrName;
-	      if (
-	        clrName === "System.Threading.Tasks.Task" ||
-	        clrName === "System.Threading.Tasks.ValueTask"
-	      ) {
-	        return voidType;
-	      }
+    if (type.kind === "referenceType") {
+      const clrName = type.typeId?.clrName;
+      if (
+        clrName === "System.Threading.Tasks.Task" ||
+        clrName === "System.Threading.Tasks.ValueTask"
+      ) {
+        return voidType;
+      }
 
-	      if (
-	        clrName?.startsWith("System.Threading.Tasks.Task`") ||
-	        clrName?.startsWith("System.Threading.Tasks.ValueTask`")
-	      ) {
-	        const inner = type.typeArguments?.[0];
-	        if (inner) return unwrapAwaitedForInference(inner);
-	      }
-	    }
+      if (
+        clrName?.startsWith("System.Threading.Tasks.Task`") ||
+        clrName?.startsWith("System.Threading.Tasks.ValueTask`")
+      ) {
+        const inner = type.typeArguments?.[0];
+        if (inner) return unwrapAwaitedForInference(inner);
+      }
+    }
 
-	    return type;
-	  };
+    return type;
+  };
 
-	  /**
-	   * Deterministically infer an expression's type using only:
-	   * - local lambda parameter environment
-	   * - declaration types (typeOfDecl)
+  /**
+   * Deterministically infer an expression's type using only:
+   * - local lambda parameter environment
+   * - declaration types (typeOfDecl)
    * - numeric literal lexeme rules
    *
    * This is intentionally small: it's used only to type lambda bodies for
    * initializer-driven generic inference (e.g., `Enumerable.select(..., x => x * 2)`).
    */
-	  const inferExpressionType = (
-	    expr: ts.Expression,
-	    env: ReadonlyMap<string, IrType>
-	  ): IrType | undefined => {
-	    const unwrapped = unwrapParens(expr);
+  const inferExpressionType = (
+    expr: ts.Expression,
+    env: ReadonlyMap<string, IrType>
+  ): IrType | undefined => {
+    const unwrapped = unwrapParens(expr);
 
-	    if (ts.isAsExpression(unwrapped) || ts.isTypeAssertionExpression(unwrapped)) {
-	      return convertTypeNode(unwrapped.type);
-	    }
+    if (
+      ts.isAsExpression(unwrapped) ||
+      ts.isTypeAssertionExpression(unwrapped)
+    ) {
+      return convertTypeNode(unwrapped.type);
+    }
 
-	    if (ts.isNonNullExpression(unwrapped)) {
-	      const inner = inferExpressionType(unwrapped.expression, env);
-	      if (!inner || inner.kind === "unknownType") return undefined;
-	      return stripNullishForInference(inner);
-	    }
+    if (ts.isNonNullExpression(unwrapped)) {
+      const inner = inferExpressionType(unwrapped.expression, env);
+      if (!inner || inner.kind === "unknownType") return undefined;
+      return stripNullishForInference(inner);
+    }
 
-	    if (ts.isAwaitExpression(unwrapped)) {
-	      const inner = inferExpressionType(unwrapped.expression, env);
-	      if (!inner || inner.kind === "unknownType") return undefined;
-	      return unwrapAwaitedForInference(inner);
-	    }
+    if (ts.isAwaitExpression(unwrapped)) {
+      const inner = inferExpressionType(unwrapped.expression, env);
+      if (!inner || inner.kind === "unknownType") return undefined;
+      return unwrapAwaitedForInference(inner);
+    }
 
-	    if (ts.isCallExpression(unwrapped)) {
-	      return tryInferReturnTypeFromCallExpression(unwrapped, env);
-	    }
+    if (ts.isCallExpression(unwrapped)) {
+      return tryInferReturnTypeFromCallExpression(unwrapped, env);
+    }
 
     if (ts.isNewExpression(unwrapped)) {
       const sigId = resolveConstructorSignature(unwrapped);
@@ -1578,9 +1610,8 @@ export const createTypeSystem = (
           : undefined;
 
       const argumentCount = unwrapped.arguments?.length ?? 0;
-      const argTypesWorking: (IrType | undefined)[] = Array(argumentCount).fill(
-        undefined
-      );
+      const argTypesWorking: (IrType | undefined)[] =
+        Array(argumentCount).fill(undefined);
 
       const args = unwrapped.arguments ?? [];
       for (let i = 0; i < args.length; i++) {
@@ -1609,7 +1640,8 @@ export const createTypeSystem = (
 
     if (ts.isPropertyAccessExpression(unwrapped)) {
       const receiverType = inferExpressionType(unwrapped.expression, env);
-      if (!receiverType || receiverType.kind === "unknownType") return undefined;
+      if (!receiverType || receiverType.kind === "unknownType")
+        return undefined;
       const memberType = typeOfMember(receiverType, {
         kind: "byName",
         name: unwrapped.name.text,
@@ -1654,21 +1686,21 @@ export const createTypeSystem = (
       return deriveTypeFromNumericKind(numericKind);
     }
 
-	    if (ts.isStringLiteral(unwrapped)) {
-	      return { kind: "primitiveType", name: "string" };
-	    }
+    if (ts.isStringLiteral(unwrapped)) {
+      return { kind: "primitiveType", name: "string" };
+    }
 
-	    if (
-	      ts.isNoSubstitutionTemplateLiteral(unwrapped) ||
-	      ts.isTemplateExpression(unwrapped)
-	    ) {
-	      return { kind: "primitiveType", name: "string" };
-	    }
+    if (
+      ts.isNoSubstitutionTemplateLiteral(unwrapped) ||
+      ts.isTemplateExpression(unwrapped)
+    ) {
+      return { kind: "primitiveType", name: "string" };
+    }
 
-	    if (
-	      unwrapped.kind === ts.SyntaxKind.TrueKeyword ||
-	      unwrapped.kind === ts.SyntaxKind.FalseKeyword
-	    ) {
+    if (
+      unwrapped.kind === ts.SyntaxKind.TrueKeyword ||
+      unwrapped.kind === ts.SyntaxKind.FalseKeyword
+    ) {
       return { kind: "primitiveType", name: "boolean" };
     }
 
@@ -1727,7 +1759,9 @@ export const createTypeSystem = (
         const rightKind = getNumericKindFromIrType(rightType);
         if (!leftKind || !rightKind) return undefined;
 
-        return deriveTypeFromNumericKind(getBinaryResultKind(leftKind, rightKind));
+        return deriveTypeFromNumericKind(
+          getBinaryResultKind(leftKind, rightKind)
+        );
       }
     }
 
@@ -1772,17 +1806,15 @@ export const createTypeSystem = (
 
     const env = new Map<string, IrType>();
     for (const p of parameters) {
-      if (
-        p.pattern.kind === "identifierPattern" &&
-        p.pattern.name &&
-        p.type
-      ) {
+      if (p.pattern.kind === "identifierPattern" && p.pattern.name && p.type) {
         env.set(p.pattern.name, p.type);
       }
     }
 
     const explicitReturnType =
-      "type" in unwrapped && unwrapped.type ? convertTypeNode(unwrapped.type) : undefined;
+      "type" in unwrapped && unwrapped.type
+        ? convertTypeNode(unwrapped.type)
+        : undefined;
     const expectedReturnType = expectedFnType?.returnType;
 
     const inferredReturnType =
@@ -1852,31 +1884,31 @@ export const createTypeSystem = (
     // Must have an initializer
     if (!decl.initializer) return undefined;
 
-	    const init = decl.initializer;
+    const init = decl.initializer;
 
-	    if (init.kind === ts.SyntaxKind.NumericLiteral && init.getText) {
-	      const raw = init.getText();
-	      const numericKind = inferNumericKindFromRaw(raw);
-	      return deriveTypeFromNumericKind(numericKind);
-	    }
+    if (init.kind === ts.SyntaxKind.NumericLiteral && init.getText) {
+      const raw = init.getText();
+      const numericKind = inferNumericKindFromRaw(raw);
+      return deriveTypeFromNumericKind(numericKind);
+    }
 
-		    if (init.kind === ts.SyntaxKind.StringLiteral) {
-		      return { kind: "primitiveType", name: "string" };
-		    }
+    if (init.kind === ts.SyntaxKind.StringLiteral) {
+      return { kind: "primitiveType", name: "string" };
+    }
 
-        if (
-          init.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
-          init.kind === ts.SyntaxKind.TemplateExpression
-        ) {
-          return { kind: "primitiveType", name: "string" };
-        }
+    if (
+      init.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+      init.kind === ts.SyntaxKind.TemplateExpression
+    ) {
+      return { kind: "primitiveType", name: "string" };
+    }
 
-		    if (
-		      init.kind === ts.SyntaxKind.TrueKeyword ||
-		      init.kind === ts.SyntaxKind.FalseKeyword
-		    ) {
-	      return { kind: "primitiveType", name: "boolean" };
-	    }
+    if (
+      init.kind === ts.SyntaxKind.TrueKeyword ||
+      init.kind === ts.SyntaxKind.FalseKeyword
+    ) {
+      return { kind: "primitiveType", name: "boolean" };
+    }
 
     // Not a simple literal - cannot infer
     return undefined;
@@ -1892,24 +1924,24 @@ export const createTypeSystem = (
    * - new expressions with explicit type arguments (or best-effort nominal type)
    * - identifier initializers (propagate deterministically)
    */
-	  const tryInferReturnTypeFromCallExpression = (
-	    call: ts.CallExpression,
-	    env: ReadonlyMap<string, IrType>
-	  ): IrType | undefined => {
-	    const sigId = resolveCallSignature(call);
-	    if (!sigId) return undefined;
+  const tryInferReturnTypeFromCallExpression = (
+    call: ts.CallExpression,
+    env: ReadonlyMap<string, IrType>
+  ): IrType | undefined => {
+    const sigId = resolveCallSignature(call);
+    if (!sigId) return undefined;
 
     const explicitTypeArgs =
       call.typeArguments && call.typeArguments.length > 0
         ? call.typeArguments.map((ta) => convertTypeNode(ta))
         : undefined;
 
-	    const receiverType = (() => {
-	      if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
-	      const receiverExpr = call.expression.expression;
-	      const receiver = inferExpressionType(receiverExpr, env);
-	      return receiver && receiver.kind !== "unknownType" ? receiver : undefined;
-	    })();
+    const receiverType = (() => {
+      if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
+      const receiverExpr = call.expression.expression;
+      const receiver = inferExpressionType(receiverExpr, env);
+      return receiver && receiver.kind !== "unknownType" ? receiver : undefined;
+    })();
 
     const argumentCount = call.arguments.length;
 
@@ -1923,9 +1955,8 @@ export const createTypeSystem = (
     });
     const initialParameterTypes = initialResolved.parameterTypes;
 
-    const argTypesWorking: (IrType | undefined)[] = Array(argumentCount).fill(
-      undefined
-    );
+    const argTypesWorking: (IrType | undefined)[] =
+      Array(argumentCount).fill(undefined);
 
     for (let index = 0; index < call.arguments.length; index++) {
       const arg = call.arguments[index];
@@ -2040,44 +2071,46 @@ export const createTypeSystem = (
       : finalResolved.returnType;
   };
 
-	  const tryInferTypeFromInitializer = (declNode: unknown): IrType | undefined => {
-	    const literalType = tryInferTypeFromLiteralInitializer(declNode);
-	    if (literalType) return literalType;
+  const tryInferTypeFromInitializer = (
+    declNode: unknown
+  ): IrType | undefined => {
+    const literalType = tryInferTypeFromLiteralInitializer(declNode);
+    if (literalType) return literalType;
 
     if (!declNode || typeof declNode !== "object") return undefined;
 
     const node = declNode as ts.Node;
-	    if (!ts.isVariableDeclaration(node)) return undefined;
-		    let init = node.initializer;
-		    if (!init) return undefined;
+    if (!ts.isVariableDeclaration(node)) return undefined;
+    let init = node.initializer;
+    if (!init) return undefined;
 
-		    while (ts.isParenthesizedExpression(init)) {
-		      init = init.expression;
-		    }
+    while (ts.isParenthesizedExpression(init)) {
+      init = init.expression;
+    }
 
-	    // Explicit type assertions are deterministic sources for variable typing.
-	    // This supports patterns like:
-	    //   const xs = numbers as unknown as LinqSeq<int>;
-	    // where the user intentionally supplies the type at the assertion site.
-	    if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
-	      return convertTypeNode(init.type);
-	    }
+    // Explicit type assertions are deterministic sources for variable typing.
+    // This supports patterns like:
+    //   const xs = numbers as unknown as LinqSeq<int>;
+    // where the user intentionally supplies the type at the assertion site.
+    if (ts.isAsExpression(init) || ts.isTypeAssertionExpression(init)) {
+      return convertTypeNode(init.type);
+    }
 
-	    if (ts.isNonNullExpression(init)) {
-	      const inner = inferExpressionType(init.expression, new Map());
-	      if (!inner || inner.kind === "unknownType") return undefined;
-	      return stripNullishForInference(inner);
-	    }
+    if (ts.isNonNullExpression(init)) {
+      const inner = inferExpressionType(init.expression, new Map());
+      if (!inner || inner.kind === "unknownType") return undefined;
+      return stripNullishForInference(inner);
+    }
 
-	    if (ts.isAwaitExpression(init)) {
-	      const inner = inferExpressionType(init.expression, new Map());
-	      if (!inner || inner.kind === "unknownType") return undefined;
-	      return unwrapAwaitedForInference(inner);
-	    }
+    if (ts.isAwaitExpression(init)) {
+      const inner = inferExpressionType(init.expression, new Map());
+      if (!inner || inner.kind === "unknownType") return undefined;
+      return unwrapAwaitedForInference(inner);
+    }
 
-			    if (ts.isCallExpression(init)) {
-			      return tryInferReturnTypeFromCallExpression(init, new Map());
-			    }
+    if (ts.isCallExpression(init)) {
+      return tryInferReturnTypeFromCallExpression(init, new Map());
+    }
 
     if (ts.isArrayLiteralExpression(init)) {
       // Deterministic array literal typing for variable declarations:
@@ -2190,29 +2223,30 @@ export const createTypeSystem = (
       return sourceType.kind === "unknownType" ? undefined : sourceType;
     }
 
-	    // Property access: const output = response.outputStream
-	    // DETERMINISTIC: Infer via TypeSystem member lookup on a deterministically typed receiver.
-	    if (ts.isPropertyAccessExpression(init)) {
-	      const receiverType = inferExpressionType(init.expression, new Map());
-	      if (!receiverType || receiverType.kind === "unknownType") return undefined;
+    // Property access: const output = response.outputStream
+    // DETERMINISTIC: Infer via TypeSystem member lookup on a deterministically typed receiver.
+    if (ts.isPropertyAccessExpression(init)) {
+      const receiverType = inferExpressionType(init.expression, new Map());
+      if (!receiverType || receiverType.kind === "unknownType")
+        return undefined;
 
-	      const memberType = typeOfMember(receiverType, {
-	        kind: "byName",
-	        name: init.name.text,
-	      });
+      const memberType = typeOfMember(receiverType, {
+        kind: "byName",
+        name: init.name.text,
+      });
 
-	      return memberType.kind === "unknownType" ? undefined : memberType;
-	    }
+      return memberType.kind === "unknownType" ? undefined : memberType;
+    }
 
-	    // Element access: const first = items[0]
-	    // DETERMINISTIC: Infer element type from a deterministically typed receiver.
-	    if (ts.isElementAccessExpression(init)) {
-	      const inferred = inferExpressionType(init, new Map());
-	      return inferred && inferred.kind !== "unknownType" ? inferred : undefined;
-	    }
+    // Element access: const first = items[0]
+    // DETERMINISTIC: Infer element type from a deterministically typed receiver.
+    if (ts.isElementAccessExpression(init)) {
+      const inferred = inferExpressionType(init, new Map());
+      return inferred && inferred.kind !== "unknownType" ? inferred : undefined;
+    }
 
-	    return undefined;
-	  };
+    return undefined;
+  };
 
   const typeOfDecl = (declId: DeclId): IrType => {
     // Check cache first
@@ -2293,8 +2327,12 @@ export const createTypeSystem = (
     const effectiveReceiver =
       receiver.kind === "unionType"
         ? (() => {
-            const nonNullish = receiver.types.filter((t) => t && !isNullishPrimitive(t));
-            return nonNullish.length === 1 && nonNullish[0] ? nonNullish[0] : receiver;
+            const nonNullish = receiver.types.filter(
+              (t) => t && !isNullishPrimitive(t)
+            );
+            return nonNullish.length === 1 && nonNullish[0]
+              ? nonNullish[0]
+              : receiver;
           })()
         : receiver;
 
@@ -2304,7 +2342,8 @@ export const createTypeSystem = (
       // Handle structural types (objectType)
       if (
         effectiveReceiver.kind === "objectType" ||
-        (effectiveReceiver.kind === "referenceType" && effectiveReceiver.structuralMembers)
+        (effectiveReceiver.kind === "referenceType" &&
+          effectiveReceiver.structuralMembers)
       ) {
         return lookupStructuralMember(effectiveReceiver, memberName, site);
       }
@@ -2431,14 +2470,18 @@ export const createTypeSystem = (
     if (!first) return undefined;
 
     // Strip assembly qualification (", Assembly, Version=..., ...") if present.
-    const withoutAsm = first.includes(",") ? (first.split(",")[0] ?? first) : first;
+    const withoutAsm = first.includes(",")
+      ? (first.split(",")[0] ?? first)
+      : first;
     return withoutAsm.trim();
   };
 
   const getIndexerInfo = (
     receiver: IrType,
     _site?: Site
-  ): { readonly keyClrType: string; readonly valueType: IrType } | undefined => {
+  ):
+    | { readonly keyClrType: string; readonly valueType: IrType }
+    | undefined => {
     const normalized = normalizeToNominal(receiver);
     if (!normalized) return undefined;
 
@@ -2525,7 +2568,23 @@ export const createTypeSystem = (
       }
 
       // Poison/any provides no deterministic information
-      if (argumentType.kind === "unknownType" || argumentType.kind === "anyType") {
+      if (
+        argumentType.kind === "unknownType" ||
+        argumentType.kind === "anyType"
+      ) {
+        return true;
+      }
+
+      // Intersection argument types: unify through each constituent.
+      //
+      // This is required for airplane-grade extension method typing where the receiver
+      // often has the form `TShape & <extension markers> & <method table>`.
+      // Generic inference must still be able to infer through the real CLR shape in the intersection.
+      if (argumentType.kind === "intersectionType") {
+        for (const part of argumentType.types) {
+          if (!part) continue;
+          if (!tryUnify(parameterType, part)) return false;
+        }
         return true;
       }
 
@@ -2547,11 +2606,17 @@ export const createTypeSystem = (
       // Without this, generic methods like:
       //   Select<TResult>(selector: Func<TSource, TResult>)
       // cannot infer TResult from a lambda argument, causing TSN5201/TSN5202.
-      if (parameterType.kind === "referenceType" && argumentType.kind === "functionType") {
+      if (
+        parameterType.kind === "referenceType" &&
+        argumentType.kind === "functionType"
+      ) {
         const delegateFn = delegateToFunctionType(parameterType);
         if (delegateFn) return tryUnify(delegateFn, argumentType);
       }
-      if (parameterType.kind === "functionType" && argumentType.kind === "referenceType") {
+      if (
+        parameterType.kind === "functionType" &&
+        argumentType.kind === "referenceType"
+      ) {
         const delegateFn = delegateToFunctionType(argumentType);
         if (delegateFn) return tryUnify(parameterType, delegateFn);
       }
@@ -2564,7 +2629,9 @@ export const createTypeSystem = (
         argumentType.kind === "arrayType"
       ) {
         const elementParam = parameterType.typeArguments?.[0];
-        return elementParam ? tryUnify(elementParam, argumentType.elementType) : true;
+        return elementParam
+          ? tryUnify(elementParam, argumentType.elementType)
+          : true;
       }
 
       // Union parameter type: allow deterministic inference through common nullish unions.
@@ -2577,7 +2644,9 @@ export const createTypeSystem = (
           (t) => t && isNullishPrimitive(t)
         );
 
-        const candidates = isNullishPrimitive(argumentType) ? nullish : nonNullish;
+        const candidates = isNullishPrimitive(argumentType)
+          ? nullish
+          : nonNullish;
         if (candidates.length === 1) {
           const only = candidates[0];
           return only ? tryUnify(only, argumentType) : true;
@@ -2594,7 +2663,9 @@ export const createTypeSystem = (
         (argumentType.typeArguments?.length ?? 0) === 1
       ) {
         const elementArg = argumentType.typeArguments?.[0];
-        return elementArg ? tryUnify(parameterType.elementType, elementArg) : true;
+        return elementArg
+          ? tryUnify(parameterType.elementType, elementArg)
+          : true;
       }
 
       // Same-kind structural unification
@@ -2680,7 +2751,9 @@ export const createTypeSystem = (
 
         case "tupleType": {
           const argTuple = argumentType as typeof parameterType;
-          if (parameterType.elementTypes.length !== argTuple.elementTypes.length) {
+          if (
+            parameterType.elementTypes.length !== argTuple.elementTypes.length
+          ) {
             return true;
           }
           for (let i = 0; i < parameterType.elementTypes.length; i++) {
@@ -2711,7 +2784,6 @@ export const createTypeSystem = (
           return tryUnify(parameterType.returnType, argFn.returnType);
         }
 
-        case "intersectionType":
         case "objectType":
         case "dictionaryType":
           // Conservative: only infer through these when shapes already match exactly.
@@ -2759,7 +2831,10 @@ export const createTypeSystem = (
       const paramsContain = type.parameters.some((p) =>
         p.type ? containsMethodTypeParameter(p.type, unresolved) : false
       );
-      return paramsContain || containsMethodTypeParameter(type.returnType, unresolved);
+      return (
+        paramsContain ||
+        containsMethodTypeParameter(type.returnType, unresolved)
+      );
     }
     if (type.kind === "unionType" || type.kind === "intersectionType") {
       return type.types.some((t) =>
@@ -2832,7 +2907,11 @@ export const createTypeSystem = (
     argumentCount: number
   ): number => {
     let score = 0;
-    const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
+    const pairs = Math.min(
+      argumentCount,
+      parameterTypes.length,
+      argTypes.length
+    );
     for (let i = 0; i < pairs; i++) {
       const pt = parameterTypes[i];
       const at = argTypes[i];
@@ -2868,12 +2947,7 @@ export const createTypeSystem = (
     declaringMemberName: string,
     query: CallQuery
   ): ResolvedCall | undefined => {
-    const {
-      argumentCount,
-      receiverType,
-      explicitTypeArgs,
-      argTypes,
-    } = query;
+    const { argumentCount, receiverType, explicitTypeArgs, argTypes } = query;
 
     if (!argTypes) return undefined;
     if (argTypes.length < argumentCount) return undefined;
@@ -2888,7 +2962,10 @@ export const createTypeSystem = (
     const entry = unifiedCatalog.getByTypeId(declaringTypeId);
     if (!entry || entry.origin !== "assembly") return undefined;
 
-    const member = unifiedCatalog.getMember(declaringTypeId, declaringMemberName);
+    const member = unifiedCatalog.getMember(
+      declaringTypeId,
+      declaringMemberName
+    );
     const candidates = member?.signatures;
     if (!candidates || candidates.length === 0) return undefined;
 
@@ -2916,19 +2993,20 @@ export const createTypeSystem = (
           declaringMemberName
         );
         if (receiverSubst && receiverSubst.size > 0) {
-          workingParams = workingParams.map((p) => irSubstitute(p, receiverSubst));
+          workingParams = workingParams.map((p) =>
+            irSubstitute(p, receiverSubst)
+          );
           workingReturn = irSubstitute(workingReturn, receiverSubst);
         }
       }
 
       // Method type parameter substitution.
-      const methodTypeParams: TypeParameterInfo[] = signature.typeParameters.map(
-        (tp) => ({
+      const methodTypeParams: TypeParameterInfo[] =
+        signature.typeParameters.map((tp) => ({
           name: tp.name,
           constraint: tp.constraint,
           defaultType: tp.defaultType,
-        })
-      );
+        }));
 
       if (methodTypeParams.length > 0) {
         const callSubst = new Map<string, IrType>();
@@ -3010,7 +3088,11 @@ export const createTypeSystem = (
 
       const candidate: Candidate = {
         resolved,
-        score: scoreSignatureMatch(resolved.parameterTypes, argTypes, argumentCount),
+        score: scoreSignatureMatch(
+          resolved.parameterTypes,
+          argTypes,
+          argumentCount
+        ),
         typeParamCount: sig.typeParameters.length,
         parameterCount: sig.parameters.length,
         stableId: sig.stableId,
@@ -3069,6 +3151,7 @@ export const createTypeSystem = (
 
     // 2. Start with raw types
     let workingParams = [...rawSig.parameterTypes];
+    let workingThisParam = rawSig.thisParameterType;
     let workingReturn = rawSig.returnType;
     let workingPredicate = rawSig.typePredicate;
 
@@ -3087,6 +3170,9 @@ export const createTypeSystem = (
         workingParams = workingParams.map((p) =>
           p ? irSubstitute(p, receiverSubst) : undefined
         );
+        if (workingThisParam) {
+          workingThisParam = irSubstitute(workingThisParam, receiverSubst);
+        }
         workingReturn = irSubstitute(workingReturn, receiverSubst);
         if (workingPredicate) {
           workingPredicate =
@@ -3130,10 +3216,53 @@ export const createTypeSystem = (
       }
 
       // Source 2: Deterministic argument-driven unification
-      if (argTypes && argTypes.length > 0) {
+      // 2a) Receiver-driven unification via TS `this:` parameter
+      //
+      // Method-table extension typing represents the receiver as an explicit `this:` parameter
+      // in the `.d.ts` signature. Generic methods like:
+      //   ToArrayAsync<T>(this: IQueryable<T>, ...): Task<T[]>
+      // must infer T from the receiver even when there are ZERO call arguments.
+      //
+      // This is airplane-grade determinism: we anchor inference to the selected TS signature’s
+      // `this:` type and the IR receiver type (not TS structural tricks).
+      if (receiverType && workingThisParam) {
+        const receiverParamForInference =
+          callSubst.size > 0
+            ? irSubstitute(workingThisParam, callSubst)
+            : workingThisParam;
+
+        const inferredFromReceiver = inferMethodTypeArgsFromArguments(
+          methodTypeParams,
+          [receiverParamForInference],
+          [receiverType]
+        );
+
+        if (inferredFromReceiver) {
+          for (const [name, inferredType] of inferredFromReceiver) {
+            const existing = callSubst.get(name);
+            if (existing) {
+              if (!typesEqual(existing, inferredType)) {
+                emitDiagnostic(
+                  "TSN5202",
+                  `Conflicting type argument inference for '${name}' (receiver)`,
+                  site
+                );
+                return poisonedCall(argumentCount, diagnostics.slice());
+              }
+              continue;
+            }
+            callSubst.set(name, inferredType);
+          }
+        }
+      }
+
+      // 2b) Argument-driven unification (run even when argTypes is empty).
+      if (argTypes) {
         const paramsForInference =
           callSubst.size > 0
-            ? workingParams.map((p) => (p ? irSubstitute(p, callSubst) : undefined))
+            ? workingParams.map((p) =>
+                p ? irSubstitute(p, callSubst) : undefined
+              )
             : workingParams;
 
         const inferred = inferMethodTypeArgsFromArguments(
@@ -3207,7 +3336,10 @@ export const createTypeSystem = (
           .map((tp) => tp.name)
           .filter((name) => !callSubst.has(name))
       );
-      if (unresolved.size > 0 && containsMethodTypeParameter(workingReturn, unresolved)) {
+      if (
+        unresolved.size > 0 &&
+        containsMethodTypeParameter(workingReturn, unresolved)
+      ) {
         const fallback =
           argTypes && rawSig.declaringTypeTsName && rawSig.declaringMemberName
             ? tryResolveCallFromUnifiedCatalog(
@@ -3681,7 +3813,10 @@ export const createTypeSystem = (
    */
   const expandAwaitedUtility = (type: IrType): IrType => {
     if (type.kind === "unionType") {
-      return { kind: "unionType", types: type.types.map((t) => expandAwaitedUtility(t)) };
+      return {
+        kind: "unionType",
+        types: type.types.map((t) => expandAwaitedUtility(t)),
+      };
     }
 
     // Check for Promise<T>
@@ -3744,14 +3879,13 @@ export const createTypeSystem = (
     }
 
     // Build object type with a property for each key
-    const members: IrPropertySignature[] =
-      Array.from(keys).map((key) => ({
-        kind: "propertySignature" as const,
-        name: key,
-        type: valueType,
-        isOptional: false,
-        isReadonly: false,
-      }));
+    const members: IrPropertySignature[] = Array.from(keys).map((key) => ({
+      kind: "propertySignature" as const,
+      name: key,
+      type: valueType,
+      isOptional: false,
+      isReadonly: false,
+    }));
 
     return { kind: "objectType", members };
   };
@@ -3852,25 +3986,25 @@ export const createTypeSystem = (
       return isAssignableTo(source.elementType, target.elementType);
     }
 
-	    // Reference types - check nominal compatibility via TypeId
-	    if (source.kind === "referenceType" && target.kind === "referenceType") {
-	      const sourceNominal = normalizeToNominal(source);
-	      const targetNominal = normalizeToNominal(target);
-	      if (!sourceNominal || !targetNominal) return false;
+    // Reference types - check nominal compatibility via TypeId
+    if (source.kind === "referenceType" && target.kind === "referenceType") {
+      const sourceNominal = normalizeToNominal(source);
+      const targetNominal = normalizeToNominal(target);
+      if (!sourceNominal || !targetNominal) return false;
 
-	      if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
-	        const sourceArgs = sourceNominal.typeArgs;
-	        const targetArgs = targetNominal.typeArgs;
-	        if (sourceArgs.length !== targetArgs.length) return false;
-	        return sourceArgs.every((sa, i) => {
-	          const ta = targetArgs[i];
-	          return ta ? typesEqual(sa, ta) : false;
-	        });
-	      }
+      if (sourceNominal.typeId.stableId === targetNominal.typeId.stableId) {
+        const sourceArgs = sourceNominal.typeArgs;
+        const targetArgs = targetNominal.typeArgs;
+        if (sourceArgs.length !== targetArgs.length) return false;
+        return sourceArgs.every((sa, i) => {
+          const ta = targetArgs[i];
+          return ta ? typesEqual(sa, ta) : false;
+        });
+      }
 
-	      const chain = nominalEnv.getInheritanceChain(sourceNominal.typeId);
-	      return chain.some((t) => t.stableId === targetNominal.typeId.stableId);
-	    }
+      const chain = nominalEnv.getInheritanceChain(sourceNominal.typeId);
+      return chain.some((t) => t.stableId === targetNominal.typeId.stableId);
+    }
 
     // Conservative - return false if unsure
     return false;
@@ -4056,7 +4190,8 @@ export const createTypeSystem = (
       if (ts.isFunctionDeclaration(decl)) {
         // Determinism: require explicit parameter + return annotations.
         if (!decl.type) return unknownType;
-        if (decl.parameters.some((p) => p.type === undefined)) return unknownType;
+        if (decl.parameters.some((p) => p.type === undefined))
+          return unknownType;
 
         const parameters: readonly IrParameter[] = decl.parameters.map((p) => ({
           kind: "parameter",
@@ -4140,8 +4275,8 @@ export const createTypeSystem = (
       | undefined;
     if (!declNode?.type) return false;
 
-	    return declNode.type.kind === ts.SyntaxKind.TypeLiteral;
-	  };
+    return declNode.type.kind === ts.SyntaxKind.TypeLiteral;
+  };
 
   // Suppress unused variable warning for nominalMemberLookupCache
   // Will be used for more advanced caching in future
@@ -4151,7 +4286,7 @@ export const createTypeSystem = (
   // signatureHasConditionalReturn — Check for conditional return type
   // ─────────────────────────────────────────────────────────────────────────
 
-	  const signatureHasConditionalReturn = (sigId: SignatureId): boolean => {
+  const signatureHasConditionalReturn = (sigId: SignatureId): boolean => {
     const sigInfo = handleRegistry.getSignature(sigId);
     if (!sigInfo) return false;
 
@@ -4160,14 +4295,14 @@ export const createTypeSystem = (
       | undefined;
     if (!returnTypeNode) return false;
 
-	    return returnTypeNode.kind === ts.SyntaxKind.ConditionalType;
-	  };
+    return returnTypeNode.kind === ts.SyntaxKind.ConditionalType;
+  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // signatureHasVariadicTypeParams — Check for variadic type parameters
   // ─────────────────────────────────────────────────────────────────────────
 
-	  const signatureHasVariadicTypeParams = (sigId: SignatureId): boolean => {
+  const signatureHasVariadicTypeParams = (sigId: SignatureId): boolean => {
     const sigInfo = handleRegistry.getSignature(sigId);
     if (!sigInfo) return false;
 
@@ -4183,17 +4318,17 @@ export const createTypeSystem = (
       if (!constraintNode) continue;
 
       // Check if constraint is an array type (variadic pattern: T extends unknown[])
-	      if (constraintNode.kind === ts.SyntaxKind.ArrayType) {
-	        const elementType = constraintNode.elementType;
-	        if (!elementType) continue;
+      if (constraintNode.kind === ts.SyntaxKind.ArrayType) {
+        const elementType = constraintNode.elementType;
+        if (!elementType) continue;
 
-	        // Check for unknown[] or any[] constraint
-	        if (
-	          elementType.kind === ts.SyntaxKind.UnknownKeyword ||
-	          elementType.kind === ts.SyntaxKind.AnyKeyword
-	        ) {
-	          return true;
-	        }
+        // Check for unknown[] or any[] constraint
+        if (
+          elementType.kind === ts.SyntaxKind.UnknownKeyword ||
+          elementType.kind === ts.SyntaxKind.AnyKeyword
+        ) {
+          return true;
+        }
 
         // Also check for type reference to "unknown" or "any"
         const typeName = elementType.typeName?.text;

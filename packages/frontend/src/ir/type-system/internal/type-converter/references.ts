@@ -129,6 +129,46 @@ const structuralMembersCache = new Map<
 >();
 
 /**
+ * Cache for expanding non-declaration-file type aliases (TS-only) into their underlying shapes.
+ *
+ * Key: DeclId.id (numeric identifier)
+ * Value:
+ *  - IrType: the *uninstantiated* alias body converted to IR (with typeParameterType nodes)
+ *  - "in-progress": recursion guard for self-referential aliases
+ *
+ * NOTE:
+ * We intentionally cache the uninstantiated body and apply type-argument substitution at
+ * the reference site. This keeps the cache small and deterministic.
+ */
+const typeAliasBodyCache = new Map<number, IrType | "in-progress">();
+
+/**
+ * Determine whether a TS-only type alias target is safe to erase to its underlying shape.
+ *
+ * We ONLY erase aliases whose targets are "reference-shaped" (type references / intersections
+ * / primitives / arrays, etc.). We intentionally DO NOT erase:
+ * - Union aliases (discriminated unions rely on the alias identity across lowering)
+ * - Tuple aliases (tuple alias resolution is handled via emitter-side type-alias resolution)
+ * - Type-literal aliases (structural alias → __Alias class; handled separately)
+ *
+ * This preserves the established lowering contracts while still enabling deterministic
+ * receiver-driven generic inference for aliases like:
+ *   type LinqList<T> = Linq<List<T>>;
+ */
+const isSafeToEraseUserTypeAliasTarget = (node: ts.TypeNode): boolean => {
+  // Peel parentheses (e.g., type X = (Y))
+  while (ts.isParenthesizedTypeNode(node)) {
+    node = node.type;
+  }
+
+  if (ts.isTypeLiteralNode(node)) return false;
+  if (ts.isUnionTypeNode(node)) return false;
+  if (ts.isTupleTypeNode(node)) return false;
+
+  return true;
+};
+
+/**
  * Check if a declaration should have structural members extracted.
  *
  * Only extract for:
@@ -478,6 +518,17 @@ export const convertTypeReference = (
     return inner ? convertType(inner, binding) : { kind: "unknownType" };
   }
 
+  // `Rewrap<TReceiver, TNewShape>` is a TS-only helper used by generated extension method
+  // surfaces to keep extension scopes sticky across fluent chains.
+  //
+  // For IR typing / runtime shape, it MUST erase to the new shape. We intentionally do not
+  // attempt to interpret the `TReceiver` argument here (it is often `this`, which is not a
+  // resolvable CLR type in IR conversion).
+  if (typeName === "Rewrap" && node.typeArguments?.length === 2) {
+    const newShape = node.typeArguments[1];
+    return newShape ? convertType(newShape, binding) : { kind: "unknownType" };
+  }
+
   // Handle parameter passing modifiers: out<T>, ref<T>, inref<T>
   // These are type aliases that should NOT be resolved - we preserve them
   // so the emitter can detect `as out<T>` casts and emit the correct C# prefix.
@@ -535,7 +586,9 @@ export const convertTypeReference = (
             : undefined;
         if (!typeElements) return undefined;
 
-        const indexSignatures = typeElements.filter(ts.isIndexSignatureDeclaration);
+        const indexSignatures = typeElements.filter(
+          ts.isIndexSignatureDeclaration
+        );
         const otherMembers = typeElements.filter(
           (m) => !ts.isIndexSignatureDeclaration(m)
         );
@@ -615,7 +668,11 @@ export const convertTypeReference = (
           if (declNode.getSourceFile().isDeclarationFile) {
             // Fall through to the referenceType emission at the end of this function.
           } else {
-            const fnType = convertFunctionType(declNode.type, binding, convertType);
+            const fnType = convertFunctionType(
+              declNode.type,
+              binding,
+              convertType
+            );
 
             // If the type alias is generic (e.g. `type Func_2<T, TResult> = (arg: T) => TResult`),
             // apply the reference site's type arguments so lambdas get a fully-instantiated
@@ -646,6 +703,62 @@ export const convertTypeReference = (
           }
         }
 
+        // User-defined type aliases are TS-only and have no CLR identity.
+        //
+        // For deterministic typing (especially generic inference), we must erase them to their
+        // underlying shapes.
+        //
+        // Example (extension methods):
+        //   type LinqList<T> = Linq<List<T>>;
+        //   const numbers = new List<int>() as unknown as LinqList<int>;
+        //   numbers.AsParallel(); // must infer TSource=int from the receiver
+        //
+        // Without this erasure, the receiver type becomes a non-nominal referenceType ("LinqList")
+        // which prevents interface/heritage-based inference through NominalEnv.
+        if (
+          !declNode.getSourceFile().isDeclarationFile &&
+          isSafeToEraseUserTypeAliasTarget(declNode.type)
+        ) {
+          const key = declId.id;
+          const cached = typeAliasBodyCache.get(key);
+
+          if (cached === "in-progress") {
+            // Recursive alias expansion: fall through to the referenceType path to avoid infinite recursion.
+          } else {
+            const base =
+              cached ??
+              (() => {
+                typeAliasBodyCache.set(key, "in-progress");
+                const converted = convertType(declNode.type, binding);
+                typeAliasBodyCache.set(key, converted);
+                return converted;
+              })();
+
+            const aliasTypeParams = (declNode.typeParameters ?? []).map(
+              (tp) => tp.name.text
+            );
+            const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+              convertType(t, binding)
+            );
+
+            if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
+              const subst = new Map<string, IrType>();
+              for (
+                let i = 0;
+                i < Math.min(aliasTypeParams.length, refTypeArgs.length);
+                i++
+              ) {
+                const name = aliasTypeParams[i];
+                const arg = refTypeArgs[i];
+                if (name && arg) subst.set(name, arg);
+              }
+              return subst.size > 0 ? substituteIrType(base, subst) : base;
+            }
+
+            return base;
+          }
+        }
+
         // tsbindgen facade type families use conditional type aliases to map:
         //   Foo<T = __> → Foo (non-generic) or Foo_N<T> (generic)
         //
@@ -671,7 +784,10 @@ export const convertTypeReference = (
               ? param.default.typeName.text
               : param.default.typeName.getText()) === "__";
 
-          if (hasTsbindgenDefaultSentinel && ts.isConditionalTypeNode(declNode.type)) {
+          if (
+            hasTsbindgenDefaultSentinel &&
+            ts.isConditionalTypeNode(declNode.type)
+          ) {
             const expected = `${typeName}_${node.typeArguments.length}`;
             let found: string | undefined;
 
@@ -708,7 +824,9 @@ export const convertTypeReference = (
               return {
                 kind: "referenceType",
                 name: found,
-                typeArguments: node.typeArguments.map((t) => convertType(t, binding)),
+                typeArguments: node.typeArguments.map((t) =>
+                  convertType(t, binding)
+                ),
               };
             }
           }
@@ -735,7 +853,9 @@ export const convertTypeReference = (
   // identity stable for member lookup and generic substitution.
   const resolvedName = (() => {
     if (!declId) return typeName;
-    const declInfo = (binding as BindingInternal)._getHandleRegistry().getDecl(declId);
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
 
