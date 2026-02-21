@@ -3,11 +3,13 @@
  */
 
 import * as ts from "typescript";
+import * as path from "path";
 import {
   IrArrayExpression,
   IrObjectExpression,
   IrObjectProperty,
   IrDictionaryType,
+  IrReferenceType,
   IrType,
   IrExpression,
 } from "../../types.js";
@@ -15,6 +17,9 @@ import { typesEqual } from "../../types/ir-substitution.js";
 import { getSourceSpan, getContextualType } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import {
+  computeShapeSignature,
+  generateSyntheticName,
+  getOrCreateSyntheticType,
   checkSynthesisEligibility,
   PropertyInfo,
 } from "../anonymous-synthesis.js";
@@ -211,12 +216,6 @@ const getPropertyExpectedType = (
   ctx: ProgramContext
 ): IrType | undefined => {
   if (!expectedType) return undefined;
-
-  // Dictionary/Record context: all properties share the dictionary value type.
-  // Example: `Record<string, unknown>` → value type `unknown`.
-  if (expectedType.kind === "dictionaryType") {
-    return expectedType.valueType;
-  }
 
   if (expectedType.kind === "objectType") {
     // Direct member lookup - only check property signatures (not methods)
@@ -460,22 +459,43 @@ export const convertObjectLiteral = (
       }
 
       if (canSynthesize) {
-        // Synthesize a structural object type and let the anonymous-type lowering
-        // pass assign a deterministic nominal identity for emission.
-        //
-        // This keeps anonymous type identities stable across:
-        // - different modules (call-site vs declaration-site)
-        // - generic contexts (e.g., ok<T>({ ... }) where T is inferred)
-        contextualType = {
-          kind: "objectType",
-          members: propInfos.map((p) => ({
-            kind: "propertySignature" as const,
-            name: p.name,
-            type: p.type,
-            isOptional: p.optional,
-            isReadonly: p.readonly,
-          })),
+        // Compute shape signature for deduplication (AST-based)
+        const shapeSignature = computeShapeSignature(propInfos);
+
+        // Get source file info for synthetic name
+        const sourceFile = node.getSourceFile();
+        const fileStem = path.basename(
+          sourceFile.fileName,
+          path.extname(sourceFile.fileName)
+        );
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart()
+        );
+
+        // Generate synthetic name
+        const syntheticName = generateSyntheticName(
+          fileStem,
+          line + 1,
+          character + 1
+        );
+
+        // Get or create synthetic type (handles deduplication)
+        // DETERMINISTIC: Takes pre-computed PropertyInfo array
+        const syntheticEntry = getOrCreateSyntheticType(
+          shapeSignature,
+          syntheticName,
+          propInfos,
+          [] // No captured type params for now
+        );
+
+        // Create reference to synthetic type
+        const syntheticRef: IrReferenceType = {
+          kind: "referenceType",
+          name: syntheticEntry.name,
+          typeArguments: undefined,
         };
+
+        contextualType = syntheticRef;
       } else {
         ctx.diagnostics.push(
           createDiagnostic(

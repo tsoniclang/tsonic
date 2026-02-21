@@ -49,12 +49,14 @@ export type AnonymousTypeLoweringResult = {
  * Context for tracking state during lowering
  */
 type LoweringContext = {
-  /** Generated class declarations for the whole program (emitted once). */
+  /** Generated class declarations for this module */
   readonly generatedDeclarations: IrClassDeclaration[];
-  /** Map from shape signature to generated type name for deduplication (program-wide). */
+  /** Map from shape signature to generated type name for deduplication */
   readonly shapeToName: Map<string, string>;
-  /** Namespace where anonymous types are emitted (shared across modules). */
-  readonly anonNamespace: string;
+  /** Module file path for unique naming */
+  readonly moduleFilePath: string;
+  /** Type names already declared in this module (avoid collisions) */
+  readonly existingTypeNames: ReadonlySet<string>;
   /** Current function's lowered return type (for propagating to return statements) */
   readonly currentFunctionReturnType?: IrType;
 };
@@ -247,18 +249,32 @@ const interfaceMembersToClassMembers = (
 };
 
 /**
- * Get or create a generated type name for an object type shape.
- *
- * Airplane-grade rule:
- * - The same shape MUST have the same nominal identity across the entire program,
- *   regardless of module/file order.
- *
- * Therefore, names are derived exclusively from the structural signature (hash),
- * not from file paths or location-based hints.
+ * Generate a module-unique hash from file path
  */
+const generateModuleHash = (filePath: string): string => {
+  return createHash("md5").update(filePath).digest("hex").slice(0, 4);
+};
+
+/**
+ * Get or create a generated type name for an object type shape
+ */
+const sanitizeInlineTypeName = (raw: string): string | undefined => {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+
+  const cleaned = trimmed.replace(/[^A-Za-z0-9_]/g, "_");
+  if (cleaned === "") return undefined;
+
+  // C# identifiers cannot start with a digit.
+  if (/^[0-9]/.test(cleaned)) return `_${cleaned}`;
+
+  return cleaned;
+};
+
 const getOrCreateTypeName = (
   objectType: IrObjectType,
-  ctx: LoweringContext
+  ctx: LoweringContext,
+  nameHint?: string
 ): string => {
   const signature = computeShapeSignature(objectType);
   const existing = ctx.shapeToName.get(signature);
@@ -266,8 +282,21 @@ const getOrCreateTypeName = (
     return existing;
   }
 
+  // Generate name with module hash prefix to avoid collisions across modules
+  const moduleHash = generateModuleHash(ctx.moduleFilePath);
   const shapeHash = generateShapeHash(signature);
-  const name = `__Anon_${shapeHash}`;
+  const anonName = `__Anon_${moduleHash}_${shapeHash}`;
+  const preferredBase = nameHint ? sanitizeInlineTypeName(nameHint) : undefined;
+
+  const preferredName = preferredBase
+    ? ctx.existingTypeNames.has(preferredBase) ||
+      ctx.generatedDeclarations.some((d) => d.name === preferredBase) ||
+      Array.from(ctx.shapeToName.values()).includes(preferredBase)
+      ? `${preferredBase}_${shapeHash}`
+      : preferredBase
+    : undefined;
+
+  const name = preferredName ?? anonName;
   ctx.shapeToName.set(signature, name);
 
   const typeParamNames = new Set<string>();
@@ -369,7 +398,7 @@ const addUndefinedToType = (type: IrType): IrType => {
 /**
  * Lower a type, replacing objectType with referenceType
  */
-const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
+const lowerType = (type: IrType, ctx: LoweringContext, nameHint?: string): IrType => {
   switch (type.kind) {
     case "objectType": {
       // First, recursively lower any nested object types in members
@@ -377,7 +406,7 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
         if (m.kind === "propertySignature") {
           return {
             ...m,
-            type: lowerType(m.type, ctx),
+            type: lowerType(m.type, ctx, m.name),
           };
         } else if (m.kind === "methodSignature") {
           return {
@@ -395,7 +424,7 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
       };
 
       // Generate name for this shape
-      const typeName = getOrCreateTypeName(loweredObjectType, ctx);
+      const typeName = getOrCreateTypeName(loweredObjectType, ctx, nameHint);
 
       const typeParamNames = new Set<string>();
       for (const member of loweredObjectType.members) {
@@ -423,7 +452,7 @@ const lowerType = (type: IrType, ctx: LoweringContext): IrType => {
                 })
               )
             : undefined,
-        resolvedClrType: `${ctx.anonNamespace}.${typeName}`,
+        resolvedClrType: undefined,
       };
       return refType;
     }
@@ -549,7 +578,7 @@ const lowerInterfaceMember = (
     case "propertySignature": {
       return {
         ...member,
-        type: lowerType(member.type, ctx),
+        type: lowerType(member.type, ctx, member.name),
       };
     }
     case "methodSignature":
@@ -761,18 +790,6 @@ const lowerExpression = (
           callee: lowerExpression(expr.callee, ctx),
           arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
           typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
-          // parameterTypes are used for expected-type threading during emission
-          // (e.g., object literal contextual typing). They must be lowered to avoid
-          // leaking IrObjectType into the emitter via contextual typing.
-          parameterTypes: expr.parameterTypes?.map((pt) =>
-            pt ? lowerType(pt, ctx) : undefined
-          ),
-          narrowing: expr.narrowing
-            ? {
-                ...expr.narrowing,
-                targetType: lowerType(expr.narrowing.targetType, ctx),
-              }
-            : undefined,
         };
 
       case "new":
@@ -953,7 +970,7 @@ const lowerClassMember = (
     case "propertyDeclaration":
       return {
         ...member,
-        type: member.type ? lowerType(member.type, ctx) : undefined,
+        type: member.type ? lowerType(member.type, ctx, member.name) : undefined,
         initializer: member.initializer
           ? lowerExpression(member.initializer, ctx)
           : undefined,
@@ -1237,7 +1254,26 @@ const lowerStatement = (
 /**
  * Lower a single module
  */
-const lowerModule = (module: IrModule, ctx: LoweringContext): IrModule => {
+const lowerModule = (module: IrModule): IrModule => {
+  const existingTypeNames = new Set<string>();
+  for (const stmt of module.body) {
+    switch (stmt.kind) {
+      case "classDeclaration":
+      case "interfaceDeclaration":
+      case "enumDeclaration":
+      case "typeAliasDeclaration":
+        existingTypeNames.add(stmt.name);
+        break;
+    }
+  }
+
+  const ctx: LoweringContext = {
+    generatedDeclarations: [],
+    shapeToName: new Map(),
+    moduleFilePath: module.filePath,
+    existingTypeNames,
+  };
+
   // Lower all statements in the module body
   const loweredBody = module.body.map((stmt) => lowerStatement(stmt, ctx));
 
@@ -1257,9 +1293,12 @@ const lowerModule = (module: IrModule, ctx: LoweringContext): IrModule => {
     return exp;
   });
 
+  // Prepend generated declarations to module body
+  const newBody: IrStatement[] = [...ctx.generatedDeclarations, ...loweredBody];
+
   return {
     ...module,
-    body: loweredBody,
+    body: newBody,
     exports: loweredExports,
   };
 };
@@ -1270,57 +1309,10 @@ const lowerModule = (module: IrModule, ctx: LoweringContext): IrModule => {
 export const runAnonymousTypeLoweringPass = (
   modules: readonly IrModule[]
 ): AnonymousTypeLoweringResult => {
-  // Airplane-grade: anonymous types are deduplicated program-wide by shape hash,
-  // and emitted exactly once into a stable namespace (the longest common prefix
-  // of all module namespaces).
-  const namespaces = modules.map((m) => m.namespace).filter((n) => n.length > 0);
-  const anonNamespace =
-    namespaces.length === 0
-      ? "Anonymous"
-      : (() => {
-          const parts = namespaces.map((ns) => ns.split("."));
-          const minLen = Math.min(...parts.map((p) => p.length));
-          const prefix: string[] = [];
-          for (let i = 0; i < minLen; i++) {
-            const seg = parts[0]?.[i];
-            if (!seg) break;
-            if (parts.every((p) => p[i] === seg)) {
-              prefix.push(seg);
-            } else {
-              break;
-            }
-          }
-          return prefix.length > 0 ? prefix.join(".") : namespaces[0]!;
-        })();
-
-  const generatedDeclarations: IrClassDeclaration[] = [];
-  const shapeToName = new Map<string, string>();
-
-  const ctx: LoweringContext = {
-    generatedDeclarations,
-    shapeToName,
-    anonNamespace,
-    currentFunctionReturnType: undefined,
-  };
-
-  const loweredModules = modules.map((m) => lowerModule(m, ctx));
-
-  const anonModule: IrModule | undefined =
-    generatedDeclarations.length > 0
-      ? {
-          kind: "module",
-          filePath: "__tsonic/anonymous-types.ts",
-          namespace: anonNamespace,
-          className: "__AnonymousTypes",
-          isStaticContainer: true,
-          imports: [],
-          body: generatedDeclarations,
-          exports: [],
-        }
-      : undefined;
+  const loweredModules = modules.map((m) => lowerModule(m));
 
   return {
     ok: true,
-    modules: anonModule ? [anonModule, ...loweredModules] : loweredModules,
+    modules: loweredModules,
   };
 };
