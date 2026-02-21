@@ -5,6 +5,8 @@
  */
 
 import * as ts from "typescript";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { IrImport, IrImportSpecifier } from "../types.js";
 import type { ProgramContext } from "../program-context.js";
 import type { Binding } from "../binding/index.js";
@@ -36,6 +38,7 @@ export const extractImports = (
   ctx: ProgramContext
 ): readonly IrImport[] => {
   const imports: IrImport[] = [];
+  const bindingsNamespaceCache = new Map<string, string | null>();
 
   const visitor = (node: ts.Node): void => {
     if (
@@ -79,16 +82,83 @@ export const extractImports = (
         }
       }
 
+      const findNearestBindingsJson = (filePath: string): string | undefined => {
+        let dir = dirname(filePath);
+        for (let i = 0; i < 12; i++) {
+          const candidate = join(dir, "bindings.json");
+          if (existsSync(candidate)) return candidate;
+          const parent = dirname(dir);
+          if (parent === dir) return undefined;
+          dir = parent;
+        }
+        return undefined;
+      };
+
+      const findOwningBindingsJson = (filePath: string): string | undefined => {
+        const nearest = findNearestBindingsJson(filePath);
+        if (nearest) return nearest;
+
+        // Facade declarations live alongside their namespace directory:
+        //   <root>/<Namespace>.d.ts  +  <root>/<Namespace>/bindings.json
+        if (filePath.endsWith(".d.ts")) {
+          const nsKey = basename(filePath).slice(0, -".d.ts".length);
+          if (nsKey) {
+            const sibling = join(dirname(filePath), nsKey, "bindings.json");
+            if (existsSync(sibling)) return sibling;
+          }
+        }
+
+        return undefined;
+      };
+
+      const readNamespaceFromBindingsJson = (
+        bindingsPath: string
+      ): string | undefined => {
+        const cached = bindingsNamespaceCache.get(bindingsPath);
+        if (cached !== undefined) return cached ?? undefined;
+
+        try {
+          const raw = readFileSync(bindingsPath, "utf-8");
+          const parsed = JSON.parse(raw) as unknown;
+          const ns =
+            parsed &&
+            typeof parsed === "object" &&
+            typeof (parsed as { readonly namespace?: unknown }).namespace === "string"
+              ? ((parsed as { readonly namespace: string }).namespace as string)
+              : undefined;
+          bindingsNamespaceCache.set(bindingsPath, ns ?? null);
+          return ns;
+        } catch {
+          bindingsNamespaceCache.set(bindingsPath, null);
+          return undefined;
+        }
+      };
+
+      const resolveTsbindgenNamespaceForNamedImport = (
+        exportName: string
+      ): string | undefined => {
+        const specNode = namedSpecifierNodes.get(exportName);
+        if (!specNode) return undefined;
+
+        const declId = ctx.binding.resolveImport(specNode);
+        if (!declId) return undefined;
+
+        const declPath = ctx.binding.getSourceFilePathOfDecl(declId);
+        if (!declPath) return undefined;
+
+        const bindingsPath = findOwningBindingsJson(declPath);
+        if (!bindingsPath) return undefined;
+
+        return readNamespaceFromBindingsJson(bindingsPath);
+      };
+
       // Resolve optional tsbindgen flattened named exports for CLR imports.
       // This is used to bind named value imports (`import { x }`) to their
       // declaring CLR type/member (so the emitter can output valid C#).
       const resolvedSpecifiers =
         isClr && resolvedNamespace
           ? specifiers.map((spec) => {
-              if (
-                spec.kind !== "named" ||
-                spec.isType === true
-              ) {
+              if (spec.kind !== "named") {
                 return spec;
               }
 
@@ -97,14 +167,36 @@ export const extractImports = (
               // CLR bindings directly. CLR namespace imports frequently import types as
               // values (e.g. `import { List } ...`), and we must not misclassify those as
               // "value exports" requiring a flattened exports map.
-              if (ctx.bindings.getType(spec.name)) {
-                return { ...spec, isType: true };
+              const isType =
+                spec.isType === true || !!ctx.bindings.getType(spec.name);
+
+              if (isType) {
+                // If this facade re-exports CLR *types* from other namespaces,
+                // resolve the true owning namespace and attach a per-import
+                // CLR FQN for the emitter (so `new X()` emits in the correct
+                // CLR namespace).
+                const expNamespace =
+                  resolveTsbindgenNamespaceForNamedImport(spec.name) ??
+                  resolvedNamespace;
+                return {
+                  ...spec,
+                  isType: true,
+                  resolvedClrType:
+                    expNamespace !== resolvedNamespace
+                      ? `${expNamespace}.${spec.name}`
+                      : undefined,
+                };
               }
 
-              const exp = ctx.bindings.getTsbindgenExport(
-                resolvedNamespace,
-                spec.name
-              );
+              // If this namespace facade re-exports values from other CLR namespaces,
+              // the imported symbol will resolve to a declaration in that other
+              // namespace's internal index. Use its owning bindings.json namespace
+              // when looking up flattened export mappings.
+              const expNamespace =
+                resolveTsbindgenNamespaceForNamedImport(spec.name) ??
+                resolvedNamespace;
+
+              const exp = ctx.bindings.getTsbindgenExport(expNamespace, spec.name);
               if (!exp) {
                 // Airplane-grade: C# has no namespace-level values.
                 // If TS imports a *value* from a CLR namespace facade, we must have

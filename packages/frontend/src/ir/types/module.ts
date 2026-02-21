@@ -40,6 +40,17 @@ export type IrImportSpecifier =
       /** Whether this import is a type (interface/class) - emitted at namespace level in C# */
       readonly isType?: boolean;
       /**
+       * For CLR namespace imports, some facade entrypoints re-export types from
+       * *other* CLR namespaces (e.g., `@jotster/core/Jotster.Core.js` exporting
+       * `JotsterDbContext` from `Jotster.Core.db`).
+       *
+       * When present, this is the fully-qualified CLR type name (C# syntax, no backticks),
+       * and the emitter must use it instead of `${import.resolvedNamespace}.${name}`.
+       *
+       * This is ONLY used for type imports (`isType === true`).
+       */
+      readonly resolvedClrType?: string | undefined;
+      /**
        * For CLR namespace imports, tsbindgen can optionally provide a stable "flattened"
        * named export surface (e.g. `export const buildSite = BuildSite.buildSite`).
        *

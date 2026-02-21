@@ -7,11 +7,12 @@ import * as ts from "typescript";
 import { relative, resolve } from "path";
 import { Result, ok, error } from "../types/result.js";
 import { Diagnostic, createDiagnostic } from "../types/diagnostic.js";
-import { IrModule } from "../ir/types.js";
+import { IrModule, IrStatement } from "../ir/types.js";
 import { buildIr } from "../ir/builder/orchestrator.js";
 import { createProgram, createCompilerOptions } from "./creation.js";
-import { CompilerOptions, TsonicProgram } from "./types.js";
-import { loadAllDiscoveredBindings, TypeBinding } from "./bindings.js";
+import type { CompilerOptions } from "./types.js";
+import type { TypeBinding } from "./bindings.js";
+import { discoverAndLoadClrBindings } from "./clr-bindings-discovery.js";
 import { validateIrSoundness } from "../ir/validation/soundness-gate.js";
 import { runNumericProofPass } from "../ir/validation/numeric-proof-pass.js";
 import { runArrowReturnFinalizationPass } from "../ir/validation/arrow-return-finalization-pass.js";
@@ -32,64 +33,48 @@ export type ModuleDependencyGraphResult = {
 };
 
 /**
- * Scan all source files for import statements and discover CLR bindings.
- * This must be called BEFORE IR building to ensure bindings are loaded.
+ * Collect compiler-synthesized type names that may be referenced across IR modules.
  *
- * Returns set of binding paths that were discovered.
+ * These types are not present in user-authored TypeScript, so they cannot be
+ * imported via normal ESM syntax. However, they are emitted as top-level C# types
+ * within the same assembly, so cross-module references are valid.
+ *
+ * Example: two files in a project may both lower to (or re-use) a synthesized
+ * `__Anon_*` shape type. The second file will reference the type name in IR, but
+ * (correctly) has no TS import for it.
  */
-const discoverAndLoadClrBindings = (
-  program: TsonicProgram,
-  verbose?: boolean
-): void => {
-  const bindingPaths = new Set<string>();
+const collectSynthesizedTypeNames = (
+  modules: readonly IrModule[]
+): ReadonlySet<string> => {
+  const names = new Set<string>();
 
-  if (verbose) {
-    console.log(
-      `[CLR Bindings] Scanning ${program.sourceFiles.length} source files`
-    );
-  }
-
-  for (const sourceFile of program.sourceFiles) {
-    if (verbose) {
-      console.log(`[CLR Bindings] Scanning: ${sourceFile.fileName}`);
+  const isTypeDecl = (
+    stmt: IrStatement
+  ): stmt is Extract<
+    IrStatement,
+    {
+      kind:
+        | "classDeclaration"
+        | "interfaceDeclaration"
+        | "typeAliasDeclaration"
+        | "enumDeclaration";
     }
-    ts.forEachChild(sourceFile, (node) => {
-      if (
-        ts.isImportDeclaration(node) &&
-        ts.isStringLiteral(node.moduleSpecifier)
-      ) {
-        const moduleSpecifier = node.moduleSpecifier.text;
-        if (verbose) {
-          console.log(`[CLR Bindings] Found import: ${moduleSpecifier}`);
-        }
-        // Use the resolver to check if this is a CLR import
-        const resolution = program.clrResolver.resolve(moduleSpecifier);
-        if (resolution.isClr) {
-          if (verbose) {
-            console.log(
-              `[CLR Bindings] CLR import detected: ${resolution.bindingsPath}`
-            );
-          }
-          bindingPaths.add(resolution.bindingsPath);
-        }
+  > =>
+    stmt.kind === "classDeclaration" ||
+    stmt.kind === "interfaceDeclaration" ||
+    stmt.kind === "typeAliasDeclaration" ||
+    stmt.kind === "enumDeclaration";
+
+  for (const module of modules) {
+    for (const stmt of module.body) {
+      if (!isTypeDecl(stmt)) continue;
+      if (stmt.name.startsWith("__Anon_") || stmt.name.startsWith("__Rest_")) {
+        names.add(stmt.name);
       }
-    });
+    }
   }
 
-  // Load all discovered bindings into the registry
-  if (bindingPaths.size > 0) {
-    if (verbose) {
-      console.log(
-        `[CLR Bindings] Loading ${bindingPaths.size} binding files...`
-      );
-    }
-    loadAllDiscoveredBindings(program.bindings, bindingPaths);
-    if (verbose) {
-      console.log(`[CLR Bindings] Bindings loaded successfully`);
-    }
-  } else if (verbose) {
-    console.log(`[CLR Bindings] No CLR bindings discovered`);
-  }
+  return names;
 };
 
 /**
@@ -330,7 +315,10 @@ export const buildModuleDependencyGraph = (
   // Run IR soundness gate - validates no anyType leaked through
   // This is the final validation before emitter can run
   const soundnessResult = validateIrSoundness(attributeResult.modules, {
-    knownReferenceTypes: new Set(tsonicProgram.bindings.getTypesMap().keys()),
+    knownReferenceTypes: new Set([
+      ...tsonicProgram.bindings.getTypesMap().keys(),
+      ...collectSynthesizedTypeNames(attributeResult.modules),
+    ]),
   });
   if (!soundnessResult.ok) {
     return error(soundnessResult.diagnostics);
