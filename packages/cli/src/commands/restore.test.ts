@@ -170,6 +170,98 @@ describe("restore command", function () {
     }
   });
 
+  it("generates bindings for DLLs that reference Tsonic.Runtime without requiring libs/Tsonic.Runtime.dll", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-dll-runtime-"));
+    try {
+      mkdirSync(join(dir, "libs"), { recursive: true });
+      mkdirSync(join(dir, "csharp"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
+          "\n",
+        "utf-8"
+      );
+
+      // Provide required standard bindings packages + tsbindgen (no network).
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/tsbindgen"),
+        join(dir, "node_modules/@tsonic/tsbindgen")
+      );
+
+      // Build a DLL that references Tsonic.Runtime, but do NOT place Tsonic.Runtime.dll in libs/.
+      const runtimeDll = join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll");
+      writeFileSync(
+        join(dir, "csharp", "TestLib.csproj"),
+        `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>TestLib</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Tsonic.Runtime">
+      <HintPath>${runtimeDll}</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
+`,
+        "utf-8"
+      );
+      writeFileSync(
+        join(dir, "csharp", "Api.cs"),
+        `namespace TestLib;\npublic static class Api { public static global::Tsonic.Runtime.Union<int, int> Make(int x) => default; }\n`,
+        "utf-8"
+      );
+
+      run(join(dir, "csharp"), "dotnet", [
+        "build",
+        "-c",
+        "Release",
+        "-o",
+        join(dir, "libs"),
+        "--nologo",
+      ]);
+      expect(existsSync(join(dir, "libs", "TestLib.dll"))).to.equal(true);
+
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+            dotnet: {
+              libraries: ["libs/TestLib.dll"],
+              frameworkReferences: [],
+              packageReferences: [],
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      expect(result.ok).to.equal(true);
+
+      // restore should generate and install a bindings package for the DLL.
+      expect(existsSync(join(dir, "node_modules", "test-lib-types"))).to.equal(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("ignores DLL references outside libs/ (e.g., workspace outputs)", () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-workspace-dll-"));
     try {

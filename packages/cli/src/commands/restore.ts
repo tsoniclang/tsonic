@@ -35,6 +35,7 @@ import {
   listDotnetRuntimes,
   resolveFromProjectRoot,
   resolvePackageRoot,
+  resolveTsonicRuntimeDllDir,
   resolveTsbindgenDllPath,
   tsbindgenGenerate,
   tsbindgenResolveClosure,
@@ -1105,6 +1106,9 @@ export const restoreCommand = (
       for (const rt of runtimes) generateArgs.push("--ref-dir", rt.dir);
       for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
       generateArgs.push("--ref-dir", join(workspaceRoot, "libs"));
+      const runtimeDirResult = resolveTsonicRuntimeDllDir(workspaceRoot);
+      if (!runtimeDirResult.ok) return runtimeDirResult;
+      generateArgs.push("--ref-dir", runtimeDirResult.value);
 
       const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
       if (!genResult.ok) return genResult;
