@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/frontend",
-  "version": "0.0.60",
+  "version": "0.0.61",
   "description": "TypeScript parser and IR builder for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
