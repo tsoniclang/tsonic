@@ -193,11 +193,31 @@ const maybeUnwrapNullableValueType = (
     return [fragment, context];
   }
 
+  const getMemberAccessNarrowKey = (
+    m: Extract<IrExpression, { kind: "memberAccess" }>
+  ): string | undefined => {
+    if (m.isComputed) return undefined;
+    if (typeof m.property !== "string") return undefined;
+
+    const obj = m.object;
+    if (obj.kind === "identifier") return `${obj.name}.${m.property}`;
+    if (obj.kind === "memberAccess") {
+      const prefix = getMemberAccessNarrowKey(obj);
+      return prefix ? `${prefix}.${m.property}` : undefined;
+    }
+    return undefined;
+  };
+
   // If a narrowing pass already rewrote this identifier (e.g., `id` → `id.Value`
   // or `id` → `id__n`), don't apply a second Nullable<T> unwrap.
   if (
-    expr.kind === "identifier" &&
-    (context.narrowedBindings?.has(expr.name) ?? false)
+    context.narrowedBindings &&
+    ((expr.kind === "identifier" && context.narrowedBindings.has(expr.name)) ||
+      (expr.kind === "memberAccess" &&
+        (() => {
+          const key = getMemberAccessNarrowKey(expr);
+          return key ? context.narrowedBindings.has(key) : false;
+        })()))
   ) {
     return [fragment, context];
   }

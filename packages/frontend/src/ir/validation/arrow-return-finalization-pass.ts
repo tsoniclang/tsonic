@@ -463,13 +463,25 @@ const processArrowFunction = (
   // For expression-bodied arrows without explicit return type,
   // infer return type from body's inferredType
   if (processedBody.kind !== "blockStatement") {
-    const bodyInferredType = processedBody.inferredType;
-    if (bodyInferredType !== undefined) {
+    // Prefer the arrow's own inferred function signature when available.
+    //
+    // This is critical for airplane-grade correctness:
+    // - The anonymous-type lowering pass runs before this pass and *does* lower
+    //   `arrow.inferredType.returnType` (when inferredType is a functionType).
+    // - Expression `inferredType` fields (including object literals) are intentionally
+    //   not lowered/validated globally, so using `body.inferredType` here can
+    //   reintroduce IrObjectType into a type position and crash the emitter.
+    const inferredReturnType =
+      expr.inferredType?.kind === "functionType"
+        ? expr.inferredType.returnType
+        : processedBody.inferredType;
+
+    if (inferredReturnType !== undefined) {
       return {
         ...expr,
         parameters: processedParams,
         body: processedBody,
-        returnType: bodyInferredType,
+        returnType: inferredReturnType,
       };
     }
   }

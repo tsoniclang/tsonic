@@ -83,6 +83,25 @@ const bucketFromMemberKind = (kind: string): MemberAccessBucket => {
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
 
+const getMemberAccessNarrowKey = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>
+): string | undefined => {
+  if (expr.isComputed) return undefined;
+  if (typeof expr.property !== "string") return undefined;
+
+  const obj = expr.object;
+  if (obj.kind === "identifier") {
+    return `${obj.name}.${expr.property}`;
+  }
+
+  if (obj.kind === "memberAccess") {
+    const prefix = getMemberAccessNarrowKey(obj);
+    return prefix ? `${prefix}.${expr.property}` : undefined;
+  }
+
+  return undefined;
+};
+
 const lookupMemberKindFromLocalTypes = (
   receiverTypeName: string,
   memberName: string,
@@ -272,6 +291,20 @@ export const emitMemberAccess = (
   context: EmitterContext,
   usage: MemberAccessUsage = "value"
 ): [CSharpFragment, EmitterContext] => {
+  // Nullable guard narrowing for member-access expressions.
+  // conditionals.ts can install narrowedBindings keyed by "a.b.c" to force `.Value` (or other)
+  // for that exact member-access chain in the then-branch of a null/undefined guard.
+  const narrowKey = context.narrowedBindings ? getMemberAccessNarrowKey(expr) : undefined;
+  if (narrowKey && context.narrowedBindings) {
+    const narrowed = context.narrowedBindings.get(narrowKey);
+    if (narrowed) {
+      if (narrowed.kind === "rename") {
+        return [{ text: escapeCSharpIdentifier(narrowed.name) }, context];
+      }
+      return [{ text: narrowed.exprText }, context];
+    }
+  }
+
   // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
     const { type, member } = expr.memberBinding;

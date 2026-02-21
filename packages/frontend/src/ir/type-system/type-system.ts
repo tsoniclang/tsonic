@@ -1397,11 +1397,22 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     memberName: string,
     site?: Site
   ): IrType => {
+    const addUndefinedToType = (t: IrType): IrType => {
+      const undefinedType: IrType = { kind: "primitiveType", name: "undefined" };
+      if (t.kind === "unionType") {
+        const hasUndefined = t.types.some(
+          (x) => x.kind === "primitiveType" && x.name === "undefined"
+        );
+        return hasUndefined ? t : { ...t, types: [...t.types, undefinedType] };
+      }
+      return { kind: "unionType", types: [t, undefinedType] };
+    };
+
     if (type.kind === "objectType") {
       const member = type.members.find((m) => m.name === memberName);
       if (member) {
         if (member.kind === "propertySignature") {
-          return member.type;
+          return member.isOptional ? addUndefinedToType(member.type) : member.type;
         }
         // Method signature - return function type using the same parameters
         if (member.kind === "methodSignature") {
@@ -1422,7 +1433,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       const member = type.structuralMembers.find((m) => m.name === memberName);
       if (member) {
         if (member.kind === "propertySignature") {
-          return member.type;
+          return member.isOptional ? addUndefinedToType(member.type) : member.type;
         }
         if (member.kind === "methodSignature") {
           const funcType: IrFunctionType = {
@@ -1523,6 +1534,28 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     if (filtered.length === 0) return undefined;
     if (filtered.length === 1 && filtered[0]) return filtered[0];
     return { kind: "unionType", types: filtered };
+  };
+
+  // tsbindgen-generated "sticky extension scope" helpers are TS-only wrappers that
+  // must erase for deterministic IR typing and call inference.
+  //
+  // Example (generated bindings for Tsonic source):
+  //   import type { ExtensionMethods as __TsonicExt_Ef } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+  //   readonly Tenants: __TsonicExt_Ef<...>;
+  //
+  // These wrapper types have no CLR identity. For the compiler, the only meaningful
+  // runtime/CLR shape is the inner type argument.
+  const stripTsonicExtensionWrappers = (type: IrType): IrType => {
+    if (type.kind === "referenceType") {
+      if (
+        type.name.startsWith("__TsonicExt_") &&
+        (type.typeArguments?.length ?? 0) === 1
+      ) {
+        const inner = type.typeArguments?.[0];
+        return inner ? stripTsonicExtensionWrappers(inner) : type;
+      }
+    }
+    return type;
   };
 
   const unwrapAwaitedForInference = (type: IrType): IrType => {
@@ -3131,6 +3164,12 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       site,
     } = query;
 
+    // Extension method scopes are modeled as TS-only wrapper types (e.g. __TsonicExt_Ef<T>).
+    // They must erase to their underlying CLR shapes for deterministic call inference.
+    const effectiveReceiverType = receiverType
+      ? stripTsonicExtensionWrappers(receiverType)
+      : undefined;
+
     // 1. Load raw signature (cached)
     const rawSig = getRawSignature(sigId);
     if (!rawSig) {
@@ -3157,12 +3196,12 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // 3. Compute receiver substitution (class type params)
     if (
-      receiverType &&
+      effectiveReceiverType &&
       rawSig.declaringTypeTsName &&
       rawSig.declaringMemberName
     ) {
       const receiverSubst = computeReceiverSubstitution(
-        receiverType,
+        effectiveReceiverType,
         rawSig.declaringTypeTsName,
         rawSig.declaringMemberName
       );
@@ -3225,7 +3264,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       //
       // This is airplane-grade determinism: we anchor inference to the selected TS signature’s
       // `this:` type and the IR receiver type (not TS structural tricks).
-      if (receiverType && workingThisParam) {
+      if (effectiveReceiverType && workingThisParam) {
         const receiverParamForInference =
           callSubst.size > 0
             ? irSubstitute(workingThisParam, callSubst)
@@ -3234,7 +3273,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
         const inferredFromReceiver = inferMethodTypeArgsFromArguments(
           methodTypeParams,
           [receiverParamForInference],
-          [receiverType]
+          [effectiveReceiverType]
         );
 
         if (inferredFromReceiver) {
