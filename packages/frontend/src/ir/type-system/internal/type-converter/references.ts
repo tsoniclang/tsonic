@@ -143,6 +143,22 @@ const structuralMembersCache = new Map<
 const typeAliasBodyCache = new Map<number, IrType | "in-progress">();
 
 /**
+ * Check whether a declaration file is a Tsonic-generated bindings artifact.
+ *
+ * We only apply aggressive declaration-file type-alias erasure to these files.
+ * Airplane-grade rule: Never erase type aliases from tsbindgen-produced stdlib
+ * packages (e.g., @tsonic/dotnet, @tsonic/core). Those aliases often encode CLR
+ * nominal types (interfaces, delegates, indexers) and must remain NOMINAL.
+ */
+const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
+  // Cross-platform: handle both POSIX and Windows paths.
+  return (
+    fileName.includes("/tsonic/bindings/") ||
+    fileName.includes("\\tsonic\\bindings\\")
+  );
+};
+
+/**
  * Determine whether a TS-only type alias target is safe to erase to its underlying shape.
  *
  * We ONLY erase aliases whose targets are "reference-shaped" (type references / intersections
@@ -755,6 +771,7 @@ export const convertTypeReference = (
           //
           // Those aliases have no CLR identity and must erase to their shapes.
           declNode.getSourceFile().isDeclarationFile &&
+          isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
           !declInfo.valueDeclNode &&
           !ts.isConditionalTypeNode(declNode.type)
         ) {
