@@ -381,6 +381,42 @@ export const emitBinary = (
     // One side is null/undefined literal, emit the other side as a C# null check.
     // Clear narrowedBindings so we emit the raw identifier (not .Value)
     const nonNullishExpr = leftIsNullish ? expr.right : expr.left;
+    const nullishExpr = leftIsNullish ? expr.left : expr.right;
+
+    const isUndefinedLiteral =
+      (nullishExpr.kind === "literal" && nullishExpr.value === undefined) ||
+      (nullishExpr.kind === "identifier" && nullishExpr.name === "undefined");
+
+    // JS dictionary-style access (`dict[key]`) with undefined comparison should
+    // model key existence, not CLR value-type nullability.
+    //
+    //   dict[key] === undefined  -> !dict.ContainsKey(key)
+    //   dict[key] !== undefined  ->  dict.ContainsKey(key)
+    //
+    // This prevents miscompiles like folding `dict[key] !== undefined` to `true`
+    // when value type is non-nullable, and preserves delete/lookup behavior.
+    if (
+      isUndefinedLiteral &&
+      nonNullishExpr.kind === "memberAccess" &&
+      nonNullishExpr.isComputed &&
+      typeof nonNullishExpr.property !== "string" &&
+      (nonNullishExpr.accessKind === "dictionary" ||
+        nonNullishExpr.object.inferredType?.kind === "dictionaryType")
+    ) {
+      const nonNullishContext = { ...context, narrowedBindings: undefined };
+      const [dictFrag, dictContext] = emitExpression(
+        nonNullishExpr.object,
+        nonNullishContext
+      );
+      const [keyFrag, keyContext] = emitExpression(
+        nonNullishExpr.property,
+        dictContext
+      );
+      const containsExpr = `(${dictFrag.text}).ContainsKey(${keyFrag.text})`;
+      const text = op === "==" ? `!${containsExpr}` : containsExpr;
+      return [{ text, precedence: getPrecedence(expr.operator) }, keyContext];
+    }
+
     const nonNullishContext = { ...context, narrowedBindings: undefined };
     const [nonNullishFrag, resultContext] = emitExpression(
       nonNullishExpr,
@@ -575,6 +611,35 @@ export const emitUnary = (
     return [{ text, precedence: 15 }, condCtx];
   }
 
+  if (expr.operator === "delete") {
+    // JavaScript `delete obj[key]` maps to dictionary key removal in CLR:
+    //   delete dict[key]  -> dict.Remove(key)
+    // For unsupported targets we keep the existing no-op emission for now.
+    const target = expr.expression;
+    if (
+      target.kind === "memberAccess" &&
+      target.isComputed &&
+      typeof target.property !== "string" &&
+      (target.accessKind === "dictionary" ||
+        target.object.inferredType?.kind === "dictionaryType")
+    ) {
+      const [objectFrag, objectContext] = emitExpression(
+        target.object,
+        context
+      );
+      const [keyFrag, keyContext] = emitExpression(
+        target.property,
+        objectContext
+      );
+      const text = `${objectFrag.text}.Remove(${keyFrag.text})`;
+      return [{ text }, keyContext];
+    }
+
+    const [targetFrag, newContext] = emitExpression(target, context);
+    const text = `/* delete ${targetFrag.text} */`;
+    return [{ text }, newContext];
+  }
+
   const [operandFrag, newContext] = emitExpression(expr.expression, context);
 
   if (expr.operator === "typeof") {
@@ -658,12 +723,6 @@ export const emitUnary = (
 
     const text = `((global::System.Func<${returnTypeText}>)(() => { ${operandStatement}return ${defaultText}; }))()`;
     return [{ text }, currentContext];
-  }
-
-  if (expr.operator === "delete") {
-    // delete needs special handling
-    const text = `/* delete ${operandFrag.text} */`;
-    return [{ text }, newContext];
   }
 
   const text = `${expr.operator}${operandFrag.text}`;

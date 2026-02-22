@@ -6,7 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
-import { IrModule } from "@tsonic/frontend";
+import { IrModule, IrType } from "@tsonic/frontend";
 
 describe("Expression Emission", () => {
   it("should emit literals correctly", () => {
@@ -1006,6 +1006,55 @@ describe("Expression Emission", () => {
     expect(result).to.include(
       "new global::System.Collections.Generic.Dictionary<string, double>"
     );
+  });
+
+  it("should lower dictionary[key] !== undefined to ContainsKey", () => {
+    const dictType: IrType = {
+      kind: "dictionaryType",
+      keyType: { kind: "primitiveType", name: "string" },
+      valueType: { kind: "primitiveType", name: "number" },
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "!==",
+            left: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "dict",
+                inferredType: dictType,
+              },
+              property: { kind: "literal", value: "x" },
+              isComputed: true,
+              isOptional: false,
+              accessKind: "dictionary",
+              inferredType: { kind: "primitiveType", name: "number" },
+            },
+            right: { kind: "identifier", name: "undefined" },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include('(dict).ContainsKey("x")');
+    expect(result).to.not.include('dict["x"] != null');
   });
 
   it("should infer arrow function return type from inferredType", () => {

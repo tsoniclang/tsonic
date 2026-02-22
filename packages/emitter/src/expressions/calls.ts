@@ -883,6 +883,132 @@ const emitArrayConstructor = (
   return [{ text }, currentContext];
 };
 
+const isPromiseConstructorCall = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  return expr.callee.kind === "identifier" && expr.callee.name === "Promise";
+};
+
+const isVoidLikeType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  return (
+    type.kind === "voidType" ||
+    (type.kind === "primitiveType" && type.name === "undefined")
+  );
+};
+
+const getPromiseValueType = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): IrType | undefined => {
+  const inferred = expr.inferredType;
+  if (inferred?.kind === "referenceType") {
+    const candidate = inferred.typeArguments?.[0];
+    if (candidate && !isVoidLikeType(candidate)) {
+      return candidate;
+    }
+    if (candidate && isVoidLikeType(candidate)) {
+      return undefined;
+    }
+  }
+
+  const explicit = expr.typeArguments?.[0];
+  if (explicit && !isVoidLikeType(explicit)) {
+    return explicit;
+  }
+
+  return undefined;
+};
+
+const getExecutorArity = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): number => {
+  const executor = expr.arguments[0];
+  if (
+    executor &&
+    executor.kind !== "spread" &&
+    (executor.kind === "arrowFunction" ||
+      executor.kind === "functionExpression")
+  ) {
+    return executor.parameters.length;
+  }
+
+  const executorType = expr.parameterTypes?.[0];
+  if (executorType?.kind === "functionType") {
+    return executorType.parameters.length;
+  }
+
+  return 1;
+};
+
+const emitPromiseConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const executor = expr.arguments[0];
+  if (!executor || executor.kind === "spread") {
+    throw new Error(
+      "Unsupported Promise constructor form: expected an executor function argument."
+    );
+  }
+
+  let currentContext = context;
+  const [taskTypeTextRaw, taskTypeContext] = expr.inferredType
+    ? emitType(expr.inferredType, currentContext)
+    : ["global::System.Threading.Tasks.Task", currentContext];
+  currentContext = taskTypeContext;
+  const taskTypeText =
+    taskTypeTextRaw.length > 0
+      ? taskTypeTextRaw
+      : "global::System.Threading.Tasks.Task";
+
+  const promiseValueType = getPromiseValueType(expr);
+  let valueTypeText = "bool";
+  if (promiseValueType) {
+    const [valueType, valueTypeContext] = emitType(
+      promiseValueType,
+      currentContext
+    );
+    valueTypeText = valueType;
+    currentContext = valueTypeContext;
+  }
+
+  const [executorFrag, executorContext] = emitExpression(
+    executor,
+    currentContext,
+    expr.parameterTypes?.[0]
+  );
+  currentContext = executorContext;
+
+  const executorText = formatPostfixExpressionText(executor, executorFrag.text);
+  const executorArity = getExecutorArity(expr);
+  const resolveCallbackType = promiseValueType
+    ? `global::System.Action<${valueTypeText}>`
+    : "global::System.Action";
+  const executorDelegateType =
+    executorArity >= 2
+      ? `global::System.Action<${resolveCallbackType}, global::System.Action<object?>>`
+      : `global::System.Action<${resolveCallbackType}>`;
+  const executorInvokeTarget = `((${executorDelegateType})${executorText})`;
+  const invokeArgs =
+    executorArity >= 2
+      ? "__tsonic_resolve, __tsonic_reject"
+      : "__tsonic_resolve";
+
+  const resolveDecl = promiseValueType
+    ? `global::System.Action<${valueTypeText}> __tsonic_resolve = (value) => __tsonic_tcs.TrySetResult(value);`
+    : "global::System.Action __tsonic_resolve = () => __tsonic_tcs.TrySetResult(true);";
+
+  const text =
+    `((global::System.Func<${taskTypeText}>)(() => { ` +
+    `var __tsonic_tcs = new global::System.Threading.Tasks.TaskCompletionSource<${valueTypeText}>(); ` +
+    `${resolveDecl} ` +
+    `global::System.Action<object?> __tsonic_reject = (error) => __tsonic_tcs.TrySetException((error as global::System.Exception) ?? new global::System.Exception(error?.ToString() ?? "Promise rejected")); ` +
+    `try { ${executorInvokeTarget}(${invokeArgs}); } catch (global::System.Exception ex) { __tsonic_tcs.TrySetException(ex); } ` +
+    `return __tsonic_tcs.Task; }))()`;
+
+  return [{ text }, currentContext];
+};
+
 /**
  * Emit a new expression
  */
@@ -898,6 +1024,13 @@ export const emitNew = (
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
     return emitListCollectionInitializer(expr, context);
+  }
+
+  // Promise constructor lowering:
+  //   new Promise<T>((resolve, reject) => { ... })
+  // becomes a TaskCompletionSource<T>-backed Task expression.
+  if (isPromiseConstructorCall(expr)) {
+    return emitPromiseConstructor(expr, context);
   }
 
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);
