@@ -143,6 +143,22 @@ const structuralMembersCache = new Map<
 const typeAliasBodyCache = new Map<number, IrType | "in-progress">();
 
 /**
+ * Check whether a declaration file is a Tsonic-generated bindings artifact.
+ *
+ * We only apply aggressive declaration-file type-alias erasure to these files.
+ * Airplane-grade rule: Never erase type aliases from tsbindgen-produced stdlib
+ * packages (e.g., @tsonic/dotnet, @tsonic/core). Those aliases often encode CLR
+ * nominal types (interfaces, delegates, indexers) and must remain NOMINAL.
+ */
+const isTsonicBindingsDeclarationFile = (fileName: string): boolean => {
+  // Cross-platform: handle both POSIX and Windows paths.
+  return (
+    fileName.includes("/tsonic/bindings/") ||
+    fileName.includes("\\tsonic\\bindings\\")
+  );
+};
+
+/**
  * Determine whether a TS-only type alias target is safe to erase to its underlying shape.
  *
  * We ONLY erase aliases whose targets are "reference-shaped" (type references / intersections
@@ -566,6 +582,23 @@ export const convertTypeReference = (
         return { kind: "typeParameterType", name: typeName };
       }
 
+      // tsbindgen-generated extension method helpers are exported as `ExtensionMethods`
+      // from facade modules, then imported with a local alias:
+      //   import type { ExtensionMethods as __TsonicExt_Linq } from "@tsonic/dotnet/System.Linq.js";
+      //
+      // In this case the DeclId resolves to the import specifier (not the underlying
+      // `ExtensionMethods_<Namespace>` type alias declaration), so we must recognize
+      // the imported name and erase it to the receiver shape for deterministic typing.
+      if (
+        declNode &&
+        ts.isImportSpecifier(declNode) &&
+        ((declNode.propertyName ?? declNode.name).text === "ExtensionMethods") &&
+        node.typeArguments?.length === 1
+      ) {
+        const shape = node.typeArguments[0];
+        return shape ? convertType(shape, binding) : { kind: "unknownType" };
+      }
+
       // Pure index-signature interface/type alias: treat as dictionaryType.
       //
       // This supports idiomatic TS dictionary surfaces:
@@ -700,6 +733,83 @@ export const convertTypeReference = (
             }
 
             return fnType;
+          }
+        }
+
+        // Declaration-file type aliases are often TS-only “ergonomic” names (including
+        // Tsonic source type aliases appended to generated bindings).
+        //
+        // These aliases have NO CLR identity and must erase to their underlying shapes
+        // so emission uses CLR-backed types.
+        //
+        // Examples (from generated bindings):
+        //   export type Ok<T> = Internal.Ok__Alias_1<T>;
+        //   export type Result<T, E = string> = Ok<T> | Err<E>;
+        //
+        // If we keep these nominal, the emitter will try to reference a CLR type
+        // named `Ok` / `Result` which does not exist, causing C# compile failures
+        // in downstream projects.
+        //
+        // IMPORTANT: We must NOT erase:
+        // - Delegate aliases (handled above)
+        // - Facade conditional “arity families” (handled below)
+        // - Conditional type aliases generally (unsupported in the compiler subset)
+        if (
+          // Only erase *type-only* declaration-file aliases.
+          //
+          // tsbindgen uses merged type+value symbols for CLR types:
+          //   export interface DbSet_1$instance<T> { ... }
+          //   export const DbSet_1: ...;
+          //   export type DbSet_1<T> = DbSet_1$instance<T> & __DbSet_1$views<T>;
+          //
+          // These must remain NOMINAL so we don't pull synthetic helper interfaces
+          // like `__DbSet_1$views` into user code (they have no CLR binding).
+          //
+          // By contrast, tsonic-generated bindings often include TS-only re-exports:
+          //   export type Ok<T> = Internal.Ok__Alias_1<T>;
+          //   export type Result<T, E = string> = Ok<T> | Err<E>;
+          //
+          // Those aliases have no CLR identity and must erase to their shapes.
+          declNode.getSourceFile().isDeclarationFile &&
+          isTsonicBindingsDeclarationFile(declNode.getSourceFile().fileName) &&
+          !declInfo.valueDeclNode &&
+          !ts.isConditionalTypeNode(declNode.type)
+        ) {
+          const key = declId.id;
+          const cached = typeAliasBodyCache.get(key);
+
+          if (cached !== "in-progress") {
+            const base =
+              cached ??
+              (() => {
+                typeAliasBodyCache.set(key, "in-progress");
+                const converted = convertType(declNode.type, binding);
+                typeAliasBodyCache.set(key, converted);
+                return converted;
+              })();
+
+            const aliasTypeParams = (declNode.typeParameters ?? []).map(
+              (tp) => tp.name.text
+            );
+            const refTypeArgs = (node.typeArguments ?? []).map((t) =>
+              convertType(t, binding)
+            );
+
+            if (aliasTypeParams.length > 0 && refTypeArgs.length > 0) {
+              const subst = new Map<string, IrType>();
+              for (
+                let i = 0;
+                i < Math.min(aliasTypeParams.length, refTypeArgs.length);
+                i++
+              ) {
+                const name = aliasTypeParams[i];
+                const arg = refTypeArgs[i];
+                if (name && arg) subst.set(name, arg);
+              }
+              return subst.size > 0 ? substituteIrType(base, subst) : base;
+            }
+
+            return base;
           }
         }
 
@@ -858,6 +968,27 @@ export const convertTypeReference = (
       .getDecl(declId);
     return declInfo?.fqName ?? typeName;
   })();
+
+  // tsbindgen exports extension method helpers as:
+  //   export type { ExtensionMethods_System_Linq as ExtensionMethods } from "./__internal/extensions/index.js";
+  //
+  // Call sites (and generated bindings for Tsonic source) will often import these with a local alias:
+  //   import type { ExtensionMethods as __TsonicExt_Linq } from "@tsonic/dotnet/System.Linq.js";
+  //
+  // In that case, the TypeReference's `typeName` is the local alias (e.g. "__TsonicExt_Linq"),
+  // and the earlier `declNode.name.text.startsWith("ExtensionMethods_")` erasure check won't match
+  // because the DeclId points at an import specifier, not the original type-alias declaration node.
+  //
+  // Airplane-grade rule: these helpers are TS-only wrappers and must erase to the receiver shape
+  // for deterministic IR typing / generic inference.
+  if (
+    (resolvedName.startsWith("ExtensionMethods_") ||
+      resolvedName === "ExtensionMethods") &&
+    node.typeArguments?.length === 1
+  ) {
+    const shape = node.typeArguments[0];
+    return shape ? convertType(shape, binding) : { kind: "unknownType" };
+  }
 
   // Reference type (user-defined or library)
   return {

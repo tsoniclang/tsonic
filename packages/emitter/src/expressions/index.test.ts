@@ -769,6 +769,76 @@ describe("Expression Emission", () => {
     expect(result).to.include("useLong(id.Value)");
   });
 
+  it("should not double-unwrap member-access nullable guards (no .Value.Value)", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "!==",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "updates" },
+              property: "active",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "unionType",
+                types: [
+                  { kind: "referenceType", name: "int" },
+                  { kind: "primitiveType", name: "undefined" },
+                ],
+              },
+            },
+            right: { kind: "identifier", name: "undefined" },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "useInt" },
+                  arguments: [
+                    {
+                      kind: "memberAccess",
+                      object: { kind: "identifier", name: "updates" },
+                      property: "active",
+                      isComputed: false,
+                      isOptional: false,
+                      inferredType: {
+                        kind: "unionType",
+                        types: [
+                          { kind: "referenceType", name: "int" },
+                          { kind: "primitiveType", name: "undefined" },
+                        ],
+                      },
+                    },
+                  ],
+                  isOptional: false,
+                  parameterTypes: [{ kind: "referenceType", name: "int" }],
+                },
+              },
+            ],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("useInt(updates.active.Value)");
+    expect(result).to.not.include("updates.active.Value.Value");
+  });
+
   it("should emit hierarchical member bindings without emitting intermediate objects", () => {
     const module: IrModule = {
       kind: "module",

@@ -493,9 +493,15 @@ export const generateCommand = (
       },
     };
   } catch (error) {
+    const details =
+      error instanceof Error
+        ? config.verbose && error.stack
+          ? error.stack
+          : error.message
+        : String(error);
     return {
       ok: false,
-      error: `Emit failed: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Emit failed: ${details}`,
     };
   }
 };

@@ -124,7 +124,9 @@ const createClrImportBinding = (
         localName,
         importBinding: {
           kind: "type",
-          clrName: `${namespaceFqn}.${spec.name}`,
+          clrName: spec.resolvedClrType
+            ? `global::${spec.resolvedClrType}`
+            : `${namespaceFqn}.${spec.name}`,
         },
       };
     } else {

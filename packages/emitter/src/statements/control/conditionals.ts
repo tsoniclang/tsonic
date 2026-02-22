@@ -677,11 +677,34 @@ const isNullOrUndefined = (expr: IrExpression): boolean => {
  * Used to generate .Value access for narrowed nullable value types.
  */
 type NullableGuardInfo = {
-  readonly identifierName: string;
-  readonly identifierExpr: Extract<IrExpression, { kind: "identifier" }>;
+  readonly key: string;
+  readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
   readonly strippedType: IrType;
   readonly narrowsInThen: boolean; // true for !== null, false for === null
   readonly isValueType: boolean;
+};
+
+const getMemberAccessNarrowKey = (
+  expr: Extract<IrExpression, { kind: "memberAccess" }>
+): string | undefined => {
+  if (expr.isComputed) return undefined;
+  if (typeof expr.property !== "string") return undefined;
+
+  const obj = expr.object;
+  if (obj.kind === "identifier") {
+    return `${obj.name}.${expr.property}`;
+  }
+
+  if (obj.kind === "memberAccess") {
+    const prefix = getMemberAccessNarrowKey(obj);
+    return prefix ? `${prefix}.${expr.property}` : undefined;
+  }
+
+  if (obj.kind === "this") {
+    return `this.${expr.property}`;
+  }
+
+  return undefined;
 };
 
 /**
@@ -698,24 +721,33 @@ const tryResolveSimpleNullableGuard = (
   const isEqual = op === "===" || op === "==";
   if (!isNotEqual && !isEqual) return undefined;
 
-  // Find identifier and null/undefined expression
-  let identifier: Extract<IrExpression, { kind: "identifier" }> | undefined;
+  // Find operand (identifier or member access) and null/undefined expression
+  let operand: Extract<IrExpression, { kind: "identifier" | "memberAccess" }> | undefined;
+  let key: string | undefined;
 
   if (
     isNullOrUndefined(condition.right) &&
-    condition.left.kind === "identifier"
+    (condition.left.kind === "identifier" || condition.left.kind === "memberAccess")
   ) {
-    identifier = condition.left;
+    operand = condition.left;
   } else if (
     isNullOrUndefined(condition.left) &&
-    condition.right.kind === "identifier"
+    (condition.right.kind === "identifier" || condition.right.kind === "memberAccess")
   ) {
-    identifier = condition.right;
+    operand = condition.right;
   }
 
-  if (!identifier) return undefined;
+  if (!operand) return undefined;
 
-  const idType = identifier.inferredType;
+  if (operand.kind === "identifier") {
+    key = operand.name;
+  } else {
+    key = getMemberAccessNarrowKey(operand);
+  }
+
+  if (!key) return undefined;
+
+  const idType = operand.inferredType;
   if (!idType) return undefined;
 
   // Check if type is nullable (has null or undefined in union)
@@ -726,8 +758,8 @@ const tryResolveSimpleNullableGuard = (
   const isValueType = isDefinitelyValueType(stripped);
 
   return {
-    identifierName: identifier.name,
-    identifierExpr: identifier,
+    key,
+    targetExpr: operand,
     strippedType: stripped,
     narrowsInThen: isNotEqual,
     isValueType,
@@ -1377,8 +1409,7 @@ export const emitIfStatement = (
   const nullableGuard =
     simpleNullableGuard ?? tryResolveNullableGuard(stmt.condition, context);
   if (nullableGuard && nullableGuard.isValueType) {
-    const { identifierName, identifierExpr, narrowsInThen, strippedType } =
-      nullableGuard;
+    const { key, targetExpr, narrowsInThen, strippedType } = nullableGuard;
 
     // IMPORTANT: Avoid stacking `.Value` when:
     // - we are emitting an else-if chain, and
@@ -1393,14 +1424,14 @@ export const emitIfStatement = (
     //
     // So: build the `.Value` access from the *raw* identifier (respecting CS0136 remaps),
     // but ignoring existing narrowedBindings.
-    const [idFrag] = emitIdentifier(identifierExpr, {
-      ...context,
-      narrowedBindings: undefined,
-    });
+    const [idFrag] =
+      targetExpr.kind === "identifier"
+        ? emitIdentifier(targetExpr, { ...context, narrowedBindings: undefined })
+        : emitExpression(targetExpr, { ...context, narrowedBindings: undefined });
 
     // Create narrowed binding: id → id.Value
     const narrowedMap = new Map(context.narrowedBindings ?? []);
-    narrowedMap.set(identifierName, {
+    narrowedMap.set(key, {
       kind: "expr",
       exprText: `${idFrag.text}.Value`,
       type: strippedType,

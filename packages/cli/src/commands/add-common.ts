@@ -17,6 +17,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import type {
   Result,
   TsonicProjectConfig,
@@ -217,6 +218,32 @@ export const resolvePackageRoot = (
         `${error instanceof Error ? error.message : String(error)}`,
     };
   }
+};
+
+export const resolveTsonicRuntimeDllDir = (
+  workspaceRoot: string
+): Result<string, string> => {
+  const candidates = [
+    // Workspace-local libs (if the user placed it there).
+    join(workspaceRoot, "libs"),
+    // Workspace-local node_modules (common when using npx-installed CLI).
+    join(workspaceRoot, "node_modules", "@tsonic", "cli", "runtime"),
+    // CLI repo / package runtime directory (works in dev + installed layouts).
+    resolve(join(dirname(fileURLToPath(import.meta.url)), "../../runtime")),
+    resolve(join(dirname(fileURLToPath(import.meta.url)), "../runtime")),
+  ];
+
+  for (const dir of candidates) {
+    const dll = join(dir, "Tsonic.Runtime.dll");
+    if (existsSync(dll)) return { ok: true, value: dir };
+  }
+
+  return {
+    ok: false,
+    error:
+      "Tsonic.Runtime.dll not found.\n" +
+      "Fix: ensure the CLI runtime is present (node_modules/@tsonic/cli/runtime) or place Tsonic.Runtime.dll in libs/.",
+  };
 };
 
 export type DotnetRuntime = {

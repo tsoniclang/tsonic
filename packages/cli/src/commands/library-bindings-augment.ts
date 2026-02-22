@@ -931,6 +931,9 @@ export const augmentLibraryBindingsFromSource = (
   // graph and wrapping the CLR base member type in the published internal/index.d.ts.
   const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
   for (const m of modules) {
+    // Synthetic IR modules (e.g., program-wide anonymous type declarations) do not
+    // correspond to real source files and must be ignored by source-based augmentation.
+    if (m.filePath.startsWith("__tsonic/")) continue;
     const key = normalizeModuleFileKey(m.filePath);
     const absolutePath = resolve(absoluteSourceRoot, key);
     const indexed = buildModuleSourceIndex(absolutePath, key);
@@ -940,6 +943,7 @@ export const augmentLibraryBindingsFromSource = (
 
   const overridesByInternalIndex = new Map<string, MemberOverride[]>();
   for (const m of modules) {
+    if (m.filePath.startsWith("__tsonic/")) continue;
     const exportedClasses = m.body.filter(
       (s): s is Extract<IrStatement, { kind: "classDeclaration" }> =>
         s.kind === "classDeclaration" && s.isExported

@@ -163,6 +163,14 @@ export interface Binding {
   getFullyQualifiedName(decl: DeclId): string | undefined;
 
   /**
+   * Get the absolute source file path where a resolved declaration is declared.
+   *
+   * Used to map re-exported tsbindgen symbols back to their owning bindings.json
+   * namespace deterministically (airplane-grade).
+   */
+  getSourceFilePathOfDecl(decl: DeclId): string | undefined;
+
+  /**
    * Get type predicate information from a signature.
    * For functions with `x is T` return type.
    */
@@ -951,6 +959,14 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     return decl.getSourceFile().fileName;
   };
 
+  const getSourceFilePathOfDecl = (declId: DeclId): string | undefined => {
+    const entry = declMap.get(declId.id);
+    if (!entry) return undefined;
+    const decl = entry.decl ?? entry.typeDeclNode ?? entry.valueDeclNode;
+    if (!decl) return undefined;
+    return decl.getSourceFile().fileName;
+  };
+
   const getFullyQualifiedName = (declId: DeclId): string | undefined => {
     const entry = declMap.get(declId.id);
     if (!entry) return undefined;
@@ -1094,6 +1110,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     resolveShorthandAssignment,
     getDeclaringTypeNameOfMember,
     getSourceFilePathOfMember,
+    getSourceFilePathOfDecl,
     getFullyQualifiedName,
     getTypePredicateOfSignature,
     getThisTypeNodeOfSignature,

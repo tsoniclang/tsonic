@@ -21,6 +21,7 @@ import { augmentLibraryBindingsFromSource } from "./library-bindings-augment.js"
 import {
   listDotnetRuntimes,
   resolvePackageRoot,
+  resolveTsonicRuntimeDllDir,
   resolveTsbindgenDllPath,
   tsbindgenGenerate,
   type AddCommandOptions,
@@ -288,6 +289,15 @@ const generateLibraryBindings = (
   const refDirs = new Set<string>();
   refDirs.add(join(projectRoot, "dist", dotnetVersion));
   refDirs.add(join(workspaceRoot, "libs"));
+  // Add directories for any explicit assembly references so tsbindgen can
+  // resolve referenced assemblies when generating bindings for this output DLL.
+  for (const lib of config.libraries) {
+    if (!lib.toLowerCase().endsWith(".dll")) continue;
+    refDirs.add(dirname(lib));
+  }
+  const runtimeDirResult = resolveTsonicRuntimeDllDir(workspaceRoot);
+  if (!runtimeDirResult.ok) return runtimeDirResult;
+  refDirs.add(runtimeDirResult.value);
   for (const rt of runtimes) refDirs.add(rt.dir);
   for (const d of compileDirsResult.value) refDirs.add(d);
 
