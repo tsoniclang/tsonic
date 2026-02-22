@@ -1,5 +1,11 @@
-import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
-import { basename, join, resolve, posix } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve, posix } from "node:path";
 import type {
   IrModule,
   IrStatement,
@@ -466,6 +472,82 @@ const patchInternalIndexBrandMarkersOptional = (
   return { ok: true, value: undefined };
 };
 
+const splitTopLevelTypeArgs = (text: string): string[] => {
+  const parts: string[] = [];
+  let depthAngle = 0;
+  let depthParen = 0;
+  let depthBrace = 0;
+  let depthBracket = 0;
+  let start = 0;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "<") depthAngle += 1;
+    else if (ch === ">") depthAngle = Math.max(0, depthAngle - 1);
+    else if (ch === "(") depthParen += 1;
+    else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (ch === "{") depthBrace += 1;
+    else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+    else if (ch === "[") depthBracket += 1;
+    else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+    else if (
+      ch === "," &&
+      depthAngle === 0 &&
+      depthParen === 0 &&
+      depthBrace === 0 &&
+      depthBracket === 0
+    ) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+
+  parts.push(text.slice(start).trim());
+  return parts.filter((p) => p.length > 0);
+};
+
+const expandUnionsDeep = (typeText: string): string => {
+  const unionPrefixRe = /Union_\d+</g;
+  let result = typeText;
+
+  // Iterate until no more Union_N< patterns remain
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    unionPrefixRe.lastIndex = 0;
+    const prefixMatch = unionPrefixRe.exec(result);
+    if (!prefixMatch) break;
+
+    // Find the matching > for the < at the end of the prefix
+    const openAngle = prefixMatch.index + prefixMatch[0].length - 1;
+    let depth = 1;
+    let closeAngle = -1;
+    for (let i = openAngle + 1; i < result.length; i += 1) {
+      const ch = result[i];
+      if (ch === "<") depth += 1;
+      else if (ch === ">") {
+        depth -= 1;
+        if (depth === 0) {
+          closeAngle = i;
+          break;
+        }
+      }
+    }
+    if (closeAngle < 0) break;
+
+    const inner = result.slice(openAngle + 1, closeAngle);
+    const args = splitTopLevelTypeArgs(inner);
+    if (args.length < 2) break;
+
+    const expanded = `(${args.join(" | ")})`;
+    result =
+      result.slice(0, prefixMatch.index) +
+      expanded +
+      result.slice(closeAngle + 1);
+  }
+
+  return result;
+};
+
 const patchFacadeWithSourceFunctionSignatures = (
   facadeDtsPath: string,
   signaturesByName: ReadonlyMap<string, readonly SourceFunctionSignatureDef[]>
@@ -480,49 +562,6 @@ const patchFacadeWithSourceFunctionSignatures = (
   const original = readFileSync(facadeDtsPath, "utf-8");
   let next = original;
 
-  const splitTopLevelTypeArgs = (text: string): string[] => {
-    const parts: string[] = [];
-    let depthAngle = 0;
-    let depthParen = 0;
-    let depthBrace = 0;
-    let depthBracket = 0;
-    let start = 0;
-
-    for (let i = 0; i < text.length; i += 1) {
-      const ch = text[i];
-      if (ch === "<") depthAngle += 1;
-      else if (ch === ">") depthAngle = Math.max(0, depthAngle - 1);
-      else if (ch === "(") depthParen += 1;
-      else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
-      else if (ch === "{") depthBrace += 1;
-      else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
-      else if (ch === "[") depthBracket += 1;
-      else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
-      else if (
-        ch === "," &&
-        depthAngle === 0 &&
-        depthParen === 0 &&
-        depthBrace === 0 &&
-        depthBracket === 0
-      ) {
-        parts.push(text.slice(start, i).trim());
-        start = i + 1;
-      }
-    }
-
-    parts.push(text.slice(start).trim());
-    return parts.filter((p) => p.length > 0);
-  };
-
-  const unionRuntimeToTsUnion = (typeText: string): string | undefined => {
-    const trimmed = typeText.trim();
-    const match = /^Union_\d+\s*<([\s\S]+)>$/.exec(trimmed);
-    if (!match || !match[1]) return undefined;
-    const args = splitTopLevelTypeArgs(match[1]);
-    if (args.length < 2) return undefined;
-    return args.join(" | ");
-  };
-
   for (const [name, signatures] of Array.from(signaturesByName.entries()).sort(
     (a, b) => a[0].localeCompare(b[0])
   )) {
@@ -533,23 +572,63 @@ const patchFacadeWithSourceFunctionSignatures = (
       "m"
     );
     const currentMatch = fnRe.exec(next);
-    if (!currentMatch) continue;
-    const existingReturnType = currentMatch[2]?.trim() ?? "";
 
-    const replacement = Array.from(
-      new Set(
-        signatures.map((sig) => {
-          let returnType = sig.returnTypeText;
-          if (returnType.includes("{")) {
-            const converted = unionRuntimeToTsUnion(existingReturnType);
-            if (converted) returnType = converted;
-          }
-          return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
-        })
-      )
-    ).join("\n");
+    if (currentMatch) {
+      const existingReturnType = currentMatch[2]?.trim() ?? "";
 
-    next = next.replace(fnRe, replacement);
+      const replacement = Array.from(
+        new Set(
+          signatures.map((sig) => {
+            const returnType = sig.returnTypeText.includes("{")
+              ? expandUnionsDeep(existingReturnType)
+              : sig.returnTypeText;
+            return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
+          })
+        )
+      ).join("\n");
+
+      next = next.replace(fnRe, replacement);
+      continue;
+    }
+
+    // If no function declaration match, try const Func<...> pattern
+    const constFuncRe = new RegExp(
+      String.raw`^export\s+declare\s+const\s+${escapeRegExp(name)}\s*:\s*Func<([\s\S]+?)>\s*;`,
+      "m"
+    );
+    const constMatch = constFuncRe.exec(next);
+    if (!constMatch || !constMatch[1]) continue;
+
+    const funcTypeArgs = splitTopLevelTypeArgs(constMatch[1]);
+    if (funcTypeArgs.length < 2) continue;
+
+    // Last arg = return type, remaining args = parameter types
+    const facadeParamTypes = funcTypeArgs.slice(0, -1);
+    const facadeReturnType = funcTypeArgs[funcTypeArgs.length - 1]!;
+
+    // Use the first source signature for parameter names
+    const sourceSig = signatures[0]!;
+    const sourceParams = sourceSig.parametersText
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+
+    // If count mismatch, skip patching for this declaration
+    if (sourceParams.length !== facadeParamTypes.length) continue;
+
+    // Pair source parameter NAMES with facade parameter TYPES
+    const pairedParams = sourceParams.map((param, idx) => {
+      const colonIdx = param.indexOf(":");
+      const paramName =
+        colonIdx >= 0 ? param.slice(0, colonIdx).trim() : param.trim();
+      return `${paramName}: ${facadeParamTypes[idx]}`;
+    });
+
+    const expandedReturnType = expandUnionsDeep(facadeReturnType);
+    const typeParamsText = sourceSig.typeParametersText;
+    const replacement = `export declare function ${name}${typeParamsText}(${pairedParams.join(", ")}): ${expandedReturnType};`;
+
+    next = next.replace(constFuncRe, replacement);
   }
 
   if (next !== original) {
@@ -1182,6 +1261,78 @@ const renderExportedTypeAlias = (
 
   const rhs = printIrType(stmt.type, { parentPrecedence: 0 });
   return { ok: true, value: `export type ${stmt.name}${typeParams} = ${rhs};` };
+};
+
+/**
+ * Overlay already-augmented bindings from dependency assemblies.
+ *
+ * When a library references sibling Tsonic-built libraries (via references.libraries),
+ * tsbindgen regenerates types from CLR metadata, losing source-level augmentation
+ * (literal types, optional markers, brand optionality, etc.). The dependency's published
+ * bindings already have this augmentation applied, so we overlay them onto the
+ * freshly-generated copies.
+ */
+export const overlayDependencyBindings = (
+  config: ResolvedConfig,
+  bindingsOutDir: string
+): Result<void, string> => {
+  const depBindingsDirByAssembly = new Map<string, string>();
+  for (const lib of config.libraries) {
+    if (!lib.toLowerCase().endsWith(".dll")) continue;
+    const assemblyName = basename(lib, ".dll");
+    // Skip the current package's own assembly.
+    if (assemblyName === config.outputName) continue;
+    // Convention: DLL at <project>/dist/<dotnetVersion>/<name>.dll,
+    // bindings at <project>/dist/tsonic/bindings/.
+    const depBindingsDir = join(dirname(dirname(lib)), "tsonic", "bindings");
+    if (existsSync(depBindingsDir)) {
+      depBindingsDirByAssembly.set(assemblyName, depBindingsDir);
+    }
+  }
+
+  if (depBindingsDirByAssembly.size === 0) {
+    return { ok: true, value: undefined };
+  }
+
+  // Scan generated bindings for namespace directories with internal/index.d.ts.
+  const generatedNamespaces = readdirSync(bindingsOutDir, {
+    withFileTypes: true,
+  })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+
+  for (const ns of generatedNamespaces) {
+    const internalIndexPath = join(
+      bindingsOutDir,
+      ns,
+      "internal",
+      "index.d.ts"
+    );
+    if (!existsSync(internalIndexPath)) continue;
+
+    const content = readFileSync(internalIndexPath, "utf-8");
+    const assemblyMatch = content.match(/^\/\/ Assembly:\s*(.+)\s*$/m);
+    if (!assemblyMatch || !assemblyMatch[1]) continue;
+    const assembly = assemblyMatch[1].trim();
+
+    const depDir = depBindingsDirByAssembly.get(assembly);
+    if (!depDir) continue;
+
+    // Overlay the dependency's already-augmented internal/index.d.ts.
+    const depInternalIndex = join(depDir, ns, "internal", "index.d.ts");
+    if (existsSync(depInternalIndex)) {
+      copyFileSync(depInternalIndex, internalIndexPath);
+    }
+
+    // Overlay the dependency's facade .d.ts (may have type aliases, re-exports).
+    const facadeDts = join(bindingsOutDir, `${ns}.d.ts`);
+    const depFacadeDts = join(depDir, `${ns}.d.ts`);
+    if (existsSync(facadeDts) && existsSync(depFacadeDts)) {
+      copyFileSync(depFacadeDts, facadeDts);
+    }
+  }
+
+  return { ok: true, value: undefined };
 };
 
 export const augmentLibraryBindingsFromSource = (

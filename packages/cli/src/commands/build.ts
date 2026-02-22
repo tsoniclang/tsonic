@@ -17,7 +17,10 @@ import {
 import type { ResolvedConfig, Result } from "../types.js";
 import { generateCommand } from "./generate.js";
 import { resolveNugetConfigFile } from "../dotnet/nuget-config.js";
-import { augmentLibraryBindingsFromSource } from "./library-bindings-augment.js";
+import {
+  augmentLibraryBindingsFromSource,
+  overlayDependencyBindings,
+} from "./library-bindings-augment.js";
 import {
   listDotnetRuntimes,
   resolvePackageRoot,
@@ -373,6 +376,9 @@ const generateLibraryBindings = (
     options
   );
   if (!genResult.ok) return genResult;
+
+  const overlayResult = overlayDependencyBindings(config, outDir);
+  if (!overlayResult.ok) return overlayResult;
 
   const augmentResult = augmentLibraryBindingsFromSource(config, outDir);
   if (!augmentResult.ok) return augmentResult;
