@@ -54,13 +54,21 @@ export const convertForStatement = (
     if (ts.isVariableDeclarationList(node.initializer)) {
       const converted = convertVariableDeclarationList(node.initializer, ctx);
       initializer = converted;
-      bodyCtx = withVariableTypeEnv(ctx, node.initializer.declarations, converted);
+      bodyCtx = withVariableTypeEnv(
+        ctx,
+        node.initializer.declarations,
+        converted
+      );
     } else {
       initializer = convertExpression(node.initializer, ctx, undefined);
     }
   }
 
-  const body = convertStatementSingle(node.statement, bodyCtx, expectedReturnType);
+  const body = convertStatementSingle(
+    node.statement,
+    bodyCtx,
+    expectedReturnType
+  );
   return {
     kind: "forStatement",
     initializer,
@@ -111,22 +119,22 @@ export const convertForOfStatement = (
             : ({ kind: "unionType", types: srcType.elementTypes } as const)
           : undefined;
     if (elementType) {
-      bodyCtx = withVariableTypeEnv(
-        ctx,
-        [firstDecl],
-        {
-          kind: "variableDeclaration",
-          declarationKind: "const",
-          declarations: [
-            { kind: "variableDeclarator", name: variable, type: elementType },
-          ],
-          isExported: false,
-        }
-      );
+      bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
+        kind: "variableDeclaration",
+        declarationKind: "const",
+        declarations: [
+          { kind: "variableDeclarator", name: variable, type: elementType },
+        ],
+        isExported: false,
+      });
     }
   }
 
-  const body = convertStatementSingle(node.statement, bodyCtx, expectedReturnType);
+  const body = convertStatementSingle(
+    node.statement,
+    bodyCtx,
+    expectedReturnType
+  );
   return {
     kind: "forOfStatement",
     variable,
@@ -155,40 +163,49 @@ export const convertForInStatement = (
     : undefined;
 
   const variable = ts.isVariableDeclarationList(node.initializer)
-    ? convertBindingName(firstDecl?.name ?? ts.factory.createIdentifier("_"), ctx)
+    ? convertBindingName(
+        firstDecl?.name ?? ts.factory.createIdentifier("_"),
+        ctx
+      )
     : ts.isIdentifier(node.initializer)
       ? convertBindingName(node.initializer, ctx)
       : convertBindingName(ts.factory.createIdentifier("_"), ctx);
 
   const typedVariable =
     variable.kind === "identifierPattern"
-      ? { ...variable, type: { kind: "primitiveType", name: "string" } as const }
+      ? {
+          ...variable,
+          type: { kind: "primitiveType", name: "string" } as const,
+        }
       : variable;
 
   // `for (k in obj)` binds `k` as a string. Thread this into the body for
   // correct boolean-context lowering (empty string is falsy in JS).
   let bodyCtx = ctx;
-  const stringType = { kind: "primitiveType" as const, name: "string" as const };
+  const stringType = {
+    kind: "primitiveType" as const,
+    name: "string" as const,
+  };
   if (ts.isVariableDeclarationList(node.initializer) && firstDecl) {
-    bodyCtx = withVariableTypeEnv(
-      ctx,
-      [firstDecl],
-      {
-        kind: "variableDeclaration",
-        declarationKind: "const",
-        declarations: [
-          { kind: "variableDeclarator", name: typedVariable, type: stringType },
-        ],
-        isExported: false,
-      }
-    );
+    bodyCtx = withVariableTypeEnv(ctx, [firstDecl], {
+      kind: "variableDeclaration",
+      declarationKind: "const",
+      declarations: [
+        { kind: "variableDeclarator", name: typedVariable, type: stringType },
+      ],
+      isExported: false,
+    });
   } else if (ts.isIdentifier(node.initializer)) {
     // Assignment form: for (k in obj) { ... } where k is pre-declared.
     // Do not override its declaration type here.
     bodyCtx = ctx;
   }
 
-  const body = convertStatementSingle(node.statement, bodyCtx, expectedReturnType);
+  const body = convertStatementSingle(
+    node.statement,
+    bodyCtx,
+    expectedReturnType
+  );
   return {
     kind: "forInStatement",
     variable: typedVariable,

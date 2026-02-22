@@ -621,7 +621,7 @@ const expandNonNullable = (
   if (resolved.kind === ts.SyntaxKind.UndefinedKeyword)
     return { kind: "neverType" };
 
- return convertType(resolved, binding);
+  return convertType(resolved, binding);
 };
 
 const expandConditionalUtilityTypeInternal = (
@@ -721,7 +721,10 @@ const expandExcludeExtract = (
 
   const tryExpandConditionalArg = (node: ts.TypeNode): IrType | null => {
     const unwrapped = unwrapParens(node);
-    if (!ts.isTypeReferenceNode(unwrapped) || !ts.isIdentifier(unwrapped.typeName)) {
+    if (
+      !ts.isTypeReferenceNode(unwrapped) ||
+      !ts.isIdentifier(unwrapped.typeName)
+    ) {
       return null;
     }
     const name = unwrapped.typeName.text;
@@ -744,7 +747,9 @@ const expandExcludeExtract = (
     const directExpanded = tryExpandConditionalArg(node);
     if (directExpanded) return directExpanded;
 
-    const resolved = unwrapParens(resolveTypeAlias(unwrapParens(node), binding));
+    const resolved = unwrapParens(
+      resolveTypeAlias(unwrapParens(node), binding)
+    );
     const resolvedExpanded = tryExpandConditionalArg(resolved);
     if (resolvedExpanded) return resolvedExpanded;
 
@@ -827,7 +832,10 @@ const expandReturnType = (
   }
 
   // Case 2: Type reference to function type alias
-  if (ts.isTypeReferenceNode(unwrapped) && ts.isIdentifier(unwrapped.typeName)) {
+  if (
+    ts.isTypeReferenceNode(unwrapped) &&
+    ts.isIdentifier(unwrapped.typeName)
+  ) {
     const declId = binding.resolveTypeReference(unwrapped);
     if (declId) {
       const declInfo = (binding as BindingInternal)
@@ -920,7 +928,11 @@ const expandParameters = (
   //
   // INV-0 COMPLIANT: Resolve the identifier to a declaration via Binding and
   // read syntactic parameter type annotations (no ts.Type queries).
-  if (!functionType && ts.isTypeQueryNode(fArg) && ts.isIdentifier(fArg.exprName)) {
+  if (
+    !functionType &&
+    ts.isTypeQueryNode(fArg) &&
+    ts.isIdentifier(fArg.exprName)
+  ) {
     const declId = binding.resolveIdentifier(fArg.exprName);
     if (declId) {
       const declInfo = (binding as BindingInternal)
@@ -928,7 +940,10 @@ const expandParameters = (
         .getDecl(declId);
       const decl = declInfo?.declNode as ts.Declaration | undefined;
 
-      if (decl && (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))) {
+      if (
+        decl &&
+        (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl))
+      ) {
         const paramTypes: IrType[] = decl.parameters.map((param) =>
           param.type ? convertType(param.type, binding) : { kind: "anyType" }
         );

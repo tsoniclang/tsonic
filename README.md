@@ -131,7 +131,10 @@ xs.Add(1);
 xs.Add(2);
 xs.Add(3);
 
-const doubled = xs.Where((x) => x % 2 === 0).Select((x) => x * 2).ToList();
+const doubled = xs
+  .Where((x) => x % 2 === 0)
+  .Select((x) => x * 2)
+  .ToList();
 void doubled;
 ```
 
@@ -248,30 +251,30 @@ tsonic add nuget Microsoft.EntityFrameworkCore 10.0.1 @tsonic/efcore
 
 ## CLI Commands
 
-| Command                | Description             |
-| ---------------------- | ----------------------- |
-| `tsonic init`          | Initialize workspace + default project |
-| `tsonic generate [entry]` | Generate C# code only |
-| `tsonic build [entry]` | Build native executable |
-| `tsonic run [entry]`   | Build and run           |
-| `tsonic add npm <pkg>` | Install an npm bindings package (tsonic.bindings.json) |
-| `tsonic add package <dll> [types]` | Add a local DLL + bindings |
-| `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings |
-| `tsonic add framework <ref> [types]` | Add a FrameworkReference + bindings |
-| `tsonic restore`        | Restore deps + bindings   |
-| `tsonic pack`          | Create a NuGet package  |
+| Command                               | Description                                            |
+| ------------------------------------- | ------------------------------------------------------ |
+| `tsonic init`                         | Initialize workspace + default project                 |
+| `tsonic generate [entry]`             | Generate C# code only                                  |
+| `tsonic build [entry]`                | Build native executable                                |
+| `tsonic run [entry]`                  | Build and run                                          |
+| `tsonic add npm <pkg>`                | Install an npm bindings package (tsonic.bindings.json) |
+| `tsonic add package <dll> [types]`    | Add a local DLL + bindings                             |
+| `tsonic add nuget <id> <ver> [types]` | Add a NuGet package + bindings                         |
+| `tsonic add framework <ref> [types]`  | Add a FrameworkReference + bindings                    |
+| `tsonic restore`                      | Restore deps + bindings                                |
+| `tsonic pack`                         | Create a NuGet package                                 |
 
 ### Common Options
 
-| Option                   | Description                          |
-| ------------------------ | ------------------------------------ |
+| Option                   | Description                                                          |
+| ------------------------ | -------------------------------------------------------------------- |
 | `-c, --config <file>`    | Workspace config path (default: auto-detect `tsonic.workspace.json`) |
-| `-o, --out <name>`       | Output name (binary/assembly)        |
-| `-r, --rid <rid>`        | Runtime identifier (e.g., linux-x64) |
-| `-O, --optimize <level>` | Optimization: size or speed          |
-| `-k, --keep-temp`        | Keep build artifacts                 |
-| `-V, --verbose`          | Verbose output                       |
-| `-q, --quiet`            | Suppress output                      |
+| `-o, --out <name>`       | Output name (binary/assembly)                                        |
+| `-r, --rid <rid>`        | Runtime identifier (e.g., linux-x64)                                 |
+| `-O, --optimize <level>` | Optimization: size or speed                                          |
+| `-k, --keep-temp`        | Keep build artifacts                                                 |
+| `-V, --verbose`          | Verbose output                                                       |
+| `-q, --quiet`            | Suppress output                                                      |
 
 ## Configuration
 

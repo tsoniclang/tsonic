@@ -139,9 +139,7 @@ const collectProjectLibraries = (
 /**
  * Extract entry point information from IR module
  */
-const extractEntryInfo = (
-  entryModule: IrModule
-): EntryInfo | null => {
+const extractEntryInfo = (entryModule: IrModule): EntryInfo | null => {
   const methodName = "main";
 
   // Look for exported 'main' function
@@ -227,13 +225,11 @@ export const generateCommand = (
     const dllLibraries = config.libraries.filter((p) =>
       p.toLowerCase().endsWith(".dll")
     );
-    const missingDlls = dllLibraries.filter((p) =>
-      !existsSync(resolve(workspaceRoot, p))
+    const missingDlls = dllLibraries.filter(
+      (p) => !existsSync(resolve(workspaceRoot, p))
     );
     if (missingDlls.length > 0) {
-      const details = missingDlls
-        .map((p) => `- ${p}`)
-        .join("\n");
+      const details = missingDlls.map((p) => `- ${p}`).join("\n");
       return {
         ok: false,
         error:
@@ -407,7 +403,10 @@ export const generateCommand = (
       const runtimePath = (() => {
         // 1. Try monorepo structure (development) - ProjectReference
         const monorepoPath = resolve(
-          join(import.meta.dirname, "../../../runtime/src/Tsonic.Runtime.csproj")
+          join(
+            import.meta.dirname,
+            "../../../runtime/src/Tsonic.Runtime.csproj"
+          )
         );
         if (existsSync(monorepoPath)) {
           return monorepoPath;
@@ -431,7 +430,11 @@ export const generateCommand = (
         ? []
         : [
             ...findRuntimeDlls(outputDir),
-            ...collectProjectLibraries(workspaceRoot, outputDir, config.libraries),
+            ...collectProjectLibraries(
+              workspaceRoot,
+              outputDir,
+              config.libraries
+            ),
           ];
 
       // Build output configuration

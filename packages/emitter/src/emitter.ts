@@ -55,6 +55,7 @@ export const emitCSharpFiles = (
   const results = new Map<string, string>();
   const typeMemberIndex = buildTypeMemberIndex(modules);
   const typeAliasIndex = buildTypeAliasIndex(modules);
+  const syntheticTypeNamespaces = buildSyntheticTypeNamespaceIndex(modules);
 
   // Create JSON AOT registry (shared across all modules)
   const jsonAotRegistry: JsonAotRegistry = {
@@ -70,8 +71,12 @@ export const emitCSharpFiles = (
     return staticContainerMembers.length > 0;
   });
 
-  // Find common root directory for all modules
-  const commonRoot = findCommonRoot(modules.map((m) => m.filePath));
+  // Find common root directory for all *source* modules.
+  // Synthetic compiler-generated modules (e.g., __tsonic/*) should not affect the
+  // relative output layout for user sources.
+  const commonRoot = findCommonRoot(
+    modules.map((m) => m.filePath).filter((p) => !p.startsWith("__tsonic/"))
+  );
 
   for (const module of modules) {
     // Create relative path from common root
@@ -93,6 +98,7 @@ export const emitCSharpFiles = (
       exportMap, // Pass export map for re-export resolution
       typeMemberIndex, // Pass type member index for member naming policy
       typeAliasIndex, // Pass type alias index for cross-module alias resolution
+      syntheticTypeNamespaces, // Synthetic cross-module type resolution (e.g. __tsonic/* anon types)
       jsonAotRegistry, // Pass JSON AOT registry for type collection
     };
     const code = emitModule(module, moduleOptions);
@@ -117,6 +123,36 @@ export const emitCSharpFiles = (
   }
 
   return { ok: true, files: results };
+};
+
+const buildSyntheticTypeNamespaceIndex = (
+  modules: readonly IrModule[]
+): ReadonlyMap<string, string> => {
+  const map = new Map<string, string>();
+
+  for (const m of modules) {
+    if (!m.filePath.startsWith("__tsonic/")) continue;
+
+    for (const stmt of m.body) {
+      switch (stmt.kind) {
+        case "classDeclaration":
+        case "interfaceDeclaration":
+        case "enumDeclaration":
+        case "typeAliasDeclaration": {
+          const existing = map.get(stmt.name);
+          if (existing && existing !== m.namespace) {
+            // This should never happen: synthetic types must have unique names.
+            // Keep the first to preserve determinism.
+            continue;
+          }
+          map.set(stmt.name, m.namespace);
+          break;
+        }
+      }
+    }
+  }
+
+  return map;
 };
 
 const generateModuleContainerAttributeFile = (): string => {

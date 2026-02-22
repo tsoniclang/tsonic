@@ -124,7 +124,12 @@ export const convertParameters = (
         continue;
       }
 
-      if (typeName === "ref" || typeName === "out" || typeName === "in" || typeName === "inref") {
+      if (
+        typeName === "ref" ||
+        typeName === "out" ||
+        typeName === "in" ||
+        typeName === "inref"
+      ) {
         passing =
           typeName === "in" || typeName === "inref"
             ? "in"
@@ -179,7 +184,9 @@ export const convertVariableDeclarationList = (
   // Convert sequentially so later declarators can refer to earlier ones.
   for (const decl of node.declarations) {
     const declType = decl.type
-      ? typeSystem.typeFromSyntax(currentCtx.binding.captureTypeSyntax(decl.type))
+      ? typeSystem.typeFromSyntax(
+          currentCtx.binding.captureTypeSyntax(decl.type)
+        )
       : undefined;
 
     const initializer = decl.initializer
@@ -197,7 +204,12 @@ export const convertVariableDeclarationList = (
     currentCtx = withVariableDeclaratorTypeEnv(currentCtx, decl.name, irDecl);
   }
 
-  return { kind: "variableDeclaration", declarationKind, declarations, isExported: false };
+  return {
+    kind: "variableDeclaration",
+    declarationKind,
+    declarations,
+    isExported: false,
+  };
 };
 
 /**

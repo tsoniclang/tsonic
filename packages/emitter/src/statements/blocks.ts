@@ -65,7 +65,8 @@ export const emitReturnStatement = (
           : stmt.expression;
 
       const isNoopExpr =
-        (expr.kind === "literal" && (expr.value === undefined || expr.value === null)) ||
+        (expr.kind === "literal" &&
+          (expr.value === undefined || expr.value === null)) ||
         (expr.kind === "identifier" &&
           (expr.name === "undefined" || expr.name === "null"));
 

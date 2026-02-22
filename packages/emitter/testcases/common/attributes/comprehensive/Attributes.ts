@@ -1,5 +1,8 @@
 import { attributes as A } from "@tsonic/core/lang.js";
-import { ObsoleteAttribute, SerializableAttribute } from "@tsonic/dotnet/System.js";
+import {
+  ObsoleteAttribute,
+  SerializableAttribute,
+} from "@tsonic/dotnet/System.js";
 
 export class User {
   private _nameField!: string;
@@ -17,8 +20,12 @@ export class User {
 
 A.on(User).type.add(SerializableAttribute);
 A.on(User).ctor.add(ObsoleteAttribute, "ctor");
-A.on(User).method((u) => u.save).add(ObsoleteAttribute, "method");
-A.on(User).prop((u) => u.name).add(ObsoleteAttribute, "prop");
+A.on(User)
+  .method((u) => u.save)
+  .add(ObsoleteAttribute, "method");
+A.on(User)
+  .prop((u) => u.name)
+  .add(ObsoleteAttribute, "prop");
 
 export class NoCtor {
   value!: number;

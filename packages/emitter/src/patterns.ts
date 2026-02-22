@@ -561,7 +561,10 @@ export const lowerAssignmentPattern = (
       if (prop.kind === "rest") {
         // Rest property - would need synthetic type
         if (prop.pattern.kind === "identifierPattern") {
-          const escapedName = emitRemappedLocalName(prop.pattern.name, currentCtx);
+          const escapedName = emitRemappedLocalName(
+            prop.pattern.name,
+            currentCtx
+          );
           assignments.push(
             `/* ${escapedName} = rest of ${tempName} - needs synthetic type */`
           );

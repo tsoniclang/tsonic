@@ -18,7 +18,11 @@ describe("Program Creation", () => {
     try {
       fs.writeFileSync(
         path.join(tempDir, "package.json"),
-        JSON.stringify({ name: "app", version: "1.0.0", type: "module" }, null, 2)
+        JSON.stringify(
+          { name: "app", version: "1.0.0", type: "module" },
+          null,
+          2
+        )
       );
 
       const srcDir = path.join(tempDir, "src");
@@ -60,7 +64,9 @@ describe("Program Creation", () => {
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const expectedDts = path.resolve(path.join(fakeDotnetRoot, "System.d.ts"));
+      const expectedDts = path.resolve(
+        path.join(fakeDotnetRoot, "System.d.ts")
+      );
       expect(result.value.program.getSourceFile(expectedDts)).to.not.equal(
         undefined
       );
@@ -69,4 +75,3 @@ describe("Program Creation", () => {
     }
   });
 });
-

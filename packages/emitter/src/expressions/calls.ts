@@ -261,7 +261,9 @@ const registerJsonAotType = (
 
   const registry = context.options.jsonAotRegistry;
   const [rawTypeStr] = emitType(type, { ...context, qualifyLocalTypes: true });
-  const typeStr = rawTypeStr.endsWith("?") ? rawTypeStr.slice(0, -1) : rawTypeStr;
+  const typeStr = rawTypeStr.endsWith("?")
+    ? rawTypeStr.slice(0, -1)
+    : rawTypeStr;
 
   registry.rootTypes.add(ensureGlobalPrefix(typeStr));
   registry.needsJsonAot = true;
@@ -399,7 +401,9 @@ export const emitCall = (
       innerCall.callee.kind === "memberAccess" &&
       innerCall.callee.memberBinding?.isExtensionMethod &&
       isInstanceMemberAccess(innerCall.callee, context) &&
-      innerCall.callee.memberBinding.type.startsWith("System.Linq.Enumerable") &&
+      innerCall.callee.memberBinding.type.startsWith(
+        "System.Linq.Enumerable"
+      ) &&
       innerCall.callee.memberBinding.member === "ToList" &&
       innerCall.arguments.length === 0
     ) {
@@ -474,7 +478,10 @@ export const emitCall = (
         const expectedType = parameterTypes[i];
 
         if (arg.kind === "spread") {
-          const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
+          const [spreadFrag, ctx] = emitExpression(
+            arg.expression,
+            currentContext
+          );
           args.push(`params ${spreadFrag.text}`);
           currentContext = ctx;
         } else {
@@ -484,7 +491,11 @@ export const emitCall = (
             args.push(`${castModifier} ${argFrag.text}`);
             currentContext = ctx;
           } else {
-            const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
+            const [argFrag, ctx] = emitExpression(
+              arg,
+              currentContext,
+              expectedType
+            );
             const passingMode = expr.argumentPassing?.[i];
             const prefix =
               passingMode && passingMode !== "value" && isLValue(arg)
@@ -542,7 +553,10 @@ export const emitCall = (
       const expectedType = parameterTypes[i];
 
       if (arg.kind === "spread") {
-        const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
+        const [spreadFrag, ctx] = emitExpression(
+          arg.expression,
+          currentContext
+        );
         args.push(`params ${spreadFrag.text}`);
         currentContext = ctx;
       } else {
@@ -669,7 +683,10 @@ export const emitCall = (
   const calleeText =
     expr.callee.kind === "memberAccess"
       ? `${finalCalleeName}${typeArgsStr}`
-      : formatPostfixExpressionText(expr.callee, `${finalCalleeName}${typeArgsStr}`);
+      : formatPostfixExpressionText(
+          expr.callee,
+          `${finalCalleeName}${typeArgsStr}`
+        );
 
   const callOp = expr.isOptional ? "?." : "";
   const callText = `${calleeText}${callOp}(${args.join(", ")})`;
@@ -696,7 +713,10 @@ const isListConstructorWithArrayLiteral = (
     return false;
   }
   const typeId = inferredType.typeId;
-  if (!typeId || !typeId.clrName.startsWith("System.Collections.Generic.List")) {
+  if (
+    !typeId ||
+    !typeId.clrName.startsWith("System.Collections.Generic.List")
+  ) {
     return false;
   }
 
@@ -744,7 +764,10 @@ const emitListCollectionInitializer = (
 ): [CSharpFragment, EmitterContext] => {
   let currentContext = context;
 
-  const [calleeFrag, calleeContext] = emitExpression(expr.callee, currentContext);
+  const [calleeFrag, calleeContext] = emitExpression(
+    expr.callee,
+    currentContext
+  );
   currentContext = calleeContext;
 
   // Handle generic type arguments consistently with emitNew()
@@ -924,7 +947,11 @@ export const emitNew = (
         args.push(`${castModifier} ${argFrag.text}`);
         currentContext = ctx;
       } else {
-        const [argFrag, ctx] = emitExpression(arg, currentContext, expectedType);
+        const [argFrag, ctx] = emitExpression(
+          arg,
+          currentContext,
+          expectedType
+        );
         const passingMode = expr.argumentPassing?.[i];
         const prefix =
           passingMode && passingMode !== "value" && isLValue(arg)

@@ -27,8 +27,8 @@ import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 Maps directly to .NET namespaces:
 
-| Import                                      | .NET Namespace               |
-| ------------------------------------------- | ---------------------------- |
+| Import                                         | .NET Namespace               |
+| ---------------------------------------------- | ---------------------------- |
 | `@tsonic/dotnet/System.js`                     | `System`                     |
 | `@tsonic/dotnet/System.IO.js`                  | `System.IO`                  |
 | `@tsonic/dotnet/System.Collections.Generic.js` | `System.Collections.Generic` |
@@ -288,7 +288,7 @@ export function main(): void {
   const now = new Date();
   console.log(now.toISOString());
 
-  const value = JSON.parse<{ x: number }>("{\"x\": 1}");
+  const value = JSON.parse<{ x: number }>('{"x": 1}');
   console.log(JSON.stringify(value));
 
   console.log(Math.max(1, 2, 3));
@@ -317,7 +317,10 @@ numbers.Add(1);
 numbers.Add(2);
 numbers.Add(3);
 
-const doubled = numbers.Where((x) => x % 2 === 0).Select((x) => x * 2).ToList();
+const doubled = numbers
+  .Where((x) => x % 2 === 0)
+  .Select((x) => x * 2)
+  .ToList();
 ```
 
 Extension method scopes are **sticky** across fluent chains: you should only need to apply
@@ -326,7 +329,10 @@ Extension method scopes are **sticky** across fluent chains: you should only nee
 The same pattern works for `IEnumerable<T>` and `IQueryable<T>` (for example when using EF Core):
 
 ```typescript
-import type { ExtensionMethods as Linq, IQueryable } from "@tsonic/dotnet/System.Linq.js";
+import type {
+  ExtensionMethods as Linq,
+  IQueryable,
+} from "@tsonic/dotnet/System.Linq.js";
 
 type LinqQuery<T> = Linq<IQueryable<T>>;
 declare const query: LinqQuery<number>;
@@ -547,7 +553,10 @@ A.on(Native)
   .add(MarshalAsAttribute, UnmanagedType.Bool);
 
 // [field: NonSerialized]
-A.on(Native).prop((x) => x.bar).target("field").add(NonSerializedAttribute);
+A.on(Native)
+  .prop((x) => x.bar)
+  .target("field")
+  .add(NonSerializedAttribute);
 ```
 
 Generates:

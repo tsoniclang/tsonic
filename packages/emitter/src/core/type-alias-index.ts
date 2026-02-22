@@ -1,7 +1,13 @@
 import type { IrModule, IrType } from "@tsonic/frontend";
-import type { TypeAliasIndex, TypeAliasIndexEntry } from "../emitter-types/core.js";
+import type {
+  TypeAliasIndex,
+  TypeAliasIndexEntry,
+} from "../emitter-types/core.js";
 
-const addEntry = (map: Map<string, TypeAliasIndexEntry[]>, entry: TypeAliasIndexEntry): void => {
+const addEntry = (
+  map: Map<string, TypeAliasIndexEntry[]>,
+  entry: TypeAliasIndexEntry
+): void => {
   const existing = map.get(entry.name);
   if (existing) {
     existing.push(entry);
@@ -10,7 +16,9 @@ const addEntry = (map: Map<string, TypeAliasIndexEntry[]>, entry: TypeAliasIndex
   map.set(entry.name, [entry]);
 };
 
-export const buildTypeAliasIndex = (modules: readonly IrModule[]): TypeAliasIndex => {
+export const buildTypeAliasIndex = (
+  modules: readonly IrModule[]
+): TypeAliasIndex => {
   const byName = new Map<string, TypeAliasIndexEntry[]>();
   const byFqn = new Map<string, TypeAliasIndexEntry>();
 

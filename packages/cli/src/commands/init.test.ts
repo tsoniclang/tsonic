@@ -52,12 +52,11 @@ describe("Init Command", () => {
           join(dir, "packages", workspaceName, "src", "App.ts"),
           "utf-8"
         );
-        expect(appTs).to.include('@tsonic/dotnet/System.js');
+        expect(appTs).to.include("@tsonic/dotnet/System.js");
         expect(appTs).to.include("Console.WriteLine");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     });
-
   });
 });

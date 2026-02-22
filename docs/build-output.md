@@ -227,10 +227,10 @@ These defaults apply to `output.type: "executable"` unless specified in `tsonic.
 
 For `output.type: "library"`, only these keys apply:
 
-| Option      | Default  | Description                                      |
-| ----------- | -------- | ------------------------------------------------ |
-| `nativeAot` | `false`  | Enable NativeAOT publish for libraries           |
-| `nativeLib` | `shared` | Native library kind (`shared` or `static`)       |
+| Option      | Default  | Description                                |
+| ----------- | -------- | ------------------------------------------ |
+| `nativeAot` | `false`  | Enable NativeAOT publish for libraries     |
+| `nativeLib` | `shared` | Native library kind (`shared` or `static`) |
 
 ### Optimization
 

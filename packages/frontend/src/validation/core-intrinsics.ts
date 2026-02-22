@@ -120,7 +120,10 @@ const readNearestPackageName = (fileName: string): string | undefined => {
   }
 };
 
-const isCoreDeclarationFile = (fileName: string, module: CoreModule): boolean => {
+const isCoreDeclarationFile = (
+  fileName: string,
+  module: CoreModule
+): boolean => {
   const base = path.basename(fileName);
   const expectedBase = module === "types" ? "types.d.ts" : "lang.d.ts";
   if (base !== expectedBase) return false;
@@ -134,7 +137,9 @@ const resolveAliasedSymbol = (
   symbol: ts.Symbol | undefined
 ): ts.Symbol | undefined => {
   if (!symbol) return undefined;
-  return symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  return symbol.flags & ts.SymbolFlags.Alias
+    ? checker.getAliasedSymbol(symbol)
+    : symbol;
 };
 
 const isSymbolFromCore = (
@@ -146,7 +151,9 @@ const isSymbolFromCore = (
   if (!resolved) return false;
 
   const decls = resolved.getDeclarations?.() ?? [];
-  return decls.some((d) => isCoreDeclarationFile(d.getSourceFile().fileName, module));
+  return decls.some((d) =>
+    isCoreDeclarationFile(d.getSourceFile().fileName, module)
+  );
 };
 
 const getRightmostTypeNameIdentifier = (
@@ -183,7 +190,10 @@ export const validateCoreIntrinsics = (
       )
     );
 
-  const visitor = (node: ts.Node, acc: DiagnosticsCollector): DiagnosticsCollector => {
+  const visitor = (
+    node: ts.Node,
+    acc: DiagnosticsCollector
+  ): DiagnosticsCollector => {
     let current = acc;
 
     // Disallow declaring reserved intrinsic type names in user source.

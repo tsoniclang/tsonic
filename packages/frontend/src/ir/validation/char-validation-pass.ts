@@ -16,7 +16,11 @@
  * This pass must catch those cases so the compiler fails with diagnostics, not ICE.
  */
 
-import { createDiagnostic, Diagnostic, SourceLocation } from "../../types/diagnostic.js";
+import {
+  createDiagnostic,
+  Diagnostic,
+  SourceLocation,
+} from "../../types/diagnostic.js";
 import {
   IrModule,
   IrStatement,
@@ -100,7 +104,10 @@ const resolveTypeAliases = (
   return type;
 };
 
-const isCharType = (type: IrType | undefined, ctx: CharValidationContext): boolean => {
+const isCharType = (
+  type: IrType | undefined,
+  ctx: CharValidationContext
+): boolean => {
   const resolved = stripNullish(resolveTypeAliases(type, ctx));
   if (!resolved) return false;
   if (resolved.kind === "primitiveType") return resolved.name === "char";
@@ -238,9 +245,13 @@ const validateExpression = (
       return;
 
     case "array": {
-      const resolvedExpected = stripNullish(resolveTypeAliases(expectedType, ctx));
+      const resolvedExpected = stripNullish(
+        resolveTypeAliases(expectedType, ctx)
+      );
       const elementExpectedType =
-        resolvedExpected?.kind === "arrayType" ? resolvedExpected.elementType : undefined;
+        resolvedExpected?.kind === "arrayType"
+          ? resolvedExpected.elementType
+          : undefined;
       for (const elem of expr.elements) {
         if (!elem) continue;
         if (elem.kind === "spread") {
@@ -496,8 +507,15 @@ const validateStatement = (
 
     case "forStatement":
       if (stmt.initializer) {
-        if ("kind" in stmt.initializer && stmt.initializer.kind === "variableDeclaration") {
-          validateStatement(stmt.initializer as IrStatement, ctx, currentReturnType);
+        if (
+          "kind" in stmt.initializer &&
+          stmt.initializer.kind === "variableDeclaration"
+        ) {
+          validateStatement(
+            stmt.initializer as IrStatement,
+            ctx,
+            currentReturnType
+          );
         } else {
           validateExpression(stmt.initializer as IrExpression, ctx);
         }
@@ -570,7 +588,9 @@ const validateStatement = (
   }
 };
 
-const collectTypeAliases = (module: IrModule): ReadonlyMap<string, IrTypeAliasDeclaration> => {
+const collectTypeAliases = (
+  module: IrModule
+): ReadonlyMap<string, IrTypeAliasDeclaration> => {
   const aliases = new Map<string, IrTypeAliasDeclaration>();
 
   const collectFromStatement = (stmt: IrStatement): void => {

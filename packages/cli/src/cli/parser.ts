@@ -92,7 +92,12 @@ export const parseArgs = (
         return { command: "help", positionals: [], options: {}, programArgs };
       case "-v":
       case "--version":
-        return { command: "version", positionals: [], options: {}, programArgs };
+        return {
+          command: "version",
+          positionals: [],
+          options: {},
+          programArgs,
+        };
       case "-V":
       case "--verbose":
         options.verbose = true;

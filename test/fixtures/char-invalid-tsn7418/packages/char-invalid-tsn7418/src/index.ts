@@ -18,7 +18,7 @@ export function main(): void {
   const r = new Rune("AB");
 
   // Type assertion to char does not make an invalid literal valid.
-  const d = ("AB" as char);
+  const d = "AB" as char;
   // (Unused vars are fine in fixtures.)
   const _ = [a, b, c, r, d];
 }

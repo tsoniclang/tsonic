@@ -23,7 +23,10 @@ import {
   isDefinitelyValueType,
 } from "../../core/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { emitBooleanCondition, toBooleanCondition } from "../../core/boolean-context.js";
+import {
+  emitBooleanCondition,
+  toBooleanCondition,
+} from "../../core/boolean-context.js";
 import { emitRemappedLocalName } from "../../core/local-names.js";
 
 /**
@@ -171,7 +174,10 @@ const hasProperty = (
     // Resolve by suffix match in the type member index.
     const matches: string[] = [];
     for (const fqn of index.keys()) {
-      if (fqn.endsWith(`.${type.name}`) || fqn.endsWith(`.${type.name}__Alias`)) {
+      if (
+        fqn.endsWith(`.${type.name}`) ||
+        fqn.endsWith(`.${type.name}__Alias`)
+      ) {
         matches.push(fqn);
       }
     }
@@ -203,7 +209,7 @@ const resolveLocalTypesForReference = (
   context: EmitterContext
 ): ReadonlyMap<string, LocalTypeInfo> | undefined => {
   const lookupName = type.name.includes(".")
-    ? type.name.split(".").pop() ?? type.name
+    ? (type.name.split(".").pop() ?? type.name)
     : type.name;
 
   if (context.localTypes?.has(lookupName)) {
@@ -231,7 +237,8 @@ const resolveLocalTypesForReference = (
   if (matches.length === 1) return matches[0]!.localTypes;
 
   // Disambiguate by CLR FQN when available.
-  const fqn = type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
+  const fqn =
+    type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
   if (fqn && fqn.includes(".")) {
     const lastDot = fqn.lastIndexOf(".");
     const ns = fqn.slice(0, lastDot);
@@ -286,15 +293,22 @@ const tryResolveDiscriminantEqualityGuard = (
 ): DiscriminantEqualityGuardInfo | undefined => {
   // Normalize `!(x.prop === lit)` to `x.prop !== lit` (and vice versa).
   if (condition.kind === "unary" && condition.operator === "!") {
-    const inner = tryResolveDiscriminantEqualityGuard(condition.expression, context);
+    const inner = tryResolveDiscriminantEqualityGuard(
+      condition.expression,
+      context
+    );
     if (!inner) return undefined;
 
     const flipped =
-      inner.operator === "===" ? "!==" :
-      inner.operator === "!==" ? "===" :
-      inner.operator === "==" ? "!=" :
-      inner.operator === "!=" ? "==" :
-      inner.operator;
+      inner.operator === "==="
+        ? "!=="
+        : inner.operator === "!=="
+          ? "==="
+          : inner.operator === "=="
+            ? "!="
+            : inner.operator === "!="
+              ? "=="
+              : inner.operator;
 
     return { ...inner, operator: flipped as typeof inner.operator };
   }
@@ -372,9 +386,7 @@ const tryResolveDiscriminantEqualityGuard = (
 
     if (member.kind === "objectType") {
       const prop = member.members.find(
-        (
-          m
-        ): m is Extract<typeof m, { kind: "propertySignature" }> =>
+        (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
           m.kind === "propertySignature" && m.name === propertyName
       );
       propType = prop?.type;
@@ -383,7 +395,7 @@ const tryResolveDiscriminantEqualityGuard = (
       if (!localTypes) continue;
 
       const lookupName = member.name.includes(".")
-        ? member.name.split(".").pop() ?? member.name
+        ? (member.name.split(".").pop() ?? member.name)
         : member.name;
 
       // Use the target module's localTypes for property type resolution.
@@ -678,7 +690,10 @@ const isNullOrUndefined = (expr: IrExpression): boolean => {
  */
 type NullableGuardInfo = {
   readonly key: string;
-  readonly targetExpr: Extract<IrExpression, { kind: "identifier" | "memberAccess" }>;
+  readonly targetExpr: Extract<
+    IrExpression,
+    { kind: "identifier" | "memberAccess" }
+  >;
   readonly strippedType: IrType;
   readonly narrowsInThen: boolean; // true for !== null, false for === null
   readonly isValueType: boolean;
@@ -722,17 +737,21 @@ const tryResolveSimpleNullableGuard = (
   if (!isNotEqual && !isEqual) return undefined;
 
   // Find operand (identifier or member access) and null/undefined expression
-  let operand: Extract<IrExpression, { kind: "identifier" | "memberAccess" }> | undefined;
+  let operand:
+    | Extract<IrExpression, { kind: "identifier" | "memberAccess" }>
+    | undefined;
   let key: string | undefined;
 
   if (
     isNullOrUndefined(condition.right) &&
-    (condition.left.kind === "identifier" || condition.left.kind === "memberAccess")
+    (condition.left.kind === "identifier" ||
+      condition.left.kind === "memberAccess")
   ) {
     operand = condition.left;
   } else if (
     isNullOrUndefined(condition.left) &&
-    (condition.right.kind === "identifier" || condition.right.kind === "memberAccess")
+    (condition.right.kind === "identifier" ||
+      condition.right.kind === "memberAccess")
   ) {
     operand = condition.right;
   }
@@ -933,7 +952,10 @@ export const emitIfStatement = (
         const otherMemberN = memberN === 1 ? 2 : 1;
         const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
         const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-        elseNarrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+        elseNarrowedMap.set(originalName, {
+          kind: "expr",
+          exprText: inlineExpr,
+        });
 
         const elseCtx: EmitterContext = {
           ...indent({ ...finalContext, narrowedBindings: elseNarrowedMap }),
@@ -945,18 +967,27 @@ export const emitIfStatement = (
         );
         code += `\n${ind}else\n${elseCode}`;
         finalContext = dedent(elseCtxAfter);
-        finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+        finalContext = {
+          ...finalContext,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        };
         return [code, finalContext];
       }
 
       // If we can't narrow ELSE safely, emit it without narrowing.
       const [elseCode, elseCtx] = emitStatement(
         stmt.elseStatement,
-        indent({ ...finalContext, narrowedBindings: ctxWithId.narrowedBindings })
+        indent({
+          ...finalContext,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        })
       );
       code += `\n${ind}else\n${elseCode}`;
       finalContext = dedent(elseCtx);
-      finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+      finalContext = {
+        ...finalContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      };
       return [code, finalContext];
     }
 
@@ -973,7 +1004,10 @@ export const emitIfStatement = (
     }
 
     // Restore narrowedBindings to the incoming scope.
-    finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+    finalContext = {
+      ...finalContext,
+      narrowedBindings: ctxWithId.narrowedBindings,
+    };
     return [code, finalContext];
   }
 
@@ -1023,26 +1057,41 @@ export const emitIfStatement = (
           const otherMemberN = memberN === 1 ? 2 : 1;
           const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
           const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-          elseNarrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+          elseNarrowedMap.set(originalName, {
+            kind: "expr",
+            exprText: inlineExpr,
+          });
 
           const elseCtx: EmitterContext = {
             ...indent({ ...finalContext, narrowedBindings: elseNarrowedMap }),
           };
 
-          const [elseCode, elseCtxAfter] = emitStatement(stmt.elseStatement, elseCtx);
+          const [elseCode, elseCtxAfter] = emitStatement(
+            stmt.elseStatement,
+            elseCtx
+          );
           code += `\n${ind}else\n${elseCode}`;
           finalContext = dedent(elseCtxAfter);
-          finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+          finalContext = {
+            ...finalContext,
+            narrowedBindings: ctxWithId.narrowedBindings,
+          };
           return [code, finalContext];
         }
 
         const [elseCode, elseCtx] = emitStatement(
           stmt.elseStatement,
-          indent({ ...finalContext, narrowedBindings: ctxWithId.narrowedBindings })
+          indent({
+            ...finalContext,
+            narrowedBindings: ctxWithId.narrowedBindings,
+          })
         );
         code += `\n${ind}else\n${elseCode}`;
         finalContext = dedent(elseCtx);
-        finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+        finalContext = {
+          ...finalContext,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        };
         return [code, finalContext];
       }
 
@@ -1056,7 +1105,10 @@ export const emitIfStatement = (
         return [code, finalContext];
       }
 
-      finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+      finalContext = {
+        ...finalContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      };
       return [code, finalContext];
     }
 
@@ -1068,13 +1120,19 @@ export const emitIfStatement = (
           const otherMemberN = memberN === 1 ? 2 : 1;
           const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
           const thenNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-          thenNarrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+          thenNarrowedMap.set(originalName, {
+            kind: "expr",
+            exprText: inlineExpr,
+          });
           const thenCtx: EmitterContext = {
             ...indent({ ...ctxWithId, narrowedBindings: thenNarrowedMap }),
           };
           return emitStatement(stmt.thenStatement, thenCtx);
         }
-        return emitStatement(stmt.thenStatement, indent({ ...ctxWithId, narrowedBindings: ctxWithId.narrowedBindings }));
+        return emitStatement(
+          stmt.thenStatement,
+          indent({ ...ctxWithId, narrowedBindings: ctxWithId.narrowedBindings })
+        );
       })();
 
       code += `\n${thenCode}`;
@@ -1095,7 +1153,10 @@ export const emitIfStatement = (
         );
         code += `\n${ind}else\n${elseCode}`;
         finalContext = dedent(elseBodyCtx);
-        finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+        finalContext = {
+          ...finalContext,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        };
         return [code, finalContext];
       }
 
@@ -1110,7 +1171,10 @@ export const emitIfStatement = (
         return [code, finalContext];
       }
 
-      finalContext = { ...finalContext, narrowedBindings: ctxWithId.narrowedBindings };
+      finalContext = {
+        ...finalContext,
+        narrowedBindings: ctxWithId.narrowedBindings,
+      };
       return [code, finalContext];
     }
   }
@@ -1137,7 +1201,10 @@ export const emitIfStatement = (
 
     let code = `${ind}if (${condText})\n${thenCode}`;
     let finalContext = dedent(thenCtxAfter);
-    finalContext = { ...finalContext, narrowedBindings: ctxAfterRhs.narrowedBindings };
+    finalContext = {
+      ...finalContext,
+      narrowedBindings: ctxAfterRhs.narrowedBindings,
+    };
 
     if (stmt.elseStatement) {
       const [elseCode, elseCtx] = emitStatement(
@@ -1265,12 +1332,18 @@ export const emitIfStatement = (
         ...indent(ctxAfterRhs),
         narrowedBindings: narrowedMap,
       };
-      const [thenCode, thenCtxAfter] = emitStatement(stmt.elseStatement, thenCtx);
+      const [thenCode, thenCtxAfter] = emitStatement(
+        stmt.elseStatement,
+        thenCtx
+      );
 
       // ELSE branch is the original THEN (not narrowed)
       const [elseCode, elseCtxAfter] = emitStatement(
         stmt.thenStatement,
-        indent({ ...dedent(thenCtxAfter), narrowedBindings: ctxAfterRhs.narrowedBindings })
+        indent({
+          ...dedent(thenCtxAfter),
+          narrowedBindings: ctxAfterRhs.narrowedBindings,
+        })
       );
 
       const code = `${ind}if (${condText})\n${thenCode}\n${ind}else\n${elseCode}`;
@@ -1383,11 +1456,17 @@ export const emitIfStatement = (
           ...indent(rhsCtxAfterCond),
           narrowedBindings: narrowedMap,
         };
-        const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
+        const [thenCode, thenCtxAfter] = emitStatement(
+          stmt.thenStatement,
+          thenCtx
+        );
 
         let code = `${ind}if (${condText})\n${thenCode}`;
         let finalContext = dedent(thenCtxAfter);
-        finalContext = { ...finalContext, narrowedBindings: ctxAfterRhs.narrowedBindings };
+        finalContext = {
+          ...finalContext,
+          narrowedBindings: ctxAfterRhs.narrowedBindings,
+        };
 
         if (stmt.elseStatement) {
           const [elseCode, elseCtx] = emitStatement(
@@ -1426,8 +1505,14 @@ export const emitIfStatement = (
     // but ignoring existing narrowedBindings.
     const [idFrag] =
       targetExpr.kind === "identifier"
-        ? emitIdentifier(targetExpr, { ...context, narrowedBindings: undefined })
-        : emitExpression(targetExpr, { ...context, narrowedBindings: undefined });
+        ? emitIdentifier(targetExpr, {
+            ...context,
+            narrowedBindings: undefined,
+          })
+        : emitExpression(targetExpr, {
+            ...context,
+            narrowedBindings: undefined,
+          });
 
     // Create narrowed binding: id → id.Value
     const narrowedMap = new Map(context.narrowedBindings ?? []);

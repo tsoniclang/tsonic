@@ -15,7 +15,10 @@ class MyVisitor extends ExpressionVisitor {
 export function main(): void {
   const v = new MyVisitor();
   const t = v.GetType();
-  const m = t.GetMethod("VisitBinary", BindingFlags.Instance | BindingFlags.NonPublic);
+  const m = t.GetMethod(
+    "VisitBinary",
+    BindingFlags.Instance | BindingFlags.NonPublic
+  );
 
   // protected internal => IsFamilyOrAssembly = true (not just IsFamily).
   const ok = m !== undefined && m.IsVirtual && m.IsFamilyOrAssembly;

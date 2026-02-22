@@ -53,9 +53,18 @@ const mergeUniqueFrameworkReferences = (
 const mergeUniquePackageReferences = (
   a: readonly { readonly id: string; readonly version: string }[],
   b: readonly { readonly id: string; readonly version: string }[]
-): Result<readonly { readonly id: string; readonly version: string }[], string> => {
-  const byId = new Map<string, { readonly id: string; readonly version: string }>();
-  const add = (p: { readonly id: string; readonly version: string }): Result<void, string> => {
+): Result<
+  readonly { readonly id: string; readonly version: string }[],
+  string
+> => {
+  const byId = new Map<
+    string,
+    { readonly id: string; readonly version: string }
+  >();
+  const add = (p: {
+    readonly id: string;
+    readonly version: string;
+  }): Result<void, string> => {
     const key = p.id.toLowerCase();
     const existing = byId.get(key);
     if (existing && existing.version !== p.version) {
@@ -116,7 +125,9 @@ export const runCli = async (args: string[]): Promise<number> => {
     console.log("  Created: tsonic.workspace.json");
     console.log("\nNext steps:");
     console.log("  1. Edit tsonic.workspace.json to configure the workspace");
-    console.log("  2. Edit packages/<project>/tsonic.json to configure the project");
+    console.log(
+      "  2. Edit packages/<project>/tsonic.json to configure the project"
+    );
     console.log("  3. Run: tsonic build");
     return 0;
   }
@@ -178,12 +189,17 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = addPackageCommand(dllPath, typesPackage, workspaceConfigPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
+    const result = addPackageCommand(
+      dllPath,
+      typesPackage,
+      workspaceConfigPath,
+      {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      }
+    );
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
       return 1;
@@ -197,18 +213,22 @@ export const runCli = async (args: string[]): Promise<number> => {
     const typesPackage = parsed.positionals[2]; // optional: omitted => auto-generate
     if (!packageId || !version) {
       console.error("Error: Package id and version required");
-      console.error(
-        "Usage: tsonic add nuget <PackageId> <Version> [types]"
-      );
+      console.error("Usage: tsonic add nuget <PackageId> <Version> [types]");
       return 1;
     }
 
-    const result = addNugetCommand(packageId, version, typesPackage, workspaceConfigPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
+    const result = addNugetCommand(
+      packageId,
+      version,
+      typesPackage,
+      workspaceConfigPath,
+      {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      }
+    );
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
       return 1;
@@ -221,18 +241,21 @@ export const runCli = async (args: string[]): Promise<number> => {
     const typesPackage = parsed.positionals[1]; // optional: omitted => auto-generate
     if (!frameworkRef) {
       console.error("Error: Framework reference required");
-      console.error(
-        "Usage: tsonic add framework <FrameworkReference> [types]"
-      );
+      console.error("Usage: tsonic add framework <FrameworkReference> [types]");
       return 1;
     }
 
-    const result = addFrameworkCommand(frameworkRef, typesPackage, workspaceConfigPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
+    const result = addFrameworkCommand(
+      frameworkRef,
+      typesPackage,
+      workspaceConfigPath,
+      {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      }
+    );
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
       return 1;
@@ -271,12 +294,18 @@ export const runCli = async (args: string[]): Promise<number> => {
       return 1;
     }
 
-    const result = updateNugetCommand(packageId, version, typesPackage, workspaceConfigPath, {
-      verbose: parsed.options.verbose,
-      quiet: parsed.options.quiet,
-      deps: parsed.options.deps,
-      strict: parsed.options.strict,
-    });
+    const result = updateNugetCommand(
+      packageId,
+      version,
+      typesPackage,
+      workspaceConfigPath,
+      {
+        verbose: parsed.options.verbose,
+        quiet: parsed.options.quiet,
+        deps: parsed.options.deps,
+        strict: parsed.options.strict,
+      }
+    );
     if (!result.ok) {
       console.error(`Error: ${result.error}`);
       return 1;
@@ -313,18 +342,26 @@ export const runCli = async (args: string[]): Promise<number> => {
     const includeTestDeps = parsed.command === "test";
     const hasFrameworkRefs =
       (rawWorkspaceConfig.dotnet?.frameworkReferences?.length ?? 0) > 0 ||
-      (includeTestDeps ? (testDotnet.frameworkReferences?.length ?? 0) > 0 : false);
+      (includeTestDeps
+        ? (testDotnet.frameworkReferences?.length ?? 0) > 0
+        : false);
     const hasPackageRefs =
       (rawWorkspaceConfig.dotnet?.packageReferences?.length ?? 0) > 0 ||
-      (includeTestDeps ? (testDotnet.packageReferences?.length ?? 0) > 0 : false);
-    const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some((entry) => {
-      const p = typeof entry === "string" ? entry : entry.path;
-      const normalized = p.replace(/\\/g, "/").toLowerCase();
-      if (!normalized.endsWith(".dll")) return false;
-      if (isBuiltInRuntimeDllPath(p)) return false;
-      // Workspace-managed DLLs live under ./libs
-      return normalized.startsWith("libs/") || normalized.startsWith("./libs/");
-    });
+      (includeTestDeps
+        ? (testDotnet.packageReferences?.length ?? 0) > 0
+        : false);
+    const hasDllLibs = (rawWorkspaceConfig.dotnet?.libraries ?? []).some(
+      (entry) => {
+        const p = typeof entry === "string" ? entry : entry.path;
+        const normalized = p.replace(/\\/g, "/").toLowerCase();
+        if (!normalized.endsWith(".dll")) return false;
+        if (isBuiltInRuntimeDllPath(p)) return false;
+        // Workspace-managed DLLs live under ./libs
+        return (
+          normalized.startsWith("libs/") || normalized.startsWith("./libs/")
+        );
+      }
+    );
 
     if (hasFrameworkRefs || hasPackageRefs || hasDllLibs) {
       const restoreResult = restoreCommand(workspaceConfigPath, {
@@ -362,7 +399,10 @@ export const runCli = async (args: string[]): Promise<number> => {
         ? asPath
         : join(asPath, PROJECT_CONFIG_FILE);
       if (!cfg.startsWith(workspaceRoot)) {
-        return { ok: false, error: `Project must be within workspace: ${projectArg}` };
+        return {
+          ok: false,
+          error: `Project must be within workspace: ${projectArg}`,
+        };
       }
       if (!existsSync(cfg)) {
         return { ok: false, error: `Project config not found: ${cfg}` };
@@ -412,9 +452,7 @@ export const runCli = async (args: string[]): Promise<number> => {
   if (parsed.command === "test") {
     if (!baseProjectConfig.tests) {
       console.error("Error: Project does not define tests configuration");
-      console.error(
-        `Add a 'tests' block to ${projectConfigPath} and retry.`
-      );
+      console.error(`Add a 'tests' block to ${projectConfigPath} and retry.`);
       return 1;
     }
 
@@ -426,8 +464,14 @@ export const runCli = async (args: string[]): Promise<number> => {
     const testDotnet = rawWorkspaceConfig.testDotnet ?? {};
 
     const mergedPackageRefs = mergeUniquePackageReferences(
-      (prodDotnet.packageReferences ?? []) as readonly { readonly id: string; readonly version: string }[],
-      (testDotnet.packageReferences ?? []) as readonly { readonly id: string; readonly version: string }[]
+      (prodDotnet.packageReferences ?? []) as readonly {
+        readonly id: string;
+        readonly version: string;
+      }[],
+      (testDotnet.packageReferences ?? []) as readonly {
+        readonly id: string;
+        readonly version: string;
+      }[]
     );
     if (!mergedPackageRefs.ok) {
       console.error(`Error: ${mergedPackageRefs.error}`);
@@ -439,10 +483,17 @@ export const runCli = async (args: string[]): Promise<number> => {
       dotnet: {
         ...prodDotnet,
         frameworkReferences: mergeUniqueFrameworkReferences(
-          (prodDotnet.frameworkReferences ?? []) as readonly (string | { readonly id: string })[],
-          (testDotnet.frameworkReferences ?? []) as readonly (string | { readonly id: string })[]
+          (prodDotnet.frameworkReferences ?? []) as readonly (
+            | string
+            | { readonly id: string }
+          )[],
+          (testDotnet.frameworkReferences ?? []) as readonly (
+            | string
+            | { readonly id: string }
+          )[]
         ) as unknown as typeof prodDotnet.frameworkReferences,
-        packageReferences: mergedPackageRefs.value as unknown as typeof prodDotnet.packageReferences,
+        packageReferences:
+          mergedPackageRefs.value as unknown as typeof prodDotnet.packageReferences,
         msbuildProperties: {
           ...(prodDotnet.msbuildProperties ?? {}),
           ...(testDotnet.msbuildProperties ?? {}),
@@ -466,7 +517,8 @@ export const runCli = async (args: string[]): Promise<number> => {
       ? (() => {
           const testsCfg = baseProjectConfig.tests!;
           const outDir =
-            testsCfg.outputDirectory ?? `${resolvedConfig.outputDirectory}-test`;
+            testsCfg.outputDirectory ??
+            `${resolvedConfig.outputDirectory}-test`;
           const outName =
             testsCfg.outputName ?? `${resolvedConfig.outputName}.tests`;
 

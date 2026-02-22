@@ -27,9 +27,16 @@ type ReceiverMarkerInfo = {
 
 const unwrapWrapperType = (
   typeNode: ts.TypeNode
-): { readonly wrapperName: string; readonly inner: ts.TypeNode; readonly node: ts.TypeReferenceNode } | undefined => {
+):
+  | {
+      readonly wrapperName: string;
+      readonly inner: ts.TypeNode;
+      readonly node: ts.TypeReferenceNode;
+    }
+  | undefined => {
   if (!ts.isTypeReferenceNode(typeNode)) return undefined;
-  if (!typeNode.typeArguments || typeNode.typeArguments.length !== 1) return undefined;
+  if (!typeNode.typeArguments || typeNode.typeArguments.length !== 1)
+    return undefined;
   if (!ts.isIdentifier(typeNode.typeName)) return undefined;
 
   const inner = typeNode.typeArguments[0];

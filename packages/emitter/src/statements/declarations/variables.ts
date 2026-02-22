@@ -14,7 +14,10 @@ import { emitStatement } from "../../statement-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern } from "../../patterns.js";
-import { allocateLocalName, registerLocalName } from "../../core/local-names.js";
+import {
+  allocateLocalName,
+  registerLocalName,
+} from "../../core/local-names.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
@@ -142,7 +145,10 @@ const resolveAsInterfaceTargetType = (
       ) {
         continue;
       }
-      if (candidate.kind === "objectType" || candidate.kind === "intersectionType") {
+      if (
+        candidate.kind === "objectType" ||
+        candidate.kind === "intersectionType"
+      ) {
         continue;
       }
       return candidate;
@@ -308,7 +314,8 @@ export const emitVariableDeclaration = (
       // Generic functions cannot be represented as values in C#.
       // Detect out-of-scope type parameters (e.g., `<T>(x: T) => ...`) and fail
       // instead of generating invalid C# that references an undeclared `T`.
-      const inScopeTypeParams = currentContext.typeParameters ?? new Set<string>();
+      const inScopeTypeParams =
+        currentContext.typeParameters ?? new Set<string>();
       const findOutOfScopeTypeParam = (type: IrType): string | undefined => {
         switch (type.kind) {
           case "typeParameterType":
@@ -385,7 +392,9 @@ export const emitVariableDeclaration = (
         //
         // NOTE: We currently do not support parameter initializers for arrow-function values.
         // Optional-only (`x?: T`) is supported via `= default` on the delegate signature.
-        const hasInitializer = arrowFunc.parameters.some((p) => !!p.initializer);
+        const hasInitializer = arrowFunc.parameters.some(
+          (p) => !!p.initializer
+        );
         if (hasInitializer) {
           throw new Error(
             "ICE: Arrow function values with default parameter initializers are not supported. Use a named function declaration instead."
@@ -399,7 +408,11 @@ export const emitVariableDeclaration = (
         }
 
         const originalFieldName = decl.name.name;
-        const emittedFieldName = emitCSharpName(originalFieldName, "fields", context);
+        const emittedFieldName = emitCSharpName(
+          originalFieldName,
+          "fields",
+          context
+        );
         const delegateTypeName = `${emittedFieldName}__Delegate`;
         const access = stmt.isExported
           ? "public"
@@ -601,14 +614,13 @@ export const emitVariableDeclaration = (
     if (decl.name.kind === "identifierPattern") {
       // Simple identifier pattern (escape C# keywords)
       const originalName = decl.name.name;
-      const localName =
-        context.isStatic
-          ? emitCSharpName(originalName, "fields", context)
-          : (() => {
-              const alloc = allocateLocalName(originalName, currentContext);
-              currentContext = alloc.context;
-              return alloc.emittedName;
-            })();
+      const localName = context.isStatic
+        ? emitCSharpName(originalName, "fields", context)
+        : (() => {
+            const alloc = allocateLocalName(originalName, currentContext);
+            currentContext = alloc.context;
+            return alloc.emittedName;
+          })();
       varDecl += localName;
 
       // Add initializer if present
@@ -689,8 +701,9 @@ export const emitVariableDeclaration = (
               bodyReturnType.kind === "voidType" ||
               (bodyReturnType.kind === "primitiveType" &&
                 bodyReturnType.name === "undefined");
-            const retOrExpr =
-              isVoidReturn ? `${exprCode.text};` : `return ${exprCode.text};`;
+            const retOrExpr = isVoidReturn
+              ? `${exprCode.text};`
+              : `return ${exprCode.text};`;
             bodyText = `\n${ind}{\n${bodyInd}${retOrExpr}\n${ind}}`;
           }
 
@@ -714,7 +727,11 @@ export const emitVariableDeclaration = (
       // Register local names after emitting the initializer (C# scoping rules).
       // Static fields are not locals and must not participate in shadowing logic.
       if (!context.isStatic) {
-        currentContext = registerLocalName(originalName, localName, currentContext);
+        currentContext = registerLocalName(
+          originalName,
+          localName,
+          currentContext
+        );
       }
       declarations.push(`${ind}${varDecl};`);
     } else {

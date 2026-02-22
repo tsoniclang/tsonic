@@ -1,7 +1,16 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { basename, join, resolve, posix } from "node:path";
-import type { IrModule, IrStatement, IrType, IrTypeParameter } from "@tsonic/frontend";
-import { buildModuleDependencyGraph, type CompilerOptions, type Diagnostic } from "@tsonic/frontend";
+import type {
+  IrModule,
+  IrStatement,
+  IrType,
+  IrTypeParameter,
+} from "@tsonic/frontend";
+import {
+  buildModuleDependencyGraph,
+  type CompilerOptions,
+  type Diagnostic,
+} from "@tsonic/frontend";
 import type { ResolvedConfig, Result } from "../types.js";
 import * as ts from "typescript";
 
@@ -42,7 +51,10 @@ type ModuleSourceIndex = {
   readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
   readonly typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
   readonly typeAliasesByName: ReadonlyMap<string, SourceTypeAliasDef>;
-  readonly memberTypesByClassAndMember: ReadonlyMap<string, ReadonlyMap<string, ts.TypeNode>>;
+  readonly memberTypesByClassAndMember: ReadonlyMap<
+    string,
+    ReadonlyMap<string, ts.TypeNode>
+  >;
 };
 
 const renderDiagnostics = (diags: readonly Diagnostic[]): string => {
@@ -61,7 +73,10 @@ const escapeRegExp = (text: string): string => {
 };
 
 const normalizeModuleFileKey = (filePath: string): string => {
-  return posix.normalize(filePath).replace(/^(\.\/)+/, "").replace(/^\/+/, "");
+  return posix
+    .normalize(filePath)
+    .replace(/^(\.\/)+/, "")
+    .replace(/^\/+/, "");
 };
 
 const stripExistingSection = (
@@ -90,7 +105,11 @@ const upsertSectionAfterImports = (
   while (insertAt < lines.length) {
     const line = lines[insertAt] ?? "";
     const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("import ")) {
+    if (
+      trimmed === "" ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("import ")
+    ) {
       insertAt += 1;
       continue;
     }
@@ -144,7 +163,10 @@ const indexFacadeFiles = (outDir: string): ReadonlyMap<string, FacadeInfo> => {
     if (!internalRelJs) continue;
     let internalRel = internalRelJs;
     if (internalRel.startsWith("./")) internalRel = internalRel.slice(2);
-    const internalIndexDtsPath = join(outDir, internalRel.replace(/\.js$/, ".d.ts"));
+    const internalIndexDtsPath = join(
+      outDir,
+      internalRel.replace(/\.js$/, ".d.ts")
+    );
 
     const moduleSpecifier = `./${basename(fileName, ".d.ts")}.js`;
     const facadeJsPath = join(outDir, `${basename(fileName, ".d.ts")}.js`);
@@ -177,7 +199,10 @@ const patchInternalIndexWithMemberOverrides = (
   overrides: readonly MemberOverride[]
 ): Result<void, string> => {
   if (!existsSync(internalIndexDtsPath)) {
-    return { ok: false, error: `Internal index not found at ${internalIndexDtsPath}` };
+    return {
+      ok: false,
+      error: `Internal index not found at ${internalIndexDtsPath}`,
+    };
   }
 
   const original = readFileSync(internalIndexDtsPath, "utf-8");
@@ -188,7 +213,10 @@ const patchInternalIndexWithMemberOverrides = (
     for (const w of o.wrappers) {
       const existing = wrapperByAlias.get(w.aliasName);
       if (existing) {
-        if (existing.source !== w.source || existing.importedName !== w.importedName) {
+        if (
+          existing.source !== w.source ||
+          existing.importedName !== w.importedName
+        ) {
           return {
             ok: false,
             error:
@@ -219,7 +247,12 @@ const patchInternalIndexWithMemberOverrides = (
   const importEnd = "// End Tsonic source member type imports";
   const withImports =
     importLines.length > 0
-      ? upsertSectionAfterImports(original, importStart, importEnd, importLines.join("\n"))
+      ? upsertSectionAfterImports(
+          original,
+          importStart,
+          importEnd,
+          importLines.join("\n")
+        )
       : stripExistingSection(original, importStart, importEnd);
 
   // Patch interface member types within their $instance interface blocks.
@@ -264,7 +297,9 @@ const patchInternalIndexWithMemberOverrides = (
     let body = block.slice(open + 1, close);
     const tail = block.slice(close);
 
-    for (const o of list.sort((a, b) => a.memberName.localeCompare(b.memberName))) {
+    for (const o of list.sort((a, b) =>
+      a.memberName.localeCompare(b.memberName)
+    )) {
       const propRe = new RegExp(
         String.raw`(^\s*(?:readonly\s+)?${escapeRegExp(o.memberName)}\s*:\s*)([^;]+)(;)`,
         "m"
@@ -285,7 +320,10 @@ const patchInternalIndexWithMemberOverrides = (
     }
 
     const patchedBlock = head + body + tail;
-    next = next.slice(0, match.index) + patchedBlock + next.slice(match.index + block.length);
+    next =
+      next.slice(0, match.index) +
+      patchedBlock +
+      next.slice(match.index + block.length);
   }
 
   if (next !== original) {
@@ -299,12 +337,18 @@ const classifyExportKind = (
   module: IrModule,
   name: string
 ): "type" | "value" | "unknown" => {
-  const isNamed = (stmt: IrStatement & { readonly name?: unknown }): stmt is IrStatement & { readonly name: string } =>
+  const isNamed = (
+    stmt: IrStatement & { readonly name?: unknown }
+  ): stmt is IrStatement & { readonly name: string } =>
     typeof stmt.name === "string";
 
   const findDecl = (): IrStatement | undefined => {
     for (const stmt of module.body) {
-      if (!("isExported" in stmt) || (stmt as { isExported?: unknown }).isExported !== true) continue;
+      if (
+        !("isExported" in stmt) ||
+        (stmt as { isExported?: unknown }).isExported !== true
+      )
+        continue;
 
       if (isNamed(stmt) && stmt.name === name) return stmt;
 
@@ -381,7 +425,10 @@ const buildModuleSourceIndex = (
   fileKey: string
 ): Result<ModuleSourceIndex, string> => {
   if (!existsSync(absoluteFilePath)) {
-    return { ok: false, error: `Failed to read source file for bindings augmentation: ${absoluteFilePath}` };
+    return {
+      ok: false,
+      error: `Failed to read source file for bindings augmentation: ${absoluteFilePath}`,
+    };
   }
 
   const content = readFileSync(absoluteFilePath, "utf-8");
@@ -401,7 +448,10 @@ const buildModuleSourceIndex = (
   const wrapperImportsByLocalName = new Map<string, SourceTypeImport>();
   const typeImportsByLocalName = new Map<string, SourceTypeImport>();
   const typeAliasesByName = new Map<string, SourceTypeAliasDef>();
-  const memberTypesByClassAndMember = new Map<string, Map<string, ts.TypeNode>>();
+  const memberTypesByClassAndMember = new Map<
+    string,
+    Map<string, ts.TypeNode>
+  >();
 
   const getMemberName = (name: ts.PropertyName): string | undefined => {
     if (ts.isIdentifier(name)) return name.text;
@@ -428,9 +478,15 @@ const buildModuleSourceIndex = (
         const isTypeOnly = clause.isTypeOnly || spec.isTypeOnly;
         if (!isTypeOnly) continue;
 
-        typeImportsByLocalName.set(localName, { source: moduleSpecifier, importedName });
+        typeImportsByLocalName.set(localName, {
+          source: moduleSpecifier,
+          importedName,
+        });
         if (importedName === "ExtensionMethods") {
-          wrapperImportsByLocalName.set(localName, { source: moduleSpecifier, importedName });
+          wrapperImportsByLocalName.set(localName, {
+            source: moduleSpecifier,
+            importedName,
+          });
         }
       }
 
@@ -439,14 +495,18 @@ const buildModuleSourceIndex = (
 
     if (ts.isTypeAliasDeclaration(stmt)) {
       const aliasName = stmt.name.text;
-      const typeParameters = (stmt.typeParameters ?? []).map((tp) => tp.name.text);
+      const typeParameters = (stmt.typeParameters ?? []).map(
+        (tp) => tp.name.text
+      );
       typeAliasesByName.set(aliasName, { typeParameters, type: stmt.type });
       continue;
     }
 
     if (ts.isClassDeclaration(stmt) && stmt.name) {
       const className = stmt.name.text;
-      const members = memberTypesByClassAndMember.get(className) ?? new Map<string, ts.TypeNode>();
+      const members =
+        memberTypesByClassAndMember.get(className) ??
+        new Map<string, ts.TypeNode>();
 
       for (const member of stmt.members) {
         if (ts.isGetAccessorDeclaration(member)) {
@@ -491,14 +551,12 @@ const unwrapParens = (node: ts.TypeNode): ts.TypeNode => {
   return current;
 };
 
-const collectExtensionWrapperImportsFromSourceType = (
-  opts: {
-    readonly startModuleKey: string;
-    readonly typeNode: ts.TypeNode;
-    readonly sourceIndexByFileKey: ReadonlyMap<string, ModuleSourceIndex>;
-    readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
-  }
-): Result<readonly WrapperImport[], string> => {
+const collectExtensionWrapperImportsFromSourceType = (opts: {
+  readonly startModuleKey: string;
+  readonly typeNode: ts.TypeNode;
+  readonly sourceIndexByFileKey: ReadonlyMap<string, ModuleSourceIndex>;
+  readonly modulesByFileKey: ReadonlyMap<string, IrModule>;
+}): Result<readonly WrapperImport[], string> => {
   const wrappers: WrapperImport[] = [];
 
   let currentModuleKey = opts.startModuleKey;
@@ -548,17 +606,30 @@ const collectExtensionWrapperImportsFromSourceType = (
 
     const localAlias = info.typeAliasesByName.get(ident);
     if (localAlias) {
-      expandAlias(`${currentModuleKey}:${ident}`, localAlias, currentNode.typeArguments ?? []);
+      expandAlias(
+        `${currentModuleKey}:${ident}`,
+        localAlias,
+        currentNode.typeArguments ?? []
+      );
       continue;
     }
 
     const imported = info.typeImportsByLocalName.get(ident);
-    if (imported && (imported.source.startsWith(".") || imported.source.startsWith("/"))) {
-      const targetModule = resolveLocalModuleFile(imported.source, currentModuleKey, opts.modulesByFileKey);
+    if (
+      imported &&
+      (imported.source.startsWith(".") || imported.source.startsWith("/"))
+    ) {
+      const targetModule = resolveLocalModuleFile(
+        imported.source,
+        currentModuleKey,
+        opts.modulesByFileKey
+      );
       if (targetModule) {
         const targetKey = normalizeModuleFileKey(targetModule.filePath);
         const targetInfo = opts.sourceIndexByFileKey.get(targetKey);
-        const targetAlias = targetInfo?.typeAliasesByName.get(imported.importedName);
+        const targetAlias = targetInfo?.typeAliasesByName.get(
+          imported.importedName
+        );
         if (targetAlias) {
           currentModuleKey = targetKey;
           expandAlias(
@@ -601,14 +672,20 @@ type TypePrinterContext = {
   readonly parentPrecedence: number;
 };
 
-const printTypeParameters = (tps: readonly IrTypeParameter[] | undefined): string => {
+const printTypeParameters = (
+  tps: readonly IrTypeParameter[] | undefined
+): string => {
   if (!tps || tps.length === 0) return "";
 
   const parts = tps.map((tp) => {
     const chunk: string[] = [];
     chunk.push(tp.name);
-    if (tp.constraint) chunk.push(`extends ${printIrType(tp.constraint, { parentPrecedence: 0 })}`);
-    if (tp.default) chunk.push(`= ${printIrType(tp.default, { parentPrecedence: 0 })}`);
+    if (tp.constraint)
+      chunk.push(
+        `extends ${printIrType(tp.constraint, { parentPrecedence: 0 })}`
+      );
+    if (tp.default)
+      chunk.push(`= ${printIrType(tp.default, { parentPrecedence: 0 })}`);
     return chunk.join(" ");
   });
 
@@ -623,7 +700,9 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
     case "primitiveType":
       return type.name;
     case "literalType":
-      return typeof type.value === "string" ? JSON.stringify(type.value) : String(type.value);
+      return typeof type.value === "string"
+        ? JSON.stringify(type.value)
+        : String(type.value);
     case "anyType":
       return "any";
     case "unknownType":
@@ -638,7 +717,9 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
       const base = type.name;
       const args = type.typeArguments ?? [];
       if (args.length === 0) return base;
-      const rendered = args.map((a) => printIrType(a, { parentPrecedence: 0 })).join(", ");
+      const rendered = args
+        .map((a) => printIrType(a, { parentPrecedence: 0 }))
+        .join(", ");
       return `${base}<${rendered}>`;
     }
     case "arrayType":
@@ -652,7 +733,9 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
             if (p.pattern.kind === "identifierPattern") return p.pattern.name;
             return `p${i + 1}`;
           })();
-          const t = p.type ? printIrType(p.type, { parentPrecedence: 0 }) : "unknown";
+          const t = p.type
+            ? printIrType(p.type, { parentPrecedence: 0 })
+            : "unknown";
           return `${name}: ${t}`;
         })
         .join(", ");
@@ -660,11 +743,15 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
       return wrap(`(${ps}) => ${ret}`, 2);
     }
     case "unionType": {
-      const rendered = type.types.map((t) => printIrType(t, { parentPrecedence: 0 })).join(" | ");
+      const rendered = type.types
+        .map((t) => printIrType(t, { parentPrecedence: 0 }))
+        .join(" | ");
       return wrap(rendered, 0);
     }
     case "intersectionType": {
-      const rendered = type.types.map((t) => printIrType(t, { parentPrecedence: 1 })).join(" & ");
+      const rendered = type.types
+        .map((t) => printIrType(t, { parentPrecedence: 1 }))
+        .join(" & ");
       return wrap(rendered, 1);
     }
     case "dictionaryType": {
@@ -709,7 +796,10 @@ const renderExportedTypeAlias = (
         ? `<${stmt.typeParameters.map((tp) => tp.name).join(", ")}>`
         : "";
 
-    return { ok: true, value: `export type ${stmt.name}${typeParams} = Internal.${internalName}${typeArgs};` };
+    return {
+      ok: true,
+      value: `export type ${stmt.name}${typeParams} = Internal.${internalName}${typeArgs};`,
+    };
   }
 
   const rhs = printIrType(stmt.type, { parentPrecedence: 0 });
@@ -741,9 +831,15 @@ export const augmentLibraryBindingsFromSource = (
     verbose: false,
   };
 
-  const graphResult = buildModuleDependencyGraph(absoluteEntryPoint, compilerOptions);
+  const graphResult = buildModuleDependencyGraph(
+    absoluteEntryPoint,
+    compilerOptions
+  );
   if (!graphResult.ok) {
-    return { ok: false, error: `Failed to analyze library sources:\n${renderDiagnostics(graphResult.error)}` };
+    return {
+      ok: false,
+      error: `Failed to analyze library sources:\n${renderDiagnostics(graphResult.error)}`,
+    };
   }
 
   const { modules, entryModule } = graphResult.value;
@@ -773,11 +869,7 @@ export const augmentLibraryBindingsFromSource = (
       let content = `// Namespace: ${namespace}\n// Generated by Tsonic (source bindings augmentation)\n\n`;
       if (internalImport) content += internalImport;
       content += "export {};\n";
-      writeFileSync(
-        facadeDtsPath,
-        content,
-        "utf-8"
-      );
+      writeFileSync(facadeDtsPath, content, "utf-8");
     }
 
     if (!existsSync(facadeJsPath)) {
@@ -839,7 +931,9 @@ export const augmentLibraryBindingsFromSource = (
     if (!info) continue;
     if (lines.length === 0) continue;
 
-    const unique = Array.from(new Set(lines)).sort((a, b) => a.localeCompare(b));
+    const unique = Array.from(new Set(lines)).sort((a, b) =>
+      a.localeCompare(b)
+    );
     const body = unique.join("\n");
 
     const current = readFileSync(info.facadeDtsPath, "utf-8");
@@ -857,7 +951,11 @@ export const augmentLibraryBindingsFromSource = (
     const grouped = new Map<GroupKey, string[]>();
 
     for (const exp of reexports) {
-      const targetModule = resolveLocalModuleFile(exp.fromModule, entryModule.filePath, modulesByFile);
+      const targetModule = resolveLocalModuleFile(
+        exp.fromModule,
+        entryModule.filePath,
+        modulesByFile
+      );
       if (!targetModule) {
         return {
           ok: false,
@@ -885,7 +983,10 @@ export const augmentLibraryBindingsFromSource = (
       }
       const isTypeOnly = kind === "type";
 
-      const spec = exp.name === exp.originalName ? exp.name : `${exp.originalName} as ${exp.name}`;
+      const spec =
+        exp.name === exp.originalName
+          ? exp.name
+          : `${exp.originalName} as ${exp.name}`;
       const key: GroupKey = `${targetFacade.moduleSpecifier}|${isTypeOnly ? "type" : "value"}`;
       const list = grouped.get(key) ?? [];
       list.push(spec);
@@ -896,13 +997,24 @@ export const augmentLibraryBindingsFromSource = (
     const end = "// End Tsonic entrypoint re-exports";
 
     const statements: string[] = [];
-    for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
-      const [moduleSpecifier, kind] = key.split("|") as [string, "type" | "value"];
-      const unique = Array.from(new Set(specs)).sort((a, b) => a.localeCompare(b));
+    for (const [key, specs] of Array.from(grouped.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    )) {
+      const [moduleSpecifier, kind] = key.split("|") as [
+        string,
+        "type" | "value",
+      ];
+      const unique = Array.from(new Set(specs)).sort((a, b) =>
+        a.localeCompare(b)
+      );
       if (kind === "type") {
-        statements.push(`export type { ${unique.join(", ")} } from '${moduleSpecifier}';`);
+        statements.push(
+          `export type { ${unique.join(", ")} } from '${moduleSpecifier}';`
+        );
       } else {
-        statements.push(`export { ${unique.join(", ")} } from '${moduleSpecifier}';`);
+        statements.push(
+          `export { ${unique.join(", ")} } from '${moduleSpecifier}';`
+        );
       }
     }
 
@@ -912,14 +1024,21 @@ export const augmentLibraryBindingsFromSource = (
       writeFileSync(entryFacade.facadeDtsPath, next, "utf-8");
     }
 
-    const valueStatements = statements.filter((s) => !s.startsWith("export type "));
+    const valueStatements = statements.filter(
+      (s) => !s.startsWith("export type ")
+    );
     if (valueStatements.length > 0) {
       const jsStart = "// Tsonic entrypoint value re-exports (generated)";
       const jsEnd = "// End Tsonic entrypoint value re-exports";
       const current = existsSync(entryFacade.facadeJsPath)
         ? readFileSync(entryFacade.facadeJsPath, "utf-8")
         : "";
-      const next = upsertSection(current, jsStart, jsEnd, valueStatements.join("\n"));
+      const next = upsertSection(
+        current,
+        jsStart,
+        jsEnd,
+        valueStatements.join("\n")
+      );
       writeFileSync(entryFacade.facadeJsPath, next, "utf-8");
     }
   }
@@ -954,7 +1073,8 @@ export const augmentLibraryBindingsFromSource = (
     const sourceIndex = sourceIndexByFileKey.get(moduleKey);
     if (!sourceIndex) continue;
 
-    const info = facadesByNamespace.get(m.namespace) ?? ensureFacade(m.namespace);
+    const info =
+      facadesByNamespace.get(m.namespace) ?? ensureFacade(m.namespace);
 
     for (const cls of exportedClasses) {
       const memberTypes = sourceIndex.memberTypesByClassAndMember.get(cls.name);
@@ -977,7 +1097,8 @@ export const augmentLibraryBindingsFromSource = (
         const wrappers = wrappersResult.value;
         if (wrappers.length === 0) continue;
 
-        const list = overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
+        const list =
+          overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
         list.push({
           namespace: m.namespace,
           className: cls.name,
@@ -990,7 +1111,10 @@ export const augmentLibraryBindingsFromSource = (
   }
 
   for (const [internalIndex, overrides] of overridesByInternalIndex) {
-    const result = patchInternalIndexWithMemberOverrides(internalIndex, overrides);
+    const result = patchInternalIndexWithMemberOverrides(
+      internalIndex,
+      overrides
+    );
     if (!result.ok) return result;
   }
 

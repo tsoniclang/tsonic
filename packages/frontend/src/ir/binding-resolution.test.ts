@@ -670,7 +670,8 @@ describe("Binding Resolution in IR", () => {
       if (funcDecl?.kind !== "functionDeclaration") return;
 
       const returnStmt = funcDecl.body.statements[1];
-      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) return;
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
 
       const callExpr = returnStmt.expression;
       if (callExpr.kind !== "call") return;
@@ -769,11 +770,15 @@ describe("Binding Resolution in IR", () => {
       expect(exprStmt.expression.argumentPassing).to.deep.equal(["value"]);
 
       const returnStmt = funcDecl.body.statements[2];
-      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) return;
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
       if (returnStmt.expression.kind !== "call") return;
 
       // Call 2: overlaps(other, off) - second arg must be out after receiver shift
-      expect(returnStmt.expression.argumentPassing).to.deep.equal(["value", "out"]);
+      expect(returnStmt.expression.argumentPassing).to.deep.equal([
+        "value",
+        "out",
+      ]);
     });
   });
 
@@ -840,7 +845,8 @@ describe("Binding Resolution in IR", () => {
       if (funcDecl?.kind !== "functionDeclaration") return;
 
       const returnStmt = funcDecl.body.statements[1];
-      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression) return;
+      if (returnStmt?.kind !== "returnStatement" || !returnStmt.expression)
+        return;
       if (returnStmt.expression.kind !== "call") return;
 
       // Marker should be erased and surfaced as passing mode.

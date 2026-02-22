@@ -158,19 +158,20 @@ describe("IR Builder", () => {
       const { testProgram, ctx, options } = createTestProgram(source);
 
       // Stub CLR resolution for this unit test (no filesystem / node resolution).
-      (ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }).clrResolver =
-        {
-          resolve: (s: string) =>
-            s === "@demo/pkg/Demo.js"
-              ? {
-                  isClr: true,
-                  packageName: "@demo/pkg",
-                  resolvedNamespace: "Demo",
-                  bindingsPath: "/x/bindings.json",
-                  assembly: "Demo",
-                }
-              : { isClr: false },
-        };
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: (s: string) =>
+          s === "@demo/pkg/Demo.js"
+            ? {
+                isClr: true,
+                packageName: "@demo/pkg",
+                resolvedNamespace: "Demo",
+                bindingsPath: "/x/bindings.json",
+                assembly: "Demo",
+              }
+            : { isClr: false },
+      };
 
       // Provide a minimal tsbindgen bindings.json excerpt with exports.
       ctx.bindings.addBindings("/x/bindings.json", {
@@ -200,7 +201,8 @@ describe("IR Builder", () => {
       expect(imp.resolvedNamespace).to.equal("Demo");
 
       const spec = imp.specifiers[0];
-      if (!spec || spec.kind !== "named") throw new Error("Missing named specifier");
+      if (!spec || spec.kind !== "named")
+        throw new Error("Missing named specifier");
       expect(spec.name).to.equal("buildSite");
       expect(spec.isType).to.not.equal(true);
       expect(spec.resolvedClrValue).to.deep.equal({
@@ -218,19 +220,20 @@ describe("IR Builder", () => {
       const { testProgram, ctx, options } = createTestProgram(source);
 
       // Stub CLR resolution for this unit test (no filesystem / node resolution).
-      (ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }).clrResolver =
-        {
-          resolve: (s: string) =>
-            s === "@demo/pkg/Demo.js"
-              ? {
-                  isClr: true,
-                  packageName: "@demo/pkg",
-                  resolvedNamespace: "Demo",
-                  bindingsPath: "/x/bindings.json",
-                  assembly: "Demo",
-                }
-              : { isClr: false },
-        };
+      (
+        ctx as unknown as { clrResolver: { resolve: (s: string) => unknown } }
+      ).clrResolver = {
+        resolve: (s: string) =>
+          s === "@demo/pkg/Demo.js"
+            ? {
+                isClr: true,
+                packageName: "@demo/pkg",
+                resolvedNamespace: "Demo",
+                bindingsPath: "/x/bindings.json",
+                assembly: "Demo",
+              }
+            : { isClr: false },
+      };
 
       // Provide a minimal tsbindgen bindings.json excerpt WITHOUT exports.
       ctx.bindings.addBindings("/x/bindings.json", {

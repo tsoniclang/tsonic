@@ -157,7 +157,11 @@ describe("CLI Parser", () => {
       });
 
       it("should parse --config option with value", () => {
-        const result = parseArgs(["build", "--config", "tsonic.workspace.json"]);
+        const result = parseArgs([
+          "build",
+          "--config",
+          "tsonic.workspace.json",
+        ]);
         expect(result.options.config).to.equal("tsonic.workspace.json");
       });
 

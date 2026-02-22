@@ -59,7 +59,12 @@ export const emitPropertyMember = (
   }
 
   // Base property virtual (required when overridden in derived types)
-  if (!shouldEmitField && !member.isStatic && !member.isOverride && member.isVirtual) {
+  if (
+    !shouldEmitField &&
+    !member.isStatic &&
+    !member.isOverride &&
+    member.isVirtual
+  ) {
     parts.push("virtual");
   }
 
@@ -80,7 +85,11 @@ export const emitPropertyMember = (
 
   // Property name (escape C# keywords)
   parts.push(
-    emitCSharpName(member.name, shouldEmitField ? "fields" : "properties", context)
+    emitCSharpName(
+      member.name,
+      shouldEmitField ? "fields" : "properties",
+      context
+    )
   );
 
   // Emit attributes before the property declaration
@@ -95,7 +104,10 @@ export const emitPropertyMember = (
   if (shouldEmitField) {
     let code = `${attrPrefix}${ind}${parts.join(" ")};`;
     if (member.initializer) {
-      const [initFrag, finalContext] = emitExpression(member.initializer, currentContext);
+      const [initFrag, finalContext] = emitExpression(
+        member.initializer,
+        currentContext
+      );
       currentContext = finalContext;
       code = `${attrPrefix}${ind}${parts.join(" ")} = ${initFrag.text};`;
     }
@@ -113,7 +125,10 @@ export const emitPropertyMember = (
 
     let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
     if (member.initializer) {
-      const [initFrag, finalContext] = emitExpression(member.initializer, currentContext);
+      const [initFrag, finalContext] = emitExpression(
+        member.initializer,
+        currentContext
+      );
       currentContext = finalContext;
       code += ` = ${initFrag.text};`;
     }

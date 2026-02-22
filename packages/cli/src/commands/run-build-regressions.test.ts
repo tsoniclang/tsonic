@@ -5,12 +5,20 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(join(dirname(fileURLToPath(import.meta.url)), "../../../.."));
+const repoRoot = resolve(
+  join(dirname(fileURLToPath(import.meta.url)), "../../../..")
+);
 
 const linkDir = (target: string, linkPath: string): void => {
   mkdirSync(dirname(linkPath), { recursive: true });
@@ -47,7 +55,11 @@ describe("CLI regressions (run/build)", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -67,7 +79,11 @@ describe("CLI regressions (run/build)", function () {
 
       writeFileSync(
         join(dir, "packages", "app", "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "app", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -104,15 +120,32 @@ describe("CLI regressions (run/build)", function () {
       );
 
       // Provide required standard bindings packages (no network).
-      linkDir(join(repoRoot, "node_modules/@tsonic/dotnet"), join(dir, "node_modules/@tsonic/dotnet"));
-      linkDir(join(repoRoot, "node_modules/@tsonic/core"), join(dir, "node_modules/@tsonic/core"));
-      linkDir(join(repoRoot, "node_modules/@tsonic/globals"), join(dir, "node_modules/@tsonic/globals"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
 
       const cliPath = join(repoRoot, "packages/cli/dist/index.js");
 
       const run = spawnSync(
         "node",
-        [cliPath, "run", "--project", "app", "--config", join(dir, "tsonic.workspace.json"), "--quiet"],
+        [
+          cliPath,
+          "run",
+          "--project",
+          "app",
+          "--config",
+          join(dir, "tsonic.workspace.json"),
+          "--quiet",
+        ],
         { cwd: dir, encoding: "utf-8" }
       );
 
@@ -158,7 +191,15 @@ describe("CLI regressions (run/build)", function () {
 
       const pack = spawnSync(
         "dotnet",
-        ["pack", "Conflict.csproj", "-c", "Release", "-o", localFeedDir, "--nologo"],
+        [
+          "pack",
+          "Conflict.csproj",
+          "-c",
+          "Release",
+          "-o",
+          localFeedDir,
+          "--nologo",
+        ],
         { cwd: localPkgDir, encoding: "utf-8" }
       );
       expect(pack.status, pack.stderr || pack.stdout).to.equal(0);
@@ -168,7 +209,11 @@ describe("CLI regressions (run/build)", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -204,7 +249,11 @@ describe("CLI regressions (run/build)", function () {
 
       writeFileSync(
         join(dir, "packages", "app", "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "app", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -239,15 +288,32 @@ describe("CLI regressions (run/build)", function () {
       );
 
       // Provide required standard bindings packages (no network).
-      linkDir(join(repoRoot, "node_modules/@tsonic/dotnet"), join(dir, "node_modules/@tsonic/dotnet"));
-      linkDir(join(repoRoot, "node_modules/@tsonic/core"), join(dir, "node_modules/@tsonic/core"));
-      linkDir(join(repoRoot, "node_modules/@tsonic/globals"), join(dir, "node_modules/@tsonic/globals"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
 
       const cliPath = join(repoRoot, "packages/cli/dist/index.js");
 
       const build = spawnSync(
         "node",
-        [cliPath, "build", "--project", "app", "--config", join(dir, "tsonic.workspace.json"), "--quiet"],
+        [
+          cliPath,
+          "build",
+          "--project",
+          "app",
+          "--config",
+          join(dir, "tsonic.workspace.json"),
+          "--quiet",
+        ],
         { cwd: dir, encoding: "utf-8" }
       );
 

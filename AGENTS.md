@@ -23,6 +23,13 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
   - If any “dangling” branches exist (ahead of `main`), stop and ask what to do with them.
 - Prefer “one active branch” per repo: keep adding commits to the current PR branch until it’s merged.
 
+## PR Hygiene (IMPORTANT)
+
+- Never open/announce a PR while the working tree is dirty.
+  - Before creating or sharing a PR, run `git status --porcelain` and ensure it is empty.
+  - If there are local changes, either commit them to the PR branch (and push) or explicitly discard them first.
+- After a PR is opened, do not continue unrelated local edits on that branch. Keep PR commits intentional and synchronized with what is pushed/reviewed.
+
 ## Testing Workflow
 
 Fast iteration (OK while developing / on external testbed projects):

@@ -8,7 +8,11 @@
  * installed shared framework assemblies.
  */
 
-import type { Result, TsonicWorkspaceConfig, FrameworkReferenceConfig } from "../types.js";
+import type {
+  Result,
+  TsonicWorkspaceConfig,
+  FrameworkReferenceConfig,
+} from "../types.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { dirname } from "node:path";
 import {
@@ -89,7 +93,9 @@ export const addFrameworkCommand = (
     }
   } else {
     frameworkRefs.push(
-      typesPackage ? { id: frameworkReference, types: typesPackage } : frameworkReference
+      typesPackage
+        ? { id: frameworkReference, types: typesPackage }
+        : frameworkReference
     );
   }
 
@@ -140,13 +146,22 @@ export const addFrameworkCommand = (
   if (!dotnetRoot.ok) return dotnetRoot;
   const dotnetLib = dotnetRoot.value;
 
-  const generatedPackage = defaultBindingsPackageNameForFramework(frameworkReference);
-  const bindingsDir = bindingsStoreDir(workspaceRoot, "framework", generatedPackage);
+  const generatedPackage =
+    defaultBindingsPackageNameForFramework(frameworkReference);
+  const bindingsDir = bindingsStoreDir(
+    workspaceRoot,
+    "framework",
+    generatedPackage
+  );
 
-  const packageJsonResult = ensureGeneratedBindingsPackageJson(bindingsDir, generatedPackage, {
-    kind: "framework",
-    source: { frameworkReference },
-  });
+  const packageJsonResult = ensureGeneratedBindingsPackageJson(
+    bindingsDir,
+    generatedPackage,
+    {
+      kind: "framework",
+      source: { frameworkReference },
+    }
+  );
   if (!packageJsonResult.ok) return packageJsonResult;
 
   const generateArgs: string[] = [
@@ -164,7 +179,12 @@ export const addFrameworkCommand = (
     generateArgs.push("--ref-dir", resolveFromProjectRoot(workspaceRoot, dep));
   }
 
-  const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
+  const genResult = tsbindgenGenerate(
+    workspaceRoot,
+    tsbindgenDll,
+    generateArgs,
+    options
+  );
   if (!genResult.ok) return genResult;
 
   const installResult = installGeneratedBindingsPackage(

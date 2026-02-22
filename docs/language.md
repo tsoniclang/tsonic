@@ -200,7 +200,10 @@ Generates `ValueTuple<T1, T2, ...>` in C#.
 Tsonic does not include JavaScript `Map`/`Set` in the default globals (see `@tsonic/dotnet` + `System.Collections.Generic` instead).
 
 ```typescript
-import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
+import {
+  Dictionary,
+  HashSet,
+} from "@tsonic/dotnet/System.Collections.Generic.js";
 
 // Dictionary<TKey, TValue> - key-value pairs
 const userMap = new Dictionary<string, User>();
@@ -774,12 +777,12 @@ Or in `packages/<project>/tsonic.json`:
 
 The file name (without `.ts`) becomes the C# class name:
 
-| File             | Generated Class                           |
-| ---------------- | ----------------------------------------- |
-| `App.ts`         | `class App`                               |
-| `UserService.ts` | `class UserService`                       |
-| `my-utils.ts`    | `class myutils`                           |
-| `todo-list.ts`   | `class todolist`                          |
+| File             | Generated Class     |
+| ---------------- | ------------------- |
+| `App.ts`         | `class App`         |
+| `UserService.ts` | `class UserService` |
+| `my-utils.ts`    | `class myutils`     |
+| `todo-list.ts`   | `class todolist`    |
 
 ### Directory to Namespace Mapping
 

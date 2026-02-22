@@ -302,7 +302,10 @@ describe("Expression Emission", () => {
               object: {
                 kind: "identifier",
                 name: "req",
-                inferredType: { kind: "referenceType", name: "Express.Request" },
+                inferredType: {
+                  kind: "referenceType",
+                  name: "Express.Request",
+                },
               },
               property: "params",
               isComputed: false,
@@ -326,7 +329,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include("global::Express.Express.@static");
-    expect(result).to.include("req.@params[\"id\"]");
+    expect(result).to.include('req.@params["id"]');
   });
 
   it("should lower extension method calls to explicit static invocation", () => {
@@ -370,7 +373,7 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
 
     expect(result).to.include(
-      "global::Tsonic.JSRuntime.String.split(path, \"/\")"
+      'global::Tsonic.JSRuntime.String.split(path, "/")'
     );
     expect(result).not.to.include("path.split");
   });
@@ -424,7 +427,10 @@ describe("Expression Emission", () => {
   });
 
   it("should emit fluent Queryable extension methods broadly (Where/Select/FirstOrDefault/etc.)", () => {
-    const methods: ReadonlyArray<{ readonly member: string; readonly args: any[] }> = [
+    const methods: ReadonlyArray<{
+      readonly member: string;
+      readonly args: any[];
+    }> = [
       { member: "Where", args: [{ kind: "identifier", name: "pred" }] },
       { member: "Select", args: [{ kind: "identifier", name: "sel" }] },
       { member: "FirstOrDefault", args: [] },
@@ -618,7 +624,9 @@ describe("Expression Emission", () => {
     const result = emitModule(module);
     expect(result).to.include("using Microsoft.EntityFrameworkCore;");
     expect(result).to.include("q.AsNoTracking()");
-    expect(result).not.to.include("EntityFrameworkQueryableExtensions.AsNoTracking");
+    expect(result).not.to.include(
+      "EntityFrameworkQueryableExtensions.AsNoTracking"
+    );
   });
 
   it("should canonicalize Enumerable.ToList().ToArray() to Enumerable.ToArray() for EF query precompilation", () => {

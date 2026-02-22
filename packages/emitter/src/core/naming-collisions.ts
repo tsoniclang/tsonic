@@ -7,9 +7,7 @@ type CollisionItem = {
   readonly kind: string;
 };
 
-const getCSharpIdentifier = (
-  original: string
-): string => {
+const getCSharpIdentifier = (original: string): string => {
   return escapeCSharpIdentifier(original);
 };
 
@@ -240,7 +238,10 @@ export const validateNamingPolicyCollisions = (
         continue;
       }
 
-      if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
+      if (
+        stmt.kind === "typeAliasDeclaration" &&
+        stmt.type.kind === "objectType"
+      ) {
         const items: CollisionItem[] = stmt.type.members.map((m) => ({
           original: m.name,
           csharp: getCSharpIdentifier(m.name),

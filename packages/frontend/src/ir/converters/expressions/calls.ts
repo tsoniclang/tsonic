@@ -40,7 +40,10 @@ type CallSiteArgModifier = "ref" | "out" | "in";
  */
 const unwrapCallSiteArgumentModifier = (
   expr: ts.Expression
-): { readonly expression: ts.Expression; readonly modifier?: CallSiteArgModifier } => {
+): {
+  readonly expression: ts.Expression;
+  readonly modifier?: CallSiteArgModifier;
+} => {
   // Unwrap parentheses first (out((x)) etc).
   let current: ts.Expression = expr;
   while (ts.isParenthesizedExpression(current)) {
@@ -72,9 +75,7 @@ const unwrapCallSiteArgumentModifier = (
 };
 
 const applyCallSiteArgumentModifiers = (
-  base:
-    | readonly ("value" | "ref" | "out" | "in")[]
-    | undefined,
+  base: readonly ("value" | "ref" | "out" | "in")[] | undefined,
   overrides: readonly (CallSiteArgModifier | undefined)[],
   argCount: number,
   ctx: ProgramContext,
@@ -297,12 +298,16 @@ export const getDeclaredReturnType = (
 };
 
 const extractArgumentPassingFromParameterModifiers = (
-  modifiers: readonly { readonly index: number; readonly modifier: "ref" | "out" | "in" }[],
+  modifiers: readonly {
+    readonly index: number;
+    readonly modifier: "ref" | "out" | "in";
+  }[],
   argCount: number
 ): readonly ("value" | "ref" | "out" | "in")[] | undefined => {
   if (modifiers.length === 0) return undefined;
 
-  const passing: ("value" | "ref" | "out" | "in")[] = Array(argCount).fill("value");
+  const passing: ("value" | "ref" | "out" | "in")[] =
+    Array(argCount).fill("value");
   for (const mod of modifiers) {
     if (mod.index >= 0 && mod.index < argCount) {
       passing[mod.index] = mod.modifier;
@@ -344,9 +349,12 @@ const extractArgumentPassingFromBinding = (
   );
   if (!overloadsAll || overloadsAll.length === 0) return undefined;
 
-  const calledName = typeof callee.property === "string" ? callee.property : undefined;
+  const calledName =
+    typeof callee.property === "string" ? callee.property : undefined;
   const overloads = calledName
-    ? overloadsAll.filter((m) => m.alias === calledName || m.name === calledName)
+    ? overloadsAll.filter(
+        (m) => m.alias === calledName || m.name === calledName
+      )
     : overloadsAll;
   if (overloads.length === 0) return undefined;
 
@@ -441,12 +449,21 @@ const extractArgumentPassingFromBinding = (
       case "referenceType": {
         const lastDot = t.name.lastIndexOf(".");
         const simple = lastDot >= 0 ? t.name.slice(lastDot + 1) : t.name;
-        return [simple.replace(/\$instance$/, "").replace(/^\_\_/, "").replace(/\$views$/, "")];
+        return [
+          simple
+            .replace(/\$instance$/, "")
+            .replace(/^\_\_/, "")
+            .replace(/\$views$/, ""),
+        ];
       }
       case "unionType":
-        return Array.from(new Set(t.types.flatMap((x) => collectMatchNames(x))));
+        return Array.from(
+          new Set(t.types.flatMap((x) => collectMatchNames(x)))
+        );
       case "intersectionType":
-        return Array.from(new Set(t.types.flatMap((x) => collectMatchNames(x))));
+        return Array.from(
+          new Set(t.types.flatMap((x) => collectMatchNames(x)))
+        );
       default:
         return [];
     }
@@ -841,10 +858,8 @@ export const convertCallExpression = (
     isLambdaArg(expr) && !isExplicitlyTypedLambdaArg(expr);
 
   // Pass 1: convert non-lambda arguments and infer type args from them.
-  const argsWorking: (
-    | IrCallExpression["arguments"][number]
-    | undefined
-  )[] = new Array(node.arguments.length);
+  const argsWorking: (IrCallExpression["arguments"][number] | undefined)[] =
+    new Array(node.arguments.length);
   const argTypesForInference: (IrType | undefined)[] = Array(
     node.arguments.length
   ).fill(undefined);
@@ -878,7 +893,11 @@ export const convertCallExpression = (
       continue;
     }
 
-    const converted = convertExpression(unwrapped.expression, ctx, expectedType);
+    const converted = convertExpression(
+      unwrapped.expression,
+      ctx,
+      expectedType
+    );
     argsWorking[index] = converted;
     argTypesForInference[index] = converted.inferredType;
   }
@@ -924,7 +943,7 @@ export const convertCallExpression = (
       expectedType?.kind === "functionType"
         ? expectedType
         : expectedType
-          ? typeSystem.delegateToFunctionType(expectedType) ?? expectedType
+          ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
           : undefined;
 
     argsWorking[index] = convertExpression(
@@ -956,7 +975,8 @@ export const convertCallExpression = (
     : lambdaContextResolved;
 
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
-  const inferredType = finalResolved?.returnType ?? ({ kind: "unknownType" } as const);
+  const inferredType =
+    finalResolved?.returnType ?? ({ kind: "unknownType" } as const);
   const argumentPassingFromBinding = extractArgumentPassingFromBinding(
     callee,
     node.arguments.length,
@@ -1063,9 +1083,8 @@ export const convertNewExpression = (
   // Pass 1: convert non-lambda arguments and collect argTypes for inference
   const argsWorking: (IrNewExpression["arguments"][number] | undefined)[] =
     new Array(argumentCount);
-  const argTypesForInference: (IrType | undefined)[] = Array(argumentCount).fill(
-    undefined
-  );
+  const argTypesForInference: (IrType | undefined)[] =
+    Array(argumentCount).fill(undefined);
 
   const args = node.arguments ?? [];
   for (let index = 0; index < args.length; index++) {
@@ -1095,7 +1114,11 @@ export const convertNewExpression = (
       continue;
     }
 
-    const converted = convertExpression(unwrapped.expression, ctx, expectedType);
+    const converted = convertExpression(
+      unwrapped.expression,
+      ctx,
+      expectedType
+    );
     argsWorking[index] = converted;
     argTypesForInference[index] = converted.inferredType;
   }
@@ -1130,7 +1153,7 @@ export const convertNewExpression = (
       expectedType?.kind === "functionType"
         ? expectedType
         : expectedType
-          ? typeSystem.delegateToFunctionType(expectedType) ?? expectedType
+          ? (typeSystem.delegateToFunctionType(expectedType) ?? expectedType)
           : undefined;
 
     argsWorking[index] = convertExpression(
@@ -1145,7 +1168,9 @@ export const convertNewExpression = (
     if (a) return a;
     const arg = args[index];
     if (!arg) {
-      throw new Error("ICE: new expression argument conversion produced a hole");
+      throw new Error(
+        "ICE: new expression argument conversion produced a hole"
+      );
     }
     if (ts.isSpreadElement(arg)) {
       const spreadExpr = convertExpression(arg.expression, ctx, undefined);
@@ -1180,7 +1205,9 @@ export const convertNewExpression = (
 
   // Phase 15: inferredType MUST be finalResolved.returnType
   // If sigId is missing, use unknownType (do not fabricate a nominal type)
-  const inferredType: IrType = finalResolved?.returnType ?? { kind: "unknownType" };
+  const inferredType: IrType = finalResolved?.returnType ?? {
+    kind: "unknownType",
+  };
   const parameterTypes = finalResolved?.parameterTypes ?? initialParameterTypes;
   const argumentPassingBase = finalResolved
     ? finalResolved.parameterModes.slice(0, argumentCount)
@@ -1196,7 +1223,9 @@ export const convertNewExpression = (
   // Phase 18: IrNewExpression.typeArguments must include inferred type arguments.
   // The emitter relies on this field to emit generic constructor calls (e.g., new Box<int>(...)).
   const inferredTypeArguments =
-    inferredType.kind === "referenceType" ? inferredType.typeArguments : undefined;
+    inferredType.kind === "referenceType"
+      ? inferredType.typeArguments
+      : undefined;
   const typeArgumentsForIr =
     typeArguments ??
     (inferredTypeArguments && inferredTypeArguments.length > 0

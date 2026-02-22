@@ -22,7 +22,11 @@ const writeCoreStubWithFieldMarker = (dir: string): void => {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "package.json"),
-    JSON.stringify({ name: "@tsonic/core", private: true, type: "module" }, null, 2)
+    JSON.stringify(
+      { name: "@tsonic/core", private: true, type: "module" },
+      null,
+      2
+    )
   );
   fs.writeFileSync(
     path.join(dir, "lang.d.ts"),
@@ -83,4 +87,3 @@ describe("field<T> marker", function () {
     expect(codes.has("TSN6204")).to.equal(true);
   });
 });
-

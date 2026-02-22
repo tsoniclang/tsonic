@@ -407,9 +407,9 @@ collector = addDiagnostic(collector, diagnostic);
 
 ### Diagnostic Codes
 
-| Code    | Category | Description           |
-| ------- | -------- | --------------------- |
+| Code    | Category | Description            |
+| ------- | -------- | ---------------------- |
 | TSN1001 | Module   | Missing file extension |
-| TSN1002 | Module   | Cannot resolve module |
-| TSN2001 | Feature  | Unsupported feature   |
-| TSN3001 | Type     | Type error            |
+| TSN1002 | Module   | Cannot resolve module  |
+| TSN2001 | Feature  | Unsupported feature    |
+| TSN3001 | Type     | Type error             |

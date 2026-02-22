@@ -9,7 +9,10 @@ import { emitStatement } from "../../statement-emitter.js";
 import { lowerPattern } from "../../patterns.js";
 import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
 import { emitBooleanCondition } from "../../core/boolean-context.js";
-import { allocateLocalName, registerLocalName } from "../../core/local-names.js";
+import {
+  allocateLocalName,
+  registerLocalName,
+} from "../../core/local-names.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -376,7 +379,11 @@ export const emitForInStatement = (
 
   const originalName = stmt.variable.name;
   const alloc = allocateLocalName(originalName, loopContext);
-  loopContext = registerLocalName(originalName, alloc.emittedName, alloc.context);
+  loopContext = registerLocalName(
+    originalName,
+    alloc.emittedName,
+    alloc.context
+  );
   const varName = alloc.emittedName;
   const iterExpr = `(${exprFrag.text}).Keys`;
 

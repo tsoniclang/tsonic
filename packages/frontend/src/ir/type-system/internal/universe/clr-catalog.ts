@@ -146,7 +146,9 @@ const parseClrTypeString = (clrType: string): IrType => {
   // Handle tsbindgen-style generic instantiations using underscore arity:
   //   KeyValuePair_2[[TKey,TValue]]
   // This format is used in bindings.json for inheritance type arguments.
-  const underscoreInstantiationMatch = clrType.match(/^(.+?)_(\d+)\[\[(.+)\]\]$/);
+  const underscoreInstantiationMatch = clrType.match(
+    /^(.+?)_(\d+)\[\[(.+)\]\]$/
+  );
   if (
     underscoreInstantiationMatch &&
     underscoreInstantiationMatch[1] &&
@@ -282,10 +284,13 @@ const getRightmostQualifiedNameText = (name: ts.EntityName): string => {
   return getRightmostQualifiedNameText(name.right);
 };
 
-const getRightmostPropertyAccessText = (expr: ts.Expression): string | undefined => {
+const getRightmostPropertyAccessText = (
+  expr: ts.Expression
+): string | undefined => {
   if (ts.isIdentifier(expr)) return expr.text;
   if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-  if (ts.isCallExpression(expr)) return getRightmostPropertyAccessText(expr.expression);
+  if (ts.isCallExpression(expr))
+    return getRightmostPropertyAccessText(expr.expression);
   if (ts.isParenthesizedExpression(expr))
     return getRightmostPropertyAccessText(expr.expression);
   return undefined;
@@ -332,7 +337,8 @@ const dtsTypeNodeToIrType = (
     return {
       kind: "referenceType",
       name: resolvedName,
-      typeArguments: typeArguments && typeArguments.length > 0 ? typeArguments : undefined,
+      typeArguments:
+        typeArguments && typeArguments.length > 0 ? typeArguments : undefined,
     };
   }
 
@@ -369,10 +375,14 @@ const dtsTypeNodeToIrType = (
   // Literal types
   if (ts.isLiteralTypeNode(node)) {
     const lit = node.literal;
-    if (ts.isStringLiteral(lit)) return { kind: "literalType", value: lit.text };
-    if (ts.isNumericLiteral(lit)) return { kind: "literalType", value: Number(lit.text) };
-    if (lit.kind === ts.SyntaxKind.TrueKeyword) return { kind: "literalType", value: true };
-    if (lit.kind === ts.SyntaxKind.FalseKeyword) return { kind: "literalType", value: false };
+    if (ts.isStringLiteral(lit))
+      return { kind: "literalType", value: lit.text };
+    if (ts.isNumericLiteral(lit))
+      return { kind: "literalType", value: Number(lit.text) };
+    if (lit.kind === ts.SyntaxKind.TrueKeyword)
+      return { kind: "literalType", value: true };
+    if (lit.kind === ts.SyntaxKind.FalseKeyword)
+      return { kind: "literalType", value: false };
   }
 
   // Keywords
@@ -448,7 +458,9 @@ const irTypeToSignatureKey = (type: IrType): string => {
       return "object";
     case "referenceType": {
       const raw = type.resolvedClrType ?? type.name;
-      const withoutArgs = raw.includes("[[") ? raw.split("[[")[0] ?? raw : raw;
+      const withoutArgs = raw.includes("[[")
+        ? (raw.split("[[")[0] ?? raw)
+        : raw;
       const lastSep = Math.max(
         withoutArgs.lastIndexOf("."),
         withoutArgs.lastIndexOf("+")
@@ -462,7 +474,10 @@ const irTypeToSignatureKey = (type: IrType): string => {
       }
 
       const underscoreMatch = simple.match(/_(\d+)$/);
-      const arity = underscoreMatch && underscoreMatch[1] ? Number(underscoreMatch[1]) : undefined;
+      const arity =
+        underscoreMatch && underscoreMatch[1]
+          ? Number(underscoreMatch[1])
+          : undefined;
       const argCount = type.typeArguments?.length ?? arity ?? 0;
 
       // Signature matching is used only to hydrate optional/rest flags from tsbindgen .d.ts
@@ -482,7 +497,10 @@ const makeMethodSignatureKey = (args: {
   readonly isStatic: boolean;
   readonly name: string;
   readonly typeParamCount: number;
-  readonly parameters: readonly { readonly type: IrType; readonly isRest: boolean }[];
+  readonly parameters: readonly {
+    readonly type: IrType;
+    readonly isRest: boolean;
+  }[];
   readonly returnType: IrType;
 }): string => {
   const params = args.parameters
@@ -496,7 +514,10 @@ const makeMethodSignatureKey = (args: {
 type TsBindgenDtsTypeInfo = {
   readonly typeParametersByTsName: ReadonlyMap<string, readonly string[]>;
   readonly heritageByTsName: ReadonlyMap<string, readonly HeritageEdge[]>;
-  readonly memberTypesByTsName: ReadonlyMap<string, ReadonlyMap<string, IrType>>;
+  readonly memberTypesByTsName: ReadonlyMap<
+    string,
+    ReadonlyMap<string, IrType>
+  >;
   readonly methodSignatureOptionalsByTsName: ReadonlyMap<
     string,
     ReadonlyMap<string, readonly boolean[]>
@@ -517,7 +538,13 @@ const extractHeritageFromTsBindgenDts = (
   >();
 
   const content = fs.readFileSync(dtsPath, "utf-8");
-  const sf = ts.createSourceFile(dtsPath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(
+    dtsPath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
 
   const getEntry = (tsName: string): NominalEntry | undefined => {
     const id = tsNameToTypeId.get(tsName);
@@ -530,8 +557,13 @@ const extractHeritageFromTsBindgenDts = (
     heritageByTsName.set(sourceTsName, list);
   };
 
-  const recordMemberType = (sourceTsName: string, memberName: string, type: IrType) => {
-    const map = memberTypesByTsName.get(sourceTsName) ?? new Map<string, IrType>();
+  const recordMemberType = (
+    sourceTsName: string,
+    memberName: string,
+    type: IrType
+  ) => {
+    const map =
+      memberTypesByTsName.get(sourceTsName) ?? new Map<string, IrType>();
     // Prefer first-seen type for determinism; later duplicates are ignored.
     if (!map.has(memberName)) {
       map.set(memberName, type);
@@ -570,19 +602,25 @@ const extractHeritageFromTsBindgenDts = (
     const typeScope = new Set<string>(typeTypeParams);
 
     for (const member of members) {
-      if (!ts.isMethodSignature(member) && !ts.isMethodDeclaration(member)) continue;
+      if (!ts.isMethodSignature(member) && !ts.isMethodDeclaration(member))
+        continue;
 
       const methodName =
-        member.name && ts.isIdentifier(member.name) ? member.name.text : undefined;
+        member.name && ts.isIdentifier(member.name)
+          ? member.name.text
+          : undefined;
       if (!methodName) continue;
 
-      const methodTypeParams = (member.typeParameters ?? []).map((p) => p.name.text);
+      const methodTypeParams = (member.typeParameters ?? []).map(
+        (p) => p.name.text
+      );
       const inScopeTypeParams = new Set<string>([
         ...Array.from(typeScope),
         ...methodTypeParams,
       ]);
 
-      const params: { type: IrType; isRest: boolean; isOptional: boolean }[] = [];
+      const params: { type: IrType; isRest: boolean; isOptional: boolean }[] =
+        [];
       for (const param of member.parameters) {
         if (!param.type) {
           // Deterministic: without an explicit type, we can't match this overload to metadata.
@@ -591,10 +629,15 @@ const extractHeritageFromTsBindgenDts = (
         }
 
         params.push({
-          type: dtsTypeNodeToIrType(param.type, inScopeTypeParams, tsNameToTypeId),
+          type: dtsTypeNodeToIrType(
+            param.type,
+            inScopeTypeParams,
+            tsNameToTypeId
+          ),
           isRest: param.dotDotDotToken !== undefined,
           isOptional:
-            param.questionToken !== undefined || param.initializer !== undefined,
+            param.questionToken !== undefined ||
+            param.initializer !== undefined,
         });
       }
 
@@ -609,7 +652,9 @@ const extractHeritageFromTsBindgenDts = (
       const isStatic =
         staticOverride ??
         (ts.isMethodDeclaration(member) &&
-          (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ??
+          (member.modifiers?.some(
+            (m) => m.kind === ts.SyntaxKind.StaticKeyword
+          ) ??
             false));
 
       const signatureKey = makeMethodSignatureKey({
@@ -635,7 +680,9 @@ const extractHeritageFromTsBindgenDts = (
   ): void => {
     for (const member of members) {
       if (ts.isPropertySignature(member)) {
-        const nameText = member.name ? getPropertyNameText(member.name) : undefined;
+        const nameText = member.name
+          ? getPropertyNameText(member.name)
+          : undefined;
         if (!nameText || !member.type) continue;
         recordMemberType(
           baseTsName,
@@ -646,7 +693,9 @@ const extractHeritageFromTsBindgenDts = (
       }
 
       if (ts.isPropertyDeclaration(member)) {
-        const nameText = member.name ? getPropertyNameText(member.name) : undefined;
+        const nameText = member.name
+          ? getPropertyNameText(member.name)
+          : undefined;
         if (!nameText || !member.type) continue;
         recordMemberType(
           baseTsName,
@@ -657,7 +706,9 @@ const extractHeritageFromTsBindgenDts = (
       }
 
       if (ts.isGetAccessorDeclaration(member)) {
-        const nameText = member.name ? getPropertyNameText(member.name) : undefined;
+        const nameText = member.name
+          ? getPropertyNameText(member.name)
+          : undefined;
         if (!nameText || !member.type) continue;
         recordMemberType(
           baseTsName,
@@ -712,7 +763,9 @@ const extractHeritageFromTsBindgenDts = (
     }
   };
 
-  const addHeritageFromViewsInterface = (viewsDecl: ts.InterfaceDeclaration) => {
+  const addHeritageFromViewsInterface = (
+    viewsDecl: ts.InterfaceDeclaration
+  ) => {
     const baseTsName = stripTsBindgenViewsWrapper(viewsDecl.name.text);
     if (!baseTsName) return;
 
@@ -725,11 +778,16 @@ const extractHeritageFromTsBindgenDts = (
 
     for (const m of viewsDecl.members) {
       if (!ts.isMethodSignature(m)) continue;
-      const methodName = m.name && ts.isIdentifier(m.name) ? m.name.text : undefined;
+      const methodName =
+        m.name && ts.isIdentifier(m.name) ? m.name.text : undefined;
       if (!methodName || !methodName.startsWith("As_")) continue;
       if (!m.type) continue;
 
-      const returnType = dtsTypeNodeToIrType(m.type, inScopeTypeParams, tsNameToTypeId);
+      const returnType = dtsTypeNodeToIrType(
+        m.type,
+        inScopeTypeParams,
+        tsNameToTypeId
+      );
       if (returnType.kind !== "referenceType") continue;
 
       const targetTsName = returnType.name;
@@ -752,7 +810,10 @@ const extractHeritageFromTsBindgenDts = (
       const nameText = stmt.name.text;
 
       // Views wrapper: __Foo$views<T> { As_IEnumerable_1(): IEnumerable_1$instance<T> }
-      if (nameText.startsWith(VIEWS_PREFIX) && nameText.endsWith(VIEWS_SUFFIX)) {
+      if (
+        nameText.startsWith(VIEWS_PREFIX) &&
+        nameText.endsWith(VIEWS_SUFFIX)
+      ) {
         addHeritageFromViewsInterface(stmt);
         continue;
       }
@@ -880,7 +941,9 @@ const extractHeritageFromTsBindgenDts = (
       if (ra !== rb) return ra - rb;
       const stable = a.targetStableId.localeCompare(b.targetStableId);
       if (stable !== 0) return stable;
-      return JSON.stringify(a.typeArguments).localeCompare(JSON.stringify(b.typeArguments));
+      return JSON.stringify(a.typeArguments).localeCompare(
+        JSON.stringify(b.typeArguments)
+      );
     });
     dedupedHeritageByTsName.set(tsName, unique);
   }
@@ -906,10 +969,15 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
 
   for (const dtsPath of dtsPaths) {
     try {
-      const info = extractHeritageFromTsBindgenDts(dtsPath, tsNameToTypeId, entries);
+      const info = extractHeritageFromTsBindgenDts(
+        dtsPath,
+        tsNameToTypeId,
+        entries
+      );
 
       for (const [tsName, memberTypes] of info.memberTypesByTsName) {
-        const merged = mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
+        const merged =
+          mergedMemberTypes.get(tsName) ?? new Map<string, IrType>();
         for (const [memberName, type] of memberTypes) {
           if (!merged.has(memberName)) {
             merged.set(memberName, type);
@@ -918,7 +986,10 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
         mergedMemberTypes.set(tsName, merged);
       }
 
-      for (const [tsName, signatureOptionals] of info.methodSignatureOptionalsByTsName) {
+      for (const [
+        tsName,
+        signatureOptionals,
+      ] of info.methodSignatureOptionalsByTsName) {
         const merged =
           mergedMethodSignatureOptionals.get(tsName) ??
           new Map<string, readonly boolean[]>();
@@ -930,7 +1001,10 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
         mergedMethodSignatureOptionals.set(tsName, merged);
       }
     } catch (e) {
-      console.warn(`Failed to parse tsbindgen d.ts for enrichment: ${dtsPath}`, e);
+      console.warn(
+        `Failed to parse tsbindgen d.ts for enrichment: ${dtsPath}`,
+        e
+      );
     }
   }
 
@@ -939,65 +1013,68 @@ const enrichAssemblyEntriesFromTsBindgenDts = (
     const entry = entries.get(typeId.stableId);
     if (!entry) continue;
 
-	    const memberTypes = mergedMemberTypes.get(tsName);
-	    const signatureOptionals = mergedMethodSignatureOptionals.get(tsName);
-	    let updatedMembers: Map<string, MemberEntry> | undefined;
-	    if (memberTypes) {
-	      for (const [memberName, type] of memberTypes) {
-	        const member = entry.members.get(memberName);
-	        if (!member) continue;
+    const memberTypes = mergedMemberTypes.get(tsName);
+    const signatureOptionals = mergedMethodSignatureOptionals.get(tsName);
+    let updatedMembers: Map<string, MemberEntry> | undefined;
+    if (memberTypes) {
+      for (const [memberName, type] of memberTypes) {
+        const member = entry.members.get(memberName);
+        if (!member) continue;
         if (!updatedMembers) {
           updatedMembers = new Map(entry.members);
         }
-	        updatedMembers.set(memberName, { ...member, type });
-	      }
-	    }
+        updatedMembers.set(memberName, { ...member, type });
+      }
+    }
 
-	    if (signatureOptionals) {
-	      const currentMembers = updatedMembers ?? entry.members;
-	      for (const [memberName, member] of currentMembers) {
-	        if (member.memberKind !== "method" || !member.signatures) continue;
+    if (signatureOptionals) {
+      const currentMembers = updatedMembers ?? entry.members;
+      for (const [memberName, member] of currentMembers) {
+        if (member.memberKind !== "method" || !member.signatures) continue;
 
-	        let memberChanged = false;
-	        const updatedSignatures = member.signatures.map((sig) => {
-	          const signatureKey = makeMethodSignatureKey({
-	            isStatic: sig.isStatic,
-	            name: memberName,
-	            typeParamCount: sig.typeParameters.length,
-	            parameters: sig.parameters.map((p) => ({
-	              type: p.type,
-	              isRest: p.isRest,
-	            })),
-	            returnType: sig.returnType,
-	          });
+        let memberChanged = false;
+        const updatedSignatures = member.signatures.map((sig) => {
+          const signatureKey = makeMethodSignatureKey({
+            isStatic: sig.isStatic,
+            name: memberName,
+            typeParamCount: sig.typeParameters.length,
+            parameters: sig.parameters.map((p) => ({
+              type: p.type,
+              isRest: p.isRest,
+            })),
+            returnType: sig.returnType,
+          });
 
-	          const optionals = signatureOptionals.get(signatureKey);
-	          if (!optionals) return sig;
-	          if (optionals.length !== sig.parameters.length) return sig;
+          const optionals = signatureOptionals.get(signatureKey);
+          if (!optionals) return sig;
+          if (optionals.length !== sig.parameters.length) return sig;
 
-	          const updatedParams = sig.parameters.map((p, idx) => {
-	            const isOptional = optionals[idx];
-	            return isOptional === undefined || isOptional === p.isOptional
-	              ? p
-	              : { ...p, isOptional };
-	          });
+          const updatedParams = sig.parameters.map((p, idx) => {
+            const isOptional = optionals[idx];
+            return isOptional === undefined || isOptional === p.isOptional
+              ? p
+              : { ...p, isOptional };
+          });
 
-	          if (updatedParams.every((p, idx) => p === sig.parameters[idx])) {
-	            return sig;
-	          }
+          if (updatedParams.every((p, idx) => p === sig.parameters[idx])) {
+            return sig;
+          }
 
-	          memberChanged = true;
-	          return { ...sig, parameters: updatedParams };
-	        });
+          memberChanged = true;
+          return { ...sig, parameters: updatedParams };
+        });
 
-	        if (!memberChanged) continue;
+        if (!memberChanged) continue;
 
-	        if (!updatedMembers) {
-	          updatedMembers = new Map(entry.members);
-	        }
-	        updatedMembers.set(memberName, { ...member, signatures: updatedSignatures });
-	      }
-	    }
+        if (!updatedMembers) {
+          updatedMembers = new Map(entry.members);
+        }
+        updatedMembers.set(memberName, {
+          ...member,
+          signatures: updatedSignatures,
+        });
+      }
+    }
 
     if (!updatedMembers) continue;
 
@@ -1242,7 +1319,9 @@ const convertRawType = (
     heritage.push({
       kind: "extends",
       targetStableId: rawType.baseType.stableId,
-      typeArguments: (rawType.baseType.typeArguments ?? []).map(parseClrTypeString),
+      typeArguments: (rawType.baseType.typeArguments ?? []).map(
+        parseClrTypeString
+      ),
     });
   }
 
@@ -1270,7 +1349,9 @@ const convertRawType = (
     if (ra !== rb) return ra - rb;
     const stable = a.targetStableId.localeCompare(b.targetStableId);
     if (stable !== 0) return stable;
-    return JSON.stringify(a.typeArguments).localeCompare(JSON.stringify(b.typeArguments));
+    return JSON.stringify(a.typeArguments).localeCompare(
+      JSON.stringify(b.typeArguments)
+    );
   });
 
   // Convert accessibility
@@ -1392,7 +1473,11 @@ export const loadClrCatalog = (
 
     for (const bindingsPath of bindingsFiles) {
       try {
-        const internalDtsPath = path.join(path.dirname(bindingsPath), "internal", "index.d.ts");
+        const internalDtsPath = path.join(
+          path.dirname(bindingsPath),
+          "internal",
+          "index.d.ts"
+        );
         if (fs.existsSync(internalDtsPath)) {
           dtsFiles.add(internalDtsPath);
         }
@@ -1449,7 +1534,11 @@ export const loadSinglePackageBindings = (
   const tsNameToTypeId = new Map<string, TypeId>();
   const clrNameToTypeId = new Map<string, TypeId>();
   const namespaceToTypeIds = new Map<string, TypeId[]>();
-  const dtsPath = path.join(path.dirname(bindingsPath), "internal", "index.d.ts");
+  const dtsPath = path.join(
+    path.dirname(bindingsPath),
+    "internal",
+    "index.d.ts"
+  );
 
   const content = fs.readFileSync(bindingsPath, "utf-8");
   const bindings: RawBindingsFile = JSON.parse(content);

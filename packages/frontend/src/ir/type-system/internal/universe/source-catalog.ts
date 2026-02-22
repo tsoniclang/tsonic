@@ -91,7 +91,7 @@ export const buildSourceCatalog = (
     config.sourceFiles,
     config.checker,
     config.sourceRoot,
-    config.rootNamespace,
+    config.rootNamespace
     // No convertType — uses default (() => unknownType).
   );
 

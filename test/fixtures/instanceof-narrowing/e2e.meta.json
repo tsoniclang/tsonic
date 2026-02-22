@@ -2,4 +2,3 @@
   "modes": ["dotnet"],
   "description": "Instanceof narrowing in conditions and branches (frontend + emitter)"
 }
-

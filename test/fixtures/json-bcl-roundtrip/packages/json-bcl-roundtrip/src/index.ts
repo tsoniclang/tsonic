@@ -1,6 +1,9 @@
 import { Console } from "@tsonic/dotnet/System.js";
 import { SortedDictionary } from "@tsonic/dotnet/System.Collections.Generic.js";
-import { JsonSerializer, JsonDocument } from "@tsonic/dotnet/System.Text.Json.js";
+import {
+  JsonSerializer,
+  JsonDocument,
+} from "@tsonic/dotnet/System.Text.Json.js";
 import { JsonNode, JsonValue } from "@tsonic/dotnet/System.Text.Json.Nodes.js";
 import { int } from "@tsonic/core/types.js";
 
@@ -44,7 +47,8 @@ export function main(): void {
   const dict = new SortedDictionary<string, int>();
   dict.Add("UserId", 1);
   dict.Add("PostId", 2);
-  const dictJson = JsonSerializer.Serialize<SortedDictionary<string, int>>(dict);
+  const dictJson =
+    JsonSerializer.Serialize<SortedDictionary<string, int>>(dict);
   Console.WriteLine(`DICTIONARY=${dictJson}`);
 
   const node = JsonNode.Parse(serialized);

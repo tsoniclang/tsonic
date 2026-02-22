@@ -32,4 +32,3 @@ export function main(): void {
   }
   Console.WriteLine("OK2:" + a2.property_id);
 }
-

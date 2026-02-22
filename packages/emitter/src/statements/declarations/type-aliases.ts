@@ -66,10 +66,16 @@ export const emitTypeAliasDeclaration = (
       const reservedTypeParamNames = new Set<string>();
       for (const member of stmt.type.members) {
         if (member.kind !== "propertySignature") continue;
-        reservedTypeParamNames.add(emitCSharpName(member.name, "properties", context));
+        reservedTypeParamNames.add(
+          emitCSharpName(member.name, "properties", context)
+        );
       }
       const [typeParamsStr, whereClauses, typeParamContext] =
-        emitTypeParameters(stmt.typeParameters, currentContext, reservedTypeParamNames);
+        emitTypeParameters(
+          stmt.typeParameters,
+          currentContext,
+          reservedTypeParamNames
+        );
       parts.push(typeParamsStr);
       currentContext = typeParamContext;
 
@@ -114,7 +120,9 @@ export const emitTypeAliasDeclaration = (
           // Readonly uses init-only, writable uses get; set;
           // This preserves TS readonly semantics while still allowing object initializers
           // (and `required` for non-optional properties in C# 11).
-          const accessors = member.isReadonly ? "{ get; init; }" : "{ get; set; }";
+          const accessors = member.isReadonly
+            ? "{ get; init; }"
+            : "{ get; set; }";
 
           properties.push(
             `${getIndent(bodyContext)}${propParts.join(" ")} ${accessors}`

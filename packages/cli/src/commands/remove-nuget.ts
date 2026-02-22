@@ -9,7 +9,11 @@
  * - Always runs `tsonic restore` afterwards to keep local bindings consistent
  */
 
-import type { Result, TsonicWorkspaceConfig, PackageReferenceConfig } from "../types.js";
+import type {
+  Result,
+  TsonicWorkspaceConfig,
+  PackageReferenceConfig,
+} from "../types.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { writeTsonicJson, type AddCommandOptions } from "./add-common.js";
 import { restoreCommand } from "./restore.js";

@@ -83,7 +83,8 @@ export const emitParametersWithDestructuring = (
     if (param.passing !== "value") {
       modifiers.push(param.passing);
     }
-    const modifierPrefix = modifiers.length > 0 ? `${modifiers.join(" ")} ` : "";
+    const modifierPrefix =
+      modifiers.length > 0 ? `${modifiers.join(" ")} ` : "";
     const actualType: IrType | undefined = param.type;
 
     // Parameter type

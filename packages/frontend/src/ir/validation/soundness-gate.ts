@@ -173,7 +173,10 @@ const validateType = (
       break;
 
     case "dictionaryType":
-      if (type.keyType.kind === "neverType" || type.valueType.kind === "neverType") {
+      if (
+        type.keyType.kind === "neverType" ||
+        type.valueType.kind === "neverType"
+      ) {
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN7419",
@@ -448,10 +451,7 @@ const validateExpression = (
     case "call":
       // istype<T>(x) is a compiler-only marker used for overload specialization.
       // It must never reach emission; overload-group conversion erases it.
-      if (
-        expr.callee.kind === "identifier" &&
-        expr.callee.name === "istype"
-      ) {
+      if (expr.callee.kind === "identifier" && expr.callee.name === "istype") {
         ctx.diagnostics.push(
           createDiagnostic(
             "TSN7441",

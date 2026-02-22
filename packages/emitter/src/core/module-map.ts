@@ -117,7 +117,9 @@ export const buildModuleMap = (
     const exportedValueKinds = (() => {
       const kinds = new Map<string, "function" | "variable">();
 
-      const findLocalValueKind = (localName: string): "function" | "variable" | undefined => {
+      const findLocalValueKind = (
+        localName: string
+      ): "function" | "variable" | undefined => {
         for (const stmt of module.body) {
           if (stmt.kind === "functionDeclaration" && stmt.name === localName) {
             return "function";

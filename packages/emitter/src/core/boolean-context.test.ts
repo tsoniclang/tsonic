@@ -21,8 +21,9 @@ const createContext = (
   ...patch,
 });
 
-const prim = (name: Extract<IrType, { kind: "primitiveType" }>["name"]): IrType =>
-  ({ kind: "primitiveType", name }) as IrType;
+const prim = (
+  name: Extract<IrType, { kind: "primitiveType" }>["name"]
+): IrType => ({ kind: "primitiveType", name }) as IrType;
 
 const ref = (clrName: string): IrType =>
   ({
@@ -35,7 +36,7 @@ const union = (types: readonly IrType[]): IrType =>
   ({ kind: "unionType", types }) as IrType;
 
 const id = (name: string, inferredType?: IrType): IrExpression =>
-  ({ kind: "identifier", name, inferredType } as IrExpression);
+  ({ kind: "identifier", name, inferredType }) as IrExpression;
 
 const emitExpr = (
   expr: IrExpression,
@@ -57,7 +58,12 @@ const emitExpr = (
     case "binary": {
       const lhs = expr.left.kind === "identifier" ? expr.left.name : "lhs";
       const rhs = expr.right.kind === "identifier" ? expr.right.name : "rhs";
-      const op = expr.operator === "===" ? "==" : expr.operator === "!==" ? "!=" : expr.operator;
+      const op =
+        expr.operator === "==="
+          ? "=="
+          : expr.operator === "!=="
+            ? "!="
+            : expr.operator;
       return [{ text: `${lhs} ${op} ${rhs}` }, context];
     }
     default:
@@ -145,7 +151,11 @@ describe("Boolean-context lowering (emitBooleanCondition/toBooleanCondition)", (
       const ctx = createContext({ tempVarId: 0 });
 
       const unknownExpr = id("x", { kind: "unknownType" } as IrType);
-      const [unknownText, unknownNext] = toBooleanCondition(unknownExpr, "x", ctx);
+      const [unknownText, unknownNext] = toBooleanCondition(
+        unknownExpr,
+        "x",
+        ctx
+      );
       expect(unknownText).to.include("switch {");
       expect(unknownText).to.include("bool =>");
       expect(unknownText).to.not.include("!= null");
@@ -209,7 +219,9 @@ describe("Boolean-context lowering (emitBooleanCondition/toBooleanCondition)", (
 
       const [text, next] = toBooleanCondition(expr, "x", ctx);
       expect(text).to.match(/x is string __tsonic_truthy_nullable_1/);
-      expect(text).to.include("!string.IsNullOrEmpty(__tsonic_truthy_nullable_1)");
+      expect(text).to.include(
+        "!string.IsNullOrEmpty(__tsonic_truthy_nullable_1)"
+      );
       expect(next.tempVarId).to.equal(1);
     });
   });

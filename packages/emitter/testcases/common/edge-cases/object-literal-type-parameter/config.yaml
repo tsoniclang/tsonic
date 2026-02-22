@@ -1,2 +1,1 @@
 - ObjectLiteralTypeParameter.ts: should synthesize object literal types when expected type is a type parameter
-

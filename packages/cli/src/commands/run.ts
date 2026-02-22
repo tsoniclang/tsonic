@@ -8,7 +8,9 @@ import type { ResolvedConfig, Result } from "../types.js";
 import { buildCommand } from "./build.js";
 
 const signalToExitCode = (signal: NodeJS.Signals): number => {
-  const signalNumber = (osConstants.signals as Record<string, number | undefined>)[signal];
+  const signalNumber = (
+    osConstants.signals as Record<string, number | undefined>
+  )[signal];
   if (typeof signalNumber === "number") return 128 + signalNumber;
   return 1;
 };
@@ -56,7 +58,9 @@ export const runCommand = (
   if (!config.quiet) {
     console.log("─".repeat(50));
     if (runResult.signal) {
-      console.log(`\nProcess terminated by signal ${runResult.signal} (exit code ${exitCode})`);
+      console.log(
+        `\nProcess terminated by signal ${runResult.signal} (exit code ${exitCode})`
+      );
     } else {
       console.log(`\nProcess exited with code ${exitCode}`);
     }

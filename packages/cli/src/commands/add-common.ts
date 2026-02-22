@@ -122,7 +122,13 @@ export const npmInstallDevDependency = (
   options: AddCommandOptions,
   exec: Exec = defaultExec
 ): Result<void, string> => {
-  const args = ["install", "--save-dev", packageSpec, "--no-fund", "--no-audit"];
+  const args = [
+    "install",
+    "--save-dev",
+    packageSpec,
+    "--no-fund",
+    "--no-audit",
+  ];
   if (options.quiet) args.push("--silent");
 
   const result = exec(
@@ -138,7 +144,6 @@ export const npmInstallDevDependency = (
 
   return { ok: true, value: undefined };
 };
-
 
 const findNearestPackageRoot = (resolvedFilePath: string): string | null => {
   let currentDir = dirname(resolvedFilePath);
@@ -262,7 +267,10 @@ export const listDotnetRuntimes = (
     return { ok: false, error: `dotnet --list-runtimes failed:\n${msg}` };
   }
 
-  const lines = result.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = result.stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const entries: DotnetRuntime[] = [];
   for (const line of lines) {
     // Example:
@@ -277,7 +285,10 @@ export const listDotnetRuntimes = (
   // Pick highest version per runtime name (lexicographic is not enough).
   const byName = new Map<string, DotnetRuntime>();
   const parseVer = (v: string): number[] =>
-    v.split(".").map((p) => Number.parseInt(p, 10)).map((n) => (Number.isFinite(n) ? n : 0));
+    v
+      .split(".")
+      .map((p) => Number.parseInt(p, 10))
+      .map((n) => (Number.isFinite(n) ? n : 0));
   const cmp = (a: string, b: string): number => {
     const av = parseVer(a);
     const bv = parseVer(b);
@@ -343,13 +354,19 @@ export const bindingsStoreDir = (
 export const ensureGeneratedBindingsPackageJson = (
   dir: string,
   packageName: string,
-  meta: { readonly kind: GeneratedBindingsKind; readonly source: Record<string, unknown> }
+  meta: {
+    readonly kind: GeneratedBindingsKind;
+    readonly source: Record<string, unknown>;
+  }
 ): Result<void, string> => {
   const pkgJsonPath = join(dir, "package.json");
 
   if (existsSync(pkgJsonPath)) {
     try {
-      const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<string, unknown>;
+      const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
       if (parsed.name !== packageName) {
         return {
           ok: false,
@@ -426,7 +443,10 @@ export const installGeneratedBindingsPackage = (
       };
     }
     try {
-      const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<string, unknown>;
+      const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
       const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
       if (tsonic.generated !== true) {
         return {

@@ -285,11 +285,7 @@ const resolveHeritageTypeName = (
   // Source-authored types use namespace-based FQ names.
   const ns =
     sourceFile && !sourceFile.isDeclarationFile
-      ? getNamespaceFromPath(
-          sourceFile.fileName,
-          sourceRoot,
-          rootNamespace
-        )
+      ? getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace)
       : undefined;
 
   return ns ? `${ns}.${simpleName}` : simpleName;
@@ -324,8 +320,9 @@ const extractMembers = (
         const name = param.name.text;
         const isOptional = !!param.questionToken || !!param.initializer;
         const isReadonly =
-          param.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ??
-          false;
+          param.modifiers?.some(
+            (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
+          ) ?? false;
 
         result.set(name, {
           kind: "property",
@@ -638,37 +635,37 @@ export const buildTypeRegistry = (
     };
 
     // Class declarations
-	    if (ts.isClassDeclaration(node) && node.name) {
-	      const simpleName = node.name.text;
-	      const fqName = makeFQName(simpleName);
+    if (ts.isClassDeclaration(node) && node.name) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
 
       // Pure IR entry
-	      entries.set(fqName, {
-	        kind: "class",
-	        name: simpleName,
-	        fullyQualifiedName: fqName,
-	        typeParameters: extractTypeParameters(node.typeParameters, convert),
-	        members: extractMembers(node.members, convert),
-		        heritage: extractHeritage(
-		          node.heritageClauses,
-		          checker,
-		          sourceRoot,
-		          rootNamespace,
-		          convert,
-		          canonicalize
-		        ),
-	      });
+      entries.set(fqName, {
+        kind: "class",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        typeParameters: extractTypeParameters(node.typeParameters, convert),
+        members: extractMembers(node.members, convert),
+        heritage: extractHeritage(
+          node.heritageClauses,
+          checker,
+          sourceRoot,
+          rootNamespace,
+          convert,
+          canonicalize
+        ),
+      });
 
-	      simpleNameToFQ.set(simpleName, fqName);
-	    }
+      simpleNameToFQ.set(simpleName, fqName);
+    }
 
     // Interface declarations
-	    if (ts.isInterfaceDeclaration(node)) {
-	      const simpleName = node.name.text;
-	      const fqName = makeFQName(simpleName);
+    if (ts.isInterfaceDeclaration(node)) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
 
-	      // Merge with existing interface (for module augmentation)
-	      const existing = entries.get(fqName);
+      // Merge with existing interface (for module augmentation)
+      const existing = entries.get(fqName);
 
       if (existing && existing.kind === "interface") {
         // Merge members
@@ -682,59 +679,59 @@ export const buildTypeRegistry = (
         entries.set(fqName, {
           ...existing,
           members: mergedMembers,
-	          heritage: [
-	            ...existing.heritage,
-	            ...extractHeritage(
-	              node.heritageClauses,
-	              checker,
-	              sourceRoot,
-	              rootNamespace,
-	              convert,
-	              canonicalize
-	            ),
-	          ],
+          heritage: [
+            ...existing.heritage,
+            ...extractHeritage(
+              node.heritageClauses,
+              checker,
+              sourceRoot,
+              rootNamespace,
+              convert,
+              canonicalize
+            ),
+          ],
         });
-	      } else {
-	        entries.set(fqName, {
-	          kind: "interface",
-	          name: simpleName,
-	          fullyQualifiedName: fqName,
+      } else {
+        entries.set(fqName, {
+          kind: "interface",
+          name: simpleName,
+          fullyQualifiedName: fqName,
           typeParameters: extractTypeParameters(node.typeParameters, convert),
           members: extractMembers(node.members, convert),
-	          heritage: extractHeritage(
-	            node.heritageClauses,
-	            checker,
-	            sourceRoot,
-	            rootNamespace,
-	            convert,
-	            canonicalize
-	          ),
-	        });
-	        simpleNameToFQ.set(simpleName, fqName);
-	      }
-	    }
+          heritage: extractHeritage(
+            node.heritageClauses,
+            checker,
+            sourceRoot,
+            rootNamespace,
+            convert,
+            canonicalize
+          ),
+        });
+        simpleNameToFQ.set(simpleName, fqName);
+      }
+    }
 
     // Type alias declarations
-	    if (ts.isTypeAliasDeclaration(node)) {
-	      const simpleName = node.name.text;
-	      const fqName = makeFQName(simpleName);
+    if (ts.isTypeAliasDeclaration(node)) {
+      const simpleName = node.name.text;
+      const fqName = makeFQName(simpleName);
 
       // Pure IR entry
       const aliasedType = convert(node.type);
       const aliasedMembers = extractMembersFromAliasedObjectType(aliasedType);
 
-	      entries.set(fqName, {
-	        kind: "typeAlias",
-	        name: simpleName,
-	        fullyQualifiedName: fqName,
-	        typeParameters: extractTypeParameters(node.typeParameters, convert),
-	        members: aliasedMembers,
-	        heritage: [],
-	        aliasedType,
-	      });
+      entries.set(fqName, {
+        kind: "typeAlias",
+        name: simpleName,
+        fullyQualifiedName: fqName,
+        typeParameters: extractTypeParameters(node.typeParameters, convert),
+        members: aliasedMembers,
+        heritage: [],
+        aliasedType,
+      });
 
-	      simpleNameToFQ.set(simpleName, fqName);
-	    }
+      simpleNameToFQ.set(simpleName, fqName);
+    }
 
     // Handle 'declare global { ... }' blocks
     if (
@@ -753,11 +750,7 @@ export const buildTypeRegistry = (
   for (const sourceFile of sourceFiles) {
     const namespace = sourceFile.isDeclarationFile
       ? undefined
-      : getNamespaceFromPath(
-          sourceFile.fileName,
-          sourceRoot,
-          rootNamespace
-        );
+      : getNamespaceFromPath(sourceFile.fileName, sourceRoot, rootNamespace);
 
     ts.forEachChild(sourceFile, (node) => {
       processDeclaration(node, sourceFile, namespace);
@@ -800,8 +793,8 @@ export const buildTypeRegistry = (
       return [...entries.keys()];
     },
 
-	    hasType: (fqName: string): boolean => {
-	      return entries.has(fqName);
-	    },
-	  };
+    hasType: (fqName: string): boolean => {
+      return entries.has(fqName);
+    },
+  };
 };

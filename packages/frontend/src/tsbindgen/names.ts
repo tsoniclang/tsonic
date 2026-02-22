@@ -16,15 +16,20 @@
  * - "System.Collections.Generic.List`1" -> "List_1"
  * - "System.Collections.Generic.List`1+Enumerator" -> "List_1_Enumerator"
  */
-export const tsbindgenClrTypeNameToTsTypeName = (clrFullName: string): string => {
+export const tsbindgenClrTypeNameToTsTypeName = (
+  clrFullName: string
+): string => {
   // Some signatures may include generic instantiation suffixes (e.g. "[[T]]").
   // Those never appear in type declarations as part of the exported identifier.
   const withoutInstantiation = clrFullName.includes("[[")
-    ? clrFullName.split("[[")[0] ?? clrFullName
+    ? (clrFullName.split("[[")[0] ?? clrFullName)
     : clrFullName;
 
   const lastDot = withoutInstantiation.lastIndexOf(".");
-  const simple = lastDot >= 0 ? withoutInstantiation.slice(lastDot + 1) : withoutInstantiation;
+  const simple =
+    lastDot >= 0
+      ? withoutInstantiation.slice(lastDot + 1)
+      : withoutInstantiation;
 
   return (
     simple
@@ -34,4 +39,3 @@ export const tsbindgenClrTypeNameToTsTypeName = (clrFullName: string): string =>
       .replace(/`(\d+)/g, "_$1")
   );
 };
-

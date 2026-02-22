@@ -112,8 +112,11 @@ describe("restore command", function () {
       mkdirSync(join(dir, "libs"), { recursive: true });
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -152,19 +155,25 @@ describe("restore command", function () {
         join(dir, "node_modules/@tsonic/core")
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
 
       // Should not generate bindings for the runtime DLL.
-      expect(existsSync(join(dir, "node_modules", "tsonic-runtime-types"))).to.equal(
-        false
-      );
+      expect(
+        existsSync(join(dir, "node_modules", "tsonic-runtime-types"))
+      ).to.equal(false);
 
       // restore does not rewrite the config; it simply ignores runtime DLLs for bindings generation.
-      const updated = JSON.parse(readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")) as {
+      const updated = JSON.parse(
+        readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")
+      ) as {
         dotnet?: { libraries?: unknown };
       };
-      expect(updated.dotnet?.libraries).to.deep.equal(["libs/Tsonic.Runtime.dll"]);
+      expect(updated.dotnet?.libraries).to.deep.equal([
+        "libs/Tsonic.Runtime.dll",
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -179,8 +188,11 @@ describe("restore command", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -199,7 +211,10 @@ describe("restore command", function () {
       );
 
       // Build a DLL that references Tsonic.Runtime, but do NOT place Tsonic.Runtime.dll in libs/.
-      const runtimeDll = join(repoRoot, "packages/cli/runtime/Tsonic.Runtime.dll");
+      const runtimeDll = join(
+        repoRoot,
+        "packages/cli/runtime/Tsonic.Runtime.dll"
+      );
       writeFileSync(
         join(dir, "csharp", "TestLib.csproj"),
         `<Project Sdk="Microsoft.NET.Sdk">
@@ -252,11 +267,15 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
 
       // restore should generate and install a bindings package for the DLL.
-      expect(existsSync(join(dir, "node_modules", "test-lib-types"))).to.equal(true);
+      expect(existsSync(join(dir, "node_modules", "test-lib-types"))).to.equal(
+        true
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -269,8 +288,11 @@ describe("restore command", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -305,7 +327,9 @@ describe("restore command", function () {
         join(dir, "node_modules/@tsonic/core")
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
 
       // Should not generate bindings for workspace output DLL references.
@@ -325,8 +349,11 @@ describe("restore command", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -352,7 +379,15 @@ describe("restore command", function () {
 
       const build = spawnSync(
         "dotnet",
-        ["build", join(dir, "csharp", "Acme.Test.csproj"), "-c", "Release", "-o", join(dir, "libs"), "--nologo"],
+        [
+          "build",
+          join(dir, "csharp", "Acme.Test.csproj"),
+          "-c",
+          "Release",
+          "-o",
+          join(dir, "libs"),
+          "--nologo",
+        ],
         { cwd: dir, encoding: "utf-8" }
       );
       expect(build.status, build.stderr || build.stdout).to.equal(0);
@@ -372,7 +407,11 @@ describe("restore command", function () {
       mkdirSync(typesPkg, { recursive: true });
       writeFileSync(
         join(typesPkg, "package.json"),
-        JSON.stringify({ name: "@acme/acme-test-types", version: "0.0.0", type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "@acme/acme-test-types", version: "0.0.0", type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -383,7 +422,9 @@ describe("restore command", function () {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
             dotnetVersion: "net10.0",
             dotnet: {
-              libraries: [{ path: "libs/Acme.Test.dll", types: "@acme/acme-test-types" }],
+              libraries: [
+                { path: "libs/Acme.Test.dll", types: "@acme/acme-test-types" },
+              ],
               frameworkReferences: [],
               packageReferences: [],
             },
@@ -394,26 +435,35 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
 
       // Should not generate bindings for the DLL since it's mapped to an external types package.
-      expect(existsSync(join(dir, "node_modules", "acme-test-types"))).to.equal(false);
+      expect(existsSync(join(dir, "node_modules", "acme-test-types"))).to.equal(
+        false
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it("fails fast when a DLL has a 'types' mapping but the package is missing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-dll-types-missing-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-restore-dll-types-missing-")
+    );
     try {
       mkdirSync(join(dir, "libs"), { recursive: true });
       mkdirSync(join(dir, "csharp"), { recursive: true });
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -438,7 +488,15 @@ describe("restore command", function () {
 
       const build = spawnSync(
         "dotnet",
-        ["build", join(dir, "csharp", "Acme.Test.csproj"), "-c", "Release", "-o", join(dir, "libs"), "--nologo"],
+        [
+          "build",
+          join(dir, "csharp", "Acme.Test.csproj"),
+          "-c",
+          "Release",
+          "-o",
+          join(dir, "libs"),
+          "--nologo",
+        ],
         { cwd: dir, encoding: "utf-8" }
       );
       expect(build.status, build.stderr || build.stdout).to.equal(0);
@@ -459,7 +517,9 @@ describe("restore command", function () {
             $schema: "https://tsonic.org/schema/workspace/v1.json",
             dotnetVersion: "net10.0",
             dotnet: {
-              libraries: [{ path: "libs/Acme.Test.dll", types: "@acme/acme-test-types" }],
+              libraries: [
+                { path: "libs/Acme.Test.dll", types: "@acme/acme-test-types" },
+              ],
               frameworkReferences: [],
               packageReferences: [],
             },
@@ -470,7 +530,9 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error).to.include("Bindings package not found");
@@ -482,12 +544,17 @@ describe("restore command", function () {
   });
 
   it("skips bindings generation for NuGet packages with 'types: false'", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-nuget-types-false-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-restore-nuget-types-false-")
+    );
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -506,7 +573,10 @@ describe("restore command", function () {
       writeNugetConfig(dir, feedDir);
 
       createNugetPackage(dir, feedDir, { id: "Acme.A", version: "1.0.0" });
-      createNugetPackage(dir, feedDir, { id: "Acme.Tooling", version: "1.0.0" });
+      createNugetPackage(dir, feedDir, {
+        id: "Acme.Tooling",
+        version: "1.0.0",
+      });
 
       writeFileSync(
         join(dir, "tsonic.workspace.json"),
@@ -529,23 +599,34 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
 
-      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(true);
-      expect(existsSync(join(dir, "node_modules", "acme-tooling-types"))).to.equal(false);
+      expect(existsSync(join(dir, "node_modules", "acme-a-types"))).to.equal(
+        true
+      );
+      expect(
+        existsSync(join(dir, "node_modules", "acme-tooling-types"))
+      ).to.equal(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it("fails fast when a generated NuGet package depends on a 'types: false' package", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsonic-restore-nuget-types-false-dep-"));
+    const dir = mkdtempSync(
+      join(tmpdir(), "tsonic-restore-nuget-types-false-dep-")
+    );
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -590,7 +671,9 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(false);
       if (!result.ok) {
         expect(result.error).to.include("types: false");
@@ -606,8 +689,11 @@ describe("restore command", function () {
     try {
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -650,7 +736,9 @@ describe("restore command", function () {
         "utf-8"
       );
 
-      const result = restoreCommand(join(dir, "tsonic.workspace.json"), { quiet: true });
+      const result = restoreCommand(join(dir, "tsonic.workspace.json"), {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
 
       const metaTypesDir = join(dir, "node_modules", "acme-meta-types");
@@ -659,7 +747,9 @@ describe("restore command", function () {
       expect(existsSync(aTypesDir)).to.equal(false);
 
       // Meta root bindings package must contain real bindings.json for dependency namespaces.
-      expect(existsSync(join(metaTypesDir, "Acme_A", "bindings.json"))).to.equal(true);
+      expect(
+        existsSync(join(metaTypesDir, "Acme_A", "bindings.json"))
+      ).to.equal(true);
       expect(existsSync(join(metaTypesDir, "Acme_A.js"))).to.equal(true);
       expect(existsSync(join(metaTypesDir, "Acme_A.d.ts"))).to.equal(true);
     } finally {

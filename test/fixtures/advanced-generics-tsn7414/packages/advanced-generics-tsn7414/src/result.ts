@@ -22,4 +22,3 @@ export function divide(a: number, b: number): Result<number, string> {
   }
   return ok<number, string>(a / b);
 }
-

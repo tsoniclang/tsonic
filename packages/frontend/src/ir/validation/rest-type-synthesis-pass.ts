@@ -360,7 +360,7 @@ const processDeclarator = (
     rhsTypeRaw && extractMembers(rhsTypeRaw)
       ? rhsTypeRaw
       : decl.initializer && decl.initializer.kind === "object"
-        ? deriveObjectTypeFromObjectExpression(decl.initializer) ?? rhsTypeRaw
+        ? (deriveObjectTypeFromObjectExpression(decl.initializer) ?? rhsTypeRaw)
         : rhsTypeRaw;
 
   const synthesizedPattern = synthesizePattern(decl.name, rhsType, ctx);

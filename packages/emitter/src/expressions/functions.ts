@@ -3,7 +3,12 @@
  */
 
 import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, indent, withStatic } from "../types.js";
+import {
+  EmitterContext,
+  CSharpFragment,
+  indent,
+  withStatic,
+} from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
 import { emitType } from "../type-emitter.js";
@@ -147,13 +152,10 @@ export const emitFunctionExpression = (
   const blockContextBase = bodyContextSeeded.isStatic
     ? indent(bodyContextSeeded)
     : bodyContextSeeded;
-  const [blockCode] = emitStatement(
-    expr.body,
-    {
-      ...withStatic(blockContextBase, false),
-      returnType,
-    }
-  );
+  const [blockCode] = emitStatement(expr.body, {
+    ...withStatic(blockContextBase, false),
+    returnType,
+  });
 
   const asyncPrefix = expr.isAsync ? "async " : "";
   const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
@@ -189,22 +191,15 @@ export const emitArrowFunction = (
     const blockContextBase = bodyContextSeeded.isStatic
       ? indent(bodyContextSeeded)
       : bodyContextSeeded;
-    const [blockCode] = emitStatement(
-      expr.body,
-      {
-        ...withStatic(blockContextBase, false),
-        returnType,
-      }
-    );
+    const [blockCode] = emitStatement(expr.body, {
+      ...withStatic(blockContextBase, false),
+      returnType,
+    });
     const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
     return [{ text }, paramContext];
   } else {
     // Expression body: (params) => expression
-    const [exprCode] = emitExpression(
-      expr.body,
-      bodyContextSeeded,
-      returnType
-    );
+    const [exprCode] = emitExpression(expr.body, bodyContextSeeded, returnType);
     const text = `${asyncPrefix}(${paramList}) => ${exprCode.text}`;
     // Arrow/function expressions are separate CLR methods; do not leak lexical
     // remaps / local allocations to the outer scope.

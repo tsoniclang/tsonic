@@ -66,8 +66,7 @@ const deduplicateMembers = (
     if (member.kind === "methodDeclaration") {
       return true; // Never deduplicate methods; overload sets are allowed.
     }
-    const name =
-      member.kind === "propertyDeclaration" ? member.name : null;
+    const name = member.kind === "propertyDeclaration" ? member.name : null;
     if (!name) return true;
     if (seenNames.has(name)) {
       return false; // Skip duplicate
@@ -171,8 +170,13 @@ export const convertClassDeclaration = (
     { getter?: ts.GetAccessorDeclaration; setter?: ts.SetAccessorDeclaration }
   >();
   for (const member of ownMembers) {
-    if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
-      const name = ts.isIdentifier(member.name) ? member.name.text : "[computed]";
+    if (
+      ts.isGetAccessorDeclaration(member) ||
+      ts.isSetAccessorDeclaration(member)
+    ) {
+      const name = ts.isIdentifier(member.name)
+        ? member.name.text
+        : "[computed]";
       const entry = accessorPairs.get(name) ?? {};
       if (ts.isGetAccessorDeclaration(member)) {
         entry.getter = member;
@@ -187,8 +191,13 @@ export const convertClassDeclaration = (
   const seenAccessors = new Set<string>();
   const seenMethodGroups = new Set<string>();
   for (const member of ownMembers) {
-    if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
-      const name = ts.isIdentifier(member.name) ? member.name.text : "[computed]";
+    if (
+      ts.isGetAccessorDeclaration(member) ||
+      ts.isSetAccessorDeclaration(member)
+    ) {
+      const name = ts.isIdentifier(member.name)
+        ? member.name.text
+        : "[computed]";
       if (seenAccessors.has(name)) continue;
       seenAccessors.add(name);
       const pair = accessorPairs.get(name);
@@ -213,7 +222,9 @@ export const convertClassDeclaration = (
         if (!group) {
           throw new Error(`ICE: missing method group for key '${key}'`);
         }
-        convertedMembers.push(...convertMethodOverloadGroup(group, ctx, superClass));
+        convertedMembers.push(
+          ...convertMethodOverloadGroup(group, ctx, superClass)
+        );
         continue;
       }
 

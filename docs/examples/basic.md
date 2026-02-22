@@ -224,7 +224,10 @@ export function main(): void {
 
 ```typescript
 import { Console } from "@tsonic/dotnet/System.js";
-import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
+import {
+  Dictionary,
+  HashSet,
+} from "@tsonic/dotnet/System.Collections.Generic.js";
 
 export function main(): void {
   // Dictionary<TKey, TValue> - key-value pairs

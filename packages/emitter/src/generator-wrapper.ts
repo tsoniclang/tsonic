@@ -351,7 +351,9 @@ export const generateWrapperClass = (
     `${bodyInd}/// disposing the enumerator. This is a limitation of C# iterators.`
   );
   parts.push(`${bodyInd}/// </summary>`);
-  parts.push(`${bodyInd}public ${throwReturnType} ${throwMethodName}(object e)`);
+  parts.push(
+    `${bodyInd}public ${throwReturnType} ${throwMethodName}(object e)`
+  );
   parts.push(`${bodyInd}{`);
   parts.push(`${innerInd}_done = true;`);
   if (func.isAsync) {

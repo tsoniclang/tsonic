@@ -8,12 +8,17 @@ import { emitExpression } from "../expression-emitter.js";
 
 const typeMayBeNullish = (type: IrType | undefined): boolean => {
   if (!type) return false;
-  if (type.kind === "primitiveType" && (type.name === "null" || type.name === "undefined")) {
+  if (
+    type.kind === "primitiveType" &&
+    (type.name === "null" || type.name === "undefined")
+  ) {
     return true;
   }
   if (type.kind === "unionType") {
     return type.types.some(
-      (t) => t.kind === "primitiveType" && (t.name === "null" || t.name === "undefined")
+      (t) =>
+        t.kind === "primitiveType" &&
+        (t.name === "null" || t.name === "undefined")
     );
   }
   return false;
@@ -79,9 +84,10 @@ export const emitTemplateLiteral = (
         ? `global::System.Convert.ToString(${baseExpr}) ?? "undefined"`
         : baseExpr;
 
-      const interpolation = needsParens || typeMayBeNullish(exprAtIndex.inferredType)
-        ? `{(${interpolationExpr})}`
-        : `{${interpolationExpr}}`;
+      const interpolation =
+        needsParens || typeMayBeNullish(exprAtIndex.inferredType)
+          ? `{(${interpolationExpr})}`
+          : `{${interpolationExpr}}`;
       parts.push(interpolation);
       currentContext = newContext;
     }

@@ -2,9 +2,7 @@
   "$schema": "https://tsonic.org/schema/workspace/v1.json",
   "dotnetVersion": "net10.0",
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@tsonic/globals"
-    ],
+    "typeRoots": ["node_modules/@tsonic/globals"],
     "libraries": [],
     "frameworkReferences": [],
     "packageReferences": []

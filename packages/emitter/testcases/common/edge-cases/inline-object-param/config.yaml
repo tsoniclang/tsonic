@@ -1,0 +1,1 @@
+- InlineObjectParam.ts: should not ICE when a call expectedType is an inline object type

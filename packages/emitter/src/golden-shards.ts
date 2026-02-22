@@ -36,29 +36,26 @@ export const registerGoldenTestShard = (cfg: GoldenShardConfig): void => {
     );
   }
 
-  describe(
-    `Golden Tests (shard ${cfg.shardIndex + 1}/${cfg.shardCount})`,
-    function () {
-      // Golden tests run the full compiler+emitter pipeline per scenario and can
-      // exceed the default timeout on slower machines / CI.
-      this.timeout(60_000);
+  describe(`Golden Tests (shard ${cfg.shardIndex + 1}/${cfg.shardCount})`, function () {
+    // Golden tests run the full compiler+emitter pipeline per scenario and can
+    // exceed the default timeout on slower machines / CI.
+    this.timeout(60_000);
 
-      const testcasesDir = path.join(__dirname, "../testcases");
+    const testcasesDir = path.join(__dirname, "../testcases");
 
-      const scenarios = discoverScenarios(testcasesDir);
-      const sharded = selectShardScenarios(scenarios, cfg);
+    const scenarios = discoverScenarios(testcasesDir);
+    const sharded = selectShardScenarios(scenarios, cfg);
 
-      if (sharded.length === 0) {
-        console.warn(
-          `⚠️  No golden test cases found for shard ${cfg.shardIndex + 1}/${cfg.shardCount}`
-        );
-        return;
-      }
-
-      const tree = buildDescribeTree(sharded);
-      if (tree) {
-        registerNode(tree);
-      }
+    if (sharded.length === 0) {
+      console.warn(
+        `⚠️  No golden test cases found for shard ${cfg.shardIndex + 1}/${cfg.shardCount}`
+      );
+      return;
     }
-  );
+
+    const tree = buildDescribeTree(sharded);
+    if (tree) {
+      registerNode(tree);
+    }
+  });
 };

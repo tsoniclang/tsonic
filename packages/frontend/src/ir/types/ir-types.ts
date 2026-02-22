@@ -224,4 +224,7 @@ export type IrAttributePrimitiveArg =
 
 export type IrAttributeArg =
   | IrAttributePrimitiveArg
-  | { readonly kind: "array"; readonly elements: readonly IrAttributePrimitiveArg[] };
+  | {
+      readonly kind: "array";
+      readonly elements: readonly IrAttributePrimitiveArg[];
+    };

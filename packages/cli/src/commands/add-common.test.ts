@@ -11,7 +11,9 @@ const writeJson = (path: string, value: unknown): void => {
 
 describe("add-common module resolution", () => {
   it("resolves tsbindgen DLL when package.json is not exported (Node exports)", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-resolve-tsbindgen-"));
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-resolve-tsbindgen-")
+    );
 
     try {
       writeJson(join(projectRoot, "package.json"), {
@@ -75,4 +77,3 @@ describe("add-common module resolution", () => {
     }
   });
 });
-

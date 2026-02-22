@@ -92,7 +92,9 @@ type AttributeMarker = {
 const tryExtractAttributeArg = (
   expr: IrExpression
 ): IrAttributeArg | undefined => {
-  const tryExtractPrimitive = (e: IrExpression): IrAttributePrimitiveArg | undefined => {
+  const tryExtractPrimitive = (
+    e: IrExpression
+  ): IrAttributePrimitiveArg | undefined => {
     const extracted = tryExtractAttributeArg(e);
     if (!extracted) return undefined;
     if (extracted.kind === "array") return undefined;
@@ -180,7 +182,9 @@ const getAttributesApiLocalNames = (module: IrModule): ReadonlySet<string> => {
   return names;
 };
 
-const getAttributeTargetsApiLocalNames = (module: IrModule): ReadonlySet<string> => {
+const getAttributeTargetsApiLocalNames = (
+  module: IrModule
+): ReadonlySet<string> => {
   const names = new Set<string>();
   for (const imp of module.imports) {
     if (imp.source !== ATTRIBUTES_IMPORT_SPECIFIER) continue;
@@ -196,7 +200,8 @@ const getAttributeTargetsApiLocalNames = (module: IrModule): ReadonlySet<string>
 const isAttributesApiIdentifier = (
   expr: IrExpression,
   apiNames: ReadonlySet<string>
-): expr is IrIdentifierExpression => expr.kind === "identifier" && apiNames.has(expr.name);
+): expr is IrIdentifierExpression =>
+  expr.kind === "identifier" && apiNames.has(expr.name);
 
 const parseAttributeTarget = (
   expr: IrExpression,
@@ -261,7 +266,10 @@ const looksLikeAttributesApiUsage = (
     case "call":
       return (
         looksLikeAttributesApiUsage(expr.callee, apiNames) ||
-        expr.arguments.some((arg) => arg.kind !== "spread" && looksLikeAttributesApiUsage(arg, apiNames))
+        expr.arguments.some(
+          (arg) =>
+            arg.kind !== "spread" && looksLikeAttributesApiUsage(arg, apiNames)
+        )
       );
     case "memberAccess":
       return (
@@ -273,9 +281,10 @@ const looksLikeAttributesApiUsage = (
     case "arrowFunction":
       return (
         (expr.body.kind === "blockStatement"
-          ? expr.body.statements.some((s) =>
-              s.kind === "expressionStatement" &&
-              looksLikeAttributesApiUsage(s.expression, apiNames)
+          ? expr.body.statements.some(
+              (s) =>
+                s.kind === "expressionStatement" &&
+                looksLikeAttributesApiUsage(s.expression, apiNames)
             )
           : looksLikeAttributesApiUsage(expr.body, apiNames)) || false
       );
@@ -287,12 +296,17 @@ const looksLikeAttributesApiUsage = (
       );
     case "array":
       return expr.elements.some(
-        (el) => el !== undefined && el.kind !== "spread" && looksLikeAttributesApiUsage(el, apiNames)
+        (el) =>
+          el !== undefined &&
+          el.kind !== "spread" &&
+          looksLikeAttributesApiUsage(el, apiNames)
       );
     case "object":
       return expr.properties.some((p) => {
-        if (p.kind === "spread") return looksLikeAttributesApiUsage(p.expression, apiNames);
-        if (typeof p.key !== "string") return looksLikeAttributesApiUsage(p.key, apiNames);
+        if (p.kind === "spread")
+          return looksLikeAttributesApiUsage(p.expression, apiNames);
+        if (typeof p.key !== "string")
+          return looksLikeAttributesApiUsage(p.key, apiNames);
         return looksLikeAttributesApiUsage(p.value, apiNames);
       });
     default:
@@ -304,15 +318,20 @@ const parseOnCall = (
   expr: IrExpression,
   module: IrModule,
   apiNames: ReadonlySet<string>
-): ParseResult<{ readonly target: IrIdentifierExpression; readonly sourceSpan?: SourceLocation }> => {
+): ParseResult<{
+  readonly target: IrIdentifierExpression;
+  readonly sourceSpan?: SourceLocation;
+}> => {
   if (expr.kind !== "call") return { kind: "notMatch" };
   const call = expr as IrCallExpression;
   if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
 
   const member = call.callee as IrMemberExpression;
-  if (member.isComputed || typeof member.property !== "string") return { kind: "notMatch" };
+  if (member.isComputed || typeof member.property !== "string")
+    return { kind: "notMatch" };
   if (member.property !== "on") return { kind: "notMatch" };
-  if (!isAttributesApiIdentifier(member.object, apiNames)) return { kind: "notMatch" };
+  if (!isAttributesApiIdentifier(member.object, apiNames))
+    return { kind: "notMatch" };
 
   if (call.arguments.length !== 1) {
     return {
@@ -353,7 +372,10 @@ const parseOnCall = (
 
   return {
     kind: "ok",
-    value: { target: arg0 as IrIdentifierExpression, sourceSpan: call.sourceSpan },
+    value: {
+      target: arg0 as IrIdentifierExpression,
+      sourceSpan: call.sourceSpan,
+    },
   };
 };
 
@@ -488,7 +510,10 @@ const makeAttributeType = (
     (s) => s.kind === "classDeclaration" && s.name === ctorIdent.name
   );
   if (hasLocalClass) {
-    return { kind: "ok", value: { kind: "referenceType", name: ctorIdent.name } };
+    return {
+      kind: "ok",
+      value: { kind: "referenceType", name: ctorIdent.name },
+    };
   }
 
   return {
@@ -513,9 +538,11 @@ const parseAttrDescriptorCall = (
   if (call.callee.kind !== "memberAccess") return { kind: "notMatch" };
 
   const member = call.callee as IrMemberExpression;
-  if (member.isComputed || typeof member.property !== "string") return { kind: "notMatch" };
+  if (member.isComputed || typeof member.property !== "string")
+    return { kind: "notMatch" };
   if (member.property !== "attr") return { kind: "notMatch" };
-  if (!isAttributesApiIdentifier(member.object, apiNames)) return { kind: "notMatch" };
+  if (!isAttributesApiIdentifier(member.object, apiNames))
+    return { kind: "notMatch" };
 
   if (call.arguments.length < 1) {
     return {
@@ -733,7 +760,8 @@ const tryDetectAttributeMarker = (
     onCallExpr = targetMember.object;
   } else if (selectorRoot.kind === "call") {
     const selectorCall = selectorRoot as IrCallExpression;
-    if (selectorCall.callee.kind !== "memberAccess") return { kind: "notMatch" };
+    if (selectorCall.callee.kind !== "memberAccess")
+      return { kind: "notMatch" };
     const selectorMember = selectorCall.callee as IrMemberExpression;
     const prop = getMemberName(selectorMember);
     if (prop !== "method" && prop !== "prop") return { kind: "notMatch" };
@@ -874,7 +902,10 @@ const tryDetectAttributeMarker = (
     };
   }
 
-  const attributeTypeResult = makeAttributeType(first as IrIdentifierExpression, module);
+  const attributeTypeResult = makeAttributeType(
+    first as IrIdentifierExpression,
+    module
+  );
   if (attributeTypeResult.kind !== "ok") {
     return attributeTypeResult;
   }

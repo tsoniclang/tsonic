@@ -27,7 +27,7 @@ const normalizePathFragment = (fragment: string): string => {
 export const getNamespaceFromPath = (
   filePath: string,
   sourceRoot: string,
-  rootNamespace: string,
+  rootNamespace: string
 ): string => {
   const fileDir = dirname(filePath);
 
@@ -44,7 +44,5 @@ export const getNamespaceFromPath = (
   // Otherwise, join with "."
   return parts.length === 0
     ? rootNamespace
-    : `${rootNamespace}.${parts
-        .map(normalizePathFragment)
-        .join(".")}`;
+    : `${rootNamespace}.${parts.map(normalizePathFragment).join(".")}`;
 };

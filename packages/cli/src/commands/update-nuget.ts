@@ -9,7 +9,11 @@
  * - Always runs `tsonic restore` afterwards to keep local bindings consistent
  */
 
-import type { Result, TsonicWorkspaceConfig, PackageReferenceConfig } from "../types.js";
+import type {
+  Result,
+  TsonicWorkspaceConfig,
+  PackageReferenceConfig,
+} from "../types.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { dirname } from "node:path";
 import {
@@ -32,7 +36,10 @@ export const updateNugetCommand = (
   typesPackage: string | undefined,
   configPath: string,
   options: AddCommandOptions = {}
-): Result<{ packageId: string; version: string; bindings?: string }, string> => {
+): Result<
+  { packageId: string; version: string; bindings?: string },
+  string
+> => {
   if (!id.trim()) {
     return { ok: false, error: "NuGet package id must be non-empty" };
   }

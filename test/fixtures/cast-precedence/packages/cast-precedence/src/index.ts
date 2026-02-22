@@ -31,4 +31,3 @@ export function main(): void {
   Console.WriteLine(name2);
   Console.WriteLine(greet2);
 }
-

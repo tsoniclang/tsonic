@@ -592,7 +592,7 @@ export const convertTypeReference = (
       if (
         declNode &&
         ts.isImportSpecifier(declNode) &&
-        ((declNode.propertyName ?? declNode.name).text === "ExtensionMethods") &&
+        (declNode.propertyName ?? declNode.name).text === "ExtensionMethods" &&
         node.typeArguments?.length === 1
       ) {
         const shape = node.typeArguments[0];

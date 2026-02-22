@@ -41,7 +41,8 @@ export const emitClassDeclaration = (
   const staticMembers = hasTypeParameters
     ? stmt.members.filter(
         (m) =>
-          (m.kind === "methodDeclaration" || m.kind === "propertyDeclaration") &&
+          (m.kind === "methodDeclaration" ||
+            m.kind === "propertyDeclaration") &&
           m.isStatic
       )
     : [];
@@ -49,7 +50,8 @@ export const emitClassDeclaration = (
     ? stmt.members.filter(
         (m) =>
           m.kind === "constructorDeclaration" ||
-          ((m.kind === "methodDeclaration" || m.kind === "propertyDeclaration") &&
+          ((m.kind === "methodDeclaration" ||
+            m.kind === "propertyDeclaration") &&
             !m.isStatic)
       )
     : stmt.members;
@@ -134,29 +136,30 @@ export const emitClassDeclaration = (
     !stmt.isStruct &&
     !membersToEmitBase.some((m) => m.kind === "constructorDeclaration");
 
-  const membersToEmitWithCtor: readonly IrClassMember[] = ensureCtorForAttributes
-    ? [
-        {
-          kind: "constructorDeclaration",
-          accessibility: "public",
-          parameters: [],
-          body: { kind: "blockStatement", statements: [] },
-        } satisfies IrClassMember,
-        ...membersToEmitBase,
-      ]
-    : membersToEmitBase;
+  const membersToEmitWithCtor: readonly IrClassMember[] =
+    ensureCtorForAttributes
+      ? [
+          {
+            kind: "constructorDeclaration",
+            accessibility: "public",
+            parameters: [],
+            body: { kind: "blockStatement", statements: [] },
+          } satisfies IrClassMember,
+          ...membersToEmitBase,
+        ]
+      : membersToEmitBase;
 
   // Apply class-level ctor attributes to all constructors (explicit or synthesized).
   const membersToEmit: readonly IrClassMember[] = membersToEmitWithCtor.map(
     (member): IrClassMember => {
-    if (member.kind !== "constructorDeclaration") return member;
-    if (ctorAttributes.length === 0) return member;
+      if (member.kind !== "constructorDeclaration") return member;
+      if (ctorAttributes.length === 0) return member;
 
-    const existing = member.attributes ?? [];
-    return {
-      ...member,
-      attributes: [...ctorAttributes, ...existing],
-    };
+      const existing = member.attributes ?? [];
+      return {
+        ...member,
+        attributes: [...ctorAttributes, ...existing],
+      };
     }
   );
 
@@ -187,7 +190,9 @@ export const emitClassDeclaration = (
   const reservedTypeParamNames = new Set<string>();
   for (const member of membersToEmit) {
     if (member.kind === "methodDeclaration") {
-      reservedTypeParamNames.add(emitCSharpName(member.name, "methods", context));
+      reservedTypeParamNames.add(
+        emitCSharpName(member.name, "methods", context)
+      );
       continue;
     }
     if (member.kind === "propertyDeclaration") {
@@ -208,7 +213,10 @@ export const emitClassDeclaration = (
 
   // Handle superclass (extends clause)
   if (stmt.superClass) {
-    const [superClassType, newContext] = emitType(stmt.superClass, currentContext);
+    const [superClassType, newContext] = emitType(
+      stmt.superClass,
+      currentContext
+    );
     currentContext = newContext;
     heritage.push(superClassType);
   }
@@ -314,7 +322,10 @@ export const emitClassDeclaration = (
     const staticMemberCodes: string[] = [];
     let companionContext = companionBodyContext;
     for (const member of staticMembers) {
-      const [memberCode, newContext] = emitClassMember(member, companionContext);
+      const [memberCode, newContext] = emitClassMember(
+        member,
+        companionContext
+      );
       staticMemberCodes.push(memberCode);
       companionContext = newContext;
     }

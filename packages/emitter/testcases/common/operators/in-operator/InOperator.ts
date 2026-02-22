@@ -7,4 +7,3 @@ export const check = (fail: boolean): string => {
   }
   return "ok";
 };
-

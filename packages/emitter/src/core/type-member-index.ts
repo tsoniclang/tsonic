@@ -1,8 +1,5 @@
 import type { IrModule, IrInterfaceMember } from "@tsonic/frontend";
-import type {
-  TypeMemberIndex,
-  TypeMemberKind,
-} from "../emitter-types/core.js";
+import type { TypeMemberIndex, TypeMemberKind } from "../emitter-types/core.js";
 
 const setMemberKind = (
   map: Map<string, TypeMemberKind>,
@@ -50,7 +47,11 @@ export const buildTypeMemberIndex = (
             setMemberKind(map, member.name, "method");
           } else if (member.kind === "propertyDeclaration") {
             const hasAccessors = !!(member.getterBody || member.setterBody);
-            setMemberKind(map, member.name, hasAccessors ? "property" : "field");
+            setMemberKind(
+              map,
+              member.name,
+              hasAccessors ? "property" : "field"
+            );
           }
         }
 

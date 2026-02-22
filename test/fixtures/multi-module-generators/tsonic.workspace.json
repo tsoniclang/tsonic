@@ -7,9 +7,7 @@
     "invariantGlobalization": true
   },
   "dotnet": {
-    "typeRoots": [
-      "node_modules/@tsonic/globals"
-    ],
+    "typeRoots": ["node_modules/@tsonic/globals"],
     "libraries": [],
     "frameworkReferences": [],
     "packageReferences": []

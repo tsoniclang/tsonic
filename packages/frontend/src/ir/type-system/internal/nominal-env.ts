@@ -314,7 +314,10 @@ export const buildNominalEnv = (catalog: UnifiedTypeCatalog): NominalEnv => {
     // Graph search through heritage edges (extends + implements), composing substitutions.
     type State = { readonly typeId: TypeId; readonly subst: InstantiationEnv };
 
-    const serializeSubst = (typeId: TypeId, subst: InstantiationEnv): string => {
+    const serializeSubst = (
+      typeId: TypeId,
+      subst: InstantiationEnv
+    ): string => {
       const typeParams = catalog.getTypeParameters(typeId);
       return typeParams
         .map((tp) => JSON.stringify(subst.get(tp.name) ?? null))

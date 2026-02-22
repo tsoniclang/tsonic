@@ -62,12 +62,18 @@ describe("build command (NativeAOT library)", function () {
     const rid = detectRid();
 
     try {
-      mkdirSync(join(dir, "packages", "native-lib", "src"), { recursive: true });
+      mkdirSync(join(dir, "packages", "native-lib", "src"), {
+        recursive: true,
+      });
       mkdirSync(join(dir, "node_modules"), { recursive: true });
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -87,7 +93,11 @@ describe("build command (NativeAOT library)", function () {
 
       writeFileSync(
         join(dir, "packages", "native-lib", "package.json"),
-        JSON.stringify({ name: "native-lib", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "native-lib", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -162,7 +172,10 @@ describe("build command (NativeAOT library)", function () {
         "net10.0",
         "Native.Lib.dll"
       );
-      expect(existsSync(managedDll), `Expected managed DLL at ${managedDll}`).to.equal(true);
+      expect(
+        existsSync(managedDll),
+        `Expected managed DLL at ${managedDll}`
+      ).to.equal(true);
 
       const publishDir = join(
         dir,
@@ -173,7 +186,10 @@ describe("build command (NativeAOT library)", function () {
         rid,
         "publish"
       );
-      expect(existsSync(publishDir), `Expected publish dir at ${publishDir}`).to.equal(true);
+      expect(
+        existsSync(publishDir),
+        `Expected publish dir at ${publishDir}`
+      ).to.equal(true);
 
       const ext = nativeExt();
       const publishEntries = readdirSync(publishDir);

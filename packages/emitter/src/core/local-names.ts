@@ -69,4 +69,6 @@ export const registerLocalName = (
 export const emitRemappedLocalName = (
   originalName: string,
   context: EmitterContext
-): string => context.localNameMap?.get(originalName) ?? escapeCSharpIdentifier(originalName);
+): string =>
+  context.localNameMap?.get(originalName) ??
+  escapeCSharpIdentifier(originalName);

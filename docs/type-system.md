@@ -174,7 +174,10 @@ public double? optional { get; set; }
 Tsonic does not include JavaScript `Map`/`Set` in the default globals. Use .NET collections:
 
 ```typescript
-import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
+import {
+  Dictionary,
+  HashSet,
+} from "@tsonic/dotnet/System.Collections.Generic.js";
 
 const userMap = new Dictionary<string, User>();
 userMap.Add("alice", alice);

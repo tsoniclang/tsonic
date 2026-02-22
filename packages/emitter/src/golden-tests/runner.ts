@@ -67,7 +67,9 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   const scenarioTypeRootsDir = path.join(sourceRoot, "type-roots");
   const scenarioTypeRoots = (() => {
     if (!fs.existsSync(scenarioTypeRootsDir)) return [];
-    const entries = fs.readdirSync(scenarioTypeRootsDir, { withFileTypes: true });
+    const entries = fs.readdirSync(scenarioTypeRootsDir, {
+      withFileTypes: true,
+    });
     return entries
       .filter((e) => e.isDirectory())
       .map((e) => path.join(scenarioTypeRootsDir, e.name))
@@ -95,12 +97,15 @@ export const runScenario = async (scenario: Scenario): Promise<void> => {
   collectTs(sourceRoot);
   tsFiles.sort();
 
-  const compileResult = compile(tsFiles.length ? tsFiles : [scenario.inputPath], {
-    projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
-    sourceRoot,
-    rootNamespace,
-    typeRoots,
-  });
+  const compileResult = compile(
+    tsFiles.length ? tsFiles : [scenario.inputPath],
+    {
+      projectRoot: monorepoRoot, // Use monorepo root for node_modules resolution
+      sourceRoot,
+      rootNamespace,
+      typeRoots,
+    }
+  );
 
   // Handle expected diagnostics tests
   if (scenario.expectDiagnostics?.length) {

@@ -35,7 +35,9 @@ describe("DotnetMetadataRegistry", () => {
       ],
     });
 
-    expect(registry.getMethodOverloadCount("Test.Base", "Write", 1)).to.equal(2);
+    expect(registry.getMethodOverloadCount("Test.Base", "Write", 1)).to.equal(
+      2
+    );
 
     const charMeta = registry.getMethodMetadata(
       "Test.Base",
@@ -88,7 +90,9 @@ describe("DotnetMetadataRegistry", () => {
       ],
     });
 
-    expect(registry.getMethodOverloadCount("Test.Base", "TryGet", 1)).to.equal(2);
+    expect(registry.getMethodOverloadCount("Test.Base", "TryGet", 1)).to.equal(
+      2
+    );
 
     const outMeta = registry.getMethodMetadata(
       "Test.Base",
@@ -145,7 +149,12 @@ describe("DotnetMetadataRegistry", () => {
       ],
     });
 
-    const disposeMeta = registry.getMethodMetadata("Test.Derived", "Dispose", [], "");
+    const disposeMeta = registry.getMethodMetadata(
+      "Test.Derived",
+      "Dispose",
+      [],
+      ""
+    );
     expect(disposeMeta?.virtual).to.equal(false);
 
     const countMeta = registry.getPropertyMetadata("Test.Derived", "Count");

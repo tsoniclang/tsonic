@@ -65,13 +65,20 @@ const parseNpmPackageName = (rawSpec: string): string | null => {
   return match?.[1] ?? null;
 };
 
-const resolvePathSpec = (workspaceRoot: string, rawSpec: string): string | null => {
+const resolvePathSpec = (
+  workspaceRoot: string,
+  rawSpec: string
+): string | null => {
   const spec = rawSpec.trim();
   if (!spec) return null;
 
   const asPath = spec.startsWith("file:") ? spec.slice("file:".length) : spec;
 
-  if (asPath.startsWith(".") || asPath.startsWith("/") || asPath.startsWith("..")) {
+  if (
+    asPath.startsWith(".") ||
+    asPath.startsWith("/") ||
+    asPath.startsWith("..")
+  ) {
     return resolve(workspaceRoot, asPath);
   }
 
@@ -89,7 +96,10 @@ const readLocalPackageName = (pkgDir: string): Result<string, string> => {
       readonly name?: unknown;
     };
     if (typeof parsed.name !== "string" || !parsed.name.trim()) {
-      return { ok: false, error: `Invalid package.json (missing "name"): ${pkgJson}` };
+      return {
+        ok: false,
+        error: `Invalid package.json (missing "name"): ${pkgJson}`,
+      };
     }
     return { ok: true, value: parsed.name.trim() };
   } catch (error) {
@@ -118,7 +128,9 @@ const resolvePackageNameFromSpec = (
   };
 };
 
-const readBindingsManifest = (pkgRoot: string): Result<TsonicBindingsManifest, string> => {
+const readBindingsManifest = (
+  pkgRoot: string
+): Result<TsonicBindingsManifest, string> => {
   const manifestPath = join(pkgRoot, "tsonic.bindings.json");
   if (!existsSync(manifestPath)) {
     return {
@@ -132,7 +144,10 @@ const readBindingsManifest = (pkgRoot: string): Result<TsonicBindingsManifest, s
   try {
     const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as unknown;
     if (parsed === null || typeof parsed !== "object") {
-      return { ok: false, error: `Invalid tsonic.bindings.json (must be an object): ${manifestPath}` };
+      return {
+        ok: false,
+        error: `Invalid tsonic.bindings.json (must be an object): ${manifestPath}`,
+      };
     }
     return { ok: true, value: parsed as TsonicBindingsManifest };
   } catch (error) {
@@ -165,7 +180,8 @@ const mergeFrameworkReferences = (
       continue;
     }
 
-    const currentTypes = typeof current === "string" ? undefined : current.types;
+    const currentTypes =
+      typeof current === "string" ? undefined : current.types;
     const nextTypes = typeof ref === "string" ? undefined : ref.types;
 
     if (
@@ -186,7 +202,9 @@ const mergeFrameworkReferences = (
     // If existing is string and incoming has types, upgrade entry to object.
     if (typeof current === "string" && typeof ref !== "string") {
       const idx = out.findIndex(
-        (x) => (typeof x === "string" ? x : x.id).toLowerCase() === current.toLowerCase()
+        (x) =>
+          (typeof x === "string" ? x : x.id).toLowerCase() ===
+          current.toLowerCase()
       );
       if (idx >= 0) out[idx] = { id: current, types: ref.types };
       byId.set(key, out[idx] as FrameworkReferenceConfig);
@@ -310,7 +328,11 @@ export const addNpmCommand = (
   if (!nameResult.ok) return nameResult;
   const packageName = nameResult.value;
 
-  const installResult = npmInstallDevDependency(workspaceRoot, packageSpec, options);
+  const installResult = npmInstallDevDependency(
+    workspaceRoot,
+    packageSpec,
+    options
+  );
   if (!installResult.ok) return installResult;
 
   const pkgRootResult = resolvePackageRoot(workspaceRoot, packageName);
@@ -348,7 +370,8 @@ export const addNpmCommand = (
 
   const mergedTestFramework = mergeFrameworkReferences(
     (testDotnet.frameworkReferences ?? []) as FrameworkReferenceConfig[],
-    (manifest.testDotnet?.frameworkReferences ?? []) as FrameworkReferenceConfig[]
+    (manifest.testDotnet?.frameworkReferences ??
+      []) as FrameworkReferenceConfig[]
   );
   if (!mergedTestFramework.ok) return mergedTestFramework;
 
@@ -371,20 +394,21 @@ export const addNpmCommand = (
       frameworkReferences: mergedFramework.value,
       packageReferences: mergedPackages.value,
       msbuildProperties:
-        Object.keys(mergedMsbuild.value).length > 0 ? mergedMsbuild.value : undefined,
+        Object.keys(mergedMsbuild.value).length > 0
+          ? mergedMsbuild.value
+          : undefined,
     },
-    testDotnet:
-      manifest.testDotnet
-        ? {
-            ...testDotnet,
-            frameworkReferences: mergedTestFramework.value,
-            packageReferences: mergedTestPackages.value,
-            msbuildProperties:
-              Object.keys(mergedTestMsbuild.value).length > 0
-                ? mergedTestMsbuild.value
-                : undefined,
-          }
-        : config.testDotnet,
+    testDotnet: manifest.testDotnet
+      ? {
+          ...testDotnet,
+          frameworkReferences: mergedTestFramework.value,
+          packageReferences: mergedTestPackages.value,
+          msbuildProperties:
+            Object.keys(mergedTestMsbuild.value).length > 0
+              ? mergedTestMsbuild.value
+              : undefined,
+        }
+      : config.testDotnet,
   };
 
   const writeResult = writeTsonicJson(configPath, nextConfig);
@@ -408,4 +432,3 @@ export const addNpmCommand = (
 
   return { ok: true, value: { packageName } };
 };
-

@@ -18,7 +18,9 @@ type ObjectMemberKind = "method" | "property" | "field" | "enumMember";
 
 type ObjectMemberBucket = "methods" | "properties" | "fields" | "enumMembers";
 
-const bucketFromMemberKind = (kind: ObjectMemberKind | undefined): ObjectMemberBucket => {
+const bucketFromMemberKind = (
+  kind: ObjectMemberKind | undefined
+): ObjectMemberBucket => {
   switch (kind) {
     case "method":
       return "methods";
@@ -120,7 +122,11 @@ const getMemberKind = (
   }
 
   if (resolved.kind === "referenceType") {
-    const localKind = lookupMemberKindFromLocalTypes(resolved.name, memberName, context);
+    const localKind = lookupMemberKindFromLocalTypes(
+      resolved.name,
+      memberName,
+      context
+    );
     if (localKind) return localKind;
 
     const receiverFqn = resolveReceiverTypeFqn(resolved, context);
@@ -602,8 +608,16 @@ const emitSpreadPropertyCopies = (
   const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
 
   for (const propName of propertyNames) {
-    const targetMember = emitObjectMemberName(targetType, propName, currentContext);
-    const sourceMember = emitObjectMemberName(spreadType, propName, currentContext);
+    const targetMember = emitObjectMemberName(
+      targetType,
+      propName,
+      currentContext
+    );
+    const sourceMember = emitObjectMemberName(
+      spreadType,
+      propName,
+      currentContext
+    );
     assignments.push(`__tmp.${targetMember} = ${sourceExpr}.${sourceMember}`);
   }
 
@@ -652,7 +666,10 @@ const getObjectTypePropertyNames = (
         .map((m) => m.name);
     }
 
-    if (localType?.kind === "typeAlias" && localType.type.kind === "objectType") {
+    if (
+      localType?.kind === "typeAlias" &&
+      localType.type.kind === "objectType"
+    ) {
       return localType.type.members
         .filter(
           (m): m is Extract<typeof m, { kind: "propertySignature" }> =>

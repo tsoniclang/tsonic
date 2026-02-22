@@ -97,7 +97,9 @@ export const emitStaticContainer = (
   const needsUnsafe = members.some((m) => statementUsesPointer(m));
 
   const containerParts: string[] = [];
-  containerParts.push(`${ind}[global::Tsonic.Internal.ModuleContainerAttribute]`);
+  containerParts.push(
+    `${ind}[global::Tsonic.Internal.ModuleContainerAttribute]`
+  );
   containerParts.push(
     `${ind}public static${needsUnsafe ? " unsafe" : ""} class ${containerName}`
   );

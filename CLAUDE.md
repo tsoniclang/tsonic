@@ -726,6 +726,7 @@ npm test -- --grep "pattern"
 ```
 
 Test workflow (airplane-grade):
+
 - During iteration (e.g. on an external testbed project), it’s OK to use `./test/scripts/run-all.sh --quick` or `./test/scripts/run-all.sh --filter ...` for fast feedback.
 - Before merging/publishing, ALWAYS run the full suite: `./test/scripts/run-all.sh` (no `--quick` / `--filter`).
 - If a change is substantial (emitter/type system/CLI/runtime behavior), run the full suite even during development.

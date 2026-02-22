@@ -128,19 +128,20 @@ describe("CLR member binding disambiguation", () => {
     const checker = program.getTypeChecker();
 
     const bindings = new BindingRegistry();
-      bindings.addBindings("/test/nodejs-http.json", {
-        namespace: "nodejs.Http",
-        types: [
-          {
-            clrName: "nodejs.Http.Server",
-            assemblyName: "nodejs",
-            methods: [
-              {
-                clrName: "listen",
-                normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
-                parameterCount: 2,
-                declaringClrType: "nodejs.Http.Server",
-                declaringAssemblyName: "nodejs",
+    bindings.addBindings("/test/nodejs-http.json", {
+      namespace: "nodejs.Http",
+      types: [
+        {
+          clrName: "nodejs.Http.Server",
+          assemblyName: "nodejs",
+          methods: [
+            {
+              clrName: "listen",
+              normalizedSignature:
+                "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
+              parameterCount: 2,
+              declaringClrType: "nodejs.Http.Server",
+              declaringAssemblyName: "nodejs",
             },
           ],
           properties: [],
@@ -161,7 +162,8 @@ describe("CLR member binding disambiguation", () => {
           methods: [
             {
               clrName: "listen",
-              normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Server|static=false",
+              normalizedSignature:
+                "listen|(System.Int32,System.Action):nodejs.Server|static=false",
               parameterCount: 2,
               declaringClrType: "nodejs.Server",
               declaringAssemblyName: "nodejs",
@@ -195,7 +197,12 @@ describe("CLR member binding disambiguation", () => {
       rootNamespace: "TestApp",
     });
 
-    const irResult = buildIrModule(sourceFile, testProgram, testProgram.options, ctx);
+    const irResult = buildIrModule(
+      sourceFile,
+      testProgram,
+      testProgram.options,
+      ctx
+    );
     if (!irResult.ok) {
       console.error("IR build failed:", irResult.error);
       throw new Error(
@@ -229,9 +236,10 @@ describe("CLR member binding disambiguation", () => {
       throw new Error("Expected member access callee");
     }
 
-    expect(callee.memberBinding, "Member binding must be resolved").to.not.equal(
-      undefined
-    );
+    expect(
+      callee.memberBinding,
+      "Member binding must be resolved"
+    ).to.not.equal(undefined);
     expect(callee.memberBinding?.type).to.equal("nodejs.Http.Server");
     expect(callee.memberBinding?.member).to.equal("listen");
   });
@@ -353,7 +361,8 @@ describe("CLR member binding disambiguation", () => {
           methods: [
             {
               clrName: "listen",
-              normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
+              normalizedSignature:
+                "listen|(System.Int32,System.Action):nodejs.Http.Server|static=false",
               parameterCount: 2,
               declaringClrType: "nodejs.Http.Server",
               declaringAssemblyName: "nodejs",
@@ -374,7 +383,8 @@ describe("CLR member binding disambiguation", () => {
           methods: [
             {
               clrName: "listen",
-              normalizedSignature: "listen|(System.Int32,System.Action):nodejs.Server|static=false",
+              normalizedSignature:
+                "listen|(System.Int32,System.Action):nodejs.Server|static=false",
               parameterCount: 2,
               declaringClrType: "nodejs.Server",
               declaringAssemblyName: "nodejs",
@@ -408,7 +418,10 @@ describe("CLR member binding disambiguation", () => {
       rootNamespace: "TestApp",
     });
 
-    expect(irResult.ok, "IR build must fail on ambiguous CLR bindings").to.equal(false);
+    expect(
+      irResult.ok,
+      "IR build must fail on ambiguous CLR bindings"
+    ).to.equal(false);
 
     if (irResult.ok) return;
 
@@ -558,7 +571,9 @@ describe("CLR member binding disambiguation", () => {
       rootNamespace: "TestApp",
     });
 
-    expect(irResult.ok, "IR build must fail on missing CLR bindings").to.equal(false);
+    expect(irResult.ok, "IR build must fail on missing CLR bindings").to.equal(
+      false
+    );
 
     if (irResult.ok) return;
 

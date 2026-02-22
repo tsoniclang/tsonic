@@ -23,7 +23,12 @@ export type DotnetMemberMetadata = {
    * accessibility when overriding. TypeScript cannot express `protected internal`,
    * so we infer it from bindings and emit correct C# when TS uses `protected`.
    */
-  readonly visibility?: "public" | "protected" | "internal" | "protected internal" | "private";
+  readonly visibility?:
+    | "public"
+    | "protected"
+    | "internal"
+    | "protected internal"
+    | "private";
 };
 
 /**
@@ -163,13 +168,14 @@ export class DotnetMetadataRegistry {
 
       const kind = kindMap[type.kind ?? ""] ?? "class";
 
-      const visibilityMap: Record<string, DotnetMemberMetadata["visibility"]> = {
-        Public: "public",
-        Protected: "protected",
-        ProtectedInternal: "protected internal",
-        Internal: "internal",
-        Private: "private",
-      };
+      const visibilityMap: Record<string, DotnetMemberMetadata["visibility"]> =
+        {
+          Public: "public",
+          Protected: "protected",
+          ProtectedInternal: "protected internal",
+          Internal: "internal",
+          Private: "private",
+        };
 
       const properties = new Map<string, DotnetMemberMetadata>();
       for (const prop of type.properties ?? []) {
@@ -183,13 +189,18 @@ export class DotnetMetadataRegistry {
         });
       }
 
-      const methods = new Map<string, Map<number, Map<string, DotnetMemberMetadata>>>();
+      const methods = new Map<
+        string,
+        Map<number, Map<string, DotnetMemberMetadata>>
+      >();
       for (const method of type.methods ?? []) {
         if (method.isStatic) continue;
         const paramCount = method.parameterCount;
         if (typeof paramCount !== "number") continue;
 
-        const paramTypes = this.parseCanonicalParamTypes(method.canonicalSignature);
+        const paramTypes = this.parseCanonicalParamTypes(
+          method.canonicalSignature
+        );
         if (!paramTypes) continue;
 
         const modifiersKey = this.buildModifiersKey(method.parameterModifiers);
@@ -199,7 +210,8 @@ export class DotnetMetadataRegistry {
           methods.get(method.clrName) ??
           new Map<number, Map<string, DotnetMemberMetadata>>();
 
-        const bySignature = byCount.get(paramCount) ?? new Map<string, DotnetMemberMetadata>();
+        const bySignature =
+          byCount.get(paramCount) ?? new Map<string, DotnetMemberMetadata>();
 
         const existing = bySignature.get(signatureKey);
         const next: DotnetMemberMetadata = existing
@@ -210,8 +222,12 @@ export class DotnetMetadataRegistry {
                 method.isVirtual === true ||
                 method.isAbstract === true,
               sealed: existing.sealed === true || method.isSealed === true,
-              abstract: existing.abstract === true || method.isAbstract === true,
-              visibility: existing.visibility ?? (visibilityMap[method.visibility ?? ""] ?? undefined),
+              abstract:
+                existing.abstract === true || method.isAbstract === true,
+              visibility:
+                existing.visibility ??
+                visibilityMap[method.visibility ?? ""] ??
+                undefined,
             }
           : {
               kind: "method",
@@ -317,7 +333,10 @@ export class DotnetMetadataRegistry {
    */
   isVirtualMember(qualifiedTypeName: string, memberSignature: string): boolean {
     // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
-    const memberMetadata = this.getPropertyMetadata(qualifiedTypeName, memberSignature);
+    const memberMetadata = this.getPropertyMetadata(
+      qualifiedTypeName,
+      memberSignature
+    );
     return memberMetadata?.virtual === true;
   }
 
@@ -326,7 +345,10 @@ export class DotnetMetadataRegistry {
    */
   isSealedMember(qualifiedTypeName: string, memberSignature: string): boolean {
     // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
-    const memberMetadata = this.getPropertyMetadata(qualifiedTypeName, memberSignature);
+    const memberMetadata = this.getPropertyMetadata(
+      qualifiedTypeName,
+      memberSignature
+    );
     return memberMetadata?.sealed === true;
   }
 
@@ -338,7 +360,10 @@ export class DotnetMetadataRegistry {
     memberSignature: string
   ): DotnetMemberMetadata["visibility"] | undefined {
     // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
-    const memberMetadata = this.getPropertyMetadata(qualifiedTypeName, memberSignature);
+    const memberMetadata = this.getPropertyMetadata(
+      qualifiedTypeName,
+      memberSignature
+    );
     return memberMetadata?.visibility;
   }
 

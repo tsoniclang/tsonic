@@ -30,7 +30,9 @@ import {
 } from "../../types/numeric-kind.js";
 import type { ProgramContext } from "../../program-context.js";
 
-const getNumericKindFromIrType = (type: IrType | undefined): NumericKind | undefined => {
+const getNumericKindFromIrType = (
+  type: IrType | undefined
+): NumericKind | undefined => {
   if (!type) return undefined;
 
   if (type.kind === "primitiveType") {
@@ -302,7 +304,7 @@ export const convertBinaryExpression = (
         : undefined;
     const rhsExpectedType =
       operator === "??" || operator === "||"
-        ? expectedType ?? lhsFallbackExpectedType
+        ? (expectedType ?? lhsFallbackExpectedType)
         : undefined;
     const rhsCtx =
       operator === "&&"
