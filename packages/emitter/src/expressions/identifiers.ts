@@ -12,10 +12,18 @@ import { escapeCSharpIdentifier } from "../emitter-types/index.js";
  */
 export const emitIdentifier = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
-  context: EmitterContext
+  context: EmitterContext,
+  expectedType?: IrType
 ): [CSharpFragment, EmitterContext] => {
   // Special case for undefined -> default
   if (expr.name === "undefined") {
+    if (
+      expectedType?.kind === "typeParameterType" ||
+      (expectedType?.kind === "primitiveType" &&
+        expectedType.name === "undefined")
+    ) {
+      return [{ text: "default(object)" }, context];
+    }
     return [{ text: "default" }, context];
   }
 

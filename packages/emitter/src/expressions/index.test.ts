@@ -847,6 +847,105 @@ describe("Expression Emission", () => {
     expect(result).to.not.include("updates.active.Value.Value");
   });
 
+  it("should not fold value-type undefined guards to constants", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "!==",
+            left: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "updates",
+              },
+              property: "count",
+              isComputed: false,
+              isOptional: false,
+              inferredType: {
+                kind: "primitiveType",
+                name: "int",
+              },
+            },
+            right: {
+              kind: "identifier",
+              name: "undefined",
+            },
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "call",
+                  callee: { kind: "identifier", name: "touch" },
+                  arguments: [
+                    {
+                      kind: "identifier",
+                      name: "updates",
+                    },
+                  ],
+                  isOptional: false,
+                },
+              },
+            ],
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "if (((global::System.Object)(updates.count)) != null)"
+    );
+    expect(result).to.not.include("if (true)");
+  });
+
+  it("should lower string relational comparisons via CompareOrdinal", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "binary",
+            operator: ">",
+            left: {
+              kind: "identifier",
+              name: "a",
+              inferredType: { kind: "primitiveType", name: "string" },
+            },
+            right: {
+              kind: "identifier",
+              name: "b",
+              inferredType: { kind: "primitiveType", name: "string" },
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("global::System.String.CompareOrdinal(a, b) > 0");
+    expect(result).to.not.include("a > b");
+  });
+
   it("should emit hierarchical member bindings without emitting intermediate objects", () => {
     const module: IrModule = {
       kind: "module",
@@ -935,6 +1034,145 @@ describe("Expression Emission", () => {
 
     // Should emit regular property access
     expect(result).to.include("obj.property");
+  });
+
+  it("should project CLR Union_n member access deterministically", () => {
+    const unionReference: IrType = {
+      kind: "referenceType",
+      name: "Union",
+      typeArguments: [
+        { kind: "referenceType", name: "Ok" },
+        { kind: "referenceType", name: "Err" },
+      ],
+    };
+    const unionWrapper: IrType = {
+      kind: "intersectionType",
+      types: [unionReference, { kind: "referenceType", name: "__Union$views" }],
+    };
+
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Ok",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "success",
+              type: { kind: "literalType", value: true },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "data",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "interfaceDeclaration",
+          name: "Err",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "success",
+              type: { kind: "literalType", value: false },
+              isOptional: false,
+              isReadonly: false,
+            },
+            {
+              kind: "propertySignature",
+              name: "error",
+              type: { kind: "primitiveType", name: "string" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "result",
+              inferredType: unionWrapper,
+            },
+            property: "success",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              assembly: "MyApp",
+              type: "MyApp.Ok",
+              member: "success",
+            },
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "result",
+              inferredType: unionWrapper,
+            },
+            property: "error",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              assembly: "MyApp",
+              type: "MyApp.Err",
+              member: "error",
+            },
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "memberAccess",
+            object: {
+              kind: "identifier",
+              name: "result",
+              inferredType: unionWrapper,
+            },
+            property: "data",
+            isComputed: false,
+            isOptional: false,
+            memberBinding: {
+              assembly: "MyApp",
+              type: "MyApp.Ok",
+              member: "data",
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include(
+      "result.Match(__m1 => __m1.success, __m2 => __m2.success)"
+    );
+    expect(result).to.include("result.As2().error");
+    expect(result).to.include("result.As1().data");
   });
 
   it("should escape special characters in dictionary keys", () => {
@@ -1145,5 +1383,39 @@ describe("Expression Emission", () => {
     // Should infer Func<double, double, double> from inferredType with global:: prefix
     expect(result).to.include("global::System.Func<double, double, double>");
     expect(result).to.include("public static");
+  });
+
+  it("should emit default(object) for undefined arguments with undefined/type-parameter call context", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "ok" },
+            arguments: [{ kind: "identifier", name: "undefined" }],
+            isOptional: false,
+            parameterTypes: [{ kind: "primitiveType", name: "undefined" }],
+            inferredType: { kind: "unknownType" },
+            sourceSpan: {
+              file: "/src/test.ts",
+              line: 1,
+              column: 1,
+              length: 19,
+            },
+          },
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).to.include("ok(default(object))");
   });
 });

@@ -98,6 +98,38 @@ const isCharTyped = (expr: IrExpression): boolean => {
   );
 };
 
+const stripNullishFromType = (type: IrType | undefined): IrType | undefined => {
+  if (!type) return undefined;
+  if (type.kind !== "unionType") return type;
+  const nonNullish = type.types.filter(
+    (t) =>
+      !(
+        t.kind === "primitiveType" &&
+        (t.name === "null" || t.name === "undefined")
+      )
+  );
+  if (nonNullish.length === 1) {
+    const only = nonNullish[0];
+    return only ? stripNullishFromType(only) : undefined;
+  }
+  return type;
+};
+
+const isStringTyped = (expr: IrExpression): boolean => {
+  const type = stripNullishFromType(expr.inferredType);
+  if (!type) return false;
+  if (type.kind === "primitiveType") return type.name === "string";
+  if (type.kind === "referenceType") return type.name === "string";
+  if (type.kind === "intersectionType") {
+    return type.types.some(
+      (part) =>
+        (part.kind === "primitiveType" && part.name === "string") ||
+        (part.kind === "referenceType" && part.name === "string")
+    );
+  }
+  return false;
+};
+
 /**
  * Check if an expression is a single-character string literal.
  * Returns the character if so, undefined otherwise.
@@ -351,6 +383,21 @@ export const emitBinary = (
     }
   }
 
+  // C# does not support relational operators directly on strings.
+  // TypeScript's lexicographic ordering maps to ordinal string comparison.
+  if (
+    isComparisonOp &&
+    (op === "<" || op === ">" || op === "<=" || op === ">=") &&
+    isStringTyped(expr.left) &&
+    isStringTyped(expr.right)
+  ) {
+    const [leftFrag, leftContext] = emitExpression(expr.left, context);
+    const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
+    const compareExpr = `global::System.String.CompareOrdinal(${leftFrag.text}, ${rightFrag.text})`;
+    const text = `${compareExpr} ${op} 0`;
+    return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];
+  }
+
   // NULLISH COMPARISONS:
   //
   // Prefer `== null` / `!= null` for normal reference/nullable types so the result
@@ -438,18 +485,10 @@ export const emitBinary = (
       return undefined;
     })();
 
-    // If the operand is definitely a non-nullable value type, fold comparison to a constant.
-    if (
-      inferred &&
+    const isDefiniteNonUnionValueType =
+      inferred !== undefined &&
       inferred.kind !== "unionType" &&
-      isDefinitelyValueType(inferred)
-    ) {
-      const folded = op === "==" ? "false" : "true";
-      return [
-        { text: folded, precedence: getPrecedence(expr.operator) },
-        resultContext,
-      ];
-    }
+      isDefinitelyValueType(inferred);
 
     const typeParamConstraint =
       bareTypeParamName !== undefined
@@ -457,17 +496,11 @@ export const emitBinary = (
           "unconstrained")
         : undefined;
 
-    if (typeParamConstraint === "struct") {
-      const folded = op === "==" ? "false" : "true";
-      return [
-        { text: folded, precedence: getPrecedence(expr.operator) },
-        resultContext,
-      ];
-    }
-
-    const needsObjectCast =
+    const needsObjectCastForTypeParam =
       bareTypeParamName !== undefined &&
-      typeParamConstraint === "unconstrained";
+      (typeParamConstraint === "unconstrained" ||
+        typeParamConstraint === "struct");
+    const needsObjectCastForValueType = isDefiniteNonUnionValueType;
 
     const nullOp = op === "==" ? "== null" : "!= null";
     const nullOperandText = (() => {
@@ -483,9 +516,10 @@ export const emitBinary = (
           return `(${nonNullishFrag.text})`;
       }
     })();
-    const text = needsObjectCast
-      ? `((global::System.Object)(${nonNullishFrag.text})) ${nullOp}`
-      : `${nullOperandText} ${nullOp}`;
+    const text =
+      needsObjectCastForTypeParam || needsObjectCastForValueType
+        ? `((global::System.Object)(${nonNullishFrag.text})) ${nullOp}`
+        : `${nullOperandText} ${nullOp}`;
 
     return [{ text, precedence: getPrecedence(expr.operator) }, resultContext];
   }

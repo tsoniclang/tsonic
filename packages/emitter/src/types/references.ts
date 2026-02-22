@@ -97,6 +97,52 @@ const clrTypeNameToCSharp = (clr: string): string => {
   return hasGlobal ? `${prefix}${sanitized}` : sanitized;
 };
 
+const resolveImportedTypeClrName = (
+  typeName: string,
+  context: EmitterContext
+): string | undefined => {
+  const candidates: string[] = [typeName];
+
+  // tsbindgen class-like instance aliases often flow through IR as Foo$instance.
+  // Import bindings are keyed by the surface name (typically Foo), so try
+  // deterministic canonicalizations to preserve import-origin identity.
+  if (typeName.endsWith("$instance")) {
+    const base = typeName.slice(0, -"$instance".length);
+    if (base.length > 0) {
+      candidates.push(base);
+      const unsuffixed = base.replace(/_\d+$/, "");
+      if (unsuffixed !== base && unsuffixed.length > 0) {
+        candidates.push(unsuffixed);
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    const binding = context.importBindings?.get(candidate);
+    if (!binding || binding.kind === "namespace") continue;
+
+    if (binding.member) {
+      return `${binding.clrName}.${binding.member}`;
+    }
+
+    return binding.clrName;
+  }
+
+  return undefined;
+};
+
+const resolveCanonicalLocalTypeTarget = (
+  typeName: string,
+  context: EmitterContext
+): string | undefined => {
+  const namespace = context.moduleNamespace ?? context.options.rootNamespace;
+  const key = `${namespace}::${typeName}`;
+  return context.options.canonicalLocalTypeTargets?.get(key);
+};
+
+const normalizeGenericTypeArgument = (typeName: string): string =>
+  typeName === "void" ? "object" : typeName;
+
 /**
  * Check if a type name indicates an unsupported support type.
  *
@@ -173,7 +219,7 @@ export const emitReferenceType = (
       let currentContext = context;
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
         currentContext = newContext;
       }
       return [`${qualifiedClr}<${typeParams.join(", ")}>`, currentContext];
@@ -181,27 +227,17 @@ export const emitReferenceType = (
     return [qualifiedClr, context];
   }
 
-  // Check if this type is imported - use pre-computed CLR name directly
-  const importBinding = context.importBindings?.get(name);
-  if (importBinding) {
-    // Use clrName directly - all resolution was done when building the binding
-    // For type imports: clrName is the type's FQN (e.g., "MultiFileTypes.models.User")
-    // For value imports: clrName is container, member is the export name
-    // Note: Type references should only match type bindings; value bindings
-    // appearing here would be a bug (referencing a function as a type)
-    const qualifiedName =
-      importBinding.kind === "type"
-        ? importBinding.clrName
-        : importBinding.member
-          ? `${importBinding.clrName}.${importBinding.member}`
-          : importBinding.clrName;
-
+  // Check if this type is imported - use pre-computed CLR name directly.
+  // This includes canonicalization for tsbindgen instance aliases (Foo$instance)
+  // so imported type identity remains stable even when global aliases collide.
+  const qualifiedName = resolveImportedTypeClrName(name, context);
+  if (qualifiedName) {
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];
       let currentContext = context;
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
         currentContext = newContext;
       }
       return [`${qualifiedName}<${typeParams.join(", ")}>`, currentContext];
@@ -293,6 +329,22 @@ export const emitReferenceType = (
     return [context.typeParameterNameMap?.get(name) ?? name, context];
   }
 
+  const canonicalLocalTarget = resolveCanonicalLocalTypeTarget(name, context);
+  if (canonicalLocalTarget) {
+    const qualified = toGlobalClr(canonicalLocalTarget);
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
+        currentContext = newContext;
+      }
+      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+    }
+    return [qualified, context];
+  }
+
   // IMPORTANT: Check local types BEFORE binding registry.
   // Local types take precedence over .NET types with the same name.
   // This ensures that a locally defined `Container<T>` is not resolved
@@ -316,7 +368,7 @@ export const emitReferenceType = (
 
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
         currentContext = newContext;
       }
 
@@ -370,7 +422,7 @@ export const emitReferenceType = (
       let currentContext = context;
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
         currentContext = newContext;
       }
       return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
@@ -395,7 +447,7 @@ export const emitReferenceType = (
       let currentContext = context;
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
         currentContext = newContext;
       }
       return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
@@ -419,7 +471,7 @@ export const emitReferenceType = (
       let currentContext = context;
       for (const typeArg of typeArguments) {
         const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(paramType);
+        typeParams.push(normalizeGenericTypeArgument(paramType));
         currentContext = newContext;
       }
       return [`${qualified}<${typeParams.join(", ")}>`, currentContext];

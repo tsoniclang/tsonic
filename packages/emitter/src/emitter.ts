@@ -12,6 +12,7 @@ import { buildTypeMemberIndex } from "./core/type-member-index.js";
 import { buildTypeAliasIndex } from "./core/type-alias-index.js";
 import { validateNamingPolicyCollisions } from "./core/naming-collisions.js";
 import { separateStatements } from "./core/module-emitter/separation.js";
+import type { IrStatement } from "@tsonic/frontend";
 
 /**
  * Result of batch emission
@@ -19,6 +20,196 @@ import { separateStatements } from "./core/module-emitter/separation.js";
 export type EmitResult =
   | { readonly ok: true; readonly files: Map<string, string> }
   | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+type EmittedTypeDeclaration = Extract<
+  IrStatement,
+  | { kind: "classDeclaration" }
+  | { kind: "interfaceDeclaration" }
+  | { kind: "enumDeclaration" }
+  | { kind: "typeAliasDeclaration" }
+>;
+
+type DuplicatePlanResult =
+  | {
+      readonly ok: true;
+      readonly suppressed: ReadonlySet<string>;
+      readonly canonicalLocalTypeTargets: ReadonlyMap<string, string>;
+    }
+  | { readonly ok: false; readonly errors: readonly Diagnostic[] };
+
+const isRuntimeTypeDeclaration = (
+  stmt: IrStatement
+): stmt is EmittedTypeDeclaration => {
+  if (stmt.kind === "classDeclaration") return true;
+  if (stmt.kind === "interfaceDeclaration") return true;
+  if (stmt.kind === "enumDeclaration") return true;
+  return (
+    stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType"
+  );
+};
+
+const duplicateGroupKey = (namespace: string, name: string): string =>
+  `${namespace}::${name}`;
+
+const canonicalLocalTargetKey = (namespace: string, name: string): string =>
+  `${namespace}::${name}`;
+
+type CanonicalizableStructuralDeclaration = Extract<
+  EmittedTypeDeclaration,
+  { kind: "interfaceDeclaration" } | { kind: "typeAliasDeclaration" }
+>;
+
+const isCanonicalizableStructuralDeclaration = (
+  stmt: EmittedTypeDeclaration
+): stmt is CanonicalizableStructuralDeclaration => {
+  if (stmt.kind === "interfaceDeclaration") return !stmt.isExported;
+  if (stmt.kind === "typeAliasDeclaration") {
+    return stmt.type.kind === "objectType" && !stmt.isExported;
+  }
+  return false;
+};
+
+const canonicalStructuralGroupKey = (
+  stmt: CanonicalizableStructuralDeclaration
+): string => {
+  if (stmt.kind === "interfaceDeclaration") {
+    return `iface::${stmt.name}::${JSON.stringify({
+      typeParameters: stmt.typeParameters ?? [],
+      extends: stmt.extends,
+      members: stmt.members,
+    })}`;
+  }
+
+  return `alias::${stmt.name}::${JSON.stringify({
+    typeParameters: stmt.typeParameters ?? [],
+    type: stmt.type,
+  })}`;
+};
+
+const emittedDeclarationName = (stmt: EmittedTypeDeclaration): string => {
+  if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
+    return `${stmt.name}__Alias`;
+  }
+  return stmt.name;
+};
+
+const suppressionKey = (
+  filePath: string,
+  stmt: EmittedTypeDeclaration
+): string => `${filePath}::${stmt.kind}::${stmt.name}`;
+
+const planDuplicateTypeSuppression = (
+  modules: readonly IrModule[]
+): DuplicatePlanResult => {
+  const groups = new Map<
+    string,
+    Array<{
+      readonly filePath: string;
+      readonly namespace: string;
+      readonly stmt: EmittedTypeDeclaration;
+      readonly signature: string;
+    }>
+  >();
+  const structuralGroups = new Map<
+    string,
+    Array<{
+      readonly filePath: string;
+      readonly namespace: string;
+      readonly stmt: CanonicalizableStructuralDeclaration;
+    }>
+  >();
+
+  for (const module of modules) {
+    for (const stmt of module.body) {
+      if (!isRuntimeTypeDeclaration(stmt)) continue;
+
+      const key = duplicateGroupKey(module.namespace, stmt.name);
+      const entries = groups.get(key) ?? [];
+      entries.push({
+        filePath: module.filePath,
+        namespace: module.namespace,
+        stmt,
+        signature: JSON.stringify(stmt),
+      });
+      groups.set(key, entries);
+
+      if (isCanonicalizableStructuralDeclaration(stmt)) {
+        const structuralKey = canonicalStructuralGroupKey(stmt);
+        const structuralEntries = structuralGroups.get(structuralKey) ?? [];
+        structuralEntries.push({
+          filePath: module.filePath,
+          namespace: module.namespace,
+          stmt,
+        });
+        structuralGroups.set(structuralKey, structuralEntries);
+      }
+    }
+  }
+
+  const suppressed = new Set<string>();
+  const canonicalLocalTypeTargets = new Map<string, string>();
+  const errors: Diagnostic[] = [];
+
+  for (const [key, entries] of groups) {
+    if (entries.length <= 1) continue;
+    const ordered = [...entries].sort((a, b) =>
+      a.filePath.localeCompare(b.filePath)
+    );
+    const first = ordered[0];
+    if (!first) continue;
+    const firstSig = first.signature;
+
+    for (let i = 1; i < ordered.length; i += 1) {
+      const entry = ordered[i];
+      if (!entry) continue;
+      if (entry.signature === firstSig) {
+        suppressed.add(suppressionKey(entry.filePath, entry.stmt));
+        continue;
+      }
+
+      errors.push({
+        code: "TSN3003",
+        severity: "error",
+        message:
+          `Cross-module type declaration collision for '${key}'. ` +
+          `Multiple files declare the same namespace/type name with different shapes: ` +
+          `${first.filePath}, ${entry.filePath}.`,
+        hint: "Rename one declaration or make the declarations shape-identical so the duplicate can be deduplicated deterministically.",
+      });
+    }
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+
+  for (const entries of structuralGroups.values()) {
+    if (entries.length <= 1) continue;
+    const ordered = [...entries].sort((a, b) =>
+      a.filePath.localeCompare(b.filePath)
+    );
+    const canonical = ordered[0];
+    if (!canonical) continue;
+    const canonicalFqn = `${canonical.namespace}.${emittedDeclarationName(canonical.stmt)}`;
+
+    for (let i = 1; i < ordered.length; i += 1) {
+      const entry = ordered[i];
+      if (!entry) continue;
+
+      suppressed.add(suppressionKey(entry.filePath, entry.stmt));
+
+      if (entry.namespace === canonical.namespace) {
+        continue;
+      }
+
+      canonicalLocalTypeTargets.set(
+        canonicalLocalTargetKey(entry.namespace, entry.stmt.name),
+        canonicalFqn
+      );
+    }
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, suppressed, canonicalLocalTypeTargets };
+};
 
 /**
  * Emit a complete C# file from an IR module
@@ -56,12 +247,18 @@ export const emitCSharpFiles = (
   const typeMemberIndex = buildTypeMemberIndex(modules);
   const typeAliasIndex = buildTypeAliasIndex(modules);
   const syntheticTypeNamespaces = buildSyntheticTypeNamespaceIndex(modules);
+  const duplicatePlan = planDuplicateTypeSuppression(modules);
+  if (!duplicatePlan.ok) {
+    return { ok: false, errors: duplicatePlan.errors };
+  }
 
-  // Create JSON AOT registry (shared across all modules)
-  const jsonAotRegistry: JsonAotRegistry = {
-    rootTypes: new Set<string>(),
-    needsJsonAot: false,
-  };
+  // Create JSON AOT registry only when NativeAOT JSON rewrite is enabled.
+  const jsonAotRegistry: JsonAotRegistry | undefined = options.enableJsonAot
+    ? {
+        rootTypes: new Set<string>(),
+        needsJsonAot: false,
+      }
+    : undefined;
 
   // Detect whether we emitted any module static container classes.
   // If so, we must include the ModuleContainerAttribute definition so those
@@ -96,6 +293,8 @@ export const emitCSharpFiles = (
       isEntryPoint,
       moduleMap, // Pass module map to each module emission
       exportMap, // Pass export map for re-export resolution
+      suppressedTypeDeclarations: duplicatePlan.suppressed,
+      canonicalLocalTypeTargets: duplicatePlan.canonicalLocalTypeTargets,
       typeMemberIndex, // Pass type member index for member naming policy
       typeAliasIndex, // Pass type alias index for cross-module alias resolution
       syntheticTypeNamespaces, // Synthetic cross-module type resolution (e.g. __tsonic/* anon types)
@@ -106,7 +305,7 @@ export const emitCSharpFiles = (
   }
 
   // Generate __tsonic_json.g.cs if any JsonSerializer calls were detected
-  if (jsonAotRegistry.needsJsonAot) {
+  if (jsonAotRegistry?.needsJsonAot) {
     const rootNamespace = options.rootNamespace ?? "TsonicApp";
     const jsonCode = generateJsonAotFile(jsonAotRegistry, rootNamespace);
     results.set("__tsonic_json.g.cs", jsonCode);

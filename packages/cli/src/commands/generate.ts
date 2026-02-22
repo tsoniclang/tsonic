@@ -287,6 +287,7 @@ export const generateCommand = (
       entryPointPath: absoluteEntryPoint,
       libraries: typeLibraries, // Only non-DLL libraries (type roots)
       clrBindings: bindings, // Pass bindings from frontend for Action/Func resolution
+      enableJsonAot: config.outputConfig.nativeAot ?? false,
     });
 
     if (!emitResult.ok) {

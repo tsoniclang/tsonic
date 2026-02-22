@@ -177,7 +177,9 @@ export const emitClassDeclaration = (
   };
 
   // Access modifiers
-  const accessibility = stmt.isExported ? "public" : "internal";
+  const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
+  const accessibility =
+    stmt.isExported || promotedToPublic ? "public" : "internal";
   parts.push(accessibility);
   if (needsUnsafe) parts.push("unsafe");
 

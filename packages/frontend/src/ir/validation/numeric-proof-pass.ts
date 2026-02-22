@@ -81,6 +81,23 @@ const getNumericKindFromType = (
     return undefined;
   }
 
+  // Nullable numeric forms (e.g., int | undefined, long | null) should preserve
+  // the underlying numeric kind for proof purposes.
+  if (type.kind === "unionType") {
+    const nonNullish = type.types.filter(
+      (t) =>
+        !(
+          t.kind === "primitiveType" &&
+          (t.name === "null" || t.name === "undefined")
+        )
+    );
+    if (nonNullish.length === 1) {
+      const only = nonNullish[0];
+      return only ? getNumericKindFromType(only) : undefined;
+    }
+    return undefined;
+  }
+
   // Check for primitiveType(name="int") - distinct integer primitive
   if (type.kind === "primitiveType" && type.name === "int") {
     return "Int32";
@@ -191,6 +208,21 @@ const inferNumericKind = (
       }
       if (trueKind !== undefined && falseKind !== undefined) {
         return getBinaryResultKind(trueKind, falseKind);
+      }
+      return undefined;
+    }
+
+    case "logical": {
+      // `??` preserves the left kind when present, otherwise uses the right kind.
+      // For proof, we require both sides to be numerically provable and derive
+      // a deterministic promoted kind.
+      if (expr.operator === "??") {
+        const leftKind = inferNumericKind(expr.left, ctx);
+        const rightKind = inferNumericKind(expr.right, ctx);
+        if (leftKind === rightKind) return leftKind;
+        if (leftKind !== undefined && rightKind !== undefined) {
+          return getBinaryResultKind(leftKind, rightKind);
+        }
       }
       return undefined;
     }
@@ -548,6 +580,52 @@ const proveNarrowing = (
         },
       };
     }
+  }
+
+  // Case 8: Inner expression is nullish coalescing on numeric values
+  if (innerExpr.kind === "logical" && innerExpr.operator === "??") {
+    const leftKind = inferNumericKind(innerExpr.left, ctx);
+    const rightKind = inferNumericKind(innerExpr.right, ctx);
+    if (leftKind !== undefined && rightKind !== undefined) {
+      const resultKind =
+        leftKind === rightKind
+          ? leftKind
+          : getBinaryResultKind(leftKind, rightKind);
+      if (
+        resultKind === targetKind ||
+        isWideningConversion(resultKind, targetKind)
+      ) {
+        return {
+          kind: targetKind,
+          source: {
+            type: "binaryOp",
+            operator: "??",
+            leftKind,
+            rightKind,
+          },
+        };
+      }
+      ctx.diagnostics.push(
+        createDiagnostic(
+          "TSN5103",
+          "error",
+          `Nullish coalescing '${leftKind} ?? ${rightKind}' produces ${resultKind}, not ${targetKind}`,
+          innerExpr.sourceSpan ?? location,
+          `Ensure both branches are provably ${targetKind} (or widen explicitly).`
+        )
+      );
+      return undefined;
+    }
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN5101",
+        "error",
+        `Cannot prove narrowing of nullish coalescing expression to ${targetKind}`,
+        innerExpr.sourceSpan ?? location,
+        "Left/right branches must both be provable numeric kinds."
+      )
+    );
+    return undefined;
   }
 
   // HARD GATE: Cannot prove - emit error, DO NOT fallback to cast

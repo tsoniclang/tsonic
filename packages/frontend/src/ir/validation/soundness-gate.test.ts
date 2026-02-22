@@ -55,6 +55,102 @@ const createModuleWithType = (
 });
 
 describe("IR Soundness Gate", () => {
+  describe("Computed Member Access Typing", () => {
+    it("allows unknown value type on dictionary element access", () => {
+      const dictType: IrType = {
+        kind: "dictionaryType",
+        keyType: { kind: "primitiveType", name: "string" },
+        valueType: { kind: "unknownType" },
+      };
+
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "dict" },
+                type: dictType,
+                initializer: {
+                  kind: "object",
+                  properties: [],
+                  contextualType: dictType,
+                  inferredType: dictType,
+                },
+              },
+            ],
+          },
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "dict",
+                inferredType: dictType,
+              },
+              property: { kind: "literal", value: "k", raw: '"k"' },
+              isComputed: true,
+              isOptional: false,
+              accessKind: "dictionary",
+              inferredType: { kind: "unknownType" },
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+    });
+
+    it("still rejects unknown type on non-dictionary computed access", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "memberAccess",
+              object: {
+                kind: "identifier",
+                name: "obj",
+                inferredType: { kind: "referenceType", name: "SomeType" },
+              },
+              property: { kind: "literal", value: 0, raw: "0" },
+              isComputed: true,
+              isOptional: false,
+              accessKind: "clrIndexer",
+              inferredType: { kind: "unknownType" },
+            },
+          },
+        ],
+        exports: [],
+      };
+
+      const result = validateIrSoundness([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.some((d) => d.code === "TSN5203")).to.be.true;
+    });
+  });
+
   describe("anyType Detection (TSN7414)", () => {
     it("should reject anyType in variable declaration", () => {
       const module = createModuleWithType({ kind: "anyType" });

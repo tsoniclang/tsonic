@@ -180,6 +180,58 @@ describe("Reference Type Emission", () => {
     });
   });
 
+  describe("Imported Type Identity", () => {
+    it("should map Foo$instance to imported Foo CLR type", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "Test",
+        isStaticContainer: true,
+        imports: [
+          {
+            kind: "import",
+            source: "@jotster/core/Jotster.Core.js",
+            isLocal: false,
+            isClr: true,
+            resolvedNamespace: "Jotster.Core",
+            specifiers: [
+              {
+                kind: "named",
+                name: "Channel",
+                localName: "Channel",
+                isType: true,
+                resolvedClrType: "Jotster.Core.db.entities.Channel",
+              },
+            ],
+          },
+        ],
+        body: [
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "x" },
+                type: {
+                  kind: "referenceType",
+                  name: "Channel$instance",
+                },
+                initializer: { kind: "literal", value: null },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module);
+      expect(result).to.include("global::Jotster.Core.db.entities.Channel x");
+    });
+  });
+
   describe("Bindings Registry Types", () => {
     it("should strip generic arity markers from CLR names", () => {
       const module = createModuleWithType({
@@ -294,6 +346,99 @@ describe("Reference Type Emission", () => {
       const result = emitModule(module);
 
       expect(result).to.include("IUser user");
+    });
+
+    it("should map generic void type arguments to object", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/test.ts",
+        namespace: "Test",
+        className: "Test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "classDeclaration",
+            name: "Box",
+            isExported: true,
+            isStruct: false,
+            typeParameters: [{ kind: "typeParameter", name: "T" }],
+            implements: [],
+            members: [],
+          },
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "box" },
+                type: {
+                  kind: "referenceType",
+                  name: "Box",
+                  typeArguments: [{ kind: "voidType" }],
+                },
+                initializer: { kind: "literal", value: null },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module);
+      expect(result).to.include("Box<object> box");
+    });
+
+    it("should redirect canonicalized local structural types", () => {
+      const module: IrModule = {
+        kind: "module",
+        filePath: "/src/repo/test.ts",
+        namespace: "Repo",
+        className: "Test",
+        isStaticContainer: true,
+        imports: [],
+        body: [
+          {
+            kind: "interfaceDeclaration",
+            name: "Row",
+            isExported: false,
+            isStruct: false,
+            typeParameters: [],
+            extends: [],
+            members: [
+              {
+                kind: "propertySignature",
+                name: "id",
+                type: { kind: "primitiveType", name: "string" },
+                isOptional: false,
+                isReadonly: false,
+              },
+            ],
+          },
+          {
+            kind: "variableDeclaration",
+            declarationKind: "const",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "row" },
+                type: { kind: "referenceType", name: "Row" },
+                initializer: { kind: "literal", value: null },
+              },
+            ],
+          },
+        ],
+        exports: [],
+      };
+
+      const result = emitModule(module, {
+        canonicalLocalTypeTargets: new Map([["Repo::Row", "Domain.Row"]]),
+      });
+
+      expect(result).to.include("global::Domain.Row row");
     });
   });
 

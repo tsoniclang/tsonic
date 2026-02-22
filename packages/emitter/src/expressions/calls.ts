@@ -358,8 +358,10 @@ const emitJsonSerializerCall = (
     }
   }
 
-  // Add TsonicJson.Options as the last argument for NativeAOT compatibility
-  args.push("TsonicJson.Options");
+  // Add TsonicJson.Options only when NativeAOT JSON context generation is enabled.
+  if (context.options.jsonAotRegistry) {
+    args.push("TsonicJson.Options");
+  }
 
   const text = `global::System.Text.Json.JsonSerializer.${method}${typeArgsStr}(${args.join(", ")})`;
   return [{ text }, currentContext];

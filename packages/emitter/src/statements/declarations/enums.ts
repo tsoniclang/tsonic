@@ -18,7 +18,9 @@ export const emitEnumDeclaration = (
   const ind = getIndent(context);
   const memberInd = getIndent(indent(context));
 
-  const accessibility = stmt.isExported ? "public" : "internal";
+  const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
+  const accessibility =
+    stmt.isExported || promotedToPublic ? "public" : "internal";
   // Enum values require integers, use isArrayIndex to force integer emission
   const enumContext = { ...context, isArrayIndex: true };
   const members = stmt.members

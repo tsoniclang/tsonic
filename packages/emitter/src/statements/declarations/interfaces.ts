@@ -70,7 +70,9 @@ export const emitInterfaceDeclaration = (
   const needsUnsafe = statementUsesPointer(stmt);
 
   // Access modifier
-  const accessibility = stmt.isExported ? "public" : "internal";
+  const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
+  const accessibility =
+    stmt.isExported || promotedToPublic ? "public" : "internal";
   parts.push(accessibility);
   if (needsUnsafe) parts.push("unsafe");
   // Emit as C# interface when methods exist; otherwise keep class/struct for object literals.
