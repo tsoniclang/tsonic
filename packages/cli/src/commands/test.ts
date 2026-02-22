@@ -34,8 +34,11 @@ export const testCommand = (
     "--nologo",
   ];
 
-  const verbosity =
-    config.quiet ? "quiet" : config.verbose ? "detailed" : "minimal";
+  const verbosity = config.quiet
+    ? "quiet"
+    : config.verbose
+      ? "detailed"
+      : "minimal";
   restoreArgs.push("--verbosity", verbosity);
   testArgs.push("--verbosity", verbosity);
 

@@ -192,7 +192,10 @@ export const emitFunctionDeclaration = (
   let generatorIteratorFn = "__iterator";
   let generatorReturnValueVar = "__returnValue";
   if (stmt.isGenerator) {
-    const exchangeAlloc = allocateLocalName(generatorExchangeVar, baseBodyContext);
+    const exchangeAlloc = allocateLocalName(
+      generatorExchangeVar,
+      baseBodyContext
+    );
     generatorExchangeVar = exchangeAlloc.emittedName;
     baseBodyContext = {
       ...exchangeAlloc.context,
@@ -205,7 +208,10 @@ export const emitFunctionDeclaration = (
       baseBodyContext = iterAlloc.context;
 
       if (generatorHasReturnType) {
-        const retAlloc = allocateLocalName(generatorReturnValueVar, baseBodyContext);
+        const retAlloc = allocateLocalName(
+          generatorReturnValueVar,
+          baseBodyContext
+        );
         generatorReturnValueVar = retAlloc.emittedName;
         baseBodyContext = {
           ...retAlloc.context,

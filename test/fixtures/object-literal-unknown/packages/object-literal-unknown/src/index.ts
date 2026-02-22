@@ -8,4 +8,3 @@ export function main(): void {
   sink({ ok: true });
   Console.WriteLine("ok");
 }
-

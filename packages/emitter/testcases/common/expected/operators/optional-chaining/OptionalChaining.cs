@@ -1,16 +1,10 @@
 namespace TestCases.common.operators.optionalchaining
 {
-    public class address
-    {
-        public string? street { get; set; }
-
-        public string? city { get; set; }
-    }
     public class User
     {
         public string? name { get; set; }
 
-        public address? address { get; set; }
+        public global::TestCases.common.operators.optionalchaining.__Anon_5026_7da65eac? address { get; set; }
     }
 
             [global::Tsonic.Internal.ModuleContainerAttribute]

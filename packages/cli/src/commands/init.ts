@@ -10,12 +10,7 @@
  *     src/App.ts
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type {
@@ -83,7 +78,10 @@ const createOrUpdateRootPackageJson = (workspaceRoot: string): void => {
 
   let pkg: Record<string, unknown>;
   if (existsSync(packageJsonPath)) {
-    pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as Record<string, unknown>;
+    pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
   } else {
     pkg = {
       name: workspaceName,
@@ -118,7 +116,10 @@ const writeWorkspaceConfig = (
   );
 };
 
-const writeProjectConfig = (projectRoot: string, config: TsonicProjectConfig): void => {
+const writeProjectConfig = (
+  projectRoot: string,
+  config: TsonicProjectConfig
+): void => {
   writeFileSync(
     join(projectRoot, "tsonic.json"),
     JSON.stringify(config, null, 2) + "\n",
@@ -126,12 +127,19 @@ const writeProjectConfig = (projectRoot: string, config: TsonicProjectConfig): v
   );
 };
 
-const npmInstallDev = (workspaceRoot: string, spec: string): Result<void, string> => {
-  const result = spawnSync("npm", ["install", "--save-dev", spec, "--no-fund", "--no-audit"], {
-    cwd: workspaceRoot,
-    stdio: "inherit",
-    encoding: "utf-8",
-  });
+const npmInstallDev = (
+  workspaceRoot: string,
+  spec: string
+): Result<void, string> => {
+  const result = spawnSync(
+    "npm",
+    ["install", "--save-dev", spec, "--no-fund", "--no-audit"],
+    {
+      cwd: workspaceRoot,
+      stdio: "inherit",
+      encoding: "utf-8",
+    }
+  );
   if (result.status !== 0) {
     return { ok: false, error: `npm install failed: ${spec}` };
   }
@@ -232,7 +240,11 @@ export const initWorkspace = (
     if (existsSync(gitignorePath)) {
       const existing = readFileSync(gitignorePath, "utf-8");
       if (!existing.includes("packages/*/generated/")) {
-        writeFileSync(gitignorePath, existing + "\n" + DEFAULT_ROOT_GITIGNORE, "utf-8");
+        writeFileSync(
+          gitignorePath,
+          existing + "\n" + DEFAULT_ROOT_GITIGNORE,
+          "utf-8"
+        );
       }
     } else {
       writeFileSync(gitignorePath, DEFAULT_ROOT_GITIGNORE, "utf-8");

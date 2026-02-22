@@ -19,10 +19,16 @@ const inferTypeParamConstraintKind = (
   if (tp.isStructuralConstraint) return "class";
 
   // Direct markers
-  if (tp.constraint.kind === "referenceType" && tp.constraint.name === "struct") {
+  if (
+    tp.constraint.kind === "referenceType" &&
+    tp.constraint.name === "struct"
+  ) {
     return "struct";
   }
-  if (tp.constraint.kind === "referenceType" && tp.constraint.name === "object") {
+  if (
+    tp.constraint.kind === "referenceType" &&
+    tp.constraint.name === "object"
+  ) {
     return "class";
   }
 

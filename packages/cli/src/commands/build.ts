@@ -29,7 +29,10 @@ import {
 
 type ProjectAssets = {
   readonly targets?: Record<string, unknown>;
-  readonly libraries?: Record<string, { readonly type?: string; readonly path?: string }>;
+  readonly libraries?: Record<
+    string,
+    { readonly type?: string; readonly path?: string }
+  >;
   readonly packageFolders?: Record<string, unknown>;
 };
 
@@ -39,13 +42,17 @@ type AssemblyNameConflict = {
   readonly assetPath: string;
 };
 
-const readProjectAssets = (assetsPath: string): Result<ProjectAssets, string> => {
+const readProjectAssets = (
+  assetsPath: string
+): Result<ProjectAssets, string> => {
   if (!existsSync(assetsPath)) {
     return { ok: false, error: `Restore assets not found at ${assetsPath}` };
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(assetsPath, "utf-8")) as ProjectAssets;
+    const parsed = JSON.parse(
+      readFileSync(assetsPath, "utf-8")
+    ) as ProjectAssets;
     return { ok: true, value: parsed };
   } catch (error) {
     return {
@@ -67,7 +74,9 @@ const findAssemblyNameConflicts = (
   for (const [targetKey, targetValue] of Object.entries(targets)) {
     if (!targetKey || !targetValue || typeof targetValue !== "object") continue;
 
-    for (const [libKey, libValue] of Object.entries(targetValue as Record<string, unknown>)) {
+    for (const [libKey, libValue] of Object.entries(
+      targetValue as Record<string, unknown>
+    )) {
       if (!libKey || !libValue || typeof libValue !== "object") continue;
 
       // Ignore the root project (and any project references) to avoid false positives:
@@ -78,13 +87,19 @@ const findAssemblyNameConflicts = (
         const section = (libValue as Record<string, unknown>)[sectionName];
         if (!section || typeof section !== "object") continue;
 
-        for (const assetPath of Object.keys(section as Record<string, unknown>)) {
+        for (const assetPath of Object.keys(
+          section as Record<string, unknown>
+        )) {
           const normalized = assetPath.replace(/\\/g, "/");
           const parts = normalized.split("/");
           const file = parts.length > 0 ? parts[parts.length - 1] : undefined;
           if (!file || !file.toLowerCase().endsWith(".dll")) continue;
           if (file.toLowerCase() !== wanted) continue;
-          conflicts.push({ assemblyName: outputName, library: libKey, assetPath });
+          conflicts.push({
+            assemblyName: outputName,
+            library: libKey,
+            assetPath,
+          });
         }
       }
     }
@@ -100,7 +115,11 @@ const findAssemblyNameConflicts = (
     unique.push(c);
   }
 
-  unique.sort((a, b) => a.library.localeCompare(b.library) || a.assetPath.localeCompare(b.assetPath));
+  unique.sort(
+    (a, b) =>
+      a.library.localeCompare(b.library) ||
+      a.assetPath.localeCompare(b.assetPath)
+  );
   return unique;
 };
 
@@ -124,7 +143,10 @@ const assertNoOutputAssemblyNameConflicts = (
   const assetsResult = readProjectAssets(assetsPath);
   if (!assetsResult.ok) return assetsResult;
 
-  const nugetConflicts = findAssemblyNameConflicts(assetsResult.value, outputName);
+  const nugetConflicts = findAssemblyNameConflicts(
+    assetsResult.value,
+    outputName
+  );
 
   if (libraryConflicts.length === 0 && nugetConflicts.length === 0) {
     return { ok: true, value: undefined };
@@ -143,8 +165,9 @@ const assertNoOutputAssemblyNameConflicts = (
     lines.push(`  - ${c.library} (${c.assetPath})`);
   }
   lines.push("");
-  const suggested =
-    outputName.endsWith(".App") ? undefined : `${outputName}.App`;
+  const suggested = outputName.endsWith(".App")
+    ? undefined
+    : `${outputName}.App`;
   lines.push(
     suggested
       ? `Fix: rename \`outputName\` in your project's tsonic.json (suggested: '${suggested}') and rebuild.`
@@ -155,19 +178,33 @@ const assertNoOutputAssemblyNameConflicts = (
 };
 
 const pickPackageFolder = (assets: ProjectAssets): string | undefined => {
-  const folders = assets.packageFolders ? Object.keys(assets.packageFolders) : [];
+  const folders = assets.packageFolders
+    ? Object.keys(assets.packageFolders)
+    : [];
   if (folders.length === 0) return undefined;
   return folders[0];
 };
 
-const findTargetKey = (assets: ProjectAssets, tfm: string): string | undefined => {
+const findTargetKey = (
+  assets: ProjectAssets,
+  tfm: string
+): string | undefined => {
   const targets = assets.targets ? Object.keys(assets.targets) : [];
   if (targets.includes(tfm)) return tfm;
   return targets.find((k) => k.startsWith(`${tfm}/`));
 };
 
-const collectNugetCompileDirs = (workspaceRoot: string, tfm: string): Result<readonly string[], string> => {
-  const assetsPath = join(workspaceRoot, ".tsonic", "nuget", "obj", "project.assets.json");
+const collectNugetCompileDirs = (
+  workspaceRoot: string,
+  tfm: string
+): Result<readonly string[], string> => {
+  const assetsPath = join(
+    workspaceRoot,
+    ".tsonic",
+    "nuget",
+    "obj",
+    "project.assets.json"
+  );
   if (!existsSync(assetsPath)) return { ok: true, value: [] };
 
   let assets: ProjectAssets;
@@ -191,7 +228,9 @@ const collectNugetCompileDirs = (workspaceRoot: string, tfm: string): Result<rea
   if (!targets || typeof targets !== "object") return { ok: true, value: [] };
 
   const compileDirs = new Set<string>();
-  for (const [libKey, libValue] of Object.entries(targets as Record<string, unknown>)) {
+  for (const [libKey, libValue] of Object.entries(
+    targets as Record<string, unknown>
+  )) {
     if (!libKey || !libValue || typeof libValue !== "object") continue;
 
     const libInfo = libraries[libKey];
@@ -207,15 +246,22 @@ const collectNugetCompileDirs = (workspaceRoot: string, tfm: string): Result<rea
     }
   }
 
-  return { ok: true, value: Array.from(compileDirs).sort((a, b) => a.localeCompare(b)) };
+  return {
+    ok: true,
+    value: Array.from(compileDirs).sort((a, b) => a.localeCompare(b)),
+  };
 };
 
-const listGeneratedBindingsLibDirs = (workspaceRoot: string): readonly string[] => {
+const listGeneratedBindingsLibDirs = (
+  workspaceRoot: string
+): readonly string[] => {
   const base = join(workspaceRoot, ".tsonic", "bindings");
   if (!existsSync(base)) return [];
 
   const libs: string[] = [];
-  const kinds = readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  const kinds = readdirSync(base, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
   for (const kind of kinds) {
     const kindDir = join(base, kind);
     for (const entry of readdirSync(kindDir, { withFileTypes: true })) {
@@ -224,7 +270,10 @@ const listGeneratedBindingsLibDirs = (workspaceRoot: string): readonly string[] 
       const pkgJsonPath = join(dir, "package.json");
       if (!existsSync(pkgJsonPath)) continue;
       try {
-        const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<string, unknown>;
+        const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as Record<
+          string,
+          unknown
+        >;
         const tsonic = (parsed.tsonic ?? {}) as Record<string, unknown>;
         if (tsonic.generated === true) libs.push(dir);
       } catch {
@@ -240,7 +289,15 @@ const listGeneratedBindingsLibDirs = (workspaceRoot: string): readonly string[] 
 const generateLibraryBindings = (
   config: ResolvedConfig
 ): Result<void, string> => {
-  const { workspaceRoot, projectRoot, outputName, dotnetVersion, verbose, quiet, packageReferences } = config;
+  const {
+    workspaceRoot,
+    projectRoot,
+    outputName,
+    dotnetVersion,
+    verbose,
+    quiet,
+    packageReferences,
+  } = config;
 
   const dllPath = join(projectRoot, "dist", dotnetVersion, `${outputName}.dll`);
   if (!existsSync(dllPath)) {
@@ -261,7 +318,10 @@ const generateLibraryBindings = (
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
-  const compileDirsResult = collectNugetCompileDirs(workspaceRoot, dotnetVersion);
+  const compileDirsResult = collectNugetCompileDirs(
+    workspaceRoot,
+    dotnetVersion
+  );
   if (!compileDirsResult.ok) return compileDirsResult;
 
   if (packageReferences.length > 0 && compileDirsResult.value.length === 0) {
@@ -306,7 +366,12 @@ const generateLibraryBindings = (
   }
 
   const options: AddCommandOptions = { verbose, quiet };
-  const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDllResult.value, args, options);
+  const genResult = tsbindgenGenerate(
+    workspaceRoot,
+    tsbindgenDllResult.value,
+    args,
+    options
+  );
   if (!genResult.ok) return genResult;
 
   const augmentResult = augmentLibraryBindingsFromSource(config, outDir);

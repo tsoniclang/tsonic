@@ -36,7 +36,9 @@ export const emitInterfaceDeclaration = (
 
   const ind = getIndent(context);
 
-  const hasMethodSignatures = stmt.members.some((m) => m.kind === "methodSignature");
+  const hasMethodSignatures = stmt.members.some(
+    (m) => m.kind === "methodSignature"
+  );
 
   // Build type parameter names set FIRST - needed when emitting member types
   // Type parameters must be in scope before we emit types that reference them
@@ -72,7 +74,9 @@ export const emitInterfaceDeclaration = (
   parts.push(accessibility);
   if (needsUnsafe) parts.push("unsafe");
   // Emit as C# interface when methods exist; otherwise keep class/struct for object literals.
-  parts.push(hasMethodSignatures ? "interface" : stmt.isStruct ? "struct" : "class");
+  parts.push(
+    hasMethodSignatures ? "interface" : stmt.isStruct ? "struct" : "class"
+  );
   parts.push(escapeCSharpIdentifier(stmt.name));
 
   // Type parameters (if any)
@@ -80,7 +84,9 @@ export const emitInterfaceDeclaration = (
     const reservedTypeParamNames = new Set<string>();
     for (const member of stmt.members) {
       if (member.kind === "methodSignature") {
-        reservedTypeParamNames.add(emitCSharpName(member.name, "methods", context));
+        reservedTypeParamNames.add(
+          emitCSharpName(member.name, "methods", context)
+        );
         continue;
       }
       if (member.kind === "propertySignature") {
@@ -157,7 +163,10 @@ export const emitInterfaceDeclaration = (
     if (member.kind === "methodSignature") {
       const returnType = member.returnType
         ? (() => {
-            const [rt, newContext] = emitType(member.returnType, currentContext);
+            const [rt, newContext] = emitType(
+              member.returnType,
+              currentContext
+            );
             currentContext = newContext;
             return rt;
           })()

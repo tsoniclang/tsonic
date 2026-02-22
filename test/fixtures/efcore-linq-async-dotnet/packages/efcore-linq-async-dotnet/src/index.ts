@@ -2,7 +2,10 @@ import { asinterface } from "@tsonic/core/lang.js";
 import { int } from "@tsonic/core/types.js";
 import { Console } from "@tsonic/dotnet/System.js";
 import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
-import { DbContext, DbSet } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+import {
+  DbContext,
+  DbSet,
+} from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 import type {
   DbContextOptions,
   ExtensionMethods as Ef,
@@ -44,4 +47,3 @@ export function main(): void {
   // This fixture's purpose is typecheck coverage for EF async + LINQ extension chaining.
   Console.WriteLine("=== EF Core LINQ Async E2E ===");
 }
-

@@ -38,7 +38,9 @@ export const convertType = (
       if (ts.isPropertyAccessExpression(expr)) {
         if (!ts.isIdentifier(expr.name)) return undefined;
         const left = toEntityName(expr.expression);
-        return left ? ts.factory.createQualifiedName(left, expr.name) : undefined;
+        return left
+          ? ts.factory.createQualifiedName(left, expr.name)
+          : undefined;
       }
       return undefined;
     };
@@ -56,7 +58,9 @@ export const convertType = (
     return {
       kind: "referenceType",
       name: typeNode.expression.getText(),
-      typeArguments: typeNode.typeArguments?.map((t) => convertType(t, binding)),
+      typeArguments: typeNode.typeArguments?.map((t) =>
+        convertType(t, binding)
+      ),
     };
   }
 
@@ -81,11 +85,11 @@ export const convertType = (
     // Check for rest elements - not fully supported in C# ValueTuple
     const hasRest = typeNode.elements.some((el) => ts.isRestTypeNode(el));
 
-	    if (hasRest) {
-	      // If tuple is just [...T[]] (pure variadic), treat as array type
-	      // If tuple has both fixed and rest elements, fall through to anyType
-	      // Mixed variadic tuples are intentionally unsupported (IR gate emits TSN7414).
-	      const firstElement = typeNode.elements[0];
+    if (hasRest) {
+      // If tuple is just [...T[]] (pure variadic), treat as array type
+      // If tuple has both fixed and rest elements, fall through to anyType
+      // Mixed variadic tuples are intentionally unsupported (IR gate emits TSN7414).
+      const firstElement = typeNode.elements[0];
       if (
         typeNode.elements.length === 1 &&
         firstElement &&
@@ -185,11 +189,11 @@ export const convertType = (
         // For functions, we can't easily construct a function type without
         // access to the declaration node itself, so fall through to anyType
       }
-	    }
-	    // For qualified names (A.B.C), fall through to anyType
-	    // Qualified name typeof is intentionally unsupported here (IR gate emits TSN7414).
-	    return { kind: "anyType" };
-	  }
+    }
+    // For qualified names (A.B.C), fall through to anyType
+    // Qualified name typeof is intentionally unsupported here (IR gate emits TSN7414).
+    return { kind: "anyType" };
+  }
 
   // Default: use anyType as marker for unsupported types
   // The IR soundness gate will catch this and emit TSN7414

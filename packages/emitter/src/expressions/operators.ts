@@ -8,7 +8,12 @@
  */
 
 import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment, LocalTypeInfo, NarrowedBinding } from "../types.js";
+import {
+  EmitterContext,
+  CSharpFragment,
+  LocalTypeInfo,
+  NarrowedBinding,
+} from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitType } from "../type-emitter.js";
 import {
@@ -88,7 +93,8 @@ const isCharTyped = (expr: IrExpression): boolean => {
   return (
     (expr.inferredType?.kind === "primitiveType" &&
       expr.inferredType.name === "char") ||
-    (expr.inferredType?.kind === "referenceType" && expr.inferredType.name === "char")
+    (expr.inferredType?.kind === "referenceType" &&
+      expr.inferredType.name === "char")
   );
 };
 
@@ -203,7 +209,8 @@ export const emitBinary = (
           if (
             localInfo.members.some(
               (m) =>
-                (m.kind === "propertyDeclaration" || m.kind === "methodDeclaration") &&
+                (m.kind === "propertyDeclaration" ||
+                  m.kind === "methodDeclaration") &&
                 m.name === propName
             )
           ) {
@@ -230,7 +237,10 @@ export const emitBinary = (
         if (!member.name.includes(".") && rhsCtx.options.typeMemberIndex) {
           const matches: string[] = [];
           for (const fqn of rhsCtx.options.typeMemberIndex.keys()) {
-            if (fqn.endsWith(`.${member.name}`) || fqn.endsWith(`.${member.name}__Alias`)) {
+            if (
+              fqn.endsWith(`.${member.name}`) ||
+              fqn.endsWith(`.${member.name}__Alias`)
+            ) {
               matches.push(fqn);
             }
           }
@@ -265,7 +275,9 @@ export const emitBinary = (
         return [{ text: "false", precedence: parentPrecedence }, rhsCtx];
       }
 
-      const checks = matchingMembers.map((n) => `${rhsText}.Is${n}()`).join(" || ");
+      const checks = matchingMembers
+        .map((n) => `${rhsText}.Is${n}()`)
+        .join(" || ");
       // Lowering emits an `||` chain; wrap to preserve grouping in any surrounding expression.
       return [{ text: `(${checks})`, precedence: 16 }, rhsCtx];
     }
@@ -391,9 +403,16 @@ export const emitBinary = (
     })();
 
     // If the operand is definitely a non-nullable value type, fold comparison to a constant.
-    if (inferred && inferred.kind !== "unionType" && isDefinitelyValueType(inferred)) {
+    if (
+      inferred &&
+      inferred.kind !== "unionType" &&
+      isDefinitelyValueType(inferred)
+    ) {
       const folded = op === "==" ? "false" : "true";
-      return [{ text: folded, precedence: getPrecedence(expr.operator) }, resultContext];
+      return [
+        { text: folded, precedence: getPrecedence(expr.operator) },
+        resultContext,
+      ];
     }
 
     const typeParamConstraint =
@@ -404,11 +423,15 @@ export const emitBinary = (
 
     if (typeParamConstraint === "struct") {
       const folded = op === "==" ? "false" : "true";
-      return [{ text: folded, precedence: getPrecedence(expr.operator) }, resultContext];
+      return [
+        { text: folded, precedence: getPrecedence(expr.operator) },
+        resultContext,
+      ];
     }
 
     const needsObjectCast =
-      bareTypeParamName !== undefined && typeParamConstraint === "unconstrained";
+      bareTypeParamName !== undefined &&
+      typeParamConstraint === "unconstrained";
 
     const nullOp = op === "==" ? "== null" : "!= null";
     const nullOperandText = (() => {
@@ -581,7 +604,9 @@ export const emitUnary = (
     let currentContext = newContext;
 
     const effectiveExpectedType =
-      expectedType && expectedType.kind !== "voidType" && expectedType.kind !== "neverType"
+      expectedType &&
+      expectedType.kind !== "voidType" &&
+      expectedType.kind !== "neverType"
         ? expectedType
         : undefined;
 
@@ -589,7 +614,10 @@ export const emitUnary = (
     let defaultText = "default";
     if (effectiveExpectedType) {
       try {
-        const [typeText, next] = emitType(effectiveExpectedType, currentContext);
+        const [typeText, next] = emitType(
+          effectiveExpectedType,
+          currentContext
+        );
         currentContext = next;
         returnTypeText = typeText;
         defaultText = `default(${typeText})`;
@@ -816,7 +844,7 @@ const resolveLocalTypesForReference = (
   context: EmitterContext
 ): ReadonlyMap<string, LocalTypeInfo> | undefined => {
   const lookupName = type.name.includes(".")
-    ? type.name.split(".").pop() ?? type.name
+    ? (type.name.split(".").pop() ?? type.name)
     : type.name;
 
   if (context.localTypes?.has(lookupName)) {
@@ -840,7 +868,8 @@ const resolveLocalTypesForReference = (
   if (matches.length === 0) return undefined;
   if (matches.length === 1) return matches[0]!.localTypes;
 
-  const fqn = type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
+  const fqn =
+    type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
   if (fqn && fqn.includes(".")) {
     const ns = fqn.slice(0, fqn.lastIndexOf("."));
     const filtered = matches.filter((m) => m.namespace === ns);
@@ -999,9 +1028,7 @@ const tryResolveTernaryGuard = (
 
       if (member.kind === "objectType") {
         const prop = member.members.find(
-          (
-            m
-          ): m is Extract<typeof m, { kind: "propertySignature" }> =>
+          (m): m is Extract<typeof m, { kind: "propertySignature" }> =>
             m.kind === "propertySignature" && m.name === propertyName
         );
         propType = prop?.type;
@@ -1010,7 +1037,7 @@ const tryResolveTernaryGuard = (
         if (!localTypes) continue;
 
         const lookupName = member.name.includes(".")
-          ? member.name.split(".").pop() ?? member.name
+          ? (member.name.split(".").pop() ?? member.name)
           : member.name;
 
         propType = getPropertyType(

@@ -3,15 +3,15 @@
  */
 
 import * as ts from "typescript";
-import {
-  IrVariableDeclaration,
-  IrVariableDeclarator,
-} from "../../../types.js";
+import { IrVariableDeclaration, IrVariableDeclarator } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
 import { hasExportModifier } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
-import { deriveTypeFromExpression, withVariableDeclaratorTypeEnv } from "../../type-env.js";
+import {
+  deriveTypeFromExpression,
+  withVariableDeclaratorTypeEnv,
+} from "../../type-env.js";
 
 /**
  * Derive the type from a converted IR expression using deterministic rules.

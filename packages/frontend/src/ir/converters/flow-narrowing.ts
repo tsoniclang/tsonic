@@ -61,7 +61,8 @@ const tryResolveTruthyNarrowing = (
 
   // x instanceof T
   if (!ts.isBinaryExpression(unwrapped)) return undefined;
-  if (unwrapped.operatorToken.kind !== ts.SyntaxKind.InstanceOfKeyword) return undefined;
+  if (unwrapped.operatorToken.kind !== ts.SyntaxKind.InstanceOfKeyword)
+    return undefined;
 
   const left = unwrapExpr(unwrapped.left);
   const right = unwrapExpr(unwrapped.right);
@@ -97,7 +98,9 @@ export const collectTypeNarrowingsInTruthyExpr = (
   if (direct) return [direct];
 
   if (ts.isBinaryExpression(unwrapped)) {
-    if (unwrapped.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    if (
+      unwrapped.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ) {
       return [
         ...collectTypeNarrowingsInTruthyExpr(unwrapped.left, ctx),
         ...collectTypeNarrowingsInTruthyExpr(unwrapped.right, ctx),

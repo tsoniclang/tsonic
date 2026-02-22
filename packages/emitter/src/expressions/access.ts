@@ -194,7 +194,11 @@ const emitMemberName = (
       context
     );
     if (localKind) {
-      return emitCSharpName(memberName, bucketFromMemberKind(localKind), context);
+      return emitCSharpName(
+        memberName,
+        bucketFromMemberKind(localKind),
+        context
+      );
     }
   }
 
@@ -205,15 +209,31 @@ const emitMemberName = (
       context
     );
     if (localKind) {
-      return emitCSharpName(memberName, bucketFromMemberKind(localKind), context);
+      return emitCSharpName(
+        memberName,
+        bucketFromMemberKind(localKind),
+        context
+      );
     }
   }
 
-  const receiverFqn = resolveReceiverTypeFqn(receiverExpr, receiverType, context);
+  const receiverFqn = resolveReceiverTypeFqn(
+    receiverExpr,
+    receiverType,
+    context
+  );
   if (receiverFqn) {
-    const indexedKind = lookupMemberKindFromIndex(receiverFqn, memberName, context);
+    const indexedKind = lookupMemberKindFromIndex(
+      receiverFqn,
+      memberName,
+      context
+    );
     if (indexedKind) {
-      return emitCSharpName(memberName, bucketFromMemberKind(indexedKind), context);
+      return emitCSharpName(
+        memberName,
+        bucketFromMemberKind(indexedKind),
+        context
+      );
     }
   }
 
@@ -294,7 +314,9 @@ export const emitMemberAccess = (
   // Nullable guard narrowing for member-access expressions.
   // conditionals.ts can install narrowedBindings keyed by "a.b.c" to force `.Value` (or other)
   // for that exact member-access chain in the then-branch of a null/undefined guard.
-  const narrowKey = context.narrowedBindings ? getMemberAccessNarrowKey(expr) : undefined;
+  const narrowKey = context.narrowedBindings
+    ? getMemberAccessNarrowKey(expr)
+    : undefined;
   if (narrowKey && context.narrowedBindings) {
     const narrowed = context.narrowedBindings.get(narrowKey);
     if (narrowed) {
@@ -329,7 +351,10 @@ export const emitMemberAccess = (
   }
 
   const [objectFrag, newContext] = emitExpression(expr.object, context);
-  const receiverText = formatPostfixExpressionText(expr.object, objectFrag.text);
+  const receiverText = formatPostfixExpressionText(
+    expr.object,
+    objectFrag.text
+  );
 
   if (expr.isComputed) {
     const accessKind = expr.accessKind;
@@ -419,7 +444,10 @@ export const emitMemberAccess = (
     const interfaceName = extractInterfaceNameFromView(prop);
     if (interfaceName) {
       // Emit as C# interface cast: ((IInterface)obj)
-      const interfaceType: IrType = { kind: "referenceType", name: interfaceName };
+      const interfaceType: IrType = {
+        kind: "referenceType",
+        name: interfaceName,
+      };
       const [interfaceTypeStr, ctxAfterType] = emitType(
         interfaceType,
         newContext

@@ -71,7 +71,10 @@ export const emitConstructorMember = (
     currentContext
   );
   currentContext = paramsResult.context;
-  currentContext = seedLocalNameMapFromParameters(member.parameters, currentContext);
+  currentContext = seedLocalNameMapFromParameters(
+    member.parameters,
+    currentContext
+  );
 
   // Constructor body
   if (!member.body) {
@@ -125,7 +128,10 @@ export const emitConstructorMember = (
       : [[], bodyContext];
   bodyContext = destructuringContext;
 
-  const [bodyCode, finalContext] = emitBlockStatement(modifiedBody, bodyContext);
+  const [bodyCode, finalContext] = emitBlockStatement(
+    modifiedBody,
+    bodyContext
+  );
 
   // Inject parameter destructuring statements at the start of the body
   let finalBodyCode = bodyCode;

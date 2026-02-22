@@ -14,12 +14,18 @@ import { extractImports } from "../ir/builder/imports.js";
 
 describe("CLR bindings discovery (entrypoint re-exports)", () => {
   it("loads bindings.json for re-exported CLR namespaces and resolves flattened value exports", () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tsonic-clr-reexport-"));
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tsonic-clr-reexport-")
+    );
 
     const projectRoot = tmpRoot;
     fs.writeFileSync(
       path.join(projectRoot, "package.json"),
-      JSON.stringify({ name: "test-project", private: true, type: "module" }, null, 2)
+      JSON.stringify(
+        { name: "test-project", private: true, type: "module" },
+        null,
+        2
+      )
     );
 
     // Fake CLR bindings package under node_modules with a facade that re-exports another namespace.
@@ -57,10 +63,15 @@ describe("CLR bindings discovery (entrypoint re-exports)", () => {
       path.join(bindingsRoot, "Root.d.ts"),
       `export { foo } from "./Other.js";\n`
     );
-    fs.writeFileSync(path.join(bindingsRoot, "Root.js"), `throw new Error("stub");\n`);
+    fs.writeFileSync(
+      path.join(bindingsRoot, "Root.js"),
+      `throw new Error("stub");\n`
+    );
 
     // Other namespace facade: re-exports foo from its internal index.
-    fs.mkdirSync(path.join(bindingsRoot, "Other", "internal"), { recursive: true });
+    fs.mkdirSync(path.join(bindingsRoot, "Other", "internal"), {
+      recursive: true,
+    });
     fs.writeFileSync(
       path.join(bindingsRoot, "Other", "bindings.json"),
       JSON.stringify(
@@ -84,12 +95,18 @@ describe("CLR bindings discovery (entrypoint re-exports)", () => {
       path.join(bindingsRoot, "Other.d.ts"),
       `export { foo } from "./Other/internal/index.js";\n`
     );
-    fs.writeFileSync(path.join(bindingsRoot, "Other.js"), `throw new Error("stub");\n`);
+    fs.writeFileSync(
+      path.join(bindingsRoot, "Other.js"),
+      `throw new Error("stub");\n`
+    );
     fs.writeFileSync(
       path.join(bindingsRoot, "Other", "internal", "index.d.ts"),
       `export declare function foo(): void;\n`
     );
-    fs.writeFileSync(path.join(bindingsRoot, "Other", "internal", "index.js"), `throw new Error("stub");\n`);
+    fs.writeFileSync(
+      path.join(bindingsRoot, "Other", "internal", "index.js"),
+      `throw new Error("stub");\n`
+    );
 
     // Project source imports from Root (only), but expects to call foo.
     const srcDir = path.join(projectRoot, "src");
@@ -148,15 +165,21 @@ describe("CLR bindings discovery (entrypoint re-exports)", () => {
     const irImports = extractImports(sourceFile, ctx);
     expect(ctx.diagnostics.length).to.equal(0);
 
-    const imp = irImports.find((i) => i.kind === "import" && i.source === "@test/pkg/Root.js");
+    const imp = irImports.find(
+      (i) => i.kind === "import" && i.source === "@test/pkg/Root.js"
+    );
     expect(imp, "expected import to be extracted").to.not.equal(undefined);
     if (!imp || imp.kind !== "import") return;
 
-    const fooSpec = imp.specifiers.find((s) => s.kind === "named" && s.name === "foo");
+    const fooSpec = imp.specifiers.find(
+      (s) => s.kind === "named" && s.name === "foo"
+    );
     expect(fooSpec, "expected named import foo").to.not.equal(undefined);
     if (!fooSpec || fooSpec.kind !== "named") return;
 
-    expect(fooSpec.resolvedClrValue?.declaringClrType).to.equal("Other.Container");
+    expect(fooSpec.resolvedClrValue?.declaringClrType).to.equal(
+      "Other.Container"
+    );
     expect(fooSpec.resolvedClrValue?.memberName).to.equal("foo");
   });
 });

@@ -9,4 +9,6 @@ export class MathTests {
   }
 }
 
-A.on(MathTests).method((t) => t.add_numbers).add(FactAttribute);
+A.on(MathTests)
+  .method((t) => t.add_numbers)
+  .add(FactAttribute);

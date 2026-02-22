@@ -80,8 +80,7 @@ export const loadWorkspaceConfig = (
     if (!Array.isArray(libraries)) {
       return {
         ok: false,
-        error:
-          `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string|false }`,
+        error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' must be an array of strings or { path: string, types?: string|false }`,
       };
     }
 
@@ -90,8 +89,7 @@ export const loadWorkspaceConfig = (
       if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string|false }`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' entries must be strings or { path: string, types?: string|false }`,
         };
       }
 
@@ -100,8 +98,7 @@ export const loadWorkspaceConfig = (
       if (typeof path !== "string" || path.trim().length === 0) {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must include a non-empty 'path'`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must include a non-empty 'path'`,
         };
       }
       if (
@@ -111,8 +108,7 @@ export const loadWorkspaceConfig = (
       ) {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a non-empty string or false when present`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.libraries' object entries must have 'types' as a non-empty string or false when present`,
         };
       }
     }
@@ -140,8 +136,7 @@ export const loadWorkspaceConfig = (
   ) {
     return {
       ok: false,
-      error:
-        `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
+      error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
     };
   }
 
@@ -150,8 +145,7 @@ export const loadWorkspaceConfig = (
     if (!Array.isArray(packageReferences)) {
       return {
         ok: false,
-        error:
-          `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' must be an array of { id, version }`,
+        error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' must be an array of { id, version }`,
       };
     }
 
@@ -164,12 +158,12 @@ export const loadWorkspaceConfig = (
         ((entry as { readonly types?: unknown }).types !== undefined &&
           (entry as { readonly types?: unknown }).types !== false &&
           (typeof (entry as { readonly types?: unknown }).types !== "string" ||
-            String((entry as { readonly types?: unknown }).types).trim().length === 0))
+            String((entry as { readonly types?: unknown }).types).trim()
+              .length === 0))
       ) {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
         };
       }
     }
@@ -213,8 +207,7 @@ export const loadWorkspaceConfig = (
       if (typeof value !== "string") {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'dotnet.msbuildProperties.${key}' must be a string`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'dotnet.msbuildProperties.${key}' must be a string`,
         };
       }
     }
@@ -245,8 +238,7 @@ export const loadWorkspaceConfig = (
   ) {
     return {
       ok: false,
-      error:
-        `${WORKSPACE_CONFIG_FILE}: 'testDotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
+      error: `${WORKSPACE_CONFIG_FILE}: 'testDotnet.frameworkReferences' must be an array of strings or { id: string, types?: string|false }`,
     };
   }
 
@@ -255,8 +247,7 @@ export const loadWorkspaceConfig = (
     if (!Array.isArray(testPackageReferences)) {
       return {
         ok: false,
-        error:
-          `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' must be an array of { id, version }`,
+        error: `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' must be an array of { id, version }`,
       };
     }
 
@@ -269,12 +260,12 @@ export const loadWorkspaceConfig = (
         ((entry as { readonly types?: unknown }).types !== undefined &&
           (entry as { readonly types?: unknown }).types !== false &&
           (typeof (entry as { readonly types?: unknown }).types !== "string" ||
-            String((entry as { readonly types?: unknown }).types).trim().length === 0))
+            String((entry as { readonly types?: unknown }).types).trim()
+              .length === 0))
       ) {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'testDotnet.packageReferences' entries must be { id: string, version: string, types?: string|false }`,
         };
       }
     }
@@ -307,8 +298,7 @@ export const loadWorkspaceConfig = (
       if (typeof value !== "string") {
         return {
           ok: false,
-          error:
-            `${WORKSPACE_CONFIG_FILE}: 'testDotnet.msbuildProperties.${key}' must be a string`,
+          error: `${WORKSPACE_CONFIG_FILE}: 'testDotnet.msbuildProperties.${key}' must be a string`,
         };
       }
     }
@@ -337,19 +327,26 @@ export const loadProjectConfig = (
     };
   }
 
-  const references = (parsed.value as { readonly references?: unknown }).references;
+  const references = (parsed.value as { readonly references?: unknown })
+    .references;
   if (references !== undefined) {
-    if (references === null || typeof references !== "object" || Array.isArray(references)) {
+    if (
+      references === null ||
+      typeof references !== "object" ||
+      Array.isArray(references)
+    ) {
       return {
         ok: false,
         error: `${PROJECT_CONFIG_FILE}: 'references' must be an object`,
       };
     }
 
-    const libraries = (references as { readonly libraries?: unknown }).libraries;
+    const libraries = (references as { readonly libraries?: unknown })
+      .libraries;
     if (
       libraries !== undefined &&
-      (!Array.isArray(libraries) || libraries.some((p) => typeof p !== "string"))
+      (!Array.isArray(libraries) ||
+        libraries.some((p) => typeof p !== "string"))
     ) {
       return {
         ok: false,
@@ -373,7 +370,8 @@ export const loadProjectConfig = (
         error: `${PROJECT_CONFIG_FILE}: 'tests.entryPoint' must be a non-empty string`,
       };
     }
-    const outputDirectory = (tests as { readonly outputDirectory?: unknown }).outputDirectory;
+    const outputDirectory = (tests as { readonly outputDirectory?: unknown })
+      .outputDirectory;
     if (outputDirectory !== undefined && typeof outputDirectory !== "string") {
       return {
         ok: false,
@@ -392,7 +390,10 @@ export const loadProjectConfig = (
   const config = parsed.value as TsonicProjectConfig;
 
   if (!config.rootNamespace || typeof config.rootNamespace !== "string") {
-    return { ok: false, error: `${PROJECT_CONFIG_FILE}: 'rootNamespace' is required` };
+    return {
+      ok: false,
+      error: `${PROJECT_CONFIG_FILE}: 'rootNamespace' is required`,
+    };
   }
 
   const outputType = config.output?.type;
@@ -404,8 +405,7 @@ export const loadProjectConfig = (
   ) {
     return {
       ok: false,
-      error:
-        `${PROJECT_CONFIG_FILE}: 'output.type' must be one of 'executable', 'library', 'console-app' (got '${String(outputType)}')`,
+      error: `${PROJECT_CONFIG_FILE}: 'output.type' must be one of 'executable', 'library', 'console-app' (got '${String(outputType)}')`,
     };
   }
 
@@ -425,8 +425,7 @@ export const loadProjectConfig = (
   ) {
     return {
       ok: false,
-      error:
-        `${PROJECT_CONFIG_FILE}: 'output.nativeLib' must be 'shared' or 'static' when present (got '${String(nativeLib)}')`,
+      error: `${PROJECT_CONFIG_FILE}: 'output.nativeLib' must be 'shared' or 'static' when present (got '${String(nativeLib)}')`,
     };
   }
 
@@ -508,9 +507,9 @@ const resolveOutputConfig = (
       stripSymbols: cliOptions.noStrip
         ? false
         : (configOutput.stripSymbols ??
-            projectConfig.buildOptions?.stripSymbols ??
-            workspaceConfig.buildOptions?.stripSymbols ??
-            true),
+          projectConfig.buildOptions?.stripSymbols ??
+          workspaceConfig.buildOptions?.stripSymbols ??
+          true),
       optimization:
         cliOptions.optimize ??
         projectConfig.optimize ??
@@ -530,8 +529,9 @@ const resolveOutputConfig = (
   if (outputType === "library") {
     return {
       ...baseConfig,
-      targetFrameworks:
-        configOutput.targetFrameworks ?? [workspaceConfig.dotnetVersion],
+      targetFrameworks: configOutput.targetFrameworks ?? [
+        workspaceConfig.dotnetVersion,
+      ],
       nativeAot: cliOptions.noAot ? false : (configOutput.nativeAot ?? false),
       nativeLib: configOutput.nativeLib ?? "shared",
       generateDocumentation:
@@ -582,15 +582,14 @@ export const resolveConfig = (
   const configLibraries = (workspaceConfig.dotnet?.libraries ?? []).map(
     (p: LibraryReferenceConfig) => (typeof p === "string" ? p : p.path)
   );
-  const projectLibraries = (projectConfig.references?.libraries ?? []).map((p) =>
-    resolve(projectRoot, p)
+  const projectLibraries = (projectConfig.references?.libraries ?? []).map(
+    (p) => resolve(projectRoot, p)
   );
   const cliLibraries = cliOptions.lib ?? [];
   const libraries = [...configLibraries, ...projectLibraries, ...cliLibraries];
 
-  const rawFrameworkReferences =
-    (workspaceConfig.dotnet?.frameworkReferences ??
-      []) as readonly FrameworkReferenceConfig[];
+  const rawFrameworkReferences = (workspaceConfig.dotnet?.frameworkReferences ??
+    []) as readonly FrameworkReferenceConfig[];
   const frameworkReferences = rawFrameworkReferences.map((r) =>
     typeof r === "string" ? r : r.id
   );
@@ -627,9 +626,9 @@ export const resolveConfig = (
     stripSymbols: cliOptions.noStrip
       ? false
       : (projectConfig.output?.stripSymbols ??
-          projectConfig.buildOptions?.stripSymbols ??
-          workspaceConfig.buildOptions?.stripSymbols ??
-          true),
+        projectConfig.buildOptions?.stripSymbols ??
+        workspaceConfig.buildOptions?.stripSymbols ??
+        true),
     invariantGlobalization:
       projectConfig.output?.invariantGlobalization ??
       projectConfig.buildOptions?.invariantGlobalization ??

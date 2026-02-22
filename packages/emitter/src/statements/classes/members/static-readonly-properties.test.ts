@@ -28,7 +28,12 @@ describe("Static readonly property emission", () => {
       kind: "propertyDeclaration",
       name: "Value",
       type: { kind: "primitiveType", name: "int" },
-      initializer: { kind: "literal", value: 0, raw: "0", numericIntent: "Int32" },
+      initializer: {
+        kind: "literal",
+        value: 0,
+        raw: "0",
+        numericIntent: "Int32",
+      },
       isStatic: true,
       isReadonly: true,
       accessibility: "public",

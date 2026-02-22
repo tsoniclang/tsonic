@@ -41,7 +41,11 @@ describe("Attribute Collection Pass", () => {
         isLocal: false,
         isClr: false,
         specifiers: [
-          { kind: "named", name: "attributes", localName: attributesApiLocalName },
+          {
+            kind: "named",
+            name: "attributes",
+            localName: attributesApiLocalName,
+          },
           ...(attributeTargetsLocalName
             ? [
                 {
@@ -382,7 +386,10 @@ describe("Attribute Collection Pass", () => {
     ],
   });
 
-  const makeAddDescriptorMarkerCall = (targetName: string, varName: string) => ({
+  const makeAddDescriptorMarkerCall = (
+    targetName: string,
+    varName: string
+  ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
       makeMemberAccess(
@@ -398,7 +405,10 @@ describe("Attribute Collection Pass", () => {
     ),
   });
 
-  const makeInlineDescriptorMarkerCall = (targetName: string, attrName: string) => ({
+  const makeInlineDescriptorMarkerCall = (
+    targetName: string,
+    attrName: string
+  ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
       makeMemberAccess(
@@ -470,9 +480,12 @@ describe("Attribute Collection Pass", () => {
           isExported: true,
           isStruct: false,
         } as IrClassDeclaration,
-        makeMarkerCall("User", "ObsoleteAttribute", [
-          { kind: "literal", value: "Use NewUser instead" },
-        ], "System.ObsoleteAttribute"),
+        makeMarkerCall(
+          "User",
+          "ObsoleteAttribute",
+          [{ kind: "literal", value: "Use NewUser instead" }],
+          "System.ObsoleteAttribute"
+        ),
       ]);
 
       const result = runAttributeCollectionPass([module]);
@@ -578,7 +591,9 @@ describe("Attribute Collection Pass", () => {
       const mod = assertDefined(result.modules[0]);
       const classDecl = mod.body[0] as IrClassDeclaration;
       const attr = assertDefined(classDecl.attributes?.[0]);
-      expect(attr.positionalArgs).to.deep.equal([{ kind: "string", value: "Deprecated" }]);
+      expect(attr.positionalArgs).to.deep.equal([
+        { kind: "string", value: "Deprecated" },
+      ]);
       expect(attr.namedArgs.get("IsError")).to.deep.equal({
         kind: "boolean",
         value: true,
@@ -613,10 +628,7 @@ describe("Attribute Collection Pass", () => {
                 "System.ComponentModel.TypeConverterAttribute"
               ),
               makeUnaryTypeof(
-                makeTypedIdentifier(
-                  "User",
-                  makeRefType("User", "Test.User")
-                )
+                makeTypedIdentifier("User", makeRefType("User", "Test.User"))
               ),
             ]
           ),
@@ -632,7 +644,11 @@ describe("Attribute Collection Pass", () => {
       expect(attr.positionalArgs).to.have.length(1);
       expect(attr.positionalArgs[0]).to.deep.equal({
         kind: "typeof",
-        type: { kind: "referenceType", name: "User", resolvedClrType: "Test.User" },
+        type: {
+          kind: "referenceType",
+          name: "User",
+          resolvedClrType: "Test.User",
+        },
       });
     });
 
@@ -662,7 +678,10 @@ describe("Attribute Collection Pass", () => {
               makeIdentifier("MyAttr", "Test.MyAttr"),
               {
                 kind: "memberAccess" as const,
-                object: makeTypedIdentifier("MyEnum", makeRefType("MyEnum", "Test.MyEnum")),
+                object: makeTypedIdentifier(
+                  "MyEnum",
+                  makeRefType("MyEnum", "Test.MyEnum")
+                ),
                 property: "Value",
                 isComputed: false,
                 isOptional: false,
@@ -680,7 +699,11 @@ describe("Attribute Collection Pass", () => {
       expect(attr.positionalArgs).to.deep.equal([
         {
           kind: "enum",
-          type: { kind: "referenceType", name: "MyEnum", resolvedClrType: "Test.MyEnum" },
+          type: {
+            kind: "referenceType",
+            name: "MyEnum",
+            resolvedClrType: "Test.MyEnum",
+          },
           member: "Value",
         },
       ]);
@@ -714,7 +737,10 @@ describe("Attribute Collection Pass", () => {
                 kind: "memberAccess" as const,
                 object: makeTypedIdentifier(
                   "LayoutKind",
-                  makeRefType("LayoutKind", "System.Runtime.InteropServices.LayoutKind")
+                  makeRefType(
+                    "LayoutKind",
+                    "System.Runtime.InteropServices.LayoutKind"
+                  )
                 ),
                 property: "sequential",
                 isComputed: false,
@@ -926,8 +952,12 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const classDecl = mod.body[0] as IrClassDeclaration;
-      const method = classDecl.members.find((m) => m.kind === "methodDeclaration");
-      expect(method && "attributes" in method ? method.attributes : undefined).to.have.length(1);
+      const method = classDecl.members.find(
+        (m) => m.kind === "methodDeclaration"
+      );
+      expect(
+        method && "attributes" in method ? method.attributes : undefined
+      ).to.have.length(1);
     });
 
     it("should support method attribute targets (e.g., return)", () => {
@@ -963,7 +993,9 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const classDecl = mod.body[0] as IrClassDeclaration;
-      const method = classDecl.members.find((m) => m.kind === "methodDeclaration");
+      const method = classDecl.members.find(
+        (m) => m.kind === "methodDeclaration"
+      );
       const attr0 = assertDefined(
         method && "attributes" in method ? method.attributes?.[0] : undefined
       );
@@ -1007,7 +1039,9 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const classDecl = mod.body[0] as IrClassDeclaration;
-      const method = classDecl.members.find((m) => m.kind === "methodDeclaration");
+      const method = classDecl.members.find(
+        (m) => m.kind === "methodDeclaration"
+      );
       const attr0 = assertDefined(
         method && "attributes" in method ? method.attributes?.[0] : undefined
       );
@@ -1218,7 +1252,11 @@ describe("Attribute Collection Pass", () => {
           isExported: true,
           isStruct: false,
         } as unknown as IrClassDeclaration,
-        makeMethodMarkerCall("User", "PureAttribute", makeBadSelectorCallBody("save")),
+        makeMethodMarkerCall(
+          "User",
+          "PureAttribute",
+          makeBadSelectorCallBody("save")
+        ),
       ]);
 
       const result = runAttributeCollectionPass([module]);
@@ -1253,8 +1291,12 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const classDecl = mod.body[0] as IrClassDeclaration;
-      const prop = classDecl.members.find((m) => m.kind === "propertyDeclaration");
-      expect(prop && "attributes" in prop ? prop.attributes : undefined).to.have.length(1);
+      const prop = classDecl.members.find(
+        (m) => m.kind === "propertyDeclaration"
+      );
+      expect(
+        prop && "attributes" in prop ? prop.attributes : undefined
+      ).to.have.length(1);
     });
 
     it("should support property attribute targets (e.g., field on auto-property)", () => {
@@ -1287,7 +1329,9 @@ describe("Attribute Collection Pass", () => {
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
       const classDecl = mod.body[0] as IrClassDeclaration;
-      const prop = classDecl.members.find((m) => m.kind === "propertyDeclaration");
+      const prop = classDecl.members.find(
+        (m) => m.kind === "propertyDeclaration"
+      );
       const attr0 = assertDefined(
         prop && "attributes" in prop ? prop.attributes?.[0] : undefined
       );
@@ -1478,10 +1522,15 @@ describe("Attribute Collection Pass", () => {
       const result = runAttributeCollectionPass([module]);
       expect(result.ok).to.be.true;
       const mod = assertDefined(result.modules[0]);
-      const classDecl = mod.body.find((s) => s.kind === "classDeclaration" && s.name === "User") as IrClassDeclaration;
+      const classDecl = mod.body.find(
+        (s) => s.kind === "classDeclaration" && s.name === "User"
+      ) as IrClassDeclaration;
       expect(classDecl.attributes).to.have.length(1);
       const attr = assertDefined(classDecl.attributes?.[0]);
-      expect(attr.attributeType).to.deep.equal({ kind: "referenceType", name: "MyAttr" });
+      expect(attr.attributeType).to.deep.equal({
+        kind: "referenceType",
+        name: "MyAttr",
+      });
     });
 
     it("should emit diagnostic when target not found", () => {
@@ -1630,7 +1679,9 @@ describe("Attribute Collection Pass", () => {
             ),
             [
               makeIdentifier("ObsoleteAttribute", "System.ObsoleteAttribute"),
-              makeObject([makeObjectProp("IsError", makeIdentifier("notConst"))]),
+              makeObject([
+                makeObjectProp("IsError", makeIdentifier("notConst")),
+              ]),
             ]
           ),
         },
@@ -1700,7 +1751,12 @@ describe("Attribute Collection Pass", () => {
               ),
               "nope"
             ),
-            [makeIdentifier("SerializableAttribute", "System.SerializableAttribute")]
+            [
+              makeIdentifier(
+                "SerializableAttribute",
+                "System.SerializableAttribute"
+              ),
+            ]
           ),
         },
       ]);
@@ -1802,9 +1858,12 @@ describe("Attribute Collection Pass", () => {
           [],
           "System.SerializableAttribute"
         ),
-        makeMarkerCall("User", "ObsoleteAttribute", [
-          { kind: "literal", value: "Deprecated" },
-        ], "System.ObsoleteAttribute"),
+        makeMarkerCall(
+          "User",
+          "ObsoleteAttribute",
+          [{ kind: "literal", value: "Deprecated" }],
+          "System.ObsoleteAttribute"
+        ),
       ]);
 
       const result = runAttributeCollectionPass([module]);

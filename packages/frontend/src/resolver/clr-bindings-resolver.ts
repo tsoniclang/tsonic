@@ -166,7 +166,9 @@ export class ClrBindingsResolver {
         : backslashIdx === -1
           ? slashIdx
           : Math.min(slashIdx, backslashIdx);
-    const firstSeg = (firstSep === -1 ? subpath : subpath.slice(0, firstSep)).trim();
+    const firstSeg = (
+      firstSep === -1 ? subpath : subpath.slice(0, firstSep)
+    ).trim();
     if (!firstSeg) return null;
 
     return firstSeg.endsWith(".js") ? firstSeg.slice(0, -3) : firstSeg;
@@ -249,10 +251,15 @@ export class ClrBindingsResolver {
     }
   }
 
-  private findBindingsPathLegacy(pkgRoot: string, subpath: string): string | null {
+  private findBindingsPathLegacy(
+    pkgRoot: string,
+    subpath: string
+  ): string | null {
     // Strip .js extension from the full subpath and walk up segments until a directory
     // containing bindings.json is found under pkgRoot.
-    const namespaceSubpath = subpath.endsWith(".js") ? subpath.slice(0, -3) : subpath;
+    const namespaceSubpath = subpath.endsWith(".js")
+      ? subpath.slice(0, -3)
+      : subpath;
 
     let current = namespaceSubpath;
     while (true) {
@@ -360,7 +367,9 @@ export class ClrBindingsResolver {
       }
     }
 
-    const fromPaths = resolveViaSearchPaths(this.require.resolve.paths(packageName));
+    const fromPaths = resolveViaSearchPaths(
+      this.require.resolve.paths(packageName)
+    );
     if (fromPaths) {
       this.pkgRootCache.set(packageName, fromPaths);
       return fromPaths;
@@ -400,9 +409,15 @@ export class ClrBindingsResolver {
     return exists;
   }
 
-  private hasBindingsForNamespace(bindingsPath: string, expectedNamespace: string): boolean {
+  private hasBindingsForNamespace(
+    bindingsPath: string,
+    expectedNamespace: string
+  ): boolean {
     if (!this.hasBindings(bindingsPath)) return false;
-    const resolvedNamespace = this.extractNamespace(bindingsPath, expectedNamespace);
+    const resolvedNamespace = this.extractNamespace(
+      bindingsPath,
+      expectedNamespace
+    );
     return resolvedNamespace === expectedNamespace;
   }
 

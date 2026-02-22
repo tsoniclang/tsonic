@@ -1,13 +1,21 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveNugetConfigFile } from "./nuget-config.js";
 
 describe("resolveNugetConfigFile", () => {
   it("uses a project nuget.config when present", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-nuget-config-present-"));
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-nuget-config-present-")
+    );
 
     try {
       const cfgPath = join(projectRoot, "nuget.config");
@@ -18,7 +26,12 @@ describe("resolveNugetConfigFile", () => {
       if (!result.ok) return;
       expect(resolve(result.value)).to.equal(resolve(cfgPath));
 
-      const generatedCfgPath = join(projectRoot, ".tsonic", "nuget", "tsonic.nuget.config");
+      const generatedCfgPath = join(
+        projectRoot,
+        ".tsonic",
+        "nuget",
+        "tsonic.nuget.config"
+      );
       expect(existsSync(generatedCfgPath)).to.equal(false);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
@@ -26,7 +39,9 @@ describe("resolveNugetConfigFile", () => {
   });
 
   it("accepts NuGet.Config casing variants", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-nuget-config-casing-"));
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-nuget-config-casing-")
+    );
 
     try {
       const cfgPath = join(projectRoot, "NuGet.Config");
@@ -42,14 +57,21 @@ describe("resolveNugetConfigFile", () => {
   });
 
   it("generates a deterministic config when absent", () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), "tsonic-nuget-config-generate-"));
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "tsonic-nuget-config-generate-")
+    );
 
     try {
       const result = resolveNugetConfigFile(projectRoot);
       expect(result.ok).to.equal(true);
       if (!result.ok) return;
 
-      const expectedPath = join(projectRoot, ".tsonic", "nuget", "tsonic.nuget.config");
+      const expectedPath = join(
+        projectRoot,
+        ".tsonic",
+        "nuget",
+        "tsonic.nuget.config"
+      );
       expect(resolve(result.value)).to.equal(resolve(expectedPath));
       expect(existsSync(expectedPath)).to.equal(true);
 
@@ -61,4 +83,3 @@ describe("resolveNugetConfigFile", () => {
     }
   });
 });
-

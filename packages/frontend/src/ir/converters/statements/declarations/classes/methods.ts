@@ -83,9 +83,7 @@ export const convertMethod = (
 
 type IrPrimitiveName = Extract<IrType, { kind: "primitiveType" }>["name"];
 
-const primitiveTypeToClrName = (
-  name: IrPrimitiveName
-): string | undefined => {
+const primitiveTypeToClrName = (name: IrPrimitiveName): string | undefined => {
   switch (name) {
     case "string":
       return "System.String";
@@ -133,7 +131,10 @@ const typesEqualForIsType = (
     case "typeParameterType":
       return b.kind === "typeParameterType" && a.name === b.name;
     case "arrayType":
-      return b.kind === "arrayType" && typesEqualForIsType(a.elementType, b.elementType);
+      return (
+        b.kind === "arrayType" &&
+        typesEqualForIsType(a.elementType, b.elementType)
+      );
     case "referenceType": {
       if (b.kind !== "referenceType") return false;
       const aStable = a.typeId?.stableId ?? a.resolvedClrType;
@@ -168,7 +169,13 @@ const specializeExpression = (
       const callee = specializeExpression(expr.callee, paramTypesByDeclId);
       const args = expr.arguments.map((a) =>
         a.kind === "spread"
-          ? { ...a, expression: specializeExpression(a.expression, paramTypesByDeclId) }
+          ? {
+              ...a,
+              expression: specializeExpression(
+                a.expression,
+                paramTypesByDeclId
+              ),
+            }
           : specializeExpression(a, paramTypesByDeclId)
       );
 
@@ -185,7 +192,12 @@ const specializeExpression = (
         const target = expr.typeArguments[0];
         const actual = paramTypesByDeclId.get(args[0].declId.id);
         const value = typesEqualForIsType(actual, target);
-        return { kind: "literal", value, inferredType: { kind: "primitiveType", name: "boolean" }, sourceSpan: expr.sourceSpan };
+        return {
+          kind: "literal",
+          value,
+          inferredType: { kind: "primitiveType", name: "boolean" },
+          sourceSpan: expr.sourceSpan,
+        };
       }
 
       return { ...expr, callee, arguments: args };
@@ -197,7 +209,13 @@ const specializeExpression = (
         callee: specializeExpression(expr.callee, paramTypesByDeclId),
         arguments: expr.arguments.map((a) =>
           a.kind === "spread"
-            ? { ...a, expression: specializeExpression(a.expression, paramTypesByDeclId) }
+            ? {
+                ...a,
+                expression: specializeExpression(
+                  a.expression,
+                  paramTypesByDeclId
+                ),
+              }
             : specializeExpression(a, paramTypesByDeclId)
         ),
       };
@@ -205,7 +223,10 @@ const specializeExpression = (
     case "functionExpression":
       return {
         ...expr,
-        body: specializeStatement(expr.body, paramTypesByDeclId) as IrBlockStatement,
+        body: specializeStatement(
+          expr.body,
+          paramTypesByDeclId
+        ) as IrBlockStatement,
       };
 
     case "arrowFunction":
@@ -213,14 +234,26 @@ const specializeExpression = (
         ...expr,
         body:
           expr.body.kind === "blockStatement"
-            ? (specializeStatement(expr.body, paramTypesByDeclId) as IrBlockStatement)
+            ? (specializeStatement(
+                expr.body,
+                paramTypesByDeclId
+              ) as IrBlockStatement)
             : specializeExpression(expr.body, paramTypesByDeclId),
       };
 
     case "unary": {
       const inner = specializeExpression(expr.expression, paramTypesByDeclId);
-      if (expr.operator === "!" && inner.kind === "literal" && typeof inner.value === "boolean") {
-        return { kind: "literal", value: !inner.value, inferredType: { kind: "primitiveType", name: "boolean" }, sourceSpan: expr.sourceSpan };
+      if (
+        expr.operator === "!" &&
+        inner.kind === "literal" &&
+        typeof inner.value === "boolean"
+      ) {
+        return {
+          kind: "literal",
+          value: !inner.value,
+          inferredType: { kind: "primitiveType", name: "boolean" },
+          sourceSpan: expr.sourceSpan,
+        };
       }
       return { ...expr, expression: inner };
     }
@@ -230,14 +263,24 @@ const specializeExpression = (
       if (left.kind === "literal" && typeof left.value === "boolean") {
         if (expr.operator === "&&") {
           if (left.value === false) {
-            return { kind: "literal", value: false, inferredType: { kind: "primitiveType", name: "boolean" }, sourceSpan: expr.sourceSpan };
+            return {
+              kind: "literal",
+              value: false,
+              inferredType: { kind: "primitiveType", name: "boolean" },
+              sourceSpan: expr.sourceSpan,
+            };
           }
           return specializeExpression(expr.right, paramTypesByDeclId);
         }
 
         if (expr.operator === "||") {
           if (left.value === true) {
-            return { kind: "literal", value: true, inferredType: { kind: "primitiveType", name: "boolean" }, sourceSpan: expr.sourceSpan };
+            return {
+              kind: "literal",
+              value: true,
+              inferredType: { kind: "primitiveType", name: "boolean" },
+              sourceSpan: expr.sourceSpan,
+            };
           }
           return specializeExpression(expr.right, paramTypesByDeclId);
         }
@@ -324,7 +367,13 @@ const specializeExpression = (
         elements: expr.elements.map((e) =>
           e
             ? e.kind === "spread"
-              ? { ...e, expression: specializeExpression(e.expression, paramTypesByDeclId) }
+              ? {
+                  ...e,
+                  expression: specializeExpression(
+                    e.expression,
+                    paramTypesByDeclId
+                  ),
+                }
               : specializeExpression(e, paramTypesByDeclId)
             : undefined
         ),
@@ -334,10 +383,19 @@ const specializeExpression = (
         ...expr,
         properties: expr.properties.map((p) =>
           p.kind === "spread"
-            ? { ...p, expression: specializeExpression(p.expression, paramTypesByDeclId) }
+            ? {
+                ...p,
+                expression: specializeExpression(
+                  p.expression,
+                  paramTypesByDeclId
+                ),
+              }
             : {
                 ...p,
-                key: typeof p.key === "string" ? p.key : specializeExpression(p.key, paramTypesByDeclId),
+                key:
+                  typeof p.key === "string"
+                    ? p.key
+                    : specializeExpression(p.key, paramTypesByDeclId),
                 value: specializeExpression(p.value, paramTypesByDeclId),
               }
         ),
@@ -378,7 +436,9 @@ const specializeStatement = (
         const catchOk = s.catchClause
           ? statementAlwaysTerminates(s.catchClause.body)
           : true;
-        const finallyOk = s.finallyBlock ? statementAlwaysTerminates(s.finallyBlock) : true;
+        const finallyOk = s.finallyBlock
+          ? statementAlwaysTerminates(s.finallyBlock)
+          : true;
         return tryOk && catchOk && finallyOk;
       }
       default:
@@ -403,21 +463,35 @@ const specializeStatement = (
     }
 
     case "ifStatement": {
-      const condition = specializeExpression(stmt.condition, paramTypesByDeclId);
-      const thenStatement = specializeStatement(stmt.thenStatement, paramTypesByDeclId);
+      const condition = specializeExpression(
+        stmt.condition,
+        paramTypesByDeclId
+      );
+      const thenStatement = specializeStatement(
+        stmt.thenStatement,
+        paramTypesByDeclId
+      );
       const elseStatement = stmt.elseStatement
         ? specializeStatement(stmt.elseStatement, paramTypesByDeclId)
         : undefined;
 
-      if (condition.kind === "literal" && typeof condition.value === "boolean") {
-        return condition.value ? thenStatement : elseStatement ?? { kind: "emptyStatement" };
+      if (
+        condition.kind === "literal" &&
+        typeof condition.value === "boolean"
+      ) {
+        return condition.value
+          ? thenStatement
+          : (elseStatement ?? { kind: "emptyStatement" });
       }
 
       return { ...stmt, condition, thenStatement, elseStatement };
     }
 
     case "expressionStatement":
-      return { ...stmt, expression: specializeExpression(stmt.expression, paramTypesByDeclId) };
+      return {
+        ...stmt,
+        expression: specializeExpression(stmt.expression, paramTypesByDeclId),
+      };
     case "returnStatement":
       return {
         ...stmt,
@@ -489,23 +563,36 @@ const specializeStatement = (
         expression: specializeExpression(stmt.expression, paramTypesByDeclId),
         cases: stmt.cases.map((c) => ({
           ...c,
-          test: c.test ? specializeExpression(c.test, paramTypesByDeclId) : undefined,
-          statements: c.statements.map((s) => specializeStatement(s, paramTypesByDeclId)),
+          test: c.test
+            ? specializeExpression(c.test, paramTypesByDeclId)
+            : undefined,
+          statements: c.statements.map((s) =>
+            specializeStatement(s, paramTypesByDeclId)
+          ),
         })),
       };
 
     case "tryStatement":
       return {
         ...stmt,
-        tryBlock: specializeStatement(stmt.tryBlock, paramTypesByDeclId) as IrBlockStatement,
+        tryBlock: specializeStatement(
+          stmt.tryBlock,
+          paramTypesByDeclId
+        ) as IrBlockStatement,
         catchClause: stmt.catchClause
           ? {
               ...stmt.catchClause,
-              body: specializeStatement(stmt.catchClause.body, paramTypesByDeclId) as IrBlockStatement,
+              body: specializeStatement(
+                stmt.catchClause.body,
+                paramTypesByDeclId
+              ) as IrBlockStatement,
             }
           : undefined,
         finallyBlock: stmt.finallyBlock
-          ? (specializeStatement(stmt.finallyBlock, paramTypesByDeclId) as IrBlockStatement)
+          ? (specializeStatement(
+              stmt.finallyBlock,
+              paramTypesByDeclId
+            ) as IrBlockStatement)
           : undefined,
       };
 
@@ -537,8 +624,7 @@ const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
       case "call":
         return (
           !(
-            expr.callee.kind === "identifier" &&
-            expr.callee.name === "istype"
+            expr.callee.kind === "identifier" && expr.callee.name === "istype"
           ) &&
           visitExpr(expr.callee) &&
           expr.arguments.every((a) =>
@@ -617,7 +703,9 @@ const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
       case "returnStatement":
         return s.expression ? visitExpr(s.expression) : true;
       case "variableDeclaration":
-        return s.declarations.every((d) => (d.initializer ? visitExpr(d.initializer) : true));
+        return s.declarations.every((d) =>
+          d.initializer ? visitExpr(d.initializer) : true
+        );
       case "whileStatement":
         return visitExpr(s.condition) && visitStmt(s.body);
       case "forStatement":
@@ -637,8 +725,10 @@ const assertNoIsTypeCalls = (stmt: IrStatement): boolean => {
       case "switchStatement":
         return (
           visitExpr(s.expression) &&
-          s.cases.every((c) =>
-            (c.test ? visitExpr(c.test) : true) && c.statements.every(visitStmt)
+          s.cases.every(
+            (c) =>
+              (c.test ? visitExpr(c.test) : true) &&
+              c.statements.every(visitStmt)
           )
         );
       case "tryStatement":
@@ -758,7 +848,9 @@ const assertNoMissingParamRefs = (
       case "returnStatement":
         return s.expression ? visitExpr(s.expression) : true;
       case "variableDeclaration":
-        return s.declarations.every((d) => (d.initializer ? visitExpr(d.initializer) : true));
+        return s.declarations.every((d) =>
+          d.initializer ? visitExpr(d.initializer) : true
+        );
       case "whileStatement":
         return visitExpr(s.condition) && visitStmt(s.body);
       case "forStatement":
@@ -778,8 +870,10 @@ const assertNoMissingParamRefs = (
       case "switchStatement":
         return (
           visitExpr(s.expression) &&
-          s.cases.every((c) =>
-            (c.test ? visitExpr(c.test) : true) && c.statements.every(visitStmt)
+          s.cases.every(
+            (c) =>
+              (c.test ? visitExpr(c.test) : true) &&
+              c.statements.every(visitStmt)
           )
         );
       case "tryStatement":
@@ -854,7 +948,9 @@ export const convertMethodOverloadGroup = (
 
   const declaredAccessibility = getAccessibility(impl);
   const isStatic = hasStaticModifier(impl);
-  const isAsync = !!impl.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+  const isAsync = !!impl.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+  );
   const isGenerator = !!impl.asteriskToken;
 
   // Convert each signature into a concrete method emission.

@@ -112,7 +112,11 @@ export const convertProperty = (
 
     if (!ts.isTypeReferenceNode(actualTypeNode)) break;
     if (!ts.isIdentifier(actualTypeNode.typeName)) break;
-    if (!actualTypeNode.typeArguments || actualTypeNode.typeArguments.length !== 1) break;
+    if (
+      !actualTypeNode.typeArguments ||
+      actualTypeNode.typeArguments.length !== 1
+    )
+      break;
     const inner: ts.TypeNode | undefined = actualTypeNode.typeArguments[0];
     if (!inner) break;
 
@@ -142,7 +146,9 @@ export const convertProperty = (
   // Get explicit type annotation (if present) for contextual typing
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
   const explicitType = actualTypeNode
-    ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(actualTypeNode))
+    ? ctx.typeSystem.typeFromSyntax(
+        ctx.binding.captureTypeSyntax(actualTypeNode)
+      )
     : undefined;
 
   // Convert initializer FIRST (with explicit type as expectedType if present)

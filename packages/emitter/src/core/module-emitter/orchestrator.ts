@@ -82,7 +82,10 @@ export const emitModule = (
 
   const valueSymbols =
     staticContainerMembers.length > 0
-      ? collectStaticContainerValueSymbols(staticContainerMembers, exchangesContext)
+      ? collectStaticContainerValueSymbols(
+          staticContainerMembers,
+          exchangesContext
+        )
       : undefined;
 
   const moduleContext = {

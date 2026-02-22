@@ -30,4 +30,3 @@ export function main(): void {
   const ok = dict.TryGetValue("a", value as out<int>);
   Console.WriteLine(`${ok},${value}`);
 }
-

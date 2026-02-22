@@ -49,13 +49,13 @@ export type AnonymousTypeLoweringResult = {
  * Context for tracking state during lowering
  */
 type LoweringContext = {
-  /** Generated class declarations for this module */
+  /** Generated class declarations (shared across modules) */
   readonly generatedDeclarations: IrClassDeclaration[];
-  /** Map from shape signature to generated type name for deduplication */
+  /** Map from shape signature to generated type name for deduplication (shared across modules) */
   readonly shapeToName: Map<string, string>;
   /** Module file path for unique naming */
   readonly moduleFilePath: string;
-  /** Type names already declared in this module (avoid collisions) */
+  /** Type names already declared in the compilation (avoid collisions) */
   readonly existingTypeNames: ReadonlySet<string>;
   /** Current function's lowered return type (for propagating to return statements) */
   readonly currentFunctionReturnType?: IrType;
@@ -258,23 +258,9 @@ const generateModuleHash = (filePath: string): string => {
 /**
  * Get or create a generated type name for an object type shape
  */
-const sanitizeInlineTypeName = (raw: string): string | undefined => {
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-
-  const cleaned = trimmed.replace(/[^A-Za-z0-9_]/g, "_");
-  if (cleaned === "") return undefined;
-
-  // C# identifiers cannot start with a digit.
-  if (/^[0-9]/.test(cleaned)) return `_${cleaned}`;
-
-  return cleaned;
-};
-
 const getOrCreateTypeName = (
   objectType: IrObjectType,
-  ctx: LoweringContext,
-  nameHint?: string
+  ctx: LoweringContext
 ): string => {
   const signature = computeShapeSignature(objectType);
   const existing = ctx.shapeToName.get(signature);
@@ -285,18 +271,9 @@ const getOrCreateTypeName = (
   // Generate name with module hash prefix to avoid collisions across modules
   const moduleHash = generateModuleHash(ctx.moduleFilePath);
   const shapeHash = generateShapeHash(signature);
-  const anonName = `__Anon_${moduleHash}_${shapeHash}`;
-  const preferredBase = nameHint ? sanitizeInlineTypeName(nameHint) : undefined;
-
-  const preferredName = preferredBase
-    ? ctx.existingTypeNames.has(preferredBase) ||
-      ctx.generatedDeclarations.some((d) => d.name === preferredBase) ||
-      Array.from(ctx.shapeToName.values()).includes(preferredBase)
-      ? `${preferredBase}_${shapeHash}`
-      : preferredBase
-    : undefined;
-
-  const name = preferredName ?? anonName;
+  // Keep a stable compiler-synthesized prefix for cross-module type tracking.
+  // Dependency/soundness passes treat __Anon_* as compiler-generated types.
+  const name = `__Anon_${moduleHash}_${shapeHash}`;
   ctx.shapeToName.set(signature, name);
 
   const typeParamNames = new Set<string>();
@@ -307,7 +284,8 @@ const getOrCreateTypeName = (
       for (const p of member.parameters) {
         if (p.type) collectTypeParameterNames(p.type, typeParamNames);
       }
-      if (member.returnType) collectTypeParameterNames(member.returnType, typeParamNames);
+      if (member.returnType)
+        collectTypeParameterNames(member.returnType, typeParamNames);
     }
   }
   const orderedTypeParams = Array.from(typeParamNames).sort();
@@ -398,7 +376,11 @@ const addUndefinedToType = (type: IrType): IrType => {
 /**
  * Lower a type, replacing objectType with referenceType
  */
-const lowerType = (type: IrType, ctx: LoweringContext, nameHint?: string): IrType => {
+const lowerType = (
+  type: IrType,
+  ctx: LoweringContext,
+  _nameHint?: string
+): IrType => {
   switch (type.kind) {
     case "objectType": {
       // First, recursively lower any nested object types in members
@@ -424,7 +406,7 @@ const lowerType = (type: IrType, ctx: LoweringContext, nameHint?: string): IrTyp
       };
 
       // Generate name for this shape
-      const typeName = getOrCreateTypeName(loweredObjectType, ctx, nameHint);
+      const typeName = getOrCreateTypeName(loweredObjectType, ctx);
 
       const typeParamNames = new Set<string>();
       for (const member of loweredObjectType.members) {
@@ -434,7 +416,8 @@ const lowerType = (type: IrType, ctx: LoweringContext, nameHint?: string): IrTyp
           for (const p of member.parameters) {
             if (p.type) collectTypeParameterNames(p.type, typeParamNames);
           }
-          if (member.returnType) collectTypeParameterNames(member.returnType, typeParamNames);
+          if (member.returnType)
+            collectTypeParameterNames(member.returnType, typeParamNames);
         }
       }
       const orderedTypeParams = Array.from(typeParamNames).sort();
@@ -453,6 +436,8 @@ const lowerType = (type: IrType, ctx: LoweringContext, nameHint?: string): IrTyp
               )
             : undefined,
         resolvedClrType: undefined,
+        // Preserve structural members for downstream pattern lowering/type recovery.
+        structuralMembers: loweredObjectType.members,
       };
       return refType;
     }
@@ -661,9 +646,13 @@ const lowerExpression = (
         // (locals/parameters). Imported CLR symbols often carry placeholder inferred types
         // that are not part of emission and must not trigger anonymous type synthesis.
         if (!expr.declId || !expr.inferredType) return expr;
-        if (expr.resolvedClrType || expr.resolvedAssembly || expr.importedFrom) return expr;
+        if (expr.resolvedClrType || expr.resolvedAssembly || expr.importedFrom)
+          return expr;
         // Treat empty object types (`{}`) as `object`-like placeholders; do not synthesize.
-        if (expr.inferredType.kind === "objectType" && expr.inferredType.members.length === 0) {
+        if (
+          expr.inferredType.kind === "objectType" &&
+          expr.inferredType.members.length === 0
+        ) {
           return expr;
         }
         const loweredInferred = lowerType(expr.inferredType, ctx);
@@ -681,8 +670,14 @@ const lowerExpression = (
         };
 
       case "object":
+        // Lower both contextualType and inferredType.
+        // inferredType is used by downstream passes (e.g. pattern lowering for
+        // destructuring) and must not retain raw objectType nodes.
         return {
           ...expr,
+          inferredType: expr.inferredType
+            ? lowerType(expr.inferredType, ctx)
+            : undefined,
           contextualType: expr.contextualType
             ? lowerType(expr.contextualType, ctx)
             : undefined,
@@ -706,7 +701,9 @@ const lowerExpression = (
         };
 
       case "functionExpression": {
-        const loweredParams = expr.parameters.map((p) => lowerParameter(p, ctx));
+        const loweredParams = expr.parameters.map((p) =>
+          lowerParameter(p, ctx)
+        );
         const loweredReturnType = expr.returnType
           ? lowerType(expr.returnType, ctx)
           : undefined;
@@ -719,7 +716,9 @@ const lowerExpression = (
             ? {
                 ...expr.inferredType,
                 parameters: loweredParams,
-                returnType: loweredReturnType ?? lowerType(expr.inferredType.returnType, ctx),
+                returnType:
+                  loweredReturnType ??
+                  lowerType(expr.inferredType.returnType, ctx),
               }
             : expr.inferredType;
         return {
@@ -732,7 +731,9 @@ const lowerExpression = (
       }
 
       case "arrowFunction": {
-        const loweredParams = expr.parameters.map((p) => lowerParameter(p, ctx));
+        const loweredParams = expr.parameters.map((p) =>
+          lowerParameter(p, ctx)
+        );
         const loweredReturnType = expr.returnType
           ? lowerType(expr.returnType, ctx)
           : undefined;
@@ -745,7 +746,9 @@ const lowerExpression = (
             ? {
                 ...expr.inferredType,
                 parameters: loweredParams,
-                returnType: loweredReturnType ?? lowerType(expr.inferredType.returnType, ctx),
+                returnType:
+                  loweredReturnType ??
+                  lowerType(expr.inferredType.returnType, ctx),
               }
             : expr.inferredType;
         // For expression body arrow functions, we need to handle inferredType directly
@@ -790,6 +793,18 @@ const lowerExpression = (
           callee: lowerExpression(expr.callee, ctx),
           arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
           typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
+          // parameterTypes participate in expected-type threading during emission
+          // (e.g., object literal contextual typing). They must be lowered so
+          // IrObjectType never leaks into the emitter.
+          parameterTypes: expr.parameterTypes?.map((pt) =>
+            pt ? lowerType(pt, ctx) : undefined
+          ),
+          narrowing: expr.narrowing
+            ? {
+                ...expr.narrowing,
+                targetType: lowerType(expr.narrowing.targetType, ctx),
+              }
+            : undefined,
         };
 
       case "new":
@@ -798,6 +813,9 @@ const lowerExpression = (
           callee: lowerExpression(expr.callee, ctx),
           arguments: expr.arguments.map((a) => lowerExpression(a, ctx)),
           typeArguments: expr.typeArguments?.map((ta) => lowerType(ta, ctx)),
+          parameterTypes: expr.parameterTypes?.map((pt) =>
+            pt ? lowerType(pt, ctx) : undefined
+          ),
         };
 
       case "update":
@@ -970,7 +988,9 @@ const lowerClassMember = (
     case "propertyDeclaration":
       return {
         ...member,
-        type: member.type ? lowerType(member.type, ctx, member.name) : undefined,
+        type: member.type
+          ? lowerType(member.type, ctx, member.name)
+          : undefined,
         initializer: member.initializer
           ? lowerExpression(member.initializer, ctx)
           : undefined,
@@ -1032,7 +1052,9 @@ const lowerStatement = (
         typeParameters: stmt.typeParameters?.map((tp) =>
           lowerTypeParameter(tp, ctx)
         ),
-        superClass: stmt.superClass ? lowerType(stmt.superClass, ctx) : undefined,
+        superClass: stmt.superClass
+          ? lowerType(stmt.superClass, ctx)
+          : undefined,
         implements: stmt.implements.map((i) => lowerType(i, ctx)),
         members: stmt.members.map((m) => lowerClassMember(m, ctx)),
       };
@@ -1254,24 +1276,19 @@ const lowerStatement = (
 /**
  * Lower a single module
  */
-const lowerModule = (module: IrModule): IrModule => {
-  const existingTypeNames = new Set<string>();
-  for (const stmt of module.body) {
-    switch (stmt.kind) {
-      case "classDeclaration":
-      case "interfaceDeclaration":
-      case "enumDeclaration":
-      case "typeAliasDeclaration":
-        existingTypeNames.add(stmt.name);
-        break;
-    }
+const lowerModule = (
+  module: IrModule,
+  shared: {
+    readonly generatedDeclarations: IrClassDeclaration[];
+    readonly shapeToName: Map<string, string>;
+    readonly existingTypeNames: ReadonlySet<string>;
   }
-
+): IrModule => {
   const ctx: LoweringContext = {
-    generatedDeclarations: [],
-    shapeToName: new Map(),
+    generatedDeclarations: shared.generatedDeclarations,
+    shapeToName: shared.shapeToName,
     moduleFilePath: module.filePath,
-    existingTypeNames,
+    existingTypeNames: shared.existingTypeNames,
   };
 
   // Lower all statements in the module body
@@ -1293,14 +1310,30 @@ const lowerModule = (module: IrModule): IrModule => {
     return exp;
   });
 
-  // Prepend generated declarations to module body
-  const newBody: IrStatement[] = [...ctx.generatedDeclarations, ...loweredBody];
-
   return {
     ...module,
-    body: newBody,
+    body: loweredBody,
     exports: loweredExports,
   };
+};
+
+const findCommonNamespacePrefix = (namespaces: readonly string[]): string => {
+  if (namespaces.length === 0) return "";
+  const split = namespaces.map((ns) => ns.split("."));
+  const first = split[0] ?? [];
+  const minLength = Math.min(...split.map((s) => s.length));
+
+  let commonLength = 0;
+  for (let i = 0; i < minLength; i++) {
+    const seg = first[i];
+    if (seg && split.every((s) => s[i] === seg)) {
+      commonLength = i + 1;
+    } else {
+      break;
+    }
+  }
+
+  return first.slice(0, commonLength).join(".");
 };
 
 /**
@@ -1309,7 +1342,53 @@ const lowerModule = (module: IrModule): IrModule => {
 export const runAnonymousTypeLoweringPass = (
   modules: readonly IrModule[]
 ): AnonymousTypeLoweringResult => {
-  const loweredModules = modules.map((m) => lowerModule(m));
+  const existingTypeNames = new Set<string>();
+  for (const module of modules) {
+    for (const stmt of module.body) {
+      switch (stmt.kind) {
+        case "classDeclaration":
+        case "interfaceDeclaration":
+        case "enumDeclaration":
+        case "typeAliasDeclaration":
+          existingTypeNames.add(stmt.name);
+          break;
+      }
+    }
+  }
+
+  const shared = {
+    generatedDeclarations: [] as IrClassDeclaration[],
+    shapeToName: new Map<string, string>(),
+    existingTypeNames,
+  };
+
+  const loweredModules = modules.map((m) => lowerModule(m, shared));
+
+  // If any anonymous classes were generated, emit them once in a shared module
+  // in the common root namespace so they are visible to all nested namespaces.
+  if (shared.generatedDeclarations.length > 0) {
+    const commonNamespace =
+      findCommonNamespacePrefix(modules.map((m) => m.namespace)) ||
+      (modules[0]?.namespace ?? "");
+
+    const anonModule: IrModule = {
+      kind: "module",
+      // Special synthetic module prefix: downstream CLI code uses this to skip
+      // source-based augmentation steps (no corresponding .ts file exists).
+      filePath: "__tsonic/__tsonic_anonymous_types.g.ts",
+      namespace: commonNamespace,
+      className: "__tsonic_anonymous_types",
+      isStaticContainer: true,
+      imports: [],
+      body: shared.generatedDeclarations,
+      exports: [],
+    };
+
+    return {
+      ok: true,
+      modules: [anonModule, ...loweredModules],
+    };
+  }
 
   return {
     ok: true,

@@ -15,10 +15,7 @@ import {
   generateSpecializedFunctionName,
   generateSpecializedClassName,
 } from "./naming.js";
-import {
-  substituteType,
-  substituteStatement,
-} from "./substitution.js";
+import { substituteType, substituteStatement } from "./substitution.js";
 
 /**
  * Generate specialized declarations from requests

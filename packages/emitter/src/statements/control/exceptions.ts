@@ -6,7 +6,10 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitBlockStatement } from "../blocks.js";
-import { allocateLocalName, registerLocalName } from "../../core/local-names.js";
+import {
+  allocateLocalName,
+  registerLocalName,
+} from "../../core/local-names.js";
 
 /**
  * Emit a try statement

@@ -713,20 +713,22 @@ export const resolveTypeAlias = (
     name.startsWith("global::") ? name.slice("global::".length) : name;
 
   const name = stripGlobalPrefix(type.name);
-  const aliasEntry =
-    name.includes(".")
-      ? aliasIndex.byFqn.get(name)
-      : (() => {
-          const matches = aliasIndex.byName.get(name) ?? [];
+  const aliasEntry = name.includes(".")
+    ? aliasIndex.byFqn.get(name)
+    : (() => {
+        const matches = aliasIndex.byName.get(name) ?? [];
 
-          if (matches.length === 0) return undefined;
-          if (matches.length === 1) return matches[0];
+        if (matches.length === 0) return undefined;
+        if (matches.length === 1) return matches[0];
 
-          const candidates = matches.map((m) => m.fqn).sort().join(", ");
-          throw new Error(
-            `ICE: Ambiguous type alias reference '${name}'. Candidates: ${candidates}`
-          );
-        })();
+        const candidates = matches
+          .map((m) => m.fqn)
+          .sort()
+          .join(", ");
+        throw new Error(
+          `ICE: Ambiguous type alias reference '${name}'. Candidates: ${candidates}`
+        );
+      })();
 
   if (!aliasEntry) {
     return type;

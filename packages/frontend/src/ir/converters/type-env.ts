@@ -27,7 +27,9 @@ import type {
  * - Arrays → use inferredType, or derive from first element
  * - All other expressions → use inferredType if present
  */
-export const deriveTypeFromExpression = (expr: IrExpression): IrType | undefined => {
+export const deriveTypeFromExpression = (
+  expr: IrExpression
+): IrType | undefined => {
   if (expr.kind === "literal") {
     return expr.inferredType;
   }
@@ -169,7 +171,9 @@ const extendEnvForBindingName = (
   }
 };
 
-const deriveDeclaratorType = (decl: IrVariableDeclarator): IrType | undefined => {
+const deriveDeclaratorType = (
+  decl: IrVariableDeclarator
+): IrType | undefined => {
   const explicitType = normalizeEnvType(decl.type);
   if (explicitType) return explicitType;
   const initType = decl.initializer

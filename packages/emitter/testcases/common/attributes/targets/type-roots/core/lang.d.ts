@@ -1,11 +1,11 @@
 declare module "@tsonic/core/lang.js" {
-  export type Ctor<T = unknown, Args extends readonly any[] = readonly any[]> = new (
-    ...args: Args
-  ) => T;
+  export type Ctor<
+    T = unknown,
+    Args extends readonly any[] = readonly any[],
+  > = new (...args: Args) => T;
 
-  export type InstanceOf<C extends Ctor<any, any>> = C extends Ctor<infer I, any>
-    ? I
-    : never;
+  export type InstanceOf<C extends Ctor<any, any>> =
+    C extends Ctor<infer I, any> ? I : never;
 
   export type MethodKeys<T> = {
     [K in keyof T]-?: T[K] extends (...args: any[]) => any ? K : never;

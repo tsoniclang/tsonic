@@ -13,4 +13,3 @@ export const getAuth = (fail: boolean): AuthResult => {
   const err: AuthError = { error: "no" };
   return fail ? err : ok;
 };
-

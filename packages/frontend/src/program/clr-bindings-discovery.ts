@@ -25,7 +25,9 @@ const extractNamespaceKey = (subpath: string): string | null => {
       : backslashIdx === -1
         ? slashIdx
         : Math.min(slashIdx, backslashIdx);
-  const firstSeg = (firstSep === -1 ? subpath : subpath.slice(0, firstSep)).trim();
+  const firstSeg = (
+    firstSep === -1 ? subpath : subpath.slice(0, firstSep)
+  ).trim();
   if (!firstSeg) return null;
   return firstSeg.endsWith(".js") ? firstSeg.slice(0, -3) : firstSeg;
 };
@@ -190,4 +192,3 @@ export const discoverAndLoadClrBindings = (
     );
   }
 };
-

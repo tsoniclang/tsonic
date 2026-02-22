@@ -3,4 +3,3 @@ export interface Box<T> {
 }
 
 export type Bad = Box<never>;
-

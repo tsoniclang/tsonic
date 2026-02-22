@@ -65,7 +65,9 @@ export const emitExtractedType = (
     }
     return false;
   });
-  parts.push(`${ind}public${needsUnsafe ? " unsafe" : ""} class ${escapedClassName}`);
+  parts.push(
+    `${ind}public${needsUnsafe ? " unsafe" : ""} class ${escapedClassName}`
+  );
   parts.push(`${ind}{`);
 
   // Emit properties

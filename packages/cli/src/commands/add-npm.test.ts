@@ -9,7 +9,14 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addNpmCommand } from "./add-npm.js";
@@ -36,7 +43,8 @@ const writeWorkspaceConfig = (dir: string): string => {
 
   writeFileSync(
     join(dir, "package.json"),
-    JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+    JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) +
+      "\n",
     "utf-8"
   );
 
@@ -94,17 +102,25 @@ describe("add npm", function () {
         name: pkgName,
         manifest: {
           dotnet: {
-            frameworkReferences: [{ id: "Microsoft.AspNetCore.App", types: pkgName }],
-            packageReferences: [{ id: "Acme.A", version: "1.0.0", types: pkgName }],
+            frameworkReferences: [
+              { id: "Microsoft.AspNetCore.App", types: pkgName },
+            ],
+            packageReferences: [
+              { id: "Acme.A", version: "1.0.0", types: pkgName },
+            ],
             msbuildProperties: { InterceptorsNamespaces: "Acme.Generated" },
           },
           testDotnet: {
-            packageReferences: [{ id: "Acme.Test", version: "2.0.0", types: false }],
+            packageReferences: [
+              { id: "Acme.Test", version: "2.0.0", types: false },
+            ],
           },
         },
       });
 
-      const result = addNpmCommand("./local/acme-bindings", configPath, { quiet: true });
+      const result = addNpmCommand("./local/acme-bindings", configPath, {
+        quiet: true,
+      });
       expect(result.ok).to.equal(true);
       expect(result.ok ? result.value.packageName : "").to.equal(pkgName);
 
@@ -137,7 +153,9 @@ describe("add npm", function () {
         name: pkgName,
         manifest: {
           dotnet: {
-            packageReferences: [{ id: "Acme.A", version: "1.0.0", types: pkgName }],
+            packageReferences: [
+              { id: "Acme.A", version: "1.0.0", types: pkgName },
+            ],
           },
         },
       });
@@ -145,9 +163,15 @@ describe("add npm", function () {
       // Seed a conflicting workspace package reference.
       const cfg = readWorkspaceConfig(dir);
       cfg.dotnet.packageReferences = [{ id: "Acme.A", version: "0.9.0" }];
-      writeFileSync(join(dir, "tsonic.workspace.json"), JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+      writeFileSync(
+        join(dir, "tsonic.workspace.json"),
+        JSON.stringify(cfg, null, 2) + "\n",
+        "utf-8"
+      );
 
-      const result = addNpmCommand("./local/acme-bindings", configPath, { quiet: true });
+      const result = addNpmCommand("./local/acme-bindings", configPath, {
+        quiet: true,
+      });
       expect(result.ok).to.equal(false);
       expect(result.ok ? "" : result.error).to.match(/different version/i);
     } finally {
@@ -161,9 +185,13 @@ describe("add npm", function () {
       const configPath = writeWorkspaceConfig(dir);
       writeLocalNpmPackage(dir, "local/no-manifest", { name: "no-manifest" });
 
-      const result = addNpmCommand("./local/no-manifest", configPath, { quiet: true });
+      const result = addNpmCommand("./local/no-manifest", configPath, {
+        quiet: true,
+      });
       expect(result.ok).to.equal(false);
-      expect(result.ok ? "" : result.error).to.match(/Missing tsonic\.bindings\.json/);
+      expect(result.ok ? "" : result.error).to.match(
+        /Missing tsonic\.bindings\.json/
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

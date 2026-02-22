@@ -11,7 +11,11 @@
  *   via `tsonic restore` (single source of truth)
  */
 
-import type { Result, TsonicWorkspaceConfig, PackageReferenceConfig } from "../types.js";
+import type {
+  Result,
+  TsonicWorkspaceConfig,
+  PackageReferenceConfig,
+} from "../types.js";
 import { loadWorkspaceConfig } from "../config.js";
 import { dirname } from "node:path";
 import {
@@ -90,7 +94,9 @@ export const addNugetCommand = (
     }
   } else {
     existing.push(
-      typesPackage ? { id, version: ver, types: typesPackage } : { id, version: ver }
+      typesPackage
+        ? { id, version: ver, types: typesPackage }
+        : { id, version: ver }
     );
   }
 
@@ -105,7 +111,9 @@ export const addNugetCommand = (
   const writeResult = writeTsonicJson(configPath, nextConfig);
   if (!writeResult.ok) return writeResult;
 
-  const declared = existing.find((p) => normalizePkgId(p.id) === normalizePkgId(id));
+  const declared = existing.find(
+    (p) => normalizePkgId(p.id) === normalizePkgId(id)
+  );
   const declaredTypes = declared?.types;
 
   const bindings =

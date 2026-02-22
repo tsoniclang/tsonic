@@ -186,7 +186,7 @@ When importing across directories:
 
 ```typescript
 // src/Services/Api.ts
-  import { User } from "../Models/User.js";
+import { User } from "../Models/User.js";
 // Resolves to namespace MyApp.Models
 
 export function getUser(): User {

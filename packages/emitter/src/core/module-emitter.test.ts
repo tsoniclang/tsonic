@@ -76,7 +76,9 @@ describe("Module Generation", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("[global::Tsonic.Internal.ModuleContainerAttribute]");
+    expect(result).to.include(
+      "[global::Tsonic.Internal.ModuleContainerAttribute]"
+    );
     expect(result).to.include("public static class Math");
     // Static fields cannot use 'var' in C#; type is inferred from literal
     expect(result).to.include("public static readonly double PI = 3.14159");

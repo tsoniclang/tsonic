@@ -50,10 +50,12 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
     packageName: string
   ): string => {
     const match = packageName.match(/^@([^/]+)\/([^/]+)$/);
-    if (!match) throw new Error(`Expected scoped package name, got: ${packageName}`);
+    if (!match)
+      throw new Error(`Expected scoped package name, got: ${packageName}`);
     const scope = match[1];
     const name = match[2];
-    if (!scope || !name) throw new Error(`Invalid scoped package name: ${packageName}`);
+    if (!scope || !name)
+      throw new Error(`Invalid scoped package name: ${packageName}`);
     return join(workspaceRoot, "node_modules", `@${scope}`, name);
   };
 
@@ -71,7 +73,10 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
 
     // Facade stub - must exist so Node resolution can locate it via exports.
     writeText(join(distRoot, `${spec.namespaceKey}.js`), "export {};\n");
-    writeText(join(distRoot, `${spec.namespaceKey}.d.ts`), "export type __test = 1;\n");
+    writeText(
+      join(distRoot, `${spec.namespaceKey}.d.ts`),
+      "export type __test = 1;\n"
+    );
 
     const nsDir = join(distRoot, spec.namespaceKey);
     const internalDir = join(nsDir, "internal");
@@ -114,7 +119,9 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
 
     const resolver = createClrBindingsResolver(workspaceRoot);
 
-    const direct = resolver.resolve(`${spec.packageName}/${spec.namespaceKey}.js`);
+    const direct = resolver.resolve(
+      `${spec.packageName}/${spec.namespaceKey}.js`
+    );
     expect(direct.isClr).to.equal(true);
     if (!direct.isClr) return;
     expect(direct.resolvedNamespace).to.equal(spec.namespace);
@@ -159,7 +166,9 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
     const { bindingsPath } = writeDistBindingsPackage(pkgRoot, spec);
     const resolver = createClrBindingsResolver(workspaceRoot);
 
-    const result = resolver.resolve(`${spec.packageName}/${spec.namespaceKey}.js`);
+    const result = resolver.resolve(
+      `${spec.packageName}/${spec.namespaceKey}.js`
+    );
     expect(result.isClr).to.equal(true);
     if (!result.isClr) return;
     expect(result.bindingsPath).to.equal(bindingsPath);
@@ -216,7 +225,10 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
 
     // Facade stub at package root
     writeText(join(pkgRoot, `${namespaceKey}.js`), "export {};\n");
-    writeText(join(pkgRoot, `${namespaceKey}.d.ts`), "export type __test = 1;\n");
+    writeText(
+      join(pkgRoot, `${namespaceKey}.d.ts`),
+      "export type __test = 1;\n"
+    );
 
     // Root bindings.json (empty namespace)
     writeJson(join(pkgRoot, "bindings.json"), {

@@ -37,9 +37,7 @@ import {
   convertConditionalExpression,
   convertTemplateLiteral,
 } from "./converters/expressions/other.js";
-import {
-  getSourceSpan,
-} from "./converters/expressions/helpers.js";
+import { getSourceSpan } from "./converters/expressions/helpers.js";
 
 /**
  * Extract the NumericKind from a type node if it references a known numeric alias.
@@ -154,9 +152,7 @@ export const convertExpression = (
       sourceSpan: getSourceSpan(node),
     };
   }
-  if (
-    node.kind === ts.SyntaxKind.UndefinedKeyword
-  ) {
+  if (node.kind === ts.SyntaxKind.UndefinedKeyword) {
     // Undefined literal - type is void
     return {
       kind: "literal",

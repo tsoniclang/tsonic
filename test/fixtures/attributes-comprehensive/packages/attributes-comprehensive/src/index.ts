@@ -1,5 +1,10 @@
 import { attributes as A } from "@tsonic/core/lang.js";
-import { Attribute, Console, ObsoleteAttribute, SerializableAttribute } from "@tsonic/dotnet/System.js";
+import {
+  Attribute,
+  Console,
+  ObsoleteAttribute,
+  SerializableAttribute,
+} from "@tsonic/dotnet/System.js";
 import type { Object as ClrObject, Type } from "@tsonic/dotnet/System.js";
 import type { ICustomAttributeProvider } from "@tsonic/dotnet/System.Reflection.js";
 import "@tsonic/dotnet/System.Reflection.js";
@@ -38,8 +43,12 @@ A.on(User).type.add(d);
 A.on(User).type.add(NamesAttribute, ["Alice", "Bob"]);
 
 A.on(User).ctor.add(ObsoleteAttribute, "ctor");
-A.on(User).method((u) => u.save).add(ObsoleteAttribute, "method");
-A.on(User).prop((u) => u.name).add(ObsoleteAttribute, "prop");
+A.on(User)
+  .method((u) => u.save)
+  .add(ObsoleteAttribute, "method");
+A.on(User)
+  .prop((u) => u.name)
+  .add(ObsoleteAttribute, "prop");
 
 A.on(NoCtor).ctor.add(ObsoleteAttribute, "implicit");
 
@@ -74,7 +83,8 @@ for (const a of typeAttrs) {
   const t = obj.GetType() as Type;
   if (t.FullName === "AttributesComprehensive.NamesAttribute") {
     const na = a as unknown as NamesAttribute;
-    namesOk = na.Names.Length === 2 && na.Names[0] === "Alice" && na.Names[1] === "Bob";
+    namesOk =
+      na.Names.Length === 2 && na.Names[0] === "Alice" && na.Names[1] === "Bob";
     break;
   }
 }

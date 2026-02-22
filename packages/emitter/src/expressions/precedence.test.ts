@@ -158,7 +158,11 @@ describe("Emitter precedence + parentheses", () => {
               ],
             },
           },
-          right: { kind: "identifier", name: "b", inferredType: { kind: "primitiveType", name: "int" } },
+          right: {
+            kind: "identifier",
+            name: "b",
+            inferredType: { kind: "primitiveType", name: "int" },
+          },
         },
         thenStatement: { kind: "blockStatement", statements: [] },
         elseStatement: undefined,

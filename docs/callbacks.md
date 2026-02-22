@@ -19,8 +19,8 @@ Use `Action<T>` for callbacks that don't return a value.
 ### Single Parameter
 
 ```typescript
-	import { Console } from "@tsonic/dotnet/System.js";
-	import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Console } from "@tsonic/dotnet/System.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import { int } from "@tsonic/core/types.js";
 
 function forEach(items: List<int>, callback: (item: int) => void): void {
@@ -193,8 +193,8 @@ public static int reduce(List<int> items, Func<int, int, int> reducer, int initi
 Pass arrow functions directly:
 
 ```typescript
-	import { Console } from "@tsonic/dotnet/System.js";
-	import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Console } from "@tsonic/dotnet/System.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
 import { int } from "@tsonic/core/types.js";
 
 const numbers = new List<int>();
@@ -250,7 +250,7 @@ Console.WriteLine(`${addThenDouble(5)}`); // 12
 For async callbacks, use `Promise` return types:
 
 ```typescript
-	import { Console } from "@tsonic/dotnet/System.js";
+import { Console } from "@tsonic/dotnet/System.js";
 
 async function processAsync(callback: () => Promise<string>): Promise<void> {
   const result = await callback();
@@ -320,8 +320,8 @@ Callbacks work seamlessly with LINQ:
 
 ```typescript
 import { int } from "@tsonic/core/types.js";
-	import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
-	import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
+import { List } from "@tsonic/dotnet/System.Collections.Generic.js";
+import { Enumerable } from "@tsonic/dotnet/System.Linq.js";
 
 const numbers = new List<int>();
 numbers.Add(1);
@@ -337,11 +337,7 @@ const evens = Enumerable.Where(numbers, (n: int) => n % 2 === 0);
 const doubled = Enumerable.Select(numbers, (n: int) => n * 2);
 
 // LINQ Aggregate with reducer
-const sum = Enumerable.Aggregate(
-  numbers,
-  0,
-  (acc: int, n: int) => acc + n
-);
+const sum = Enumerable.Aggregate(numbers, 0, (acc: int, n: int) => acc + n);
 ```
 
 ## Tips

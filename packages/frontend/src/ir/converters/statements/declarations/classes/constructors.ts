@@ -109,7 +109,9 @@ export const extractParameterProperties = (
       // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
       const accessibility = getAccessibility(param);
       const rawType = param.type
-        ? ctx.typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(param.type))
+        ? ctx.typeSystem.typeFromSyntax(
+            ctx.binding.captureTypeSyntax(param.type)
+          )
         : undefined;
 
       const type =

@@ -52,4 +52,3 @@ describe("numeric-coercion-pass", () => {
     expect(result.diagnostics.map((d) => d.code)).to.include("TSN5110");
   });
 });
-

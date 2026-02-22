@@ -4,10 +4,7 @@
 
 import * as ts from "typescript";
 import { TsonicProgram } from "../program.js";
-import {
-  DiagnosticsCollector,
-  addDiagnostic,
-} from "../types/diagnostic.js";
+import { DiagnosticsCollector, addDiagnostic } from "../types/diagnostic.js";
 import { checkForSymbolIndexSignature } from "../ir/generic-validator.js";
 
 /**

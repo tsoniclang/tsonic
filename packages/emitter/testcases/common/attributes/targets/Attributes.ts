@@ -22,4 +22,7 @@ export class Data {
 }
 
 // C# emits: [field: NonSerialized]
-A.on(Data).prop((x) => x.value).target("field").add(NonSerializedAttribute);
+A.on(Data)
+  .prop((x) => x.value)
+  .target("field")
+  .add(NonSerializedAttribute);

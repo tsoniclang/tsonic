@@ -52,7 +52,11 @@ describe("build command (library bindings)", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -241,19 +245,33 @@ describe("build command (library bindings)", function () {
 
       expect(result.status, result.stderr || result.stdout).to.equal(0);
 
-      const bindingsDir = join(dir, "packages", "lib", "dist", "tsonic", "bindings");
+      const bindingsDir = join(
+        dir,
+        "packages",
+        "lib",
+        "dist",
+        "tsonic",
+        "bindings"
+      );
 
       const dtsFiles = readdirSync(bindingsDir)
         .filter((n) => n.endsWith(".d.ts"))
         .map((n) => join(bindingsDir, n));
       expect(dtsFiles.length).to.be.greaterThan(0);
 
-      const all = dtsFiles.map((p) => ({ path: p, content: readFileSync(p, "utf-8") }));
+      const all = dtsFiles.map((p) => ({
+        path: p,
+        content: readFileSync(p, "utf-8"),
+      }));
       const entryFacade = all.find((f) =>
         f.content.includes("Tsonic entrypoint re-exports (generated)")
       );
-      const typesFacade = all.find((f) => f.content.includes("// Namespace: Test.Lib.types"));
-      const configFacade = all.find((f) => f.content.includes("// Namespace: Test.Lib.config"));
+      const typesFacade = all.find((f) =>
+        f.content.includes("// Namespace: Test.Lib.types")
+      );
+      const configFacade = all.find((f) =>
+        f.content.includes("// Namespace: Test.Lib.config")
+      );
 
       expect(
         entryFacade,
@@ -275,28 +293,51 @@ describe("build command (library bindings)", function () {
       const typesContent = typesFacade?.content ?? "";
       const configContent = configFacade?.content ?? "";
 
-      const dbInternalIndex = join(bindingsDir, "Test.Lib.db", "internal", "index.d.ts");
+      const dbInternalIndex = join(
+        bindingsDir,
+        "Test.Lib.db",
+        "internal",
+        "index.d.ts"
+      );
       const dbInternalContent = readFileSync(dbInternalIndex, "utf-8");
-      expect(dbInternalContent).to.include("Tsonic source member type imports (generated)");
-      expect(dbInternalContent).to.include("ExtensionMethods as __TsonicExt_Linq");
-      expect(dbInternalContent).to.include("ExtensionMethods as __TsonicExt_Tasks");
-      expect(dbInternalContent).to.match(/readonly\s+Numbers:\s+__TsonicExt_Tasks<__TsonicExt_Linq</);
+      expect(dbInternalContent).to.include(
+        "Tsonic source member type imports (generated)"
+      );
+      expect(dbInternalContent).to.include(
+        "ExtensionMethods as __TsonicExt_Linq"
+      );
+      expect(dbInternalContent).to.include(
+        "ExtensionMethods as __TsonicExt_Tasks"
+      );
+      expect(dbInternalContent).to.match(
+        /readonly\s+Numbers:\s+__TsonicExt_Tasks<__TsonicExt_Linq</
+      );
 
       // Namespace facade for the "types" module must include TS-level aliases.
       expect(typesContent).to.include("Tsonic source type aliases (generated)");
       expect(typesContent).to.include("export type Id = string;");
-      expect(typesContent).to.include("export type Ok<T> = Internal.Ok__Alias_1<T>;");
-      expect(typesContent).to.include("export type Err<E> = Internal.Err__Alias_1<E>;");
+      expect(typesContent).to.include(
+        "export type Ok<T> = Internal.Ok__Alias_1<T>;"
+      );
+      expect(typesContent).to.include(
+        "export type Err<E> = Internal.Err__Alias_1<E>;"
+      );
       expect(typesContent).to.include(
         "export type Result<T, E = string> = Ok<T> | Err<E>;"
       );
 
       // Structural aliases in non-types modules are also surfaced.
-      expect(configContent).to.include("Tsonic source type aliases (generated)");
-      expect(configContent).to.include("export type ServerConfig = Internal.ServerConfig__Alias;");
+      expect(configContent).to.include(
+        "Tsonic source type aliases (generated)"
+      );
+      expect(configContent).to.include(
+        "export type ServerConfig = Internal.ServerConfig__Alias;"
+      );
 
       // Root namespace facade must re-export the entrypoint's type/value surface.
-      expect(rootContent).to.include("Tsonic entrypoint re-exports (generated)");
+      expect(rootContent).to.include(
+        "Tsonic entrypoint re-exports (generated)"
+      );
       expect(rootContent).to.include("from './");
       expect(rootContent).to.include(".types.js';");
       expect(rootContent).to.include(".config.js';");
@@ -315,7 +356,9 @@ describe("build command (library bindings)", function () {
       const rootJsPath = (entryFacade?.path ?? "").replace(/\.d\.ts$/, ".js");
       expect(rootJsPath.endsWith(".js")).to.equal(true);
       const rootJs = readFileSync(rootJsPath, "utf-8");
-      expect(rootJs).to.include("Tsonic entrypoint value re-exports (generated)");
+      expect(rootJs).to.include(
+        "Tsonic entrypoint value re-exports (generated)"
+      );
       expect(rootJs).to.include("export {");
       expect(rootJs).to.include("ok");
       expect(rootJs).to.include("err");

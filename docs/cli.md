@@ -85,9 +85,7 @@ the DLL as “externally bound”:
 ```json
 {
   "dotnet": {
-    "libraries": [
-      { "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }
-    ]
+    "libraries": [{ "path": "libs/MyLib.dll", "types": "@acme/mylib-types" }]
   }
 }
 ```

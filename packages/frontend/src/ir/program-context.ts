@@ -129,7 +129,8 @@ export const createProgramContext = (
 
   const findPackageRootForFile = (fileName: string): string | undefined => {
     const normalized = fileName.replace(/\\/g, "/");
-    if (packageRootCache.has(normalized)) return packageRootCache.get(normalized);
+    if (packageRootCache.has(normalized))
+      return packageRootCache.get(normalized);
 
     let dir = path.dirname(fileName);
     while (true) {
@@ -179,7 +180,9 @@ export const createProgramContext = (
       const peerDepsRaw = (parsed as { readonly peerDependencies?: unknown })
         .peerDependencies;
       const peerDependencies: Readonly<Record<string, string>> =
-        peerDepsRaw && typeof peerDepsRaw === "object" && !Array.isArray(peerDepsRaw)
+        peerDepsRaw &&
+        typeof peerDepsRaw === "object" &&
+        !Array.isArray(peerDepsRaw)
           ? Object.fromEntries(
               Object.entries(peerDepsRaw as Record<string, unknown>).filter(
                 (entry): entry is [string, string] =>
@@ -203,7 +206,12 @@ export const createProgramContext = (
 
     if (info.name?.startsWith("@tsonic/")) return true;
     if (info.keywords.includes("tsonic")) return true;
-    if (Object.prototype.hasOwnProperty.call(info.peerDependencies, "@tsonic/core")) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        info.peerDependencies,
+        "@tsonic/core"
+      )
+    ) {
       return true;
     }
 
@@ -227,7 +235,9 @@ export const createProgramContext = (
       if (!currentDir) continue;
 
       try {
-        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        for (const entry of fs.readdirSync(currentDir, {
+          withFileTypes: true,
+        })) {
           const fullPath = path.join(currentDir, entry.name);
           if (entry.isFile() && entry.name === "bindings.json") {
             found = true;

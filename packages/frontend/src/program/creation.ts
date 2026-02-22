@@ -106,7 +106,9 @@ export const createProgram = (
 
     // Fall back to compiler-owned installation (keeps stdlib typings coherent)
     try {
-      const installedPkgJson = require.resolve(`@tsonic/${pkgDirName}/package.json`);
+      const installedPkgJson = require.resolve(
+        `@tsonic/${pkgDirName}/package.json`
+      );
       return path.dirname(installedPkgJson);
     } catch {
       // Package not found.
@@ -309,7 +311,9 @@ export const createProgram = (
           const subpath = match[2];
           if (!pkgDirName || !subpath) return undefined;
 
-          const siblingRoot = path.resolve(path.join(repoRoot, "..", pkgDirName));
+          const siblingRoot = path.resolve(
+            path.join(repoRoot, "..", pkgDirName)
+          );
 
           const jsPath = path.join(siblingRoot, subpath);
           const dtsPath = jsPath.endsWith(".js")
@@ -393,7 +397,8 @@ export const createProgram = (
             readonly name?: unknown;
           };
           const ok =
-            typeof parsed.name === "string" && parsed.name.startsWith("@tsonic/");
+            typeof parsed.name === "string" &&
+            parsed.name.startsWith("@tsonic/");
           packageRootCache.set(dir, ok);
           return ok;
         } catch {

@@ -41,9 +41,7 @@ ${refElements}
 /**
  * Generate framework references XML (FrameworkReference)
  */
-const formatFrameworkReferences = (
-  refs: readonly string[]
-): string => {
+const formatFrameworkReferences = (refs: readonly string[]): string => {
   if (refs.length === 0) return "";
 
   const elements = refs
@@ -59,13 +57,14 @@ ${elements}
 /**
  * Generate NuGet package references XML (PackageReference)
  */
-const formatPackageReferences = (
-  refs: readonly PackageReference[]
-): string => {
+const formatPackageReferences = (refs: readonly PackageReference[]): string => {
   if (refs.length === 0) return "";
 
   const elements = refs
-    .map((ref) => `    <PackageReference Include="${ref.id}" Version="${ref.version}" />`)
+    .map(
+      (ref) =>
+        `    <PackageReference Include="${ref.id}" Version="${ref.version}" />`
+    )
     .join("\n");
 
   return `
@@ -87,7 +86,10 @@ const isValidMsbuildPropertyName = (name: string): boolean => {
 };
 
 const escapeXmlText = (value: string): string => {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 };
 
 const formatMsbuildProperties = (config: BuildConfig): string => {
@@ -263,9 +265,7 @@ export const generateCsproj = (config: BuildConfig): string => {
   const frameworkRefs = formatFrameworkReferences(
     config.frameworkReferences ?? []
   );
-  const packageRefs = formatPackageReferences(
-    config.packageReferences ?? []
-  );
+  const packageRefs = formatPackageReferences(config.packageReferences ?? []);
   const runtimeRef = config.runtimePath
     ? `
   <ItemGroup>

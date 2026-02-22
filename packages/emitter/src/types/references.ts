@@ -6,6 +6,7 @@
 
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
+import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitType } from "./emitter.js";
 import { substituteTypeArgs } from "../core/type-resolution.js";
 
@@ -324,7 +325,8 @@ export const emitReferenceType = (
         return [generic, currentContext];
       }
 
-      const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+      const moduleNamespace =
+        context.moduleNamespace ?? context.options.rootNamespace;
       const container = context.moduleStaticClassName;
       const isNestedInStaticContainer =
         localTypeInfo.kind === "typeAlias" &&
@@ -343,7 +345,8 @@ export const emitReferenceType = (
       return [csharpName, context];
     }
 
-    const moduleNamespace = context.moduleNamespace ?? context.options.rootNamespace;
+    const moduleNamespace =
+      context.moduleNamespace ?? context.options.rootNamespace;
     const container = context.moduleStaticClassName;
     const isNestedInStaticContainer =
       localTypeInfo.kind === "typeAlias" &&
@@ -386,6 +389,30 @@ export const emitReferenceType = (
       throw new Error(`ICE: Binding for '${name}' has no CLR name`);
     }
     const qualified = toGlobalClr(clrTypeNameToCSharp(clr));
+
+    if (typeArguments && typeArguments.length > 0) {
+      const typeParams: string[] = [];
+      let currentContext = context;
+      for (const typeArg of typeArguments) {
+        const [paramType, newContext] = emitType(typeArg, currentContext);
+        typeParams.push(paramType);
+        currentContext = newContext;
+      }
+      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+    }
+
+    return [qualified, context];
+  }
+
+  // Synthetic cross-module types (e.g. compiler-generated anonymous types) are
+  // declared in separate `__tsonic/*` modules. These do not appear in a given
+  // module's localTypes map, but they are part of the compilation unit and can
+  // be emitted as fully-qualified CLR types.
+  const syntheticNs = context.options.syntheticTypeNamespaces?.get(name);
+  if (syntheticNs) {
+    const qualified = toGlobalClr(
+      `${syntheticNs}.${escapeCSharpIdentifier(name)}`
+    );
 
     if (typeArguments && typeArguments.length > 0) {
       const typeParams: string[] = [];

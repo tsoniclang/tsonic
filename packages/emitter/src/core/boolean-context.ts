@@ -30,7 +30,9 @@ const stripGlobalPrefix = (name: string): string =>
  * This prevents boolean-context lowering from emitting `x != null` for CLR value types,
  * which is both semantically wrong and can silently miscompile (it compiles with boxing).
  */
-const coerceClrPrimitiveToPrimitiveType = (type: IrType): IrType | undefined => {
+const coerceClrPrimitiveToPrimitiveType = (
+  type: IrType
+): IrType | undefined => {
   if (type.kind !== "referenceType") return undefined;
 
   const resolved = type.resolvedClrType ?? type.typeId?.clrName;
@@ -76,7 +78,9 @@ const isBooleanCondition = (expr: IrExpression): boolean => {
   // Some CLR APIs (via bindings) surface as referenceType with a resolved CLR primitive
   // (e.g. System.Boolean). Treat those as booleans for C# conditions.
   const coerced = coerceClrPrimitiveToPrimitiveType(type);
-  return !!coerced && coerced.kind === "primitiveType" && coerced.name === "boolean";
+  return (
+    !!coerced && coerced.kind === "primitiveType" && coerced.name === "boolean"
+  );
 };
 
 /**
@@ -140,7 +144,9 @@ const emitRuntimeTruthinessCondition = (
   ctxWithId = alloc.context;
   const tmp = alloc.emittedName;
 
-  const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+  const operand = isSimpleOperandExpression(expr)
+    ? emittedText
+    : `(${emittedText})`;
 
   // Note: avoid pattern variables inside the switch arms to prevent C# name collisions.
   // This switch is the canonical JS-like truthiness for runtime CLR values:
@@ -149,7 +155,8 @@ const emitRuntimeTruthinessCondition = (
   // - string → length != 0
   // - numeric primitives → != 0 (and NaN is falsy for floating-point)
   // - other objects → truthy
-  const truthySwitch = `${tmp} switch { ` +
+  const truthySwitch =
+    `${tmp} switch { ` +
     `bool => (bool)${tmp}, ` +
     `string => ((string)${tmp}).Length != 0, ` +
     `sbyte => (sbyte)${tmp} != 0, ` +
@@ -207,7 +214,8 @@ const resolveLocalTypeAlias = (
 };
 
 const isNullishType = (type: IrType): boolean =>
-  type.kind === "primitiveType" && (type.name === "null" || type.name === "undefined");
+  type.kind === "primitiveType" &&
+  (type.name === "null" || type.name === "undefined");
 
 const getLiteralUnionBasePrimitive = (
   types: readonly IrType[]
@@ -247,27 +255,46 @@ const emitUnionTruthinessCondition = (
 
   const literalBase = getLiteralUnionBasePrimitive(nonNullTypes);
   if (literalBase) {
-    const baseType: IrType = { kind: "primitiveType", name: literalBase } as IrType;
+    const baseType: IrType = {
+      kind: "primitiveType",
+      name: literalBase,
+    } as IrType;
     if (!hasNullish) {
-      return toBooleanCondition({ ...expr, inferredType: baseType }, emittedText, context);
+      return toBooleanCondition(
+        { ...expr, inferredType: baseType },
+        emittedText,
+        context
+      );
     }
 
     // Nullable literal union (e.g. "a" | "b" | null) → value is falsy when nullish.
     const nextId = (context.tempVarId ?? 0) + 1;
     let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-    const alloc = allocateLocalName(`__tsonic_truthy_nullable_${nextId}`, ctxWithId);
+    const alloc = allocateLocalName(
+      `__tsonic_truthy_nullable_${nextId}`,
+      ctxWithId
+    );
     ctxWithId = alloc.context;
     const tmp = alloc.emittedName;
 
-    const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+    const operand = isSimpleOperandExpression(expr)
+      ? emittedText
+      : `(${emittedText})`;
     const [innerCond, innerCtx] = toBooleanCondition(
       { kind: "identifier", name: tmp, inferredType: baseType } as IrExpression,
       tmp,
       ctxWithId
     );
     const emittedNonNull =
-      literalBase === "string" ? "string" : literalBase === "number" ? "double" : "bool";
-    return [`(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`, innerCtx];
+      literalBase === "string"
+        ? "string"
+        : literalBase === "number"
+          ? "double"
+          : "bool";
+    return [
+      `(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`,
+      innerCtx,
+    ];
   }
 
   // Nullable union: (T | null | undefined) → treat as `T?` truthiness.
@@ -277,11 +304,16 @@ const emitUnionTruthinessCondition = (
 
     const nextId = (context.tempVarId ?? 0) + 1;
     let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-    const alloc = allocateLocalName(`__tsonic_truthy_nullable_${nextId}`, ctxWithId);
+    const alloc = allocateLocalName(
+      `__tsonic_truthy_nullable_${nextId}`,
+      ctxWithId
+    );
     ctxWithId = alloc.context;
     const tmp = alloc.emittedName;
 
-    const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+    const operand = isSimpleOperandExpression(expr)
+      ? emittedText
+      : `(${emittedText})`;
     // Pattern-match the non-null value into a strongly-typed temp and apply truthiness to it.
     // This handles both nullable value types (int?) and nullable reference types (string?).
     const [innerCond, innerCtx] = toBooleanCondition(
@@ -290,26 +322,39 @@ const emitUnionTruthinessCondition = (
       ctxWithId
     );
     const emittedNonNull =
-      nonNull.kind === "primitiveType" ? (
-        nonNull.name === "number" ? "double" :
-        nonNull.name === "int" ? "int" :
-        nonNull.name === "string" ? "string" :
-        nonNull.name === "boolean" ? "bool" :
-        nonNull.name === "char" ? "char" :
-        "object"
-      ) : "var";
-    return [`(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`, innerCtx];
+      nonNull.kind === "primitiveType"
+        ? nonNull.name === "number"
+          ? "double"
+          : nonNull.name === "int"
+            ? "int"
+            : nonNull.name === "string"
+              ? "string"
+              : nonNull.name === "boolean"
+                ? "bool"
+                : nonNull.name === "char"
+                  ? "char"
+                  : "object"
+        : "var";
+    return [
+      `(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`,
+      innerCtx,
+    ];
   }
 
   // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
   if (unionType.types.length >= 2 && unionType.types.length <= 8) {
     const nextId = (context.tempVarId ?? 0) + 1;
     let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-    const alloc = allocateLocalName(`__tsonic_truthy_union_${nextId}`, ctxWithId);
+    const alloc = allocateLocalName(
+      `__tsonic_truthy_union_${nextId}`,
+      ctxWithId
+    );
     ctxWithId = alloc.context;
     const u = alloc.emittedName;
 
-    const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+    const operand = isSimpleOperandExpression(expr)
+      ? emittedText
+      : `(${emittedText})`;
 
     // Build nested conditional chain: u.Is1() ? truth(u.As1()) : u.Is2() ? truth(u.As2()) : ...
     let chainCtx = ctxWithId;
@@ -329,7 +374,11 @@ const emitUnionTruthinessCondition = (
       }
 
       const [memberCond, memberCtx] = toBooleanCondition(
-        { kind: "identifier", name: `${u}__${memberN}`, inferredType: memberType } as IrExpression,
+        {
+          kind: "identifier",
+          name: `${u}__${memberN}`,
+          inferredType: memberType,
+        } as IrExpression,
         `${u}.As${memberN}()`,
         chainCtx
       );
@@ -449,10 +498,15 @@ export const toBooleanCondition = (
         // Use a pattern var to avoid evaluating the expression twice.
         const nextId = (context.tempVarId ?? 0) + 1;
         let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-        const alloc = allocateLocalName(`__tsonic_truthy_num_${nextId}`, ctxWithId);
+        const alloc = allocateLocalName(
+          `__tsonic_truthy_num_${nextId}`,
+          ctxWithId
+        );
         ctxWithId = alloc.context;
         const tmp = alloc.emittedName;
-        const operand = isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`;
+        const operand = isSimpleOperandExpression(expr)
+          ? emittedText
+          : `(${emittedText})`;
         return [
           `(${operand} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
           ctxWithId,
@@ -478,7 +532,8 @@ export const emitBooleanCondition = (
   emitExpr: EmitExprFn,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  const getLogicalPrecedence = (op: "&&" | "||"): number => (op === "&&" ? 6 : 5);
+  const getLogicalPrecedence = (op: "&&" | "||"): number =>
+    op === "&&" ? 6 : 5;
 
   const maybeParenthesizeLogicalOperand = (
     operandExpr: IrExpression,
@@ -486,19 +541,39 @@ export const emitBooleanCondition = (
     parentOp: "&&" | "||"
   ): string => {
     if (operandExpr.kind !== "logical") return operandText;
-    if (operandExpr.operator !== "&&" && operandExpr.operator !== "||") return operandText;
+    if (operandExpr.operator !== "&&" && operandExpr.operator !== "||")
+      return operandText;
 
     const parentPrec = getLogicalPrecedence(parentOp);
     const childPrec = getLogicalPrecedence(operandExpr.operator);
     return childPrec < parentPrec ? `(${operandText})` : operandText;
   };
 
-  if (expr.kind === "logical" && (expr.operator === "&&" || expr.operator === "||")) {
-    const [lhsText, lhsCtx] = emitBooleanCondition(expr.left, emitExpr, context);
-    const [rhsText, rhsCtx] = emitBooleanCondition(expr.right, emitExpr, lhsCtx);
+  if (
+    expr.kind === "logical" &&
+    (expr.operator === "&&" || expr.operator === "||")
+  ) {
+    const [lhsText, lhsCtx] = emitBooleanCondition(
+      expr.left,
+      emitExpr,
+      context
+    );
+    const [rhsText, rhsCtx] = emitBooleanCondition(
+      expr.right,
+      emitExpr,
+      lhsCtx
+    );
 
-    const lhsWrapped = maybeParenthesizeLogicalOperand(expr.left, lhsText, expr.operator);
-    const rhsWrapped = maybeParenthesizeLogicalOperand(expr.right, rhsText, expr.operator);
+    const lhsWrapped = maybeParenthesizeLogicalOperand(
+      expr.left,
+      lhsText,
+      expr.operator
+    );
+    const rhsWrapped = maybeParenthesizeLogicalOperand(
+      expr.right,
+      rhsText,
+      expr.operator
+    );
     return [`${lhsWrapped} ${expr.operator} ${rhsWrapped}`, rhsCtx];
   }
 

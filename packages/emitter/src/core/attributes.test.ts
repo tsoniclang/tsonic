@@ -349,7 +349,9 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitParameterAttributes([attr], context);
-      expect(result).to.include("[param: global::System.Runtime.InteropServices.InAttribute]");
+      expect(result).to.include(
+        "[param: global::System.Runtime.InteropServices.InAttribute]"
+      );
       expect(result).to.match(/ $/);
     });
 

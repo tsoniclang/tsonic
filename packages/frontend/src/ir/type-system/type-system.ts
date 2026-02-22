@@ -1398,7 +1398,10 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     site?: Site
   ): IrType => {
     const addUndefinedToType = (t: IrType): IrType => {
-      const undefinedType: IrType = { kind: "primitiveType", name: "undefined" };
+      const undefinedType: IrType = {
+        kind: "primitiveType",
+        name: "undefined",
+      };
       if (t.kind === "unionType") {
         const hasUndefined = t.types.some(
           (x) => x.kind === "primitiveType" && x.name === "undefined"
@@ -1412,7 +1415,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       const member = type.members.find((m) => m.name === memberName);
       if (member) {
         if (member.kind === "propertySignature") {
-          return member.isOptional ? addUndefinedToType(member.type) : member.type;
+          return member.isOptional
+            ? addUndefinedToType(member.type)
+            : member.type;
         }
         // Method signature - return function type using the same parameters
         if (member.kind === "methodSignature") {
@@ -1433,7 +1438,9 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       const member = type.structuralMembers.find((m) => m.name === memberName);
       if (member) {
         if (member.kind === "propertySignature") {
-          return member.isOptional ? addUndefinedToType(member.type) : member.type;
+          return member.isOptional
+            ? addUndefinedToType(member.type)
+            : member.type;
         }
         if (member.kind === "methodSignature") {
           const funcType: IrFunctionType = {

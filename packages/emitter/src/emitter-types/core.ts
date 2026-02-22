@@ -66,7 +66,10 @@ export type TypeMemberKind = "method" | "property" | "field" | "enumMember";
  * Key: fully-qualified type name (without global::), e.g. "MyApp.Models.User"
  * Value: map from original TS member name to its kind ("method" | "property" | "field" | "enumMember")
  */
-export type TypeMemberIndex = ReadonlyMap<string, ReadonlyMap<string, TypeMemberKind>>;
+export type TypeMemberIndex = ReadonlyMap<
+  string,
+  ReadonlyMap<string, TypeMemberKind>
+>;
 
 export type TypeAliasIndexEntry = {
   /** Fully-qualified type name (without global::), e.g. "MyApp.Models.Result" */
@@ -99,6 +102,17 @@ export type TypeAliasIndex = {
 export type EmitterOptions = {
   /** Root namespace for the application */
   readonly rootNamespace: string;
+  /**
+   * Cross-module synthetic type namespace map (compiler-generated only).
+   *
+   * Used for types declared in synthetic IR modules (e.g. `__tsonic/*`) that
+   * do not appear in a given module's localTypes, but are still part of the
+   * final compilation unit.
+   *
+   * Key: unqualified type name (e.g. "__Anon_abcd_1234abcd")
+   * Value: declaring namespace (e.g. "MyApp")
+   */
+  readonly syntheticTypeNamespaces?: ReadonlyMap<string, string>;
   /** Member-kind index for locally-emitted types (populated during batch emission) */
   readonly typeMemberIndex?: TypeMemberIndex;
   /** Cross-module type alias index (populated during batch emission) */
@@ -229,7 +243,10 @@ export type EmitterContext = {
   /** Type parameter names in current scope (for detecting generic type contexts) */
   readonly typeParameters?: ReadonlySet<string>;
   /** Type parameter constraint kinds in current scope (for nullable emission decisions) */
-  readonly typeParamConstraints?: ReadonlyMap<string, "class" | "struct" | "unconstrained">;
+  readonly typeParamConstraints?: ReadonlyMap<
+    string,
+    "class" | "struct" | "unconstrained"
+  >;
   /**
    * Map from source type-parameter names to their emitted C# identifiers.
    *

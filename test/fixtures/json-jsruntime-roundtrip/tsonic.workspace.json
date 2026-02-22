@@ -2,9 +2,7 @@
   "$schema": "https://tsonic.org/schema/workspace/v1.json",
   "dotnetVersion": "net10.0",
   "dotnet": {
-    "libraries": [
-      "../../../packages/cli/runtime/Tsonic.JSRuntime.dll"
-    ],
+    "libraries": ["../../../packages/cli/runtime/Tsonic.JSRuntime.dll"],
     "frameworkReferences": [],
     "packageReferences": []
   }

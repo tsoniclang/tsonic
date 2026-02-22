@@ -45,8 +45,11 @@ describe("build command (library bindings ref dirs)", function () {
       // Workspace root package.json is required for createRequire-based resolution.
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test-workspace", private: true, type: "module" }, null, 2) +
-          "\n",
+        JSON.stringify(
+          { name: "test-workspace", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -91,7 +94,14 @@ describe("build command (library bindings ref dirs)", function () {
       );
       const depOut = join(dir, "deps", "out");
       mkdirSync(depOut, { recursive: true });
-      run(depDir, "dotnet", ["build", "-c", "Release", "-o", depOut, "--nologo"]);
+      run(depDir, "dotnet", [
+        "build",
+        "-c",
+        "Release",
+        "-o",
+        depOut,
+        "--nologo",
+      ]);
       const depDll = join(depOut, "Dep.dll");
       expect(existsSync(depDll)).to.equal(true);
 
@@ -153,9 +163,9 @@ describe("build command (library bindings ref dirs)", function () {
       expect(build.ok).to.equal(true);
 
       // Sanity: bindings were emitted for the library.
-      expect(existsSync(join(projectRoot, "dist", "tsonic", "bindings"))).to.equal(
-        true
-      );
+      expect(
+        existsSync(join(projectRoot, "dist", "tsonic", "bindings"))
+      ).to.equal(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

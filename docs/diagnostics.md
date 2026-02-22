@@ -490,7 +490,7 @@ takesChar("A"); // OK
 
 const s = "hello";
 // takesChar(s);    // TSN7418 (not a literal / not char-typed)
-takesChar(s[0]);    // OK (context expects char)
+takesChar(s[0]); // OK (context expects char)
 ```
 
 **Fix:** Use a single-character literal in a `char` position, or obtain a `char` from an API returning `char` (for example `System.Char.parse("Q")`).
@@ -502,7 +502,9 @@ takesChar(s[0]);    // OK (context expects char)
 In CLR, there is no bottom/uninhabited type that can be used as a generic parameter. Emitting `void` is not valid C# in a generic argument position.
 
 ```ts
-export type Result<T, E> = { success: true; data: T } | { success: false; error: E };
+export type Result<T, E> =
+  | { success: true; data: T }
+  | { success: false; error: E };
 
 export function ok<T>(data: T): Result<T, never> {
   return { success: true, data };

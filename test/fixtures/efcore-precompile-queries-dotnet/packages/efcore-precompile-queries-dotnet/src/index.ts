@@ -3,7 +3,11 @@ import { asinterface } from "@tsonic/core/lang.js";
 import type { Interface } from "@tsonic/core/lang.js";
 import type { ExtensionMethods as Linq } from "@tsonic/dotnet/System.Linq.js";
 import type { IQueryable } from "@tsonic/dotnet/System.Linq.js";
-import { DbContext, DbContextOptionsBuilder, DbSet } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
+import {
+  DbContext,
+  DbContextOptionsBuilder,
+  DbSet,
+} from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 import type { DbContextOptions } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.js";
 import type { IDesignTimeDbContextFactory } from "@tsonic/efcore/Microsoft.EntityFrameworkCore.Design.js";
 import { SqliteDbContextOptionsBuilderExtensions } from "@tsonic/efcore-sqlite/Microsoft.EntityFrameworkCore.js";
@@ -28,7 +32,10 @@ export class AppDbContext extends DbContext {
 
 export const createDbOptions = (): DbContextOptions => {
   const optionsBuilder = new DbContextOptionsBuilder();
-  SqliteDbContextOptionsBuilderExtensions.UseSqlite(optionsBuilder, "Data Source=:memory:");
+  SqliteDbContextOptionsBuilderExtensions.UseSqlite(
+    optionsBuilder,
+    "Data Source=:memory:"
+  );
   return optionsBuilder.Options;
 };
 
@@ -40,7 +47,10 @@ export class AppDbContextFactory
   }
 }
 
-export function countEventsByCampaign(db: AppDbContext, campaignId: string): int {
+export function countEventsByCampaign(
+  db: AppDbContext,
+  campaignId: string
+): int {
   // NOTE: EF query precompilation (NativeAOT) currently requires locals (not parameter
   // symbols) for values referenced inside query expressions.
   const db0 = db;
@@ -51,7 +61,10 @@ export function countEventsByCampaign(db: AppDbContext, campaignId: string): int
     .Count();
 }
 
-export const countEventsByCampaignConst = (db: AppDbContext, campaignId: string): int => {
+export const countEventsByCampaignConst = (
+  db: AppDbContext,
+  campaignId: string
+): int => {
   const db0 = db;
   const campaignId0 = campaignId;
 
@@ -60,7 +73,10 @@ export const countEventsByCampaignConst = (db: AppDbContext, campaignId: string)
     .Count();
 };
 
-export function listEventsByCampaign(db: AppDbContext, campaignId: string): EventEntity[] {
+export function listEventsByCampaign(
+  db: AppDbContext,
+  campaignId: string
+): EventEntity[] {
   const db0 = db;
   const campaignId0 = campaignId;
 
@@ -94,7 +110,10 @@ export function listEventsByCampaignToArrayViaList(
     .ToArray();
 }
 
-export function countEventsWithOptionalFilter(db: AppDbContext, campaignId?: string): int {
+export function countEventsWithOptionalFilter(
+  db: AppDbContext,
+  campaignId?: string
+): int {
   const db0 = db;
   const campaignId0 = campaignId;
   const hasCampaign = campaignId0 !== undefined && campaignId0 !== "";

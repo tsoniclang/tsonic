@@ -23,11 +23,13 @@ export function main(): void {
   Console.WriteLine(out1);
 
   // 2) Multi-declarator: later initializer must see earlier decl type.
-  const a = false, b = !a;
+  const a = false,
+    b = !a;
   Console.WriteLine(b ? "T" : "F");
 
   // 3) Multi-declarator + logical operator: boolean `||` must not become `??`.
-  const x = false, y = x || true;
+  const x = false,
+    y = x || true;
   Console.WriteLine(y ? "T" : "F");
 
   // 4) Numeric truthiness for Int32: `for (; i; i--)` must stop at 0.
@@ -125,7 +127,7 @@ export function main(): void {
   Console.WriteLine(calls);
 
   // 13) Precedence between && and || must match JS/TS.
-  const g1 = false && false || true;
+  const g1 = (false && false) || true;
   Console.WriteLine(g1 ? "T" : "F");
 
   const g2 = false && (false || true);

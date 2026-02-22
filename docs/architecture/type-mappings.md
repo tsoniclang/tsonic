@@ -81,7 +81,10 @@ Tuples with 8+ elements use nested ValueTuple with TRest.
 Tsonic does not include JavaScript `Map`/`Set` in the default globals. Use .NET collections:
 
 ```typescript
-import { Dictionary, HashSet } from "@tsonic/dotnet/System.Collections.Generic.js";
+import {
+  Dictionary,
+  HashSet,
+} from "@tsonic/dotnet/System.Collections.Generic.js";
 
 // TypeScript
 const map = new Dictionary<string, number>();

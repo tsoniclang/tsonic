@@ -4,7 +4,7 @@ Tsonic provides precise control over numeric types through the `@tsonic/core` pa
 
 ## Overview
 
-When you *annotate* a value as TypeScript `number`, Tsonic emits a C# `double`.
+When you _annotate_ a value as TypeScript `number`, Tsonic emits a C# `double`.
 
 Tsonic also applies C#-style **numeric literal inference**:
 

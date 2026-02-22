@@ -89,7 +89,11 @@ const writeNugetConfig = (projectRoot: string, feedDir: string): void => {
 const createNugetPackage = (
   workDir: string,
   feedDir: string,
-  pkg: { id: string; version: string; deps?: readonly { id: string; version: string }[] }
+  pkg: {
+    id: string;
+    version: string;
+    deps?: readonly { id: string; version: string }[];
+  }
 ): void => {
   const projDir = join(workDir, `${pkg.id}.${pkg.version}`);
   mkdirSync(projDir, { recursive: true });
@@ -124,14 +128,7 @@ ${deps}</Project>
   );
 
   // Pack to local feed (uses nuget.config in parent dirs).
-  run(projDir, "dotnet", [
-    "pack",
-    "-c",
-    "Release",
-    "-o",
-    feedDir,
-    "--nologo",
-  ]);
+  run(projDir, "dotnet", ["pack", "-c", "Release", "-o", feedDir, "--nologo"]);
 };
 
 describe("add commands - dependency closure bindings", function () {
@@ -175,8 +172,8 @@ describe("add commands - dependency closure bindings", function () {
         undefined,
         join(dir, "tsonic.workspace.json"),
         {
-        verbose: false,
-        quiet: true,
+          verbose: false,
+          quiet: true,
         }
       );
       expect(result.ok).to.equal(true);
@@ -239,7 +236,9 @@ describe("add commands - dependency closure bindings", function () {
       const updated = JSON.parse(readFileSync(configPath, "utf-8")) as {
         dotnet?: { packageReferences?: Array<{ id: string; version: string }> };
       };
-      const pr = updated.dotnet?.packageReferences?.find((p) => p.id === "Acme.D");
+      const pr = updated.dotnet?.packageReferences?.find(
+        (p) => p.id === "Acme.D"
+      );
       expect(pr?.version).to.equal("1.0.1");
       expect(existsSync(join(dir, "node_modules", "acme-d-types"))).to.equal(
         true
@@ -324,10 +323,15 @@ describe("add commands - dependency closure bindings", function () {
       );
       expect(existsSync(dll)).to.equal(true);
 
-      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.workspace.json"), {
-        verbose: false,
-        quiet: true,
-      });
+      const add = addPackageCommand(
+        dll,
+        undefined,
+        join(dir, "tsonic.workspace.json"),
+        {
+          verbose: false,
+          quiet: true,
+        }
+      );
       expect(add.ok).to.equal(true);
 
       // Should have generated a bindings package in node_modules.
@@ -387,17 +391,24 @@ describe("add commands - dependency closure bindings", function () {
       );
 
       const dll = makeLib(dir);
-      const add = addPackageCommand(dll, undefined, join(dir, "tsonic.workspace.json"), {
-        verbose: false,
-        quiet: true,
-      });
+      const add = addPackageCommand(
+        dll,
+        undefined,
+        join(dir, "tsonic.workspace.json"),
+        {
+          verbose: false,
+          quiet: true,
+        }
+      );
       expect(add.ok).to.equal(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
 
     // Strict: should fail with TBG406.
-    const dirStrict = mkdtempSync(join(tmpdir(), "tsonic-ctor-constraint-strict-"));
+    const dirStrict = mkdtempSync(
+      join(tmpdir(), "tsonic-ctor-constraint-strict-")
+    );
     try {
       writeWorkspaceConfig(dirStrict);
 
@@ -411,11 +422,16 @@ describe("add commands - dependency closure bindings", function () {
       );
 
       const dll = makeLib(dirStrict);
-      const add = addPackageCommand(dll, undefined, join(dirStrict, "tsonic.workspace.json"), {
-        verbose: false,
-        quiet: true,
-        strict: true,
-      });
+      const add = addPackageCommand(
+        dll,
+        undefined,
+        join(dirStrict, "tsonic.workspace.json"),
+        {
+          verbose: false,
+          quiet: true,
+          strict: true,
+        }
+      );
       expect(add.ok).to.equal(false);
       if (add.ok === false) {
         expect(add.error).to.include("TBG406");

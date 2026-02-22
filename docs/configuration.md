@@ -153,12 +153,12 @@ Fields:
 
 Common `output.*` fields:
 
-| Field | Applies To | Default | Notes |
-| --- | --- | --- | --- |
-| `nativeAot` | executable | `true` | NativeAOT publish |
-| `nativeAot` | library | `false` | When `true`, runs `dotnet publish -r <rid>` and copies output to `dist/<tfm>/<rid>/publish/` |
-| `nativeLib` | library | `shared` | Only when `nativeAot: true` (`shared` or `static`) |
-| `targetFrameworks` | library | `[dotnetVersion]` | Multi-target supported |
+| Field              | Applies To | Default           | Notes                                                                                        |
+| ------------------ | ---------- | ----------------- | -------------------------------------------------------------------------------------------- |
+| `nativeAot`        | executable | `true`            | NativeAOT publish                                                                            |
+| `nativeAot`        | library    | `false`           | When `true`, runs `dotnet publish -r <rid>` and copies output to `dist/<tfm>/<rid>/publish/` |
+| `nativeLib`        | library    | `shared`          | Only when `nativeAot: true` (`shared` or `static`)                                           |
+| `targetFrameworks` | library    | `[dotnetVersion]` | Multi-target supported                                                                       |
 
 ### `references.libraries` (workspace-internal)
 

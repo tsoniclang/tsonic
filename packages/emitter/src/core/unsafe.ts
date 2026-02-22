@@ -34,10 +34,7 @@ export const typeUsesPointer = (type: IrType | undefined): boolean => {
       return typeUsesPointer(type.elementType);
 
     case "dictionaryType":
-      return (
-        typeUsesPointer(type.keyType) ||
-        typeUsesPointer(type.valueType)
-      );
+      return typeUsesPointer(type.keyType) || typeUsesPointer(type.valueType);
 
     case "tupleType":
       return type.elementTypes.some((t) => typeUsesPointer(t));
@@ -84,9 +81,7 @@ const interfaceMembersUsePointer = (
   return false;
 };
 
-const classMembersUsePointer = (
-  members: readonly IrClassMember[]
-): boolean => {
+const classMembersUsePointer = (members: readonly IrClassMember[]): boolean => {
   for (const member of members) {
     if (member.kind === "propertyDeclaration") {
       if (typeUsesPointer(member.type)) return true;
@@ -162,7 +157,8 @@ export const expressionUsesPointer = (
       if (expressionUsesPointer(expr.callee)) return true;
       if (expr.typeArguments?.some((t) => typeUsesPointer(t))) return true;
       if (expr.parameterTypes?.some((t) => typeUsesPointer(t))) return true;
-      if (expr.narrowing && typeUsesPointer(expr.narrowing.targetType)) return true;
+      if (expr.narrowing && typeUsesPointer(expr.narrowing.targetType))
+        return true;
       for (const arg of expr.arguments) {
         if (arg.kind === "spread") {
           if (expressionUsesPointer(arg.expression)) return true;
@@ -178,7 +174,9 @@ export const expressionUsesPointer = (
         expressionUsesPointer(expr.callee) ||
         (expr.typeArguments?.some((t) => typeUsesPointer(t)) ?? false) ||
         expr.arguments.some((a) =>
-          a.kind === "spread" ? expressionUsesPointer(a.expression) : expressionUsesPointer(a)
+          a.kind === "spread"
+            ? expressionUsesPointer(a.expression)
+            : expressionUsesPointer(a)
         )
       );
 
@@ -312,8 +310,7 @@ export const statementUsesPointer = (stmt: IrStatement): boolean => {
 
     case "whileStatement":
       return (
-        expressionUsesPointer(stmt.condition) ||
-        statementUsesPointer(stmt.body)
+        expressionUsesPointer(stmt.condition) || statementUsesPointer(stmt.body)
       );
 
     case "forStatement": {
@@ -358,7 +355,9 @@ export const statementUsesPointer = (stmt: IrStatement): boolean => {
     case "tryStatement":
       return (
         statementUsesPointer(stmt.tryBlock) ||
-        (stmt.catchClause ? statementUsesPointer(stmt.catchClause.body) : false) ||
+        (stmt.catchClause
+          ? statementUsesPointer(stmt.catchClause.body)
+          : false) ||
         (stmt.finallyBlock ? statementUsesPointer(stmt.finallyBlock) : false)
       );
 

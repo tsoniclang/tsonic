@@ -158,7 +158,10 @@ const isNonNullableValueType = (type: IrType): boolean => {
   return false;
 };
 
-const isSameTypeForNullableUnwrap = (base: IrType, expected: IrType): boolean => {
+const isSameTypeForNullableUnwrap = (
+  base: IrType,
+  expected: IrType
+): boolean => {
   if (base.kind !== expected.kind) return false;
 
   if (base.kind === "primitiveType" && expected.kind === "primitiveType") {
@@ -296,7 +299,11 @@ const emitTypeAssertion = (
   expr: IrTypeAssertionExpression,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
-  const [innerCode, ctx1] = emitExpression(expr.expression, context, expr.targetType);
+  const [innerCode, ctx1] = emitExpression(
+    expr.expression,
+    context,
+    expr.targetType
+  );
 
   const resolveLocalTypeAliases = (target: IrType): IrType => {
     if (target.kind === "referenceType" && ctx1.localTypes) {
@@ -333,7 +340,8 @@ const emitTypeAssertion = (
 
     if (resolved.kind === "referenceType" && resolved.typeArguments?.length) {
       const importBinding = ctx1.importBindings?.get(resolved.name);
-      const clrName = importBinding?.kind === "type" ? importBinding.clrName : "";
+      const clrName =
+        importBinding?.kind === "type" ? importBinding.clrName : "";
       if (clrName.endsWith(".ExtensionMethods")) {
         return true;
       }
@@ -385,7 +393,8 @@ const emitTypeAssertion = (
     //    ExtensionMethods<TShape> is type-only; values are just TShape.
     if (target.kind === "referenceType" && target.typeArguments?.length) {
       const importBinding = ctx.importBindings?.get(target.name);
-      const clrName = importBinding?.kind === "type" ? importBinding.clrName : "";
+      const clrName =
+        importBinding?.kind === "type" ? importBinding.clrName : "";
       if (clrName.endsWith(".ExtensionMethods")) {
         const shape = target.typeArguments[0];
         if (shape) return resolveRuntimeCastTarget(shape, ctx);
@@ -396,7 +405,10 @@ const emitTypeAssertion = (
     if (target.kind === "intersectionType") {
       for (const part of target.types) {
         const resolved = resolveRuntimeCastTarget(part, ctx);
-        if (resolved.kind !== "intersectionType" && resolved.kind !== "objectType") {
+        if (
+          resolved.kind !== "intersectionType" &&
+          resolved.kind !== "objectType"
+        ) {
           return resolved;
         }
       }
@@ -488,87 +500,87 @@ export const emitExpression = (
 ): [CSharpFragment, EmitterContext] => {
   const [fragment, newContext] = (() => {
     switch (expr.kind) {
-    case "literal":
-      // Pass expectedType for null → default conversion in generic contexts
-      // Numeric literals use raw lexeme (no contextual widening under new spec)
-      return emitLiteral(expr, context, expectedType);
+      case "literal":
+        // Pass expectedType for null → default conversion in generic contexts
+        // Numeric literals use raw lexeme (no contextual widening under new spec)
+        return emitLiteral(expr, context, expectedType);
 
-    case "identifier":
-      return emitIdentifier(expr, context);
+      case "identifier":
+        return emitIdentifier(expr, context);
 
-    case "array":
-      return emitArray(expr, context, expectedType);
+      case "array":
+        return emitArray(expr, context, expectedType);
 
-    case "object":
-      return emitObject(expr, context, expectedType);
+      case "object":
+        return emitObject(expr, context, expectedType);
 
-    case "memberAccess":
-      return emitMemberAccess(expr, context);
+      case "memberAccess":
+        return emitMemberAccess(expr, context);
 
-    case "call":
-      return emitCall(expr, context);
+      case "call":
+        return emitCall(expr, context);
 
-    case "new":
-      return emitNew(expr, context);
+      case "new":
+        return emitNew(expr, context);
 
-    case "binary":
-      return emitBinary(expr, context, expectedType);
+      case "binary":
+        return emitBinary(expr, context, expectedType);
 
-    case "logical":
-      return emitLogical(expr, context);
+      case "logical":
+        return emitLogical(expr, context);
 
-    case "unary":
-      return emitUnary(expr, context, expectedType);
+      case "unary":
+        return emitUnary(expr, context, expectedType);
 
-    case "update":
-      return emitUpdate(expr, context);
+      case "update":
+        return emitUpdate(expr, context);
 
-    case "assignment":
-      return emitAssignment(expr, context);
+      case "assignment":
+        return emitAssignment(expr, context);
 
-    case "conditional":
-      return emitConditional(expr, context, expectedType);
+      case "conditional":
+        return emitConditional(expr, context, expectedType);
 
-    case "functionExpression":
-      return emitFunctionExpression(expr, context);
+      case "functionExpression":
+        return emitFunctionExpression(expr, context);
 
-    case "arrowFunction":
-      return emitArrowFunction(expr, context);
+      case "arrowFunction":
+        return emitArrowFunction(expr, context);
 
-    case "templateLiteral":
-      return emitTemplateLiteral(expr, context);
+      case "templateLiteral":
+        return emitTemplateLiteral(expr, context);
 
-    case "spread":
-      return emitSpread(expr, context);
+      case "spread":
+        return emitSpread(expr, context);
 
-    case "await":
-      return emitAwait(expr, context);
+      case "await":
+        return emitAwait(expr, context);
 
-    case "this":
-      return [{ text: "this" }, context];
+      case "this":
+        return [{ text: "this" }, context];
 
-    case "numericNarrowing":
-      return emitNumericNarrowing(expr, context);
+      case "numericNarrowing":
+        return emitNumericNarrowing(expr, context);
 
-    case "asinterface":
-      return emitAsInterface(expr, context, expectedType);
+      case "asinterface":
+        return emitAsInterface(expr, context, expectedType);
 
-    case "typeAssertion":
-      return emitTypeAssertion(expr, context);
+      case "typeAssertion":
+        return emitTypeAssertion(expr, context);
 
-    case "trycast":
-      return emitTryCast(expr, context);
+      case "trycast":
+        return emitTryCast(expr, context);
 
-    case "stackalloc":
-      return emitStackAlloc(expr, context);
+      case "stackalloc":
+        return emitStackAlloc(expr, context);
 
-    case "defaultof":
-      return emitDefaultOf(expr, context);
+      case "defaultof":
+        return emitDefaultOf(expr, context);
 
-    default:
-      throw new Error(
-        `Unhandled IR expression kind: ${String((expr as { kind?: unknown }).kind)}`
-      );
+      default:
+        throw new Error(
+          `Unhandled IR expression kind: ${String((expr as { kind?: unknown }).kind)}`
+        );
     }
   })();
 

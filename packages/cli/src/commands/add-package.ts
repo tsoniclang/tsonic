@@ -10,12 +10,7 @@
  * - Any unresolved dependency is a hard failure with actionable diagnostics
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import type {
@@ -62,7 +57,9 @@ const setLibraryTypesMapping = (
   typesPackage: string
 ): Result<void, string> => {
   const key = normalizeLibraryKey(libraryPath);
-  const idx = entries.findIndex((e) => normalizeLibraryKey(getLibraryPath(e)) === key);
+  const idx = entries.findIndex(
+    (e) => normalizeLibraryKey(getLibraryPath(e)) === key
+  );
   if (idx === -1) {
     entries.push({ path: libraryPath, types: typesPackage });
     return { ok: true, value: undefined };
@@ -94,7 +91,8 @@ const addUniqueLibraryPath = (
   libraryPath: string
 ): void => {
   const key = normalizeLibraryKey(libraryPath);
-  if (entries.some((e) => normalizeLibraryKey(getLibraryPath(e)) === key)) return;
+  if (entries.some((e) => normalizeLibraryKey(getLibraryPath(e)) === key))
+    return;
   entries.push(libraryPath);
 };
 
@@ -107,7 +105,8 @@ const hasFrameworkReference = (
   value: string
 ): boolean =>
   arr.some(
-    (r) => (typeof r === "string" ? r : r.id).toLowerCase() === value.toLowerCase()
+    (r) =>
+      (typeof r === "string" ? r : r.id).toLowerCase() === value.toLowerCase()
   );
 
 const isValidTypesPackageName = (name: string): boolean => {
@@ -191,7 +190,10 @@ export const addPackageCommand = (
       .filter((d) => d.severity === "Error")
       .map((d) => `${d.code}: ${d.message}`)
       .join("\n");
-    return { ok: false, error: `Failed to resolve DLL dependency closure:\n${details}` };
+    return {
+      ok: false,
+      error: `Failed to resolve DLL dependency closure:\n${details}`,
+    };
   }
 
   const requiredFrameworkRefs = new Set<string>();
@@ -242,7 +244,11 @@ export const addPackageCommand = (
 
   if (typesPackage) {
     const rootRel = `libs/${basename(dllAbs)}`;
-    const mappingResult = setLibraryTypesMapping(libraries, rootRel, typesPackage);
+    const mappingResult = setLibraryTypesMapping(
+      libraries,
+      rootRel,
+      typesPackage
+    );
     if (!mappingResult.ok) return mappingResult;
   }
 
@@ -269,7 +275,11 @@ export const addPackageCommand = (
 
   // Install or generate bindings.
   if (typesPackage) {
-    const installResult = npmInstallDevDependency(workspaceRoot, typesPackage, options);
+    const installResult = npmInstallDevDependency(
+      workspaceRoot,
+      typesPackage,
+      options
+    );
     if (!installResult.ok) return installResult;
     return {
       ok: true,
@@ -335,7 +345,10 @@ export const addPackageCommand = (
     const s = state.get(id);
     if (s === "done") return { ok: true, value: undefined };
     if (s === "visiting") {
-      return { ok: false, error: `Cycle detected in DLL dependency graph at: ${id}` };
+      return {
+        ok: false,
+        error: `Cycle detected in DLL dependency graph at: ${id}`,
+      };
     }
     state.set(id, "visiting");
     for (const dep of directDeps.get(id) ?? []) {
@@ -371,7 +384,10 @@ export const addPackageCommand = (
     const asm = byId.get(id);
     const destPath = destPathById.get(id);
     if (!asm || !destPath) {
-      return { ok: false, error: `Internal error: missing assembly info for ${id}` };
+      return {
+        ok: false,
+        error: `Internal error: missing assembly info for ${id}`,
+      };
     }
 
     const packageName = defaultBindingsPackageNameForDll(destPath);
@@ -380,14 +396,18 @@ export const addPackageCommand = (
     bindingsDirById.set(id, bindingsDir);
     packageNameById.set(id, packageName);
 
-    const pkgJsonResult = ensureGeneratedBindingsPackageJson(bindingsDir, packageName, {
-      kind: "dll",
-      source: {
-        assemblyName: asm.name,
-        version: asm.version,
-        path: `libs/${basename(destPath)}`,
-      },
-    });
+    const pkgJsonResult = ensureGeneratedBindingsPackageJson(
+      bindingsDir,
+      packageName,
+      {
+        kind: "dll",
+        source: {
+          assemblyName: asm.name,
+          version: asm.version,
+          path: `libs/${basename(destPath)}`,
+        },
+      }
+    );
     if (!pkgJsonResult.ok) return pkgJsonResult;
 
     const generateArgs: string[] = [
@@ -409,16 +429,27 @@ export const addPackageCommand = (
     for (const dep of userDeps) generateArgs.push("--ref-dir", dep);
     generateArgs.push("--ref-dir", libDir);
 
-    const genResult = tsbindgenGenerate(workspaceRoot, tsbindgenDll, generateArgs, options);
+    const genResult = tsbindgenGenerate(
+      workspaceRoot,
+      tsbindgenDll,
+      generateArgs,
+      options
+    );
     if (!genResult.ok) return genResult;
 
-    const installResult = installGeneratedBindingsPackage(workspaceRoot, packageName, bindingsDir);
+    const installResult = installGeneratedBindingsPackage(
+      workspaceRoot,
+      packageName,
+      bindingsDir
+    );
     if (!installResult.ok) return installResult;
   }
 
   const rootId = Array.from(order).find((id) => {
     const dest = destPathById.get(id);
-    return dest ? basename(dest).toLowerCase() === basename(dllAbs).toLowerCase() : false;
+    return dest
+      ? basename(dest).toLowerCase() === basename(dllAbs).toLowerCase()
+      : false;
   });
   const rootPackage =
     (rootId ? packageNameById.get(rootId) : undefined) ??

@@ -131,7 +131,9 @@ describe("Generic Validation", () => {
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
       expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("only valid on top-level function declarations");
+      expect(diag?.message).to.include(
+        "only valid on top-level function declarations"
+      );
     });
 
     it("should reject thisarg<T> on arrow functions", () => {
@@ -146,7 +148,9 @@ describe("Generic Validation", () => {
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7106");
       expect(diag).not.to.equal(undefined);
-      expect(diag?.message).to.include("only valid on top-level function declarations");
+      expect(diag?.message).to.include(
+        "only valid on top-level function declarations"
+      );
     });
 
     it("should reject out receiver on thisarg<T> parameters", () => {

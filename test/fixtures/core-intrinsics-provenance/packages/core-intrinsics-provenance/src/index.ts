@@ -9,4 +9,3 @@ export function main(): void {
   stackalloc<int>(10 as int);
   void x;
 }
-

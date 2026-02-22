@@ -20,7 +20,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(join(dirname(fileURLToPath(import.meta.url)), "../../../.."));
+const repoRoot = resolve(
+  join(dirname(fileURLToPath(import.meta.url)), "../../../..")
+);
 
 const linkDir = (target: string, linkPath: string): void => {
   mkdirSync(dirname(linkPath), { recursive: true });
@@ -57,7 +59,11 @@ describe("build command (--no-generate)", function () {
 
       writeFileSync(
         join(dir, "package.json"),
-        JSON.stringify({ name: "test", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "test", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -77,7 +83,11 @@ describe("build command (--no-generate)", function () {
 
       writeFileSync(
         join(dir, "packages", "app", "package.json"),
-        JSON.stringify({ name: "app", private: true, type: "module" }, null, 2) + "\n",
+        JSON.stringify(
+          { name: "app", private: true, type: "module" },
+          null,
+          2
+        ) + "\n",
         "utf-8"
       );
 
@@ -111,22 +121,45 @@ describe("build command (--no-generate)", function () {
       );
 
       // Provide required standard bindings packages (no network).
-      linkDir(join(repoRoot, "node_modules/@tsonic/dotnet"), join(dir, "node_modules/@tsonic/dotnet"));
-      linkDir(join(repoRoot, "node_modules/@tsonic/core"), join(dir, "node_modules/@tsonic/core"));
-      linkDir(join(repoRoot, "node_modules/@tsonic/globals"), join(dir, "node_modules/@tsonic/globals"));
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
 
       const cliPath = join(repoRoot, "packages/cli/dist/index.js");
 
       // 1) Generate C#
       const gen = spawnSync(
         "node",
-        [cliPath, "generate", "--project", "app", "--config", join(dir, "tsonic.workspace.json"), "--quiet"],
+        [
+          cliPath,
+          "generate",
+          "--project",
+          "app",
+          "--config",
+          join(dir, "tsonic.workspace.json"),
+          "--quiet",
+        ],
         { cwd: dir, encoding: "utf-8" }
       );
       expect(gen.status, gen.stderr || gen.stdout).to.equal(0);
 
       // 2) External tool writes additional C# sources into outputDirectory
-      const extraDir = join(dir, "packages", "app", "generated", "ef-compiled-model");
+      const extraDir = join(
+        dir,
+        "packages",
+        "app",
+        "generated",
+        "ef-compiled-model"
+      );
       mkdirSync(extraDir, { recursive: true });
       const extraFile = join(extraDir, "Extra.cs");
       writeFileSync(
@@ -139,18 +172,32 @@ describe("build command (--no-generate)", function () {
       // 3) Build without re-running generate (must not wipe outputDirectory)
       const build = spawnSync(
         "node",
-        [cliPath, "build", "--no-generate", "--project", "app", "--config", join(dir, "tsonic.workspace.json"), "--quiet"],
+        [
+          cliPath,
+          "build",
+          "--no-generate",
+          "--project",
+          "app",
+          "--config",
+          join(dir, "tsonic.workspace.json"),
+          "--quiet",
+        ],
         { cwd: dir, encoding: "utf-8" }
       );
       expect(build.status, build.stderr || build.stdout).to.equal(0);
 
-      expect(existsSync(extraFile), "expected Extra.cs to survive --no-generate build").to.equal(true);
+      expect(
+        existsSync(extraFile),
+        "expected Extra.cs to survive --no-generate build"
+      ).to.equal(true);
 
       const outBinary = join(dir, "packages", "app", "out", "no-generate-app");
-      expect(existsSync(outBinary), `Expected output binary at ${outBinary}`).to.equal(true);
+      expect(
+        existsSync(outBinary),
+        `Expected output binary at ${outBinary}`
+      ).to.equal(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
-

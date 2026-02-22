@@ -59,14 +59,19 @@ export const formatPostfixExpressionText = (
   // we change null-propagation semantics.
   if (hasConditionalAccessChain(text)) return text;
 
-  if (needsParensForPostfixByKind(expr.kind) || needsParensForPostfixByText(text)) {
+  if (
+    needsParensForPostfixByKind(expr.kind) ||
+    needsParensForPostfixByText(text)
+  ) {
     return `(${text})`;
   }
 
   return text;
 };
 
-const needsParensForCastOperandByKind = (kind: IrExpression["kind"]): boolean => {
+const needsParensForCastOperandByKind = (
+  kind: IrExpression["kind"]
+): boolean => {
   // Cast operands must be a C# unary-expression; wrap composite expressions.
   switch (kind) {
     case "identifier":

@@ -261,8 +261,8 @@ export const convertArrowFunction = (
     (shouldUseExpectedReturnType
       ? expectedReturnType
       : !ts.isBlock(node.body)
-        ? (body as ReturnType<typeof convertExpression>).inferredType ??
-          ({ kind: "voidType" } as const)
+        ? ((body as ReturnType<typeof convertExpression>).inferredType ??
+          ({ kind: "voidType" } as const))
         : expectedReturnType);
 
   // DETERMINISTIC TYPING: contextualType comes from expectedType

@@ -928,7 +928,12 @@ const processStatementWithReturnType = (
       if (!stmt.expression) break;
 
       if (returnType) {
-        validateExpression(stmt.expression, returnType, ctx, "in return statement");
+        validateExpression(
+          stmt.expression,
+          returnType,
+          ctx,
+          "in return statement"
+        );
       } else {
         // Even when the return type is unknown, we still need to validate any
         // call-site coercions inside the returned expression (argument validation).

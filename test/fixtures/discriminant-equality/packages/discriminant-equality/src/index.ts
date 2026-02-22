@@ -6,17 +6,17 @@ type Shape =
 
 function describe(s: Shape): string {
   if (s.kind === "circle") {
-    return "C:" + (s.radius * s.radius);
+    return "C:" + s.radius * s.radius;
   }
   // Post-if narrowing: if-then returns, remainder is the other union member.
-  return "S:" + (s.side * s.side);
+  return "S:" + s.side * s.side;
 }
 
 function describe2(s: Shape): string {
   if (s.kind !== "circle") {
-    return "S2:" + (s.side * s.side);
+    return "S2:" + s.side * s.side;
   } else {
-    return "C2:" + (s.radius * s.radius);
+    return "C2:" + s.radius * s.radius;
   }
 }
 

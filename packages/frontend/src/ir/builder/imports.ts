@@ -14,7 +14,9 @@ import type { TypeAuthority } from "../type-system/type-system.js";
 import { createDiagnostic } from "../../types/diagnostic.js";
 import { getSourceLocation } from "../../program/diagnostics.js";
 
-const getSourceSpan = (node: ts.Node): ReturnType<typeof getSourceLocation> | undefined => {
+const getSourceSpan = (
+  node: ts.Node
+): ReturnType<typeof getSourceLocation> | undefined => {
   try {
     const sourceFile = node.getSourceFile();
     if (!sourceFile) return undefined;
@@ -82,7 +84,9 @@ export const extractImports = (
         }
       }
 
-      const findNearestBindingsJson = (filePath: string): string | undefined => {
+      const findNearestBindingsJson = (
+        filePath: string
+      ): string | undefined => {
         let dir = dirname(filePath);
         for (let i = 0; i < 12; i++) {
           const candidate = join(dir, "bindings.json");
@@ -123,7 +127,8 @@ export const extractImports = (
           const ns =
             parsed &&
             typeof parsed === "object" &&
-            typeof (parsed as { readonly namespace?: unknown }).namespace === "string"
+            typeof (parsed as { readonly namespace?: unknown }).namespace ===
+              "string"
               ? ((parsed as { readonly namespace: string }).namespace as string)
               : undefined;
           bindingsNamespaceCache.set(bindingsPath, ns ?? null);
@@ -196,7 +201,10 @@ export const extractImports = (
                 resolveTsbindgenNamespaceForNamedImport(spec.name) ??
                 resolvedNamespace;
 
-              const exp = ctx.bindings.getTsbindgenExport(expNamespace, spec.name);
+              const exp = ctx.bindings.getTsbindgenExport(
+                expNamespace,
+                spec.name
+              );
               if (!exp) {
                 // Airplane-grade: C# has no namespace-level values.
                 // If TS imports a *value* from a CLR namespace facade, we must have

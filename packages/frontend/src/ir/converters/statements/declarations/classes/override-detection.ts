@@ -16,7 +16,12 @@ export type OverrideInfo = {
    *
    * TypeScript cannot express `protected internal`, so we infer it from bindings.json.
    */
-  readonly requiredAccessibility?: "public" | "protected" | "internal" | "protected internal" | "private";
+  readonly requiredAccessibility?:
+    | "public"
+    | "protected"
+    | "internal"
+    | "protected internal"
+    | "private";
 };
 
 /**
@@ -123,7 +128,11 @@ const detectDotNetOverride = (
 
       // CLR byref uses '&' in signatures; include it for ref/out/in.
       parameterTypes.push(
-        p.passing === "value" ? token : token.endsWith("&") ? token : `${token}&`
+        p.passing === "value"
+          ? token
+          : token.endsWith("&")
+            ? token
+            : `${token}&`
       );
     }
 
@@ -177,7 +186,9 @@ const buildParameterModifiersKey = (params: readonly IrParameter[]): string => {
     .join(",");
 };
 
-const irTypeToDotnetSignatureType = (type: IrType | undefined): string | undefined => {
+const irTypeToDotnetSignatureType = (
+  type: IrType | undefined
+): string | undefined => {
   if (!type) return undefined;
 
   // Signature tokens mirror tsbindgen `canonicalSignature` types:

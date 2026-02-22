@@ -1,41 +1,16 @@
 namespace TestCases.common.types.anonymousobjects
 {
-    public class __Anon_AnonymousObjects_2_22
-    {
-        public required int x { get; set; }
+        [global::Tsonic.Internal.ModuleContainerAttribute]
+        public static class AnonymousObjects
+        {
+            public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_4df3ac0f point = new global::TestCases.common.types.anonymousobjects.__Anon_2697_4df3ac0f { x = 10, y = 20 };
 
-        public required int y { get; set; }
-    }
-    public class __Anon_AnonymousObjects_5_23
-    {
-        public required string name { get; set; }
+            public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_e6803762 config = new global::TestCases.common.types.anonymousobjects.__Anon_2697_e6803762 { name = "test", count = 42, enabled = true };
 
-        public required int count { get; set; }
+            public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_437d7126 handler = new global::TestCases.common.types.anonymousobjects.__Anon_2697_437d7126 { id = 1, process = (double x) => x * 2 };
 
-        public required bool enabled { get; set; }
-    }
-    public class __Anon_AnonymousObjects_12_24
-    {
-        public required int id { get; set; }
+            internal static readonly int value = 100;
 
-        public required global::System.Func<double, double> process { get; set; }
-    }
-    public class __Anon_AnonymousObjects_19_26
-    {
-        public required int value { get; set; }
-    }
-
-            [global::Tsonic.Internal.ModuleContainerAttribute]
-            public static class AnonymousObjects
-            {
-                public static readonly __Anon_AnonymousObjects_2_22 point = new __Anon_AnonymousObjects_2_22 { x = 10, y = 20 };
-
-                public static readonly __Anon_AnonymousObjects_5_23 config = new __Anon_AnonymousObjects_5_23 { name = "test", count = 42, enabled = true };
-
-                public static readonly __Anon_AnonymousObjects_12_24 handler = new __Anon_AnonymousObjects_12_24 { id = 1, process = (double x) => x * 2 };
-
-                internal static readonly int value = 100;
-
-                public static readonly __Anon_AnonymousObjects_19_26 shorthand = new __Anon_AnonymousObjects_19_26 { value = value };
-            }
+            public static readonly global::TestCases.common.types.anonymousobjects.__Anon_2697_247f215a shorthand = new global::TestCases.common.types.anonymousobjects.__Anon_2697_247f215a { value = value };
+        }
 }
