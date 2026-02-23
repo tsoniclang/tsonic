@@ -1,6 +1,6 @@
 namespace TestCases.common.arrays.constructor
 {
-    internal class User
+    public class User
     {
         public required string name { get; set; }
 

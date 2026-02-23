@@ -379,7 +379,25 @@ export const emitMemberAccess = (
   // invalid direct property access on Union<T1..Tn>.
   if (!expr.isComputed && !expr.isOptional) {
     const prop = expr.property as string;
-    const objectType = expr.object.inferredType;
+    // If the object is an identifier narrowed by in-guard / discriminant narrowing,
+    // use the narrowed member type instead of the original union type. This avoids
+    // emitting a redundant .AsN() on an already-narrowed variable.
+    const objectType: IrType | undefined = (() => {
+      if (expr.object.kind === "identifier" && context.narrowedBindings) {
+        const narrowed = context.narrowedBindings.get(expr.object.name);
+        if (narrowed?.kind === "rename" && narrowed.type) {
+          return narrowed.type;
+        }
+        // "expr" narrowed bindings (e.g., from ternary/discriminant/post-if narrowing)
+        // indicate the identifier has already been resolved to an .AsN() call.
+        // If a type is provided, use it; otherwise return undefined to skip union
+        // resolution entirely — the object is already a narrowed variant.
+        if (narrowed?.kind === "expr") {
+          return narrowed.type ?? undefined;
+        }
+      }
+      return expr.object.inferredType;
+    })();
     if (objectType) {
       const resolvedBase = resolveTypeAlias(stripNullish(objectType), context);
       const isClrUnionName = (name: string): boolean =>

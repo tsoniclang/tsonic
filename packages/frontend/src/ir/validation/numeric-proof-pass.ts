@@ -690,10 +690,31 @@ const processExpression = (
       if (numericKind !== undefined) {
         // Update inferredType to reflect the proven numeric type
         // INVARIANT: "Int32" → primitiveType(name="int")
-        const inferredType =
+        const baseType: IrType =
           numericKind === "Int32"
             ? { kind: "primitiveType" as const, name: "int" as const }
             : { kind: "referenceType" as const, name: numericKind };
+
+        // Preserve nullable wrapper: if the original type was `T | null` or
+        // `T | undefined`, the proven type must remain nullable so that the
+        // emitter does not treat it as a non-nullable value type and drop `??`.
+        const originalIsNullable =
+          expr.inferredType?.kind === "unionType" &&
+          expr.inferredType.types.some(
+            (t) =>
+              t.kind === "primitiveType" &&
+              (t.name === "null" || t.name === "undefined")
+          );
+        const inferredType: IrType = originalIsNullable
+          ? {
+              kind: "unionType" as const,
+              types: [
+                baseType,
+                { kind: "primitiveType" as const, name: "null" as const },
+              ],
+            }
+          : baseType;
+
         return {
           ...expr,
           inferredType,
