@@ -157,14 +157,18 @@ const collectPublicLocalTypes = (
       for (const impl of stmt.implements) addType(impl);
       for (const member of stmt.members) {
         if (member.kind === "propertyDeclaration") {
+          if (member.accessibility === "private") continue;
           addType(member.type);
           continue;
         }
         if (member.kind === "methodDeclaration") {
-          for (const param of member.parameters) addType(param.type);
+          if (member.accessibility === "private") continue;
           addType(member.returnType);
+          for (const param of member.parameters) addType(param.type);
           continue;
         }
+        // Constructors: promote unless private (private constructors are not part of public API)
+        if (member.accessibility === "private") continue;
         for (const param of member.parameters) addType(param.type);
       }
       continue;

@@ -69,14 +69,70 @@ const isCanonicalizableStructuralDeclaration = (
   return false;
 };
 
+const semanticSignature = (stmt: EmittedTypeDeclaration): string => {
+  if (stmt.kind === "interfaceDeclaration") {
+    return JSON.stringify({
+      ...stmt,
+      members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
+      extends: [...stmt.extends].sort((a, b) =>
+        JSON.stringify(a).localeCompare(JSON.stringify(b))
+      ),
+    });
+  }
+
+  if (stmt.kind === "classDeclaration") {
+    // Class member order is semantically significant: field initializers run in
+    // declaration order. Only sort `implements` (order-independent) — preserve
+    // member order to avoid false equivalence when initializer order differs.
+    return JSON.stringify({
+      ...stmt,
+      implements: [...stmt.implements].sort((a, b) =>
+        JSON.stringify(a).localeCompare(JSON.stringify(b))
+      ),
+    });
+  }
+
+  // Type aliases: sort objectType members if applicable
+  if (stmt.kind === "typeAliasDeclaration" && stmt.type.kind === "objectType") {
+    return JSON.stringify({
+      ...stmt,
+      type: {
+        ...stmt.type,
+        members: [...stmt.type.members].sort((a, b) =>
+          a.name.localeCompare(b.name)
+        ),
+      },
+    });
+  }
+
+  // Enums: do NOT sort — member order is semantically significant
+  // (implicit values depend on order)
+  return JSON.stringify(stmt);
+};
+
 const canonicalStructuralGroupKey = (
   stmt: CanonicalizableStructuralDeclaration
 ): string => {
   if (stmt.kind === "interfaceDeclaration") {
     return `iface::${stmt.name}::${JSON.stringify({
       typeParameters: stmt.typeParameters ?? [],
-      extends: stmt.extends,
-      members: stmt.members,
+      extends: [...stmt.extends].sort((a, b) =>
+        JSON.stringify(a).localeCompare(JSON.stringify(b))
+      ),
+      members: [...stmt.members].sort((a, b) => a.name.localeCompare(b.name)),
+    })}`;
+  }
+
+  // Type alias with objectType — sort members
+  if (stmt.type.kind === "objectType") {
+    return `alias::${stmt.name}::${JSON.stringify({
+      typeParameters: stmt.typeParameters ?? [],
+      type: {
+        ...stmt.type,
+        members: [...stmt.type.members].sort((a, b) =>
+          a.name.localeCompare(b.name)
+        ),
+      },
     })}`;
   }
 
@@ -129,7 +185,7 @@ const planDuplicateTypeSuppression = (
         filePath: module.filePath,
         namespace: module.namespace,
         stmt,
-        signature: JSON.stringify(stmt),
+        signature: semanticSignature(stmt),
       });
       groups.set(key, entries);
 

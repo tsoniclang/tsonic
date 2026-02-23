@@ -302,6 +302,14 @@ export type EmitterContext = {
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
   /**
+   * Set of parameter names that are void-promise resolve callbacks.
+   *
+   * When `new Promise<void>((resolve) => { ... })` is emitted, `resolve` becomes a zero-arg
+   * `Action`. TypeScript allows `resolve(undefined)` for void promises, but C# `Action` takes
+   * zero arguments. This set tracks those names so the call emitter can strip the argument.
+   */
+  readonly voidResolveNames?: ReadonlySet<string>;
+  /**
    * Set of emitted C# local identifiers that have been used anywhere in the current method body.
    *
    * C# forbids reusing a local name in an outer scope after it has been declared in a nested scope

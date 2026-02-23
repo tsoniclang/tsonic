@@ -374,6 +374,32 @@ export const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Void promise resolve: emit as zero-arg call when safe.
+  // C# Action (zero-arg) cannot accept arguments, so resolve() and resolve(undefined)
+  // both map to resolve(). Only strip when there are no arguments or a single
+  // `undefined` identifier — other argument forms may have side effects that must
+  // not be dropped. Name-based matching is scoped to the executor body; shadowing
+  // the resolve name inside the executor is technically possible but extremely rare.
+  if (
+    expr.callee.kind === "identifier" &&
+    context.voidResolveNames?.has(expr.callee.name)
+  ) {
+    const isZeroArg = expr.arguments.length === 0;
+    const isSingleUndefined =
+      expr.arguments.length === 1 &&
+      expr.arguments[0]?.kind === "identifier" &&
+      expr.arguments[0].name === "undefined";
+
+    if (isZeroArg || isSingleUndefined) {
+      const [calleeFrag, calleeCtx] = emitExpression(expr.callee, context);
+      const calleeText = formatPostfixExpressionText(
+        expr.callee,
+        calleeFrag.text
+      );
+      return [{ text: `${calleeText}()` }, calleeCtx];
+    }
+  }
+
   // Check for JsonSerializer calls (NativeAOT support)
   const jsonCall = isJsonSerializerCall(expr.callee);
   if (jsonCall) {
@@ -974,12 +1000,32 @@ const emitPromiseConstructor = (
     currentContext = valueTypeContext;
   }
 
+  // For void promises, track the resolve parameter name so call emitter
+  // can strip arguments from resolve(undefined) calls (C# Action is zero-arg)
+  const resolveParam =
+    !promiseValueType &&
+    (executor.kind === "arrowFunction" ||
+      executor.kind === "functionExpression")
+      ? executor.parameters[0]
+      : undefined;
+  const resolveParamName =
+    resolveParam?.pattern.kind === "identifierPattern"
+      ? resolveParam.pattern.name
+      : undefined;
+
+  const executorEmitContext = resolveParamName
+    ? { ...currentContext, voidResolveNames: new Set([resolveParamName]) }
+    : currentContext;
+
   const [executorFrag, executorContext] = emitExpression(
     executor,
-    currentContext,
+    executorEmitContext,
     expr.parameterTypes?.[0]
   );
-  currentContext = executorContext;
+  // Strip voidResolveNames from returned context to prevent leakage into enclosing scope
+  currentContext = resolveParamName
+    ? { ...executorContext, voidResolveNames: undefined }
+    : executorContext;
 
   const executorText = formatPostfixExpressionText(executor, executorFrag.text);
   const executorArity = getExecutorArity(expr);
