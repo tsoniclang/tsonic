@@ -925,6 +925,32 @@ const isVoidLikeType = (type: IrType | undefined): boolean => {
   );
 };
 
+/**
+ * Check if a type contains `void` in a position where it would be emitted
+ * as a C# generic type argument (union member, type argument, etc.).
+ * C# forbids `void` as a generic type argument, so such types are invalid.
+ */
+const containsVoidInGenericPosition = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  if (type.kind === "unionType") {
+    return type.types.some(
+      (t) => isVoidLikeType(t) || containsVoidInGenericPosition(t)
+    );
+  }
+  if (type.kind === "referenceType" && type.typeArguments) {
+    return type.typeArguments.some(
+      (t) => isVoidLikeType(t) || containsVoidInGenericPosition(t)
+    );
+  }
+  if (type.kind === "functionType") {
+    return (
+      type.parameters.some((p) => containsVoidInGenericPosition(p.type)) ||
+      containsVoidInGenericPosition(type.returnType)
+    );
+  }
+  return false;
+};
+
 const getPromiseValueType = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): IrType | undefined => {
@@ -1017,8 +1043,30 @@ const emitPromiseConstructor = (
     ? { ...currentContext, voidResolveNames: new Set([resolveParamName]) }
     : currentContext;
 
+  // For void promises, the resolve parameter's TS type may be
+  // `(value: void | PromiseLike<void>) => void` which emits as `Action<Union<void, Task>>` —
+  // invalid in C# (void cannot be a generic type argument). Strip the type annotation only
+  // when it contains void-in-generic, letting C# infer from the outer delegate cast.
+  // When the type is clean (e.g., `() => void` → `Action`), keep it for clarity.
+  const resolveParamHasVoidGeneric =
+    resolveParam?.type?.kind === "functionType" &&
+    resolveParam.type.parameters.some((p) =>
+      containsVoidInGenericPosition(p.type)
+    );
+  const emittedExecutor =
+    resolveParamHasVoidGeneric &&
+    (executor.kind === "arrowFunction" ||
+      executor.kind === "functionExpression")
+      ? {
+          ...executor,
+          parameters: executor.parameters.map((p, i) =>
+            i === 0 ? { ...p, type: undefined } : p
+          ),
+        }
+      : executor;
+
   const [executorFrag, executorContext] = emitExpression(
-    executor,
+    emittedExecutor,
     executorEmitContext,
     expr.parameterTypes?.[0]
   );
