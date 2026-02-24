@@ -29,12 +29,7 @@ import {
   TSONIC_TO_NUMERIC_KIND,
 } from "../types/numeric-kind.js";
 import type { NumericKind } from "../types/numeric-kind.js";
-import type {
-  DeclId,
-  SignatureId,
-  MemberId,
-  TypeSyntaxId,
-} from "./types.js";
+import type { DeclId, SignatureId, MemberId, TypeSyntaxId } from "./types.js";
 import { unknownType, voidType } from "./types.js";
 import type {
   TypeSystemState,
@@ -159,10 +154,7 @@ export const inferExpressionType = (
 ): IrType | undefined => {
   const unwrapped = unwrapParens(expr);
 
-  if (
-    ts.isAsExpression(unwrapped) ||
-    ts.isTypeAssertionExpression(unwrapped)
-  ) {
+  if (ts.isAsExpression(unwrapped) || ts.isTypeAssertionExpression(unwrapped)) {
     return convertTypeNode(state, unwrapped.type);
   }
 
@@ -222,8 +214,7 @@ export const inferExpressionType = (
 
   if (ts.isPropertyAccessExpression(unwrapped)) {
     const receiverType = inferExpressionType(state, unwrapped.expression, env);
-    if (!receiverType || receiverType.kind === "unknownType")
-      return undefined;
+    if (!receiverType || receiverType.kind === "unknownType") return undefined;
     const memberType = typeOfMember(state, receiverType, {
       kind: "byName",
       name: unwrapped.name.text,
@@ -812,11 +803,7 @@ export const tryInferTypeFromInitializer = (
   // Property access: const output = response.outputStream
   // DETERMINISTIC: Infer via TypeSystem member lookup on a deterministically typed receiver.
   if (ts.isPropertyAccessExpression(init)) {
-    const receiverType = inferExpressionType(
-      state,
-      init.expression,
-      new Map()
-    );
+    const receiverType = inferExpressionType(state, init.expression, new Map());
     if (!receiverType || receiverType.kind === "unknownType") return undefined;
 
     const memberType = typeOfMember(state, receiverType, {
@@ -1081,9 +1068,7 @@ export const getIndexerInfo = (
   state: TypeSystemState,
   receiver: IrType,
   _site?: Site
-):
-  | { readonly keyClrType: string; readonly valueType: IrType }
-  | undefined => {
+): { readonly keyClrType: string; readonly valueType: IrType } | undefined => {
   const normalized = normalizeToNominal(state, receiver);
   if (!normalized) return undefined;
 
@@ -1166,8 +1151,7 @@ export const typeOfMemberId = (
     if (ts.isFunctionDeclaration(decl)) {
       // Determinism: require explicit parameter + return annotations.
       if (!decl.type) return unknownType;
-      if (decl.parameters.some((p) => p.type === undefined))
-        return unknownType;
+      if (decl.parameters.some((p) => p.type === undefined)) return unknownType;
 
       const parameters: readonly IrParameter[] = decl.parameters.map((p) => ({
         kind: "parameter",
@@ -1217,10 +1201,7 @@ export const getFQNameOfDecl = (
 // isTypeDecl — Check if declaration is a type
 // ─────────────────────────────────────────────────────────────────────────
 
-export const isTypeDecl = (
-  state: TypeSystemState,
-  declId: DeclId
-): boolean => {
+export const isTypeDecl = (state: TypeSystemState, declId: DeclId): boolean => {
   const declInfo = state.handleRegistry.getDecl(declId);
   if (!declInfo) return false;
 

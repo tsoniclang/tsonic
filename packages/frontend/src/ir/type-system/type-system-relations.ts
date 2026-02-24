@@ -13,14 +13,25 @@ import {
 } from "../types/ir-substitution.js";
 import { irTypesEqual as compareIrTypes } from "../types/type-ops.js";
 import { unknownType } from "./types.js";
-import type { TypeSystemState, TypeSubstitutionMap, Site } from "./type-system-state.js";
-import { emitDiagnostic, isNullishPrimitive, normalizeToNominal } from "./type-system-state.js";
+import type {
+  TypeSystemState,
+  TypeSubstitutionMap,
+  Site,
+} from "./type-system-state.js";
+import {
+  emitDiagnostic,
+  isNullishPrimitive,
+  normalizeToNominal,
+} from "./type-system-state.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // substitute — Delegate to ir-substitution
 // ─────────────────────────────────────────────────────────────────────────
 
-export const substitute = (type: IrType, subst: TypeSubstitutionMap): IrType => {
+export const substitute = (
+  type: IrType,
+  subst: TypeSubstitutionMap
+): IrType => {
   // Convert TypeSubstitutionMap to IrSubstitutionMap if needed
   // (they're the same type, just different naming)
   return irSubstitute(type, subst as IrSubstitutionMap);

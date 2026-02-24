@@ -26,10 +26,7 @@ import type {
 import { unknownType, neverType, voidType } from "./types.js";
 import { stableIrTypeKey } from "../types/type-ops.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
-import type {
-  TypeId,
-  UnifiedTypeCatalog,
-} from "./internal/universe/types.js";
+import type { TypeId, UnifiedTypeCatalog } from "./internal/universe/types.js";
 
 // Re-export constants for convenience
 export { unknownType, neverType, voidType };
@@ -607,8 +604,7 @@ export const isNullishPrimitive = (
   t: IrType
 ): t is IrPrimitiveType & { name: "null" | "undefined" } => {
   return (
-    t.kind === "primitiveType" &&
-    (t.name === "null" || t.name === "undefined")
+    t.kind === "primitiveType" && (t.name === "null" || t.name === "undefined")
   );
 };
 
@@ -618,7 +614,9 @@ export const addUndefinedToType = (type: IrType): IrType => {
     const hasUndefined = type.types.some(
       (x) => x.kind === "primitiveType" && x.name === "undefined"
     );
-    return hasUndefined ? type : { ...type, types: [...type.types, undefinedType] };
+    return hasUndefined
+      ? type
+      : { ...type, types: [...type.types, undefinedType] };
   }
   return { kind: "unionType", types: [type, undefinedType] };
 };
@@ -654,8 +652,7 @@ export const resolveTypeIdByName = (
   if (arity === undefined) return direct;
 
   if (direct) {
-    const directArity =
-      state.unifiedCatalog.getTypeParameters(direct).length;
+    const directArity = state.unifiedCatalog.getTypeParameters(direct).length;
     if (directArity === arity) return direct;
   }
 

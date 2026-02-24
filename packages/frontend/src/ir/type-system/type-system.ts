@@ -15,10 +15,7 @@
  * returns TypeAuthority with functions bound to shared state.
  */
 
-import type {
-  IrType,
-  IrFunctionType,
-} from "../types/index.js";
+import type { IrType, IrFunctionType } from "../types/index.js";
 import type { Diagnostic } from "../../types/diagnostic.js";
 import type {
   DeclId,
@@ -28,9 +25,7 @@ import type {
   UtilityTypeName,
 } from "./types.js";
 import type { AliasTable } from "./internal/universe/alias-table.js";
-import type {
-  UnifiedTypeCatalog,
-} from "./internal/universe/types.js";
+import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Re-exports from split modules for backwards compatibility
@@ -67,10 +62,7 @@ export type {
   TypeSystemState,
 } from "./type-system-state.js";
 
-export {
-  BUILTIN_NOMINALS,
-  poisonedCall,
-} from "./type-system-state.js";
+export { BUILTIN_NOMINALS, poisonedCall } from "./type-system-state.js";
 
 // Import types needed for the TypeAuthority interface and TypeSystemConfig
 import type {
@@ -117,9 +109,7 @@ import {
   typeFromSyntax as infTypeFromSyntax,
 } from "./type-system-inference.js";
 
-import {
-  expandUtility as utExpandUtility,
-} from "./type-system-utilities.js";
+import { expandUtility as utExpandUtility } from "./type-system-utilities.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ALICE'S EXACT API — TypeAuthority Interface
@@ -603,8 +593,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       infSignatureHasConditionalReturn(state, sigId),
     signatureHasVariadicTypeParams: (sigId) =>
       infSignatureHasVariadicTypeParams(state, sigId),
-    declHasTypeAnnotation: (declId) =>
-      infDeclHasTypeAnnotation(state, declId),
+    declHasTypeAnnotation: (declId) => infDeclHasTypeAnnotation(state, declId),
     checkTsClassMemberOverride: (declId, memberName, memberKind) =>
       infCheckTsClassMemberOverride(state, declId, memberName, memberKind),
 

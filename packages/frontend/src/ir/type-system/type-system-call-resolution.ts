@@ -62,14 +62,14 @@ export const getRawSignature = (
   if (!sigInfo) return undefined;
 
   // Convert parameter types from TypeNodes to IrTypes
-  const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map(
-    (p) => {
-      const baseType = p.typeNode ? convertTypeNode(state, p.typeNode) : undefined;
-      if (!baseType) return undefined;
-      // Optional/defaulted parameters must accept explicit `undefined` at call sites.
-      return p.isOptional ? addUndefinedToType(baseType) : baseType;
-    }
-  );
+  const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map((p) => {
+    const baseType = p.typeNode
+      ? convertTypeNode(state, p.typeNode)
+      : undefined;
+    if (!baseType) return undefined;
+    // Optional/defaulted parameters must accept explicit `undefined` at call sites.
+    return p.isOptional ? addUndefinedToType(baseType) : baseType;
+  });
 
   // Convert a TypeScript `this:` parameter type (if present) to an IrType.
   const thisParameterType: IrType | undefined = (() => {
@@ -93,7 +93,9 @@ export const getRawSignature = (
     constraint: tp.constraintNode
       ? convertTypeNode(state, tp.constraintNode)
       : undefined,
-    defaultType: tp.defaultNode ? convertTypeNode(state, tp.defaultNode) : undefined,
+    defaultType: tp.defaultNode
+      ? convertTypeNode(state, tp.defaultNode)
+      : undefined,
   }));
 
   const isConstructor = sigInfo.declaringMemberName === "constructor";
@@ -186,7 +188,9 @@ export const attachTypeParameterTypeIds = (
   ...tp,
   constraint: tp.constraint ? attachTypeIds(state, tp.constraint) : undefined,
   default: tp.default ? attachTypeIds(state, tp.default) : undefined,
-  structuralMembers: tp.structuralMembers?.map((m) => attachInterfaceMemberTypeIds(state, m)),
+  structuralMembers: tp.structuralMembers?.map((m) =>
+    attachInterfaceMemberTypeIds(state, m)
+  ),
 });
 
 export const attachInterfaceMemberTypeIds = (
@@ -199,7 +203,9 @@ export const attachInterfaceMemberTypeIds = (
 
   return {
     ...m,
-    typeParameters: m.typeParameters?.map((tp) => attachTypeParameterTypeIds(state, tp)),
+    typeParameters: m.typeParameters?.map((tp) =>
+      attachTypeParameterTypeIds(state, tp)
+    ),
     parameters: m.parameters.map((p) => attachParameterTypeIds(state, p)),
     returnType: m.returnType ? attachTypeIds(state, m.returnType) : undefined,
   };
@@ -219,12 +225,16 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
       return {
         ...type,
         ...(type.typeArguments
-          ? { typeArguments: type.typeArguments.map((t) => attachTypeIds(state, t)) }
+          ? {
+              typeArguments: type.typeArguments.map((t) =>
+                attachTypeIds(state, t)
+              ),
+            }
           : {}),
         ...(type.structuralMembers
           ? {
-              structuralMembers: type.structuralMembers.map(
-                (m) => attachInterfaceMemberTypeIds(state, m)
+              structuralMembers: type.structuralMembers.map((m) =>
+                attachInterfaceMemberTypeIds(state, m)
               ),
             }
           : {}),
@@ -244,14 +254,18 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
     case "functionType":
       return {
         ...type,
-        parameters: type.parameters.map((p) => attachParameterTypeIds(state, p)),
+        parameters: type.parameters.map((p) =>
+          attachParameterTypeIds(state, p)
+        ),
         returnType: attachTypeIds(state, type.returnType),
       };
 
     case "objectType":
       return {
         ...type,
-        members: type.members.map((m) => attachInterfaceMemberTypeIds(state, m)),
+        members: type.members.map((m) =>
+          attachInterfaceMemberTypeIds(state, m)
+        ),
       };
 
     case "dictionaryType":
@@ -281,7 +295,10 @@ export const attachTypeIds = (state: TypeSystemState, type: IrType): IrType => {
  * nominal identity from the UnifiedUniverse so downstream passes (including
  * the emitter) can resolve CLR types without re-driving a parallel lookup.
  */
-export const convertTypeNode = (state: TypeSystemState, node: unknown): IrType => {
+export const convertTypeNode = (
+  state: TypeSystemState,
+  node: unknown
+): IrType => {
   return attachTypeIds(state, state.convertTypeNodeRaw(node));
 };
 
@@ -835,10 +852,7 @@ export const collectExpectedReturnCandidates = (
           }
           const expanded =
             aliasSubst.size > 0
-              ? irSubstitute(
-                  entry.aliasedType,
-                  aliasSubst as IrSubstitutionMap
-                )
+              ? irSubstitute(entry.aliasedType, aliasSubst as IrSubstitutionMap)
               : entry.aliasedType;
           enqueue(expanded);
         }
@@ -877,8 +891,7 @@ export const containsMethodTypeParameter = (
       p.type ? containsMethodTypeParameter(p.type, unresolved) : false
     );
     return (
-      paramsContain ||
-      containsMethodTypeParameter(type.returnType, unresolved)
+      paramsContain || containsMethodTypeParameter(type.returnType, unresolved)
     );
   }
   if (type.kind === "unionType" || type.kind === "intersectionType") {
@@ -965,11 +978,7 @@ export const scoreSignatureMatch = (
   argumentCount: number
 ): number => {
   let score = 0;
-  const pairs = Math.min(
-    argumentCount,
-    parameterTypes.length,
-    argTypes.length
-  );
+  const pairs = Math.min(argumentCount, parameterTypes.length, argTypes.length);
   for (let i = 0; i < pairs; i++) {
     const pt = parameterTypes[i];
     const at = argTypes[i];
@@ -1065,12 +1074,13 @@ export const tryResolveCallFromUnifiedCatalog = (
     }
 
     // Method type parameter substitution.
-    const methodTypeParams: TypeParameterInfo[] =
-      signature.typeParameters.map((tp) => ({
+    const methodTypeParams: TypeParameterInfo[] = signature.typeParameters.map(
+      (tp) => ({
         name: tp.name,
         constraint: tp.constraint,
         defaultType: tp.defaultType,
-      }));
+      })
+    );
 
     if (methodTypeParams.length > 0) {
       const callSubst = new Map<string, IrType>();
@@ -1392,8 +1402,10 @@ export const resolveCall = (
         callSubst.size > 0
           ? irSubstitute(workingReturn, callSubst)
           : workingReturn;
-      const expectedCandidates =
-        collectExpectedReturnCandidates(state, expectedReturnType);
+      const expectedCandidates = collectExpectedReturnCandidates(
+        state,
+        expectedReturnType
+      );
       let matched: Map<string, IrType> | undefined;
 
       for (const candidate of expectedCandidates) {
