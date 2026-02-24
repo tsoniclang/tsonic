@@ -21,6 +21,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCli } from "../cli.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -54,14 +55,78 @@ const nativeExt = (): string => {
   return ".so";
 };
 
+const probeNativeAotSupport = (rid: string): { readonly ok: boolean } => {
+  const probeDir = mkdtempSync(join(tmpdir(), "tsonic-native-aot-probe-"));
+  try {
+    const projectName = "AotProbe";
+    const projectDir = join(probeDir, projectName);
+    const create = spawnSync(
+      "dotnet",
+      [
+        "new",
+        "classlib",
+        "--framework",
+        "net10.0",
+        "--name",
+        projectName,
+        "--no-restore",
+        "--force",
+      ],
+      {
+        cwd: probeDir,
+        encoding: "utf-8",
+      }
+    );
+    if (create.status !== 0) return { ok: false };
+
+    const publish = spawnSync(
+      "dotnet",
+      [
+        "publish",
+        `${projectName}.csproj`,
+        "-c",
+        "Release",
+        "-r",
+        rid,
+        "--self-contained",
+        "true",
+        "/p:PublishAot=true",
+        "/p:NativeLib=Shared",
+        "--nologo",
+      ],
+      {
+        cwd: projectDir,
+        encoding: "utf-8",
+      }
+    );
+    if (publish.status === 0) return { ok: true };
+
+    const output = `${publish.stdout ?? ""}\n${publish.stderr ?? ""}`;
+    if (
+      output.includes("MSB4216") ||
+      output.includes("MSB4027") ||
+      output.includes("ComputeManagedAssemblies")
+    ) {
+      return { ok: false };
+    }
+
+    return { ok: true };
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+};
+
 describe("build command (NativeAOT library)", function () {
   this.timeout(10 * 60 * 1000);
 
-  it("builds a NativeAOT shared library and writes publish output under dist/", () => {
+  it("builds a NativeAOT shared library and writes publish output under dist/", async function () {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-native-lib-"));
     const rid = detectRid();
 
     try {
+      const probe = probeNativeAotSupport(rid);
+      if (!probe.ok) this.skip();
+
       mkdirSync(join(dir, "packages", "native-lib", "src"), {
         recursive: true,
       });
@@ -147,22 +212,15 @@ describe("build command (NativeAOT library)", function () {
         join(dir, "node_modules/@tsonic/globals")
       );
 
-      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
-      const result = spawnSync(
-        "node",
-        [
-          cliPath,
-          "build",
-          "--project",
-          "native-lib",
-          "--config",
-          join(dir, "tsonic.workspace.json"),
-          "--quiet",
-        ],
-        { cwd: dir, encoding: "utf-8" }
-      );
-
-      expect(result.status, result.stderr || result.stdout).to.equal(0);
+      const exitCode = await runCli([
+        "build",
+        "--project",
+        "native-lib",
+        "--config",
+        join(dir, "tsonic.workspace.json"),
+        "--quiet",
+      ]);
+      expect(exitCode).to.equal(0);
 
       const managedDll = join(
         dir,

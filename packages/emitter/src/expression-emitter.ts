@@ -506,7 +506,7 @@ export const emitExpression = (
         return emitLiteral(expr, context, expectedType);
 
       case "identifier":
-        return emitIdentifier(expr, context);
+        return emitIdentifier(expr, context, expectedType);
 
       case "array":
         return emitArray(expr, context, expectedType);

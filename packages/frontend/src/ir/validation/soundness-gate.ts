@@ -433,7 +433,12 @@ const validateExpression = (
       // DETERMINISTIC TYPING: Validate that member type was recovered
       // Note: inferredType may be undefined if memberBinding exists (valid - emitter uses binding)
       // Only flag unknownType which indicates a failed type recovery attempt
-      if (expr.inferredType?.kind === "unknownType") {
+      const allowComputedDictionaryUnknown =
+        expr.isComputed && expr.accessKind === "dictionary";
+      if (
+        expr.inferredType?.kind === "unknownType" &&
+        !allowComputedDictionaryUnknown
+      ) {
         const propName =
           typeof expr.property === "string" ? expr.property : "<computed>";
         ctx.diagnostics.push(

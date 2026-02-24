@@ -195,6 +195,23 @@ describe("Boolean-context lowering (emitBooleanCondition/toBooleanCondition)", (
       expect(next.tempVarId).to.equal(1);
     });
 
+    it("flattens nullable non-primitive unions to direct runtime truthiness (no nested nullable temp)", () => {
+      const ctx = createContext({ tempVarId: 0 });
+      const expr = id(
+        "x",
+        union([
+          { kind: "arrayType", elementType: prim("string") } as IrType,
+          prim("null"),
+          prim("undefined"),
+        ])
+      );
+      const [text, next] = toBooleanCondition(expr, "x", ctx);
+      expect(text).to.match(/x is object __tsonic_truthy_1/);
+      expect(text).to.include("switch {");
+      expect(text).to.not.include("__tsonic_truthy_nullable_");
+      expect(next.tempVarId).to.equal(1);
+    });
+
     it("handles 2-8 unions via IsN/AsN active-variant checks", () => {
       const ctx = createContext({ tempVarId: 0 });
       const expr = id("u", union([prim("int"), prim("string")]));

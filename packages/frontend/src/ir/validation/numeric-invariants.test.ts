@@ -18,6 +18,7 @@ import { runNumericProofPass } from "./numeric-proof-pass.js";
 import {
   IrModule,
   IrExpression,
+  IrType,
   IrStatement,
   IrNumericNarrowingExpression,
   IrMemberExpression,
@@ -141,6 +142,22 @@ const binaryExpr = (
 });
 
 /**
+ * Helper to create a logical expression.
+ */
+const logicalExpr = (
+  operator: "&&" | "||" | "??",
+  left: IrExpression,
+  right: IrExpression,
+  inferredType: IrType
+): IrExpression => ({
+  kind: "logical",
+  operator,
+  left,
+  right,
+  inferredType,
+});
+
+/**
  * Helper to create an array expression
  */
 const arrayExpr = (elements: IrExpression[]): IrExpression => ({
@@ -218,6 +235,51 @@ describe("Numeric Proof Invariants", () => {
       // Integer-looking literals default to Int32 if in range
       // This is fine - the invariant is about explicit narrowing being the ONLY
       // way to FORCE a specific type. Inference follows C# semantics.
+    });
+
+    it("proves nullish-coalescing numeric narrowing from nullable int", () => {
+      // const y = (x ?? 0) as int;
+      const nullableInt: IrExpression = {
+        kind: "identifier",
+        name: "x",
+        inferredType: {
+          kind: "unionType",
+          types: [
+            { kind: "primitiveType", name: "int" },
+            { kind: "primitiveType", name: "undefined" },
+          ],
+        },
+      };
+      const module = createModule([
+        createVarDecl(
+          "y",
+          narrowTo(
+            logicalExpr("??", nullableInt, numLiteral(0), {
+              kind: "primitiveType",
+              name: "int",
+            }),
+            "Int32"
+          )
+        ),
+      ]);
+
+      const result = runNumericProofPass([module]);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+
+      const decl = result.modules[0]?.body[0];
+      expect(decl?.kind).to.equal("variableDeclaration");
+      if (decl?.kind === "variableDeclaration") {
+        const init = decl.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("numericNarrowing");
+        if (init?.kind === "numericNarrowing") {
+          expect(init.proof?.kind).to.equal("Int32");
+          expect(init.proof?.source.type).to.equal("binaryOp");
+          if (init.proof?.source.type === "binaryOp") {
+            expect(init.proof.source.operator).to.equal("??");
+          }
+        }
+      }
     });
   });
 

@@ -82,7 +82,10 @@ describe("JSON NativeAOT registry", () => {
       exports: [],
     };
 
-    const result = emitCSharpFiles([module], { rootNamespace: "MyApp" });
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+    });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
 
@@ -160,7 +163,10 @@ describe("JSON NativeAOT registry", () => {
       exports: [],
     };
 
-    const result = emitCSharpFiles([module], { rootNamespace: "MyApp" });
+    const result = emitCSharpFiles([module], {
+      rootNamespace: "MyApp",
+      enableJsonAot: true,
+    });
     expect(result.ok).to.equal(true);
     if (!result.ok) return;
 

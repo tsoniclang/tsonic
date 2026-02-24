@@ -367,6 +367,15 @@ export type CallQuery = {
   /** Argument types for deterministic unification (undefined = unknown) */
   readonly argTypes?: readonly (IrType | undefined)[];
 
+  /**
+   * Contextual expected return type from call site usage.
+   *
+   * Used for deterministic generic inference when method type parameters only
+   * appear in the return position (e.g., `ok<T>(value: T): Ok<T>` in
+   * `return ok({...})` where function return type is `Result<Payload, string>`).
+   */
+  readonly expectedReturnType?: IrType;
+
   /** Blame location for diagnostics */
   readonly site?: Site;
 };
@@ -1007,6 +1016,22 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   // RAW SIGNATURE EXTRACTION
   // ─────────────────────────────────────────────────────────────────────────
 
+  const addUndefinedToType = (type: IrType): IrType => {
+    const undefinedType: IrType = {
+      kind: "primitiveType",
+      name: "undefined",
+    };
+    if (type.kind === "unionType") {
+      const hasUndefined = type.types.some(
+        (x) => x.kind === "primitiveType" && x.name === "undefined"
+      );
+      return hasUndefined
+        ? type
+        : { ...type, types: [...type.types, undefinedType] };
+    }
+    return { kind: "unionType", types: [type, undefinedType] };
+  };
+
   /**
    * Get or compute raw signature info from SignatureId.
    * Caches the result for subsequent calls.
@@ -1022,7 +1047,12 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Convert parameter types from TypeNodes to IrTypes
     const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map(
-      (p) => (p.typeNode ? convertTypeNode(p.typeNode) : undefined)
+      (p) => {
+        const baseType = p.typeNode ? convertTypeNode(p.typeNode) : undefined;
+        if (!baseType) return undefined;
+        // Optional/defaulted parameters must accept explicit `undefined` at call sites.
+        return p.isOptional ? addUndefinedToType(baseType) : baseType;
+      }
     );
 
     // Convert a TypeScript `this:` parameter type (if present) to an IrType.
@@ -2285,6 +2315,11 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       return inferred && inferred.kind !== "unknownType" ? inferred : undefined;
     }
 
+    const inferred = inferExpressionType(init, new Map());
+    if (inferred && inferred.kind !== "unknownType") {
+      return inferred;
+    }
+
     return undefined;
   };
 
@@ -2849,6 +2884,95 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     return substitution;
   };
 
+  const mapEntriesEqual = (
+    left: ReadonlyMap<string, IrType>,
+    right: ReadonlyMap<string, IrType>
+  ): boolean => {
+    if (left.size !== right.size) return false;
+    for (const [key, leftValue] of left) {
+      const rightValue = right.get(key);
+      if (!rightValue || !typesEqual(leftValue, rightValue)) return false;
+    }
+    return true;
+  };
+
+  const collectExpectedReturnCandidates = (type: IrType): readonly IrType[] => {
+    const queue: IrType[] = [type];
+    const out: IrType[] = [];
+    const seen = new Set<string>();
+    const enqueue = (candidate: IrType | undefined): void => {
+      if (!candidate) return;
+      const key = JSON.stringify(candidate);
+      if (seen.has(key)) return;
+      seen.add(key);
+      queue.push(candidate);
+    };
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) continue;
+      out.push(current);
+
+      if (current.kind === "unionType") {
+        for (const member of current.types) enqueue(member);
+        continue;
+      }
+
+      if (current.kind === "referenceType" && current.typeArguments) {
+        const typeId =
+          current.typeId ??
+          resolveTypeIdByName(
+            current.resolvedClrType ?? current.name,
+            current.typeArguments.length
+          );
+        if (typeId) {
+          const entry = unifiedCatalog.getByTypeId(typeId);
+          if (entry?.aliasedType) {
+            const aliasSubst = new Map<string, IrType>();
+            const aliasTypeParams = entry.typeParameters;
+            const aliasTypeArgs = current.typeArguments;
+            for (
+              let i = 0;
+              i < Math.min(aliasTypeParams.length, aliasTypeArgs.length);
+              i++
+            ) {
+              const tp = aliasTypeParams[i];
+              const ta = aliasTypeArgs[i];
+              if (tp && ta) aliasSubst.set(tp.name, ta);
+            }
+            const expanded =
+              aliasSubst.size > 0
+                ? irSubstitute(
+                    entry.aliasedType,
+                    aliasSubst as IrSubstitutionMap
+                  )
+                : entry.aliasedType;
+            enqueue(expanded);
+          }
+        }
+
+        if (current.typeArguments.length !== 1) continue;
+        const simpleName = current.name.split(".").pop() ?? current.name;
+        const clrName = current.resolvedClrType ?? current.name;
+        const isAsyncWrapper =
+          simpleName === "Promise" ||
+          simpleName === "Task_1" ||
+          simpleName === "Task`1" ||
+          simpleName === "ValueTask_1" ||
+          simpleName === "ValueTask`1" ||
+          clrName === "System.Threading.Tasks.Task" ||
+          clrName === "System.Threading.Tasks.ValueTask" ||
+          clrName.startsWith("System.Threading.Tasks.Task`1") ||
+          clrName.startsWith("System.Threading.Tasks.ValueTask`1");
+        if (isAsyncWrapper) {
+          enqueue(current.typeArguments[0]);
+        }
+      }
+    }
+
+    return out;
+  };
+
   const containsMethodTypeParameter = (
     type: IrType,
     unresolved: ReadonlySet<string>
@@ -3168,6 +3292,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
       receiverType,
       explicitTypeArgs,
       argTypes,
+      expectedReturnType,
       site,
     } = query;
 
@@ -3343,7 +3468,65 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
         }
       }
 
-      // Source 3: Default type parameters
+      // Source 3: Contextual expected return type from the call site.
+      // This handles generic APIs where method type parameters appear only in
+      // the return position (or where argument inference is intentionally weak).
+      if (expectedReturnType) {
+        const returnForInference =
+          callSubst.size > 0
+            ? irSubstitute(workingReturn, callSubst)
+            : workingReturn;
+        const expectedCandidates =
+          collectExpectedReturnCandidates(expectedReturnType);
+        let matched: Map<string, IrType> | undefined;
+
+        for (const candidate of expectedCandidates) {
+          const inferred = inferMethodTypeArgsFromArguments(
+            methodTypeParams,
+            [returnForInference],
+            [candidate]
+          );
+          if (!inferred || inferred.size === 0) continue;
+
+          let conflictsWithExisting = false;
+          for (const [name, inferredType] of inferred) {
+            const existing = callSubst.get(name);
+            if (existing && !typesEqual(existing, inferredType)) {
+              conflictsWithExisting = true;
+              break;
+            }
+          }
+          if (conflictsWithExisting) continue;
+
+          if (matched && !mapEntriesEqual(matched, inferred)) {
+            // Ambiguous contextual-return inference: ignore this source and
+            // rely on explicit/argument/default inference only.
+            matched = undefined;
+            break;
+          }
+          matched = inferred;
+        }
+
+        if (matched) {
+          for (const [name, inferredType] of matched) {
+            const existing = callSubst.get(name);
+            if (existing) {
+              if (!typesEqual(existing, inferredType)) {
+                emitDiagnostic(
+                  "TSN5202",
+                  `Conflicting type argument inference for '${name}' (expected return context)`,
+                  site
+                );
+                return poisonedCall(argumentCount, diagnostics.slice());
+              }
+              continue;
+            }
+            callSubst.set(name, inferredType);
+          }
+        }
+      }
+
+      // Source 4: Default type parameters
       for (const tp of methodTypeParams) {
         if (!callSubst.has(tp.name) && tp.defaultType) {
           callSubst.set(tp.name, tp.defaultType);

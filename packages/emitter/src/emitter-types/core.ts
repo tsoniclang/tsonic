@@ -135,8 +135,30 @@ export type EmitterOptions = {
   readonly moduleMap?: ModuleMap;
   /** Export map for resolving re-exports to actual source (populated during batch emission) */
   readonly exportMap?: ExportMap;
+  /**
+   * Type declarations to suppress during emission.
+   * Key format: "<filePath>::<statementKind>::<typeName>".
+   */
+  readonly suppressedTypeDeclarations?: ReadonlySet<string>;
+  /**
+   * Canonical local structural type targets.
+   *
+   * Some non-exported structural declarations are deduplicated across modules
+   * to preserve TypeScript structural assignability in generated C#.
+   *
+   * Key format: "<namespace>::<typeName>"
+   * Value format: fully-qualified CLR name (without global::), e.g. "MyApp.repo.ItemShape"
+   */
+  readonly canonicalLocalTypeTargets?: ReadonlyMap<string, string>;
   /** JSON AOT registry for collecting types used with JsonSerializer (shared across modules) */
   readonly jsonAotRegistry?: JsonAotRegistry;
+  /**
+   * Enable NativeAOT JSON context generation/rewrite.
+   *
+   * When false, JsonSerializer calls are emitted without `TsonicJson.Options`
+   * and no `__tsonic_json.g.cs` file is generated.
+   */
+  readonly enableJsonAot?: boolean;
   /**
    * Pre-loaded CLR bindings from frontend (for Action/Func resolution).
    * When provided, these take precedence over loading from library directories.
@@ -262,6 +284,11 @@ export type EmitterContext = {
   readonly generatorReturnValueVar?: string;
   /** Map of local type names to their definitions (for property type lookup) */
   readonly localTypes?: ReadonlyMap<string, LocalTypeInfo>;
+  /**
+   * Local type declarations that must be emitted as public because they appear
+   * in an exported API signature in this module.
+   */
+  readonly publicLocalTypes?: ReadonlySet<string>;
   /** Current module namespace (used for fully qualifying local types when required) */
   readonly moduleNamespace?: string;
   /** Name of the module's static container class, when one is emitted */
@@ -274,6 +301,14 @@ export type EmitterContext = {
   readonly narrowedBindings?: ReadonlyMap<string, NarrowedBinding>;
   /** Scoped remap for local variables/parameters to avoid C# shadowing errors */
   readonly localNameMap?: ReadonlyMap<string, string>;
+  /**
+   * Set of parameter names that are void-promise resolve callbacks.
+   *
+   * When `new Promise<void>((resolve) => { ... })` is emitted, `resolve` becomes a zero-arg
+   * `Action`. TypeScript allows `resolve(undefined)` for void promises, but C# `Action` takes
+   * zero arguments. This set tracks those names so the call emitter can strip the argument.
+   */
+  readonly voidResolveNames?: ReadonlySet<string>;
   /**
    * Set of emitted C# local identifiers that have been used anywhere in the current method body.
    *

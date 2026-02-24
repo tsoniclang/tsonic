@@ -1,5 +1,11 @@
-import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
-import { basename, join, resolve, posix } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve, posix } from "node:path";
 import type {
   IrModule,
   IrStatement,
@@ -33,12 +39,27 @@ type MemberOverride = {
   readonly namespace: string;
   readonly className: string;
   readonly memberName: string;
+  readonly sourceTypeText?: string;
+  readonly replaceWithSourceType?: boolean;
+  readonly isOptional?: boolean;
   readonly wrappers: readonly WrapperImport[];
 };
 
 type SourceTypeAliasDef = {
   readonly typeParameters: readonly string[];
   readonly type: ts.TypeNode;
+};
+
+type SourceMemberTypeDef = {
+  readonly typeNode: ts.TypeNode;
+  readonly typeText: string;
+  readonly isOptional: boolean;
+};
+
+type SourceFunctionSignatureDef = {
+  readonly typeParametersText: string;
+  readonly parametersText: string;
+  readonly returnTypeText: string;
 };
 
 type SourceTypeImport = {
@@ -51,9 +72,13 @@ type ModuleSourceIndex = {
   readonly wrapperImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
   readonly typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>;
   readonly typeAliasesByName: ReadonlyMap<string, SourceTypeAliasDef>;
+  readonly exportedFunctionSignaturesByName: ReadonlyMap<
+    string,
+    readonly SourceFunctionSignatureDef[]
+  >;
   readonly memberTypesByClassAndMember: ReadonlyMap<
     string,
-    ReadonlyMap<string, ts.TypeNode>
+    ReadonlyMap<string, SourceMemberTypeDef>
   >;
 };
 
@@ -72,11 +97,34 @@ const escapeRegExp = (text: string): string => {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
 
+const typePrinter = ts.createPrinter({ removeComments: true });
+
+const printTypeNodeText = (
+  node: ts.TypeNode,
+  sourceFile: ts.SourceFile
+): string => {
+  return typePrinter
+    .printNode(ts.EmitHint.Unspecified, node, sourceFile)
+    .trim();
+};
+
+const ensureUndefinedInType = (typeText: string): string => {
+  const trimmed = typeText.trim();
+  if (/\bundefined\b/.test(trimmed)) return trimmed;
+  return `${trimmed} | undefined`;
+};
+
 const normalizeModuleFileKey = (filePath: string): string => {
   return posix
     .normalize(filePath)
     .replace(/^(\.\/)+/, "")
     .replace(/^\/+/, "");
+};
+
+const getPropertyNameText = (name: ts.PropertyName): string | undefined => {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return undefined;
 };
 
 const stripExistingSection = (
@@ -305,18 +353,56 @@ const patchInternalIndexWithMemberOverrides = (
         "m"
       );
       const propMatch = propRe.exec(body);
-      if (!propMatch) {
+      if (propMatch) {
+        const baseType =
+          (o.replaceWithSourceType ? o.sourceTypeText : undefined) ??
+          propMatch[2] ??
+          "";
+        let nextType = applyWrappersToBaseType(baseType, o.wrappers);
+        if (o.isOptional) nextType = ensureUndefinedInType(nextType);
+        body = body.replace(propRe, `$1${nextType}$3`);
+        continue;
+      }
+
+      const getterRe = new RegExp(
+        String.raw`(^\s*get\s+${escapeRegExp(o.memberName)}\s*\(\)\s*:\s*)([^;]+)(;)`,
+        "m"
+      );
+      const setterRe = new RegExp(
+        String.raw`(^\s*set\s+${escapeRegExp(o.memberName)}\s*\(\s*value\s*:\s*)([^)]+)(\)\s*;)`,
+        "m"
+      );
+
+      const getterMatch = getterRe.exec(body);
+      const setterMatch = setterRe.exec(body);
+      if (!getterMatch && !setterMatch) {
         return {
           ok: false,
           error:
             `Failed to locate property '${o.memberName}' on '${ifaceName}' in ${internalIndexDtsPath}.\n` +
-            `This property was annotated with extension wrappers in TS source and should exist in CLR metadata.`,
+            `This property was declared in TS source and should exist in CLR metadata.`,
         };
       }
 
-      const baseType = propMatch[2] ?? "";
-      const wrappedType = applyWrappersToBaseType(baseType, o.wrappers);
-      body = body.replace(propRe, `$1${wrappedType}$3`);
+      if (getterMatch) {
+        const baseType =
+          (o.replaceWithSourceType ? o.sourceTypeText : undefined) ??
+          getterMatch[2] ??
+          "";
+        let nextType = applyWrappersToBaseType(baseType, o.wrappers);
+        if (o.isOptional) nextType = ensureUndefinedInType(nextType);
+        body = body.replace(getterRe, `$1${nextType}$3`);
+      }
+
+      if (setterMatch) {
+        const baseType =
+          (o.replaceWithSourceType ? o.sourceTypeText : undefined) ??
+          setterMatch[2] ??
+          "";
+        let nextType = applyWrappersToBaseType(baseType, o.wrappers);
+        if (o.isOptional) nextType = ensureUndefinedInType(nextType);
+        body = body.replace(setterRe, `$1${nextType}$3`);
+      }
     }
 
     const patchedBlock = head + body + tail;
@@ -328,6 +414,225 @@ const patchInternalIndexWithMemberOverrides = (
 
   if (next !== original) {
     writeFileSync(internalIndexDtsPath, next, "utf-8");
+  }
+
+  return { ok: true, value: undefined };
+};
+
+const patchInternalIndexBrandMarkersOptional = (
+  internalIndexDtsPath: string,
+  typeNames: readonly string[]
+): Result<void, string> => {
+  if (!existsSync(internalIndexDtsPath)) {
+    return {
+      ok: false,
+      error: `Internal index not found at ${internalIndexDtsPath}`,
+    };
+  }
+
+  const original = readFileSync(internalIndexDtsPath, "utf-8");
+  let next = original;
+
+  for (const typeName of Array.from(new Set(typeNames)).sort((a, b) =>
+    a.localeCompare(b)
+  )) {
+    const ifaceName = `${typeName}$instance`;
+    const ifaceRe = new RegExp(
+      String.raw`export\s+interface\s+${escapeRegExp(ifaceName)}\b[^{]*\{[\s\S]*?^\}`,
+      "m"
+    );
+    const match = ifaceRe.exec(next);
+    if (!match || match.index === undefined) continue;
+
+    const block = match[0];
+    const open = block.indexOf("{");
+    const close = block.lastIndexOf("}");
+    if (open < 0 || close < 0 || close <= open) continue;
+
+    const head = block.slice(0, open + 1);
+    let body = block.slice(open + 1, close);
+    const tail = block.slice(close);
+
+    const brandRe =
+      /(^\s*readonly\s+__tsonic_type_[A-Za-z0-9_]+)\s*:\s*never\s*;/m;
+    if (!brandRe.test(body)) continue;
+    body = body.replace(brandRe, "$1?: never;");
+
+    const patchedBlock = head + body + tail;
+    next =
+      next.slice(0, match.index) +
+      patchedBlock +
+      next.slice(match.index + block.length);
+  }
+
+  if (next !== original) {
+    writeFileSync(internalIndexDtsPath, next, "utf-8");
+  }
+
+  return { ok: true, value: undefined };
+};
+
+const splitTopLevelTypeArgs = (text: string): string[] => {
+  const parts: string[] = [];
+  let depthAngle = 0;
+  let depthParen = 0;
+  let depthBrace = 0;
+  let depthBracket = 0;
+  let start = 0;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "<") depthAngle += 1;
+    else if (ch === ">") depthAngle = Math.max(0, depthAngle - 1);
+    else if (ch === "(") depthParen += 1;
+    else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (ch === "{") depthBrace += 1;
+    else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+    else if (ch === "[") depthBracket += 1;
+    else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+    else if (
+      ch === "," &&
+      depthAngle === 0 &&
+      depthParen === 0 &&
+      depthBrace === 0 &&
+      depthBracket === 0
+    ) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+
+  parts.push(text.slice(start).trim());
+  return parts.filter((p) => p.length > 0);
+};
+
+const expandUnionsDeep = (typeText: string): string => {
+  const unionPrefixRe = /Union_\d+</g;
+  let result = typeText;
+
+  // Iterate until no more Union_N< patterns remain
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    unionPrefixRe.lastIndex = 0;
+    const prefixMatch = unionPrefixRe.exec(result);
+    if (!prefixMatch) break;
+
+    // Find the matching > for the < at the end of the prefix
+    const openAngle = prefixMatch.index + prefixMatch[0].length - 1;
+    let depth = 1;
+    let closeAngle = -1;
+    for (let i = openAngle + 1; i < result.length; i += 1) {
+      const ch = result[i];
+      if (ch === "<") depth += 1;
+      else if (ch === ">") {
+        depth -= 1;
+        if (depth === 0) {
+          closeAngle = i;
+          break;
+        }
+      }
+    }
+    if (closeAngle < 0) break;
+
+    const inner = result.slice(openAngle + 1, closeAngle);
+    const args = splitTopLevelTypeArgs(inner);
+    if (args.length < 2) break;
+
+    const expanded = `(${args.join(" | ")})`;
+    result =
+      result.slice(0, prefixMatch.index) +
+      expanded +
+      result.slice(closeAngle + 1);
+  }
+
+  return result;
+};
+
+const patchFacadeWithSourceFunctionSignatures = (
+  facadeDtsPath: string,
+  signaturesByName: ReadonlyMap<string, readonly SourceFunctionSignatureDef[]>
+): Result<void, string> => {
+  if (!existsSync(facadeDtsPath)) {
+    return {
+      ok: false,
+      error: `Facade declaration file not found at ${facadeDtsPath}`,
+    };
+  }
+
+  const original = readFileSync(facadeDtsPath, "utf-8");
+  let next = original;
+
+  for (const [name, signatures] of Array.from(signaturesByName.entries()).sort(
+    (a, b) => a[0].localeCompare(b[0])
+  )) {
+    if (signatures.length === 0) continue;
+
+    const fnRe = new RegExp(
+      String.raw`^(export\s+declare\s+function\s+${escapeRegExp(name)}(?:<[\s\S]*?>)?\s*\([\s\S]*?\)\s*:\s*)([^;]+)(;)`,
+      "m"
+    );
+    const currentMatch = fnRe.exec(next);
+
+    if (currentMatch) {
+      const existingReturnType = currentMatch[2]?.trim() ?? "";
+
+      const replacement = Array.from(
+        new Set(
+          signatures.map((sig) => {
+            const returnType = sig.returnTypeText.includes("{")
+              ? expandUnionsDeep(existingReturnType)
+              : sig.returnTypeText;
+            return `export declare function ${name}${sig.typeParametersText}(${sig.parametersText}): ${returnType};`;
+          })
+        )
+      ).join("\n");
+
+      next = next.replace(fnRe, replacement);
+      continue;
+    }
+
+    // If no function declaration match, try const Func<...> pattern
+    const constFuncRe = new RegExp(
+      String.raw`^export\s+declare\s+const\s+${escapeRegExp(name)}\s*:\s*Func<([\s\S]+?)>\s*;`,
+      "m"
+    );
+    const constMatch = constFuncRe.exec(next);
+    if (!constMatch || !constMatch[1]) continue;
+
+    const funcTypeArgs = splitTopLevelTypeArgs(constMatch[1]);
+    if (funcTypeArgs.length < 2) continue;
+
+    // Last arg = return type, remaining args = parameter types
+    const facadeParamTypes = funcTypeArgs.slice(0, -1);
+    const facadeReturnType = funcTypeArgs[funcTypeArgs.length - 1]!;
+
+    // Use the first source signature for parameter names
+    const sourceSig = signatures[0]!;
+    const sourceParams = sourceSig.parametersText
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+
+    // If count mismatch, skip patching for this declaration
+    if (sourceParams.length !== facadeParamTypes.length) continue;
+
+    // Pair source parameter NAMES with facade parameter TYPES
+    const pairedParams = sourceParams.map((param, idx) => {
+      const colonIdx = param.indexOf(":");
+      const paramName =
+        colonIdx >= 0 ? param.slice(0, colonIdx).trim() : param.trim();
+      return `${paramName}: ${facadeParamTypes[idx]}`;
+    });
+
+    const expandedReturnType = expandUnionsDeep(facadeReturnType);
+    const typeParamsText = sourceSig.typeParametersText;
+    const replacement = `export declare function ${name}${typeParamsText}(${pairedParams.join(", ")}): ${expandedReturnType};`;
+
+    next = next.replace(constFuncRe, replacement);
+  }
+
+  if (next !== original) {
+    writeFileSync(facadeDtsPath, next, "utf-8");
   }
 
   return { ok: true, value: undefined };
@@ -448,15 +753,39 @@ const buildModuleSourceIndex = (
   const wrapperImportsByLocalName = new Map<string, SourceTypeImport>();
   const typeImportsByLocalName = new Map<string, SourceTypeImport>();
   const typeAliasesByName = new Map<string, SourceTypeAliasDef>();
+  const exportedFunctionSignaturesByName = new Map<
+    string,
+    SourceFunctionSignatureDef[]
+  >();
   const memberTypesByClassAndMember = new Map<
     string,
-    Map<string, ts.TypeNode>
+    Map<string, SourceMemberTypeDef>
   >();
 
-  const getMemberName = (name: ts.PropertyName): string | undefined => {
-    if (ts.isIdentifier(name)) return name.text;
-    if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
-    return undefined;
+  const printTypeParametersText = (
+    typeParameters: readonly ts.TypeParameterDeclaration[] | undefined
+  ): string => {
+    if (!typeParameters || typeParameters.length === 0) return "";
+    return `<${typeParameters.map((tp) => tp.getText(sourceFile)).join(", ")}>`;
+  };
+
+  const printParameterText = (param: ts.ParameterDeclaration): string => {
+    const rest = param.dotDotDotToken ? "..." : "";
+    const name = param.name.getText(sourceFile);
+    const optional = param.questionToken ? "?" : "";
+    const type = param.type
+      ? printTypeNodeText(param.type, sourceFile)
+      : "unknown";
+    return `${rest}${name}${optional}: ${type}`;
+  };
+
+  const addExportedFunctionSignature = (
+    name: string,
+    sig: SourceFunctionSignatureDef
+  ): void => {
+    const list = exportedFunctionSignaturesByName.get(name) ?? [];
+    list.push(sig);
+    exportedFunctionSignaturesByName.set(name, list);
   };
 
   for (const stmt of sourceFile.statements) {
@@ -502,31 +831,108 @@ const buildModuleSourceIndex = (
       continue;
     }
 
+    if (ts.isFunctionDeclaration(stmt)) {
+      const hasExport = stmt.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (!hasExport || !stmt.name || !stmt.type) continue;
+
+      const parametersText = stmt.parameters.map(printParameterText).join(", ");
+      addExportedFunctionSignature(stmt.name.text, {
+        typeParametersText: printTypeParametersText(stmt.typeParameters),
+        parametersText,
+        returnTypeText: printTypeNodeText(stmt.type, sourceFile),
+      });
+      continue;
+    }
+
+    if (ts.isVariableStatement(stmt)) {
+      const hasExport = stmt.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.ExportKeyword
+      );
+      if (!hasExport) continue;
+
+      for (const decl of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name)) continue;
+        const exportName = decl.name.text;
+        const init = decl.initializer;
+        if (!init) continue;
+
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+          const returnType = init.type;
+          if (!returnType) continue;
+          const parametersText = init.parameters
+            .map(printParameterText)
+            .join(", ");
+          addExportedFunctionSignature(exportName, {
+            typeParametersText: printTypeParametersText(init.typeParameters),
+            parametersText,
+            returnTypeText: printTypeNodeText(returnType, sourceFile),
+          });
+        }
+      }
+      continue;
+    }
+
     if (ts.isClassDeclaration(stmt) && stmt.name) {
       const className = stmt.name.text;
       const members =
         memberTypesByClassAndMember.get(className) ??
-        new Map<string, ts.TypeNode>();
+        new Map<string, SourceMemberTypeDef>();
 
       for (const member of stmt.members) {
         if (ts.isGetAccessorDeclaration(member)) {
           if (!member.name || !member.type) continue;
-          const name = getMemberName(member.name);
+          const name = getPropertyNameText(member.name);
           if (!name) continue;
-          members.set(name, member.type);
+          members.set(name, {
+            typeNode: member.type,
+            typeText: printTypeNodeText(member.type, sourceFile),
+            isOptional: false,
+          });
           continue;
         }
 
         if (ts.isPropertyDeclaration(member)) {
           if (!member.name || !member.type) continue;
-          const name = getMemberName(member.name);
+          const name = getPropertyNameText(member.name);
           if (!name) continue;
-          members.set(name, member.type);
+          members.set(name, {
+            typeNode: member.type,
+            typeText: printTypeNodeText(member.type, sourceFile),
+            isOptional: member.questionToken !== undefined,
+          });
         }
       }
 
       if (members.size > 0) {
         memberTypesByClassAndMember.set(className, members);
+      }
+
+      continue;
+    }
+
+    if (ts.isInterfaceDeclaration(stmt)) {
+      const interfaceName = stmt.name.text;
+      const members =
+        memberTypesByClassAndMember.get(interfaceName) ??
+        new Map<string, SourceMemberTypeDef>();
+
+      for (const member of stmt.members) {
+        if (!ts.isPropertySignature(member)) continue;
+        if (!member.name || !member.type) continue;
+        const name = getPropertyNameText(member.name);
+        if (!name) continue;
+
+        members.set(name, {
+          typeNode: member.type,
+          typeText: printTypeNodeText(member.type, sourceFile),
+          isOptional: member.questionToken !== undefined,
+        });
+      }
+
+      if (members.size > 0) {
+        memberTypesByClassAndMember.set(interfaceName, members);
       }
     }
   }
@@ -538,9 +944,29 @@ const buildModuleSourceIndex = (
       wrapperImportsByLocalName,
       typeImportsByLocalName,
       typeAliasesByName,
+      exportedFunctionSignaturesByName,
       memberTypesByClassAndMember,
     },
   };
+};
+
+const typeNodeUsesImportedTypeNames = (
+  node: ts.TypeNode,
+  typeImportsByLocalName: ReadonlyMap<string, SourceTypeImport>
+): boolean => {
+  let found = false;
+  const visit = (current: ts.Node): void => {
+    if (found) return;
+    if (ts.isTypeReferenceNode(current) && ts.isIdentifier(current.typeName)) {
+      if (typeImportsByLocalName.has(current.typeName.text)) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
 };
 
 const unwrapParens = (node: ts.TypeNode): ts.TypeNode => {
@@ -759,10 +1185,41 @@ const printIrType = (type: IrType, ctx: TypePrinterContext): string => {
       const v = printIrType(type.valueType, { parentPrecedence: 0 });
       return `Record<${k}, ${v}>`;
     }
-    case "objectType":
-      // Object type aliases are materialized as __Alias CLR types in source builds.
-      // If we reach here, the alias printer should have handled it separately.
-      return "{ /* object */ }";
+    case "objectType": {
+      if (type.members.length === 0) return "{}";
+      const members = type.members
+        .map((member) => {
+          if (member.kind === "propertySignature") {
+            const readonly = member.isReadonly ? "readonly " : "";
+            const optional = member.isOptional ? "?" : "";
+            const memberType = printIrType(member.type, {
+              parentPrecedence: 0,
+            });
+            return `${readonly}${member.name}${optional}: ${memberType}`;
+          }
+
+          const typeParams = printTypeParameters(member.typeParameters);
+          const args = member.parameters
+            .map((p, i) => {
+              const name =
+                p.pattern.kind === "identifierPattern"
+                  ? p.pattern.name
+                  : `p${i + 1}`;
+              const optional = p.isOptional ? "?" : "";
+              const paramType = p.type
+                ? printIrType(p.type, { parentPrecedence: 0 })
+                : "unknown";
+              return `${name}${optional}: ${paramType}`;
+            })
+            .join(", ");
+          const returnType = member.returnType
+            ? printIrType(member.returnType, { parentPrecedence: 0 })
+            : "void";
+          return `${member.name}${typeParams}(${args}): ${returnType}`;
+        })
+        .join("; ");
+      return `{ ${members} }`;
+    }
     default:
       // Exhaustiveness safety
       return "unknown";
@@ -804,6 +1261,78 @@ const renderExportedTypeAlias = (
 
   const rhs = printIrType(stmt.type, { parentPrecedence: 0 });
   return { ok: true, value: `export type ${stmt.name}${typeParams} = ${rhs};` };
+};
+
+/**
+ * Overlay already-augmented bindings from dependency assemblies.
+ *
+ * When a library references sibling Tsonic-built libraries (via references.libraries),
+ * tsbindgen regenerates types from CLR metadata, losing source-level augmentation
+ * (literal types, optional markers, brand optionality, etc.). The dependency's published
+ * bindings already have this augmentation applied, so we overlay them onto the
+ * freshly-generated copies.
+ */
+export const overlayDependencyBindings = (
+  config: ResolvedConfig,
+  bindingsOutDir: string
+): Result<void, string> => {
+  const depBindingsDirByAssembly = new Map<string, string>();
+  for (const lib of config.libraries) {
+    if (!lib.toLowerCase().endsWith(".dll")) continue;
+    const assemblyName = basename(lib, ".dll");
+    // Skip the current package's own assembly.
+    if (assemblyName === config.outputName) continue;
+    // Convention: DLL at <project>/dist/<dotnetVersion>/<name>.dll,
+    // bindings at <project>/dist/tsonic/bindings/.
+    const depBindingsDir = join(dirname(dirname(lib)), "tsonic", "bindings");
+    if (existsSync(depBindingsDir)) {
+      depBindingsDirByAssembly.set(assemblyName, depBindingsDir);
+    }
+  }
+
+  if (depBindingsDirByAssembly.size === 0) {
+    return { ok: true, value: undefined };
+  }
+
+  // Scan generated bindings for namespace directories with internal/index.d.ts.
+  const generatedNamespaces = readdirSync(bindingsOutDir, {
+    withFileTypes: true,
+  })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+
+  for (const ns of generatedNamespaces) {
+    const internalIndexPath = join(
+      bindingsOutDir,
+      ns,
+      "internal",
+      "index.d.ts"
+    );
+    if (!existsSync(internalIndexPath)) continue;
+
+    const content = readFileSync(internalIndexPath, "utf-8");
+    const assemblyMatch = content.match(/^\/\/ Assembly:\s*(.+)\s*$/m);
+    if (!assemblyMatch || !assemblyMatch[1]) continue;
+    const assembly = assemblyMatch[1].trim();
+
+    const depDir = depBindingsDirByAssembly.get(assembly);
+    if (!depDir) continue;
+
+    // Overlay the dependency's already-augmented internal/index.d.ts.
+    const depInternalIndex = join(depDir, ns, "internal", "index.d.ts");
+    if (existsSync(depInternalIndex)) {
+      copyFileSync(depInternalIndex, internalIndexPath);
+    }
+
+    // Overlay the dependency's facade .d.ts (may have type aliases, re-exports).
+    const facadeDts = join(bindingsOutDir, `${ns}.d.ts`);
+    const depFacadeDts = join(depDir, `${ns}.d.ts`);
+    if (existsSync(facadeDts) && existsSync(depFacadeDts)) {
+      copyFileSync(depFacadeDts, facadeDts);
+    }
+  }
+
+  return { ok: true, value: undefined };
 };
 
 export const augmentLibraryBindingsFromSource = (
@@ -981,12 +1510,11 @@ export const augmentLibraryBindingsFromSource = (
             `Could not find an exported declaration named '${exp.originalName}' in ${targetModule.filePath}.`,
         };
       }
-      const isTypeOnly = kind === "type";
-
       const spec =
         exp.name === exp.originalName
           ? exp.name
           : `${exp.originalName} as ${exp.name}`;
+      const isTypeOnly = kind === "type";
       const key: GroupKey = `${targetFacade.moduleSpecifier}|${isTypeOnly ? "type" : "value"}`;
       const list = grouped.get(key) ?? [];
       list.push(spec);
@@ -1043,11 +1571,14 @@ export const augmentLibraryBindingsFromSource = (
     }
   }
 
-  // 3) Preserve TS-authored extension wrapper annotations on exported class members.
+  // 3) Preserve TS-authored member typing semantics on exported class/interface members.
   // These wrapper types (ExtensionMethods<...>) do not exist in CLR metadata and therefore
   // cannot be discovered by tsbindgen when generating bindings from the DLL. We can,
   // however, safely re-apply them for Tsonic-authored libraries by reading the TS source
-  // graph and wrapping the CLR base member type in the published internal/index.d.ts.
+  // graph and patching the published internal/index.d.ts:
+  // - Re-apply ExtensionMethods wrappers (class + interface members)
+  // - Preserve optional (`?`) semantics by allowing `undefined` on patched members
+  // - For exported interfaces, preserve source structural member types when safe
   const sourceIndexByFileKey = new Map<string, ModuleSourceIndex>();
   for (const m of modules) {
     // Synthetic IR modules (e.g., program-wide anonymous type declarations) do not
@@ -1061,20 +1592,55 @@ export const augmentLibraryBindingsFromSource = (
   }
 
   const overridesByInternalIndex = new Map<string, MemberOverride[]>();
+  const brandOptionalTypesByInternalIndex = new Map<string, Set<string>>();
+  const functionSignaturesByFacade = new Map<
+    string,
+    Map<string, SourceFunctionSignatureDef[]>
+  >();
   for (const m of modules) {
     if (m.filePath.startsWith("__tsonic/")) continue;
     const exportedClasses = m.body.filter(
       (s): s is Extract<IrStatement, { kind: "classDeclaration" }> =>
         s.kind === "classDeclaration" && s.isExported
     );
-    if (exportedClasses.length === 0) continue;
-
+    const exportedInterfaces = m.body.filter(
+      (s): s is Extract<IrStatement, { kind: "interfaceDeclaration" }> =>
+        s.kind === "interfaceDeclaration" && s.isExported
+    );
+    const exportedAliases = m.body.filter(
+      (s): s is Extract<IrStatement, { kind: "typeAliasDeclaration" }> =>
+        s.kind === "typeAliasDeclaration" && s.isExported
+    );
     const moduleKey = normalizeModuleFileKey(m.filePath);
     const sourceIndex = sourceIndexByFileKey.get(moduleKey);
     if (!sourceIndex) continue;
 
+    const hasExportedSourceFunctions =
+      sourceIndex.exportedFunctionSignaturesByName.size > 0;
+    if (
+      exportedClasses.length === 0 &&
+      exportedInterfaces.length === 0 &&
+      exportedAliases.length === 0 &&
+      !hasExportedSourceFunctions
+    )
+      continue;
+
     const info =
       facadesByNamespace.get(m.namespace) ?? ensureFacade(m.namespace);
+
+    for (const [
+      name,
+      signatures,
+    ] of sourceIndex.exportedFunctionSignaturesByName) {
+      if (signatures.length === 0) continue;
+      const byName =
+        functionSignaturesByFacade.get(info.facadeDtsPath) ??
+        new Map<string, SourceFunctionSignatureDef[]>();
+      const list = byName.get(name) ?? [];
+      list.push(...signatures);
+      byName.set(name, list);
+      functionSignaturesByFacade.set(info.facadeDtsPath, byName);
+    }
 
     for (const cls of exportedClasses) {
       const memberTypes = sourceIndex.memberTypesByClassAndMember.get(cls.name);
@@ -1084,18 +1650,18 @@ export const augmentLibraryBindingsFromSource = (
         if (member.kind !== "propertyDeclaration") continue;
         if (member.isStatic) continue;
         if (member.accessibility === "private") continue;
-        const annotatedType = memberTypes.get(member.name);
-        if (!annotatedType) continue;
+        const sourceMember = memberTypes.get(member.name);
+        if (!sourceMember) continue;
 
         const wrappersResult = collectExtensionWrapperImportsFromSourceType({
           startModuleKey: moduleKey,
-          typeNode: annotatedType,
+          typeNode: sourceMember.typeNode,
           sourceIndexByFileKey,
           modulesByFileKey: modulesByFile,
         });
         if (!wrappersResult.ok) return wrappersResult;
         const wrappers = wrappersResult.value;
-        if (wrappers.length === 0) continue;
+        if (wrappers.length === 0 && !sourceMember.isOptional) continue;
 
         const list =
           overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
@@ -1103,6 +1669,116 @@ export const augmentLibraryBindingsFromSource = (
           namespace: m.namespace,
           className: cls.name,
           memberName: member.name,
+          isOptional: sourceMember.isOptional,
+          wrappers,
+        });
+        overridesByInternalIndex.set(info.internalIndexDtsPath, list);
+      }
+    }
+
+    for (const iface of exportedInterfaces) {
+      const memberTypes = sourceIndex.memberTypesByClassAndMember.get(
+        iface.name
+      );
+      if (!memberTypes) continue;
+
+      for (const member of iface.members) {
+        if (member.kind !== "propertySignature") continue;
+        const sourceMember = memberTypes.get(member.name);
+        if (!sourceMember) continue;
+
+        const wrappersResult = collectExtensionWrapperImportsFromSourceType({
+          startModuleKey: moduleKey,
+          typeNode: sourceMember.typeNode,
+          sourceIndexByFileKey,
+          modulesByFileKey: modulesByFile,
+        });
+        if (!wrappersResult.ok) return wrappersResult;
+        const wrappers = wrappersResult.value;
+
+        const canUseSourceTypeText = !typeNodeUsesImportedTypeNames(
+          sourceMember.typeNode,
+          sourceIndex.typeImportsByLocalName
+        );
+
+        if (!canUseSourceTypeText && wrappers.length === 0) continue;
+
+        const list =
+          overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
+        list.push({
+          namespace: m.namespace,
+          className: iface.name,
+          memberName: member.name,
+          sourceTypeText: canUseSourceTypeText
+            ? sourceMember.typeText
+            : undefined,
+          replaceWithSourceType: canUseSourceTypeText,
+          isOptional: sourceMember.isOptional,
+          wrappers,
+        });
+        overridesByInternalIndex.set(info.internalIndexDtsPath, list);
+      }
+
+      const brandTargets =
+        brandOptionalTypesByInternalIndex.get(info.internalIndexDtsPath) ??
+        new Set<string>();
+      brandTargets.add(iface.name);
+      brandOptionalTypesByInternalIndex.set(
+        info.internalIndexDtsPath,
+        brandTargets
+      );
+    }
+
+    for (const alias of exportedAliases) {
+      const sourceAlias = sourceIndex.typeAliasesByName.get(alias.name);
+      if (!sourceAlias) continue;
+      const aliasType = unwrapParens(sourceAlias.type);
+      if (!ts.isTypeLiteralNode(aliasType)) continue;
+
+      const arity = sourceAlias.typeParameters.length;
+      const internalAliasName = `${alias.name}__Alias${arity > 0 ? `_${arity}` : ""}`;
+
+      const brandTargets =
+        brandOptionalTypesByInternalIndex.get(info.internalIndexDtsPath) ??
+        new Set<string>();
+      brandTargets.add(internalAliasName);
+      brandOptionalTypesByInternalIndex.set(
+        info.internalIndexDtsPath,
+        brandTargets
+      );
+
+      for (const member of aliasType.members) {
+        if (!ts.isPropertySignature(member)) continue;
+        if (!member.name || !member.type) continue;
+        const memberName = getPropertyNameText(member.name);
+        if (!memberName) continue;
+
+        const wrappersResult = collectExtensionWrapperImportsFromSourceType({
+          startModuleKey: moduleKey,
+          typeNode: member.type,
+          sourceIndexByFileKey,
+          modulesByFileKey: modulesByFile,
+        });
+        if (!wrappersResult.ok) return wrappersResult;
+        const wrappers = wrappersResult.value;
+
+        const canUseSourceTypeText = !typeNodeUsesImportedTypeNames(
+          member.type,
+          sourceIndex.typeImportsByLocalName
+        );
+        if (!canUseSourceTypeText && wrappers.length === 0) continue;
+
+        const list =
+          overridesByInternalIndex.get(info.internalIndexDtsPath) ?? [];
+        list.push({
+          namespace: m.namespace,
+          className: internalAliasName,
+          memberName,
+          sourceTypeText: canUseSourceTypeText
+            ? printTypeNodeText(member.type, member.getSourceFile())
+            : undefined,
+          replaceWithSourceType: canUseSourceTypeText,
+          isOptional: member.questionToken !== undefined,
           wrappers,
         });
         overridesByInternalIndex.set(info.internalIndexDtsPath, list);
@@ -1114,6 +1790,22 @@ export const augmentLibraryBindingsFromSource = (
     const result = patchInternalIndexWithMemberOverrides(
       internalIndex,
       overrides
+    );
+    if (!result.ok) return result;
+  }
+
+  for (const [internalIndex, typeNames] of brandOptionalTypesByInternalIndex) {
+    const result = patchInternalIndexBrandMarkersOptional(
+      internalIndex,
+      Array.from(typeNames.values())
+    );
+    if (!result.ok) return result;
+  }
+
+  for (const [facadePath, signaturesByName] of functionSignaturesByFacade) {
+    const result = patchFacadeWithSourceFunctionSignatures(
+      facadePath,
+      signaturesByName
     );
     if (!result.ok) return result;
   }

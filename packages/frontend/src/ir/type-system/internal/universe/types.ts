@@ -59,6 +59,13 @@ export type NominalEntry = {
   readonly typeId: TypeId;
   /** Type kind */
   readonly kind: NominalKind;
+  /**
+   * Source type alias target (when kind originated from a TypeScript type alias).
+   *
+   * Present only for source-origin aliases; undefined for assembly types and
+   * non-alias source declarations.
+   */
+  readonly aliasedType?: IrType;
   /** Type parameters (for generic types) */
   readonly typeParameters: readonly TypeParameterEntry[];
   /** Inheritance edges (extends, implements) */

@@ -149,6 +149,9 @@ export const parseArgs = (
       case "--no-strip":
         options.noStrip = true;
         break;
+      case "--no-aot":
+        options.noAot = true;
+        break;
       case "-L":
       case "--lib":
         {

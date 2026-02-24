@@ -61,6 +61,23 @@ const getParameterName = (
   return `p${index}`;
 };
 
+const withOptionalUndefined = (
+  type: IrType | undefined,
+  isOptional: boolean
+): IrType | undefined => {
+  if (!type || !isOptional) return type;
+  if (
+    type.kind === "unionType" &&
+    type.types.some((t) => t.kind === "primitiveType" && t.name === "undefined")
+  ) {
+    return type;
+  }
+  return {
+    kind: "unionType",
+    types: [type, { kind: "primitiveType", name: "undefined" }],
+  };
+};
+
 /**
  * Convert MemberInfo from TypeRegistry to MemberEntry for unified catalog.
  */
@@ -80,7 +97,7 @@ const convertMemberInfo = (
     tsName: memberInfo.name,
     clrName: memberInfo.name,
     memberKind,
-    type: memberInfo.type,
+    type: withOptionalUndefined(memberInfo.type, memberInfo.isOptional),
     signatures: memberInfo.methodSignatures?.map((sig) => ({
       stableId: `${parentFQName}::${memberInfo.name}`,
       parameters: sig.parameters.map((p, i) => ({
@@ -207,6 +224,9 @@ const convertRegistryEntry = (
   return {
     typeId,
     kind,
+    ...(entry.kind === "typeAlias" && entry.aliasedType
+      ? { aliasedType: entry.aliasedType }
+      : {}),
     typeParameters,
     heritage,
     members,

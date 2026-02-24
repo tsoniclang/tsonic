@@ -358,8 +358,10 @@ const emitJsonSerializerCall = (
     }
   }
 
-  // Add TsonicJson.Options as the last argument for NativeAOT compatibility
-  args.push("TsonicJson.Options");
+  // Add TsonicJson.Options only when NativeAOT JSON context generation is enabled.
+  if (context.options.jsonAotRegistry) {
+    args.push("TsonicJson.Options");
+  }
 
   const text = `global::System.Text.Json.JsonSerializer.${method}${typeArgsStr}(${args.join(", ")})`;
   return [{ text }, currentContext];
@@ -372,6 +374,32 @@ export const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpFragment, EmitterContext] => {
+  // Void promise resolve: emit as zero-arg call when safe.
+  // C# Action (zero-arg) cannot accept arguments, so resolve() and resolve(undefined)
+  // both map to resolve(). Only strip when there are no arguments or a single
+  // `undefined` identifier — other argument forms may have side effects that must
+  // not be dropped. Name-based matching is scoped to the executor body; shadowing
+  // the resolve name inside the executor is technically possible but extremely rare.
+  if (
+    expr.callee.kind === "identifier" &&
+    context.voidResolveNames?.has(expr.callee.name)
+  ) {
+    const isZeroArg = expr.arguments.length === 0;
+    const isSingleUndefined =
+      expr.arguments.length === 1 &&
+      expr.arguments[0]?.kind === "identifier" &&
+      expr.arguments[0].name === "undefined";
+
+    if (isZeroArg || isSingleUndefined) {
+      const [calleeFrag, calleeCtx] = emitExpression(expr.callee, context);
+      const calleeText = formatPostfixExpressionText(
+        expr.callee,
+        calleeFrag.text
+      );
+      return [{ text: `${calleeText}()` }, calleeCtx];
+    }
+  }
+
   // Check for JsonSerializer calls (NativeAOT support)
   const jsonCall = isJsonSerializerCall(expr.callee);
   if (jsonCall) {
@@ -883,6 +911,200 @@ const emitArrayConstructor = (
   return [{ text }, currentContext];
 };
 
+const isPromiseConstructorCall = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): boolean => {
+  return expr.callee.kind === "identifier" && expr.callee.name === "Promise";
+};
+
+const isVoidLikeType = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  return (
+    type.kind === "voidType" ||
+    (type.kind === "primitiveType" && type.name === "undefined")
+  );
+};
+
+/**
+ * Check if a type contains `void` in a position where it would be emitted
+ * as a C# generic type argument (union member, type argument, etc.).
+ * C# forbids `void` as a generic type argument, so such types are invalid.
+ */
+const containsVoidInGenericPosition = (type: IrType | undefined): boolean => {
+  if (!type) return false;
+  if (type.kind === "unionType") {
+    return type.types.some(
+      (t) => isVoidLikeType(t) || containsVoidInGenericPosition(t)
+    );
+  }
+  if (type.kind === "referenceType" && type.typeArguments) {
+    return type.typeArguments.some(
+      (t) => isVoidLikeType(t) || containsVoidInGenericPosition(t)
+    );
+  }
+  if (type.kind === "functionType") {
+    return (
+      type.parameters.some((p) => containsVoidInGenericPosition(p.type)) ||
+      containsVoidInGenericPosition(type.returnType)
+    );
+  }
+  return false;
+};
+
+const getPromiseValueType = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): IrType | undefined => {
+  const inferred = expr.inferredType;
+  if (inferred?.kind === "referenceType") {
+    const candidate = inferred.typeArguments?.[0];
+    if (candidate && !isVoidLikeType(candidate)) {
+      return candidate;
+    }
+    if (candidate && isVoidLikeType(candidate)) {
+      return undefined;
+    }
+  }
+
+  const explicit = expr.typeArguments?.[0];
+  if (explicit && !isVoidLikeType(explicit)) {
+    return explicit;
+  }
+
+  return undefined;
+};
+
+const getExecutorArity = (
+  expr: Extract<IrExpression, { kind: "new" }>
+): number => {
+  const executor = expr.arguments[0];
+  if (
+    executor &&
+    executor.kind !== "spread" &&
+    (executor.kind === "arrowFunction" ||
+      executor.kind === "functionExpression")
+  ) {
+    return executor.parameters.length;
+  }
+
+  const executorType = expr.parameterTypes?.[0];
+  if (executorType?.kind === "functionType") {
+    return executorType.parameters.length;
+  }
+
+  return 1;
+};
+
+const emitPromiseConstructor = (
+  expr: Extract<IrExpression, { kind: "new" }>,
+  context: EmitterContext
+): [CSharpFragment, EmitterContext] => {
+  const executor = expr.arguments[0];
+  if (!executor || executor.kind === "spread") {
+    throw new Error(
+      "Unsupported Promise constructor form: expected an executor function argument."
+    );
+  }
+
+  let currentContext = context;
+  const [taskTypeTextRaw, taskTypeContext] = expr.inferredType
+    ? emitType(expr.inferredType, currentContext)
+    : ["global::System.Threading.Tasks.Task", currentContext];
+  currentContext = taskTypeContext;
+  const taskTypeText =
+    taskTypeTextRaw.length > 0
+      ? taskTypeTextRaw
+      : "global::System.Threading.Tasks.Task";
+
+  const promiseValueType = getPromiseValueType(expr);
+  let valueTypeText = "bool";
+  if (promiseValueType) {
+    const [valueType, valueTypeContext] = emitType(
+      promiseValueType,
+      currentContext
+    );
+    valueTypeText = valueType;
+    currentContext = valueTypeContext;
+  }
+
+  // For void promises, track the resolve parameter name so call emitter
+  // can strip arguments from resolve(undefined) calls (C# Action is zero-arg)
+  const resolveParam =
+    !promiseValueType &&
+    (executor.kind === "arrowFunction" ||
+      executor.kind === "functionExpression")
+      ? executor.parameters[0]
+      : undefined;
+  const resolveParamName =
+    resolveParam?.pattern.kind === "identifierPattern"
+      ? resolveParam.pattern.name
+      : undefined;
+
+  const executorEmitContext = resolveParamName
+    ? { ...currentContext, voidResolveNames: new Set([resolveParamName]) }
+    : currentContext;
+
+  // For void promises, the resolve parameter's TS type may be
+  // `(value: void | PromiseLike<void>) => void` which emits as `Action<Union<void, Task>>` —
+  // invalid in C# (void cannot be a generic type argument). Strip the type annotation only
+  // when it contains void-in-generic, letting C# infer from the outer delegate cast.
+  // When the type is clean (e.g., `() => void` → `Action`), keep it for clarity.
+  const resolveParamHasVoidGeneric =
+    resolveParam?.type?.kind === "functionType" &&
+    resolveParam.type.parameters.some((p) =>
+      containsVoidInGenericPosition(p.type)
+    );
+  const emittedExecutor =
+    resolveParamHasVoidGeneric &&
+    (executor.kind === "arrowFunction" ||
+      executor.kind === "functionExpression")
+      ? {
+          ...executor,
+          parameters: executor.parameters.map((p, i) =>
+            i === 0 ? { ...p, type: undefined } : p
+          ),
+        }
+      : executor;
+
+  const [executorFrag, executorContext] = emitExpression(
+    emittedExecutor,
+    executorEmitContext,
+    expr.parameterTypes?.[0]
+  );
+  // Strip voidResolveNames from returned context to prevent leakage into enclosing scope
+  currentContext = resolveParamName
+    ? { ...executorContext, voidResolveNames: undefined }
+    : executorContext;
+
+  const executorText = formatPostfixExpressionText(executor, executorFrag.text);
+  const executorArity = getExecutorArity(expr);
+  const resolveCallbackType = promiseValueType
+    ? `global::System.Action<${valueTypeText}>`
+    : "global::System.Action";
+  const executorDelegateType =
+    executorArity >= 2
+      ? `global::System.Action<${resolveCallbackType}, global::System.Action<object?>>`
+      : `global::System.Action<${resolveCallbackType}>`;
+  const executorInvokeTarget = `((${executorDelegateType})${executorText})`;
+  const invokeArgs =
+    executorArity >= 2
+      ? "__tsonic_resolve, __tsonic_reject"
+      : "__tsonic_resolve";
+
+  const resolveDecl = promiseValueType
+    ? `global::System.Action<${valueTypeText}> __tsonic_resolve = (value) => __tsonic_tcs.TrySetResult(value);`
+    : "global::System.Action __tsonic_resolve = () => __tsonic_tcs.TrySetResult(true);";
+
+  const text =
+    `((global::System.Func<${taskTypeText}>)(() => { ` +
+    `var __tsonic_tcs = new global::System.Threading.Tasks.TaskCompletionSource<${valueTypeText}>(); ` +
+    `${resolveDecl} ` +
+    `global::System.Action<object?> __tsonic_reject = (error) => __tsonic_tcs.TrySetException((error as global::System.Exception) ?? new global::System.Exception(error?.ToString() ?? "Promise rejected")); ` +
+    `try { ${executorInvokeTarget}(${invokeArgs}); } catch (global::System.Exception ex) { __tsonic_tcs.TrySetException(ex); } ` +
+    `return __tsonic_tcs.Task; }))()`;
+
+  return [{ text }, currentContext];
+};
+
 /**
  * Emit a new expression
  */
@@ -898,6 +1120,13 @@ export const emitNew = (
   // Special case: new List<T>([...]) → new List<T> { ... }
   if (isListConstructorWithArrayLiteral(expr)) {
     return emitListCollectionInitializer(expr, context);
+  }
+
+  // Promise constructor lowering:
+  //   new Promise<T>((resolve, reject) => { ... })
+  // becomes a TaskCompletionSource<T>-backed Task expression.
+  if (isPromiseConstructorCall(expr)) {
+    return emitPromiseConstructor(expr, context);
   }
 
   const [calleeFrag, newContext] = emitExpression(expr.callee, context);

@@ -146,6 +146,53 @@ const lookupMemberKindFromIndex = (
   return perType?.get(memberName);
 };
 
+const hasPropertyFromBindingsRegistry = (
+  type: Extract<IrType, { kind: "referenceType" }>,
+  propertyName: string,
+  context: EmitterContext
+): boolean | undefined => {
+  const registry = context.bindingsRegistry;
+  if (!registry || registry.size === 0) return undefined;
+
+  const candidates = new Set<string>();
+  const addCandidate = (value: string | undefined): void => {
+    if (!value) return;
+    candidates.add(value);
+    if (value.includes(".")) {
+      const leaf = value.split(".").pop();
+      if (leaf) candidates.add(leaf);
+    }
+  };
+
+  addCandidate(type.name);
+  addCandidate(type.typeId?.tsName);
+  addCandidate(type.resolvedClrType);
+  addCandidate(type.typeId?.clrName);
+
+  for (const value of Array.from(candidates)) {
+    if (value.endsWith("$instance")) {
+      candidates.add(value.slice(0, -"$instance".length));
+    }
+    if (value.startsWith("__") && value.endsWith("$views")) {
+      candidates.add(value.slice("__".length, -"$views".length));
+    }
+  }
+
+  for (const key of candidates) {
+    const binding = registry.get(key);
+    if (!binding) continue;
+    return binding.members.some(
+      (member) =>
+        member.kind === "property" &&
+        (member.alias === propertyName ||
+          member.name === propertyName ||
+          member.binding.member === propertyName)
+    );
+  }
+
+  return undefined;
+};
+
 const resolveReceiverTypeFqn = (
   receiverExpr: IrExpression,
   receiverType: IrType | undefined,
@@ -327,6 +374,106 @@ export const emitMemberAccess = (
     }
   }
 
+  // Property access that targets a CLR runtime union must be handled before
+  // memberBinding lowering. Otherwise, per-arm CLR member bindings can force
+  // invalid direct property access on Union<T1..Tn>.
+  if (!expr.isComputed && !expr.isOptional) {
+    const prop = expr.property as string;
+    // If the object is an identifier narrowed by in-guard / discriminant narrowing,
+    // use the narrowed member type instead of the original union type. This avoids
+    // emitting a redundant .AsN() on an already-narrowed variable.
+    const objectType: IrType | undefined = (() => {
+      if (expr.object.kind === "identifier" && context.narrowedBindings) {
+        const narrowed = context.narrowedBindings.get(expr.object.name);
+        if (narrowed?.kind === "rename" && narrowed.type) {
+          return narrowed.type;
+        }
+        // "expr" narrowed bindings (e.g., from ternary/discriminant/post-if narrowing)
+        // indicate the identifier has already been resolved to an .AsN() call.
+        // If a type is provided, use it; otherwise return undefined to skip union
+        // resolution entirely — the object is already a narrowed variant.
+        if (narrowed?.kind === "expr") {
+          return narrowed.type ?? undefined;
+        }
+      }
+      return expr.object.inferredType;
+    })();
+    if (objectType) {
+      const resolvedBase = resolveTypeAlias(stripNullish(objectType), context);
+      const isClrUnionName = (name: string): boolean =>
+        /^Union_[2-8]$/.test(name) ||
+        name === "Union" ||
+        name.endsWith(".Union");
+      const resolved =
+        resolvedBase.kind === "intersectionType"
+          ? (resolvedBase.types.find(
+              (t): t is Extract<IrType, { kind: "referenceType" }> =>
+                t.kind === "referenceType" && isClrUnionName(t.name)
+            ) ?? resolvedBase)
+          : resolvedBase;
+      const members: readonly IrType[] =
+        resolved.kind === "unionType"
+          ? resolved.types
+          : resolved.kind === "referenceType" &&
+              isClrUnionName(resolved.name) &&
+              resolved.typeArguments &&
+              resolved.typeArguments.length >= 2 &&
+              resolved.typeArguments.length <= 8
+            ? resolved.typeArguments
+            : [];
+
+      const arity = members.length;
+      if (arity >= 2 && arity <= 8) {
+        const memberHasProperty = members.map((m) => {
+          if (m.kind !== "referenceType") return false;
+          const props = getAllPropertySignatures(m, context);
+          if (props) return props.some((p) => p.name === prop);
+          const fromBindings = hasPropertyFromBindingsRegistry(
+            m,
+            prop,
+            context
+          );
+          return fromBindings ?? false;
+        });
+        const count = memberHasProperty.filter(Boolean).length;
+
+        if (count === arity || count === 1) {
+          const [objectFrag, newContext] = emitExpression(expr.object, context);
+          const receiverText = formatPostfixExpressionText(
+            expr.object,
+            objectFrag.text
+          );
+          const escapedProp = emitMemberName(
+            expr.object,
+            objectType,
+            prop,
+            context,
+            usage
+          );
+
+          if (count === arity) {
+            const lambdas = members.map(
+              (_, i) => `__m${i + 1} => __m${i + 1}.${escapedProp}`
+            );
+            const text = `${receiverText}.Match(${lambdas.join(", ")})`;
+            return [{ text }, newContext];
+          }
+
+          const armIndex = memberHasProperty.findIndex(Boolean);
+          if (armIndex >= 0) {
+            const asMethod = emitCSharpName(
+              `As${armIndex + 1}`,
+              "methods",
+              context
+            );
+            const text = `${receiverText}.${asMethod}().${escapedProp}`;
+            return [{ text }, newContext];
+          }
+        }
+      }
+    }
+  }
+
   // Check if this is a hierarchical member binding
   if (expr.memberBinding) {
     const { type, member } = expr.memberBinding;
@@ -401,43 +548,6 @@ export const emitMemberAccess = (
   // Property access
   const prop = expr.property as string;
   const objectType = expr.object.inferredType;
-
-  // Union member projection: u.prop → u.Match(__m1 => __m1.prop, __m2 => __m2.prop, ...)
-  // This handles accessing properties on union types where the property exists on all members.
-  // Example: account.kind where account is Union<User, Admin> and both have .kind
-  if (objectType && !expr.isOptional) {
-    const resolved = resolveTypeAlias(stripNullish(objectType), context);
-    if (resolved.kind === "unionType") {
-      const members = resolved.types;
-      const arity = members.length;
-
-      // Only handle unions with 2-8 members (runtime supports Union<T1..T8>)
-      if (arity >= 2 && arity <= 8) {
-        // Check if all members are reference types with the property
-        const allHaveProp = members.every((m) => {
-          if (m.kind !== "referenceType") return false;
-          const props = getAllPropertySignatures(m, context);
-          return props?.some((p) => p.name === prop) ?? false;
-        });
-
-        if (allHaveProp) {
-          // Emit: object.Match(__m1 => __m1.prop, __m2 => __m2.prop, ...)
-          const escapedProp = emitMemberName(
-            expr.object,
-            objectType,
-            prop,
-            context,
-            usage
-          );
-          const lambdas = members.map(
-            (_, i) => `__m${i + 1} => __m${i + 1}.${escapedProp}`
-          );
-          const text = `${receiverText}.Match(${lambdas.join(", ")})`;
-          return [{ text }, newContext];
-        }
-      }
-    }
-  }
 
   // Handle explicit interface view properties (As_IInterface)
   if (isExplicitViewProperty(prop)) {

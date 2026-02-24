@@ -1,10 +1,10 @@
 namespace TestCases.common.types.typeassertions
 {
-    internal class Animal
+    public class Animal
     {
         public string name { get; set; }
     }
-    internal class Dog : Animal
+    public class Dog : Animal
     {
         public string breed { get; set; }
     }

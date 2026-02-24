@@ -263,16 +263,54 @@ export const getPropertyType = (
   propertyName: string,
   context: EmitterContext
 ): IrType | undefined => {
-  if (!contextualType || !context.localTypes) {
+  if (!contextualType) {
     return undefined;
   }
 
-  return resolvePropertyType(
-    contextualType,
-    propertyName,
-    context.localTypes,
-    []
-  );
+  return resolvePropertyType(contextualType, propertyName, context, []);
+};
+
+/**
+ * Internal helper for property type resolution with cycle detection
+ */
+const resolveLocalTypeInfo = (
+  ref: Extract<IrType, { kind: "referenceType" }>,
+  context: EmitterContext
+): { readonly info: LocalTypeInfo } | undefined => {
+  const lookupName = ref.name.includes(".")
+    ? (ref.name.split(".").pop() ?? ref.name)
+    : ref.name;
+
+  const localHit = context.localTypes?.get(lookupName);
+  if (localHit) {
+    return { info: localHit };
+  }
+
+  const moduleMap = context.options.moduleMap;
+  if (!moduleMap) return undefined;
+
+  const matches: {
+    readonly namespace: string;
+    readonly info: LocalTypeInfo;
+  }[] = [];
+  for (const m of moduleMap.values()) {
+    const info = m.localTypes?.get(lookupName);
+    if (!info) continue;
+    matches.push({ namespace: m.namespace, info });
+  }
+
+  if (matches.length === 0) return undefined;
+  if (matches.length === 1) return { info: matches[0]!.info };
+
+  const fqn =
+    ref.resolvedClrType ?? (ref.name.includes(".") ? ref.name : undefined);
+  if (fqn && fqn.includes(".")) {
+    const namespace = fqn.slice(0, fqn.lastIndexOf("."));
+    const scoped = matches.filter((m) => m.namespace === namespace);
+    if (scoped.length === 1) return { info: scoped[0]!.info };
+  }
+
+  return undefined;
 };
 
 /**
@@ -281,22 +319,24 @@ export const getPropertyType = (
 const resolvePropertyType = (
   type: IrType,
   propertyName: string,
-  localTypes: ReadonlyMap<string, LocalTypeInfo>,
+  context: EmitterContext,
   visitedTypes: readonly string[]
 ): IrType | undefined => {
   // Handle reference types (most common case)
   if (type.kind === "referenceType") {
-    const typeInfo = localTypes.get(type.name);
-    if (!typeInfo) {
+    const typeInfoResult = resolveLocalTypeInfo(type, context);
+    if (!typeInfoResult) {
       // External type - cannot resolve property type
       return undefined;
     }
+    const typeInfo = typeInfoResult.info;
 
     // Prevent cycles
-    if (visitedTypes.includes(type.name)) {
+    const cycleKey = type.resolvedClrType ?? type.name;
+    if (visitedTypes.includes(cycleKey)) {
       return undefined;
     }
-    const newVisited = [...visitedTypes, type.name];
+    const newVisited = [...visitedTypes, cycleKey];
 
     // Chase type alias
     if (typeInfo.kind === "typeAlias") {
@@ -310,7 +350,7 @@ const resolvePropertyType = (
       return resolvePropertyType(
         substituted,
         propertyName,
-        localTypes,
+        context,
         newVisited
       );
     }
@@ -334,7 +374,7 @@ const resolvePropertyType = (
         const baseProp = resolvePropertyType(
           base,
           propertyName,
-          localTypes,
+          context,
           newVisited
         );
         if (baseProp) {
@@ -403,18 +443,18 @@ export const getAllPropertySignatures = (
   type: IrType,
   context: EmitterContext
 ): readonly IrPropertySignature[] | undefined => {
-  if (!context.localTypes) return undefined;
-
   // We only expect nominal reference types here (Result__0<T,E>, etc.)
   if (type.kind !== "referenceType") return undefined;
 
-  const typeInfo = context.localTypes.get(type.name);
+  const typeInfoResult = resolveLocalTypeInfo(type, context);
+  if (!typeInfoResult) return undefined;
+  const typeInfo = typeInfoResult.info;
   if (!typeInfo || typeInfo.kind !== "interface") return undefined;
 
   // Collect into a map so derived overrides base by name deterministically
   const propMap = new Map<string, IrPropertySignature>();
 
-  collectInterfaceProps(type, typeInfo, context.localTypes, propMap, []);
+  collectInterfaceProps(type, typeInfo, context, propMap, []);
   return [...propMap.values()];
 };
 
@@ -428,13 +468,14 @@ export const getAllPropertySignatures = (
 const collectInterfaceProps = (
   ref: Extract<IrType, { kind: "referenceType" }>,
   typeInfo: Extract<LocalTypeInfo, { kind: "interface" }>,
-  localTypes: ReadonlyMap<string, LocalTypeInfo>,
+  context: EmitterContext,
   out: Map<string, IrPropertySignature>,
   visitedTypes: readonly string[]
 ): void => {
   // Prevent cycles
-  if (visitedTypes.includes(ref.name)) return;
-  const nextVisited = [...visitedTypes, ref.name];
+  const cycleKey = ref.resolvedClrType ?? ref.name;
+  if (visitedTypes.includes(cycleKey)) return;
+  const nextVisited = [...visitedTypes, cycleKey];
 
   // Add own properties first (derived overrides base)
   for (const m of typeInfo.members) {
@@ -446,12 +487,13 @@ const collectInterfaceProps = (
   // Walk base interfaces
   for (const base of typeInfo.extends) {
     if (base.kind !== "referenceType") continue;
-    const baseInfo = localTypes.get(base.name);
+    const baseInfoResult = resolveLocalTypeInfo(base, context);
+    const baseInfo = baseInfoResult?.info;
     if (!baseInfo || baseInfo.kind !== "interface") continue;
 
     // Recurse. If derived already set the name, we keep the derived one.
     const basePropMap = new Map<string, IrPropertySignature>();
-    collectInterfaceProps(base, baseInfo, localTypes, basePropMap, nextVisited);
+    collectInterfaceProps(base, baseInfo, context, basePropMap, nextVisited);
 
     for (const [name, sig] of basePropMap.entries()) {
       if (!out.has(name)) {
@@ -485,8 +527,6 @@ export const selectUnionMemberForObjectLiteral = (
   literalKeys: readonly string[],
   context: EmitterContext
 ): Extract<IrType, { kind: "referenceType" }> | undefined => {
-  if (!context.localTypes) return undefined;
-
   // Normalize keys (defensive: dedupe)
   const keySet = new Set(literalKeys.filter((k) => k.length > 0));
   const keys = [...keySet];
@@ -507,7 +547,8 @@ export const selectUnionMemberForObjectLiteral = (
     const ref =
       resolved.kind === "referenceType" ? resolved : (member as typeof member);
 
-    const info = context.localTypes.get(ref.name);
+    const infoResult = resolveLocalTypeInfo(ref, context);
+    const info = infoResult?.info;
     if (!info) continue;
 
     // Interface members: use property signatures (includes inherited interfaces).

@@ -231,6 +231,18 @@ const findContainingFunction = (
   return undefined;
 };
 
+const isArrayLikeType = (
+  checker: ts.TypeChecker,
+  type: ts.Type | undefined
+): boolean => {
+  if (!type) return false;
+  if (checker.isArrayType(type) || checker.isTupleType(type)) return true;
+  if (type.isUnion()) {
+    return type.types.every((t) => isArrayLikeType(checker, t));
+  }
+  return false;
+};
+
 /**
  * DETERMINISTIC IR TYPING (INV-0 compliant):
  * Check if an object literal is in a position where expected types are available.
@@ -655,15 +667,26 @@ export const validateStaticSafety = (
     // TSN7417: Check for empty array literal without type annotation
     // const x = [] is invalid, const x: T[] = [] is valid
     if (ts.isArrayLiteralExpression(node) && node.elements.length === 0) {
-      // Check if parent provides type context
+      const hasContextualType =
+        program.checker.getContextualType(node) !== undefined;
       const parent = node.parent;
+      const hasConditionalArrayContext =
+        ts.isConditionalExpression(parent) &&
+        isArrayLikeType(
+          program.checker,
+          program.checker.getTypeAtLocation(parent)
+        );
+
+      // Check if parent provides type context
       const hasTypeAnnotation =
         (ts.isVariableDeclaration(parent) && parent.type !== undefined) ||
         (ts.isPropertyDeclaration(parent) && parent.type !== undefined) ||
         (ts.isParameter(parent) && parent.type !== undefined) ||
         ts.isReturnStatement(parent) || // return type from function
         ts.isCallExpression(parent) || // passed as argument (has contextual type)
-        ts.isPropertyAssignment(parent); // object property (has contextual type)
+        ts.isPropertyAssignment(parent) || // object property (has contextual type)
+        hasConditionalArrayContext ||
+        hasContextualType;
 
       if (!hasTypeAnnotation) {
         currentCollector = addDiagnostic(

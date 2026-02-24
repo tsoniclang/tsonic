@@ -496,7 +496,11 @@ export const emitObject = (
       // Resolve property type from contextual type for generic null→default handling
       const propertyExpectedType =
         typeof prop.key === "string"
-          ? getPropertyType(effectiveType, prop.key, currentContext)
+          ? getPropertyType(
+              instantiationType ?? effectiveType,
+              prop.key,
+              currentContext
+            )
           : undefined;
       const [valueFrag, newContext] = emitExpression(
         prop.value,
@@ -549,7 +553,11 @@ const emitObjectWithSpreads = (
           : "/* computed */";
       const propertyExpectedType =
         typeof prop.key === "string"
-          ? getPropertyType(effectiveType, prop.key, currentContext)
+          ? getPropertyType(
+              targetType ?? effectiveType,
+              prop.key,
+              currentContext
+            )
           : undefined;
       const [valueFrag, newContext] = emitExpression(
         prop.value,

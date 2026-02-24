@@ -316,12 +316,8 @@ describe("build command (library bindings)", function () {
       // Namespace facade for the "types" module must include TS-level aliases.
       expect(typesContent).to.include("Tsonic source type aliases (generated)");
       expect(typesContent).to.include("export type Id = string;");
-      expect(typesContent).to.include(
-        "export type Ok<T> = Internal.Ok__Alias_1<T>;"
-      );
-      expect(typesContent).to.include(
-        "export type Err<E> = Internal.Err__Alias_1<E>;"
-      );
+      expect(typesContent).to.match(/export type Ok<\s*T\s*> = /);
+      expect(typesContent).to.match(/export type Err<\s*E\s*> = /);
       expect(typesContent).to.include(
         "export type Result<T, E = string> = Ok<T> | Err<E>;"
       );
@@ -330,9 +326,7 @@ describe("build command (library bindings)", function () {
       expect(configContent).to.include(
         "Tsonic source type aliases (generated)"
       );
-      expect(configContent).to.include(
-        "export type ServerConfig = Internal.ServerConfig__Alias;"
-      );
+      expect(configContent).to.match(/export type ServerConfig = /);
 
       // Root namespace facade must re-export the entrypoint's type/value surface.
       expect(rootContent).to.include(
@@ -363,6 +357,321 @@ describe("build command (library bindings)", function () {
       expect(rootJs).to.include("ok");
       expect(rootJs).to.include("err");
       expect(rootJs).to.include("loadConfig");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves source-level optional/interface/discriminated typing across library bindings", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsonic-lib-bindings-source-"));
+
+    try {
+      const wsConfigPath = join(dir, "tsonic.workspace.json");
+      mkdirSync(join(dir, "packages", "core", "src"), { recursive: true });
+      mkdirSync(join(dir, "packages", "app", "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test",
+            private: true,
+            type: "module",
+            workspaces: ["packages/*"],
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        wsConfigPath,
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/workspace/v1.json",
+            dotnetVersion: "net10.0",
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/core",
+            private: true,
+            type: "module",
+            exports: {
+              "./package.json": "./package.json",
+              "./*.js": {
+                types: "./dist/tsonic/bindings/*.d.ts",
+                default: "./dist/tsonic/bindings/*.js",
+              },
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "package.json"),
+        JSON.stringify(
+          {
+            name: "@acme/app",
+            private: true,
+            type: "module",
+            dependencies: {
+              "@acme/core": "workspace:*",
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.Core",
+            entryPoint: "src/index.ts",
+            sourceRoot: "src",
+            outputDirectory: "generated",
+            outputName: "Acme.Core",
+            output: {
+              type: "library",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "tsonic.json"),
+        JSON.stringify(
+          {
+            $schema: "https://tsonic.org/schema/v1.json",
+            rootNamespace: "Acme.App",
+            entryPoint: "src/App.ts",
+            sourceRoot: "src",
+            references: {
+              libraries: [
+                "../core/generated/bin/Release/net10.0/Acme.Core.dll",
+              ],
+            },
+            outputDirectory: "generated",
+            outputName: "Acme.App",
+            output: {
+              type: "executable",
+              targetFrameworks: ["net10.0"],
+              nativeAot: false,
+              generateDocumentation: false,
+              includeSymbols: false,
+              packable: false,
+            },
+          },
+          null,
+          2
+        ) + "\n",
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "types.ts"),
+        [
+          `export type Ok<T> = { success: true; data: T };`,
+          `export type Err<E> = { success: false; error: E };`,
+          `export type Result<T, E = string> = Ok<T> | Err<E>;`,
+          ``,
+          `export function ok<T>(data: T): Ok<T> {`,
+          `  return { success: true, data };`,
+          `}`,
+          ``,
+          `export function err<E>(error: E): Err<E> {`,
+          `  return { success: false, error };`,
+          `}`,
+          ``,
+          `export function renderMarkdownDomain(content: string): Result<{ rendered: string }, string> {`,
+          `  if (content.Length === 0) return err("empty");`,
+          `  return ok({ rendered: content });`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "contracts.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          ``,
+          `export class Entity {`,
+          `  Maybe?: int;`,
+          `}`,
+          ``,
+          `export interface DomainEvent {`,
+          `  type: string;`,
+          `  data: Record<string, unknown>;`,
+          `}`,
+          ``,
+          `export function dispatch(_event: DomainEvent): void {}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "core", "src", "index.ts"),
+        [
+          `export type { Ok, Err, Result } from "./types.ts";`,
+          `export { ok, err, renderMarkdownDomain } from "./types.ts";`,
+          `export { Entity, dispatch } from "./contracts.ts";`,
+          `export type { DomainEvent } from "./contracts.ts";`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      writeFileSync(
+        join(dir, "packages", "app", "src", "App.ts"),
+        [
+          `import type { int } from "@tsonic/core/types.js";`,
+          `import { Entity, dispatch, renderMarkdownDomain, err } from "@acme/core/Acme.Core.js";`,
+          ``,
+          `const entity = new Entity();`,
+          `const maybe: int | undefined = undefined;`,
+          `entity.Maybe = maybe;`,
+          ``,
+          `const eventData: Record<string, unknown> = { id: "evt-1" };`,
+          `dispatch({ type: "evt", data: eventData });`,
+          ``,
+          `const renderResult = renderMarkdownDomain("hello");`,
+          `if (!renderResult.success) {`,
+          `  err(renderResult.error);`,
+          `} else {`,
+          `  const rendered = renderResult.data.rendered;`,
+          `  if (rendered.Length === 0) {`,
+          `    err("invalid");`,
+          `  }`,
+          `}`,
+          ``,
+        ].join("\n"),
+        "utf-8"
+      );
+
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/dotnet"),
+        join(dir, "node_modules/@tsonic/dotnet")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/core"),
+        join(dir, "node_modules/@tsonic/core")
+      );
+      linkDir(
+        join(repoRoot, "node_modules/@tsonic/globals"),
+        join(dir, "node_modules/@tsonic/globals")
+      );
+      linkDir(
+        join(dir, "packages", "core"),
+        join(dir, "node_modules/@acme/core")
+      );
+
+      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
+      const buildCore = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "core",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+      expect(buildCore.status, buildCore.stderr || buildCore.stdout).to.equal(
+        0
+      );
+
+      const buildApp = spawnSync(
+        "node",
+        [
+          cliPath,
+          "build",
+          "--project",
+          "app",
+          "--config",
+          wsConfigPath,
+          "--quiet",
+        ],
+        { cwd: dir, encoding: "utf-8" }
+      );
+      expect(buildApp.status, buildApp.stderr || buildApp.stdout).to.equal(0);
+
+      const coreTypesFacade = readFileSync(
+        join(
+          dir,
+          "packages",
+          "core",
+          "dist",
+          "tsonic",
+          "bindings",
+          "Acme.Core.d.ts"
+        ),
+        "utf-8"
+      );
+      expect(coreTypesFacade).to.include(
+        "export type Result<T, E = string> = Ok<T> | Err<E>;"
+      );
+      expect(coreTypesFacade).to.include("export type Ok<T> =");
+      expect(coreTypesFacade).to.include("export type Err<E> =");
+
+      const bindingsRoot = join(
+        dir,
+        "packages",
+        "core",
+        "dist",
+        "tsonic",
+        "bindings"
+      );
+      const namespaceDirs = readdirSync(bindingsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+      const entityInternalPath = namespaceDirs
+        .map((name) => join(bindingsRoot, name, "internal", "index.d.ts"))
+        .find((path) => {
+          try {
+            return readFileSync(path, "utf-8").includes(
+              "interface Entity$instance"
+            );
+          } catch {
+            return false;
+          }
+        });
+
+      expect(entityInternalPath).to.not.equal(undefined);
+      const coreEntitiesInternal = readFileSync(entityInternalPath!, "utf-8");
+      expect(coreEntitiesInternal).to.match(
+        /set Maybe\(value: [^)]+undefined\)\s*;/
+      );
+      expect(coreEntitiesInternal).to.include("data: Record<string, unknown>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

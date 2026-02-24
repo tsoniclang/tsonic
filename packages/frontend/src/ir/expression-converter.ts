@@ -174,6 +174,15 @@ export const convertExpression = (
     };
   }
   if (ts.isIdentifier(node)) {
+    if (node.text === "undefined") {
+      return {
+        kind: "identifier",
+        name: node.text,
+        inferredType: { kind: "primitiveType", name: "undefined" },
+        sourceSpan: getSourceSpan(node),
+      };
+    }
+
     const declId = ctx.binding.resolveIdentifier(node);
 
     // DETERMINISTIC: Prefer lexical flow type (narrowing / lambda params), then decl type.
@@ -236,7 +245,7 @@ export const convertExpression = (
     return convertMemberExpression(node, ctx);
   }
   if (ts.isCallExpression(node)) {
-    return convertCallExpression(node, ctx);
+    return convertCallExpression(node, ctx, expectedType);
   }
   if (ts.isNewExpression(node)) {
     return convertNewExpression(node, ctx);
@@ -362,6 +371,24 @@ export const convertExpression = (
     if (numericKind !== undefined) {
       // Convert the inner expression with no expected type so we preserve its natural classification.
       const innerExpr = convertExpression(node.expression, ctx, undefined);
+
+      const sourceNeedsRuntimeCast =
+        innerExpr.inferredType === undefined ||
+        innerExpr.inferredType.kind === "unknownType" ||
+        innerExpr.inferredType.kind === "anyType";
+
+      // If the source type is unknown/any (or unresolved), we cannot prove a
+      // compile-time numeric narrowing. Preserve explicit user intent as a
+      // runtime cast (`(int)x`) via a regular typeAssertion.
+      if (sourceNeedsRuntimeCast) {
+        return {
+          kind: "typeAssertion",
+          expression: innerExpr,
+          targetType: assertedType,
+          inferredType: assertedType,
+          sourceSpan: getSourceSpan(node),
+        };
+      }
 
       // Determine the inferredType based on the targetKind
       // INVARIANT: "Int32" → primitiveType(name="int")

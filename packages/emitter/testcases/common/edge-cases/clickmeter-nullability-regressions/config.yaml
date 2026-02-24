@@ -1,0 +1,1 @@
+- ClickmeterNullabilityRegressions.ts: should not misclassify non-nullable class fields, optional args, or ternary undefined typing

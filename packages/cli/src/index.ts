@@ -10,11 +10,13 @@ const args = process.argv.slice(2);
 
 runCli(args)
   .then((exitCode) => {
-    process.exit(exitCode);
+    // Avoid immediate process.exit(...) so stderr/stdout flush reliably when
+    // this CLI is invoked from another Node process (e.g. spawnSync tests).
+    process.exitCode = exitCode;
   })
   .catch((error) => {
     console.error("Fatal error:", error);
-    process.exit(1);
+    process.exitCode = 1;
   });
 
 // Export for testing

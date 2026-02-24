@@ -7,7 +7,7 @@ namespace TestCases.common.edgecases.genericnulldefault
 
         public required string? error { get; set; }
     }
-    internal class StringWrapper
+    public class StringWrapper
     {
         public string value { get; set; }
 

@@ -302,6 +302,17 @@ const emitUnionTruthinessCondition = (
     const nonNull = nonNullTypes[0];
     if (!nonNull) return ["false", context];
 
+    // For non-primitive nullable unions (e.g. `T[] | undefined`, `SomeRef | null`),
+    // emit truthiness directly against the operand with non-null inferred type.
+    // This avoids nested nullable pattern variables while preserving exact semantics.
+    if (nonNull.kind !== "primitiveType") {
+      return toBooleanCondition(
+        { ...expr, inferredType: nonNull },
+        emittedText,
+        context
+      );
+    }
+
     const nextId = (context.tempVarId ?? 0) + 1;
     let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
     const alloc = allocateLocalName(
@@ -322,19 +333,17 @@ const emitUnionTruthinessCondition = (
       ctxWithId
     );
     const emittedNonNull =
-      nonNull.kind === "primitiveType"
-        ? nonNull.name === "number"
-          ? "double"
-          : nonNull.name === "int"
-            ? "int"
-            : nonNull.name === "string"
-              ? "string"
-              : nonNull.name === "boolean"
-                ? "bool"
-                : nonNull.name === "char"
-                  ? "char"
-                  : "object"
-        : "var";
+      nonNull.name === "number"
+        ? "double"
+        : nonNull.name === "int"
+          ? "int"
+          : nonNull.name === "string"
+            ? "string"
+            : nonNull.name === "boolean"
+              ? "bool"
+              : nonNull.name === "char"
+                ? "char"
+                : "object";
     return [
       `(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`,
       innerCtx,
