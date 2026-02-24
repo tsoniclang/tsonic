@@ -12,7 +12,7 @@ import { emitExpression } from "../../expression-emitter.js";
 import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerParameterPattern } from "../../patterns.js";
-import { emitParameterAttributes } from "../../core/attributes.js";
+import { emitParameterAttributes } from "../../core/format/attributes.js";
 
 /**
  * Info about a parameter that needs destructuring in the function body

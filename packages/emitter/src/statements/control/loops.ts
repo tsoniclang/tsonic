@@ -7,12 +7,15 @@ import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { lowerPattern } from "../../patterns.js";
-import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
-import { emitBooleanCondition } from "../../core/boolean-context.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
+import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
 import {
   allocateLocalName,
   registerLocalName,
-} from "../../core/local-names.js";
+} from "../../core/format/local-names.js";
 
 /**
  * Information about a canonical integer loop counter.

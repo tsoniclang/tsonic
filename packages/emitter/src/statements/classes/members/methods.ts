@@ -18,7 +18,7 @@ import {
   generateParameterDestructuring,
 } from "../parameters.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
-import { emitAttributes } from "../../../core/attributes.js";
+import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 
 const getAsyncBodyReturnType = (

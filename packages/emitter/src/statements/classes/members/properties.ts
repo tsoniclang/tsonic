@@ -12,10 +12,10 @@ import {
 } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitType } from "../../../type-emitter.js";
-import { emitAttributes } from "../../../core/attributes.js";
+import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { emitCSharpName } from "../../../naming-policy.js";
-import { allocateLocalName } from "../../../core/local-names.js";
+import { allocateLocalName } from "../../../core/format/local-names.js";
 
 /**
  * Emit a property declaration

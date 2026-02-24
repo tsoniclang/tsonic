@@ -11,7 +11,7 @@ import {
   stripNullish,
   resolveTypeAlias,
   selectUnionMemberForObjectLiteral,
-} from "../core/type-resolution.js";
+} from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 
 type ObjectMemberKind = "method" | "property" | "field" | "enumMember";

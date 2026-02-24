@@ -11,7 +11,7 @@ import {
   emitInterfaceMemberAsProperty,
 } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { statementUsesPointer } from "../../core/unsafe.js";
+import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
 /**

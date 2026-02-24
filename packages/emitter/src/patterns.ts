@@ -50,7 +50,7 @@ import {
   allocateLocalName,
   emitRemappedLocalName,
   registerLocalName,
-} from "./core/local-names.js";
+} from "./core/format/local-names.js";
 
 /**
  * Result of pattern lowering - a list of C# statements

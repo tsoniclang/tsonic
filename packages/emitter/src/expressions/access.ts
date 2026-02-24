@@ -14,7 +14,7 @@ import {
   resolveTypeAlias,
   stripNullish,
   getAllPropertySignatures,
-} from "../core/type-resolution.js";
+} from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import {
   formatCastOperandText,

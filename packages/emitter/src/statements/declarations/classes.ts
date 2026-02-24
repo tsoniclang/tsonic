@@ -12,9 +12,9 @@ import {
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { emitAttributes } from "../../core/attributes.js";
+import { emitAttributes } from "../../core/format/attributes.js";
 import { substituteType } from "../../specialization/substitution.js";
-import { statementUsesPointer } from "../../core/unsafe.js";
+import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
 /**

@@ -14,7 +14,7 @@ import {
   isDefinitelyValueType,
   stripNullish,
   resolveTypeAlias,
-} from "../core/type-resolution.js";
+} from "../core/semantic/type-resolution.js";
 import { emitType } from "../type-emitter.js";
 
 /**

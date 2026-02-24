@@ -8,7 +8,7 @@ import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitType } from "./emitter.js";
-import { substituteTypeArgs } from "../core/type-resolution.js";
+import { substituteTypeArgs } from "../core/semantic/type-resolution.js";
 
 /**
  * C# primitive type names that can be emitted directly without qualification.
