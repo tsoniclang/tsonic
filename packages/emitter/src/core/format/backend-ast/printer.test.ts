@@ -2,6 +2,8 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import {
   buildCompilationUnitAstFromAssembly,
+  classDeclaration,
+  preludeSection,
   printCompilationUnitAst,
 } from "./index.js";
 
@@ -14,8 +16,12 @@ describe("Backend AST Printer", () => {
       adaptersCode: "partial class Adapter\n{\n}",
       specializationsCode: "partial class Spec\n{\n}",
       exchangesCode: "partial class Exchange\n{\n}",
-      namespaceDeclsCode: "    public class User\n    {\n    }",
-      staticContainerCode: "    public static class App\n    {\n    }",
+      namespaceDeclMembers: [
+        preludeSection("    public class User\n    {\n    }", 0),
+      ],
+      staticContainerMember: classDeclaration("App", {
+        modifiers: ["public", "static"],
+      }),
     });
 
     const code = printCompilationUnitAst(unit);
@@ -56,8 +62,7 @@ namespace MyApp
       adaptersCode: "partial class Adapter {}",
       specializationsCode: "",
       exchangesCode: "",
-      namespaceDeclsCode: "",
-      staticContainerCode: "",
+      namespaceDeclMembers: [],
     });
 
     const code = printCompilationUnitAst(unit);

@@ -13,6 +13,8 @@ import { EmitterContext } from "../../../types.js";
 import {
   buildCompilationUnitAstFromAssembly,
   printCompilationUnitAst,
+  type CSharpClassDeclarationAst,
+  type CSharpNamespaceMemberAst,
 } from "../backend-ast/index.js";
 
 export type AssemblyParts = {
@@ -20,8 +22,8 @@ export type AssemblyParts = {
   readonly adaptersCode: string;
   readonly specializationsCode: string;
   readonly exchangesCode: string;
-  readonly namespaceDeclsCode: string;
-  readonly staticContainerCode: string;
+  readonly namespaceDeclMembers: readonly CSharpNamespaceMemberAst[];
+  readonly staticContainerMember?: CSharpClassDeclarationAst;
 };
 
 /**
@@ -39,8 +41,8 @@ export const assembleOutput = (
     adaptersCode: parts.adaptersCode,
     specializationsCode: parts.specializationsCode,
     exchangesCode: parts.exchangesCode,
-    namespaceDeclsCode: parts.namespaceDeclsCode,
-    staticContainerCode: parts.staticContainerCode,
+    namespaceDeclMembers: parts.namespaceDeclMembers,
+    staticContainerMember: parts.staticContainerMember,
   });
   return printCompilationUnitAst(ast);
 };

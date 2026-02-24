@@ -24,6 +24,7 @@ import {
 } from "./static-container.js";
 import { assembleOutput, type AssemblyParts } from "./assembly.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
+import type { CSharpClassDeclarationAst } from "../backend-ast/index.js";
 
 const isSuppressibleTypeDeclaration = (
   stmt: IrStatement
@@ -300,7 +301,7 @@ export const emitModule = (
 
   // Emit static container class if there are any static members
   // Use __Module suffix when there's a name collision with namespace-level declarations
-  let staticContainerCode = "";
+  let staticContainerMember: CSharpClassDeclarationAst | undefined;
   let finalContext = namespaceResult.context;
 
   if (staticContainerMembers.length > 0) {
@@ -311,7 +312,7 @@ export const emitModule = (
       hasInheritance,
       hasCollision // Add __Module suffix only when there's a name collision
     );
-    staticContainerCode = containerResult.code;
+    staticContainerMember = containerResult.member;
     finalContext = containerResult.context;
   }
 
@@ -321,8 +322,8 @@ export const emitModule = (
     adaptersCode,
     specializationsCode,
     exchangesCode,
-    namespaceDeclsCode: namespaceResult.code,
-    staticContainerCode,
+    namespaceDeclMembers: namespaceResult.members,
+    staticContainerMember,
   };
 
   return assembleOutput(module, parts, finalContext);

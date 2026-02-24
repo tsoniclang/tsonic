@@ -3,8 +3,11 @@
  */
 
 import type {
+  CSharpClassDeclarationAst,
+  CSharpClassMemberAst,
   CSharpCompilationUnitAst,
   CSharpNamespaceMemberAst,
+  CSharpStatementAst,
 } from "./types.js";
 
 export type CompilationUnitAssemblyInput = {
@@ -14,41 +17,83 @@ export type CompilationUnitAssemblyInput = {
   readonly adaptersCode: string;
   readonly specializationsCode: string;
   readonly exchangesCode: string;
-  readonly namespaceDeclsCode: string;
-  readonly staticContainerCode: string;
+  readonly namespaceDeclMembers: readonly CSharpNamespaceMemberAst[];
+  readonly staticContainerMember?: CSharpClassDeclarationAst;
 };
 
-const rawMember = (
-  text: string,
-  baseIndent: number
-): CSharpNamespaceMemberAst => ({
-  kind: "rawMember",
-  text,
-  baseIndent,
+export const blankLine = (): CSharpNamespaceMemberAst => ({
+  kind: "blankLine",
+});
+export const classBlankLine = (): CSharpClassMemberAst => ({
+  kind: "blankLine",
 });
 
-const blankLine = (): CSharpNamespaceMemberAst => ({ kind: "blankLine" });
+export const preludeSection = (
+  text: string,
+  indentLevel: number
+): CSharpNamespaceMemberAst => ({
+  kind: "preludeSection",
+  text,
+  indentLevel,
+});
 
-const indentedSection = (text: string): readonly CSharpNamespaceMemberAst[] =>
-  text ? [rawMember(text, 1), blankLine()] : [];
+export const classDeclaration = (
+  name: string,
+  options: {
+    readonly indentLevel?: number;
+    readonly attributes?: readonly string[];
+    readonly modifiers?: readonly string[];
+    readonly members?: readonly CSharpClassMemberAst[];
+  } = {}
+): CSharpClassDeclarationAst => ({
+  kind: "classDeclaration",
+  indentLevel: options.indentLevel ?? 1,
+  name,
+  attributes: options.attributes ?? [],
+  modifiers: options.modifiers ?? [],
+  members: options.members ?? [],
+});
+
+export const classPreludeMember = (
+  text: string,
+  indentLevel: number = 0
+): CSharpClassMemberAst => ({
+  kind: "classPreludeMember",
+  text,
+  indentLevel,
+});
+
+export const methodDeclaration = (
+  signature: string,
+  statements: readonly CSharpStatementAst[]
+): CSharpClassMemberAst => ({
+  kind: "methodDeclaration",
+  signature,
+  body: {
+    kind: "blockStatement",
+    statements,
+  },
+});
+
+const indentedPreludeSection = (
+  text: string
+): readonly CSharpNamespaceMemberAst[] =>
+  text ? [preludeSection(text, 1), blankLine()] : [];
 
 export const buildCompilationUnitAstFromAssembly = (
   input: CompilationUnitAssemblyInput
 ): CSharpCompilationUnitAst => {
-  const namespaceDeclMembers = input.namespaceDeclsCode
-    ? [rawMember(input.namespaceDeclsCode, 0)]
-    : [];
-  const staticContainerMembers = input.staticContainerCode
+  const staticContainerMembers = input.staticContainerMember
     ? [
-        ...(input.namespaceDeclsCode ? [blankLine()] : []),
-        rawMember(input.staticContainerCode, 0),
+        ...(input.namespaceDeclMembers.length > 0 ? [blankLine()] : []),
+        input.staticContainerMember,
       ]
     : [];
   const members: readonly CSharpNamespaceMemberAst[] = [
-    ...indentedSection(input.adaptersCode),
-    ...indentedSection(input.specializationsCode),
-    ...indentedSection(input.exchangesCode),
-    ...namespaceDeclMembers,
+    ...indentedPreludeSection(input.adaptersCode),
+    ...indentedPreludeSection(input.specializationsCode),
+    ...indentedPreludeSection(input.exchangesCode),
+    ...input.namespaceDeclMembers,
     ...staticContainerMembers,
   ];
 

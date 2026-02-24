@@ -5,6 +5,11 @@ import { createContext } from "../../../types.js";
 import { defaultOptions } from "../options.js";
 import { assembleOutput } from "./assembly.js";
 import type { AssemblyParts } from "./assembly.js";
+import {
+  classPreludeMember,
+  classDeclaration,
+  preludeSection,
+} from "../backend-ast/index.js";
 
 const createModule = (namespace: string): IrModule => ({
   kind: "module",
@@ -16,51 +21,6 @@ const createModule = (namespace: string): IrModule => ({
   body: [],
   exports: [],
 });
-
-const assembleOutputLegacy = (
-  module: IrModule,
-  parts: AssemblyParts,
-  usingsInput: readonly string[]
-): string => {
-  const usingLines =
-    usingsInput.length > 0
-      ? [...usingsInput]
-          .sort()
-          .map((namespace) => `using ${namespace};`)
-          .concat("")
-      : [];
-  const preludeSections = [
-    parts.adaptersCode,
-    parts.specializationsCode,
-    parts.exchangesCode,
-  ]
-    .filter((text) => text.length > 0)
-    .flatMap((text) => [
-      text
-        .split("\n")
-        .map((line) => (line ? "    " + line : line))
-        .join("\n"),
-      "",
-    ]);
-  const declarationLines = parts.namespaceDeclsCode ? [parts.namespaceDeclsCode] : [];
-  const staticContainerLines = parts.staticContainerCode
-    ? [
-        ...(parts.namespaceDeclsCode ? [""] : []),
-        parts.staticContainerCode,
-      ]
-    : [];
-
-  return [
-    ...(parts.header ? [parts.header] : []),
-    ...usingLines,
-    `namespace ${module.namespace}`,
-    "{",
-    ...preludeSections,
-    ...declarationLines,
-    ...staticContainerLines,
-    "}",
-  ].join("\n");
-};
 
 describe("Module Assembly", () => {
   it("assembles output through backend AST printer with legacy layout", () => {
@@ -77,8 +37,12 @@ describe("Module Assembly", () => {
         adaptersCode: "partial class Adapter\n{\n}",
         specializationsCode: "",
         exchangesCode: "",
-        namespaceDeclsCode: "    public class User\n    {\n    }",
-        staticContainerCode: "    public static class app\n    {\n    }",
+        namespaceDeclMembers: [
+          preludeSection("    public class User\n    {\n    }", 0),
+        ],
+        staticContainerMember: classDeclaration("app", {
+          modifiers: ["public", "static"],
+        }),
       },
       context
     );
@@ -103,12 +67,13 @@ namespace MyApp
 }`);
   });
 
-  it("matches legacy string assembler across section combinations", () => {
+  it("matches expected layout across section combinations", () => {
     const scenarios: readonly {
       readonly name: string;
       readonly moduleNamespace: string;
       readonly usings: readonly string[];
       readonly parts: AssemblyParts;
+      readonly expected: string;
     }[] = [
       {
         name: "empty body no usings",
@@ -119,9 +84,11 @@ namespace MyApp
           adaptersCode: "",
           specializationsCode: "",
           exchangesCode: "",
-          namespaceDeclsCode: "",
-          staticContainerCode: "",
+          namespaceDeclMembers: [],
         },
+        expected: `namespace N0
+{
+}`,
       },
       {
         name: "header and usings only",
@@ -132,9 +99,15 @@ namespace MyApp
           adaptersCode: "",
           specializationsCode: "",
           exchangesCode: "",
-          namespaceDeclsCode: "",
-          staticContainerCode: "",
+          namespaceDeclMembers: [],
         },
+        expected: `// H
+using A;
+using B;
+
+namespace N1
+{
+}`,
       },
       {
         name: "all prelude sections plus declarations and static container",
@@ -145,9 +118,39 @@ namespace MyApp
           adaptersCode: "partial class A\n{\n}",
           specializationsCode: "partial class S\n{\n}",
           exchangesCode: "partial class E\n{\n}",
-          namespaceDeclsCode: "    public class C\n    {\n    }",
-          staticContainerCode: "    public static class M\n    {\n    }",
+          namespaceDeclMembers: [
+            preludeSection("    public class C\n    {\n    }", 0),
+          ],
+          staticContainerMember: classDeclaration("M", {
+            modifiers: ["public", "static"],
+          }),
         },
+        expected: `// H2
+using System;
+using System.Linq;
+
+namespace N2
+{
+    partial class A
+    {
+    }
+
+    partial class S
+    {
+    }
+
+    partial class E
+    {
+    }
+
+    public class C
+    {
+    }
+
+    public static class M
+    {
+    }
+}`,
       },
       {
         name: "static container without namespace declarations",
@@ -158,9 +161,17 @@ namespace MyApp
           adaptersCode: "",
           specializationsCode: "",
           exchangesCode: "",
-          namespaceDeclsCode: "",
-          staticContainerCode: "    public static class Only\n    {\n    }",
+          namespaceDeclMembers: [],
+          staticContainerMember: classDeclaration("Only", {
+            modifiers: ["public", "static"],
+          }),
         },
+        expected: `namespace N3
+{
+    public static class Only
+    {
+    }
+}`,
       },
       {
         name: "namespace declarations without static container",
@@ -171,9 +182,16 @@ namespace MyApp
           adaptersCode: "",
           specializationsCode: "",
           exchangesCode: "",
-          namespaceDeclsCode: "    public interface I\n    {\n    }",
-          staticContainerCode: "",
+          namespaceDeclMembers: [
+            preludeSection("    public interface I\n    {\n    }", 0),
+          ],
         },
+        expected: `namespace N4
+{
+    public interface I
+    {
+    }
+}`,
       },
       {
         name: "prelude sections preserve blank separators",
@@ -184,9 +202,46 @@ namespace MyApp
           adaptersCode: "partial class A {}",
           specializationsCode: "partial class B {}",
           exchangesCode: "partial class C {}",
-          namespaceDeclsCode: "",
-          staticContainerCode: "",
+          namespaceDeclMembers: [],
         },
+        expected: `namespace N5
+{
+    partial class A {}
+
+    partial class B {}
+
+    partial class C {}
+
+}`,
+      },
+      {
+        name: "class member raw body preserves current indentation",
+        moduleNamespace: "N6",
+        usings: [],
+        parts: {
+          header: "",
+          adaptersCode: "",
+          specializationsCode: "",
+          exchangesCode: "",
+          namespaceDeclMembers: [],
+          staticContainerMember: classDeclaration("App", {
+            modifiers: ["public", "static"],
+            members: [
+              classPreludeMember("        public static int x = 1;", 0),
+              { kind: "blankLine" },
+              classPreludeMember("        public static int y = 2;", 0),
+            ],
+          }),
+        },
+        expected: `namespace N6
+{
+    public static class App
+    {
+        public static int x = 1;
+
+        public static int y = 2;
+    }
+}`,
       },
     ];
 
@@ -198,13 +253,7 @@ namespace MyApp
       }
 
       const actual = assembleOutput(module, scenario.parts, context);
-      const expected = assembleOutputLegacy(
-        module,
-        scenario.parts,
-        scenario.usings
-      );
-
-      expect(actual, scenario.name).to.equal(expected);
+      expect(actual, scenario.name).to.equal(scenario.expected);
     }
   });
 });

@@ -5,20 +5,30 @@
 import { IrModule, IrStatement, isExecutableStatement } from "@tsonic/frontend";
 import {
   EmitterContext,
-  type ValueSymbolInfo,
-  indent,
-  getIndent,
-  withStatic,
   withClassName,
+  withStatic,
+  indent,
+  type ValueSymbolInfo,
 } from "../../../types.js";
 import { emitStatement } from "../../../statement-emitter.js";
 import { emitExport } from "../exports.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
+import {
+  classBlankLine,
+  classPreludeMember,
+  classDeclaration,
+  emitStatementAst,
+  methodDeclaration,
+  printStatement,
+  type CSharpClassDeclarationAst,
+  type CSharpClassMemberAst,
+  type CSharpStatementAst,
+} from "../backend-ast/index.js";
 
 export type StaticContainerResult = {
-  readonly code: string;
+  readonly member?: CSharpClassDeclarationAst;
   readonly context: EmitterContext;
 };
 
@@ -92,18 +102,7 @@ export const emitStaticContainer = (
     containerName
   );
   const bodyContext = indent(classContext);
-  const ind = getIndent(classContext);
-  const bodyInd = getIndent(bodyContext);
   const needsUnsafe = members.some((m) => statementUsesPointer(m));
-
-  const containerParts: string[] = [];
-  containerParts.push(
-    `${ind}[global::Tsonic.Internal.ModuleContainerAttribute]`
-  );
-  containerParts.push(
-    `${ind}public static${needsUnsafe ? " unsafe" : ""} class ${containerName}`
-  );
-  containerParts.push(`${ind}{`);
 
   // Separate declarations from executable statements
   // For entry points with top-level code, only expression statements go into Main
@@ -132,13 +131,13 @@ export const emitStaticContainer = (
     ? members.filter((m) => !staticMemberKinds.includes(m.kind))
     : members.filter(isExecutableStatement);
 
-  const bodyParts: string[] = [];
+  const bodyParts: CSharpClassMemberAst[] = [];
   let bodyCurrentContext = bodyContext;
 
   // Emit declarations as static members
   for (const stmt of declarations) {
     const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
-    bodyParts.push(code);
+    bodyParts.push(classPreludeMember(code, 0));
     bodyCurrentContext = newContext;
   }
 
@@ -146,48 +145,55 @@ export const emitStaticContainer = (
   for (const exp of module.exports) {
     const exportCode = emitExport(exp, bodyCurrentContext);
     if (exportCode[0]) {
-      bodyParts.push(exportCode[0]);
+      bodyParts.push(classPreludeMember(exportCode[0], 0));
       bodyCurrentContext = exportCode[1];
     }
   }
 
   // Wrap statements in Main method if this is an entry point with top-level code
   if (mainBodyStmts.length > 0 && baseContext.options.isEntryPoint) {
-    const mainParts: string[] = [];
-    mainParts.push(`${bodyInd}public static void __TopLevel()`);
-    mainParts.push(`${bodyInd}{`);
-
     // Even though __TopLevel is a static method, its body should be treated as
     // a "local variable" context (not a static field context).
     const mainBodyContext = withStatic(indent(bodyCurrentContext), false);
     let mainCurrentContext = mainBodyContext;
+    const mainStatements: CSharpStatementAst[] = [];
 
     for (const stmt of mainBodyStmts) {
-      const [code, newContext] = emitStatement(stmt, mainCurrentContext);
-      mainParts.push(code);
+      const [ast, newContext] = emitStatementAst(stmt, mainCurrentContext);
+      mainStatements.push(ast);
       mainCurrentContext = newContext;
     }
-
-    mainParts.push(`${bodyInd}}`);
-    bodyParts.push(mainParts.join("\n"));
+    bodyParts.push(
+      methodDeclaration("public static void __TopLevel()", mainStatements)
+    );
     bodyCurrentContext = mainCurrentContext;
   } else if (mainBodyStmts.length > 0) {
     // Not an entry point - emit statements directly (for compatibility)
     for (const stmt of mainBodyStmts) {
-      const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
-      bodyParts.push(code);
+      const [ast, newContext] = emitStatementAst(stmt, bodyCurrentContext);
+      bodyParts.push(
+        classPreludeMember(
+          printStatement(ast, bodyCurrentContext.indentLevel),
+          0
+        )
+      );
       bodyCurrentContext = newContext;
     }
   }
 
-  if (bodyParts.length > 0) {
-    containerParts.push(bodyParts.join("\n\n"));
-  }
+  const classMembers = bodyParts.flatMap((bodyPart, index) =>
+    index < bodyParts.length - 1 ? [bodyPart, classBlankLine()] : [bodyPart]
+  );
 
-  containerParts.push(`${ind}}`);
+  const member = classDeclaration(containerName, {
+    indentLevel: classContext.indentLevel,
+    attributes: ["[global::Tsonic.Internal.ModuleContainerAttribute]"],
+    modifiers: ["public", "static", ...(needsUnsafe ? ["unsafe"] : [])],
+    members: classMembers,
+  });
 
   return {
-    code: containerParts.join("\n"),
+    member,
     context: { ...bodyCurrentContext, hasInheritance },
   };
 };
