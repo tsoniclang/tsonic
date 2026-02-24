@@ -245,6 +245,11 @@ describe("CLI Parser", () => {
         expect(result.options.noStrip).to.equal(true);
       });
 
+      it("should parse --no-aot option", () => {
+        const result = parseArgs(["build", "--no-aot"]);
+        expect(result.options.noAot).to.equal(true);
+      });
+
       it("should parse add npm as two-word command", () => {
         const result = parseArgs(["add", "npm", "@tsonic/js@10.0.0"]);
         expect(result.command).to.equal("add:npm");

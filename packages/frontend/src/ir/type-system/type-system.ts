@@ -1016,6 +1016,22 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   // RAW SIGNATURE EXTRACTION
   // ─────────────────────────────────────────────────────────────────────────
 
+  const addUndefinedToType = (type: IrType): IrType => {
+    const undefinedType: IrType = {
+      kind: "primitiveType",
+      name: "undefined",
+    };
+    if (type.kind === "unionType") {
+      const hasUndefined = type.types.some(
+        (x) => x.kind === "primitiveType" && x.name === "undefined"
+      );
+      return hasUndefined
+        ? type
+        : { ...type, types: [...type.types, undefinedType] };
+    }
+    return { kind: "unionType", types: [type, undefinedType] };
+  };
+
   /**
    * Get or compute raw signature info from SignatureId.
    * Caches the result for subsequent calls.
@@ -1031,7 +1047,12 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
 
     // Convert parameter types from TypeNodes to IrTypes
     const parameterTypes: (IrType | undefined)[] = sigInfo.parameters.map(
-      (p) => (p.typeNode ? convertTypeNode(p.typeNode) : undefined)
+      (p) => {
+        const baseType = p.typeNode ? convertTypeNode(p.typeNode) : undefined;
+        if (!baseType) return undefined;
+        // Optional/defaulted parameters must accept explicit `undefined` at call sites.
+        return p.isOptional ? addUndefinedToType(baseType) : baseType;
+      }
     );
 
     // Convert a TypeScript `this:` parameter type (if present) to an IrType.

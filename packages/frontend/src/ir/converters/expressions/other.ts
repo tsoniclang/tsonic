@@ -29,8 +29,21 @@ export const convertConditionalExpression = (
   const whenTrue = convertExpression(node.whenTrue, ctx, expectedType);
   const whenFalse = convertExpression(node.whenFalse, ctx, expectedType);
 
-  // DETERMINISTIC: Use expectedType if available, otherwise derive from whenTrue
-  const inferredType = expectedType ?? whenTrue.inferredType;
+  // DETERMINISTIC:
+  // - If expectedType exists, it is the contextual contract for both branches.
+  // - Otherwise infer from both branches (never from whenTrue alone).
+  const inferredType = (() => {
+    if (expectedType) return expectedType;
+
+    const t = whenTrue.inferredType;
+    const f = whenFalse.inferredType;
+
+    if (!t) return f;
+    if (!f) return t;
+
+    if (JSON.stringify(t) === JSON.stringify(f)) return t;
+    return { kind: "unionType" as const, types: [t, f] };
+  })();
 
   return {
     kind: "conditional",

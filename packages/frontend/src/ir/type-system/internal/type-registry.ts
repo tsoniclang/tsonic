@@ -318,7 +318,10 @@ const extractMembers = (
         if (!ts.isIdentifier(param.name)) continue;
 
         const name = param.name.text;
-        const isOptional = !!param.questionToken || !!param.initializer;
+        // Parameter-property optionality must track `?` only.
+        // A default initializer makes the constructor argument optional at call sites,
+        // but the materialized class property is still always present.
+        const isOptional = !!param.questionToken;
         const isReadonly =
           param.modifiers?.some(
             (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
@@ -337,8 +340,9 @@ const extractMembers = (
     // Property declarations (class)
     if (ts.isPropertyDeclaration(member)) {
       const name = member.name.getText();
-      const isOptional =
-        member.questionToken !== undefined || member.initializer !== undefined;
+      // Class-property optionality must track `?` only.
+      // A field initializer does not make the property optional.
+      const isOptional = member.questionToken !== undefined;
       const isReadonly = member.modifiers?.some(
         (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword
       );

@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCli } from "../cli.js";
 
 const repoRoot = resolve(
   join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -155,7 +156,7 @@ describe("CLI regressions (run/build)", function () {
     }
   });
 
-  it("fails the build with a clear error when outputName conflicts with a referenced assembly name", () => {
+  it("fails the build with a clear error when outputName conflicts with a referenced assembly name", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tsonic-assembly-name-conflict-"));
     const rid = detectRid();
 
@@ -301,24 +302,27 @@ describe("CLI regressions (run/build)", function () {
         join(dir, "node_modules/@tsonic/globals")
       );
 
-      const cliPath = join(repoRoot, "packages/cli/dist/index.js");
-
-      const build = spawnSync(
-        "node",
-        [
-          cliPath,
+      const capturedErrors: string[] = [];
+      const originalConsoleError = console.error;
+      let exitCode = 0;
+      try {
+        console.error = (...parts: unknown[]) => {
+          capturedErrors.push(parts.map((part) => String(part)).join(" "));
+        };
+        exitCode = await runCli([
           "build",
           "--project",
           "app",
           "--config",
           join(dir, "tsonic.workspace.json"),
           "--quiet",
-        ],
-        { cwd: dir, encoding: "utf-8" }
-      );
+        ]);
+      } finally {
+        console.error = originalConsoleError;
+      }
 
-      expect(build.status).to.not.equal(0);
-      const combined = `${build.stdout ?? ""}\n${build.stderr ?? ""}`;
+      expect(exitCode).to.not.equal(0);
+      const combined = capturedErrors.join("\n");
       expect(combined).to.include("outputName 'conflict' conflicts");
       expect(combined).to.include("Fix: rename `outputName`");
       expect(combined).to.include("suggested: 'conflict.App'");

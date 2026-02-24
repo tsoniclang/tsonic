@@ -770,6 +770,7 @@ Policy:
 - Filtered runs are for iteration only; they must never be used as the final gate.
 - `--no-unit` / `run-e2e.sh` are for iteration only; final verification must include unit + golden tests.
 - If a change is substantial (emitter/type system/CLI/runtime behavior), run the full suite even during development.
+- **`npm test` is NOT "full suite"**. It only runs unit + golden tests. When reporting test results, NEVER call `npm test` results "full suite" or "all tests pass". The only command that constitutes a full test run is `./test/scripts/run-all.sh` (no flags). Always be explicit about which command was actually run.
 
 ## Git Workflow
 
