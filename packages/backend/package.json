@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/backend",
-  "version": "0.0.61",
+  "version": "0.0.62",
   "description": ".NET build orchestration for Tsonic compiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "test:watch": "mocha --require ../../test/mocha/checkpoint.cjs 'dist/**/*.test.js' --watch"
   },
   "dependencies": {
-    "@tsonic/emitter": "0.0.61",
-    "@tsonic/frontend": "0.0.61"
+    "@tsonic/emitter": "0.0.62",
+    "@tsonic/frontend": "0.0.62"
   },
   "devDependencies": {
     "@types/chai": "5.2.2",
