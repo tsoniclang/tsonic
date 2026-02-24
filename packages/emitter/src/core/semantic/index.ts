@@ -23,10 +23,7 @@ export {
   canonicalizeFilePath,
 } from "./module-map.js";
 export { validateNamingPolicyCollisions } from "./naming-collisions.js";
-export {
-  processImports,
-  resolveLocalImport,
-} from "./imports.js";
+export { processImports, resolveLocalImport } from "./imports.js";
 export {
   statementUsesPointer,
   expressionUsesPointer,

@@ -18,7 +18,10 @@ import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
-import { resolveTypeAlias, stripNullish } from "../../core/semantic/type-resolution.js";
+import {
+  resolveTypeAlias,
+  stripNullish,
+} from "../../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
 const getAsyncBodyReturnType = (
