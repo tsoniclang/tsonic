@@ -10,6 +10,10 @@
 
 import { IrModule } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
+import {
+  buildCompilationUnitAstFromAssembly,
+  printCompilationUnitAst,
+} from "../backend-ast/index.js";
 
 export type AssemblyParts = {
   readonly header: string;
@@ -28,68 +32,15 @@ export const assembleOutput = (
   parts: AssemblyParts,
   finalContext: EmitterContext
 ): string => {
-  const result: string[] = [];
-
-  if (parts.header) {
-    result.push(parts.header);
-  }
-
-  const usings = Array.from(finalContext.usings);
-  if (usings.length > 0) {
-    usings.sort();
-    for (const ns of usings) {
-      result.push(`using ${ns};`);
-    }
-    result.push("");
-  }
-
-  result.push(`namespace ${module.namespace}`);
-  result.push("{");
-
-  // Emit adapters before class code
-  if (parts.adaptersCode) {
-    const indentedAdapters = parts.adaptersCode
-      .split("\n")
-      .map((line) => (line ? "    " + line : line))
-      .join("\n");
-    result.push(indentedAdapters);
-    result.push("");
-  }
-
-  // Emit specializations after adapters
-  if (parts.specializationsCode) {
-    const indentedSpecializations = parts.specializationsCode
-      .split("\n")
-      .map((line) => (line ? "    " + line : line))
-      .join("\n");
-    result.push(indentedSpecializations);
-    result.push("");
-  }
-
-  // Emit generator exchange objects after specializations
-  if (parts.exchangesCode) {
-    const indentedExchanges = parts.exchangesCode
-      .split("\n")
-      .map((line) => (line ? "    " + line : line))
-      .join("\n");
-    result.push(indentedExchanges);
-    result.push("");
-  }
-
-  // Emit namespace-level declarations first
-  if (parts.namespaceDeclsCode) {
-    result.push(parts.namespaceDeclsCode);
-  }
-
-  // Then emit static container if needed
-  if (parts.staticContainerCode) {
-    if (parts.namespaceDeclsCode) {
-      result.push("");
-    }
-    result.push(parts.staticContainerCode);
-  }
-
-  result.push("}");
-
-  return result.join("\n");
+  const ast = buildCompilationUnitAstFromAssembly({
+    headerText: parts.header,
+    usingNamespaces: Array.from(finalContext.usings),
+    namespaceName: module.namespace,
+    adaptersCode: parts.adaptersCode,
+    specializationsCode: parts.specializationsCode,
+    exchangesCode: parts.exchangesCode,
+    namespaceDeclsCode: parts.namespaceDeclsCode,
+    staticContainerCode: parts.staticContainerCode,
+  });
+  return printCompilationUnitAst(ast);
 };

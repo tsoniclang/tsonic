@@ -114,6 +114,13 @@ const walkTypeRefs = (
       for (const nested of type.types) walkTypeRefs(nested, onReference);
       return;
   }
+
+  const _exhaustive: never = type;
+  throw new Error(
+    `ICE: Unhandled IrType kind in walkTypeRefs: ${String(
+      (_exhaustive as { kind?: unknown }).kind
+    )}`
+  );
 };
 
 const collectPublicLocalTypes = (

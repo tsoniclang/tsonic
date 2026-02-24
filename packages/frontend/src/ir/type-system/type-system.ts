@@ -28,41 +28,16 @@ import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────
-// Re-exports from split modules for backwards compatibility
+// Public value re-exports
 // ─────────────────────────────────────────────────────────────────────────
 
-// Types and values that were previously defined in this file and are now
-// in type-system-state.ts. Re-exported so that index.ts and other consumers
-// continue to work without import path changes.
+export { BUILTIN_NOMINALS, poisonedCall } from "./type-system-state.js";
 export type {
   MemberRef,
   CallQuery,
   ResolvedCall,
-  TypePredicateResult,
   Site,
-  TypeSubstitutionMap,
-  RawSignatureInfo,
-  HandleRegistry,
-  DeclInfo,
-  DeclKind,
-  SignatureInfo,
-  SignatureTypePredicateRaw,
-  ParameterNode,
-  TypeParameterNode,
-  MemberInfo,
-  TypeSyntaxInfo,
-  ClassMemberNames,
-  TypeRegistryAPI,
-  TypeParameterEntry,
-  TypeRegistryEntry,
-  TypeRegistryMemberInfo,
-  NominalEnvAPI,
-  MemberLookupResult,
-  NominalLookupResult,
-  TypeSystemState,
 } from "./type-system-state.js";
-
-export { BUILTIN_NOMINALS, poisonedCall } from "./type-system-state.js";
 
 // Import types needed for the TypeAuthority interface and TypeSystemConfig
 import type {
@@ -389,7 +364,7 @@ export interface TypeAuthority {
 /**
  * Configuration for creating a TypeSystem instance.
  */
-export type TypeSystemConfig = {
+type TypeSystemConfig = {
   /**
    * Handle registry for looking up declarations and signatures.
    *
