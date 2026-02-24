@@ -6,10 +6,7 @@
  * and removes marker statements.
  */
 
-import {
-  Diagnostic,
-  createDiagnostic,
-} from "../../../types/diagnostic.js";
+import { Diagnostic, createDiagnostic } from "../../../types/diagnostic.js";
 import {
   IrModule,
   IrStatement,

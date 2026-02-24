@@ -5,10 +5,7 @@
  * like A.on(Target).type.add(AttrCtor, ...args).
  */
 
-import {
-  createDiagnostic,
-  SourceLocation,
-} from "../../../types/diagnostic.js";
+import { createDiagnostic, SourceLocation } from "../../../types/diagnostic.js";
 import {
   IrModule,
   IrExpression,

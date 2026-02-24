@@ -45,7 +45,9 @@ export const ATTRIBUTE_TARGETS: readonly IrAttributeTarget[] = [
   "return",
 ];
 
-export const ATTRIBUTE_TARGETS_SET = new Set<IrAttributeTarget>(ATTRIBUTE_TARGETS);
+export const ATTRIBUTE_TARGETS_SET = new Set<IrAttributeTarget>(
+  ATTRIBUTE_TARGETS
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SHARED TYPES
@@ -96,7 +98,9 @@ export const isAttributesApiIdentifier = (
 ): expr is IrIdentifierExpression =>
   expr.kind === "identifier" && apiNames.has(expr.name);
 
-export const getAttributesApiLocalNames = (module: IrModule): ReadonlySet<string> => {
+export const getAttributesApiLocalNames = (
+  module: IrModule
+): ReadonlySet<string> => {
   const names = new Set<string>();
   for (const imp of module.imports) {
     if (imp.source !== ATTRIBUTES_IMPORT_SPECIFIER) continue;

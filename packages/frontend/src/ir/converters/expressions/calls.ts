@@ -5,5 +5,8 @@
  * NO FALLBACKS ALLOWED. If TypeSystem can't resolve, return unknownType.
  */
 
-export { getDeclaredReturnType, convertCallExpression } from "./calls/call-converter.js";
+export {
+  getDeclaredReturnType,
+  convertCallExpression,
+} from "./calls/call-converter.js";
 export { convertNewExpression } from "./calls/new-converter.js";

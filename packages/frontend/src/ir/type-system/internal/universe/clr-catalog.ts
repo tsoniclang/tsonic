@@ -22,7 +22,10 @@ import type {
   MemberEntry,
   RawBindingsFile,
 } from "./types.js";
-import { convertRawType, enrichAssemblyEntriesFromTsBindgenDts } from "./clr-entry-converter.js";
+import {
+  convertRawType,
+  enrichAssemblyEntriesFromTsBindgenDts,
+} from "./clr-entry-converter.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BARREL RE-EXPORTS

@@ -21,5 +21,9 @@
  * from their respective sub-modules.
  */
 
-export type { Binding, BindingInternal, TypePredicateInfo } from "./binding-types.js";
+export type {
+  Binding,
+  BindingInternal,
+  TypePredicateInfo,
+} from "./binding-types.js";
 export { createBinding } from "./binding-factory.js";
