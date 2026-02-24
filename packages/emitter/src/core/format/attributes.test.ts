@@ -6,7 +6,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitAttributes, emitParameterAttributes } from "./attributes.js";
 import type { IrAttribute } from "@tsonic/frontend";
-import type { EmitterContext, EmitterOptions } from "../types.js";
+import type { EmitterContext, EmitterOptions } from "../../types.js";
 
 const defaultOptions: EmitterOptions = {
   rootNamespace: "Test",

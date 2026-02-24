@@ -9,7 +9,7 @@ import { emitBlockStatement } from "../blocks.js";
 import {
   allocateLocalName,
   registerLocalName,
-} from "../../core/local-names.js";
+} from "../../core/format/local-names.js";
 
 /**
  * Emit a try statement

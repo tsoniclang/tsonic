@@ -6,7 +6,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitType, emitTypeParameters } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { typeUsesPointer } from "../../core/unsafe.js";
+import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
 /**

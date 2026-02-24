@@ -15,9 +15,9 @@ import {
   stripNullish,
   findUnionMemberIndex,
   getPropertyType,
-} from "../../core/type-resolution.js";
-import { emitBooleanCondition } from "../../core/boolean-context.js";
-import { emitRemappedLocalName } from "../../core/local-names.js";
+} from "../../core/semantic/type-resolution.js";
+import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
+import { emitRemappedLocalName } from "../../core/format/local-names.js";
 
 /**
  * Try to extract ternary guard info from a condition expression.

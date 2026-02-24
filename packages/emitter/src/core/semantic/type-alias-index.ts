@@ -2,7 +2,7 @@ import type { IrModule, IrType } from "@tsonic/frontend";
 import type {
   TypeAliasIndex,
   TypeAliasIndexEntry,
-} from "../emitter-types/core.js";
+} from "../../emitter-types/core.js";
 
 const addEntry = (
   map: Map<string, TypeAliasIndexEntry[]>,

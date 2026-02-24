@@ -13,7 +13,7 @@ import type {
   IrEnumDeclaration,
   IrTypeAliasDeclaration,
 } from "@tsonic/frontend";
-import type { LocalTypeInfo } from "../types.js";
+import type { LocalTypeInfo } from "../../types.js";
 
 /**
  * Build the localTypes map from a module's body statements.

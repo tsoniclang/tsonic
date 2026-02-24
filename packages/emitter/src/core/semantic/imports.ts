@@ -9,10 +9,10 @@
  */
 
 import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
-import { EmitterContext, ImportBinding, LocalTypeInfo } from "../types.js";
+import { EmitterContext, ImportBinding, LocalTypeInfo } from "../../types.js";
 import { resolveImportPath } from "./module-map.js";
-import { emitCSharpName } from "../naming-policy.js";
-import { emitType } from "../type-emitter.js";
+import { emitCSharpName } from "../../naming-policy.js";
+import { emitType } from "../../type-emitter.js";
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.

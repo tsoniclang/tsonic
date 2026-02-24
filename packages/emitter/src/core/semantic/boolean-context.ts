@@ -12,8 +12,8 @@
  */
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import type { CSharpFragment, EmitterContext } from "../types.js";
-import { allocateLocalName } from "./local-names.js";
+import type { CSharpFragment, EmitterContext } from "../../types.js";
+import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
 
 export type EmitExprFn = (

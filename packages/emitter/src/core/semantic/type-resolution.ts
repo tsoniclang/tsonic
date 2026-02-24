@@ -15,7 +15,7 @@ import type {
   IrClassMember,
   IrPropertySignature, // NEW: needed for union-member matching
 } from "@tsonic/frontend";
-import type { LocalTypeInfo, EmitterContext } from "../types.js";
+import type { LocalTypeInfo, EmitterContext } from "../../types.js";
 
 /**
  * Check if a type contains any type parameter.

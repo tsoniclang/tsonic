@@ -21,9 +21,9 @@ import {
   getPropertyType,
   getAllPropertySignatures,
   isDefinitelyValueType,
-} from "../../../core/type-resolution.js";
+} from "../../../core/semantic/type-resolution.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
-import { emitRemappedLocalName } from "../../../core/local-names.js";
+import { emitRemappedLocalName } from "../../../core/format/local-names.js";
 
 /**
  * Information extracted from a type predicate guard call.

@@ -7,7 +7,7 @@ import { EmitterContext, getIndent } from "../types.js";
 import { emitExpression } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
 import { lowerPattern } from "../patterns.js";
-import { allocateLocalName } from "../core/local-names.js";
+import { allocateLocalName } from "../core/format/local-names.js";
 
 /**
  * Emit a block statement

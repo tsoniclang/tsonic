@@ -1,5 +1,5 @@
-import { EmitterContext } from "../types.js";
-import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { EmitterContext } from "../../types.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 export type AllocatedLocalName = {
   readonly originalName: string;

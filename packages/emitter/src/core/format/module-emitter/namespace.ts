@@ -3,8 +3,8 @@
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext, indent } from "../../types.js";
-import { emitStatement } from "../../statement-emitter.js";
+import { EmitterContext, indent } from "../../../types.js";
+import { emitStatement } from "../../../statement-emitter.js";
 
 export type NamespaceEmissionResult = {
   readonly code: string;

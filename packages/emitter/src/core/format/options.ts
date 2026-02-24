@@ -2,7 +2,7 @@
  * Emitter options and defaults
  */
 
-import { EmitterOptions } from "../types.js";
+import { EmitterOptions } from "../../types.js";
 
 /**
  * Default emitter options

@@ -3,17 +3,17 @@
  */
 
 import { IrModule, IrStatement, IrType } from "@tsonic/frontend";
-import { EmitterOptions, createContext } from "../../types.js";
-import { generateStructuralAdapters } from "../../adapter-generator.js";
+import { EmitterOptions, createContext } from "../../../types.js";
+import { generateStructuralAdapters } from "../../../adapter-generator.js";
 import {
   collectSpecializations,
   generateSpecializations,
-} from "../../specialization-generator.js";
-import { generateGeneratorExchanges } from "../../generator-exchange.js";
+} from "../../../specialization-generator.js";
+import { generateGeneratorExchanges } from "../../../generator-exchange.js";
 import { defaultOptions } from "../options.js";
-import { collectTypeParameters } from "../type-params.js";
-import { processImports } from "../imports.js";
-import { buildLocalTypes } from "../local-types.js";
+import { collectTypeParameters } from "../../semantic/type-params.js";
+import { processImports } from "../../semantic/imports.js";
+import { buildLocalTypes } from "../../semantic/local-types.js";
 import { generateHeader } from "./header.js";
 import { separateStatements } from "./separation.js";
 import { emitNamespaceDeclarations } from "./namespace.js";
@@ -23,7 +23,7 @@ import {
   collectStaticContainerValueSymbols,
 } from "./static-container.js";
 import { assembleOutput, type AssemblyParts } from "./assembly.js";
-import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
+import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 
 const isSuppressibleTypeDeclaration = (
   stmt: IrStatement

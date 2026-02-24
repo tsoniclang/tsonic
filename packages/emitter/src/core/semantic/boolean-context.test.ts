@@ -2,7 +2,7 @@ import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitBooleanCondition, toBooleanCondition } from "./boolean-context.js";
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import type { EmitterContext, EmitterOptions } from "../types.js";
+import type { EmitterContext, EmitterOptions } from "../../types.js";
 
 const defaultOptions: EmitterOptions = {
   rootNamespace: "Test",

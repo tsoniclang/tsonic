@@ -1,5 +1,5 @@
 import type { IrModule, IrInterfaceMember } from "@tsonic/frontend";
-import type { TypeMemberIndex, TypeMemberKind } from "../emitter-types/core.js";
+import type { TypeMemberIndex, TypeMemberKind } from "../../emitter-types/core.js";
 
 const setMemberKind = (
   map: Map<string, TypeMemberKind>,

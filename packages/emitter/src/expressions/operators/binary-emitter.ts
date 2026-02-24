@@ -15,7 +15,7 @@ import {
   stripNullish,
   getAllPropertySignatures,
   isDefinitelyValueType,
-} from "../../core/type-resolution.js";
+} from "../../core/semantic/type-resolution.js";
 import {
   getPrecedence,
   isCharTyped,

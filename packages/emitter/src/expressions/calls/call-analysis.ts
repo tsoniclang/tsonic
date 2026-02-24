@@ -5,7 +5,7 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitType } from "../../type-emitter.js";
-import { containsTypeParameter } from "../../core/type-resolution.js";
+import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 
 /**
  * Ref/out/in parameter handling:

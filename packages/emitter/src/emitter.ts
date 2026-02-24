@@ -6,12 +6,12 @@
 import * as path from "node:path";
 import { IrModule, Diagnostic } from "@tsonic/frontend";
 import { EmitterOptions, JsonAotRegistry } from "./types.js";
-import { emitModule } from "./core/module-emitter.js";
-import { buildModuleMap } from "./core/module-map.js";
-import { buildTypeMemberIndex } from "./core/type-member-index.js";
-import { buildTypeAliasIndex } from "./core/type-alias-index.js";
-import { validateNamingPolicyCollisions } from "./core/naming-collisions.js";
-import { separateStatements } from "./core/module-emitter/separation.js";
+import { emitModule } from "./core/format/module-emitter.js";
+import { buildModuleMap } from "./core/semantic/module-map.js";
+import { buildTypeMemberIndex } from "./core/semantic/type-member-index.js";
+import { buildTypeAliasIndex } from "./core/semantic/type-alias-index.js";
+import { validateNamingPolicyCollisions } from "./core/semantic/naming-collisions.js";
+import { separateStatements } from "./core/format/module-emitter/separation.js";
 import type { IrStatement } from "@tsonic/frontend";
 
 /**
@@ -556,4 +556,4 @@ const isPathMatch = (modulePath: string, entryPointPath: string): boolean => {
 };
 
 // Re-export emitModule for backward compatibility
-export { emitModule } from "./core/module-emitter.js";
+export { emitModule } from "./core/format/module-emitter.js";

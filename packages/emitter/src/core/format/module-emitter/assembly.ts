@@ -9,7 +9,7 @@
  */
 
 import { IrModule } from "@tsonic/frontend";
-import { EmitterContext } from "../../types.js";
+import { EmitterContext } from "../../../types.js";
 
 export type AssemblyParts = {
   readonly header: string;

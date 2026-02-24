@@ -8,7 +8,7 @@ import type {
   ModuleMap,
   ExportSource,
   ExportMap,
-} from "../emitter-types/core.js";
+} from "../../emitter-types/core.js";
 import { buildLocalTypes } from "./local-types.js";
 
 // Re-export types for backward compatibility

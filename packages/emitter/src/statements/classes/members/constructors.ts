@@ -7,7 +7,7 @@ import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
-import { emitAttributes } from "../../../core/attributes.js";
+import { emitAttributes } from "../../../core/format/attributes.js";
 import {
   emitParametersWithDestructuring,
   generateParameterDestructuring,

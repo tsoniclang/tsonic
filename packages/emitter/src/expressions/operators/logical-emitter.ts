@@ -5,7 +5,7 @@
 import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
-import { isDefinitelyValueType } from "../../core/type-resolution.js";
+import { isDefinitelyValueType } from "../../core/semantic/type-resolution.js";
 import { isBooleanType, getPrecedence } from "./helpers.js";
 
 /**

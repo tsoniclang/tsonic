@@ -20,9 +20,9 @@
  */
 
 import { IrAttribute, IrAttributeArg, IrType } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
-import { emitType } from "../type-emitter.js";
-import { getIndent } from "../emitter-types/index.js";
+import { EmitterContext } from "../../types.js";
+import { emitType } from "../../type-emitter.js";
+import { getIndent } from "../../emitter-types/index.js";
 
 /**
  * Emit a single attribute argument value.

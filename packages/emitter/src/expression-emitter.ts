@@ -15,7 +15,7 @@ import {
 } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
 import { emitType } from "./type-emitter.js";
-import { substituteTypeArgs } from "./core/type-resolution.js";
+import { substituteTypeArgs } from "./core/semantic/type-resolution.js";
 
 // Import expression emitters from specialized modules
 import { emitLiteral } from "./expressions/literals.js";

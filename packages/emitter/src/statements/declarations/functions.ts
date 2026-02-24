@@ -23,9 +23,9 @@ import {
   hasGeneratorReturnType,
   extractGeneratorTypeArgs,
 } from "../../generator-wrapper.js";
-import { emitAttributes } from "../../core/attributes.js";
+import { emitAttributes } from "../../core/format/attributes.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
-import { allocateLocalName } from "../../core/local-names.js";
+import { allocateLocalName } from "../../core/format/local-names.js";
 
 const getAsyncBodyReturnType = (
   isAsync: boolean,

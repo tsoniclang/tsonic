@@ -5,7 +5,7 @@
 import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
-import { emitRemappedLocalName } from "../../core/local-names.js";
+import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import { lowerAssignmentPattern } from "../../patterns.js";
 import { hasInt32Proof } from "./helpers.js";
 

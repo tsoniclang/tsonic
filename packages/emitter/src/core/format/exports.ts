@@ -3,8 +3,8 @@
  */
 
 import { IrExport } from "@tsonic/frontend";
-import { EmitterContext, getIndent } from "../types.js";
-import { emitExpression } from "../expression-emitter.js";
+import { EmitterContext, getIndent } from "../../types.js";
+import { emitExpression } from "../../expression-emitter.js";
 
 /**
  * Emit an export declaration

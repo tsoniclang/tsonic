@@ -13,7 +13,7 @@ import {
   stripNullish,
   isDefinitelyValueType,
 } from "./type-resolution.js";
-import { EmitterContext, LocalTypeInfo, EmitterOptions } from "../types.js";
+import { EmitterContext, LocalTypeInfo, EmitterOptions } from "../../types.js";
 
 describe("type-resolution", () => {
   describe("containsTypeParameter", () => {

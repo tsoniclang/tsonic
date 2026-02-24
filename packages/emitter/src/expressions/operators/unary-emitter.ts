@@ -10,7 +10,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "../../types.js";
 import { emitExpression } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
-import { emitBooleanCondition } from "../../core/boolean-context.js";
+import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
 
 /**
  * Emit a unary operator expression (-, +, !, ~, typeof, void, delete)

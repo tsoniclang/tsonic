@@ -17,8 +17,8 @@ import { lowerPattern } from "../../patterns.js";
 import {
   allocateLocalName,
   registerLocalName,
-} from "../../core/local-names.js";
-import { resolveTypeAlias, stripNullish } from "../../core/type-resolution.js";
+} from "../../core/format/local-names.js";
+import { resolveTypeAlias, stripNullish } from "../../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
 const getAsyncBodyReturnType = (

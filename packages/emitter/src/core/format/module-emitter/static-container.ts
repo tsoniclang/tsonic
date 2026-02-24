@@ -10,12 +10,12 @@ import {
   getIndent,
   withStatic,
   withClassName,
-} from "../../types.js";
-import { emitStatement } from "../../statement-emitter.js";
+} from "../../../types.js";
+import { emitStatement } from "../../../statement-emitter.js";
 import { emitExport } from "../exports.js";
-import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { statementUsesPointer } from "../unsafe.js";
-import { getCSharpName } from "../../naming-policy.js";
+import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
+import { statementUsesPointer } from "../../semantic/unsafe.js";
+import { getCSharpName } from "../../../naming-policy.js";
 
 export type StaticContainerResult = {
   readonly code: string;

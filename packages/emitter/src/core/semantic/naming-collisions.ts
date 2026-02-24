@@ -1,5 +1,5 @@
 import type { Diagnostic, IrModule, IrStatement } from "@tsonic/frontend";
-import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 
 type CollisionItem = {
   readonly original: string;

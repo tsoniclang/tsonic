@@ -3,8 +3,8 @@
  */
 
 import { IrModule } from "@tsonic/frontend";
-import { EmitterOptions } from "../../types.js";
-import { generateFileHeader } from "../../constants.js";
+import { EmitterOptions } from "../../../types.js";
+import { generateFileHeader } from "../../../constants.js";
 
 /**
  * Generate file header with source info

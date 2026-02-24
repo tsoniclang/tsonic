@@ -6,7 +6,7 @@ import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitInterfaceMemberAsProperty } from "./properties.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { typeUsesPointer } from "../../core/unsafe.js";
+import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { getCSharpName } from "../../naming-policy.js";
 
 /**

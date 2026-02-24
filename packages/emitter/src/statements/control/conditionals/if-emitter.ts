@@ -11,7 +11,7 @@ import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import {
   emitBooleanCondition,
   toBooleanCondition,
-} from "../../../core/boolean-context.js";
+} from "../../../core/semantic/boolean-context.js";
 import {
   tryResolvePredicateGuard,
   tryResolveInstanceofGuard,
