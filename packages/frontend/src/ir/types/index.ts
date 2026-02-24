@@ -165,3 +165,11 @@ export {
   buildSubstitutionFromArguments,
   buildCompleteSubstitutionMap,
 } from "./ir-substitution.js";
+
+export {
+  referenceTypeIdentity,
+  unwrapAsyncWrapperType,
+  stableIrTypeKey,
+  irTypesEqual,
+  normalizedUnionType,
+} from "./type-ops.js";

@@ -9,6 +9,7 @@ import {
   IrExpression,
   IrType,
 } from "../../types.js";
+import { irTypesEqual, normalizedUnionType } from "../../types/type-ops.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import type { ProgramContext } from "../../program-context.js";
@@ -41,8 +42,8 @@ export const convertConditionalExpression = (
     if (!t) return f;
     if (!f) return t;
 
-    if (JSON.stringify(t) === JSON.stringify(f)) return t;
-    return { kind: "unionType" as const, types: [t, f] };
+    if (irTypesEqual(t, f)) return t;
+    return normalizedUnionType([t, f]);
   })();
 
   return {

@@ -21,133 +21,17 @@ import {
 } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
 import { IrType } from "../../types.js";
+import {
+  irTypesEqual,
+  referenceTypeIdentity,
+  stableIrTypeKey,
+  unwrapAsyncWrapperType,
+} from "../../types/type-ops.js";
 import type { ProgramContext } from "../../program-context.js";
 import type { MemberBinding } from "../../../program/bindings.js";
 import { createDiagnostic } from "../../../types/diagnostic.js";
 
 type CallSiteArgModifier = "ref" | "out" | "in";
-
-const referenceTypeIdentity = (
-  type: Extract<IrType, { kind: "referenceType" }>
-): string =>
-  type.typeId?.stableId
-    ? `id:${type.typeId.stableId}`
-    : type.resolvedClrType
-      ? `clr:${type.resolvedClrType}`
-      : `name:${type.name}`;
-
-const irTypesEqual = (left: IrType, right: IrType): boolean => {
-  if (left.kind !== right.kind) return false;
-
-  switch (left.kind) {
-    case "primitiveType":
-      return left.name === (right as typeof left).name;
-    case "literalType":
-      return left.value === (right as typeof left).value;
-    case "voidType":
-    case "unknownType":
-    case "anyType":
-    case "neverType":
-      return true;
-    case "typeParameterType":
-      return left.name === (right as typeof left).name;
-    case "arrayType":
-      return irTypesEqual(left.elementType, (right as typeof left).elementType);
-    case "tupleType": {
-      const rhs = right as typeof left;
-      if (left.elementTypes.length !== rhs.elementTypes.length) return false;
-      return left.elementTypes.every((t, i) => {
-        const other = rhs.elementTypes[i];
-        return other ? irTypesEqual(t, other) : false;
-      });
-    }
-    case "dictionaryType":
-      return (
-        irTypesEqual(left.keyType, (right as typeof left).keyType) &&
-        irTypesEqual(left.valueType, (right as typeof left).valueType)
-      );
-    case "referenceType": {
-      const rhs = right as typeof left;
-      if (referenceTypeIdentity(left) !== referenceTypeIdentity(rhs))
-        return false;
-      const leftArgs = left.typeArguments ?? [];
-      const rightArgs = rhs.typeArguments ?? [];
-      if (leftArgs.length !== rightArgs.length) return false;
-      return leftArgs.every((t, i) => {
-        const other = rightArgs[i];
-        return other ? irTypesEqual(t, other) : false;
-      });
-    }
-    case "unionType":
-    case "intersectionType": {
-      const rhs = right as typeof left;
-      if (left.types.length !== rhs.types.length) return false;
-      return left.types.every((t, i) => {
-        const other = rhs.types[i];
-        return other ? irTypesEqual(t, other) : false;
-      });
-    }
-    case "functionType": {
-      const rhs = right as typeof left;
-      if (left.parameters.length !== rhs.parameters.length) return false;
-      const paramsEqual = left.parameters.every((p, i) => {
-        const other = rhs.parameters[i];
-        if (
-          !other ||
-          p.isRest !== other.isRest ||
-          p.isOptional !== other.isOptional
-        )
-          return false;
-        if (!p.type || !other.type) return p.type === other.type;
-        return irTypesEqual(p.type, other.type);
-      });
-      return paramsEqual && irTypesEqual(left.returnType, rhs.returnType);
-    }
-    case "objectType": {
-      const rhs = right as typeof left;
-      if (left.members.length !== rhs.members.length) return false;
-      return left.members.every((m, i) => {
-        const other = rhs.members[i];
-        if (!other || m.kind !== other.kind || m.name !== other.name) {
-          return false;
-        }
-        if (m.kind === "propertySignature") {
-          return (
-            other.kind === "propertySignature" &&
-            m.isOptional === other.isOptional &&
-            m.isReadonly === other.isReadonly &&
-            irTypesEqual(m.type, other.type)
-          );
-        }
-        if (other.kind !== "methodSignature") return false;
-        if (
-          (m.typeParameters?.length ?? 0) !==
-          (other.typeParameters?.length ?? 0)
-        )
-          return false;
-        if (m.parameters.length !== other.parameters.length) return false;
-        const paramsMatch = m.parameters.every((p, paramIndex) => {
-          const otherParam = other.parameters[paramIndex];
-          if (!otherParam) return false;
-          if (
-            p.isRest !== otherParam.isRest ||
-            p.isOptional !== otherParam.isOptional ||
-            p.passing !== otherParam.passing
-          ) {
-            return false;
-          }
-          if (!p.type || !otherParam.type) return p.type === otherParam.type;
-          return irTypesEqual(p.type, otherParam.type);
-        });
-        if (!paramsMatch) return false;
-        if (!m.returnType || !other.returnType) {
-          return m.returnType === other.returnType;
-        }
-        return irTypesEqual(m.returnType, other.returnType);
-      });
-    }
-  }
-};
 
 const unifyTypeTemplate = (
   template: IrType,
@@ -302,7 +186,7 @@ const deriveSubstitutionsFromExpectedReturn = (
   const candidates: IrType[] = [];
   const seen = new Set<string>();
   const enqueue = (candidate: IrType): void => {
-    const key = JSON.stringify(candidate);
+    const key = stableIrTypeKey(candidate);
     if (seen.has(key)) return;
     seen.add(key);
     candidateQueue.push(candidate);
@@ -313,27 +197,9 @@ const deriveSubstitutionsFromExpectedReturn = (
     if (!candidate) continue;
     candidates.push(candidate);
 
-    if (
-      candidate.kind === "referenceType" &&
-      candidate.typeArguments &&
-      candidate.typeArguments.length === 1
-    ) {
-      const simpleName = candidate.name.split(".").pop() ?? candidate.name;
-      const clrName = candidate.resolvedClrType ?? candidate.name;
-      const isAsyncWrapper =
-        simpleName === "Promise" ||
-        simpleName === "Task_1" ||
-        simpleName === "Task`1" ||
-        simpleName === "ValueTask_1" ||
-        simpleName === "ValueTask`1" ||
-        clrName === "System.Threading.Tasks.Task" ||
-        clrName === "System.Threading.Tasks.ValueTask" ||
-        clrName.startsWith("System.Threading.Tasks.Task`1") ||
-        clrName.startsWith("System.Threading.Tasks.ValueTask`1");
-      if (isAsyncWrapper) {
-        const inner = candidate.typeArguments[0];
-        if (inner) enqueue(inner);
-      }
+    const asyncInner = unwrapAsyncWrapperType(candidate);
+    if (asyncInner) {
+      enqueue(asyncInner);
     } else if (candidate.kind === "unionType") {
       for (const member of candidate.types) {
         enqueue(member);

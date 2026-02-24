@@ -419,7 +419,7 @@ const patchInternalIndexWithMemberOverrides = (
   return { ok: true, value: undefined };
 };
 
-const patchInternalIndexBrandMarkersOptional = (
+export const patchInternalIndexBrandMarkersOptional = (
   internalIndexDtsPath: string,
   typeNames: readonly string[]
 ): Result<void, string> => {
@@ -454,7 +454,7 @@ const patchInternalIndexBrandMarkersOptional = (
     const tail = block.slice(close);
 
     const brandRe =
-      /(^\s*readonly\s+__tsonic_type_[A-Za-z0-9_]+)\s*:\s*never\s*;/m;
+      /(^\s*readonly\s+__tsonic_type_[A-Za-z0-9_]+)\s*:\s*never\s*;/gm;
     if (!brandRe.test(body)) continue;
     body = body.replace(brandRe, "$1?: never;");
 
@@ -1282,9 +1282,7 @@ export const overlayDependencyBindings = (
     const assemblyName = basename(lib, ".dll");
     // Skip the current package's own assembly.
     if (assemblyName === config.outputName) continue;
-    // Convention: DLL at <project>/dist/<dotnetVersion>/<name>.dll,
-    // bindings at <project>/dist/tsonic/bindings/.
-    const depBindingsDir = join(dirname(dirname(lib)), "tsonic", "bindings");
+    const depBindingsDir = resolveDependencyBindingsDirForDll(lib);
     if (existsSync(depBindingsDir)) {
       depBindingsDirByAssembly.set(assemblyName, depBindingsDir);
     }
@@ -1333,6 +1331,30 @@ export const overlayDependencyBindings = (
   }
 
   return { ok: true, value: undefined };
+};
+
+export const resolveDependencyBindingsDirForDll = (dllPath: string): string => {
+  // Try nearest project-style locations first while walking up from the DLL.
+  // Supports both:
+  // - <project>/generated/bin/Release/<tfm>/<Assembly>.dll
+  // - <project>/dist/<tfm>/<Assembly>.dll
+  // and still accepts the legacy sibling location:
+  // - <project>/dist/<tfm>/<Assembly>.dll -> <project>/dist/tsonic/bindings
+  let cursor = resolve(dirname(dllPath));
+  for (let i = 0; i < 24; i++) {
+    const projectStyle = join(cursor, "dist", "tsonic", "bindings");
+    if (existsSync(projectStyle)) return projectStyle;
+
+    const legacySibling = join(cursor, "tsonic", "bindings");
+    if (existsSync(legacySibling)) return legacySibling;
+
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+
+  // Preserve previous behavior (silent no-op in overlay if dir does not exist).
+  return join(dirname(dirname(dllPath)), "tsonic", "bindings");
 };
 
 export const augmentLibraryBindingsFromSource = (
