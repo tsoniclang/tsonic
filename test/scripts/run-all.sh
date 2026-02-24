@@ -110,6 +110,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [[ -z "${TSONIC_BIN:-}" ]]; then
+  echo "FAIL: TSONIC_BIN is not set. Set it to the tsonic CLI path." >&2
+  exit 1
+fi
+
 matches_filter() {
     local name="$1"
     if [ ${#FILTER_PATTERNS[@]} -eq 0 ]; then
@@ -354,8 +359,6 @@ else
     echo -e "${BLUE}--- Running E2E Dotnet Tests (concurrency: $TEST_CONCURRENCY) ---${NC}" | tee -a "$LOG_FILE"
 
     FIXTURES_DIR="$SCRIPT_DIR/../fixtures"
-    CLI_PATH="$ROOT_DIR/packages/cli/dist/index.js"
-
     # Persistent directory for per-fixture results (enables --resume).
     RESULTS_DIR="$CACHE_DIR/e2e"
     mkdir -p "$RESULTS_DIR"
@@ -363,8 +366,7 @@ else
     # Function to run a single E2E dotnet test (prints result immediately)
     run_dotnet_test() {
         local fixture_dir="$1"
-        local cli_path="$2"
-        local results_dir="$3"
+        local results_dir="$2"
         local fixture_name=$(basename "$fixture_dir")
         local result_file="$results_dir/$fixture_name"
         local error_file="$results_dir/${fixture_name}.error"
@@ -453,7 +455,7 @@ else
             build_args+=("--no-aot")
         fi
 
-        if node "$cli_path" "${build_args[@]}" 2>"$error_file"; then
+        if node "$TSONIC_BIN" "${build_args[@]}" 2>"$error_file"; then
             # Optional post-build commands (for fixtures that need extra validation steps).
             # Example: EF Core query precompilation (`dotnet ef dbcontext optimize`).
             meta_file="$fixture_dir/e2e.meta.json"
@@ -600,7 +602,7 @@ else
         done
 
         # Run test in background
-        (run_dotnet_test "$fixture_dir" "$CLI_PATH" "$RESULTS_DIR") &
+        (run_dotnet_test "$fixture_dir" "$RESULTS_DIR") &
     done
 
     # Wait for all to complete
@@ -641,8 +643,7 @@ else
     # Function to run a single negative test (prints result immediately)
     run_negative_test() {
         local fixture_dir="$1"
-        local cli_path="$2"
-        local results_dir="$3"
+        local results_dir="$2"
         local fixture_name=$(basename "$fixture_dir")
         local result_file="$results_dir/neg_$fixture_name"
         local result=""
@@ -675,7 +676,7 @@ else
             build_args+=("--no-aot")
         fi
 
-        if node "$cli_path" "${build_args[@]}" >/dev/null 2>&1; then
+        if node "$TSONIC_BIN" "${build_args[@]}" >/dev/null 2>&1; then
             result="FAIL (expected error but succeeded)"
         else
             result="PASS (failed as expected)"
@@ -711,7 +712,7 @@ else
             while [ $(jobs -r | wc -l) -ge "$TEST_CONCURRENCY" ]; do
                 sleep 0.1
             done
-            (run_negative_test "$fixture_dir" "$CLI_PATH" "$RESULTS_DIR") &
+            (run_negative_test "$fixture_dir" "$RESULTS_DIR") &
         done
 
         # Wait for all to complete
