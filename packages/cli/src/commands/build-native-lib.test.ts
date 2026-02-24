@@ -110,7 +110,10 @@ const probeNativeAotSupport = (rid: string): { readonly ok: boolean } => {
       return { ok: false };
     }
 
-    return { ok: true };
+    // Any publish failure means this machine/toolchain is not suitable for
+    // NativeAOT in this test run. Skip rather than running assertions on a
+    // partial/unsupported environment.
+    return { ok: false };
   } finally {
     rmSync(probeDir, { recursive: true, force: true });
   }

@@ -38,6 +38,11 @@ import {
   substituteIrType as irSubstitute,
   TypeSubstitutionMap as IrSubstitutionMap,
 } from "../types/ir-substitution.js";
+import {
+  irTypesEqual as compareIrTypes,
+  stableIrTypeKey,
+  unwrapAsyncWrapperType,
+} from "../types/type-ops.js";
 import { inferNumericKindFromRaw } from "../types/numeric-helpers.js";
 import {
   getBinaryResultKind,
@@ -983,7 +988,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     typeArgs?: readonly IrType[]
   ): string => {
     if (typeArgs && typeArgs.length > 0) {
-      return `${fqName}:${memberName}:${JSON.stringify(typeArgs)}`;
+      return `${fqName}:${memberName}:${typeArgs.map(stableIrTypeKey).join(",")}`;
     }
     return `${fqName}:${memberName}`;
   };
@@ -996,7 +1001,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     typeArgs: readonly IrType[],
     memberName: string
   ): string => {
-    return `${fqName}:${JSON.stringify(typeArgs)}:${memberName}`;
+    return `${fqName}:${typeArgs.map(stableIrTypeKey).join(",")}:${memberName}`;
   };
 
   // Helper to check if type is null/undefined primitive
@@ -2902,7 +2907,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
     const seen = new Set<string>();
     const enqueue = (candidate: IrType | undefined): void => {
       if (!candidate) return;
-      const key = JSON.stringify(candidate);
+      const key = stableIrTypeKey(candidate);
       if (seen.has(key)) return;
       seen.add(key);
       queue.push(candidate);
@@ -2950,23 +2955,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
             enqueue(expanded);
           }
         }
-
-        if (current.typeArguments.length !== 1) continue;
-        const simpleName = current.name.split(".").pop() ?? current.name;
-        const clrName = current.resolvedClrType ?? current.name;
-        const isAsyncWrapper =
-          simpleName === "Promise" ||
-          simpleName === "Task_1" ||
-          simpleName === "Task`1" ||
-          simpleName === "ValueTask_1" ||
-          simpleName === "ValueTask`1" ||
-          clrName === "System.Threading.Tasks.Task" ||
-          clrName === "System.Threading.Tasks.ValueTask" ||
-          clrName.startsWith("System.Threading.Tasks.Task`1") ||
-          clrName.startsWith("System.Threading.Tasks.ValueTask`1");
-        if (isAsyncWrapper) {
-          enqueue(current.typeArguments[0]);
-        }
+        enqueue(unwrapAsyncWrapperType(current));
       }
     }
 
@@ -4243,88 +4232,7 @@ export const createTypeSystem = (config: TypeSystemConfig): TypeAuthority => {
   // typesEqual — Structural equality check
   // ─────────────────────────────────────────────────────────────────────────
 
-  const typesEqual = (a: IrType, b: IrType): boolean => {
-    if (a.kind !== b.kind) return false;
-
-    switch (a.kind) {
-      case "primitiveType":
-        return b.kind === "primitiveType" && a.name === b.name;
-
-      case "referenceType": {
-        if (b.kind !== "referenceType") return false;
-        if (a.name !== b.name) return false;
-        const aArgs = a.typeArguments ?? [];
-        const bArgs = b.typeArguments ?? [];
-        if (aArgs.length !== bArgs.length) return false;
-        return aArgs.every((arg, i) => {
-          const bArg = bArgs[i];
-          return bArg ? typesEqual(arg, bArg) : false;
-        });
-      }
-
-      case "arrayType":
-        return (
-          b.kind === "arrayType" &&
-          typesEqual(a.elementType, (b as typeof a).elementType)
-        );
-
-      case "tupleType": {
-        if (b.kind !== "tupleType") return false;
-        const bTyped = b as typeof a;
-        if (a.elementTypes.length !== bTyped.elementTypes.length) return false;
-        return a.elementTypes.every((el, i) => {
-          const bEl = bTyped.elementTypes[i];
-          return bEl ? typesEqual(el, bEl) : false;
-        });
-      }
-
-      case "unionType":
-      case "intersectionType": {
-        if (b.kind !== a.kind) return false;
-        const bTyped = b as typeof a;
-        if (a.types.length !== bTyped.types.length) return false;
-        // Order-independent comparison for unions/intersections
-        return a.types.every((at) =>
-          bTyped.types.some((bt) => typesEqual(at, bt))
-        );
-      }
-
-      case "functionType": {
-        if (b.kind !== "functionType") return false;
-        const bTyped = b as typeof a;
-        if (a.parameters.length !== bTyped.parameters.length) return false;
-        const paramsEqual = a.parameters.every((ap, i) => {
-          const bp = bTyped.parameters[i];
-          if (!bp) return false;
-          if (ap.type && bp.type) return typesEqual(ap.type, bp.type);
-          return !ap.type && !bp.type;
-        });
-        if (!paramsEqual) return false;
-        if (a.returnType && bTyped.returnType) {
-          return typesEqual(a.returnType, bTyped.returnType);
-        }
-        return !a.returnType && !bTyped.returnType;
-      }
-
-      case "typeParameterType":
-        return (
-          b.kind === "typeParameterType" && a.name === (b as typeof a).name
-        );
-
-      case "literalType":
-        return b.kind === "literalType" && a.value === (b as typeof a).value;
-
-      case "voidType":
-      case "neverType":
-      case "unknownType":
-      case "anyType":
-        return a.kind === b.kind;
-
-      default:
-        // For other types, fall back to JSON comparison
-        return JSON.stringify(a) === JSON.stringify(b);
-    }
-  };
+  const typesEqual = (a: IrType, b: IrType): boolean => compareIrTypes(a, b);
 
   // ─────────────────────────────────────────────────────────────────────────
   // containsTypeParameter — Check if type contains unresolved type params
