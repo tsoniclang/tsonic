@@ -3,13 +3,11 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
+import { EmitterContext, LocalTypeInfo, NarrowedBinding } from "../../types.js";
 import {
-  EmitterContext,
-  CSharpFragment,
-  LocalTypeInfo,
-  NarrowedBinding,
-} from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+  emitExpressionAst,
+  emitExpressionAstAsFragment,
+} from "../../expression-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -18,6 +16,7 @@ import {
 } from "../../core/semantic/type-resolution.js";
 import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
  * Try to extract ternary guard info from a condition expression.
@@ -283,21 +282,17 @@ const tryResolveTernaryGuard = (
 };
 
 /**
- * Emit a conditional (ternary) expression
+ * Emit a conditional (ternary) expression as CSharpExpressionAst
  *
  * Supports type predicate narrowing:
  * - `isUser(x) ? x.name : "anon"` → `x.Is1() ? (x.As1()).name : "anon"`
  * - `!isUser(x) ? "anon" : x.name` → `!x.Is1() ? "anon" : (x.As1()).name`
- *
- * @param expr - The conditional expression
- * @param context - Emitter context
- * @param expectedType - Optional expected type (for null → default in generic contexts)
  */
 export const emitConditional = (
   expr: Extract<IrExpression, { kind: "conditional" }>,
   context: EmitterContext,
   expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // When no contextual expectedType is provided (e.g., `var x = cond ? a : b`),
   // use the conditional expression's own inferred type to guide null/undefined → default
   // conversions and keep C# type inference consistent with TS.
@@ -309,11 +304,27 @@ export const emitConditional = (
   if (guard) {
     const { originalName, memberN, escapedOrig, polarity } = guard;
 
-    // Build condition text
-    const condText =
+    // Build condition AST: escapedOrig.IsN() or !escapedOrig.IsN()
+    const isCallAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: escapedOrig,
+        },
+        memberName: `Is${memberN}`,
+      },
+      arguments: [],
+    };
+    const condAst: CSharpExpressionAst =
       polarity === "positive"
-        ? `${escapedOrig}.Is${memberN}()`
-        : `!${escapedOrig}.Is${memberN}()`;
+        ? isCallAst
+        : {
+            kind: "prefixUnaryExpression",
+            operatorToken: "!",
+            operand: isCallAst,
+          };
 
     // Create inline narrowing binding: x -> (x.AsN())
     const inlineExpr = `(${escapedOrig}.As${memberN}())`;
@@ -328,45 +339,64 @@ export const emitConditional = (
     };
 
     // Apply narrowing to the appropriate branch
-    const [trueFrag, trueContext] =
+    const [trueAst, trueContext] =
       polarity === "positive"
-        ? emitExpression(expr.whenTrue, narrowedContext, branchExpectedType)
-        : emitExpression(expr.whenTrue, context, branchExpectedType);
+        ? emitExpressionAst(expr.whenTrue, narrowedContext, branchExpectedType)
+        : emitExpressionAst(expr.whenTrue, context, branchExpectedType);
 
-    const [falseFrag, falseContext] =
+    const [falseAst, falseContext] =
       polarity === "negative"
-        ? emitExpression(expr.whenFalse, narrowedContext, branchExpectedType)
-        : emitExpression(expr.whenFalse, trueContext, branchExpectedType);
-
-    const text = `${condText} ? ${trueFrag.text} : ${falseFrag.text}`;
+        ? emitExpressionAst(expr.whenFalse, narrowedContext, branchExpectedType)
+        : emitExpressionAst(expr.whenFalse, trueContext, branchExpectedType);
 
     // Return context WITHOUT narrowing (don't leak)
     const finalContext: EmitterContext = {
       ...falseContext,
       narrowedBindings: context.narrowedBindings,
     };
-    return [{ text, precedence: 3 }, finalContext];
+
+    return [
+      {
+        kind: "conditionalExpression",
+        condition: condAst,
+        whenTrue: trueAst,
+        whenFalse: falseAst,
+      },
+      finalContext,
+    ];
   }
 
   // Standard ternary emission (no narrowing)
+  // emitBooleanCondition still returns string (Phase 3 will convert to AST).
+  // Bridge by wrapping in identifierExpression.
   const [condText, condContext] = emitBooleanCondition(
     expr.condition,
-    (e, ctx) => emitExpression(e, ctx),
+    (e, ctx) => emitExpressionAstAsFragment(e, ctx),
     context
   );
 
   // Pass expectedType (or inferred type) to both branches for null/undefined → default conversion
-  const [trueFrag, trueContext] = emitExpression(
+  const [trueAst, trueContext] = emitExpressionAst(
     expr.whenTrue,
     condContext,
     branchExpectedType
   );
-  const [falseFrag, falseContext] = emitExpression(
+  const [falseAst, falseContext] = emitExpressionAst(
     expr.whenFalse,
     trueContext,
     branchExpectedType
   );
 
-  const text = `${condText} ? ${trueFrag.text} : ${falseFrag.text}`;
-  return [{ text, precedence: 3 }, falseContext];
+  return [
+    {
+      kind: "conditionalExpression",
+      condition: {
+        kind: "identifierExpression",
+        identifier: condText,
+      },
+      whenTrue: trueAst,
+      whenFalse: falseAst,
+    },
+    falseContext,
+  ];
 };

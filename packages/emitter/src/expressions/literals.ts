@@ -8,14 +8,15 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../types.js";
+import { EmitterContext } from "../types.js";
 import {
   containsTypeParameter,
   isDefinitelyValueType,
   stripNullish,
   resolveTypeAlias,
 } from "../core/semantic/type-resolution.js";
-import { emitType } from "../type-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
+import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 
 /**
  * Get the C# literal suffix for a numeric type.
@@ -74,7 +75,7 @@ const escapeCSharpChar = (char: string): string => {
 };
 
 /**
- * Emit a literal value (string, number, boolean, null, undefined)
+ * Emit a literal value as CSharpExpressionAst
  *
  * @param expr - The literal expression
  * @param context - Emitter context
@@ -84,7 +85,7 @@ export const emitLiteral = (
   expr: Extract<IrExpression, { kind: "literal" }>,
   context: EmitterContext,
   expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   const { value } = expr;
 
   if (value === null) {
@@ -99,10 +100,10 @@ export const emitLiteral = (
         containsTypeParameter(expectedType, typeParams) ||
         isDefinitelyValueType(expectedType)
       ) {
-        return [{ text: "default" }, context];
+        return [{ kind: "defaultExpression" }, context];
       }
     }
-    return [{ text: "null" }, context];
+    return [{ kind: "literalExpression", text: "null" }, context];
   }
 
   if (value === undefined) {
@@ -113,14 +114,14 @@ export const emitLiteral = (
     // When we have an expected type, emit a typed default to preserve optional/nullable intent.
     if (expectedType) {
       try {
-        const [typeStr, next] = emitType(expectedType, context);
-        return [{ text: `default(${typeStr})` }, next];
+        const [typeAst, next] = emitTypeAst(expectedType, context);
+        return [{ kind: "defaultExpression", type: typeAst }, next];
       } catch {
         // Fallback: keep emission valid even if the expected type is not directly nameable here.
-        return [{ text: "default" }, context];
+        return [{ kind: "defaultExpression" }, context];
       }
     }
-    return [{ text: "default" }, context];
+    return [{ kind: "defaultExpression" }, context];
   }
 
   if (typeof value === "string") {
@@ -131,7 +132,10 @@ export const emitLiteral = (
             `Frontend validation should have rejected this.`
         );
       }
-      return [{ text: `'${escapeCSharpChar(value)}'` }, context];
+      return [
+        { kind: "literalExpression", text: `'${escapeCSharpChar(value)}'` },
+        context,
+      ];
     }
 
     // Escape the string for C#
@@ -141,7 +145,7 @@ export const emitLiteral = (
       .replace(/\n/g, "\\n")
       .replace(/\r/g, "\\r")
       .replace(/\t/g, "\\t");
-    return [{ text: `"${escaped}"` }, context];
+    return [{ kind: "literalExpression", text: `"${escaped}"` }, context];
   }
 
   if (typeof value === "number") {
@@ -183,17 +187,23 @@ export const emitLiteral = (
               );
             }
           }
-          return [{ text: baseLiteral + suffix }, context];
+          return [
+            { kind: "literalExpression", text: baseLiteral + suffix },
+            context,
+          ];
         }
       }
     }
 
-    return [{ text: baseLiteral }, context];
+    return [{ kind: "literalExpression", text: baseLiteral }, context];
   }
 
   if (typeof value === "boolean") {
-    return [{ text: value ? "true" : "false" }, context];
+    return [
+      { kind: "literalExpression", text: value ? "true" : "false" },
+      context,
+    ];
   }
 
-  return [{ text: String(value) }, context];
+  return [{ kind: "literalExpression", text: String(value) }, context];
 };

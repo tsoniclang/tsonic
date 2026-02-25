@@ -3,10 +3,9 @@
  */
 
 import { IrExpression } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { EmitterContext } from "../../types.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "../identifiers.js";
-import { formatPostfixExpressionText } from "../parentheses.js";
 import { emitMemberAccess } from "../access.js";
 import {
   isLValue,
@@ -19,29 +18,26 @@ import {
   registerJsonAotType,
   needsIntCast,
 } from "./call-analysis.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
  * Emit a JsonSerializer call with NativeAOT-compatible options.
- * Rewrites:
- *   JsonSerializer.Serialize(value) → JsonSerializer.Serialize(value, TsonicJson.Options)
- *   JsonSerializer.Deserialize<T>(json) → JsonSerializer.Deserialize<T>(json, TsonicJson.Options)
  */
 const emitJsonSerializerCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext,
   method: "Serialize" | "Deserialize"
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
   // Register the type with the JSON AOT registry
   if (method === "Serialize") {
-    // For Serialize, get type from first argument's inferredType
     const firstArg = expr.arguments[0];
     if (firstArg && firstArg.kind !== "spread") {
       registerJsonAotType(firstArg.inferredType, context);
     }
   } else {
-    // For Deserialize, get type from type arguments
     const typeArg = expr.typeArguments?.[0];
     if (typeArg) {
       registerJsonAotType(typeArg, context);
@@ -60,41 +56,39 @@ const emitJsonSerializerCall = (
   }
 
   // Emit arguments
-  const args: string[] = [];
+  const argTexts: string[] = [];
   for (const arg of expr.arguments) {
     if (arg.kind === "spread") {
-      const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
-      args.push(spreadFrag.text);
+      const [spreadAst, ctx] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
+      argTexts.push(printExpression(spreadAst));
       currentContext = ctx;
     } else {
-      const [argFrag, ctx] = emitExpression(arg, currentContext);
-      args.push(argFrag.text);
+      const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+      argTexts.push(printExpression(argAst));
       currentContext = ctx;
     }
   }
 
-  // Add TsonicJson.Options only when NativeAOT JSON context generation is enabled.
+  // Add TsonicJson.Options when NativeAOT JSON context generation is enabled.
   if (context.options.jsonAotRegistry) {
-    args.push("TsonicJson.Options");
+    argTexts.push("TsonicJson.Options");
   }
 
-  const text = `global::System.Text.Json.JsonSerializer.${method}${typeArgsStr}(${args.join(", ")})`;
-  return [{ text }, currentContext];
+  const text = `global::System.Text.Json.JsonSerializer.${method}${typeArgsStr}(${argTexts.join(", ")})`;
+  return [{ kind: "identifierExpression", identifier: text }, currentContext];
 };
 
 /**
- * Emit a function call expression
+ * Emit a function call expression as CSharpExpressionAst
  */
 export const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Void promise resolve: emit as zero-arg call when safe.
-  // C# Action (zero-arg) cannot accept arguments, so resolve() and resolve(undefined)
-  // both map to resolve(). Only strip when there are no arguments or a single
-  // `undefined` identifier — other argument forms may have side effects that must
-  // not be dropped. Name-based matching is scoped to the executor body; shadowing
-  // the resolve name inside the executor is technically possible but extremely rare.
   if (
     expr.callee.kind === "identifier" &&
     context.voidResolveNames?.has(expr.callee.name)
@@ -106,12 +100,15 @@ export const emitCall = (
       expr.arguments[0].name === "undefined";
 
     if (isZeroArg || isSingleUndefined) {
-      const [calleeFrag, calleeCtx] = emitExpression(expr.callee, context);
-      const calleeText = formatPostfixExpressionText(
-        expr.callee,
-        calleeFrag.text
-      );
-      return [{ text: `${calleeText}()` }, calleeCtx];
+      const [calleeAst, calleeCtx] = emitExpressionAst(expr.callee, context);
+      return [
+        {
+          kind: "invocationExpression",
+          expression: calleeAst,
+          arguments: [],
+        },
+        calleeCtx,
+      ];
     }
   }
 
@@ -122,16 +119,12 @@ export const emitCall = (
   }
 
   // Check for global JSON.stringify/parse calls
-  // These compile to JsonSerializer.Serialize/Deserialize
   const globalJsonCall = isGlobalJsonCall(expr.callee);
   if (globalJsonCall) {
     return emitJsonSerializerCall(expr, context, globalJsonCall.method);
   }
 
-  // EF Core query precompilation has a known limitation: `query.ToList().ToArray()`
-  // fails to precompile (captured locals may be treated as "unknown identifiers").
-  // Since `ToList().ToArray()` is equivalent to `ToArray()` for IEnumerable<T>,
-  // canonicalize this pattern to `query.ToArray()` so NativeAOT precompilation works.
+  // EF Core query canonicalization: ToList().ToArray() → ToArray()
   if (
     expr.callee.kind === "memberAccess" &&
     expr.callee.property === "ToArray" &&
@@ -152,28 +145,31 @@ export const emitCall = (
     ) {
       let currentContext = context;
 
-      // Ensure extension methods are in scope.
       currentContext.usings.add("System.Linq");
 
       const receiverExpr = innerCall.callee.object;
-      const [receiverFrag, receiverCtx] = emitExpression(
+      const [receiverAst, receiverCtx] = emitExpressionAst(
         receiverExpr,
         currentContext
       );
       currentContext = receiverCtx;
 
-      const receiverText = formatPostfixExpressionText(
-        receiverExpr,
-        receiverFrag.text
-      );
-
-      const text = `${receiverText}.ToArray()`;
-      return [{ text }, currentContext];
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: receiverAst,
+            memberName: "ToArray",
+          },
+          arguments: [],
+        },
+        currentContext,
+      ];
     }
   }
 
   // Extension method lowering: emit explicit static invocation with receiver as first arg.
-  // This avoids relying on C# `using` directives for extension method discovery.
   if (
     expr.callee.kind === "memberAccess" &&
     expr.callee.memberBinding?.isExtensionMethod &&
@@ -184,22 +180,20 @@ export const emitCall = (
     const binding = expr.callee.memberBinding;
     const receiverExpr = expr.callee.object;
 
-    const [receiverFrag, receiverContext] = emitExpression(
+    const [receiverAst, receiverContext] = emitExpressionAst(
       receiverExpr,
       currentContext
     );
     currentContext = receiverContext;
+    const receiverText = printExpression(receiverAst);
 
-    // Some ecosystems (notably EF Core query precompilation) require fluent syntax
-    // so the tooling can locate queries in syntax trees. For those namespaces,
-    // emit `receiver.Method(...)` and add a `using` directive for the namespace.
+    // Fluent extension method path
     if (shouldEmitFluentExtensionCall(binding.type, binding.member)) {
       const ns = getTypeNamespace(binding.type);
       if (ns) {
         currentContext.usings.add(ns);
       }
 
-      // Handle generic type arguments
       let typeArgsStr = "";
       if (expr.typeArguments && expr.typeArguments.length > 0) {
         const [typeArgs, typeContext] = emitTypeArguments(
@@ -210,10 +204,9 @@ export const emitCall = (
         currentContext = typeContext;
       }
 
-      // Get parameter types from IR (extracted from resolved signature in frontend)
       const parameterTypes = expr.parameterTypes ?? [];
 
-      const args: string[] = [];
+      const argTexts: string[] = [];
       for (let i = 0; i < expr.arguments.length; i++) {
         const arg = expr.arguments[i];
         if (!arg) continue;
@@ -221,20 +214,20 @@ export const emitCall = (
         const expectedType = parameterTypes[i];
 
         if (arg.kind === "spread") {
-          const [spreadFrag, ctx] = emitExpression(
+          const [spreadAst, ctx] = emitExpressionAst(
             arg.expression,
             currentContext
           );
-          args.push(`params ${spreadFrag.text}`);
+          argTexts.push(`params ${printExpression(spreadAst)}`);
           currentContext = ctx;
         } else {
           const castModifier = getPassingModifierFromCast(arg);
           if (castModifier && isLValue(arg)) {
-            const [argFrag, ctx] = emitExpression(arg, currentContext);
-            args.push(`${castModifier} ${argFrag.text}`);
+            const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+            argTexts.push(`${castModifier} ${printExpression(argAst)}`);
             currentContext = ctx;
           } else {
-            const [argFrag, ctx] = emitExpression(
+            const [argAst, ctx] = emitExpressionAst(
               arg,
               currentContext,
               expectedType
@@ -244,28 +237,26 @@ export const emitCall = (
               passingMode && passingMode !== "value" && isLValue(arg)
                 ? `${passingMode} `
                 : "";
-            args.push(`${prefix}${argFrag.text}`);
+            argTexts.push(`${prefix}${printExpression(argAst)}`);
             currentContext = ctx;
           }
         }
       }
 
-      const receiverText = formatPostfixExpressionText(
-        receiverExpr,
-        receiverFrag.text
-      );
       const op = expr.isOptional ? "?." : ".";
-      const baseCallText = `${receiverText}${op}${binding.member}${typeArgsStr}(${args.join(", ")})`;
+      const baseCallText = `${printExpression(receiverAst)}${op}${binding.member}${typeArgsStr}(${argTexts.join(", ")})`;
 
       const text = needsIntCast(expr, binding.member)
         ? `(int)${baseCallText}`
         : baseCallText;
-      return [{ text }, currentContext];
+      return [
+        { kind: "identifierExpression", identifier: text },
+        currentContext,
+      ];
     }
 
     let finalCalleeName = `global::${binding.type}.${binding.member}`;
 
-    // Handle generic type arguments
     let typeArgsStr = "";
     if (expr.typeArguments && expr.typeArguments.length > 0) {
       if (expr.requiresSpecialization) {
@@ -287,7 +278,7 @@ export const emitCall = (
     }
 
     const parameterTypes = expr.parameterTypes ?? [];
-    const args: string[] = [receiverFrag.text];
+    const argTexts: string[] = [receiverText];
 
     for (let i = 0; i < expr.arguments.length; i++) {
       const arg = expr.arguments[i];
@@ -296,20 +287,20 @@ export const emitCall = (
       const expectedType = parameterTypes[i];
 
       if (arg.kind === "spread") {
-        const [spreadFrag, ctx] = emitExpression(
+        const [spreadAst, ctx] = emitExpressionAst(
           arg.expression,
           currentContext
         );
-        args.push(`params ${spreadFrag.text}`);
+        argTexts.push(`params ${printExpression(spreadAst)}`);
         currentContext = ctx;
       } else {
         const castModifier = getPassingModifierFromCast(arg);
         if (castModifier && isLValue(arg)) {
-          const [argFrag, ctx] = emitExpression(arg, currentContext);
-          args.push(`${castModifier} ${argFrag.text}`);
+          const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+          argTexts.push(`${castModifier} ${printExpression(argAst)}`);
           currentContext = ctx;
         } else {
-          const [argFrag, ctx] = emitExpression(
+          const [argAst, ctx] = emitExpressionAst(
             arg,
             currentContext,
             expectedType
@@ -319,17 +310,14 @@ export const emitCall = (
             passingMode && passingMode !== "value" && isLValue(arg)
               ? `${passingMode} `
               : "";
-          args.push(`${prefix}${argFrag.text}`);
+          argTexts.push(`${prefix}${printExpression(argAst)}`);
           currentContext = ctx;
         }
       }
     }
 
-    const baseCallText = `${finalCalleeName}${typeArgsStr}(${args.join(", ")})`;
+    const baseCallText = `${finalCalleeName}${typeArgsStr}(${argTexts.join(", ")})`;
 
-    // JS runtime helpers often return List<T> for array-like results, while the IR
-    // models them as native CLR arrays. When the IR expects an array, coerce via
-    // Enumerable.ToArray to preserve the IR contract.
     const callText =
       expr.inferredType?.kind === "arrayType"
         ? `global::System.Linq.Enumerable.ToArray(${baseCallText})`
@@ -338,34 +326,29 @@ export const emitCall = (
     const text = needsIntCast(expr, finalCalleeName)
       ? `(int)${callText}`
       : callText;
-    return [{ text }, currentContext];
+    return [{ kind: "identifierExpression", identifier: text }, currentContext];
   }
 
   // Regular function call
-  const [calleeFrag, newContext] =
+  const [calleeAst, newContext] =
     expr.callee.kind === "memberAccess"
       ? emitMemberAccess(expr.callee, context, "call")
-      : emitExpression(expr.callee, context);
+      : emitExpressionAst(expr.callee, context);
   let currentContext = newContext;
 
-  // Handle generic type arguments
   let typeArgsStr = "";
-  let finalCalleeName = calleeFrag.text;
+  let calleeText = printExpression(calleeAst);
 
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
-      // Monomorphisation: Generate specialized method name
-      // e.g., process<string> → process__string
       const [specializedName, specContext] = generateSpecializedName(
-        calleeFrag.text,
+        calleeText,
         expr.typeArguments,
         currentContext
       );
-      finalCalleeName = specializedName;
+      calleeText = specializedName;
       currentContext = specContext;
     } else {
-      // Emit explicit type arguments for generic call
-      // e.g., identity<string>(value)
       const [typeArgs, typeContext] = emitTypeArguments(
         expr.typeArguments,
         currentContext
@@ -375,69 +358,50 @@ export const emitCall = (
     }
   }
 
-  // Get parameter types from IR (extracted from resolved signature in frontend)
   const parameterTypes = expr.parameterTypes ?? [];
 
-  const args: string[] = [];
+  const argTexts: string[] = [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];
-    if (!arg) continue; // Skip undefined (shouldn't happen in valid IR)
+    if (!arg) continue;
 
-    // Get expected type for this argument from parameter types
     const expectedType = parameterTypes[i];
 
     if (arg.kind === "spread") {
-      // Spread in function call
-      const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
-      args.push(`params ${spreadFrag.text}`);
+      const [spreadAst, ctx] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
+      argTexts.push(`params ${printExpression(spreadAst)}`);
       currentContext = ctx;
     } else {
-      // Check if this argument has an explicit `as out<T>` / `as ref<T>` / `as inref<T>` cast
       const castModifier = getPassingModifierFromCast(arg);
 
       if (castModifier && isLValue(arg)) {
-        // Emit the expression without the cast wrapper, with the modifier prefix
-        // For `value as out<int>`, emit `out value`
-        const [argFrag, ctx] = emitExpression(arg, currentContext);
-        args.push(`${castModifier} ${argFrag.text}`);
+        const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+        argTexts.push(`${castModifier} ${printExpression(argAst)}`);
         currentContext = ctx;
       } else {
-        const [argFrag, ctx] = emitExpression(
+        const [argAst, ctx] = emitExpressionAst(
           arg,
           currentContext,
           expectedType
         );
-        // Check if this argument needs ref/out/in prefix from function signature
-        // Only add prefix if argument is an lvalue (identifier or member access)
         const passingMode = expr.argumentPassing?.[i];
         const prefix =
           passingMode && passingMode !== "value" && isLValue(arg)
             ? `${passingMode} `
             : "";
-        args.push(`${prefix}${argFrag.text}`);
+        argTexts.push(`${prefix}${printExpression(argAst)}`);
         currentContext = ctx;
       }
     }
   }
 
-  // For member-access calls, the receiver parenthesization is already handled inside
-  // `emitMemberAccess`. Wrapping the full `obj.Member` in parentheses can change meaning
-  // in C# (e.g., `(obj.Member)()` attempts to invoke a delegate rather than calling a method).
-  const calleeText =
-    expr.callee.kind === "memberAccess"
-      ? `${finalCalleeName}${typeArgsStr}`
-      : formatPostfixExpressionText(
-          expr.callee,
-          `${finalCalleeName}${typeArgsStr}`
-        );
-
   const callOp = expr.isOptional ? "?." : "";
-  const callText = `${calleeText}${callOp}(${args.join(", ")})`;
+  const callText = `${calleeText}${typeArgsStr}${callOp}(${argTexts.join(", ")})`;
 
-  // Add cast if needed (e.g., Math.floor returning double but asserted as int)
-  const text = needsIntCast(expr, finalCalleeName)
-    ? `(int)${callText}`
-    : callText;
+  const text = needsIntCast(expr, calleeText) ? `(int)${callText}` : callText;
 
-  return [{ text }, currentContext];
+  return [{ kind: "identifierExpression", identifier: text }, currentContext];
 };

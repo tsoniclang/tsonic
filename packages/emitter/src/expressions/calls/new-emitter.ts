@@ -3,22 +3,20 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { EmitterContext } from "../../types.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeArguments, generateSpecializedName } from "../identifiers.js";
 import { emitType } from "../../type-emitter.js";
-import { formatPostfixExpressionText } from "../parentheses.js";
 import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
  * Check if a new expression is new List<T>([...]) with an array literal argument
- * This pattern should be emitted as collection initializer: new List<T> { ... }
  */
 const isListConstructorWithArrayLiteral = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): boolean => {
-  // Only apply to BCL List<T> so the rewrite is semantics-safe.
-  // (We rely on List<T> having a parameterless ctor + Add for collection initializer.)
   const inferredType = expr.inferredType;
   if (inferredType?.kind !== "referenceType") {
     return false;
@@ -31,17 +29,14 @@ const isListConstructorWithArrayLiteral = (
     return false;
   }
 
-  // Must have exactly one type argument
   if (!expr.typeArguments || expr.typeArguments.length !== 1) {
     return false;
   }
 
-  // Check if callee is identifier "List"
   if (expr.callee.kind !== "identifier" || expr.callee.name !== "List") {
     return false;
   }
 
-  // Must have exactly one argument that is an array literal
   if (expr.arguments.length !== 1) {
     return false;
   }
@@ -51,7 +46,6 @@ const isListConstructorWithArrayLiteral = (
     return false;
   }
 
-  // Collection initializers don't support spreads/holes, so reject them here.
   for (const element of arg.elements) {
     if (!element || element.kind === "spread") {
       return false;
@@ -63,35 +57,29 @@ const isListConstructorWithArrayLiteral = (
 
 /**
  * Emit new List<T>([...]) as collection initializer: new List<T> { ... }
- *
- * Examples:
- *   new List<int>([1, 2, 3])      → new List<int> { 1, 2, 3 }
- *   new List<string>(["a", "b"]) → new List<string> { "a", "b" }
- *   new List<User>([u1, u2])     → new List<User> { u1, u2 }
  */
 const emitListCollectionInitializer = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const [calleeFrag, calleeContext] = emitExpression(
+  const [calleeAst, calleeContext] = emitExpressionAst(
     expr.callee,
     currentContext
   );
   currentContext = calleeContext;
+  let calleeText = printExpression(calleeAst);
 
-  // Handle generic type arguments consistently with emitNew()
   let typeArgsStr = "";
-  let finalClassName = calleeFrag.text;
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
       const [specializedName, specContext] = generateSpecializedName(
-        calleeFrag.text,
+        calleeText,
         expr.typeArguments,
         currentContext
       );
-      finalClassName = specializedName;
+      calleeText = specializedName;
       currentContext = specContext;
     } else {
       const [typeArgs, typeContext] = emitTypeArguments(
@@ -103,51 +91,44 @@ const emitListCollectionInitializer = (
     }
   }
 
-  // Get the array literal argument
   const arrayLiteral = expr.arguments[0] as Extract<
     IrExpression,
     { kind: "array" }
   >;
 
-  // Emit each element
-  const elements: string[] = [];
+  const elemTexts: string[] = [];
   for (const element of arrayLiteral.elements) {
     if (element === undefined) {
-      continue; // Skip undefined slots (sparse arrays)
+      continue;
     }
     if (element.kind === "spread") {
-      // Not supported (guarded by isListConstructorWithArrayLiteral)
-      const [fallbackFrag, fallbackContext] = emitNew(expr, currentContext);
-      return [fallbackFrag, fallbackContext];
+      const [fallbackAst, fallbackContext] = emitNew(expr, currentContext);
+      return [fallbackAst, fallbackContext];
     } else {
-      const [elemFrag, ctx] = emitExpression(element, currentContext);
-      elements.push(elemFrag.text);
+      const [elemAst, ctx] = emitExpressionAst(element, currentContext);
+      elemTexts.push(printExpression(elemAst));
       currentContext = ctx;
     }
   }
 
-  // Use collection initializer syntax
   const text =
-    elements.length === 0
-      ? `new ${finalClassName}${typeArgsStr}()`
-      : `new ${finalClassName}${typeArgsStr} { ${elements.join(", ")} }`;
+    elemTexts.length === 0
+      ? `new ${calleeText}${typeArgsStr}()`
+      : `new ${calleeText}${typeArgsStr} { ${elemTexts.join(", ")} }`;
 
-  return [{ text }, currentContext];
+  return [{ kind: "identifierExpression", identifier: text }, currentContext];
 };
 
 /**
  * Check if a new expression is new Array<T>(size)
- * Returns the element type if it is, undefined otherwise
  */
 const isArrayConstructorCall = (
   expr: Extract<IrExpression, { kind: "new" }>
 ): boolean => {
-  // Check if callee is identifier "Array"
   if (expr.callee.kind !== "identifier" || expr.callee.name !== "Array") {
     return false;
   }
 
-  // Must have exactly one type argument
   if (!expr.typeArguments || expr.typeArguments.length !== 1) {
     return false;
   }
@@ -157,41 +138,36 @@ const isArrayConstructorCall = (
 
 /**
  * Emit new Array<T>(size) as new T[size]
- *
- * Examples:
- *   new Array<int>(10)     → new int[10]
- *   new Array<string>(5)   → new string[5]
- *   new Array<User>(count) → new User[count]
- *   new Array<int>()       → new int[0]
  */
 const emitArrayConstructor = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  // Get the element type (verified by isArrayConstructorCall)
   const typeArgs = expr.typeArguments;
   const elementType = typeArgs?.[0];
   if (!elementType) {
-    return [{ text: "new object[0]" }, currentContext];
+    return [
+      { kind: "identifierExpression", identifier: "new object[0]" },
+      currentContext,
+    ];
   }
   const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
   currentContext = typeContext;
 
-  // Get the size argument (if any)
-  let sizeStr = "0"; // Default to empty array if no size argument
+  let sizeStr = "0";
   if (expr.arguments.length > 0) {
     const sizeArg = expr.arguments[0];
     if (sizeArg && sizeArg.kind !== "spread") {
-      const [sizeFrag, sizeContext] = emitExpression(sizeArg, currentContext);
-      sizeStr = sizeFrag.text;
+      const [sizeAst, sizeContext] = emitExpressionAst(sizeArg, currentContext);
+      sizeStr = printExpression(sizeAst);
       currentContext = sizeContext;
     }
   }
 
   const text = `new ${elementTypeStr}[${sizeStr}]`;
-  return [{ text }, currentContext];
+  return [{ kind: "identifierExpression", identifier: text }, currentContext];
 };
 
 const isPromiseConstructorCall = (
@@ -210,8 +186,7 @@ const isVoidLikeType = (type: IrType | undefined): boolean => {
 
 /**
  * Check if a type contains `void` in a position where it would be emitted
- * as a C# generic type argument (union member, type argument, etc.).
- * C# forbids `void` as a generic type argument, so such types are invalid.
+ * as a C# generic type argument.
  */
 const containsVoidInGenericPosition = (type: IrType | undefined): boolean => {
   if (!type) return false;
@@ -280,7 +255,7 @@ const getExecutorArity = (
 const emitPromiseConstructor = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   const executor = expr.arguments[0];
   if (!executor || executor.kind === "spread") {
     throw new Error(
@@ -309,8 +284,7 @@ const emitPromiseConstructor = (
     currentContext = valueTypeContext;
   }
 
-  // For void promises, track the resolve parameter name so call emitter
-  // can strip arguments from resolve(undefined) calls (C# Action is zero-arg)
+  // Track resolve parameter name for void promise
   const resolveParam =
     !promiseValueType &&
     (executor.kind === "arrowFunction" ||
@@ -326,11 +300,6 @@ const emitPromiseConstructor = (
     ? { ...currentContext, voidResolveNames: new Set([resolveParamName]) }
     : currentContext;
 
-  // For void promises, the resolve parameter's TS type may be
-  // `(value: void | PromiseLike<void>) => void` which emits as `Action<Union<void, Task>>` —
-  // invalid in C# (void cannot be a generic type argument). Strip the type annotation only
-  // when it contains void-in-generic, letting C# infer from the outer delegate cast.
-  // When the type is clean (e.g., `() => void` → `Action`), keep it for clarity.
   const resolveParamHasVoidGeneric =
     resolveParam?.type?.kind === "functionType" &&
     resolveParam.type.parameters.some((p) =>
@@ -348,17 +317,16 @@ const emitPromiseConstructor = (
         }
       : executor;
 
-  const [executorFrag, executorContext] = emitExpression(
+  const [executorAst, executorContext] = emitExpressionAst(
     emittedExecutor,
     executorEmitContext,
     expr.parameterTypes?.[0]
   );
-  // Strip voidResolveNames from returned context to prevent leakage into enclosing scope
   currentContext = resolveParamName
     ? { ...executorContext, voidResolveNames: undefined }
     : executorContext;
 
-  const executorText = formatPostfixExpressionText(executor, executorFrag.text);
+  const executorText = printExpression(executorAst);
   const executorArity = getExecutorArity(expr);
   const resolveCallbackType = promiseValueType
     ? `global::System.Action<${valueTypeText}>`
@@ -385,16 +353,16 @@ const emitPromiseConstructor = (
     `try { ${executorInvokeTarget}(${invokeArgs}); } catch (global::System.Exception ex) { __tsonic_tcs.TrySetException(ex); } ` +
     `return __tsonic_tcs.Task; }))()`;
 
-  return [{ text }, currentContext];
+  return [{ kind: "identifierExpression", identifier: text }, currentContext];
 };
 
 /**
- * Emit a new expression
+ * Emit a new expression as CSharpExpressionAst
  */
 export const emitNew = (
   expr: Extract<IrExpression, { kind: "new" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Special case: new Array<T>(size) → new T[size]
   if (isArrayConstructorCall(expr)) {
     return emitArrayConstructor(expr, context);
@@ -405,34 +373,27 @@ export const emitNew = (
     return emitListCollectionInitializer(expr, context);
   }
 
-  // Promise constructor lowering:
-  //   new Promise<T>((resolve, reject) => { ... })
-  // becomes a TaskCompletionSource<T>-backed Task expression.
+  // Promise constructor lowering
   if (isPromiseConstructorCall(expr)) {
     return emitPromiseConstructor(expr, context);
   }
 
-  const [calleeFrag, newContext] = emitExpression(expr.callee, context);
+  const [calleeAst, newContext] = emitExpressionAst(expr.callee, context);
   let currentContext = newContext;
+  let calleeText = printExpression(calleeAst);
 
-  // Handle generic type arguments
   let typeArgsStr = "";
-  let finalClassName = calleeFrag.text;
 
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
-      // Monomorphisation: Generate specialized class name
-      // e.g., new Box<string>() → new Box__string()
       const [specializedName, specContext] = generateSpecializedName(
-        calleeFrag.text,
+        calleeText,
         expr.typeArguments,
         currentContext
       );
-      finalClassName = specializedName;
+      calleeText = specializedName;
       currentContext = specContext;
     } else {
-      // Emit explicit type arguments for generic constructor
-      // e.g., new Box<string>(value)
       const [typeArgs, typeContext] = emitTypeArguments(
         expr.typeArguments,
         currentContext
@@ -442,24 +403,27 @@ export const emitNew = (
     }
   }
 
-  const args: string[] = [];
+  const argTexts: string[] = [];
   const parameterTypes = expr.parameterTypes ?? [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];
     if (!arg) continue;
     if (arg.kind === "spread") {
-      const [spreadFrag, ctx] = emitExpression(arg.expression, currentContext);
-      args.push(`params ${spreadFrag.text}`);
+      const [spreadAst, ctx] = emitExpressionAst(
+        arg.expression,
+        currentContext
+      );
+      argTexts.push(`params ${printExpression(spreadAst)}`);
       currentContext = ctx;
     } else {
       const expectedType = parameterTypes[i];
       const castModifier = getPassingModifierFromCast(arg);
       if (castModifier && isLValue(arg)) {
-        const [argFrag, ctx] = emitExpression(arg, currentContext);
-        args.push(`${castModifier} ${argFrag.text}`);
+        const [argAst, ctx] = emitExpressionAst(arg, currentContext);
+        argTexts.push(`${castModifier} ${printExpression(argAst)}`);
         currentContext = ctx;
       } else {
-        const [argFrag, ctx] = emitExpression(
+        const [argAst, ctx] = emitExpressionAst(
           arg,
           currentContext,
           expectedType
@@ -469,12 +433,12 @@ export const emitNew = (
           passingMode && passingMode !== "value" && isLValue(arg)
             ? `${passingMode} `
             : "";
-        args.push(`${prefix}${argFrag.text}`);
+        argTexts.push(`${prefix}${printExpression(argAst)}`);
         currentContext = ctx;
       }
     }
   }
 
-  const text = `new ${finalClassName}${typeArgsStr}(${args.join(", ")})`;
-  return [{ text }, currentContext];
+  const text = `new ${calleeText}${typeArgsStr}(${argTexts.join(", ")})`;
+  return [{ kind: "identifierExpression", identifier: text }, currentContext];
 };

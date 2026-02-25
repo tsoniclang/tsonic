@@ -8,8 +8,8 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { EmitterContext } from "../../types.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -17,16 +17,17 @@ import {
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
 import {
-  getPrecedence,
   isCharTyped,
   isStringTyped,
   getSingleCharLiteral,
   escapeCharLiteral,
   isNullishLiteral,
 } from "./helpers.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
- * Emit a binary operator expression
+ * Emit a binary operator expression as CSharpExpressionAst
  *
  * NEW NUMERIC SPEC: No contextual type propagation for numeric literals.
  * Literals use their raw lexeme - C# will naturally handle int + int = int,
@@ -47,7 +48,7 @@ export const emitBinary = (
   expr: Extract<IrExpression, { kind: "binary" }>,
   context: EmitterContext,
   _expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Map JavaScript operators to C# operators
   const operatorMap: Record<string, string> = {
     "===": "==",
@@ -59,7 +60,6 @@ export const emitBinary = (
   };
 
   const op = operatorMap[expr.operator] ?? expr.operator;
-  const parentPrecedence = getPrecedence(expr.operator);
 
   // Handle `"prop" in x` (union narrowing / dictionary membership)
   if (expr.operator === "in") {
@@ -75,8 +75,7 @@ export const emitBinary = (
       throw new Error("ICE: `in` operator RHS missing inferredType.");
     }
 
-    const [rhsFrag, rhsCtx] = emitExpression(expr.right, context);
-    const rhsText = rhsFrag.text;
+    const [rhsAst, rhsCtx] = emitExpressionAst(expr.right, context);
 
     const resolvedRhs = resolveTypeAlias(stripNullish(rhsType), rhsCtx);
 
@@ -113,8 +112,6 @@ export const emitBinary = (
         }
 
         // Cross-module union members: consult the batch type-member index.
-        // This enables `"prop" in x` narrowing even when the union member types
-        // are declared in a different TS module.
         const candidates: string[] = [];
 
         const stripGlobalPrefix = (name: string): string =>
@@ -165,14 +162,39 @@ export const emitBinary = (
       }
 
       if (matchingMembers.length === 0) {
-        return [{ text: "false", precedence: parentPrecedence }, rhsCtx];
+        return [{ kind: "literalExpression", text: "false" }, rhsCtx];
       }
 
-      const checks = matchingMembers
-        .map((n) => `${rhsText}.Is${n}()`)
-        .join(" || ");
-      // Lowering emits an `||` chain; wrap to preserve grouping in any surrounding expression.
-      return [{ text: `(${checks})`, precedence: 16 }, rhsCtx];
+      // Build IsN() call ASTs and chain with ||
+      const checkAsts: CSharpExpressionAst[] = matchingMembers.map(
+        (n): CSharpExpressionAst => ({
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: rhsAst,
+            memberName: `Is${n}`,
+          },
+          arguments: [],
+        })
+      );
+
+      const orChain = checkAsts.reduce(
+        (left, right): CSharpExpressionAst => ({
+          kind: "binaryExpression",
+          operatorToken: "||",
+          left,
+          right,
+        })
+      );
+
+      // Wrap multi-member OR chains in parens so they compose correctly
+      // with surrounding operators (e.g., `(x.Is1() || x.Is2()) && ok`).
+      const result: CSharpExpressionAst =
+        checkAsts.length > 1
+          ? { kind: "parenthesizedExpression", expression: orChain }
+          : orChain;
+
+      return [result, rhsCtx];
     }
 
     // Dictionary<K,V>: `"k" in dict` → dict.ContainsKey("k")
@@ -188,9 +210,17 @@ export const emitBinary = (
         );
       }
 
-      const [keyFrag, keyCtx] = emitExpression(expr.left, rhsCtx);
-      const text = `${rhsText}.ContainsKey(${keyFrag.text})`;
-      return [{ text, precedence: parentPrecedence }, keyCtx];
+      const [keyAst, keyCtx] = emitExpressionAst(expr.left, rhsCtx);
+      const containsKeyAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: rhsAst,
+          memberName: "ContainsKey",
+        },
+        arguments: [keyAst],
+      };
+      return [containsKeyAst, keyCtx];
     }
 
     throw new Error(
@@ -200,17 +230,25 @@ export const emitBinary = (
 
   // Handle instanceof operator specially
   if (expr.operator === "instanceof") {
-    const [leftFrag, leftContext] = emitExpression(expr.left, context);
-    const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
-    const text = `${leftFrag.text} is ${rightFrag.text}`;
-    return [{ text, precedence: parentPrecedence }, rightContext];
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    // For `is`, convert expression to type name
+    const rightText = printExpression(rightAst);
+    const isExpr: CSharpExpressionAst = {
+      kind: "isExpression",
+      expression: leftAst,
+      pattern: {
+        kind: "typePattern",
+        type: { kind: "identifierType", name: rightText },
+      },
+    };
+    return [isExpr, rightContext];
   }
 
   // CHAR VS STRING COMPARISON FIX:
   // In C#, string[int] returns char, but in TypeScript it returns string.
-  // The IR now sets inferredType to char for string indexer access.
   // When comparing a char-typed expression with a single-character string literal,
-  // emit the string as a char literal to avoid CS0019 (operator == cannot be applied to char and string).
+  // emit the string as a char literal to avoid CS0019 (char == string).
   const isComparisonOp =
     op === "==" ||
     op === "!=" ||
@@ -227,20 +265,38 @@ export const emitBinary = (
 
     // Case 1: left is char-typed, right is single-char literal → emit right as char
     if (leftIsChar && rightSingleChar !== undefined) {
-      const [leftFrag, leftContext] = emitExpression(expr.left, context);
-      // Emit as char literal instead of string literal
-      const charLiteral = `'${escapeCharLiteral(rightSingleChar)}'`;
-      const text = `${leftFrag.text} ${op} ${charLiteral}`;
-      return [{ text, precedence: parentPrecedence }, leftContext];
+      const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+      const charLiteralAst: CSharpExpressionAst = {
+        kind: "literalExpression",
+        text: `'${escapeCharLiteral(rightSingleChar)}'`,
+      };
+      return [
+        {
+          kind: "binaryExpression",
+          operatorToken: op,
+          left: leftAst,
+          right: charLiteralAst,
+        },
+        leftContext,
+      ];
     }
 
     // Case 2: right is char-typed, left is single-char literal → emit left as char
     if (rightIsChar && leftSingleChar !== undefined) {
-      const [rightFrag, rightContext] = emitExpression(expr.right, context);
-      // Emit as char literal instead of string literal
-      const charLiteral = `'${escapeCharLiteral(leftSingleChar)}'`;
-      const text = `${charLiteral} ${op} ${rightFrag.text}`;
-      return [{ text, precedence: parentPrecedence }, rightContext];
+      const [rightAst, rightContext] = emitExpressionAst(expr.right, context);
+      const charLiteralAst: CSharpExpressionAst = {
+        kind: "literalExpression",
+        text: `'${escapeCharLiteral(leftSingleChar)}'`,
+      };
+      return [
+        {
+          kind: "binaryExpression",
+          operatorToken: op,
+          left: charLiteralAst,
+          right: rightAst,
+        },
+        rightContext,
+      ];
     }
   }
 
@@ -252,11 +308,25 @@ export const emitBinary = (
     isStringTyped(expr.left) &&
     isStringTyped(expr.right)
   ) {
-    const [leftFrag, leftContext] = emitExpression(expr.left, context);
-    const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
-    const compareExpr = `global::System.String.CompareOrdinal(${leftFrag.text}, ${rightFrag.text})`;
-    const text = `${compareExpr} ${op} 0`;
-    return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    const compareAst: CSharpExpressionAst = {
+      kind: "invocationExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.String.CompareOrdinal",
+      },
+      arguments: [leftAst, rightAst],
+    };
+    return [
+      {
+        kind: "binaryExpression",
+        operatorToken: op,
+        left: compareAst,
+        right: { kind: "literalExpression", text: "0" },
+      },
+      rightContext,
+    ];
   }
 
   // NULLISH COMPARISONS:
@@ -267,8 +337,6 @@ export const emitBinary = (
   // For unconstrained generics (T), `== null` is not always valid, so we instead cast
   // to `object` to force reference-equality semantics and avoid operator overloads:
   //   ((object)x) == null
-  // This also avoids emitting pattern matching (`is null`) which is rejected inside
-  // expression trees (EF Core query providers).
   //
   // TypeScript:  x === undefined  →  C#: x == null
   // TypeScript:  x !== undefined  →  C#: x != null
@@ -296,9 +364,6 @@ export const emitBinary = (
     //
     //   dict[key] === undefined  -> !dict.ContainsKey(key)
     //   dict[key] !== undefined  ->  dict.ContainsKey(key)
-    //
-    // This prevents miscompiles like folding `dict[key] !== undefined` to `true`
-    // when value type is non-nullable, and preserves delete/lookup behavior.
     if (
       isUndefinedLiteral &&
       nonNullishExpr.kind === "memberAccess" &&
@@ -308,21 +373,39 @@ export const emitBinary = (
         nonNullishExpr.object.inferredType?.kind === "dictionaryType")
     ) {
       const nonNullishContext = { ...context, narrowedBindings: undefined };
-      const [dictFrag, dictContext] = emitExpression(
+      const [dictAst, dictContext] = emitExpressionAst(
         nonNullishExpr.object,
         nonNullishContext
       );
-      const [keyFrag, keyContext] = emitExpression(
+      const [keyAst, keyContext] = emitExpressionAst(
         nonNullishExpr.property,
         dictContext
       );
-      const containsExpr = `(${dictFrag.text}).ContainsKey(${keyFrag.text})`;
-      const text = op === "==" ? `!${containsExpr}` : containsExpr;
-      return [{ text, precedence: getPrecedence(expr.operator) }, keyContext];
+      const containsAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "parenthesizedExpression",
+            expression: dictAst,
+          },
+          memberName: "ContainsKey",
+        },
+        arguments: [keyAst],
+      };
+      const resultAst: CSharpExpressionAst =
+        op === "=="
+          ? {
+              kind: "prefixUnaryExpression",
+              operatorToken: "!",
+              operand: containsAst,
+            }
+          : containsAst;
+      return [resultAst, keyContext];
     }
 
     const nonNullishContext = { ...context, narrowedBindings: undefined };
-    const [nonNullishFrag, resultContext] = emitExpression(
+    const [nonNullishAst, resultContext] = emitExpressionAst(
       nonNullishExpr,
       nonNullishContext
     );
@@ -359,50 +442,61 @@ export const emitBinary = (
         typeParamConstraint === "struct");
     const needsObjectCastForValueType = isDefiniteNonUnionValueType;
 
-    const nullOp = op === "==" ? "== null" : "!= null";
-    const nullOperandText = (() => {
-      switch (nonNullishExpr.kind) {
-        case "identifier":
-        case "memberAccess":
-        case "call":
-        case "new":
-        case "this":
-        case "literal":
-          return nonNullishFrag.text;
-        default:
-          return `(${nonNullishFrag.text})`;
-      }
-    })();
-    const text =
-      needsObjectCastForTypeParam || needsObjectCastForValueType
-        ? `((global::System.Object)(${nonNullishFrag.text})) ${nullOp}`
-        : `${nullOperandText} ${nullOp}`;
+    const nullLiteral: CSharpExpressionAst = {
+      kind: "literalExpression",
+      text: "null",
+    };
+    const nullOp = op === "==" ? "==" : "!=";
 
-    return [{ text, precedence: getPrecedence(expr.operator) }, resultContext];
+    if (needsObjectCastForTypeParam || needsObjectCastForValueType) {
+      // ((global::System.Object)(expr)) == null
+      const castExpr: CSharpExpressionAst = {
+        kind: "castExpression",
+        type: { kind: "identifierType", name: "global::System.Object" },
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: nonNullishAst,
+        },
+      };
+      return [
+        {
+          kind: "binaryExpression",
+          operatorToken: nullOp,
+          left: {
+            kind: "parenthesizedExpression",
+            expression: castExpr,
+          },
+          right: nullLiteral,
+        },
+        resultContext,
+      ];
+    }
+
+    return [
+      {
+        kind: "binaryExpression",
+        operatorToken: nullOp,
+        left: nonNullishAst,
+        right: nullLiteral,
+      },
+      resultContext,
+    ];
   }
 
   // Standard emission path
   // Emit operands without contextual type propagation
   // Literals will emit using their raw lexeme (42 vs 42.0)
-  const [leftFrag, leftContext] = emitExpression(expr.left, context);
-  const [rightFrag, rightContext] = emitExpression(expr.right, leftContext);
+  // Parenthesization is handled by the printer's precedence system
+  const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+  const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
 
-  // Wrap child expressions in parentheses if their precedence is lower than parent
-  // This preserves grouping: (x + y) * z should not become x + y * z
-  const leftText =
-    leftFrag.precedence !== undefined && leftFrag.precedence < parentPrecedence
-      ? `(${leftFrag.text})`
-      : leftFrag.text;
-
-  // For right operand, also wrap if precedence is equal (right-to-left associativity issue)
-  // Example: a - (b - c) should not become a - b - c
-  const rightText =
-    rightFrag.precedence !== undefined &&
-    rightFrag.precedence <= parentPrecedence
-      ? `(${rightFrag.text})`
-      : rightFrag.text;
-
-  const text = `${leftText} ${op} ${rightText}`;
-
-  return [{ text, precedence: getPrecedence(expr.operator) }, rightContext];
+  return [
+    {
+      kind: "binaryExpression",
+      operatorToken: op,
+      left: leftAst,
+      right: rightAst,
+    },
+    rightContext,
+  ];
 };

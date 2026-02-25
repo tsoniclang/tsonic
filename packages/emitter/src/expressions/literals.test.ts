@@ -7,6 +7,7 @@ import { expect } from "chai";
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { emitLiteral } from "./literals.js";
 import { EmitterContext, EmitterOptions } from "../types.js";
+import { printExpression } from "../core/format/backend-ast/printer.js";
 
 describe("emitLiteral", () => {
   const defaultOptions: EmitterOptions = {
@@ -35,7 +36,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("null");
+      expect(printExpression(fragment)).to.equal("null");
     });
 
     it("emits 'null' when expectedType is concrete (no type parameters)", () => {
@@ -48,7 +49,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("null");
+      expect(printExpression(fragment)).to.equal("null");
     });
 
     it("emits 'default' when expectedType contains type parameter", () => {
@@ -61,7 +62,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
 
     it("emits 'default' when expectedType is Array<T> with type parameter", () => {
@@ -78,7 +79,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
 
     it("emits 'null' when expectedType is Array<string> (concrete)", () => {
@@ -95,7 +96,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("null");
+      expect(printExpression(fragment)).to.equal("null");
     });
 
     it("emits 'default' when expectedType uses legacy referenceType for type param", () => {
@@ -109,7 +110,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
 
     // Bug 2 regression: null to value type (CS0037)
@@ -124,7 +125,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
 
     it("emits 'default' when expectedType is number | null union (value type after stripNullish)", () => {
@@ -145,7 +146,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
 
     it("emits 'default' when expectedType is boolean (value type)", () => {
@@ -159,7 +160,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
   });
 
@@ -173,7 +174,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("default");
+      expect(printExpression(fragment)).to.equal("default");
     });
   });
 
@@ -187,7 +188,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("42");
+      expect(printExpression(fragment)).to.equal("42");
     });
 
     it("emits decimal literals as-is (lets C# infer double)", () => {
@@ -199,7 +200,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("3.14");
+      expect(printExpression(fragment)).to.equal("3.14");
     });
 
     it("emits integer format in array index context", () => {
@@ -214,7 +215,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("42");
+      expect(printExpression(fragment)).to.equal("42");
     });
   });
 
@@ -228,7 +229,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal('"hello\\nworld"');
+      expect(printExpression(fragment)).to.equal('"hello\\nworld"');
     });
   });
 
@@ -242,7 +243,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("true");
+      expect(printExpression(fragment)).to.equal("true");
     });
 
     it("emits false", () => {
@@ -254,7 +255,7 @@ describe("emitLiteral", () => {
 
       const [fragment] = emitLiteral(expr, context);
 
-      expect(fragment.text).to.equal("false");
+      expect(printExpression(fragment)).to.equal("false");
     });
   });
 });

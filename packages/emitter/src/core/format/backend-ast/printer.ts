@@ -38,7 +38,6 @@ import type {
 const CSHARP_KEYWORDS = new Set([
   "abstract",
   "as",
-  "base",
   "bool",
   "break",
   "byte",
@@ -59,7 +58,6 @@ const CSHARP_KEYWORDS = new Set([
   "event",
   "explicit",
   "extern",
-  "false",
   "finally",
   "fixed",
   "float",
@@ -98,9 +96,7 @@ const CSHARP_KEYWORDS = new Set([
   "string",
   "struct",
   "switch",
-  "this",
   "throw",
-  "true",
   "try",
   "typeof",
   "uint",
@@ -302,17 +298,14 @@ const needsParensInBinary = (
 
   if (childPrec < parentPrecedence) return true;
 
-  // For same-precedence, right-associative operators (assignment, ??)
+  // For same-precedence, right-associative operators (assignment)
   // don't need parens on the right side
   if (childPrec === parentPrecedence && isRightOperand) {
-    // Assignment and ?? are right-associative
-    if (
-      child.kind === "assignmentExpression" ||
-      (child.kind === "binaryExpression" && child.operatorToken === "??")
-    ) {
+    // Assignment is right-associative
+    if (child.kind === "assignmentExpression") {
       return false;
     }
-    // Left-associative: right operand at same precedence needs parens
+    // Left-associative (and ?? for readability): right operand at same precedence needs parens
     return true;
   }
 
@@ -642,9 +635,13 @@ const printInterpolatedString = (
     .map((part) => {
       if (part.kind === "text") return part.text;
       const exprText = printExpression(part.expression);
+      // Wrap in parens if the expression text contains ':' to prevent
+      // C# from interpreting it as a format specifier delimiter.
+      // Common case: global::Namespace.Type, ternary a ? b : c
+      const safeText = exprText.includes(":") ? `(${exprText})` : exprText;
       return part.formatClause
-        ? `{${exprText}:${part.formatClause}}`
-        : `{${exprText}}`;
+        ? `{${safeText}:${part.formatClause}}`
+        : `{${safeText}}`;
     })
     .join("");
   return `$"${inner}"`;

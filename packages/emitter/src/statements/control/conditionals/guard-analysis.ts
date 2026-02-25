@@ -14,6 +14,7 @@ import {
 } from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
+import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -514,8 +515,8 @@ export const tryResolveInGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [rhsFrag] = emitIdentifier(condition.right, context);
-  const escapedOrig = rhsFrag.text;
+  const [rhsAst] = emitIdentifier(condition.right, context);
+  const escapedOrig = printExpression(rhsAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -597,8 +598,8 @@ export const tryResolvePredicateGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [argFrag] = emitIdentifier(arg, context);
-  const escapedOrig = argFrag.text;
+  const [argAst] = emitIdentifier(arg, context);
+  const escapedOrig = printExpression(argAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -638,8 +639,8 @@ export const tryResolveInstanceofGuard = (
   if (condition.left.kind !== "identifier") return undefined;
 
   const originalName = condition.left.name;
-  const [lhsFrag, ctxAfterLhs] = emitIdentifier(condition.left, context);
-  const escapedOrig = lhsFrag.text;
+  const [lhsAst, ctxAfterLhs] = emitIdentifier(condition.left, context);
+  const escapedOrig = printExpression(lhsAst);
 
   const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };

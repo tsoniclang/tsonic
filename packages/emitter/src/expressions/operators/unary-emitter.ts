@@ -7,42 +7,60 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { EmitterContext } from "../../types.js";
+import {
+  emitExpressionAst,
+  emitExpressionAstAsFragment,
+} from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
- * Emit a unary operator expression (-, +, !, ~, typeof, void, delete)
+ * Emit a unary operator expression as CSharpExpressionAst (-, +, !, ~, typeof, void, delete)
  *
  * NEW NUMERIC SPEC: No contextual type propagation for numeric literals.
  * Explicit casts come from IrCastExpression nodes.
  *
  * @param expr - The unary expression
  * @param context - Emitter context
- * @param _expectedType - Unused under new spec (kept for API compatibility)
+ * @param expectedType - Used for void IIFE return type
  */
 export const emitUnary = (
   expr: Extract<IrExpression, { kind: "unary" }>,
   context: EmitterContext,
   expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // In TypeScript, `!x` applies JS ToBoolean semantics to *any* operand.
   // In C#, `!` only works on booleans, so we must coerce to a boolean condition.
+  // emitBooleanCondition still returns string (Phase 3 will convert to AST).
+  // Bridge by wrapping in identifierExpression.
   if (expr.operator === "!") {
     const [condText, condCtx] = emitBooleanCondition(
       expr.expression,
-      (e, ctx) => emitExpression(e, ctx),
+      (e, ctx) => emitExpressionAstAsFragment(e, ctx),
       context
     );
-    const text = `!(${condText})`;
-    return [{ text, precedence: 15 }, condCtx];
+    return [
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: "!",
+        operand: {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: condText,
+          },
+        },
+      },
+      condCtx,
+    ];
   }
 
   if (expr.operator === "delete") {
     // JavaScript `delete obj[key]` maps to dictionary key removal in CLR:
     //   delete dict[key]  -> dict.Remove(key)
-    // For unsupported targets we keep the existing no-op emission for now.
     const target = expr.expression;
     if (
       target.kind === "memberAccess" &&
@@ -51,29 +69,54 @@ export const emitUnary = (
       (target.accessKind === "dictionary" ||
         target.object.inferredType?.kind === "dictionaryType")
     ) {
-      const [objectFrag, objectContext] = emitExpression(
+      const [objectAst, objectContext] = emitExpressionAst(
         target.object,
         context
       );
-      const [keyFrag, keyContext] = emitExpression(
+      const [keyAst, keyContext] = emitExpressionAst(
         target.property,
         objectContext
       );
-      const text = `${objectFrag.text}.Remove(${keyFrag.text})`;
-      return [{ text }, keyContext];
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: objectAst,
+            memberName: "Remove",
+          },
+          arguments: [keyAst],
+        },
+        keyContext,
+      ];
     }
 
-    const [targetFrag, newContext] = emitExpression(target, context);
-    const text = `/* delete ${targetFrag.text} */`;
-    return [{ text }, newContext];
+    const [targetAst, newContext] = emitExpressionAst(target, context);
+    const targetText = printExpression(targetAst);
+    return [
+      {
+        kind: "identifierExpression",
+        identifier: `/* delete ${targetText} */`,
+      },
+      newContext,
+    ];
   }
 
-  const [operandFrag, newContext] = emitExpression(expr.expression, context);
+  const [operandAst, newContext] = emitExpressionAst(expr.expression, context);
 
   if (expr.operator === "typeof") {
     // typeof becomes global::Tsonic.Runtime.Operators.typeof()
-    const text = `global::Tsonic.Runtime.Operators.@typeof(${operandFrag.text})`;
-    return [{ text }, newContext];
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "global::Tsonic.Runtime.Operators.@typeof",
+        },
+        arguments: [operandAst],
+      },
+      newContext,
+    ];
   }
 
   if (expr.operator === "void") {
@@ -82,12 +125,12 @@ export const emitUnary = (
     // In expression position we must produce a value, so use an IIFE:
     //   (() => { <eval expr>; return default(<T>); })()
     //
-    // In statement position, emitExpressionStatement handles this separately
-    // (so we don't pay this cost for the common `void x;` marker).
+    // In statement position, emitExpressionStatement handles this separately.
+    // Complex IIFE pattern - bridge via identifierExpression.
     const operand = expr.expression;
+    const operandText = printExpression(operandAst);
 
-    // If the operand is a literal null/undefined, evaluation is a no-op and can be skipped.
-    // This avoids generating invalid discard assignments like `_ = default;`.
+    // If the operand is a literal null/undefined, evaluation is a no-op.
     const isNoopOperand =
       (operand.kind === "literal" &&
         (operand.value === undefined || operand.value === null)) ||
@@ -122,8 +165,7 @@ export const emitUnary = (
     const operandStatement = (() => {
       if (isNoopOperand) return "";
 
-      // If the operand is already a valid statement-expression (call/new/assignment/
-      // update/await), emit it directly. Otherwise, use a discard assignment.
+      // If the operand is already a valid statement-expression, emit it directly.
       if (
         operand.kind === "call" ||
         operand.kind === "new" ||
@@ -131,10 +173,10 @@ export const emitUnary = (
         operand.kind === "update" ||
         operand.kind === "await"
       ) {
-        return `${operandFrag.text}; `;
+        return `${operandText}; `;
       }
 
-      return `_ = ${operandFrag.text}; `;
+      return `_ = ${operandText}; `;
     })();
 
     if (operand.kind === "await") {
@@ -146,28 +188,36 @@ export const emitUnary = (
 
       const taskReturnType = `global::System.Threading.Tasks.Task<${returnTypeText}>`;
       const text = `await ((global::System.Func<${taskReturnType}>)(async () => { ${operandStatement}return ${defaultText}; }))()`;
-      return [{ text }, currentContext];
+      return [
+        { kind: "identifierExpression", identifier: text },
+        currentContext,
+      ];
     }
 
     const text = `((global::System.Func<${returnTypeText}>)(() => { ${operandStatement}return ${defaultText}; }))()`;
-    return [{ text }, currentContext];
+    return [{ kind: "identifierExpression", identifier: text }, currentContext];
   }
 
-  const text = `${expr.operator}${operandFrag.text}`;
-
-  return [{ text, precedence: 15 }, newContext];
+  // Standard prefix operator: -, +, ~
+  return [
+    {
+      kind: "prefixUnaryExpression",
+      operatorToken: expr.operator,
+      operand: operandAst,
+    },
+    newContext,
+  ];
 };
 
 /**
- * Emit an update operator expression (++, --)
+ * Emit an update operator expression as CSharpExpressionAst (++, --)
  */
 export const emitUpdate = (
   expr: Extract<IrExpression, { kind: "update" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  // Narrowing maps (instanceof / nullable / union) apply to *reads*, not writes.
-  // For update operators, the operand is written, so we must not rewrite the target
-  // identifier to a narrowed binding (e.g., C# pattern var).
+): [CSharpExpressionAst, EmitterContext] => {
+  // Narrowing maps apply to *reads*, not writes.
+  // For update operators, suppress narrowed bindings for the target.
   const operandCtx: EmitterContext =
     expr.expression.kind === "identifier" &&
     context.narrowedBindings?.has(expr.expression.name)
@@ -178,15 +228,29 @@ export const emitUpdate = (
         })()
       : context;
 
-  const [operandFrag, ctx] = emitExpression(expr.expression, operandCtx);
+  const [operandAst, ctx] = emitExpressionAst(expr.expression, operandCtx);
   const newContext: EmitterContext =
     operandCtx !== context
       ? { ...ctx, narrowedBindings: context.narrowedBindings }
       : ctx;
 
-  const text = expr.prefix
-    ? `${expr.operator}${operandFrag.text}`
-    : `${operandFrag.text}${expr.operator}`;
+  if (expr.prefix) {
+    return [
+      {
+        kind: "prefixUnaryExpression",
+        operatorToken: expr.operator,
+        operand: operandAst,
+      },
+      newContext,
+    ];
+  }
 
-  return [{ text, precedence: 15 }, newContext];
+  return [
+    {
+      kind: "postfixUnaryExpression",
+      operatorToken: expr.operator,
+      operand: operandAst,
+    },
+    newContext,
+  ];
 };

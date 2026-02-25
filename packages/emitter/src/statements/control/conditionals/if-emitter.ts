@@ -4,8 +4,12 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
-import { emitExpression } from "../../../expression-emitter.js";
+import {
+  emitExpression,
+  emitExpressionAst,
+} from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
+import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import {
@@ -707,13 +711,13 @@ export const emitIfStatement = (
     //
     // So: build the `.Value` access from the *raw* identifier (respecting CS0136 remaps),
     // but ignoring existing narrowedBindings.
-    const [idFrag] =
+    const [idAst] =
       targetExpr.kind === "identifier"
         ? emitIdentifier(targetExpr, {
             ...context,
             narrowedBindings: undefined,
           })
-        : emitExpression(targetExpr, {
+        : emitExpressionAst(targetExpr, {
             ...context,
             narrowedBindings: undefined,
           });
@@ -722,7 +726,7 @@ export const emitIfStatement = (
     const narrowedMap = new Map(context.narrowedBindings ?? []);
     narrowedMap.set(key, {
       kind: "expr",
-      exprText: `${idFrag.text}.Value`,
+      exprText: `${printExpression(idAst)}.Value`,
       type: strippedType,
     });
 

@@ -3,48 +3,31 @@
  */
 
 import { IrExpression, type IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../types.js";
-import { emitExpression } from "../expression-emitter.js";
+import { EmitterContext } from "../types.js";
+import { emitExpressionAst } from "../expression-emitter.js";
 import {
   isExplicitViewProperty,
   extractInterfaceNameFromView,
 } from "@tsonic/frontend/types/explicit-views.js";
-import { emitType } from "../type-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
   getAllPropertySignatures,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
-import {
-  formatCastOperandText,
-  formatPostfixExpressionText,
-} from "./parentheses.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { printExpression } from "../core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 
 // ============================================================================
 // CONTRACT: Emitter ONLY consumes proof markers.
-//
-// The emitter MUST NOT re-derive numeric proofs. It only checks IR markers:
-// - primitiveType(name="int") - Distinct integer primitive type
-// - referenceType(name === "int") - CLR int from .NET interop
-//
-// NO BigInt parsing, NO parseInt, NO lexeme (.raw) inspection, NO literal
-// special-casing, NO loop-var tables. If the proof pass didn't annotate it,
-// the emitter ICEs. Period.
-//
-// The numeric proof pass is the ONLY source of numeric proofs.
 // ============================================================================
 
 /**
  * Check if an expression has proven Int32 type from the numeric proof pass.
- * The emitter MUST NOT re-derive proofs - it only checks markers set by the proof pass.
- * This is the SINGLE source of truth for numeric proofs in the emitter.
- *
- * INVARIANT: `int` is a distinct primitive type, NOT `number` with numericIntent.
  */
 const hasInt32Proof = (expr: IrExpression): boolean => {
-  // Check primitiveType(name="int") - distinct integer primitive
   if (
     expr.inferredType?.kind === "primitiveType" &&
     expr.inferredType.name === "int"
@@ -52,7 +35,6 @@ const hasInt32Proof = (expr: IrExpression): boolean => {
     return true;
   }
 
-  // Check referenceType for CLR int (from .NET interop)
   if (
     expr.inferredType?.kind === "referenceType" &&
     expr.inferredType.name === "int"
@@ -223,8 +205,6 @@ const emitMemberName = (
     return emitCSharpName(memberName, "methods", context);
   }
 
-  // Namespace imports (import * as M): treat property access as value access to the module container.
-  // For non-call usage, prefer "fields" because `M.value` denotes a value export.
   if (receiverExpr.kind === "identifier") {
     const binding = context.importBindings?.get(receiverExpr.name);
     if (binding?.kind === "namespace") {
@@ -289,48 +269,20 @@ const emitMemberName = (
 
 /**
  * Check if an expression represents a static type reference (not an instance)
- * Static type references are: namespace.Type or direct Type identifiers that resolve to types
  */
 const isStaticTypeReference = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   context: EmitterContext
 ): boolean => {
-  // Imported CLR types/modules are always static receivers in emitted C#.
-  // This is true even when the frontend did not attach an inferredType for the identifier.
   if (expr.object.kind === "identifier") {
     const importBinding = context.importBindings?.get(expr.object.name);
     if (importBinding) return true;
 
-    // If this isn't an import and we don't have a receiver type, default to instance.
-    // This prevents CLR-bound instance property accesses (e.g. `x.expression`) from
-    // incorrectly becoming `Type.Expression`.
     if (!expr.object.inferredType) return false;
   }
 
-  // If the object is an identifier that's a type name (e.g., Console, Enumerable)
-  // we need to check if the member binding's type matches what would be
-  // accessed statically. For instance access, the object would be a variable.
-  //
-  // A simple heuristic: if the member binding exists and the object is an identifier
-  // or a member access (like System.Console), AND the property name is being looked up
-  // on the type itself (not on an instance), it's static.
-  //
-  // The key insight: for instance calls, the object will have an inferredType that's
-  // the CLR type (e.g., List<T>), whereas for static calls the object IS the type.
-  //
-  // For now, we use the presence of inferredType on the object to detect instance access:
-  // - Instance: `numbers.add()` → numbers has inferredType: List<T>
-  // - Static: `Console.WriteLine()` → Console doesn't have a meaningful inferredType
-  //   (or its inferredType would be "typeof Console" not "Console")
   const objectType = expr.object.inferredType;
 
-  // If object has a value type as inferredType, it's an instance access.
-  // This includes:
-  // - referenceType: class/interface instances (e.g., List<T>)
-  // - arrayType: array instances
-  // - intersectionType: tsbindgen-generated types like TypeName$instance & __TypeName$views
-  // - primitiveType: string, number, boolean primitives with BCL methods
-  // - literalType: string/number/boolean literals like "hello".split()
   if (
     objectType?.kind === "referenceType" ||
     objectType?.kind === "arrayType" ||
@@ -338,29 +290,24 @@ const isStaticTypeReference = (
     objectType?.kind === "unionType" ||
     objectType?.kind === "primitiveType" ||
     objectType?.kind === "literalType" ||
-    // Type parameters (e.g. `T`) are values at runtime, not static type receivers.
     objectType?.kind === "typeParameterType" ||
-    // Unknown still represents a value receiver; never treat as a static type reference.
     objectType?.kind === "unknownType"
   ) {
     return false;
   }
 
-  // Otherwise it's likely a static access (type.member pattern)
   return true;
 };
 
 /**
- * Emit a member access expression (dot notation or bracket notation)
+ * Emit a member access expression as CSharpExpressionAst
  */
 export const emitMemberAccess = (
   expr: Extract<IrExpression, { kind: "memberAccess" }>,
   context: EmitterContext,
   usage: MemberAccessUsage = "value"
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Nullable guard narrowing for member-access expressions.
-  // conditionals.ts can install narrowedBindings keyed by "a.b.c" to force `.Value` (or other)
-  // for that exact member-access chain in the then-branch of a null/undefined guard.
   const narrowKey = context.narrowedBindings
     ? getMemberAccessNarrowKey(expr)
     : undefined;
@@ -368,30 +315,30 @@ export const emitMemberAccess = (
     const narrowed = context.narrowedBindings.get(narrowKey);
     if (narrowed) {
       if (narrowed.kind === "rename") {
-        return [{ text: escapeCSharpIdentifier(narrowed.name) }, context];
+        return [
+          {
+            kind: "identifierExpression",
+            identifier: escapeCSharpIdentifier(narrowed.name),
+          },
+          context,
+        ];
       }
-      return [{ text: narrowed.exprText }, context];
+      return [
+        { kind: "identifierExpression", identifier: narrowed.exprText },
+        context,
+      ];
     }
   }
 
-  // Property access that targets a CLR runtime union must be handled before
-  // memberBinding lowering. Otherwise, per-arm CLR member bindings can force
-  // invalid direct property access on Union<T1..Tn>.
+  // Property access that targets a CLR runtime union
   if (!expr.isComputed && !expr.isOptional) {
     const prop = expr.property as string;
-    // If the object is an identifier narrowed by in-guard / discriminant narrowing,
-    // use the narrowed member type instead of the original union type. This avoids
-    // emitting a redundant .AsN() on an already-narrowed variable.
     const objectType: IrType | undefined = (() => {
       if (expr.object.kind === "identifier" && context.narrowedBindings) {
         const narrowed = context.narrowedBindings.get(expr.object.name);
         if (narrowed?.kind === "rename" && narrowed.type) {
           return narrowed.type;
         }
-        // "expr" narrowed bindings (e.g., from ternary/discriminant/post-if narrowing)
-        // indicate the identifier has already been resolved to an .AsN() call.
-        // If a type is provided, use it; otherwise return undefined to skip union
-        // resolution entirely — the object is already a narrowed variant.
         if (narrowed?.kind === "expr") {
           return narrowed.type ?? undefined;
         }
@@ -438,10 +385,9 @@ export const emitMemberAccess = (
         const count = memberHasProperty.filter(Boolean).length;
 
         if (count === arity || count === 1) {
-          const [objectFrag, newContext] = emitExpression(expr.object, context);
-          const receiverText = formatPostfixExpressionText(
+          const [objectAst, newContext] = emitExpressionAst(
             expr.object,
-            objectFrag.text
+            context
           );
           const escapedProp = emitMemberName(
             expr.object,
@@ -452,11 +398,25 @@ export const emitMemberAccess = (
           );
 
           if (count === arity) {
-            const lambdas = members.map(
-              (_, i) => `__m${i + 1} => __m${i + 1}.${escapedProp}`
+            // All members have the property: use Match lambda
+            const lambdaArgs = members.map(
+              (_, i): CSharpExpressionAst => ({
+                kind: "identifierExpression",
+                identifier: `__m${i + 1} => __m${i + 1}.${escapedProp}`,
+              })
             );
-            const text = `${receiverText}.Match(${lambdas.join(", ")})`;
-            return [{ text }, newContext];
+            return [
+              {
+                kind: "invocationExpression",
+                expression: {
+                  kind: "memberAccessExpression",
+                  expression: objectAst,
+                  memberName: "Match",
+                },
+                arguments: lambdaArgs,
+              },
+              newContext,
+            ];
           }
 
           const armIndex = memberHasProperty.findIndex(Boolean);
@@ -466,8 +426,23 @@ export const emitMemberAccess = (
               "methods",
               context
             );
-            const text = `${receiverText}.${asMethod}().${escapedProp}`;
-            return [{ text }, newContext];
+            // receiver.AsN().prop
+            return [
+              {
+                kind: "memberAccessExpression",
+                expression: {
+                  kind: "invocationExpression",
+                  expression: {
+                    kind: "memberAccessExpression",
+                    expression: objectAst,
+                    memberName: asMethod,
+                  },
+                  arguments: [],
+                },
+                memberName: escapedProp,
+              },
+              newContext,
+            ];
           }
         }
       }
@@ -479,29 +454,40 @@ export const emitMemberAccess = (
     const { type, member } = expr.memberBinding;
     const escapedMember = escapeCSharpIdentifier(member);
 
-    // Determine if this is a static or instance member access
     if (isStaticTypeReference(expr, context)) {
       // Static access: emit full CLR type and member with global:: prefix
-      const text = `global::${type}.${escapedMember}`;
-      return [{ text }, context];
+      return [
+        {
+          kind: "identifierExpression",
+          identifier: `global::${type}.${escapedMember}`,
+        },
+        context,
+      ];
     } else {
       // Instance access: emit object.ClrMemberName
-      const [objectFrag, newContext] = emitExpression(expr.object, context);
-      const accessor = expr.isOptional ? "?." : ".";
-      const receiverText = formatPostfixExpressionText(
-        expr.object,
-        objectFrag.text
-      );
-      const text = `${receiverText}${accessor}${escapedMember}`;
-      return [{ text }, newContext];
+      const [objectAst, newContext] = emitExpressionAst(expr.object, context);
+      if (expr.isOptional) {
+        return [
+          {
+            kind: "conditionalMemberAccessExpression",
+            expression: objectAst,
+            memberName: escapedMember,
+          },
+          newContext,
+        ];
+      }
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: objectAst,
+          memberName: escapedMember,
+        },
+        newContext,
+      ];
     }
   }
 
-  const [objectFrag, newContext] = emitExpression(expr.object, context);
-  const receiverText = formatPostfixExpressionText(
-    expr.object,
-    objectFrag.text
-  );
+  const [objectAst, newContext] = emitExpressionAst(expr.object, context);
 
   if (expr.isComputed) {
     const accessKind = expr.accessKind;
@@ -513,36 +499,89 @@ export const emitMemberAccess = (
     }
 
     const indexContext = { ...newContext, isArrayIndex: true };
-    const [propFrag, contextWithIndex] = emitExpression(
+    const [propAst, contextWithIndex] = emitExpressionAst(
       expr.property as IrExpression,
       indexContext
     );
     const finalContext = { ...contextWithIndex, isArrayIndex: false };
-    const accessor = expr.isOptional ? "?[" : "[";
 
     if (accessKind === "dictionary") {
-      const text = `${receiverText}${accessor}${propFrag.text}]`;
-      return [{ text }, finalContext];
+      if (expr.isOptional) {
+        return [
+          {
+            kind: "conditionalElementAccessExpression",
+            expression: objectAst,
+            arguments: [propAst],
+          },
+          finalContext,
+        ];
+      }
+      return [
+        {
+          kind: "elementAccessExpression",
+          expression: objectAst,
+          arguments: [propAst],
+        },
+        finalContext,
+      ];
     }
 
-    // HARD GATE: clrIndexer + stringChar require Int32 proof (validated by proof pass).
+    // HARD GATE: clrIndexer + stringChar require Int32 proof
     const indexExpr = expr.property as IrExpression;
     if (!hasInt32Proof(indexExpr)) {
+      const propText = printExpression(propAst);
       throw new Error(
         `Internal Compiler Error: CLR indexer requires Int32 index (accessKind=${accessKind}). ` +
-          `Expression '${propFrag.text}' has no Int32 proof. ` +
+          `Expression '${propText}' has no Int32 proof. ` +
           `This should have been caught by the numeric proof pass (TSN5107).`
       );
     }
 
     if (accessKind === "stringChar") {
       // str[i] returns char in C#, but string in TypeScript. Convert char → string.
-      const text = `${receiverText}${accessor}${propFrag.text}].ToString()`;
-      return [{ text }, finalContext];
+      const elementAccess: CSharpExpressionAst = expr.isOptional
+        ? {
+            kind: "conditionalElementAccessExpression",
+            expression: objectAst,
+            arguments: [propAst],
+          }
+        : {
+            kind: "elementAccessExpression",
+            expression: objectAst,
+            arguments: [propAst],
+          };
+      return [
+        {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: elementAccess,
+            memberName: "ToString",
+          },
+          arguments: [],
+        },
+        finalContext,
+      ];
     }
 
-    const text = `${receiverText}${accessor}${propFrag.text}]`;
-    return [{ text }, finalContext];
+    if (expr.isOptional) {
+      return [
+        {
+          kind: "conditionalElementAccessExpression",
+          expression: objectAst,
+          arguments: [propAst],
+        },
+        finalContext,
+      ];
+    }
+    return [
+      {
+        kind: "elementAccessExpression",
+        expression: objectAst,
+        arguments: [propAst],
+      },
+      finalContext,
+    ];
   }
 
   // Property access
@@ -558,24 +597,47 @@ export const emitMemberAccess = (
         kind: "referenceType",
         name: interfaceName,
       };
-      const [interfaceTypeStr, ctxAfterType] = emitType(
+      const [interfaceTypeAst, ctxAfterType] = emitTypeAst(
         interfaceType,
         newContext
       );
-      const operandText = formatCastOperandText(expr.object, objectFrag.text);
-      const text = `((${interfaceTypeStr})${operandText})`;
-      return [{ text }, ctxAfterType];
+      return [
+        {
+          kind: "castExpression",
+          type: interfaceTypeAst,
+          expression: objectAst,
+        },
+        ctxAfterType,
+      ];
     }
   }
 
   // Regular property access
-  const accessor = expr.isOptional ? "?." : ".";
-  const text = `${receiverText}${accessor}${emitMemberName(
+  const memberName = emitMemberName(
     expr.object,
     objectType,
     prop,
     context,
     usage
-  )}`;
-  return [{ text }, newContext];
+  );
+
+  if (expr.isOptional) {
+    return [
+      {
+        kind: "conditionalMemberAccessExpression",
+        expression: objectAst,
+        memberName,
+      },
+      newContext,
+    ];
+  }
+
+  return [
+    {
+      kind: "memberAccessExpression",
+      expression: objectAst,
+      memberName,
+    },
+    newContext,
+  ];
 };

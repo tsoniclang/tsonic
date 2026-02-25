@@ -1,6 +1,9 @@
 /**
  * Expression Emitter - IR expressions to C# code
  * Main dispatcher - delegates to specialized modules
+ *
+ * Primary entry point is emitExpressionAst which returns [CSharpExpressionAst, EmitterContext].
+ * emitExpression is a thin shim that prints the AST to text for backward compatibility.
  */
 
 import {
@@ -14,15 +17,18 @@ import {
   IrDefaultOfExpression,
 } from "@tsonic/frontend";
 import { EmitterContext, CSharpFragment } from "./types.js";
-import { emitType } from "./type-emitter.js";
+import { emitTypeAst } from "./type-emitter.js";
 import { substituteTypeArgs } from "./core/semantic/type-resolution.js";
+import { printExpression } from "./core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "./core/format/backend-ast/types.js";
 
 // Import expression emitters from specialized modules
 import { emitLiteral } from "./expressions/literals.js";
 import { emitIdentifier } from "./expressions/identifiers.js";
 import { emitArray, emitObject } from "./expressions/collections.js";
 import { emitMemberAccess } from "./expressions/access.js";
-import { emitCall, emitNew } from "./expressions/calls.js";
+import { emitCall } from "./expressions/calls/call-emitter.js";
+import { emitNew } from "./expressions/calls/new-emitter.js";
 import {
   emitBinary,
   emitLogical,
@@ -40,7 +46,6 @@ import {
   emitSpread,
   emitAwait,
 } from "./expressions/other.js";
-import { formatCastOperandText } from "./expressions/parentheses.js";
 
 const getBareTypeParameterName = (
   type: IrType,
@@ -83,27 +88,34 @@ const getUnconstrainedNullishTypeParamName = (
   return constraintKind === "unconstrained" ? typeParamName : undefined;
 };
 
-const maybeCastNullishTypeParam = (
+const maybeCastNullishTypeParamAst = (
   expr: IrExpression,
-  fragment: CSharpFragment,
+  ast: CSharpExpressionAst,
   context: EmitterContext,
   expectedType: IrType | undefined
-): [CSharpFragment, EmitterContext] => {
-  if (!expectedType) return [fragment, context];
-  if (!expr.inferredType) return [fragment, context];
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedType) return [ast, context];
+  if (!expr.inferredType) return [ast, context];
 
   const expectedTypeParam = getBareTypeParameterName(expectedType, context);
-  if (!expectedTypeParam) return [fragment, context];
+  if (!expectedTypeParam) return [ast, context];
 
   const unionTypeParam = getUnconstrainedNullishTypeParamName(
     expr.inferredType,
     context
   );
-  if (!unionTypeParam) return [fragment, context];
-  if (unionTypeParam !== expectedTypeParam) return [fragment, context];
+  if (!unionTypeParam) return [ast, context];
+  if (unionTypeParam !== expectedTypeParam) return [ast, context];
 
-  const [typeName, newContext] = emitType(expectedType, context);
-  return [{ text: `(${typeName})${fragment.text}` }, newContext];
+  const [typeAst, newContext] = emitTypeAst(expectedType, context);
+  return [
+    {
+      kind: "castExpression",
+      type: typeAst,
+      expression: ast,
+    },
+    newContext,
+  ];
 };
 
 const getNullableUnionBaseType = (type: IrType): IrType | undefined => {
@@ -131,8 +143,6 @@ const isNonNullableValueType = (type: IrType): boolean => {
   }
 
   if (type.kind === "referenceType") {
-    // C# primitive aliases represented as reference types via @tsonic/core.
-    // Keep this list strict — we only unwrap when `.Value` exists.
     return (
       type.name === "sbyte" ||
       type.name === "short" ||
@@ -169,7 +179,6 @@ const isSameTypeForNullableUnwrap = (
   }
 
   if (base.kind === "referenceType" && expected.kind === "referenceType") {
-    // This unwrap is only for Nullable<T> value types, so keep matching strict.
     return (
       base.name === expected.name &&
       (base.typeArguments?.length ?? 0) === 0 &&
@@ -180,20 +189,18 @@ const isSameTypeForNullableUnwrap = (
   return false;
 };
 
-const maybeUnwrapNullableValueType = (
+const maybeUnwrapNullableValueTypeAst = (
   expr: IrExpression,
-  fragment: CSharpFragment,
+  ast: CSharpExpressionAst,
   context: EmitterContext,
   expectedType: IrType | undefined
-): [CSharpFragment, EmitterContext] => {
-  if (!expectedType) return [fragment, context];
-  if (!expr.inferredType) return [fragment, context];
+): [CSharpExpressionAst, EmitterContext] => {
+  if (!expectedType) return [ast, context];
+  if (!expr.inferredType) return [ast, context];
 
-  // Only unwrap direct nullable values. For composite expressions (e.g. `a ?? b`)
-  // C# nullish coalescing already produces a non-nullable result when the
-  // fallback is non-nullable, so adding `.Value` is incorrect.
+  // Only unwrap direct nullable values.
   if (expr.kind !== "identifier" && expr.kind !== "memberAccess") {
-    return [fragment, context];
+    return [ast, context];
   }
 
   const getMemberAccessNarrowKey = (
@@ -211,8 +218,6 @@ const maybeUnwrapNullableValueType = (
     return undefined;
   };
 
-  // If a narrowing pass already rewrote this identifier (e.g., `id` → `id.Value`
-  // or `id` → `id__n`), don't apply a second Nullable<T> unwrap.
   if (
     context.narrowedBindings &&
     ((expr.kind === "identifier" && context.narrowedBindings.has(expr.name)) ||
@@ -222,65 +227,57 @@ const maybeUnwrapNullableValueType = (
           return key ? context.narrowedBindings.has(key) : false;
         })()))
   ) {
-    return [fragment, context];
+    return [ast, context];
   }
 
   const nullableBase = getNullableUnionBaseType(expr.inferredType);
-  if (!nullableBase) return [fragment, context];
+  if (!nullableBase) return [ast, context];
 
-  // Only unwrap when the expected type is a non-nullable value type and
-  // the expression is a nullable union of that exact base type.
-  if (!isNonNullableValueType(expectedType)) return [fragment, context];
+  if (!isNonNullableValueType(expectedType)) return [ast, context];
   if (!isSameTypeForNullableUnwrap(nullableBase, expectedType)) {
-    return [fragment, context];
+    return [ast, context];
   }
 
-  const needsParens =
-    expr.kind !== "identifier" && expr.kind !== "memberAccess";
-  const inner = needsParens ? `(${fragment.text})` : fragment.text;
-  return [{ text: `${inner}.Value` }, context];
+  // Append .Value
+  return [
+    {
+      kind: "memberAccessExpression",
+      expression: ast,
+      memberName: "Value",
+    },
+    context,
+  ];
 };
 
 /**
- * Emit a numeric narrowing expression.
- *
- * If the inner expression is already proven to produce the target type,
- * emit it directly without a cast. Otherwise, emit with an explicit cast.
- *
- * Key cases:
- * - Literal 10 as int → "10" (no cast, no .0)
- * - Variable x as int (where x is already int) → "x" (no cast)
- * - Expression (x + y) as int (where result is int) → "x + y" (no cast)
+ * Emit a numeric narrowing expression as CSharpExpressionAst.
  */
 const emitNumericNarrowing = (
   expr: IrNumericNarrowingExpression,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  // If we have a proof that the inner expression already produces the target type,
-  // we don't need a cast - just emit the inner expression
+): [CSharpExpressionAst, EmitterContext] => {
   if (expr.proof !== undefined) {
-    // For literals, pass the target type so they emit without decimal point
     if (expr.proof.source.type === "literal") {
-      const [innerCode, newContext] = emitExpression(
+      const [innerAst, newContext] = emitExpressionAst(
         expr.expression,
         context,
-        expr.inferredType // Pass target type for correct literal format
+        expr.inferredType
       );
-      return [innerCode, newContext];
+      return [innerAst, newContext];
     }
 
-    // Numeric narrowings represent explicit user intent (`x as int`, `x as long`).
-    // Even when the conversion is proven sound, C# generic inference can become
-    // ambiguous without an explicit cast (e.g., choosing between `int` and `long`).
-    const [innerCode, ctx1] = emitExpression(expr.expression, context);
-    const [typeName, ctx2] = emitType(expr.inferredType, ctx1);
-    const operandText = formatCastOperandText(expr.expression, innerCode.text);
-    return [{ text: `(${typeName})${operandText}` }, ctx2];
+    const [innerAst, ctx1] = emitExpressionAst(expr.expression, context);
+    const [typeAst, ctx2] = emitTypeAst(expr.inferredType, ctx1);
+    return [
+      {
+        kind: "castExpression",
+        type: typeAst,
+        expression: innerAst,
+      },
+      ctx2,
+    ];
   }
 
-  // HARD GATE: No proof means the proof pass failed to catch an unprovable narrowing.
-  // This is an internal compiler error - the proof pass should have aborted compilation.
-  // We must NOT silently emit a cast, as that would be a soundness violation.
   throw new Error(
     `Internal error: numericNarrowing without proof reached emitter. ` +
       `Target: ${expr.targetKind}, Expression kind: ${expr.expression.kind}. ` +
@@ -290,16 +287,15 @@ const emitNumericNarrowing = (
 };
 
 /**
- * Emit a type assertion expression.
+ * Emit a type assertion expression as CSharpExpressionAst.
  *
  * TypeScript `x as T` becomes C# `(T)x` (throwing cast).
- * This is a checked cast that throws InvalidCastException on failure.
  */
 const emitTypeAssertion = (
   expr: IrTypeAssertionExpression,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  const [innerCode, ctx1] = emitExpression(
+): [CSharpExpressionAst, EmitterContext] => {
+  const [innerAst, ctx1] = emitExpressionAst(
     expr.expression,
     context,
     expr.targetType
@@ -324,16 +320,8 @@ const emitTypeAssertion = (
   };
 
   const shouldEraseTypeAssertion = (target: IrType): boolean => {
-    // tsbindgen `ExtensionMethods<TShape>` is a TYPE-ONLY helper used to surface C#
-    // extension methods as instance-style members in TypeScript. It must never
-    // introduce runtime casts in emitted C# (notably for EF Core query precompilation).
-    //
-    // `x as ExtensionMethods<T>` (or a local alias that expands to it) is a no-op
-    // at runtime; preserve the original expression verbatim.
     const resolved = resolveLocalTypeAliases(target);
 
-    // TypeScript `as unknown` is also type-only. Casting to `object` in C# is a
-    // semantic no-op and can break analyzers that expect idiomatic syntax.
     if (resolved.kind === "unknownType") {
       return true;
     }
@@ -347,9 +335,6 @@ const emitTypeAssertion = (
       }
     }
 
-    // ExtensionMethods_* aliases often normalize to an intersection that includes one
-    // or more `__Ext_*` constituents. Those `__Ext_*` types have no runtime
-    // representation, so the assertion must be erased.
     if (resolved.kind === "intersectionType") {
       return resolved.types.some(
         (t) => t.kind === "referenceType" && t.name.startsWith("__Ext_")
@@ -360,16 +345,13 @@ const emitTypeAssertion = (
   };
 
   if (shouldEraseTypeAssertion(expr.targetType)) {
-    return [innerCode, ctx1];
+    return [innerAst, ctx1];
   }
 
   const resolveRuntimeCastTarget = (
     target: IrType,
     ctx: EmitterContext
   ): IrType => {
-    // 1) Resolve local type aliases for runtime casting.
-    //    TypeScript type aliases have no runtime representation in C#, except for
-    //    object-literal aliases which we synthesize as classes (`Foo__Alias`).
     if (target.kind === "referenceType" && ctx.localTypes) {
       const typeInfo = ctx.localTypes.get(target.name);
       if (typeInfo?.kind === "typeAlias") {
@@ -384,13 +366,10 @@ const emitTypeAssertion = (
               : typeInfo.type;
           return resolveRuntimeCastTarget(substituted, ctx);
         }
-        // objectType aliases are emitted as `Name__Alias` by emitReferenceType
         return target;
       }
     }
 
-    // 2) Erase tsbindgen extension-method wrapper types at runtime:
-    //    ExtensionMethods<TShape> is type-only; values are just TShape.
     if (target.kind === "referenceType" && target.typeArguments?.length) {
       const importBinding = ctx.importBindings?.get(target.name);
       const clrName =
@@ -401,7 +380,6 @@ const emitTypeAssertion = (
       }
     }
 
-    // 3) Intersection types have no C# cast target; cast to the first runtime-like constituent.
     if (target.kind === "intersectionType") {
       for (const part of target.types) {
         const resolved = resolveRuntimeCastTarget(part, ctx);
@@ -420,89 +398,105 @@ const emitTypeAssertion = (
   };
 
   const runtimeTarget = resolveRuntimeCastTarget(expr.targetType, ctx1);
-  const [typeName, ctx2] = emitType(runtimeTarget, ctx1);
-  const operandText = formatCastOperandText(expr.expression, innerCode.text);
-  return [{ text: `(${typeName})${operandText}` }, ctx2];
+  const [typeAst, ctx2] = emitTypeAst(runtimeTarget, ctx1);
+  return [
+    {
+      kind: "castExpression",
+      type: typeAst,
+      expression: innerAst,
+    },
+    ctx2,
+  ];
 };
 
 /**
- * Emit an asinterface expression.
- *
- * `asinterface<T>(x)` is a compile-time-only intrinsic. It must never emit a runtime
- * cast or function call. Emission relies on contextual typing in C# (typed locals,
- * parameter types, return types) to apply the interface conversion.
+ * Emit an asinterface expression as CSharpExpressionAst.
  */
 const emitAsInterface = (
   expr: IrAsInterfaceExpression,
   context: EmitterContext,
   expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   const expected = expectedType ?? expr.targetType;
-  return emitExpression(expr.expression, context, expected);
+  return emitExpressionAst(expr.expression, context, expected);
 };
 
 /**
- * Emit a trycast expression.
+ * Emit a trycast expression as CSharpExpressionAst.
  *
  * TypeScript `trycast<T>(x)` becomes C# `x as T` (safe cast).
- * This returns null if the cast fails instead of throwing.
  */
 const emitTryCast = (
   expr: IrTryCastExpression,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  const [innerCode, ctx1] = emitExpression(expr.expression, context);
-  const [typeName, ctx2] = emitType(expr.targetType, ctx1);
-  const operandText = formatCastOperandText(expr.expression, innerCode.text);
-  return [{ text: `${operandText} as ${typeName}` }, ctx2];
+): [CSharpExpressionAst, EmitterContext] => {
+  const [innerAst, ctx1] = emitExpressionAst(expr.expression, context);
+  const [typeAst, ctx2] = emitTypeAst(expr.targetType, ctx1);
+  return [
+    {
+      kind: "asExpression",
+      expression: innerAst,
+      type: typeAst,
+    },
+    ctx2,
+  ];
 };
 
 /**
- * Emit a stackalloc expression.
- *
- * TypeScript `stackalloc<T>(n)` becomes C# `stackalloc T[n]`.
+ * Emit a stackalloc expression as CSharpExpressionAst.
  */
 const emitStackAlloc = (
   expr: IrStackAllocExpression,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  const [elementTypeName, ctx1] = emitType(expr.elementType, context);
-  const [sizeFrag, ctx2] = emitExpression(expr.size, ctx1, {
+): [CSharpExpressionAst, EmitterContext] => {
+  const [elementTypeAst, ctx1] = emitTypeAst(expr.elementType, context);
+  const [sizeAst, ctx2] = emitExpressionAst(expr.size, ctx1, {
     kind: "primitiveType",
     name: "int",
   });
-  return [{ text: `stackalloc ${elementTypeName}[${sizeFrag.text}]` }, ctx2];
+  return [
+    {
+      kind: "stackAllocArrayCreationExpression",
+      elementType: elementTypeAst,
+      sizeExpression: sizeAst,
+    },
+    ctx2,
+  ];
 };
 
 /**
- * Emit a defaultof expression.
- *
- * TypeScript `defaultof<T>()` becomes C# `default(T)`.
+ * Emit a defaultof expression as CSharpExpressionAst.
  */
 const emitDefaultOf = (
   expr: IrDefaultOfExpression,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  const [typeName, ctx1] = emitType(expr.targetType, context);
-  return [{ text: `default(${typeName})` }, ctx1];
+): [CSharpExpressionAst, EmitterContext] => {
+  const [typeAst, ctx1] = emitTypeAst(expr.targetType, context);
+  return [
+    {
+      kind: "defaultExpression",
+      type: typeAst,
+    },
+    ctx1,
+  ];
 };
 
 /**
- * Emit a C# expression from an IR expression
+ * Emit a C# expression AST from an IR expression.
+ * Primary entry point for expression emission.
+ *
  * @param expr The IR expression to emit
  * @param context The emitter context
- * @param expectedType Optional expected type for contextual typing (e.g., array element type inference)
+ * @param expectedType Optional expected type for contextual typing
  */
-export const emitExpression = (
+export const emitExpressionAst = (
   expr: IrExpression,
   context: EmitterContext,
   expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
-  const [fragment, newContext] = (() => {
+): [CSharpExpressionAst, EmitterContext] => {
+  const [ast, newContext] = (() => {
     switch (expr.kind) {
       case "literal":
-        // Pass expectedType for null → default conversion in generic contexts
-        // Numeric literals use raw lexeme (no contextual widening under new spec)
         return emitLiteral(expr, context, expectedType);
 
       case "identifier":
@@ -557,7 +551,10 @@ export const emitExpression = (
         return emitAwait(expr, context);
 
       case "this":
-        return [{ text: "this" }, context];
+        return [
+          { kind: "identifierExpression" as const, identifier: "this" },
+          context,
+        ];
 
       case "numericNarrowing":
         return emitNumericNarrowing(expr, context);
@@ -584,18 +581,44 @@ export const emitExpression = (
     }
   })();
 
-  const [castedFrag, castedContext] = maybeCastNullishTypeParam(
+  const [castedAst, castedContext] = maybeCastNullishTypeParamAst(
     expr,
-    fragment,
+    ast,
     newContext,
     expectedType
   );
-  return maybeUnwrapNullableValueType(
+  return maybeUnwrapNullableValueTypeAst(
     expr,
-    castedFrag,
+    castedAst,
     castedContext,
     expectedType
   );
+};
+
+/**
+ * Emit a C# expression from an IR expression (backward-compatible shim).
+ * Returns [CSharpFragment, EmitterContext] by printing the AST.
+ */
+export const emitExpression = (
+  expr: IrExpression,
+  context: EmitterContext,
+  expectedType?: IrType
+): [CSharpFragment, EmitterContext] => {
+  const [ast, newContext] = emitExpressionAst(expr, context, expectedType);
+  return [{ text: printExpression(ast) }, newContext];
+};
+
+/**
+ * Bridge helper: emit expression as AST, then convert to CSharpFragment.
+ * Used by Phase 3 bridges (emitBooleanCondition) that still expect fragment return type.
+ */
+export const emitExpressionAstAsFragment = (
+  expr: IrExpression,
+  context: EmitterContext,
+  expectedType?: IrType
+): [CSharpFragment, EmitterContext] => {
+  const [ast, newContext] = emitExpressionAst(expr, context, expectedType);
+  return [{ text: printExpression(ast) }, newContext];
 };
 
 // Re-export commonly used functions for backward compatibility
