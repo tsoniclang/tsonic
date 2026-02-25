@@ -335,7 +335,9 @@ const emitPromiseConstructor = (
     executorArity >= 2
       ? `global::System.Action<${resolveCallbackType}, global::System.Action<object?>>`
       : `global::System.Action<${resolveCallbackType}>`;
-  const executorInvokeTarget = `((${executorDelegateType})${executorText})`;
+  // Wrap executorText in parens so the C# parser doesn't confuse
+  // typed lambda params with a cast: (DelegateType)((params) => body)
+  const executorInvokeTarget = `((${executorDelegateType})(${executorText}))`;
   const invokeArgs =
     executorArity >= 2
       ? "__tsonic_resolve, __tsonic_reject"

@@ -622,7 +622,16 @@ export const toBooleanConditionAst = (
     return [emittedAst, resultCtx];
   }
 
-  return [{ kind: "identifierExpression", identifier: resultText }, resultCtx];
+  // Wrap in parenthesizedExpression so the printer treats the lowered text
+  // as an atomic unit — prevents precedence issues like `!expr != 0` when
+  // the lowered text contains operators (e.g. `expr != 0` for int truthiness).
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: { kind: "identifierExpression", identifier: resultText },
+    },
+    resultCtx,
+  ];
 };
 
 /**
