@@ -7,9 +7,9 @@ import { EmitterOptions, createContext } from "../../../types.js";
 import { generateStructuralAdaptersAst } from "../../../adapter-generator.js";
 import {
   collectSpecializations,
-  generateSpecializations,
+  generateSpecializationsAst,
 } from "../../../specialization-generator.js";
-import { generateGeneratorExchanges } from "../../../generator-exchange.js";
+import { generateGeneratorExchangesAst } from "../../../generator-exchange.js";
 import { defaultOptions } from "../options.js";
 import { collectTypeParameters } from "../../semantic/type-params.js";
 import { processImports } from "../../semantic/imports.js";
@@ -26,7 +26,6 @@ import { assembleOutput, type AssemblyParts } from "./assembly.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import {
   blankLine,
-  preludeSection,
   type CSharpClassDeclarationAst,
   type CSharpNamespaceMemberAst,
 } from "../backend-ast/index.js";
@@ -244,15 +243,13 @@ export const emitModule = (
 
   // Collect specializations and generate monomorphized versions
   const specializations = collectSpecializations(module);
-  const [specializationsCode, specializationsContext] = generateSpecializations(
-    specializations,
-    adaptersContext
-  );
+  const [specializationMembers, specializationAstContext] =
+    generateSpecializationsAst(specializations, adaptersContext);
 
   // Generate exchange objects for generators
-  const [exchangesCode, exchangesContext] = generateGeneratorExchanges(
+  const [exchangeMembers, exchangeAstContext] = generateGeneratorExchangesAst(
     module,
-    specializationsContext
+    specializationAstContext
   );
 
   // Separate namespace-level declarations from static container members
@@ -286,12 +283,12 @@ export const emitModule = (
     staticContainerMembers.length > 0
       ? collectStaticContainerValueSymbols(
           staticContainerMembers,
-          exchangesContext
+          exchangeAstContext
         )
       : undefined;
 
   const moduleContext = {
-    ...exchangesContext,
+    ...exchangeAstContext,
     moduleNamespace: module.namespace,
     moduleStaticClassName,
     valueSymbols,
@@ -320,11 +317,11 @@ export const emitModule = (
   };
 
   appendSection(adapterMembers);
-  if (specializationsCode) {
-    appendSection([preludeSection(specializationsCode, 1)]);
+  if (specializationMembers.length > 0) {
+    appendSection(specializationMembers);
   }
-  if (exchangesCode) {
-    appendSection([preludeSection(exchangesCode, 1)], false);
+  if (exchangeMembers.length > 0) {
+    appendSection(exchangeMembers, false);
   }
 
   const namespaceMembers: readonly CSharpNamespaceMemberAst[] = [

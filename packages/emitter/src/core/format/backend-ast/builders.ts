@@ -6,9 +6,11 @@ import type {
   CSharpClassDeclarationAst,
   CSharpClassMemberAst,
   CSharpCompilationUnitAst,
+  CSharpMethodDeclarationAst,
   CSharpNamespaceMemberAst,
   CSharpStatementAst,
 } from "./types.js";
+import { typeAstFromText } from "./type-factories.js";
 
 export type CompilationUnitAssemblyInput = {
   readonly headerText: string;
@@ -23,15 +25,6 @@ export const blankLine = (): CSharpNamespaceMemberAst => ({
 });
 export const classBlankLine = (): CSharpClassMemberAst => ({
   kind: "blankLine",
-});
-
-export const preludeSection = (
-  text: string,
-  indentLevel: number
-): CSharpNamespaceMemberAst => ({
-  kind: "preludeSection",
-  text,
-  indentLevel,
 });
 
 export const classDeclaration = (
@@ -51,21 +44,26 @@ export const classDeclaration = (
   members: options.members ?? [],
 });
 
-export const classPreludeMember = (
-  text: string,
-  indentLevel: number = 0
-): CSharpClassMemberAst => ({
-  kind: "classPreludeMember",
-  text,
-  indentLevel,
-});
-
 export const methodDeclaration = (
-  signature: string,
+  name: string,
+  options: {
+    readonly attributes?: readonly string[];
+    readonly modifiers?: readonly string[];
+    readonly returnType?: CSharpMethodDeclarationAst["returnType"];
+    readonly typeParameters?: readonly string[];
+    readonly parameters?: CSharpMethodDeclarationAst["parameters"];
+    readonly whereClauses?: readonly string[];
+  },
   statements: readonly CSharpStatementAst[]
 ): CSharpClassMemberAst => ({
   kind: "methodDeclaration",
-  signature,
+  attributes: options.attributes ?? [],
+  modifiers: options.modifiers ?? [],
+  returnType: options.returnType ?? typeAstFromText("void"),
+  name,
+  typeParameters: options.typeParameters,
+  parameters: options.parameters ?? [],
+  whereClauses: options.whereClauses,
   body: {
     kind: "blockStatement",
     statements,

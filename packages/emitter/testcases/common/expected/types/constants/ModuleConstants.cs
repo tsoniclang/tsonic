@@ -1,14 +1,26 @@
+// Generated from: ModuleConstants.ts
+// Generated at: 2026-02-25T03:00:38.511Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.constants
 {
-        [global::Tsonic.Internal.ModuleContainerAttribute]
-        public static class ModuleConstants
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class ModuleConstants
+    {
+        public static readonly double PI;
+
+        public static readonly string MESSAGE;
+
+        public static readonly int COUNT;
+
+        public static readonly bool IS_ENABLED;
+
+        static ModuleConstants()
         {
-            public static readonly double PI = 3.14159;
-
-            public static readonly string MESSAGE = "Hello, World!";
-
-            public static readonly int COUNT = 42;
-
-            public static readonly bool IS_ENABLED = true;
+            PI = 3.14159;
+            MESSAGE = "Hello, World!";
+            COUNT = 42;
+            IS_ENABLED = true;
         }
+    }
 }

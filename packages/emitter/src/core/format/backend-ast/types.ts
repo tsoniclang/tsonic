@@ -25,19 +25,18 @@ export type CSharpNamespaceDeclarationAst = {
 };
 
 export type CSharpNamespaceMemberAst =
-  | CSharpPreludeSectionAst
   | CSharpTypeDeclarationAst
   | CSharpGlobalMethodDeclarationAst
+  | CSharpCommentMemberAst
   | CSharpBlankLineAst;
-
-export type CSharpPreludeSectionAst = {
-  readonly kind: "preludeSection";
-  readonly text: string;
-  readonly indentLevel: number;
-};
 
 export type CSharpBlankLineAst = {
   readonly kind: "blankLine";
+};
+
+export type CSharpCommentMemberAst = {
+  readonly kind: "commentMember";
+  readonly text: string;
 };
 
 export type CSharpTypeDeclarationAst =
@@ -98,24 +97,29 @@ export type CSharpEnumMemberAst = {
 };
 
 export type CSharpClassMemberAst =
+  | CSharpDelegateDeclarationAst
   | CSharpFieldDeclarationAst
   | CSharpPropertyDeclarationAst
   | CSharpMethodDeclarationAst
   | CSharpConstructorDeclarationAst
   | CSharpTypeDeclarationAst
-  | CSharpBlankLineAst
-  | CSharpClassPreludeMemberAst;
+  | CSharpCommentMemberAst
+  | CSharpBlankLineAst;
 
 export type CSharpInterfaceMemberAst =
   | CSharpPropertyDeclarationAst
-  | CSharpMethodDeclarationAst
-  | CSharpBlankLineAst
-  | CSharpClassPreludeMemberAst;
+  | CSharpMethodSignatureAst
+  | CSharpCommentMemberAst
+  | CSharpBlankLineAst;
 
-export type CSharpClassPreludeMemberAst = {
-  readonly kind: "classPreludeMember";
-  readonly text: string;
-  readonly indentLevel: number;
+export type CSharpMethodSignatureAst = {
+  readonly kind: "methodSignature";
+  readonly attributes: readonly string[];
+  readonly returnType: CSharpTypeAst;
+  readonly name: string;
+  readonly typeParameters?: readonly string[];
+  readonly parameters: readonly CSharpParameterAst[];
+  readonly whereClauses?: readonly string[];
 };
 
 export type CSharpFieldDeclarationAst = {
@@ -145,11 +149,25 @@ export type CSharpAccessorDeclarationAst = {
 
 export type CSharpMethodDeclarationAst = {
   readonly kind: "methodDeclaration";
-  readonly attributes?: readonly string[];
-  readonly modifiers?: readonly string[];
-  readonly returnType?: CSharpTypeAst;
-  readonly signature: string;
-  readonly body: CSharpBlockStatementAst;
+  readonly attributes: readonly string[];
+  readonly modifiers: readonly string[];
+  readonly returnType: CSharpTypeAst;
+  readonly name: string;
+  readonly typeParameters?: readonly string[];
+  readonly parameters: readonly CSharpParameterAst[];
+  readonly whereClauses?: readonly string[];
+  readonly body?: CSharpBlockStatementAst;
+};
+
+export type CSharpDelegateDeclarationAst = {
+  readonly kind: "delegateDeclaration";
+  readonly attributes: readonly string[];
+  readonly modifiers: readonly string[];
+  readonly returnType: CSharpTypeAst;
+  readonly name: string;
+  readonly typeParameters?: readonly string[];
+  readonly parameters: readonly CSharpParameterAst[];
+  readonly whereClauses?: readonly string[];
 };
 
 export type CSharpGlobalMethodDeclarationAst = {
@@ -196,6 +214,7 @@ export type CSharpBlockStatementAst = {
 export type CSharpStatementAst =
   | CSharpBlockStatementAst
   | CSharpLocalDeclarationStatementAst
+  | CSharpLocalFunctionStatementAst
   | CSharpExpressionStatementAst
   | CSharpIfStatementAst
   | CSharpWhileStatementAst
@@ -221,6 +240,17 @@ export type CSharpVariableDeclaratorAst = {
   readonly kind: "variableDeclarator";
   readonly name: string;
   readonly initializer?: CSharpExpressionAst;
+};
+
+export type CSharpLocalFunctionStatementAst = {
+  readonly kind: "localFunctionStatement";
+  readonly modifiers: readonly string[];
+  readonly returnType: CSharpTypeAst;
+  readonly name: string;
+  readonly typeParameters?: readonly string[];
+  readonly parameters: readonly CSharpParameterAst[];
+  readonly whereClauses?: readonly string[];
+  readonly body: CSharpBlockStatementAst;
 };
 
 export type CSharpExpressionStatementAst = {
@@ -437,6 +467,29 @@ export type CSharpTypeAst =
   | {
       readonly kind: "rawType";
       readonly text: string;
+    }
+  | {
+      readonly kind: "predefinedType";
+      readonly keyword:
+        | "bool"
+        | "byte"
+        | "sbyte"
+        | "short"
+        | "ushort"
+        | "int"
+        | "uint"
+        | "long"
+        | "ulong"
+        | "nint"
+        | "nuint"
+        | "char"
+        | "float"
+        | "double"
+        | "decimal"
+        | "string"
+        | "object"
+        | "void"
+        | "dynamic";
     }
   | {
       readonly kind: "identifierType";

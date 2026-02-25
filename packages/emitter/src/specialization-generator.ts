@@ -8,6 +8,7 @@
 export type { SpecializationRequest } from "./specialization/types.js";
 export { collectSpecializations } from "./specialization/collection.js";
 export { generateSpecializations } from "./specialization/generation.js";
+export { generateSpecializationsAst } from "./specialization/generation.js";
 export {
   generateSpecializedFunctionName,
   generateSpecializedClassName,

@@ -1,3 +1,7 @@
+// Generated from: GenericExtends.ts
+// Generated at: 2026-02-25T02:59:53.341Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.classes.genericinheritance
 {
     public class Box<T>
@@ -5,34 +9,35 @@ namespace TestCases.common.classes.genericinheritance
         public T value { get; set; }
 
         public Box(T value)
-            {
+        {
             this.value = value;
-            }
+        }
     }
+
     public class LabeledBox<T> : Box<T>
     {
         public string label { get; set; }
 
         public LabeledBox(T value, string label) : base(value)
-            {
+        {
             this.label = label;
-            }
+        }
 
         public string describe()
-            {
+        {
             return $"{this.label}: {this.value}";
-            }
+        }
     }
+
     public class WrappedBox<U> : Box<U>
     {
         public WrappedBox(U value) : base(value)
-            {
-
-            }
+        {
+        }
 
         public Box<U> wrap()
-            {
+        {
             return new Box<U>(this.value);
-            }
+        }
     }
 }

@@ -5,11 +5,7 @@ import { createContext } from "../../../types.js";
 import { defaultOptions } from "../options.js";
 import { assembleOutput } from "./assembly.js";
 import type { AssemblyParts } from "./assembly.js";
-import {
-  classPreludeMember,
-  classDeclaration,
-  preludeSection,
-} from "../backend-ast/index.js";
+import { methodDeclaration, classDeclaration } from "../backend-ast/index.js";
 
 const createModule = (namespace: string): IrModule => ({
   kind: "module",
@@ -35,9 +31,9 @@ describe("Module Assembly", () => {
       {
         header: "// Header",
         namespaceMembers: [
-          preludeSection("    partial class Adapter\n    {\n    }", 0),
+          classDeclaration("Adapter", { modifiers: ["partial"] }),
           { kind: "blankLine" },
-          preludeSection("    public class User\n    {\n    }", 0),
+          classDeclaration("User", { modifiers: ["public"] }),
         ],
         staticContainerMember: classDeclaration("app", {
           modifiers: ["public", "static"],
@@ -109,13 +105,13 @@ namespace N1
         parts: {
           header: "// H2",
           namespaceMembers: [
-            preludeSection("    partial class A\n    {\n    }", 0),
+            classDeclaration("A", { modifiers: ["partial"] }),
             { kind: "blankLine" },
-            preludeSection("    partial class S\n    {\n    }", 0),
+            classDeclaration("S", { modifiers: ["partial"] }),
             { kind: "blankLine" },
-            preludeSection("    partial class E\n    {\n    }", 0),
+            classDeclaration("E", { modifiers: ["partial"] }),
             { kind: "blankLine" },
-            preludeSection("    public class C\n    {\n    }", 0),
+            classDeclaration("C", { modifiers: ["public"] }),
           ],
           staticContainerMember: classDeclaration("M", {
             modifiers: ["public", "static"],
@@ -173,7 +169,14 @@ namespace N2
         parts: {
           header: "",
           namespaceMembers: [
-            preludeSection("    public interface I\n    {\n    }", 0),
+            {
+              kind: "interfaceDeclaration",
+              indentLevel: 1,
+              attributes: [],
+              modifiers: ["public"],
+              name: "I",
+              members: [],
+            },
           ],
         },
         expected: `namespace N4
@@ -190,24 +193,30 @@ namespace N2
         parts: {
           header: "",
           namespaceMembers: [
-            preludeSection("    partial class A {}", 0),
+            classDeclaration("A", { modifiers: ["partial"] }),
             { kind: "blankLine" },
-            preludeSection("    partial class B {}", 0),
+            classDeclaration("B", { modifiers: ["partial"] }),
             { kind: "blankLine" },
-            preludeSection("    partial class C {}", 0),
+            classDeclaration("C", { modifiers: ["partial"] }),
           ],
         },
         expected: `namespace N5
 {
-    partial class A {}
+    partial class A
+    {
+    }
 
-    partial class B {}
+    partial class B
+    {
+    }
 
-    partial class C {}
+    partial class C
+    {
+    }
 }`,
       },
       {
-        name: "class member raw body preserves current indentation",
+        name: "class member statements stay structured in AST",
         moduleNamespace: "N6",
         usings: [],
         parts: {
@@ -216,9 +225,9 @@ namespace N2
           staticContainerMember: classDeclaration("App", {
             modifiers: ["public", "static"],
             members: [
-              classPreludeMember("        public static int x = 1;", 0),
-              { kind: "blankLine" },
-              classPreludeMember("        public static int y = 2;", 0),
+              methodDeclaration("Ping", { modifiers: ["public", "static"] }, [
+                { kind: "returnStatement" },
+              ]),
             ],
           }),
         },
@@ -226,9 +235,10 @@ namespace N2
 {
     public static class App
     {
-        public static int x = 1;
-
-        public static int y = 2;
+        public static void Ping()
+        {
+            return;
+        }
     }
 }`,
       },

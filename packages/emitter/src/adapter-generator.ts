@@ -7,6 +7,7 @@ import { IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
 import { emitCSharpName } from "./naming-policy.js";
+import { typeAstFromText } from "./core/format/backend-ast/type-factories.js";
 import type {
   CSharpAccessorDeclarationAst,
   CSharpClassMemberAst,
@@ -140,10 +141,8 @@ const getterSetterAccessorList: readonly CSharpAccessorDeclarationAst[] = [
   },
 ];
 
-const asTypeAst = (typeText: string): CSharpTypeAst => ({
-  kind: "rawType",
-  text: typeText,
-});
+const asTypeAst = (typeText: string): CSharpTypeAst =>
+  typeAstFromText(typeText);
 
 const withOptional = (typeText: string, isOptional: boolean): CSharpTypeAst => {
   return isOptional ? asTypeAst(`${typeText}?`) : asTypeAst(typeText);

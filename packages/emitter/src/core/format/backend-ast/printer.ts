@@ -21,21 +21,13 @@ import type {
 
 const indentPrefix = (level: number): string => "    ".repeat(level);
 
-const indentText = (text: string, level: number): string => {
-  if (level <= 0 || !text) return text;
-  const prefix = indentPrefix(level);
-  return text
-    .split("\n")
-    .map((line) => (line ? `${prefix}${line}` : line))
-    .join("\n");
-};
-
 const isStatementNode = (
   node: CSharpExpressionAst | CSharpStatementAst
 ): node is CSharpStatementAst => {
   switch (node.kind) {
     case "blockStatement":
     case "localDeclarationStatement":
+    case "localFunctionStatement":
     case "expressionStatement":
     case "ifStatement":
     case "whileStatement":
@@ -60,6 +52,8 @@ export const printType = (type: CSharpTypeAst): string => {
   switch (type.kind) {
     case "rawType":
       return type.text;
+    case "predefinedType":
+      return type.keyword;
     case "identifierType":
       return type.typeArguments && type.typeArguments.length > 0
         ? `${type.name}<${type.typeArguments.map(printType).join(", ")}>`
@@ -198,12 +192,51 @@ const printFieldMember = (
   return lines.join("\n");
 };
 
+const printDelegateMember = (
+  member: Extract<CSharpClassMemberAst, { kind: "delegateDeclaration" }>,
+  level: number
+): string => {
+  const typeParameters =
+    member.typeParameters && member.typeParameters.length > 0
+      ? `<${member.typeParameters.join(", ")}>`
+      : "";
+  const parameters = member.parameters
+    .map((p) =>
+      [
+        ...p.attributes,
+        ...p.modifiers,
+        printType(p.type),
+        p.name,
+        p.defaultValue ? `= ${printExpression(p.defaultValue)}` : "",
+      ]
+        .filter((part) => part.length > 0)
+        .join(" ")
+    )
+    .join(", ");
+  const signature = `${indentPrefix(level)}${[
+    ...member.modifiers,
+    "delegate",
+    printType(member.returnType),
+    `${member.name}${typeParameters}(${parameters})`,
+  ].join(" ")}`;
+  const lines = [
+    ...member.attributes.map((a) => `${indentPrefix(level)}${a}`),
+    signature,
+    ...(member.whereClauses ?? []).map(
+      (clause) => `${indentPrefix(level + 1)}${clause}`
+    ),
+  ];
+  const printed = lines.join("\n");
+  return `${printed};`;
+};
+
 const printPropertyMember = (
   member: Extract<CSharpClassMemberAst, { kind: "propertyDeclaration" }>,
   level: number
 ): string => {
   const canPrintInlineAutoProperty =
-    !member.initializer && member.accessorList.every((accessor) => !accessor.body);
+    !member.initializer &&
+    member.accessorList.every((accessor) => !accessor.body);
 
   if (canPrintInlineAutoProperty) {
     const accessorText = member.accessorList
@@ -240,19 +273,39 @@ const printMethodMember = (
   member: Extract<CSharpClassMemberAst, { kind: "methodDeclaration" }>,
   level: number
 ): string => {
-  const attrs = member.attributes ?? [];
-  const mods = member.modifiers ?? [];
-  const lines = [
-    ...attrs.map((a) => `${indentPrefix(level)}${a}`),
-    member.signature
-      ? `${indentPrefix(level)}${member.signature}`
-      : `${indentPrefix(level)}${[
-          ...mods,
-          member.returnType ? printType(member.returnType) : "void",
-        ].join(" ")}`,
-    printStatement(member.body, level),
+  const typeParameters =
+    member.typeParameters && member.typeParameters.length > 0
+      ? `<${member.typeParameters.join(", ")}>`
+      : "";
+  const parameters = member.parameters
+    .map((p) =>
+      [
+        ...p.attributes,
+        ...p.modifiers,
+        printType(p.type),
+        p.name,
+        p.defaultValue ? `= ${printExpression(p.defaultValue)}` : "",
+      ]
+        .filter((part) => part.length > 0)
+        .join(" ")
+    )
+    .join(", ");
+  const signatureLines = [
+    ...member.attributes.map((a) => `${indentPrefix(level)}${a}`),
+    `${indentPrefix(level)}${[
+      ...member.modifiers,
+      printType(member.returnType),
+      `${member.name}${typeParameters}(${parameters})`,
+    ].join(" ")}`,
+    ...(member.whereClauses ?? []).map(
+      (clause) => `${indentPrefix(level + 1)}${clause}`
+    ),
   ];
-  return lines.join("\n");
+  if (!member.body) {
+    const signature = signatureLines.join("\n");
+    return `${signature};`;
+  }
+  return [...signatureLines, printStatement(member.body, level)].join("\n");
 };
 
 const printConstructorMember = (
@@ -297,8 +350,10 @@ const printClassMember = (
   switch (member.kind) {
     case "blankLine":
       return "";
-    case "classPreludeMember":
-      return indentText(member.text, member.indentLevel);
+    case "commentMember":
+      return `${indentPrefix(level)}${member.text}`;
+    case "delegateDeclaration":
+      return printDelegateMember(member, level);
     case "fieldDeclaration":
       return printFieldMember(member, level);
     case "propertyDeclaration":
@@ -329,12 +384,38 @@ const printInterfaceMember = (
   switch (member.kind) {
     case "blankLine":
       return "";
-    case "classPreludeMember":
-      return indentText(member.text, member.indentLevel);
+    case "commentMember":
+      return `${indentPrefix(level)}${member.text}`;
     case "propertyDeclaration":
       return printPropertyMember(member, level);
-    case "methodDeclaration":
-      return printMethodMember(member, level);
+    case "methodSignature": {
+      const typeParameters =
+        member.typeParameters && member.typeParameters.length > 0
+          ? `<${member.typeParameters.join(", ")}>`
+          : "";
+      const parameters = member.parameters
+        .map((p) =>
+          [
+            ...p.attributes,
+            ...p.modifiers,
+            printType(p.type),
+            p.name,
+            p.defaultValue ? `= ${printExpression(p.defaultValue)}` : "",
+          ]
+            .filter((part) => part.length > 0)
+            .join(" ")
+        )
+        .join(", ");
+      const lines = [
+        ...member.attributes.map((a) => `${indentPrefix(level)}${a}`),
+        `${indentPrefix(level)}${printType(member.returnType)} ${member.name}${typeParameters}(${parameters})`,
+        ...(member.whereClauses ?? []).map(
+          (clause) => `${indentPrefix(level + 1)}${clause}`
+        ),
+      ];
+      const signature = lines.join("\n");
+      return `${signature};`;
+    }
   }
 
   const _exhaustive: never = member;
@@ -476,6 +557,15 @@ export const printStatement = (
 ): string => {
   const ind = indentPrefix(level);
 
+  const printEmbeddedStatement = (
+    embedded: CSharpStatementAst,
+    parentLevel: number
+  ): string =>
+    printStatement(
+      embedded,
+      embedded.kind === "blockStatement" ? parentLevel : parentLevel + 1
+    );
+
   switch (statement.kind) {
     case "blockStatement":
       return [
@@ -495,20 +585,61 @@ export const printStatement = (
           )
           .join(", "),
       ].join(" ")};`;
+    case "localFunctionStatement": {
+      const typeParameters =
+        statement.typeParameters && statement.typeParameters.length > 0
+          ? `<${statement.typeParameters.join(", ")}>`
+          : "";
+      const parameters = statement.parameters
+        .map((parameter) =>
+          [
+            ...parameter.attributes,
+            ...parameter.modifiers,
+            printType(parameter.type),
+            parameter.name,
+            parameter.defaultValue
+              ? `= ${printExpression(parameter.defaultValue)}`
+              : "",
+          ]
+            .filter((part) => part.length > 0)
+            .join(" ")
+        )
+        .join(", ");
+      return [
+        `${ind}${[
+          ...statement.modifiers,
+          printType(statement.returnType),
+          `${statement.name}${typeParameters}(${parameters})`,
+        ].join(" ")}`,
+        ...(statement.whereClauses ?? []).map(
+          (clause) => `${indentPrefix(level + 1)}${clause}`
+        ),
+        printStatement(statement.body, level),
+      ].join("\n");
+    }
     case "expressionStatement":
       return `${ind}${printExpression(statement.expression)};`;
     case "ifStatement":
       return [
         `${ind}if (${printExpression(statement.condition)})`,
-        printStatement(statement.thenStatement, level),
+        printEmbeddedStatement(statement.thenStatement, level),
         ...(statement.elseStatement
-          ? [`${ind}else`, printStatement(statement.elseStatement, level)]
+          ? [
+              `${ind}else`,
+              printStatement(
+                statement.elseStatement,
+                statement.elseStatement.kind === "ifStatement" ||
+                  statement.elseStatement.kind === "blockStatement"
+                  ? level
+                  : level + 1
+              ),
+            ]
           : []),
       ].join("\n");
     case "whileStatement":
       return [
         `${ind}while (${printExpression(statement.condition)})`,
-        printStatement(statement.statement, level),
+        printEmbeddedStatement(statement.statement, level),
       ].join("\n");
     case "forStatement":
       return [
@@ -521,14 +652,14 @@ export const printStatement = (
             ? statement.iterator.map(printExpression).join(", ")
             : ""
         })`,
-        printStatement(statement.statement, level),
+        printEmbeddedStatement(statement.statement, level),
       ].join("\n");
     case "foreachStatement":
       return [
         `${ind}${statement.awaitModifier ? "await " : ""}foreach (${printType(
           statement.type
         )} ${statement.identifier} in ${printExpression(statement.expression)})`,
-        printStatement(statement.statement, level),
+        printEmbeddedStatement(statement.statement, level),
       ].join("\n");
     case "switchStatement":
       return [
@@ -597,8 +728,8 @@ const printNamespaceMember = (
   switch (member.kind) {
     case "blankLine":
       return "";
-    case "preludeSection":
-      return indentText(member.text, member.indentLevel);
+    case "commentMember":
+      return `${indentPrefix(level)}${member.text}`;
     case "classDeclaration":
     case "interfaceDeclaration":
     case "structDeclaration":

@@ -10,21 +10,24 @@ import {
   indent,
   type ValueSymbolInfo,
 } from "../../../types.js";
-import { emitStatement } from "../../../statement-emitter.js";
 import { emitExport } from "../exports.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
+import { emitClassDeclarationAst } from "./class-ast.js";
 import { emitEnumDeclarationAst } from "./enum-ast.js";
 import { emitInterfaceDeclarationAst } from "./interface-ast.js";
-import { emitTypeAliasDeclarationAst } from "./type-alias-ast.js";
+import {
+  emitTypeAliasDeclarationAst,
+  emitNonStructuralTypeAliasCommentAst,
+} from "./type-alias-ast.js";
+import { emitFunctionDeclarationAst } from "./function-ast.js";
+import { emitStaticVariableDeclarationAst } from "./variable-ast.js";
 import {
   classBlankLine,
-  classPreludeMember,
   classDeclaration,
   emitStatementAst,
   methodDeclaration,
-  printStatement,
   type CSharpClassDeclarationAst,
   type CSharpClassMemberAst,
   type CSharpStatementAst,
@@ -99,7 +102,7 @@ export const emitStaticContainer = (
   const valueSymbols = collectStaticContainerValueSymbols(members, baseContext);
   const classContext = withClassName(
     {
-      ...withStatic(indent(baseContext), true),
+      ...withStatic(baseContext, true),
       valueSymbols,
     },
     containerName
@@ -135,10 +138,35 @@ export const emitStaticContainer = (
     : members.filter(isExecutableStatement);
 
   const bodyParts: CSharpClassMemberAst[] = [];
+  const staticFieldInitializerStatements: CSharpStatementAst[] = [];
   let bodyCurrentContext = bodyContext;
 
   // Emit declarations as static members
   for (const stmt of declarations) {
+    if (stmt.kind === "functionDeclaration") {
+      const [methodMember, newContext] = emitFunctionDeclarationAst(
+        stmt,
+        bodyCurrentContext
+      );
+      if (!methodMember) {
+        throw new Error(
+          `ICE: AST function lowering is incomplete for '${stmt.name}'`
+        );
+      }
+      bodyParts.push(methodMember);
+      bodyCurrentContext = newContext;
+      continue;
+    }
+    if (stmt.kind === "classDeclaration") {
+      const [classMembers, newContext] = emitClassDeclarationAst(
+        stmt,
+        bodyCurrentContext,
+        bodyCurrentContext.indentLevel
+      );
+      bodyParts.push(...classMembers);
+      bodyCurrentContext = newContext;
+      continue;
+    }
     if (stmt.kind === "enumDeclaration") {
       const [enumMember, newContext] = emitEnumDeclarationAst(
         stmt,
@@ -160,6 +188,11 @@ export const emitStaticContainer = (
         bodyCurrentContext = newContext;
         continue;
       }
+      const [aliasComment, commentContext] =
+        emitNonStructuralTypeAliasCommentAst(stmt, bodyCurrentContext);
+      bodyParts.push(aliasComment);
+      bodyCurrentContext = commentContext;
+      continue;
     }
     if (stmt.kind === "interfaceDeclaration") {
       const [interfaceMember, newContext] = emitInterfaceDeclarationAst(
@@ -173,19 +206,32 @@ export const emitStaticContainer = (
         continue;
       }
     }
-
-    const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
-    bodyParts.push(classPreludeMember(code, 0));
-    bodyCurrentContext = newContext;
+    if (stmt.kind === "variableDeclaration") {
+      const [variableResult, newContext] = emitStaticVariableDeclarationAst(
+        stmt,
+        bodyCurrentContext
+      );
+      bodyParts.push(...variableResult.members);
+      staticFieldInitializerStatements.push(
+        ...variableResult.initializerStatements
+      );
+      bodyCurrentContext = newContext;
+      continue;
+    }
+    throw new Error(
+      `ICE: Unhandled static-container declaration kind in AST emitter: ${stmt.kind}`
+    );
   }
 
   // Handle explicit exports
   for (const exp of module.exports) {
     const exportCode = emitExport(exp, bodyCurrentContext);
     if (exportCode[0]) {
-      bodyParts.push(classPreludeMember(exportCode[0], 0));
-      bodyCurrentContext = exportCode[1];
+      throw new Error(
+        "ICE: Default export comments are not lowered into backend AST members."
+      );
     }
+    bodyCurrentContext = exportCode[1];
   }
 
   // Wrap statements in Main method if this is an entry point with top-level code
@@ -202,21 +248,50 @@ export const emitStaticContainer = (
       mainCurrentContext = newContext;
     }
     bodyParts.push(
-      methodDeclaration("public static void __TopLevel()", mainStatements)
+      methodDeclaration(
+        "__TopLevel",
+        {
+          modifiers: ["public", "static"],
+          returnType: { kind: "identifierType", name: "void" },
+        },
+        mainStatements
+      )
     );
     bodyCurrentContext = mainCurrentContext;
-  } else if (mainBodyStmts.length > 0) {
-    // Not an entry point - emit statements directly (for compatibility)
-    for (const stmt of mainBodyStmts) {
-      const [ast, newContext] = emitStatementAst(stmt, bodyCurrentContext);
-      bodyParts.push(
-        classPreludeMember(
-          printStatement(ast, bodyCurrentContext.indentLevel),
-          0
-        )
-      );
-      bodyCurrentContext = newContext;
+  }
+
+  const shouldEmitStaticCtor =
+    staticFieldInitializerStatements.length > 0 ||
+    (!baseContext.options.isEntryPoint && mainBodyStmts.length > 0);
+
+  if (shouldEmitStaticCtor) {
+    // Static constructor handles:
+    // - top-level static-field initializers that require execution (destructuring), and
+    // - non-entrypoint top-level executable statements.
+    const staticCtorContext = withStatic(indent(bodyCurrentContext), false);
+    let ctorCurrentContext = staticCtorContext;
+    const ctorStatements: CSharpStatementAst[] = [
+      ...staticFieldInitializerStatements,
+    ];
+    if (!baseContext.options.isEntryPoint) {
+      for (const stmt of mainBodyStmts) {
+        const [ast, newContext] = emitStatementAst(stmt, ctorCurrentContext);
+        ctorStatements.push(ast);
+        ctorCurrentContext = newContext;
+      }
     }
+    bodyParts.push({
+      kind: "constructorDeclaration",
+      attributes: [],
+      modifiers: ["static"],
+      name: containerName,
+      parameters: [],
+      body: {
+        kind: "blockStatement",
+        statements: ctorStatements,
+      },
+    });
+    bodyCurrentContext = ctorCurrentContext;
   }
 
   const classMembers = bodyParts.flatMap((bodyPart, index) =>

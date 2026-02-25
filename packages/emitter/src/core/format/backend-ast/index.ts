@@ -8,17 +8,13 @@ export type {
   CSharpUsingDirectiveAst,
   CSharpNamespaceDeclarationAst,
   CSharpNamespaceMemberAst,
-  CSharpPreludeSectionAst,
-  CSharpClassPreludeMemberAst,
   CSharpBlankLineAst,
 } from "./types.js";
 export type { CompilationUnitAssemblyInput } from "./builders.js";
 export {
   blankLine,
   classBlankLine,
-  preludeSection,
   classDeclaration,
-  classPreludeMember,
   methodDeclaration,
   buildCompilationUnitAstFromAssembly,
 } from "./builders.js";

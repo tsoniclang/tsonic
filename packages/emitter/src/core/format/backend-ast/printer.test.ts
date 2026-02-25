@@ -3,8 +3,8 @@ import { expect } from "chai";
 import {
   buildCompilationUnitAstFromAssembly,
   classDeclaration,
-  preludeSection,
   printCompilationUnitAst,
+  printStatement,
 } from "./index.js";
 
 describe("Backend AST Printer", () => {
@@ -14,13 +14,13 @@ describe("Backend AST Printer", () => {
       usingNamespaces: ["Zeta.Tools", "Alpha.Tools"],
       namespaceName: "MyApp",
       namespaceMembers: [
-        preludeSection("    partial class Adapter\n    {\n    }", 0),
+        classDeclaration("Adapter", { modifiers: ["partial"] }),
         { kind: "blankLine" },
-        preludeSection("    partial class Spec\n    {\n    }", 0),
+        classDeclaration("Spec", { modifiers: ["partial"] }),
         { kind: "blankLine" },
-        preludeSection("    partial class Exchange\n    {\n    }", 0),
+        classDeclaration("Exchange", { modifiers: ["partial"] }),
         { kind: "blankLine" },
-        preludeSection("    public class User\n    {\n    }", 0),
+        classDeclaration("User", { modifiers: ["public"] }),
       ],
       staticContainerMember: classDeclaration("App", {
         modifiers: ["public", "static"],
@@ -62,14 +62,65 @@ namespace MyApp
       headerText: "",
       usingNamespaces: [],
       namespaceName: "PreludeOnly",
-      namespaceMembers: [preludeSection("    partial class Adapter {}", 0)],
+      namespaceMembers: [
+        classDeclaration("Adapter", { modifiers: ["partial"] }),
+      ],
     });
 
     const code = printCompilationUnitAst(unit);
 
     expect(code).to.equal(`namespace PreludeOnly
 {
-    partial class Adapter {}
+    partial class Adapter
+    {
+    }
 }`);
+  });
+
+  it("indents single-line embedded control-flow statements", () => {
+    const code = printStatement(
+      {
+        kind: "ifStatement",
+        condition: { kind: "identifierExpression", identifier: "ready" },
+        thenStatement: {
+          kind: "returnStatement",
+          expression: { kind: "literalExpression", text: "1" },
+        },
+        elseStatement: {
+          kind: "whileStatement",
+          condition: { kind: "identifierExpression", identifier: "retry" },
+          statement: { kind: "continueStatement" },
+        },
+      },
+      0
+    );
+
+    expect(code).to.equal(`if (ready)
+    return 1;
+else
+    while (retry)
+        continue;`);
+  });
+
+  it("keeps else-if chains aligned without extra indentation", () => {
+    const code = printStatement(
+      {
+        kind: "ifStatement",
+        condition: { kind: "identifierExpression", identifier: "first" },
+        thenStatement: { kind: "breakStatement" },
+        elseStatement: {
+          kind: "ifStatement",
+          condition: { kind: "identifierExpression", identifier: "second" },
+          thenStatement: { kind: "continueStatement" },
+        },
+      },
+      1
+    );
+
+    expect(code).to.equal(`    if (first)
+        break;
+    else
+    if (second)
+        continue;`);
   });
 });

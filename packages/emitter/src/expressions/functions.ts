@@ -68,6 +68,23 @@ const isTypeParameterLike = (
   return false;
 };
 
+const getAsyncBodyReturnType = (
+  isAsync: boolean,
+  returnType: IrType | undefined
+): IrType | undefined => {
+  if (!isAsync || !returnType) return returnType;
+  if (
+    returnType.kind === "referenceType" &&
+    (returnType.name === "Promise" ||
+      returnType.name === "Task" ||
+      returnType.name === "ValueTask") &&
+    returnType.typeArguments?.length === 1
+  ) {
+    return returnType.typeArguments[0];
+  }
+  return returnType;
+};
+
 /**
  * Emit lambda parameters.
  * Rules:
@@ -149,12 +166,13 @@ export const emitFunctionExpression = (
     expr.inferredType?.kind === "functionType"
       ? expr.inferredType.returnType
       : undefined;
+  const bodyReturnType = getAsyncBodyReturnType(expr.isAsync, returnType);
   const blockContextBase = bodyContextSeeded.isStatic
     ? indent(bodyContextSeeded)
     : bodyContextSeeded;
   const [blockCode] = emitStatement(expr.body, {
     ...withStatic(blockContextBase, false),
-    returnType,
+    returnType: bodyReturnType,
   });
 
   const asyncPrefix = expr.isAsync ? "async " : "";
@@ -184,6 +202,7 @@ export const emitArrowFunction = (
     expr.inferredType?.kind === "functionType"
       ? expr.inferredType.returnType
       : undefined;
+  const bodyReturnType = getAsyncBodyReturnType(expr.isAsync, returnType);
 
   // Arrow function body can be block or expression
   if (expr.body.kind === "blockStatement") {
@@ -193,13 +212,17 @@ export const emitArrowFunction = (
       : bodyContextSeeded;
     const [blockCode] = emitStatement(expr.body, {
       ...withStatic(blockContextBase, false),
-      returnType,
+      returnType: bodyReturnType,
     });
     const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
     return [{ text }, paramContext];
   } else {
     // Expression body: (params) => expression
-    const [exprCode] = emitExpression(expr.body, bodyContextSeeded, returnType);
+    const [exprCode] = emitExpression(
+      expr.body,
+      bodyContextSeeded,
+      bodyReturnType
+    );
     const text = `${asyncPrefix}(${paramList}) => ${exprCode.text}`;
     // Arrow/function expressions are separate CLR methods; do not leak lexical
     // remaps / local allocations to the outer scope.

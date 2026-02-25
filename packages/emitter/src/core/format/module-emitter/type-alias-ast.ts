@@ -1,11 +1,13 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
-import { emitType } from "../../../type-emitter.js";
+import { emitType, emitTypeParameters } from "../../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { typeUsesPointer } from "../../semantic/unsafe.js";
 import { emitCSharpName } from "../../../naming-policy.js";
+import { typeAstFromText } from "../backend-ast/type-factories.js";
 import type {
   CSharpAccessorDeclarationAst,
+  CSharpClassMemberAst,
   CSharpClassDeclarationAst,
   CSharpStructDeclarationAst,
 } from "../backend-ast/types.js";
@@ -48,11 +50,35 @@ export const emitTypeAliasDeclarationAst = (
   if (stmt.type.kind !== "objectType") {
     return [undefined, context];
   }
-  if ((stmt.typeParameters?.length ?? 0) > 0) {
-    return [undefined, context];
-  }
 
-  let currentContext = context;
+  const aliasTypeParams = new Set<string>([
+    ...(context.typeParameters ?? []),
+    ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
+  ]);
+  let currentContext: EmitterContext = {
+    ...context,
+    typeParameters: aliasTypeParams,
+  };
+
+  const reservedTypeParamNames = new Set<string>();
+  for (const member of stmt.type.members) {
+    if (member.kind !== "propertySignature") continue;
+    reservedTypeParamNames.add(
+      emitCSharpName(member.name, "properties", context)
+    );
+  }
+  const [, whereClauses, typeParamContext] = emitTypeParameters(
+    stmt.typeParameters,
+    currentContext,
+    reservedTypeParamNames
+  );
+  currentContext = typeParamContext;
+
+  const emittedTypeParameters =
+    stmt.typeParameters?.map(
+      (tp) => currentContext.typeParameterNameMap?.get(tp.name) ?? tp.name
+    ) ?? [];
+
   const needsUnsafe = typeUsesPointer(stmt.type);
   const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
   const accessibility =
@@ -83,7 +109,7 @@ export const emitTypeAliasDeclarationAst = (
       kind: "propertyDeclaration",
       attributes: [],
       modifiers: propertyModifiers,
-      type: { kind: "rawType", text: typeText },
+      type: typeAstFromText(typeText),
       name: emitCSharpName(member.name, "properties", context),
       accessorList: member.isReadonly
         ? getterInitAccessorList
@@ -99,6 +125,9 @@ export const emitTypeAliasDeclarationAst = (
         attributes: [],
         modifiers: [...modifiers],
         name: `${escapeCSharpIdentifier(stmt.name)}__Alias`,
+        typeParameters:
+          emittedTypeParameters.length > 0 ? emittedTypeParameters : undefined,
+        whereClauses: whereClauses.length > 0 ? whereClauses : undefined,
         members,
       },
       currentContext,
@@ -112,7 +141,31 @@ export const emitTypeAliasDeclarationAst = (
       attributes: [],
       modifiers: [...modifiers],
       name: `${escapeCSharpIdentifier(stmt.name)}__Alias`,
+      typeParameters:
+        emittedTypeParameters.length > 0 ? emittedTypeParameters : undefined,
+      whereClauses: whereClauses.length > 0 ? whereClauses : undefined,
       members,
+    },
+    currentContext,
+  ];
+};
+
+export const emitNonStructuralTypeAliasCommentAst = (
+  stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
+  context: EmitterContext
+): [CSharpClassMemberAst, EmitterContext] => {
+  let currentContext = context;
+  const [typeParamsStr, , typeParamContext] = emitTypeParameters(
+    stmt.typeParameters,
+    currentContext
+  );
+  currentContext = typeParamContext;
+  const [typeText, typeContext] = emitType(stmt.type, currentContext);
+  currentContext = typeContext;
+  return [
+    {
+      kind: "commentMember",
+      text: `// type ${escapeCSharpIdentifier(stmt.name)}${typeParamsStr} = ${typeText}`,
     },
     currentContext,
   ];

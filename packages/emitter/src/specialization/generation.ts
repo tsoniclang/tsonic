@@ -16,6 +16,12 @@ import {
   generateSpecializedClassName,
 } from "./naming.js";
 import { substituteType, substituteStatement } from "./substitution.js";
+import { emitFunctionDeclarationAst } from "../core/format/module-emitter/function-ast.js";
+import { emitClassDeclarationAst } from "../core/format/module-emitter/class-ast.js";
+import type {
+  CSharpClassMemberAst,
+  CSharpNamespaceMemberAst,
+} from "../core/format/backend-ast/types.js";
 
 /**
  * Generate specialized declarations from requests
@@ -34,17 +40,13 @@ export const generateSpecializations = (
 
   for (const request of requests) {
     if (request.kind === "function") {
-      const [code, newContext] = generateSpecializedFunction(
-        request,
-        currentContext
-      );
+      const specializedDecl = specializeFunctionDeclaration(request);
+      const [code, newContext] = emitStatement(specializedDecl, currentContext);
       parts.push(code);
       currentContext = newContext;
     } else if (request.kind === "class") {
-      const [code, newContext] = generateSpecializedClass(
-        request,
-        currentContext
-      );
+      const specializedDecl = specializeClassDeclaration(request);
+      const [code, newContext] = emitStatement(specializedDecl, currentContext);
       parts.push(code);
       currentContext = newContext;
     }
@@ -56,10 +58,9 @@ export const generateSpecializations = (
 /**
  * Generate a specialized function by substituting type parameters
  */
-const generateSpecializedFunction = (
-  request: SpecializationRequest,
-  context: EmitterContext
-): [string, EmitterContext] => {
+const specializeFunctionDeclaration = (
+  request: SpecializationRequest
+): IrFunctionDeclaration => {
   const funcDecl = request.declaration as IrFunctionDeclaration;
 
   // Create type substitution map
@@ -88,17 +89,15 @@ const generateSpecializedFunction = (
     body: substituteStatement(funcDecl.body, substitutions) as IrBlockStatement,
   };
 
-  // Emit the specialized function using the statement emitter
-  return emitStatement(specializedDecl, context);
+  return specializedDecl;
 };
 
 /**
  * Generate a specialized class by substituting type parameters
  */
-const generateSpecializedClass = (
-  request: SpecializationRequest,
-  context: EmitterContext
-): [string, EmitterContext] => {
+const specializeClassDeclaration = (
+  request: SpecializationRequest
+): IrClassDeclaration => {
   const classDecl = request.declaration as IrClassDeclaration;
 
   // Create type substitution map
@@ -180,6 +179,68 @@ const generateSpecializedClass = (
     ),
   };
 
-  // Emit the specialized class using the statement emitter
-  return emitStatement(specializedDecl, context);
+  return specializedDecl;
+};
+
+export const generateSpecializationsAst = (
+  requests: readonly SpecializationRequest[],
+  context: EmitterContext
+): [readonly CSharpNamespaceMemberAst[], EmitterContext] => {
+  if (requests.length === 0) {
+    return [[], context];
+  }
+
+  const members: CSharpNamespaceMemberAst[] = [];
+  let currentContext = context;
+  const functionMembers: CSharpClassMemberAst[] = [];
+
+  for (const request of requests) {
+    if (request.kind === "function") {
+      const specializedDecl = specializeFunctionDeclaration(request);
+      const [methodMember, next] = emitFunctionDeclarationAst(
+        specializedDecl,
+        currentContext
+      );
+      if (!methodMember) {
+        throw new Error(
+          `ICE: AST specialization lowering failed for function '${specializedDecl.name}'.`
+        );
+      }
+      if (functionMembers.length > 0)
+        functionMembers.push({ kind: "blankLine" });
+      functionMembers.push(methodMember);
+      currentContext = next;
+      continue;
+    }
+
+    const specializedDecl = specializeClassDeclaration(request);
+    const [classMembers, next] = emitClassDeclarationAst(
+      specializedDecl,
+      currentContext,
+      1
+    );
+    if (classMembers.length === 0) {
+      throw new Error(
+        `ICE: AST specialization lowering produced no class output for '${specializedDecl.name}'.`
+      );
+    }
+    if (members.length > 0) members.push({ kind: "blankLine" });
+    members.push(...classMembers);
+    currentContext = next;
+  }
+
+  if (functionMembers.length > 0) {
+    const specializationClass: CSharpNamespaceMemberAst = {
+      kind: "classDeclaration",
+      indentLevel: 1,
+      attributes: [],
+      modifiers: ["internal", "static"],
+      name: "__Specializations",
+      members: functionMembers,
+    };
+    if (members.length > 0) members.unshift({ kind: "blankLine" });
+    members.unshift(specializationClass);
+  }
+
+  return [members, currentContext];
 };

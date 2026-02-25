@@ -1,11 +1,13 @@
+// Generated from: UtilityTypes.ts
+// Generated at: 2026-02-25T03:01:05.242Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.utilitytypes
 {
     public class Person
     {
         public required string name { get; set; }
-
         public required double age { get; set; }
-
         public required string email { get; set; }
     }
     public sealed class PartialPerson__Alias
@@ -17,7 +19,6 @@ namespace TestCases.common.types.utilitytypes
     public class OptionalPerson
     {
         public string? name { get; set; }
-
         public double? age { get; set; }
     }
     public sealed class RequiredOptionalPerson__Alias
@@ -64,9 +65,7 @@ namespace TestCases.common.types.utilitytypes
     public class MixedPerson
     {
         public required string name { get; set; }
-
         public double? age { get; set; }
-
         public string? email { get; set; }
     }
     public sealed class FullMixedPerson__Alias
@@ -94,9 +93,7 @@ namespace TestCases.common.types.utilitytypes
     public interface WithMethods
     {
         string name { get; set; }
-
         string greet(string greeting);
-
         double calculate(double a, double b);
     }
     public sealed class PartialWithMethods__Alias
@@ -120,29 +117,29 @@ namespace TestCases.common.types.utilitytypes
         public required string _3 { get; set; }
     }
 
-        [global::Tsonic.Internal.ModuleContainerAttribute]
-        public static class UtilityTypes
-        {
-            // type MaybeString = string?
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class UtilityTypes
+    {
+        // type MaybeString = string?
 
-            // type DefiniteString = string
+        // type DefiniteString = string
 
-            // type MaybeNumber = double?
+        // type MaybeNumber = double?
 
-            // type DefiniteNumber = double
+        // type DefiniteNumber = double
 
-            // type StringOrNumber = global::Tsonic.Runtime.Union<string, double>
+        // type StringOrNumber = global::Tsonic.Runtime.Union<string, double>
 
-            // type OnlyString = string
+        // type OnlyString = string
 
-            // type OnlyNumber = double
+        // type OnlyNumber = double
 
-            // type Literals = string
+        // type Literals = string
 
-            // type WithoutA = string
+        // type WithoutA = string
 
-            // type ExtractedString = string
+        // type ExtractedString = string
 
-            // type ExtractedNumber = double
-        }
+        // type ExtractedNumber = double
+    }
 }

@@ -40,7 +40,8 @@ describe("Type Assertion Emission", () => {
     const code = emitModule(module);
 
     // Should emit the value directly without any type assertion
-    expect(code).to.include('string value = "hello"');
+    expect(code).to.include("internal static readonly string value;");
+    expect(code).to.include('value = "hello";');
     // Note: "as" might appear in "class" or "namespace" - check for actual cast syntax
     expect(code).not.to.match(/\sas\s/);
   });

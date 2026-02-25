@@ -1,18 +1,22 @@
+// Generated from: NestedScopes.ts
+// Generated at: 2026-02-25T03:00:08.697Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.edgecases.nestedscopes
 {
-        [global::Tsonic.Internal.ModuleContainerAttribute]
-        public static class NestedScopes
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class NestedScopes
+    {
+        public static double nestedScopes(double x)
         {
-            public static double nestedScopes(double x)
-                {
-                var a = 10;
-                {
+            var a = 10;
+            {
                 var b = 20;
                 {
-                var c = 30;
-                return a + b + c + x;
+                    var c = 30;
+                    return a + b + c + x;
                 }
-                }
-                }
+            }
         }
+    }
 }

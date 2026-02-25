@@ -6,7 +6,13 @@
  */
 
 import { IrExpression, IrStatement } from "@tsonic/frontend";
-import { EmitterContext, dedent, indent, withStatic } from "../../../types.js";
+import {
+  EmitterContext,
+  NarrowedBinding,
+  dedent,
+  indent,
+  withStatic,
+} from "../../../types.js";
 import { emitExpression } from "../../../expression-emitter.js";
 import { emitType } from "../../../type-emitter.js";
 import { emitBooleanCondition } from "../../semantic/boolean-context.js";
@@ -17,6 +23,15 @@ import {
   resolveTypeAlias,
   stripNullish,
 } from "../../semantic/type-resolution.js";
+import {
+  isDefinitelyTerminating,
+  tryResolveDiscriminantEqualityGuard,
+  tryResolveInGuard,
+  tryResolveInstanceofGuard,
+  tryResolveNullableGuard,
+  tryResolvePredicateGuard,
+  tryResolveSimpleNullableGuard,
+} from "../../../statements/control/conditionals/guard-analysis.js";
 import type {
   CSharpCatchClauseAst,
   CSharpExpressionAst,
@@ -24,6 +39,7 @@ import type {
   CSharpSwitchLabelAst,
   CSharpSwitchSectionAst,
 } from "./types.js";
+import { typeAstFromText } from "./type-factories.js";
 
 const rawExpression = (text: string): CSharpExpressionAst => ({
   kind: "rawExpression",
@@ -90,6 +106,126 @@ const emitBooleanConditionAst = (
     context
   );
   return [rawExpression(condText), condCtx];
+};
+
+const emitYieldExpressionAst = (
+  expr: Extract<IrExpression, { kind: "yield" }>,
+  context: EmitterContext
+): [CSharpStatementAst, EmitterContext] => {
+  let current = context;
+
+  if (expr.delegate) {
+    if (!expr.expression) {
+      return [{ kind: "emptyStatement" }, current];
+    }
+    const [delegatedExpr, delegatedCtx] = emitExpressionAst(
+      expr.expression,
+      current
+    );
+    current = delegatedCtx;
+    const itemAlloc = allocateLocalName("item", current);
+    current = itemAlloc.context;
+    return [
+      {
+        kind: "foreachStatement",
+        awaitModifier: !!current.isAsync,
+        type: { kind: "identifierType", name: "var" },
+        identifier: itemAlloc.emittedName,
+        expression: delegatedExpr,
+        statement: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "yieldReturnStatement",
+              expression: identifierExpression(itemAlloc.emittedName),
+            },
+          ],
+        },
+      },
+      current,
+    ];
+  }
+
+  const statements: CSharpStatementAst[] = [];
+  if (expr.expression) {
+    const [valueExpr, valueCtx] = emitExpressionAst(expr.expression, current);
+    current = valueCtx;
+    const exchangeVar = current.generatorExchangeVar ?? "exchange";
+    statements.push({
+      kind: "expressionStatement",
+      expression: assignmentExpression(
+        memberAccessExpression(identifierExpression(exchangeVar), "Output"),
+        valueExpr
+      ),
+    });
+  }
+
+  const exchangeVar = current.generatorExchangeVar ?? "exchange";
+  statements.push({
+    kind: "yieldReturnStatement",
+    expression: identifierExpression(exchangeVar),
+  });
+
+  if (statements.length === 1) {
+    const single = statements[0];
+    if (single) return [single, current];
+  }
+  return [{ kind: "blockStatement", statements }, current];
+};
+
+const parseLoweredLocalDeclaration = (
+  statement: string
+): CSharpStatementAst | undefined => {
+  const trimmed = statement.trim();
+  if (!trimmed) return undefined;
+  const withoutSemicolon = trimmed.endsWith(";")
+    ? trimmed.slice(0, -1)
+    : trimmed;
+  const eqIndex = withoutSemicolon.indexOf("=");
+  const declarationText =
+    eqIndex >= 0 ? withoutSemicolon.slice(0, eqIndex) : withoutSemicolon;
+  const lhsMatch = declarationText
+    .trim()
+    .match(/^(.+)\s+(@?[A-Za-z_][A-Za-z0-9_]*)$/);
+  if (!lhsMatch) {
+    throw new Error(
+      `ICE: Unable to parse lowered destructuring declaration: ${statement}`
+    );
+  }
+
+  const typeText = lhsMatch[1]?.trim();
+  const name = lhsMatch[2]?.trim();
+  if (!typeText || !name) {
+    throw new Error(
+      `ICE: Malformed lowered destructuring declaration: ${statement}`
+    );
+  }
+
+  const initializer =
+    eqIndex >= 0
+      ? ({
+          kind: "rawExpression",
+          text: withoutSemicolon.slice(eqIndex + 1).trim(),
+        } as const)
+      : undefined;
+
+  return {
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: typeAstFromText(typeText),
+    declarators: [{ kind: "variableDeclarator", name, initializer }],
+  };
+};
+
+export const parseLoweredStatements = (
+  statements: readonly string[]
+): readonly CSharpStatementAst[] => {
+  const parsed: CSharpStatementAst[] = [];
+  for (const statement of statements) {
+    const parsedStatement = parseLoweredLocalDeclaration(statement);
+    if (parsedStatement) parsed.push(parsedStatement);
+  }
+  return parsed;
 };
 
 type CanonicalIntLoop = {
@@ -173,13 +309,320 @@ const emitBlockWithLexicalScope = (
   const statements: CSharpStatementAst[] = [];
   for (const s of stmt.statements) {
     const [ast, next] = emitStatementAst(s, currentContext);
-    statements.push(ast);
+    if (s.kind !== "blockStatement" && ast.kind === "blockStatement") {
+      statements.push(...ast.statements);
+    } else {
+      statements.push(ast);
+    }
     currentContext = next;
   }
   return [
     { kind: "blockStatement", statements },
     { ...currentContext, localNameMap: outerNameMap },
   ];
+};
+
+type IfBranchNarrowing = {
+  readonly thenBindings?: ReadonlyMap<string, NarrowedBinding>;
+  readonly elseBindings?: ReadonlyMap<string, NarrowedBinding>;
+  readonly postBindings?: ReadonlyMap<string, NarrowedBinding>;
+};
+
+const mapUnionMemberExpr = (
+  base: ReadonlyMap<string, NarrowedBinding> | undefined,
+  name: string,
+  escapedOrig: string,
+  memberN: number
+): ReadonlyMap<string, NarrowedBinding> => {
+  const next = new Map(base ?? []);
+  next.set(name, {
+    kind: "expr",
+    exprText: `(${escapedOrig}.As${memberN}())`,
+  });
+  return next;
+};
+
+const resolveIfBranchNarrowing = (
+  stmt: Extract<IrStatement, { kind: "ifStatement" }>,
+  context: EmitterContext
+): IfBranchNarrowing => {
+  const condition = stmt.condition;
+  const base = context.narrowedBindings;
+
+  const inGuard = tryResolveInGuard(condition, context);
+  if (inGuard) {
+    const thenBindings = mapUnionMemberExpr(
+      base,
+      inGuard.originalName,
+      inGuard.escapedOrig,
+      inGuard.memberN
+    );
+    const otherMemberN = inGuard.memberN === 1 ? 2 : 1;
+    const elseBindings =
+      stmt.elseStatement && inGuard.unionArity === 2
+        ? mapUnionMemberExpr(
+            base,
+            inGuard.originalName,
+            inGuard.escapedOrig,
+            otherMemberN
+          )
+        : base;
+    const postBindings =
+      !stmt.elseStatement &&
+      inGuard.unionArity === 2 &&
+      isDefinitelyTerminating(stmt.thenStatement)
+        ? mapUnionMemberExpr(
+            base,
+            inGuard.originalName,
+            inGuard.escapedOrig,
+            otherMemberN
+          )
+        : undefined;
+    return { thenBindings, elseBindings, postBindings };
+  }
+
+  const discriminantGuard = tryResolveDiscriminantEqualityGuard(
+    condition,
+    context
+  );
+  if (discriminantGuard) {
+    const isInequality =
+      discriminantGuard.operator === "!==" ||
+      discriminantGuard.operator === "!=";
+    const directMember = discriminantGuard.memberN;
+    const otherMember = directMember === 1 ? 2 : 1;
+    const thenBindings = !isInequality
+      ? mapUnionMemberExpr(
+          base,
+          discriminantGuard.originalName,
+          discriminantGuard.escapedOrig,
+          directMember
+        )
+      : discriminantGuard.unionArity === 2
+        ? mapUnionMemberExpr(
+            base,
+            discriminantGuard.originalName,
+            discriminantGuard.escapedOrig,
+            otherMember
+          )
+        : base;
+    const elseBindings = stmt.elseStatement
+      ? isInequality
+        ? mapUnionMemberExpr(
+            base,
+            discriminantGuard.originalName,
+            discriminantGuard.escapedOrig,
+            directMember
+          )
+        : discriminantGuard.unionArity === 2
+          ? mapUnionMemberExpr(
+              base,
+              discriminantGuard.originalName,
+              discriminantGuard.escapedOrig,
+              otherMember
+            )
+          : base
+      : base;
+    const postBindings =
+      !stmt.elseStatement &&
+      discriminantGuard.unionArity === 2 &&
+      isDefinitelyTerminating(stmt.thenStatement)
+        ? mapUnionMemberExpr(
+            base,
+            discriminantGuard.originalName,
+            discriminantGuard.escapedOrig,
+            isInequality ? directMember : otherMember
+          )
+        : undefined;
+    return { thenBindings, elseBindings, postBindings };
+  }
+
+  const predicateGuardCondition =
+    condition.kind === "unary" &&
+    condition.operator === "!" &&
+    condition.expression.kind === "call"
+      ? { guardTarget: condition.expression, negated: true }
+      : condition.kind === "call"
+        ? { guardTarget: condition, negated: false }
+        : undefined;
+  if (predicateGuardCondition) {
+    const predicateGuard = tryResolvePredicateGuard(
+      predicateGuardCondition.guardTarget,
+      context
+    );
+    if (predicateGuard) {
+      const directMember = predicateGuard.memberN;
+      const otherMember = directMember === 1 ? 2 : 1;
+      const thenBindings = !predicateGuardCondition.negated
+        ? mapUnionMemberExpr(
+            base,
+            predicateGuard.originalName,
+            predicateGuard.escapedOrig,
+            directMember
+          )
+        : predicateGuard.unionArity === 2
+          ? mapUnionMemberExpr(
+              base,
+              predicateGuard.originalName,
+              predicateGuard.escapedOrig,
+              otherMember
+            )
+          : base;
+      const elseBindings = stmt.elseStatement
+        ? !predicateGuardCondition.negated
+          ? predicateGuard.unionArity === 2
+            ? mapUnionMemberExpr(
+                base,
+                predicateGuard.originalName,
+                predicateGuard.escapedOrig,
+                otherMember
+              )
+            : base
+          : mapUnionMemberExpr(
+              base,
+              predicateGuard.originalName,
+              predicateGuard.escapedOrig,
+              directMember
+            )
+        : base;
+      const postBindings =
+        !stmt.elseStatement &&
+        predicateGuard.unionArity === 2 &&
+        isDefinitelyTerminating(stmt.thenStatement)
+          ? mapUnionMemberExpr(
+              base,
+              predicateGuard.originalName,
+              predicateGuard.escapedOrig,
+              predicateGuardCondition.negated ? directMember : otherMember
+            )
+          : undefined;
+      return { thenBindings, elseBindings, postBindings };
+    }
+  }
+
+  const instanceofGuardCondition =
+    condition.kind === "unary" &&
+    condition.operator === "!" &&
+    condition.expression.kind === "binary" &&
+    condition.expression.operator === "instanceof"
+      ? { guardTarget: condition.expression, negated: true }
+      : condition.kind === "binary" && condition.operator === "instanceof"
+        ? { guardTarget: condition, negated: false }
+        : undefined;
+  if (instanceofGuardCondition) {
+    const guard = tryResolveInstanceofGuard(
+      instanceofGuardCondition.guardTarget,
+      context
+    );
+    if (guard) {
+      const castExpr = `((${guard.rhsTypeText})(${guard.escapedOrig}))`;
+      const narrowed = new Map(base ?? []);
+      narrowed.set(guard.originalName, {
+        kind: "expr",
+        exprText: castExpr,
+        type: guard.targetType,
+      });
+      if (instanceofGuardCondition.negated) {
+        return {
+          thenBindings: base,
+          elseBindings: stmt.elseStatement ? narrowed : base,
+        };
+      }
+      return {
+        thenBindings: narrowed,
+        elseBindings: base,
+      };
+    }
+  }
+
+  const simpleNullableGuard = tryResolveSimpleNullableGuard(condition);
+  const nullableGuard =
+    simpleNullableGuard ?? tryResolveNullableGuard(condition, context);
+  if (nullableGuard && nullableGuard.isValueType) {
+    const isAndCondition =
+      condition.kind === "logical" && condition.operator === "&&";
+    if (
+      isAndCondition &&
+      !simpleNullableGuard &&
+      !nullableGuard.narrowsInThen
+    ) {
+      return { thenBindings: base, elseBindings: base };
+    }
+
+    const targetExpr = nullableGuard.targetExpr;
+    const [target] =
+      targetExpr.kind === "identifier"
+        ? emitExpression(targetExpr, {
+            ...context,
+            narrowedBindings: undefined,
+          })
+        : emitExpression(targetExpr, {
+            ...context,
+            narrowedBindings: undefined,
+          });
+    const narrowed = new Map(base ?? []);
+    narrowed.set(nullableGuard.key, {
+      kind: "expr",
+      exprText: `${target.text}.Value`,
+      type: nullableGuard.strippedType,
+    });
+    return {
+      thenBindings: nullableGuard.narrowsInThen ? narrowed : base,
+      elseBindings: nullableGuard.narrowsInThen ? base : narrowed,
+    };
+  }
+
+  return {
+    thenBindings: base,
+    elseBindings: base,
+  };
+};
+
+const emitIfConditionAst = (
+  condition: IrExpression,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (condition.kind === "logical" && condition.operator === "&&") {
+    const pseudoIf: Extract<IrStatement, { kind: "ifStatement" }> = {
+      kind: "ifStatement",
+      condition: condition.left,
+      thenStatement: { kind: "emptyStatement" },
+    };
+    const leftNarrowing = resolveIfBranchNarrowing(
+      pseudoIf,
+      context
+    ).thenBindings;
+    if (leftNarrowing && leftNarrowing !== context.narrowedBindings) {
+      const [leftCondition, leftCtx] = emitBooleanConditionAst(
+        condition.left,
+        context
+      );
+      const [rightCondition, rightCtx] = emitBooleanConditionAst(
+        condition.right,
+        {
+          ...leftCtx,
+          narrowedBindings: leftNarrowing,
+        }
+      );
+      return [
+        {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "binaryExpression",
+            operatorToken: "&&",
+            left: leftCondition,
+            right: rightCondition,
+          },
+        },
+        {
+          ...rightCtx,
+          narrowedBindings: context.narrowedBindings,
+        },
+      ];
+    }
+  }
+
+  return emitBooleanConditionAst(condition, context);
 };
 
 export const emitStatementAst = (
@@ -192,11 +635,16 @@ export const emitStatementAst = (
     }
 
     case "ifStatement": {
-      const [condition, condCtx] = emitBooleanConditionAst(
-        stmt.condition,
-        context
-      );
-      const [thenAst, thenCtx] = emitStatementAst(stmt.thenStatement, condCtx);
+      const [condition, condCtx] = emitIfConditionAst(stmt.condition, context);
+      const narrowing = resolveIfBranchNarrowing(stmt, context);
+      const [thenAst, thenCtx] = emitStatementAst(stmt.thenStatement, {
+        ...condCtx,
+        narrowedBindings: narrowing.thenBindings ?? condCtx.narrowedBindings,
+      });
+      const thenRestoredCtx: EmitterContext = {
+        ...thenCtx,
+        narrowedBindings: condCtx.narrowedBindings,
+      };
       if (!stmt.elseStatement) {
         return [
           {
@@ -204,10 +652,17 @@ export const emitStatementAst = (
             condition,
             thenStatement: thenAst,
           },
-          thenCtx,
+          {
+            ...thenRestoredCtx,
+            narrowedBindings:
+              narrowing.postBindings ?? thenRestoredCtx.narrowedBindings,
+          },
         ];
       }
-      const [elseAst, elseCtx] = emitStatementAst(stmt.elseStatement, thenCtx);
+      const [elseAst, elseCtx] = emitStatementAst(stmt.elseStatement, {
+        ...thenRestoredCtx,
+        narrowedBindings: narrowing.elseBindings ?? condCtx.narrowedBindings,
+      });
       return [
         {
           kind: "ifStatement",
@@ -215,7 +670,10 @@ export const emitStatementAst = (
           thenStatement: thenAst,
           elseStatement: elseAst,
         },
-        elseCtx,
+        {
+          ...elseCtx,
+          narrowedBindings: condCtx.narrowedBindings,
+        },
       ];
     }
 
@@ -255,7 +713,7 @@ export const emitStatementAst = (
           initializer = {
             kind: "localDeclarationStatement",
             modifiers: [],
-            type: { kind: "rawType", text: "int" },
+            type: { kind: "identifierType", name: "int" },
             declarators: [
               {
                 kind: "variableDeclarator",
@@ -303,7 +761,7 @@ export const emitStatementAst = (
           initializer = {
             kind: "localDeclarationStatement",
             modifiers: [],
-            type: { kind: "rawType", text: declType },
+            type: typeAstFromText(declType),
             declarators: [
               {
                 kind: "variableDeclarator",
@@ -418,7 +876,7 @@ export const emitStatementAst = (
           {
             kind: "foreachStatement",
             awaitModifier: stmt.isAwait,
-            type: { kind: "rawType", text: "var" },
+            type: { kind: "identifierType", name: "var" },
             identifier: alloc.emittedName,
             expression: expr,
             statement: body,
@@ -439,21 +897,29 @@ export const emitStatementAst = (
         "",
         loopContext
       );
-      if (lowered.statements.length > 0) {
-        return emitStatementFallback(stmt, context);
-      }
+      const loweredAstStatements = parseLoweredStatements(lowered.statements);
+
       const [body, bodyCtx] = emitStatementAst(
         stmt.body,
         indent(lowered.context)
       );
+      const bodyStatements =
+        body.kind === "blockStatement" ? body.statements : [body];
+      const foreachBody: Extract<
+        CSharpStatementAst,
+        { kind: "blockStatement" }
+      > = {
+        kind: "blockStatement",
+        statements: [...loweredAstStatements, ...bodyStatements],
+      };
       return [
         {
           kind: "foreachStatement",
           awaitModifier: stmt.isAwait,
-          type: { kind: "rawType", text: "var" },
+          type: { kind: "identifierType", name: "var" },
           identifier: tempVar,
           expression: expr,
-          statement: body,
+          statement: foreachBody,
         },
         { ...dedent(bodyCtx), localNameMap: outerNameMap },
       ];
@@ -492,7 +958,7 @@ export const emitStatementAst = (
         {
           kind: "foreachStatement",
           awaitModifier: false,
-          type: { kind: "rawType", text: "var" },
+          type: { kind: "identifierType", name: "var" },
           identifier: alloc.emittedName,
           expression: memberAccessExpression(
             parenthesizedExpression(expr),
@@ -558,10 +1024,7 @@ export const emitStatementAst = (
         current = catchCtx;
         catches.push({
           kind: "catchClause",
-          declarationType: {
-            kind: "rawType",
-            text: "global::System.Exception",
-          },
+          declarationType: typeAstFromText("global::System.Exception"),
           declarationIdentifier:
             stmt.catchClause.parameter?.kind === "identifierPattern"
               ? stmt.catchClause.parameter.name
@@ -679,9 +1142,6 @@ export const emitStatementAst = (
       return [{ kind: "continueStatement" }, context];
 
     case "yieldStatement": {
-      if (stmt.receiveTarget) {
-        return emitStatementFallback(stmt, context);
-      }
       if (stmt.delegate) {
         if (!stmt.output) return emitStatementFallback(stmt, context);
         const [delegatedExpr, delegatedCtx] = emitExpressionAst(
@@ -694,7 +1154,7 @@ export const emitStatementAst = (
           {
             kind: "foreachStatement",
             awaitModifier: !!delegatedCtx.isAsync,
-            type: { kind: "rawType", text: "var" },
+            type: { kind: "identifierType", name: "var" },
             identifier: itemAlloc.emittedName,
             expression: delegatedExpr,
             statement: {
@@ -729,6 +1189,17 @@ export const emitStatementAst = (
         kind: "yieldReturnStatement",
         expression: identifierExpression(exchangeVar),
       });
+      if (stmt.receiveTarget) {
+        const lowered = lowerPattern(
+          stmt.receiveTarget,
+          `(${exchangeVar}.Input ?? default!)`,
+          stmt.receivedType,
+          "",
+          current
+        );
+        statements.push(...parseLoweredStatements(lowered.statements));
+        current = lowered.context;
+      }
       return [{ kind: "blockStatement", statements }, current];
     }
 
@@ -786,7 +1257,7 @@ export const emitStatementAst = (
       }
 
       if (stmt.expression.kind === "yield") {
-        return emitStatementFallback(stmt, context);
+        return emitYieldExpressionAst(stmt.expression, context);
       }
 
       const [expression, next] = emitExpressionAst(stmt.expression, context);
@@ -806,8 +1277,34 @@ export const emitStatementAst = (
           decl.name.kind === "arrayPattern" ||
           decl.name.kind === "objectPattern"
         ) {
-          return emitStatementFallback(stmt, localContext);
+          if (!decl.initializer) {
+            return emitStatementFallback(stmt, localContext);
+          }
+          const [initExpr, initCtx] = emitExpressionAst(
+            decl.initializer,
+            current,
+            decl.type
+          );
+          current = initCtx;
+          const patternType = decl.type ?? decl.initializer.inferredType;
+          if (initExpr.kind !== "rawExpression") {
+            throw new Error(
+              "ICE: Destructuring initializer AST is expected to be rawExpression"
+            );
+          }
+          const lowered = lowerPattern(
+            decl.name,
+            initExpr.text,
+            patternType,
+            "",
+            current
+          );
+          current = lowered.context;
+          const loweredStatements = parseLoweredStatements(lowered.statements);
+          statements.push(...loweredStatements);
+          continue;
         }
+
         if (decl.name.kind !== "identifierPattern") {
           return emitStatementFallback(stmt, localContext);
         }
@@ -820,8 +1317,12 @@ export const emitStatementAst = (
         );
 
         let typeText = "var";
-        if (decl.type) {
-          const [explicitType, typeCtx] = emitType(decl.type, current);
+        const targetType =
+          decl.initializer?.kind === "stackalloc"
+            ? (decl.type ?? decl.initializer.inferredType)
+            : decl.type;
+        if (targetType) {
+          const [explicitType, typeCtx] = emitType(targetType, current);
           current = typeCtx;
           typeText = explicitType;
         } else if (!decl.initializer) {
@@ -842,7 +1343,7 @@ export const emitStatementAst = (
         statements.push({
           kind: "localDeclarationStatement",
           modifiers: [],
-          type: { kind: "rawType", text: typeText },
+          type: typeAstFromText(typeText),
           declarators: [
             {
               kind: "variableDeclarator",

@@ -1,3 +1,7 @@
+// Generated from: Generics.ts
+// Generated at: 2026-02-25T03:00:58.827Z
+// WARNING: Do not modify this file manually
+
 namespace TestCases.common.types.generics
 {
     public class Box<T>
@@ -5,34 +9,33 @@ namespace TestCases.common.types.generics
         public T value { get; set; }
 
         public Box(T value)
-            {
+        {
             this.value = value;
-            }
+        }
 
         public T getValue()
-            {
+        {
             return this.value;
-            }
+        }
     }
 
-            [global::Tsonic.Internal.ModuleContainerAttribute]
-            public static class Generics
-            {
-                public static T identity<T>(T value)
-                    {
-                    return value;
-                    }
+[global::Tsonic.Internal.ModuleContainerAttribute]
+public static class Generics
+{
+    public static T identity<T>(T value)
+    {
+        return value;
+    }
 
-                public static bool tryFirstElement<T>(T[] arr, out T result)
-                    {
-                    result = default;
-
-                    if (arr.Length == 0)
-                        {
-                        return false;
-                        }
-                    result = arr[0];
-                    return true;
-                    }
-            }
+    public static bool tryFirstElement<T>(T[] arr, out T result)
+    {
+        result = default;
+        if (arr.Length == 0)
+        {
+            return false;
+        }
+        result = arr[0];
+        return true;
+    }
+}
 }

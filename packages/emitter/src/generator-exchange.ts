@@ -6,15 +6,21 @@
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
+import { typeAstFromText } from "./core/format/backend-ast/type-factories.js";
 import {
   needsBidirectionalSupport,
   generateWrapperClass,
+  extractGeneratorTypeArgs,
+  hasGeneratorReturnType,
 } from "./generator-wrapper.js";
-import { getCSharpName } from "./naming-policy.js";
+import { emitCSharpName, getCSharpName } from "./naming-policy.js";
 import type {
   CSharpAccessorDeclarationAst,
   CSharpClassMemberAst,
+  CSharpExpressionAst,
   CSharpNamespaceMemberAst,
+  CSharpParameterAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "./core/format/backend-ast/types.js";
 
@@ -157,9 +163,39 @@ const getterSetterAccessorList: readonly CSharpAccessorDeclarationAst[] = [
   },
 ];
 
-const asTypeAst = (typeText: string): CSharpTypeAst => ({
-  kind: "rawType",
-  text: typeText,
+const asTypeAst = (typeText: string): CSharpTypeAst =>
+  typeAstFromText(typeText);
+
+const rawExpression = (text: string): CSharpExpressionAst => ({
+  kind: "rawExpression",
+  text,
+});
+
+const statementExpression = (text: string): CSharpStatementAst => ({
+  kind: "expressionStatement",
+  expression: rawExpression(text),
+});
+
+const iteratorResultExpr = (
+  resultType: string,
+  valueExpr: string,
+  done: boolean
+): CSharpExpressionAst =>
+  rawExpression(
+    `new global::Tsonic.Runtime.IteratorResult<${resultType}>(${valueExpr}, ${done ? "true" : "false"})`
+  );
+
+const parameter = (
+  name: string,
+  typeText: string,
+  defaultValue?: CSharpExpressionAst
+): CSharpParameterAst => ({
+  kind: "parameter",
+  attributes: [],
+  modifiers: [],
+  type: asTypeAst(typeText),
+  name,
+  defaultValue,
 });
 
 const generateExchangeClassAst = (
@@ -230,6 +266,303 @@ const generateExchangeClassAst = (
   ];
 };
 
+const generateWrapperClassAst = (
+  func: IrFunctionDeclaration,
+  context: EmitterContext
+): [
+  Extract<CSharpNamespaceMemberAst, { kind: "classDeclaration" }>,
+  EmitterContext,
+] => {
+  const csharpBaseName = getCSharpName(func.name, "methods", context);
+  const wrapperName = `${csharpBaseName}_Generator`;
+  const exchangeName = `${csharpBaseName}_exchange`;
+
+  const nextMethodName = emitCSharpName("next", "methods", context);
+  const returnMethodName = emitCSharpName("return", "methods", context);
+  const throwMethodName = emitCSharpName("throw", "methods", context);
+  const returnValuePropertyName = emitCSharpName(
+    "returnValue",
+    "properties",
+    context
+  );
+
+  const { yieldType, returnType, nextType, hasNextType, newContext } =
+    extractGeneratorTypeArgs(func.returnType, context);
+  let currentContext = newContext;
+  const hasReturnType = hasGeneratorReturnType(func);
+
+  const enumeratorType = func.isAsync
+    ? `global::System.Collections.Generic.IAsyncEnumerator<${exchangeName}>`
+    : `global::System.Collections.Generic.IEnumerator<${exchangeName}>`;
+  const enumerableType = func.isAsync
+    ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
+    : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
+
+  const nextReturnType = func.isAsync
+    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${yieldType}>>`
+    : `global::Tsonic.Runtime.IteratorResult<${yieldType}>`;
+  const returnReturnType = nextReturnType;
+  const returnParamType = returnType !== "void" ? returnType : "object?";
+  const nextParamType = hasNextType ? `${nextType}?` : "object?";
+
+  const constructorParams: CSharpParameterAst[] = [
+    parameter("enumerable", enumerableType),
+    parameter("exchange", exchangeName),
+    ...(hasReturnType
+      ? [parameter("getReturnValue", `global::System.Func<${returnType}>`)]
+      : []),
+  ];
+
+  const constructorStatements: CSharpStatementAst[] = [
+    statementExpression(
+      `_enumerator = enumerable.${func.isAsync ? "GetAsyncEnumerator()" : "GetEnumerator()"}`
+    ),
+    statementExpression("_exchange = exchange"),
+    ...(hasReturnType
+      ? [statementExpression("_getReturnValue = getReturnValue")]
+      : []),
+  ];
+
+  const moveNextExpr = func.isAsync
+    ? "await _enumerator.MoveNextAsync()"
+    : "_enumerator.MoveNext()";
+  const disposeExpr = func.isAsync
+    ? "await _enumerator.DisposeAsync()"
+    : "_enumerator.Dispose()";
+  const disposeInThrowExpr = func.isAsync
+    ? "_enumerator.DisposeAsync().AsTask().Wait()"
+    : "_enumerator.Dispose()";
+
+  const nextMethodStatements: CSharpStatementAst[] = [
+    {
+      kind: "ifStatement",
+      condition: { kind: "identifierExpression", identifier: "_done" },
+      thenStatement: {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "returnStatement",
+            expression: iteratorResultExpr(yieldType, "default!", true),
+          },
+        ],
+      },
+    },
+    statementExpression("_exchange.Input = value"),
+    {
+      kind: "ifStatement",
+      condition: rawExpression(moveNextExpr),
+      thenStatement: {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "returnStatement",
+            expression: iteratorResultExpr(
+              yieldType,
+              "_exchange.Output",
+              false
+            ),
+          },
+        ],
+      },
+    },
+    statementExpression("_done = true"),
+    {
+      kind: "returnStatement",
+      expression: iteratorResultExpr(yieldType, "default!", true),
+    },
+  ];
+
+  const returnMethodStatements: CSharpStatementAst[] = [
+    statementExpression("_done = true"),
+    ...(hasReturnType
+      ? [
+          statementExpression("_returnValue = value"),
+          statementExpression("_wasExternallyTerminated = true"),
+        ]
+      : []),
+    statementExpression(disposeExpr),
+    {
+      kind: "returnStatement",
+      expression: iteratorResultExpr(yieldType, "default!", true),
+    },
+  ];
+
+  const throwMethodStatements: CSharpStatementAst[] = [
+    statementExpression("_done = true"),
+    statementExpression(disposeInThrowExpr),
+    {
+      kind: "ifStatement",
+      condition: rawExpression("e is global::System.Exception ex"),
+      thenStatement: {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "throwStatement",
+            expression: rawExpression("ex"),
+          },
+        ],
+      },
+    },
+    {
+      kind: "throwStatement",
+      expression: rawExpression(
+        `new global::System.Exception(e?.ToString() ?? "Unknown error")`
+      ),
+    },
+  ];
+
+  const members: CSharpClassMemberAst[] = [];
+  members.push({
+    kind: "fieldDeclaration",
+    attributes: [],
+    modifiers: ["private", "readonly"],
+    type: asTypeAst(enumeratorType),
+    name: "_enumerator",
+  });
+  members.push({
+    kind: "fieldDeclaration",
+    attributes: [],
+    modifiers: ["private", "readonly"],
+    type: asTypeAst(exchangeName),
+    name: "_exchange",
+  });
+  if (hasReturnType) {
+    members.push({
+      kind: "fieldDeclaration",
+      attributes: [],
+      modifiers: ["private", "readonly"],
+      type: asTypeAst(`global::System.Func<${returnType}>`),
+      name: "_getReturnValue",
+    });
+    members.push({
+      kind: "fieldDeclaration",
+      attributes: [],
+      modifiers: ["private"],
+      type: asTypeAst(returnType),
+      name: "_returnValue",
+      initializer: {
+        kind: "unaryExpression",
+        operatorToken: "!",
+        operand: { kind: "literalExpression", text: "default" },
+        prefix: false,
+      },
+    });
+    members.push({
+      kind: "fieldDeclaration",
+      attributes: [],
+      modifiers: ["private"],
+      type: asTypeAst("bool"),
+      name: "_wasExternallyTerminated",
+      initializer: { kind: "literalExpression", text: "false" },
+    });
+  }
+  members.push({
+    kind: "fieldDeclaration",
+    attributes: [],
+    modifiers: ["private"],
+    type: asTypeAst("bool"),
+    name: "_done",
+    initializer: { kind: "literalExpression", text: "false" },
+  });
+  members.push({
+    kind: "constructorDeclaration",
+    attributes: [],
+    modifiers: ["public"],
+    name: wrapperName,
+    parameters: constructorParams,
+    body: {
+      kind: "blockStatement",
+      statements: constructorStatements,
+    },
+  });
+  members.push({
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: ["public", ...(func.isAsync ? ["async"] : [])],
+    returnType: asTypeAst(nextReturnType),
+    name: nextMethodName,
+    parameters: [
+      parameter("value", nextParamType, {
+        kind: "literalExpression",
+        text: "default",
+      }),
+    ],
+    body: {
+      kind: "blockStatement",
+      statements: nextMethodStatements,
+    },
+  });
+  if (hasReturnType) {
+    members.push({
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: asTypeAst(returnType),
+      name: returnValuePropertyName,
+      accessorList: [
+        {
+          kind: "accessorDeclaration",
+          accessorKind: "get",
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: rawExpression(
+                  "_wasExternallyTerminated ? _returnValue : _getReturnValue()"
+                ),
+              },
+            ],
+          },
+        },
+      ],
+    });
+  }
+  members.push({
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: ["public", ...(func.isAsync ? ["async"] : [])],
+    returnType: asTypeAst(returnReturnType),
+    name: returnMethodName,
+    parameters: [
+      parameter("value", returnParamType, {
+        kind: "unaryExpression",
+        operatorToken: "!",
+        operand: { kind: "literalExpression", text: "default" },
+        prefix: false,
+      }),
+    ],
+    body: {
+      kind: "blockStatement",
+      statements: returnMethodStatements,
+    },
+  });
+  members.push({
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: ["public"],
+    returnType: asTypeAst(returnReturnType),
+    name: throwMethodName,
+    parameters: [parameter("e", "object")],
+    body: {
+      kind: "blockStatement",
+      statements: throwMethodStatements,
+    },
+  });
+
+  return [
+    {
+      kind: "classDeclaration",
+      indentLevel: 1,
+      attributes: [],
+      modifiers: ["public", "sealed"],
+      name: wrapperName,
+      members,
+    },
+    currentContext,
+  ];
+};
+
 /**
  * AST-native variant of generator exchange emission.
  */
@@ -254,6 +587,16 @@ export const generateGeneratorExchangesAst = (
 
     if (members.length > 0) members.push({ kind: "blankLine" });
     members.push(exchangeDecl);
+
+    if (needsBidirectionalSupport(generator)) {
+      const [wrapperDecl, wrapperContext] = generateWrapperClassAst(
+        generator,
+        currentContext
+      );
+      currentContext = wrapperContext;
+      members.push({ kind: "blankLine" });
+      members.push(wrapperDecl);
+    }
   }
 
   return [members, currentContext];
