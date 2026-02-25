@@ -5,6 +5,7 @@ import {
   classDeclaration,
   printCompilationUnitAst,
   printStatement,
+  printType,
 } from "./index.js";
 
 describe("Backend AST Printer", () => {
@@ -77,6 +78,27 @@ namespace MyApp
 }`);
   });
 
+  it("escapes C# keywords in qualified namespace and using names", () => {
+    const unit = buildCompilationUnitAstFromAssembly({
+      headerText: "",
+      usingNamespaces: ["System.stackalloc", "global.using"],
+      namespaceName: "TestCases.common.lang.stackalloc",
+      namespaceMembers: [classDeclaration("X", { modifiers: ["public"] })],
+    });
+
+    const code = printCompilationUnitAst(unit);
+
+    expect(code).to.equal(`using global.@using;
+using System.@stackalloc;
+
+namespace TestCases.common.lang.@stackalloc
+{
+    public class X
+    {
+    }
+}`);
+  });
+
   it("indents single-line embedded control-flow statements", () => {
     const code = printStatement(
       {
@@ -122,5 +144,22 @@ else
     else
     if (second)
         continue;`);
+  });
+
+  it("escapes C# keywords in qualified type identifiers", () => {
+    const code = printType({
+      kind: "identifierType",
+      name: "global::TestCases.common.stackalloc.Type",
+      typeArguments: [
+        {
+          kind: "identifierType",
+          name: "System.Collections.Generic.@using",
+        },
+      ],
+    });
+
+    expect(code).to.equal(
+      "global::TestCases.common.@stackalloc.Type<System.Collections.Generic.@using>"
+    );
   });
 });

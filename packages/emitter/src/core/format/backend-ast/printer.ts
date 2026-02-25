@@ -2,6 +2,7 @@
  * Deterministic printer for C# backend AST.
  */
 
+import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import type {
   CSharpAccessorDeclarationAst,
   CSharpClassDeclarationAst,
@@ -20,6 +21,33 @@ import type {
 } from "./types.js";
 
 const indentPrefix = (level: number): string => "    ".repeat(level);
+
+const escapeQualifiedIdentifier = (qualifiedName: string): string =>
+  (() => {
+    let token = "";
+    const parts: string[] = [];
+    let index = 0;
+    while (index < qualifiedName.length) {
+      const ch = qualifiedName[index];
+      const next = qualifiedName[index + 1];
+      if (ch === ".") {
+        parts.push(escapeCSharpIdentifier(token), ".");
+        token = "";
+        index++;
+        continue;
+      }
+      if (ch === ":" && next === ":") {
+        parts.push(escapeCSharpIdentifier(token), "::");
+        token = "";
+        index += 2;
+        continue;
+      }
+      token += ch;
+      index++;
+    }
+    parts.push(escapeCSharpIdentifier(token));
+    return parts.join("");
+  })();
 
 const isStatementNode = (
   node: CSharpExpressionAst | CSharpStatementAst
@@ -56,8 +84,10 @@ export const printType = (type: CSharpTypeAst): string => {
       return type.keyword;
     case "identifierType":
       return type.typeArguments && type.typeArguments.length > 0
-        ? `${type.name}<${type.typeArguments.map(printType).join(", ")}>`
-        : type.name;
+        ? `${escapeQualifiedIdentifier(type.name)}<${type.typeArguments
+            .map(printType)
+            .join(", ")}>`
+        : escapeQualifiedIdentifier(type.name);
     case "arrayType":
       return `${printType(type.elementType)}[${",".repeat(
         Math.max(0, type.rank - 1)
@@ -773,12 +803,14 @@ export const printCompilationUnitAst = (
             .map((d) => d.namespace)
             .slice()
             .sort((a, b) => a.localeCompare(b))
-            .map((namespace) => `using ${namespace};`),
+            .map(
+              (namespace) => `using ${escapeQualifiedIdentifier(namespace)};`
+            ),
           "",
         ]
       : [];
   const namespaceLines = [
-    `namespace ${unit.namespace.name}`,
+    `namespace ${escapeQualifiedIdentifier(unit.namespace.name)}`,
     "{",
     ...unit.namespace.members.map((member) => printNamespaceMember(member, 1)),
     "}",
