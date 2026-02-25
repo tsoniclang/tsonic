@@ -608,19 +608,6 @@ export const emitExpression = (
   return [{ text: printExpression(ast) }, newContext];
 };
 
-/**
- * Bridge helper: emit expression as AST, then convert to CSharpFragment.
- * Used by Phase 3 bridges (emitBooleanCondition) that still expect fragment return type.
- */
-export const emitExpressionAstAsFragment = (
-  expr: IrExpression,
-  context: EmitterContext,
-  expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
-  const [ast, newContext] = emitExpressionAst(expr, context, expectedType);
-  return [{ text: printExpression(ast) }, newContext];
-};
-
 // Re-export commonly used functions for backward compatibility
 export {
   emitTypeArguments,

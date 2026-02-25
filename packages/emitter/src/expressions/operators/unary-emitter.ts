@@ -8,12 +8,9 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import {
-  emitExpressionAst,
-  emitExpressionAstAsFragment,
-} from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitType } from "../../type-emitter.js";
-import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
+import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import { printExpression } from "../../core/format/backend-ast/printer.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
@@ -34,25 +31,17 @@ export const emitUnary = (
 ): [CSharpExpressionAst, EmitterContext] => {
   // In TypeScript, `!x` applies JS ToBoolean semantics to *any* operand.
   // In C#, `!` only works on booleans, so we must coerce to a boolean condition.
-  // emitBooleanCondition still returns string (Phase 3 will convert to AST).
-  // Bridge by wrapping in identifierExpression.
   if (expr.operator === "!") {
-    const [condText, condCtx] = emitBooleanCondition(
+    const [condAst, condCtx] = emitBooleanConditionAst(
       expr.expression,
-      (e, ctx) => emitExpressionAstAsFragment(e, ctx),
+      (e, ctx) => emitExpressionAst(e, ctx),
       context
     );
     return [
       {
         kind: "prefixUnaryExpression",
         operatorToken: "!",
-        operand: {
-          kind: "parenthesizedExpression",
-          expression: {
-            kind: "identifierExpression",
-            identifier: condText,
-          },
-        },
+        operand: condAst,
       },
       condCtx,
     ];

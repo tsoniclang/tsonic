@@ -4,17 +4,14 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext, LocalTypeInfo, NarrowedBinding } from "../../types.js";
-import {
-  emitExpressionAst,
-  emitExpressionAstAsFragment,
-} from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   resolveTypeAlias,
   stripNullish,
   findUnionMemberIndex,
   getPropertyType,
 } from "../../core/semantic/type-resolution.js";
-import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
+import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
@@ -367,11 +364,9 @@ export const emitConditional = (
   }
 
   // Standard ternary emission (no narrowing)
-  // emitBooleanCondition still returns string (Phase 3 will convert to AST).
-  // Bridge by wrapping in identifierExpression.
-  const [condText, condContext] = emitBooleanCondition(
+  const [condAst, condContext] = emitBooleanConditionAst(
     expr.condition,
-    (e, ctx) => emitExpressionAstAsFragment(e, ctx),
+    (e, ctx) => emitExpressionAst(e, ctx),
     context
   );
 
@@ -390,10 +385,7 @@ export const emitConditional = (
   return [
     {
       kind: "conditionalExpression",
-      condition: {
-        kind: "identifierExpression",
-        identifier: condText,
-      },
+      condition: condAst,
       whenTrue: trueAst,
       whenFalse: falseAst,
     },
