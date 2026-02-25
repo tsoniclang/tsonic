@@ -327,6 +327,7 @@ export type CSharpYieldStatementAst =
 export type CSharpExpressionAst =
   | CSharpLiteralExpressionAst
   | CSharpIdentifierExpressionAst
+  | CSharpParenthesizedExpressionAst
   | CSharpMemberAccessExpressionAst
   | CSharpInvocationExpressionAst
   | CSharpObjectCreationExpressionAst
@@ -353,6 +354,11 @@ export type CSharpLiteralExpressionAst = {
 export type CSharpIdentifierExpressionAst = {
   readonly kind: "identifierExpression";
   readonly identifier: string;
+};
+
+export type CSharpParenthesizedExpressionAst = {
+  readonly kind: "parenthesizedExpression";
+  readonly expression: CSharpExpressionAst;
 };
 
 export type CSharpMemberAccessExpressionAst = {

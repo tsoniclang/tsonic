@@ -7,6 +7,14 @@ import { IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
 import { emitType } from "./type-emitter.js";
 import { emitCSharpName } from "./naming-policy.js";
+import type {
+  CSharpAccessorDeclarationAst,
+  CSharpClassMemberAst,
+  CSharpInterfaceMemberAst,
+  CSharpNamespaceMemberAst,
+  CSharpTypeDeclarationAst,
+  CSharpTypeAst,
+} from "./core/format/backend-ast/types.js";
 
 /**
  * Generate adapter interface and wrapper class for a structural constraint
@@ -112,4 +120,125 @@ export const generateStructuralAdapters = (
   }
 
   return [adapters.join("\n\n"), currentContext];
+};
+
+const getterAccessorList: readonly CSharpAccessorDeclarationAst[] = [
+  {
+    kind: "accessorDeclaration",
+    accessorKind: "get",
+  },
+];
+
+const getterSetterAccessorList: readonly CSharpAccessorDeclarationAst[] = [
+  {
+    kind: "accessorDeclaration",
+    accessorKind: "get",
+  },
+  {
+    kind: "accessorDeclaration",
+    accessorKind: "set",
+  },
+];
+
+const asTypeAst = (typeText: string): CSharpTypeAst => ({
+  kind: "rawType",
+  text: typeText,
+});
+
+const withOptional = (typeText: string, isOptional: boolean): CSharpTypeAst => {
+  return isOptional ? asTypeAst(`${typeText}?`) : asTypeAst(typeText);
+};
+
+const emitStructuralAdapterAst = (
+  typeParam: IrTypeParameter,
+  context: EmitterContext
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
+  if (!typeParam.isStructuralConstraint || !typeParam.structuralMembers) {
+    return [[], context];
+  }
+
+  let currentContext = context;
+  const interfaceName = `__Constraint_${typeParam.name}`;
+  const wrapperName = `__Wrapper_${typeParam.name}`;
+
+  const interfaceMembers: CSharpInterfaceMemberAst[] = [];
+  const wrapperMembers: CSharpClassMemberAst[] = [];
+
+  for (const member of typeParam.structuralMembers) {
+    if (member.kind !== "propertySignature") continue;
+
+    const [memberType, newContext] = emitType(member.type, currentContext);
+    currentContext = newContext;
+    const typeAst = withOptional(memberType, member.isOptional);
+    const memberName = emitCSharpName(member.name, "properties", context);
+
+    interfaceMembers.push({
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: [],
+      type: typeAst,
+      name: memberName,
+      accessorList: getterAccessorList,
+    });
+
+    wrapperMembers.push({
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: typeAst,
+      name: memberName,
+      accessorList: getterSetterAccessorList,
+    });
+  }
+
+  const declarations: readonly CSharpTypeDeclarationAst[] = [
+    {
+      kind: "interfaceDeclaration",
+      indentLevel: 1,
+      attributes: [],
+      modifiers: ["public"],
+      name: interfaceName,
+      members: interfaceMembers,
+    },
+    {
+      kind: "classDeclaration",
+      indentLevel: 1,
+      attributes: [],
+      modifiers: ["public", "sealed"],
+      name: wrapperName,
+      baseTypes: [interfaceName],
+      members: wrapperMembers,
+    },
+  ];
+
+  return [declarations, currentContext];
+};
+
+/**
+ * AST-native variant of structural adapter generation.
+ */
+export const generateStructuralAdaptersAst = (
+  typeParams: readonly IrTypeParameter[] | undefined,
+  context: EmitterContext
+): [readonly CSharpNamespaceMemberAst[], EmitterContext] => {
+  if (!typeParams || typeParams.length === 0) {
+    return [[], context];
+  }
+
+  const members: CSharpNamespaceMemberAst[] = [];
+  let currentContext = context;
+
+  for (const typeParam of typeParams) {
+    const [decls, nextContext] = emitStructuralAdapterAst(
+      typeParam,
+      currentContext
+    );
+    if (decls.length > 0) {
+      if (members.length > 0) members.push({ kind: "blankLine" });
+      members.push(...decls);
+    }
+    currentContext = nextContext;
+  }
+
+  return [members, currentContext];
 };

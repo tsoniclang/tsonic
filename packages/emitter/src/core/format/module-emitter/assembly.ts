@@ -19,10 +19,7 @@ import {
 
 export type AssemblyParts = {
   readonly header: string;
-  readonly adaptersCode: string;
-  readonly specializationsCode: string;
-  readonly exchangesCode: string;
-  readonly namespaceDeclMembers: readonly CSharpNamespaceMemberAst[];
+  readonly namespaceMembers: readonly CSharpNamespaceMemberAst[];
   readonly staticContainerMember?: CSharpClassDeclarationAst;
 };
 
@@ -38,10 +35,7 @@ export const assembleOutput = (
     headerText: parts.header,
     usingNamespaces: Array.from(finalContext.usings),
     namespaceName: module.namespace,
-    adaptersCode: parts.adaptersCode,
-    specializationsCode: parts.specializationsCode,
-    exchangesCode: parts.exchangesCode,
-    namespaceDeclMembers: parts.namespaceDeclMembers,
+    namespaceMembers: parts.namespaceMembers,
     staticContainerMember: parts.staticContainerMember,
   });
   return printCompilationUnitAst(ast);

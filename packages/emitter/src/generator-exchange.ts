@@ -11,6 +11,12 @@ import {
   generateWrapperClass,
 } from "./generator-wrapper.js";
 import { getCSharpName } from "./naming-policy.js";
+import type {
+  CSharpAccessorDeclarationAst,
+  CSharpClassMemberAst,
+  CSharpNamespaceMemberAst,
+  CSharpTypeAst,
+} from "./core/format/backend-ast/types.js";
 
 /**
  * Collect all generator functions from a module
@@ -138,4 +144,117 @@ export const generateGeneratorExchanges = (
   }
 
   return [parts.join("\n"), currentContext];
+};
+
+const getterSetterAccessorList: readonly CSharpAccessorDeclarationAst[] = [
+  {
+    kind: "accessorDeclaration",
+    accessorKind: "get",
+  },
+  {
+    kind: "accessorDeclaration",
+    accessorKind: "set",
+  },
+];
+
+const asTypeAst = (typeText: string): CSharpTypeAst => ({
+  kind: "rawType",
+  text: typeText,
+});
+
+const generateExchangeClassAst = (
+  func: IrFunctionDeclaration,
+  context: EmitterContext
+): [
+  Extract<CSharpNamespaceMemberAst, { kind: "classDeclaration" }>,
+  EmitterContext,
+] => {
+  let currentContext = context;
+
+  const csharpBaseName = getCSharpName(func.name, "methods", context);
+  const exchangeName = `${csharpBaseName}_exchange`;
+
+  let outputType = "object";
+  let inputType = "object";
+
+  if (func.returnType && func.returnType.kind === "referenceType") {
+    const typeRef = func.returnType;
+    if (typeRef.typeArguments && typeRef.typeArguments.length > 0) {
+      const yieldTypeArg = typeRef.typeArguments[0];
+      if (yieldTypeArg) {
+        const [yieldType, nextContext] = emitType(yieldTypeArg, currentContext);
+        currentContext = nextContext;
+        outputType = yieldType;
+      }
+
+      if (typeRef.typeArguments.length > 2) {
+        const nextTypeArg = typeRef.typeArguments[2];
+        if (nextTypeArg) {
+          const [nextType, nextContext] = emitType(nextTypeArg, currentContext);
+          currentContext = nextContext;
+          inputType = nextType;
+        }
+      }
+    }
+  }
+
+  const members: CSharpClassMemberAst[] = [
+    {
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: asTypeAst(`${inputType}?`),
+      name: "Input",
+      accessorList: getterSetterAccessorList,
+    },
+    {
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: asTypeAst(outputType),
+      name: "Output",
+      accessorList: getterSetterAccessorList,
+    },
+  ];
+
+  return [
+    {
+      kind: "classDeclaration",
+      indentLevel: 1,
+      attributes: [],
+      modifiers: ["public", "sealed"],
+      name: exchangeName,
+      members,
+    },
+    currentContext,
+  ];
+};
+
+/**
+ * AST-native variant of generator exchange emission.
+ */
+export const generateGeneratorExchangesAst = (
+  module: IrModule,
+  context: EmitterContext
+): [readonly CSharpNamespaceMemberAst[], EmitterContext] => {
+  const generators = collectGenerators(module);
+  if (generators.length === 0) {
+    return [[], context];
+  }
+
+  const members: CSharpNamespaceMemberAst[] = [];
+  let currentContext = context;
+
+  for (const generator of generators) {
+    const [exchangeDecl, exchangeContext] = generateExchangeClassAst(
+      generator,
+      currentContext
+    );
+    currentContext = exchangeContext;
+
+    if (members.length > 0) members.push({ kind: "blankLine" });
+    members.push(exchangeDecl);
+  }
+
+  return [members, currentContext];
 };

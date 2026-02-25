@@ -12,7 +12,6 @@ import { emitType } from "../../../type-emitter.js";
 import { emitBooleanCondition } from "../../semantic/boolean-context.js";
 import { emitStatement as emitStatementText } from "../../../statement-emitter.js";
 import { lowerPattern } from "../../../patterns.js";
-import { printExpression } from "./printer.js";
 import { allocateLocalName, registerLocalName } from "../local-names.js";
 import {
   resolveTypeAlias,
@@ -29,6 +28,37 @@ import type {
 const rawExpression = (text: string): CSharpExpressionAst => ({
   kind: "rawExpression",
   text,
+});
+
+const identifierExpression = (identifier: string): CSharpExpressionAst => ({
+  kind: "identifierExpression",
+  identifier,
+});
+
+const parenthesizedExpression = (
+  expression: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "parenthesizedExpression",
+  expression,
+});
+
+const memberAccessExpression = (
+  expression: CSharpExpressionAst,
+  memberName: string
+): CSharpExpressionAst => ({
+  kind: "memberAccessExpression",
+  expression,
+  memberName,
+});
+
+const assignmentExpression = (
+  left: CSharpExpressionAst,
+  right: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "assignmentExpression",
+  operatorToken: "=",
+  left,
+  right,
 });
 
 const emitStatementFallback = (
@@ -464,7 +494,10 @@ export const emitStatementAst = (
           awaitModifier: false,
           type: { kind: "rawType", text: "var" },
           identifier: alloc.emittedName,
-          expression: rawExpression(`(${printExpressionFragment(expr)}).Keys`),
+          expression: memberAccessExpression(
+            parenthesizedExpression(expr),
+            "Keys"
+          ),
           statement: body,
         },
         { ...dedent(bodyCtx), localNameMap: outerNameMap },
@@ -619,8 +652,9 @@ export const emitStatementAst = (
             statements: [
               {
                 kind: "expressionStatement",
-                expression: rawExpression(
-                  `_ = ${printExpressionFragment(operandExpr)}`
+                expression: assignmentExpression(
+                  identifierExpression("_"),
+                  operandExpr
                 ),
               },
               { kind: "returnStatement" },
@@ -655,7 +689,7 @@ export const emitStatementAst = (
           context
         );
         const itemAlloc = allocateLocalName("item", delegatedCtx);
-        const yieldExpr = rawExpression(itemAlloc.emittedName);
+        const yieldExpr = identifierExpression(itemAlloc.emittedName);
         return [
           {
             kind: "foreachStatement",
@@ -685,14 +719,15 @@ export const emitStatementAst = (
         current = next;
         statements.push({
           kind: "expressionStatement",
-          expression: rawExpression(
-            `${exchangeVar}.Output = ${printExpressionFragment(valueExpr)}`
+          expression: assignmentExpression(
+            memberAccessExpression(identifierExpression(exchangeVar), "Output"),
+            valueExpr
           ),
         });
       }
       statements.push({
         kind: "yieldReturnStatement",
-        expression: rawExpression(exchangeVar),
+        expression: identifierExpression(exchangeVar),
       });
       return [{ kind: "blockStatement", statements }, current];
     }
@@ -707,8 +742,9 @@ export const emitStatementAst = (
           statements: [
             {
               kind: "expressionStatement",
-              expression: rawExpression(
-                `${returnVar} = ${printExpressionFragment(valueExpr)}`
+              expression: assignmentExpression(
+                identifierExpression(returnVar),
+                valueExpr
               ),
             },
             { kind: "yieldBreakStatement" },
@@ -740,8 +776,9 @@ export const emitStatementAst = (
         return [
           {
             kind: "expressionStatement",
-            expression: rawExpression(
-              `_ = ${printExpressionFragment(operandExpr)}`
+            expression: assignmentExpression(
+              identifierExpression("_"),
+              operandExpr
             ),
           },
           next,
@@ -837,8 +874,4 @@ export const emitStatementAst = (
       (_exhaustive as { kind?: unknown }).kind
     )}`
   );
-};
-
-const printExpressionFragment = (expression: CSharpExpressionAst): string => {
-  return printExpression(expression);
 };

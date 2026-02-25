@@ -34,10 +34,9 @@ describe("Module Assembly", () => {
       module,
       {
         header: "// Header",
-        adaptersCode: "partial class Adapter\n{\n}",
-        specializationsCode: "",
-        exchangesCode: "",
-        namespaceDeclMembers: [
+        namespaceMembers: [
+          preludeSection("    partial class Adapter\n    {\n    }", 0),
+          { kind: "blankLine" },
           preludeSection("    public class User\n    {\n    }", 0),
         ],
         staticContainerMember: classDeclaration("app", {
@@ -81,10 +80,7 @@ namespace MyApp
         usings: [],
         parts: {
           header: "",
-          adaptersCode: "",
-          specializationsCode: "",
-          exchangesCode: "",
-          namespaceDeclMembers: [],
+          namespaceMembers: [],
         },
         expected: `namespace N0
 {
@@ -96,10 +92,7 @@ namespace MyApp
         usings: ["B", "A"],
         parts: {
           header: "// H",
-          adaptersCode: "",
-          specializationsCode: "",
-          exchangesCode: "",
-          namespaceDeclMembers: [],
+          namespaceMembers: [],
         },
         expected: `// H
 using A;
@@ -115,10 +108,13 @@ namespace N1
         usings: ["System.Linq", "System"],
         parts: {
           header: "// H2",
-          adaptersCode: "partial class A\n{\n}",
-          specializationsCode: "partial class S\n{\n}",
-          exchangesCode: "partial class E\n{\n}",
-          namespaceDeclMembers: [
+          namespaceMembers: [
+            preludeSection("    partial class A\n    {\n    }", 0),
+            { kind: "blankLine" },
+            preludeSection("    partial class S\n    {\n    }", 0),
+            { kind: "blankLine" },
+            preludeSection("    partial class E\n    {\n    }", 0),
+            { kind: "blankLine" },
             preludeSection("    public class C\n    {\n    }", 0),
           ],
           staticContainerMember: classDeclaration("M", {
@@ -158,10 +154,7 @@ namespace N2
         usings: [],
         parts: {
           header: "",
-          adaptersCode: "",
-          specializationsCode: "",
-          exchangesCode: "",
-          namespaceDeclMembers: [],
+          namespaceMembers: [],
           staticContainerMember: classDeclaration("Only", {
             modifiers: ["public", "static"],
           }),
@@ -179,10 +172,7 @@ namespace N2
         usings: [],
         parts: {
           header: "",
-          adaptersCode: "",
-          specializationsCode: "",
-          exchangesCode: "",
-          namespaceDeclMembers: [
+          namespaceMembers: [
             preludeSection("    public interface I\n    {\n    }", 0),
           ],
         },
@@ -199,10 +189,13 @@ namespace N2
         usings: [],
         parts: {
           header: "",
-          adaptersCode: "partial class A {}",
-          specializationsCode: "partial class B {}",
-          exchangesCode: "partial class C {}",
-          namespaceDeclMembers: [],
+          namespaceMembers: [
+            preludeSection("    partial class A {}", 0),
+            { kind: "blankLine" },
+            preludeSection("    partial class B {}", 0),
+            { kind: "blankLine" },
+            preludeSection("    partial class C {}", 0),
+          ],
         },
         expected: `namespace N5
 {
@@ -211,7 +204,6 @@ namespace N2
     partial class B {}
 
     partial class C {}
-
 }`,
       },
       {
@@ -220,10 +212,7 @@ namespace N2
         usings: [],
         parts: {
           header: "",
-          adaptersCode: "",
-          specializationsCode: "",
-          exchangesCode: "",
-          namespaceDeclMembers: [],
+          namespaceMembers: [],
           staticContainerMember: classDeclaration("App", {
             modifiers: ["public", "static"],
             members: [

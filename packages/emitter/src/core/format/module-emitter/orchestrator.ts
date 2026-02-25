@@ -4,7 +4,7 @@
 
 import { IrModule, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterOptions, createContext } from "../../../types.js";
-import { generateStructuralAdapters } from "../../../adapter-generator.js";
+import { generateStructuralAdaptersAst } from "../../../adapter-generator.js";
 import {
   collectSpecializations,
   generateSpecializations,
@@ -24,7 +24,12 @@ import {
 } from "./static-container.js";
 import { assembleOutput, type AssemblyParts } from "./assembly.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
-import type { CSharpClassDeclarationAst } from "../backend-ast/index.js";
+import {
+  blankLine,
+  preludeSection,
+  type CSharpClassDeclarationAst,
+  type CSharpNamespaceMemberAst,
+} from "../backend-ast/index.js";
 
 const isSuppressibleTypeDeclaration = (
   stmt: IrStatement
@@ -232,7 +237,7 @@ export const emitModule = (
 
   // Collect type parameters and generate adapters
   const typeParams = collectTypeParameters(module);
-  const [adaptersCode, adaptersContext] = generateStructuralAdapters(
+  const [adapterMembers, adaptersContext] = generateStructuralAdaptersAst(
     typeParams,
     processedContext
   );
@@ -299,6 +304,35 @@ export const emitModule = (
     hasInheritance
   );
 
+  const generatedNamespaceMembers: CSharpNamespaceMemberAst[] = [];
+  const appendSection = (
+    members: readonly CSharpNamespaceMemberAst[],
+    addSpacerAfter: boolean = true
+  ): void => {
+    if (members.length === 0) return;
+    if (generatedNamespaceMembers.length > 0) {
+      generatedNamespaceMembers.push(blankLine());
+    }
+    generatedNamespaceMembers.push(...members);
+    if (addSpacerAfter) {
+      generatedNamespaceMembers.push(blankLine());
+    }
+  };
+
+  appendSection(adapterMembers);
+  if (specializationsCode) {
+    appendSection([preludeSection(specializationsCode, 1)]);
+  }
+  if (exchangesCode) {
+    appendSection([preludeSection(exchangesCode, 1)], false);
+  }
+
+  const namespaceMembers: readonly CSharpNamespaceMemberAst[] = [
+    ...generatedNamespaceMembers,
+    ...(generatedNamespaceMembers.length > 0 ? [blankLine()] : []),
+    ...namespaceResult.members,
+  ];
+
   // Emit static container class if there are any static members
   // Use __Module suffix when there's a name collision with namespace-level declarations
   let staticContainerMember: CSharpClassDeclarationAst | undefined;
@@ -319,10 +353,7 @@ export const emitModule = (
   // Assemble final output
   const parts: AssemblyParts = {
     header,
-    adaptersCode,
-    specializationsCode,
-    exchangesCode,
-    namespaceDeclMembers: namespaceResult.members,
+    namespaceMembers,
     staticContainerMember,
   };
 

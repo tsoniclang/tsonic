@@ -13,10 +13,13 @@ describe("Backend AST Printer", () => {
       headerText: "// Header",
       usingNamespaces: ["Zeta.Tools", "Alpha.Tools"],
       namespaceName: "MyApp",
-      adaptersCode: "partial class Adapter\n{\n}",
-      specializationsCode: "partial class Spec\n{\n}",
-      exchangesCode: "partial class Exchange\n{\n}",
-      namespaceDeclMembers: [
+      namespaceMembers: [
+        preludeSection("    partial class Adapter\n    {\n    }", 0),
+        { kind: "blankLine" },
+        preludeSection("    partial class Spec\n    {\n    }", 0),
+        { kind: "blankLine" },
+        preludeSection("    partial class Exchange\n    {\n    }", 0),
+        { kind: "blankLine" },
         preludeSection("    public class User\n    {\n    }", 0),
       ],
       staticContainerMember: classDeclaration("App", {
@@ -59,10 +62,7 @@ namespace MyApp
       headerText: "",
       usingNamespaces: [],
       namespaceName: "PreludeOnly",
-      adaptersCode: "partial class Adapter {}",
-      specializationsCode: "",
-      exchangesCode: "",
-      namespaceDeclMembers: [],
+      namespaceMembers: [preludeSection("    partial class Adapter {}", 0)],
     });
 
     const code = printCompilationUnitAst(unit);
@@ -70,7 +70,6 @@ namespace MyApp
     expect(code).to.equal(`namespace PreludeOnly
 {
     partial class Adapter {}
-
 }`);
   });
 });

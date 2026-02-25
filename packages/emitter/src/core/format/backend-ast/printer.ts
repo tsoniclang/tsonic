@@ -88,6 +88,8 @@ export const printExpression = (expression: CSharpExpressionAst): string => {
       return expression.text;
     case "identifierExpression":
       return expression.identifier;
+    case "parenthesizedExpression":
+      return `(${printExpression(expression.expression)})`;
     case "memberAccessExpression":
       return `${printExpression(expression.expression)}.${expression.memberName}`;
     case "invocationExpression":
@@ -200,6 +202,24 @@ const printPropertyMember = (
   member: Extract<CSharpClassMemberAst, { kind: "propertyDeclaration" }>,
   level: number
 ): string => {
+  const canPrintInlineAutoProperty =
+    !member.initializer && member.accessorList.every((accessor) => !accessor.body);
+
+  if (canPrintInlineAutoProperty) {
+    const accessorText = member.accessorList
+      .map((accessor) => `${accessor.accessorKind};`)
+      .join(" ");
+    const lines = [
+      ...member.attributes.map((a) => `${indentPrefix(level)}${a}`),
+      `${indentPrefix(level)}${[
+        ...member.modifiers,
+        printType(member.type),
+        member.name,
+      ].join(" ")} { ${accessorText} }`,
+    ];
+    return lines.join("\n");
+  }
+
   const lines = [
     ...member.attributes.map((a) => `${indentPrefix(level)}${a}`),
     `${indentPrefix(level)}${[

@@ -14,10 +14,7 @@ export type CompilationUnitAssemblyInput = {
   readonly headerText: string;
   readonly usingNamespaces: readonly string[];
   readonly namespaceName: string;
-  readonly adaptersCode: string;
-  readonly specializationsCode: string;
-  readonly exchangesCode: string;
-  readonly namespaceDeclMembers: readonly CSharpNamespaceMemberAst[];
+  readonly namespaceMembers: readonly CSharpNamespaceMemberAst[];
   readonly staticContainerMember?: CSharpClassDeclarationAst;
 };
 
@@ -75,25 +72,17 @@ export const methodDeclaration = (
   },
 });
 
-const indentedPreludeSection = (
-  text: string
-): readonly CSharpNamespaceMemberAst[] =>
-  text ? [preludeSection(text, 1), blankLine()] : [];
-
 export const buildCompilationUnitAstFromAssembly = (
   input: CompilationUnitAssemblyInput
 ): CSharpCompilationUnitAst => {
   const staticContainerMembers = input.staticContainerMember
     ? [
-        ...(input.namespaceDeclMembers.length > 0 ? [blankLine()] : []),
+        ...(input.namespaceMembers.length > 0 ? [blankLine()] : []),
         input.staticContainerMember,
       ]
     : [];
   const members: readonly CSharpNamespaceMemberAst[] = [
-    ...indentedPreludeSection(input.adaptersCode),
-    ...indentedPreludeSection(input.specializationsCode),
-    ...indentedPreludeSection(input.exchangesCode),
-    ...input.namespaceDeclMembers,
+    ...input.namespaceMembers,
     ...staticContainerMembers,
   ];
 
