@@ -16,6 +16,7 @@ import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
 import { emitEnumDeclarationAst } from "./enum-ast.js";
+import { emitInterfaceDeclarationAst } from "./interface-ast.js";
 import { emitTypeAliasDeclarationAst } from "./type-alias-ast.js";
 import {
   classBlankLine,
@@ -156,6 +157,18 @@ export const emitStaticContainer = (
       );
       if (typeAliasMember) {
         bodyParts.push(typeAliasMember);
+        bodyCurrentContext = newContext;
+        continue;
+      }
+    }
+    if (stmt.kind === "interfaceDeclaration") {
+      const [interfaceMember, newContext] = emitInterfaceDeclarationAst(
+        stmt,
+        bodyCurrentContext,
+        bodyCurrentContext.indentLevel
+      );
+      if (interfaceMember) {
+        bodyParts.push(interfaceMember);
         bodyCurrentContext = newContext;
         continue;
       }

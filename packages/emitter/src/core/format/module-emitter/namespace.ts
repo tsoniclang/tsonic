@@ -6,6 +6,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, indent } from "../../../types.js";
 import { emitStatement } from "../../../statement-emitter.js";
 import { emitEnumDeclarationAst } from "./enum-ast.js";
+import { emitInterfaceDeclarationAst } from "./interface-ast.js";
 import { emitTypeAliasDeclarationAst } from "./type-alias-ast.js";
 import {
   preludeSection,
@@ -48,6 +49,18 @@ export const emitNamespaceDeclarations = (
       );
       if (typeAliasMember) {
         members.push(typeAliasMember);
+        currentContext = { ...newContext, hasInheritance };
+        continue;
+      }
+    }
+    if (decl.kind === "interfaceDeclaration") {
+      const [interfaceMember, newContext] = emitInterfaceDeclarationAst(
+        decl,
+        namespaceContext,
+        1
+      );
+      if (interfaceMember) {
+        members.push(interfaceMember);
         currentContext = { ...newContext, hasInheritance };
         continue;
       }

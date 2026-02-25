@@ -2,7 +2,7 @@ import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
 import { emitType } from "../../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
-import { typeUsesPointer } from "../../semantic/unsafe.js";
+import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import type {
   CSharpAccessorDeclarationAst,
@@ -33,27 +33,33 @@ const getterInitAccessorList: readonly CSharpAccessorDeclarationAst[] = [
 ];
 
 /**
- * Emits structural object type-alias declarations as class/struct AST nodes.
- * Returns `undefined` for unsupported aliases (generic/non-object) so callers can
- * fall back to legacy string emission.
+ * Emits simple property-only TS interfaces as C# class/struct AST nodes.
+ * Returns `undefined` for unsupported interfaces (generics/extends/methods) so
+ * callers can fall back to legacy emission.
  */
-export const emitTypeAliasDeclarationAst = (
-  stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
+export const emitInterfaceDeclarationAst = (
+  stmt: Extract<IrStatement, { kind: "interfaceDeclaration" }>,
   context: EmitterContext,
   indentLevel: number
 ): [
   CSharpClassDeclarationAst | CSharpStructDeclarationAst | undefined,
   EmitterContext,
 ] => {
-  if (stmt.type.kind !== "objectType") {
+  const hasMethodSignatures = stmt.members.some(
+    (member) => member.kind === "methodSignature"
+  );
+  if (hasMethodSignatures) {
     return [undefined, context];
   }
   if ((stmt.typeParameters?.length ?? 0) > 0) {
     return [undefined, context];
   }
+  if ((stmt.extends?.length ?? 0) > 0) {
+    return [undefined, context];
+  }
 
   let currentContext = context;
-  const needsUnsafe = typeUsesPointer(stmt.type);
+  const needsUnsafe = statementUsesPointer(stmt);
   const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
   const accessibility =
     stmt.isExported || promotedToPublic ? "public" : "internal";
@@ -61,11 +67,10 @@ export const emitTypeAliasDeclarationAst = (
   const modifiers = [
     accessibility,
     ...(needsUnsafe ? ["unsafe"] : []),
-    ...(!stmt.isStruct ? ["sealed"] : []),
   ] as const;
 
   const members: Array<CSharpClassDeclarationAst["members"][number]> = [];
-  for (const member of stmt.type.members) {
+  for (const member of stmt.members) {
     if (member.kind !== "propertySignature") continue;
 
     let typeText = member.isOptional ? "object?" : "object";
@@ -98,7 +103,7 @@ export const emitTypeAliasDeclarationAst = (
         indentLevel,
         attributes: [],
         modifiers: [...modifiers],
-        name: `${escapeCSharpIdentifier(stmt.name)}__Alias`,
+        name: escapeCSharpIdentifier(stmt.name),
         members,
       },
       currentContext,
@@ -111,7 +116,7 @@ export const emitTypeAliasDeclarationAst = (
       indentLevel,
       attributes: [],
       modifiers: [...modifiers],
-      name: `${escapeCSharpIdentifier(stmt.name)}__Alias`,
+      name: escapeCSharpIdentifier(stmt.name),
       members,
     },
     currentContext,
