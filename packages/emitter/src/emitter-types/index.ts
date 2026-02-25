@@ -6,7 +6,6 @@ export type {
   EmitterOptions,
   EmitterContext,
   EmitResult,
-  CSharpFragment,
   ImportBinding,
   ModuleIdentity,
   ModuleMap,

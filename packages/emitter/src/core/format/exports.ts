@@ -4,7 +4,8 @@
 
 import { IrExport } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "./backend-ast/printer.js";
 
 /**
  * Emit an export declaration
@@ -21,9 +22,12 @@ export const emitExport = (
     case "default": {
       // Default exports need special handling
       // For MVP, we'll emit a comment
-      const [exprFrag, newContext] = emitExpression(exp.expression, context);
+      const [exprAst, newContext] = emitExpressionAst(exp.expression, context);
       const ind = getIndent(context);
-      return [`${ind}// Default export: ${exprFrag.text}`, newContext];
+      return [
+        `${ind}// Default export: ${printExpression(exprAst)}`,
+        newContext,
+      ];
     }
 
     case "declaration":

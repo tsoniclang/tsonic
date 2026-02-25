@@ -8,7 +8,8 @@
 
 import { IrParameter, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerParameterPattern } from "../../patterns.js";
@@ -126,12 +127,12 @@ export const emitParametersWithDestructuring = (
     let paramStr = `${parameterAttributePrefix}${modifierPrefix}${paramType} ${paramName}`;
     if (param.initializer) {
       // Emit the default value directly
-      const [defaultExpr, newContext] = emitExpression(
+      const [defaultAst, newContext] = emitExpressionAst(
         param.initializer,
         currentContext
       );
       currentContext = newContext;
-      paramStr = `${modifierPrefix}${paramType} ${paramName} = ${defaultExpr.text}`;
+      paramStr = `${modifierPrefix}${paramType} ${paramName} = ${printExpression(defaultAst)}`;
     } else if (isOptional && !isRest) {
       paramStr += " = default";
     }

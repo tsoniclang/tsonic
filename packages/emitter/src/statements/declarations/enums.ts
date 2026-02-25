@@ -4,7 +4,8 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitCSharpName } from "../../naming-policy.js";
 
@@ -27,8 +28,8 @@ export const emitEnumDeclaration = (
     .map((member) => {
       const escapedName = emitCSharpName(member.name, "enumMembers", context);
       if (member.initializer) {
-        const [initFrag] = emitExpression(member.initializer, enumContext);
-        return `${memberInd}${escapedName} = ${initFrag.text}`;
+        const [initAst] = emitExpressionAst(member.initializer, enumContext);
+        return `${memberInd}${escapedName} = ${printExpression(initAst)}`;
       }
       return `${memberInd}${escapedName}`;
     })

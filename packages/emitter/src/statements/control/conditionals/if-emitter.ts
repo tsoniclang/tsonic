@@ -4,10 +4,7 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
-import {
-  emitExpression,
-  emitExpressionAst,
-} from "../../../expression-emitter.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../../statement-emitter.js";
@@ -583,10 +580,13 @@ export const emitIfStatement = (
         const castLine = `${outerThenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
 
         // Emit RHS condition under narrowed context (TS semantics: rhs sees narrowed x)
-        const [rhsFrag, rhsCtxAfterEmit] = emitExpression(right, outerThenCtx);
+        const [rhsAst, rhsCtxAfterEmit] = emitExpressionAst(
+          right,
+          outerThenCtx
+        );
         const [rhsCondText, rhsCtxAfterCond] = toBooleanCondition(
           right,
-          rhsFrag.text,
+          printExpression(rhsAst),
           rhsCtxAfterEmit
         );
 
@@ -651,10 +651,10 @@ export const emitIfStatement = (
           narrowedBindings: narrowedMap,
         };
 
-        const [rhsFrag, rhsCtxAfterEmit] = emitExpression(right, rhsCtx);
+        const [rhsAst, rhsCtxAfterEmit] = emitExpressionAst(right, rhsCtx);
         const [rhsCondText, rhsCtxAfterCond] = toBooleanCondition(
           right,
-          rhsFrag.text,
+          printExpression(rhsAst),
           rhsCtxAfterEmit
         );
 
@@ -746,7 +746,10 @@ export const emitIfStatement = (
       // Emit condition (boolean context)
       const [condText, condCtxAfterCond] = emitBooleanCondition(
         stmt.condition,
-        (e, ctx) => emitExpression(e, ctx),
+        (e, ctx) => {
+          const [ast, c] = emitExpressionAst(e, ctx);
+          return [{ text: printExpression(ast) }, c];
+        },
         context
       );
 
@@ -800,7 +803,10 @@ export const emitIfStatement = (
   // Standard if-statement emission (no narrowing)
   const [condText, condCtxAfterCond] = emitBooleanCondition(
     stmt.condition,
-    (e, ctx) => emitExpression(e, ctx),
+    (e, ctx) => {
+      const [ast, c] = emitExpressionAst(e, ctx);
+      return [{ text: printExpression(ast) }, c];
+    },
     context
   );
 

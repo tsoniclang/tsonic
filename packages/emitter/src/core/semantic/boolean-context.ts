@@ -7,12 +7,12 @@
  * This module provides a shared, deterministic lowering for boolean contexts.
  *
  * IMPORTANT:
- * - This operates on IR + emitted text; it must not import emitExpression to avoid cycles.
- * - Callers provide an emitExpression-like function.
+ * - This operates on IR + emitted text; it must not import emitExpressionAst to avoid cycles.
+ * - Callers provide an emit function.
  */
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import type { CSharpFragment, EmitterContext } from "../../types.js";
+import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
 import { printExpression } from "../format/backend-ast/printer.js";
@@ -21,7 +21,7 @@ import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 export type EmitExprFn = (
   expr: IrExpression,
   context: EmitterContext
-) => [CSharpFragment, EmitterContext];
+) => [{ readonly text: string }, EmitterContext];
 
 export type EmitExprAstFn = (
   expr: IrExpression,

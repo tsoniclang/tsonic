@@ -54,13 +54,18 @@ export type CSharpTupleTypeAst = {
   readonly elements: readonly CSharpTupleElementAst[];
 };
 
+export type CSharpVarTypeAst = {
+  readonly kind: "varType";
+};
+
 export type CSharpTypeAst =
   | CSharpPredefinedTypeAst
   | CSharpIdentifierTypeAst
   | CSharpNullableTypeAst
   | CSharpArrayTypeAst
   | CSharpPointerTypeAst
-  | CSharpTupleTypeAst;
+  | CSharpTupleTypeAst
+  | CSharpVarTypeAst;
 
 // ============================================================
 // Expression AST
@@ -247,6 +252,13 @@ export type CSharpTypeofExpressionAst = {
   readonly type: CSharpTypeAst;
 };
 
+export type CSharpArgumentModifierExpressionAst = {
+  readonly kind: "argumentModifierExpression";
+  /** "ref", "out", "in", "params" */
+  readonly modifier: string;
+  readonly expression: CSharpExpressionAst;
+};
+
 export type CSharpSwitchExpressionArmAst = {
   readonly pattern: CSharpPatternAst;
   readonly whenClause?: CSharpExpressionAst;
@@ -286,7 +298,8 @@ export type CSharpExpressionAst =
   | CSharpThrowExpressionAst
   | CSharpSuppressNullableWarningExpressionAst
   | CSharpTypeofExpressionAst
-  | CSharpSwitchExpressionAst;
+  | CSharpSwitchExpressionAst
+  | CSharpArgumentModifierExpressionAst;
 
 // ============================================================
 // Pattern AST (for is-expressions and switch patterns)

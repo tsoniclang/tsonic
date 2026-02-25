@@ -4,7 +4,8 @@
 
 import { IrClassMember, IrStatement, type IrParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
-import { emitExpression } from "../../../expression-emitter.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
+import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
@@ -179,8 +180,8 @@ const extractSuperCall = (
     const superCall = firstStmt.expression;
     const argFrags: string[] = [];
     for (const arg of superCall.arguments) {
-      const [argFrag, newContext] = emitExpression(arg, currentContext);
-      argFrags.push(argFrag.text);
+      const [argAst, newContext] = emitExpressionAst(arg, currentContext);
+      argFrags.push(printExpression(argAst));
       currentContext = newContext;
     }
     const baseCall = ` : base(${argFrags.join(", ")})`;

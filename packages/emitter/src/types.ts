@@ -7,7 +7,6 @@ export type {
   EmitterOptions,
   EmitterContext,
   EmitResult,
-  CSharpFragment,
   CSharpAccessModifier,
   CSharpClassModifier,
   CSharpMethodModifier,

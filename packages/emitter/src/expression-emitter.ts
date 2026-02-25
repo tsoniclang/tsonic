@@ -3,7 +3,6 @@
  * Main dispatcher - delegates to specialized modules
  *
  * Primary entry point is emitExpressionAst which returns [CSharpExpressionAst, EmitterContext].
- * emitExpression is a thin shim that prints the AST to text for backward compatibility.
  */
 
 import {
@@ -16,10 +15,9 @@ import {
   IrStackAllocExpression,
   IrDefaultOfExpression,
 } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "./types.js";
+import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
 import { substituteTypeArgs } from "./core/semantic/type-resolution.js";
-import { printExpression } from "./core/format/backend-ast/printer.js";
 import type { CSharpExpressionAst } from "./core/format/backend-ast/types.js";
 
 // Import expression emitters from specialized modules
@@ -593,19 +591,6 @@ export const emitExpressionAst = (
     castedContext,
     expectedType
   );
-};
-
-/**
- * Emit a C# expression from an IR expression (backward-compatible shim).
- * Returns [CSharpFragment, EmitterContext] by printing the AST.
- */
-export const emitExpression = (
-  expr: IrExpression,
-  context: EmitterContext,
-  expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
-  const [ast, newContext] = emitExpressionAst(expr, context, expectedType);
-  return [{ text: printExpression(ast) }, newContext];
 };
 
 // Re-export commonly used functions for backward compatibility

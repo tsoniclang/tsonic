@@ -343,18 +343,6 @@ export type EmitResult = {
 };
 
 /**
- * Helper type for C# code fragments
- */
-export type CSharpFragment = {
-  /** The code fragment */
-  readonly text: string;
-  /** Whether this needs parentheses when used in expressions */
-  readonly needsParens?: boolean;
-  /** Precedence level for operator expressions */
-  readonly precedence?: number;
-};
-
-/**
  * Registry for collecting types used with JsonSerializer.
  * Used to generate NativeAOT-compatible JsonSerializerContext.
  * This is a mutable structure shared across all modules during emission.

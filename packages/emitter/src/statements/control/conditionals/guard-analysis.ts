@@ -12,7 +12,7 @@ import {
   LocalTypeInfo,
   NarrowedBinding,
 } from "../../../types.js";
-import { emitExpression } from "../../../expression-emitter.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import {
@@ -646,8 +646,8 @@ export const tryResolveInstanceofGuard = (
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
 
   // Emit RHS as a type name (e.g., global::System.String)
-  const [rhsFrag, ctxAfterRhs] = emitExpression(condition.right, ctxWithId);
-  const rhsTypeText = rhsFrag.text;
+  const [rhsAst, ctxAfterRhs] = emitExpressionAst(condition.right, ctxWithId);
+  const rhsTypeText = printExpression(rhsAst);
 
   // Pattern variable name for the narrowed value.
   const narrowedName = `${originalName}__is_${nextId}`;

@@ -4,7 +4,8 @@
 
 import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { lowerPattern } from "../../patterns.js";
 import {
@@ -147,7 +148,10 @@ export const emitWhileStatement = (
   const ind = getIndent(context);
   const [condText, condContext] = emitBooleanCondition(
     stmt.condition,
-    (e, ctx) => emitExpression(e, ctx),
+    (e, ctx) => {
+      const [ast, c] = emitExpressionAst(e, ctx);
+      return [{ text: printExpression(ast) }, c];
+    },
     context
   );
 
@@ -200,12 +204,12 @@ export const emitForStatement = (
       // Strip trailing semicolon from variable declaration
       init = initCode.trim().replace(/;$/, "");
     } else {
-      const [initFrag, newContext] = emitExpression(
+      const [initAst, newContext] = emitExpressionAst(
         stmt.initializer,
         currentContext
       );
       currentContext = newContext;
-      init = initFrag.text;
+      init = printExpression(initAst);
     }
   }
 
@@ -214,7 +218,10 @@ export const emitForStatement = (
   if (stmt.condition) {
     const [condText, newContext] = emitBooleanCondition(
       stmt.condition,
-      (e, ctx) => emitExpression(e, ctx),
+      (e, ctx) => {
+        const [ast, c] = emitExpressionAst(e, ctx);
+        return [{ text: printExpression(ast) }, c];
+      },
       currentContext
     );
     currentContext = newContext;
@@ -224,12 +231,12 @@ export const emitForStatement = (
   // Update
   let update = "";
   if (stmt.update) {
-    const [updateFrag, newContext] = emitExpression(
+    const [updateAst, newContext] = emitExpressionAst(
       stmt.update,
       currentContext
     );
     currentContext = newContext;
-    update = updateFrag.text;
+    update = printExpression(updateAst);
   }
 
   // Body - if canonical loop, add the var to intLoopVars so indexers don't cast
@@ -274,7 +281,8 @@ export const emitForOfStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
+  const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
+  const exprText = printExpression(exprAst);
   const outerNameMap = exprContext.localNameMap;
   let loopContext: EmitterContext = {
     ...exprContext,
@@ -298,7 +306,7 @@ export const emitForOfStatement = (
       stmt.body,
       indent(loopContext)
     );
-    const code = `${ind}${foreachKeyword} (var ${varName} in ${exprFrag.text})\n${bodyCode}`;
+    const code = `${ind}${foreachKeyword} (var ${varName} in ${exprText})\n${bodyCode}`;
     const finalContext = dedent(bodyContext);
     return [code, { ...finalContext, localNameMap: outerNameMap }];
   }
@@ -337,7 +345,7 @@ export const emitForOfStatement = (
       ? `${ind}{\n${lowerResult.statements.join("\n")}\n${bodyCode}\n${ind}}`
       : bodyCode;
 
-  const code = `${ind}${foreachKeyword} (var ${tempVar} in ${exprFrag.text})\n${combinedBody}`;
+  const code = `${ind}${foreachKeyword} (var ${tempVar} in ${exprText})\n${combinedBody}`;
   const finalContext = dedent(bodyContext);
   return [code, { ...finalContext, localNameMap: outerNameMap }];
 };
@@ -355,7 +363,8 @@ export const emitForInStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
+  const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
+  const exprText = printExpression(exprAst);
   const outerNameMap = exprContext.localNameMap;
   let loopContext: EmitterContext = {
     ...exprContext,
@@ -388,7 +397,7 @@ export const emitForInStatement = (
     alloc.context
   );
   const varName = alloc.emittedName;
-  const iterExpr = `(${exprFrag.text}).Keys`;
+  const iterExpr = `(${exprText}).Keys`;
 
   const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(loopContext));
   const code = `${ind}foreach (var ${varName} in ${iterExpr})\n${bodyCode}`;

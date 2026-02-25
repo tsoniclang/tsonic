@@ -276,6 +276,8 @@ const getExpressionPrecedence = (expr: CSharpExpressionAst): number => {
     case "suppressNullableWarningExpression":
     case "switchExpression":
       return 16;
+    case "argumentModifierExpression":
+      return 16; // Argument modifier is used in argument position only
     case "lambdaExpression":
       return 0; // Lambda needs parens almost everywhere
     case "throwExpression":
@@ -367,6 +369,9 @@ export const printType = (type: CSharpTypeAst): string => {
         .join(", ");
       return `(${elems})`;
     }
+
+    case "varType":
+      return "var";
 
     default: {
       const exhaustiveCheck: never = type;
@@ -521,6 +526,9 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
 
     case "switchExpression":
       return printSwitchExpression(expr);
+
+    case "argumentModifierExpression":
+      return `${expr.modifier} ${printExpression(expr.expression)}`;
 
     default: {
       const exhaustiveCheck: never = expr;
