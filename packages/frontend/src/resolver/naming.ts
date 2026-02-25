@@ -19,7 +19,7 @@ const normalizePathFragment = (fragment: string): string => {
   // and PascalCase the result.
   const parts = fragment.split(/[^a-zA-Z0-9]+/g).filter((p) => p.length > 0);
   const pascal = parts
-    .map((p) => (p.length === 0 ? "" : p[0]!.toUpperCase() + p.slice(1)))
+    .map((p) => (p.length === 0 ? "" : p.charAt(0).toUpperCase() + p.slice(1)))
     .join("");
 
   if (pascal.length === 0) return "_";

@@ -194,7 +194,8 @@ const hasProperty = (
     }
 
     if (matches.length === 1) {
-      candidates.push(matches[0]!);
+      const only = matches[0];
+      if (only) candidates.push(only);
     } else if (matches.length > 1) {
       const list = matches.sort().join(", ");
       throw new Error(
@@ -245,7 +246,10 @@ const resolveLocalTypesForReference = (
   }
 
   if (matches.length === 0) return undefined;
-  if (matches.length === 1) return matches[0]!.localTypes;
+  if (matches.length === 1) {
+    const only = matches[0];
+    return only?.localTypes;
+  }
 
   // Disambiguate by CLR FQN when available.
   const fqn =
@@ -254,7 +258,10 @@ const resolveLocalTypesForReference = (
     const lastDot = fqn.lastIndexOf(".");
     const ns = fqn.slice(0, lastDot);
     const filtered = matches.filter((m) => m.namespace === ns);
-    if (filtered.length === 1) return filtered[0]!.localTypes;
+    if (filtered.length === 1) {
+      const only = filtered[0];
+      return only?.localTypes;
+    }
   }
 
   // Ambiguous: refuse to guess.

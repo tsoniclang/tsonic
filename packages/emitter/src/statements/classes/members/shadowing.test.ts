@@ -25,7 +25,7 @@ const createContext = (): EmitterContext => ({
 describe("Shadowing member emission", () => {
   it("emits `new` for shadowing methods", () => {
     const context = createContext();
-    const member: IrClassMember = {
+    const member: Extract<IrClassMember, { kind: "methodDeclaration" }> = {
       kind: "methodDeclaration",
       name: "Foo",
       parameters: [],
@@ -37,13 +37,13 @@ describe("Shadowing member emission", () => {
       body: { kind: "blockStatement", statements: [] },
     };
 
-    const [code] = emitMethodMember(member as any, context);
+    const [code] = emitMethodMember(member, context);
     expect(code).to.include("public new void Foo()");
   });
 
   it("emits `new` for shadowing properties", () => {
     const context = createContext();
-    const member: IrClassMember = {
+    const member: Extract<IrClassMember, { kind: "propertyDeclaration" }> = {
       kind: "propertyDeclaration",
       name: "Value",
       type: { kind: "primitiveType", name: "string" },
@@ -54,7 +54,7 @@ describe("Shadowing member emission", () => {
       isShadow: true,
     };
 
-    const [code] = emitPropertyMember(member as any, context);
+    const [code] = emitPropertyMember(member, context);
     expect(code).to.include("public new string Value");
   });
 });

@@ -410,10 +410,14 @@ export const inferLambdaType = (
 
         if (returns.length === 0) return { kind: "voidType" as const };
 
-        const first = inferExpressionType(state, returns[0]!, env);
+        const firstReturn = returns[0];
+        if (!firstReturn) return undefined;
+        const first = inferExpressionType(state, firstReturn, env);
         if (!first) return undefined;
         for (let i = 1; i < returns.length; i++) {
-          const t = inferExpressionType(state, returns[i]!, env);
+          const currentReturn = returns[i];
+          if (!currentReturn) return undefined;
+          const t = inferExpressionType(state, currentReturn, env);
           if (!t || !typesEqual(t, first)) return undefined;
         }
         return first;

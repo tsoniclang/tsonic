@@ -667,7 +667,10 @@ describe("build command (library bindings)", function () {
         });
 
       expect(entityInternalPath).to.not.equal(undefined);
-      const coreEntitiesInternal = readFileSync(entityInternalPath!, "utf-8");
+      if (!entityInternalPath) {
+        throw new Error("Expected to find Entity$instance internal index path");
+      }
+      const coreEntitiesInternal = readFileSync(entityInternalPath, "utf-8");
       expect(coreEntitiesInternal).to.match(
         /set Maybe\(value: [^)]+undefined\)\s*;/
       );

@@ -139,7 +139,8 @@ export const emitBinary = (
           }
 
           if (matches.length === 1) {
-            candidates.push(matches[0]!);
+            const only = matches[0];
+            if (only) candidates.push(only);
           } else if (matches.length > 1) {
             const list = matches.sort().join(", ");
             throw new Error(

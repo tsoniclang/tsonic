@@ -259,8 +259,13 @@ export const emitFunctionDeclarationAst = (
     currentContext = next;
 
     if (isComplexPattern) {
+      if (!explicitName) {
+        throw new Error(
+          "ICE: missing synthetic parameter name for complex function pattern"
+        );
+      }
       destructuringParams.push({
-        syntheticName: explicitName!,
+        syntheticName: explicitName,
         pattern: parameter.pattern,
         type: parameter.type,
       });

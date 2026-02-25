@@ -58,14 +58,20 @@ const resolveLocalTypesForReference = (
   }
 
   if (matches.length === 0) return undefined;
-  if (matches.length === 1) return matches[0]!.localTypes;
+  if (matches.length === 1) {
+    const only = matches[0];
+    return only?.localTypes;
+  }
 
   const fqn =
     type.resolvedClrType ?? (type.name.includes(".") ? type.name : undefined);
   if (fqn && fqn.includes(".")) {
     const ns = fqn.slice(0, fqn.lastIndexOf("."));
     const filtered = matches.filter((m) => m.namespace === ns);
-    if (filtered.length === 1) return filtered[0]!.localTypes;
+    if (filtered.length === 1) {
+      const only = filtered[0];
+      return only?.localTypes;
+    }
   }
 
   return undefined;

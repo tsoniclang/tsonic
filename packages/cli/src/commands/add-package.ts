@@ -65,7 +65,13 @@ const setLibraryTypesMapping = (
     return { ok: true, value: undefined };
   }
 
-  const existing = entries[idx]!;
+  const existing = entries[idx];
+  if (!existing) {
+    return {
+      ok: false,
+      error: `ICE: library mapping index ${idx} is missing for '${libraryPath}'.`,
+    };
+  }
   if (typeof existing === "string") {
     entries[idx] = { path: existing, types: typesPackage };
     return { ok: true, value: undefined };

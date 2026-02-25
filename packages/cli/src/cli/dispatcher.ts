@@ -414,7 +414,15 @@ export const runCli = async (args: string[]): Promise<number> => {
     if (nearest) return { ok: true, value: nearest };
 
     if (projects.length === 1) {
-      return { ok: true, value: join(projects[0]!, PROJECT_CONFIG_FILE) };
+      const onlyProject = projects[0];
+      if (!onlyProject) {
+        return {
+          ok: false,
+          error:
+            "Internal error: exactly one project expected but none resolved.",
+        };
+      }
+      return { ok: true, value: join(onlyProject, PROJECT_CONFIG_FILE) };
     }
 
     return {
@@ -515,7 +523,12 @@ export const runCli = async (args: string[]): Promise<number> => {
   const config =
     parsed.command === "test"
       ? (() => {
-          const testsCfg = baseProjectConfig.tests!;
+          const testsCfg = baseProjectConfig.tests;
+          if (!testsCfg) {
+            throw new Error(
+              "ICE: test command requires tests configuration after validation"
+            );
+          }
           const outDir =
             testsCfg.outputDirectory ??
             `${resolvedConfig.outputDirectory}-test`;

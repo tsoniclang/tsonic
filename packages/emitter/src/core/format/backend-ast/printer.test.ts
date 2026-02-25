@@ -162,4 +162,16 @@ else
       "global::TestCases.common.@stackalloc.Type<System.Collections.Generic.@using>"
     );
   });
+
+  it("does not escape predefined primitive type keywords in type position", () => {
+    const scalar = printType({ kind: "identifierType", name: "int" });
+    const generic = printType({
+      kind: "identifierType",
+      name: "System.Collections.Generic.List",
+      typeArguments: [{ kind: "identifierType", name: "int" }],
+    });
+
+    expect(scalar).to.equal("int");
+    expect(generic).to.equal("System.Collections.Generic.List<int>");
+  });
 });

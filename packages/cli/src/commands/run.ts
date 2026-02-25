@@ -7,7 +7,7 @@ import { constants as osConstants } from "node:os";
 import type { ResolvedConfig, Result } from "../types.js";
 import { buildCommand } from "./build.js";
 
-const signalToExitCode = (signal: NodeJS.Signals): number => {
+const signalToExitCode = (signal: string): number => {
   const signalNumber = (
     osConstants.signals as Record<string, number | undefined>
   )[signal];

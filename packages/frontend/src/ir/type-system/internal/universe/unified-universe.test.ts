@@ -65,7 +65,10 @@ describe("buildUnifiedUniverse", () => {
     );
     const fooId = catalog.resolveTsName("Foo");
     expect(fooId).to.not.equal(undefined);
-    const member = catalog.getMember(fooId!, "count");
+    if (!fooId) {
+      throw new Error("Expected Foo type id to be resolved");
+    }
+    const member = catalog.getMember(fooId, "count");
     expect(member?.type?.kind).to.equal("unionType");
     if (member?.type?.kind === "unionType") {
       const hasUndefined = member.type.types.some(
@@ -110,7 +113,10 @@ describe("buildUnifiedUniverse", () => {
     );
     const fooId = catalog.resolveTsName("Foo");
     expect(fooId).to.not.equal(undefined);
-    const member = catalog.getMember(fooId!, "count");
+    if (!fooId) {
+      throw new Error("Expected Foo type id to be resolved");
+    }
+    const member = catalog.getMember(fooId, "count");
     expect(member?.type?.kind).to.equal("unionType");
     if (member?.type?.kind === "unionType") {
       const undefinedCount = member.type.types.filter(

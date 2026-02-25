@@ -146,7 +146,7 @@ const deriveNewExpressionType = (
  * DETERMINISTIC: Only uses TypeNodes from declarations, not TS type inference.
  * Returns undefined if type cannot be determined from declarations alone.
  */
-const deriveTypeFromInitializer = (
+const _deriveTypeFromInitializer = (
   initializer: ts.Expression,
   ctx: ProgramContext
 ): IrType | undefined => {
@@ -188,7 +188,7 @@ const deriveTypeFromInitializer = (
     if (initializer.elements.length > 0) {
       const firstElem = initializer.elements[0];
       if (firstElem && !ts.isSpreadElement(firstElem)) {
-        const elementType = deriveTypeFromInitializer(firstElem, ctx);
+        const elementType = _deriveTypeFromInitializer(firstElem, ctx);
         if (elementType) {
           return { kind: "arrayType", elementType };
         }

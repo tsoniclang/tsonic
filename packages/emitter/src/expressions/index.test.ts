@@ -6,7 +6,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitModule } from "../emitter.js";
-import { IrModule, IrType } from "@tsonic/frontend";
+import { IrExpression, IrModule, IrType } from "@tsonic/frontend";
 
 describe("Expression Emission", () => {
   it("should emit literals correctly", () => {
@@ -429,7 +429,7 @@ describe("Expression Emission", () => {
   it("should emit fluent Queryable extension methods broadly (Where/Select/FirstOrDefault/etc.)", () => {
     const methods: ReadonlyArray<{
       readonly member: string;
-      readonly args: any[];
+      readonly args: readonly IrExpression[];
     }> = [
       { member: "Where", args: [{ kind: "identifier", name: "pred" }] },
       { member: "Select", args: [{ kind: "identifier", name: "sel" }] },

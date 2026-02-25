@@ -24,7 +24,7 @@ const createContext = (): EmitterContext => ({
 describe("Static readonly property emission", () => {
   it("does not emit `init` for static readonly auto-properties", () => {
     const context = createContext();
-    const member: IrClassMember = {
+    const member: Extract<IrClassMember, { kind: "propertyDeclaration" }> = {
       kind: "propertyDeclaration",
       name: "Value",
       type: { kind: "primitiveType", name: "int" },
@@ -39,7 +39,7 @@ describe("Static readonly property emission", () => {
       accessibility: "public",
     };
 
-    const [code] = emitPropertyMember(member as any, context);
+    const [code] = emitPropertyMember(member, context);
     expect(code).to.include("public static int Value");
     expect(code).to.include("{ get; }");
     expect(code).to.not.include("init");

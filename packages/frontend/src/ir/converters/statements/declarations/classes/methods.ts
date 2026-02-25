@@ -914,7 +914,12 @@ export const convertMethodOverloadGroup = (
     );
   }
 
-  const impl = impls[0]!;
+  const impl = impls[0];
+  if (!impl) {
+    throw new Error(
+      "ICE: method overload group produced no implementation after cardinality check"
+    );
+  }
   const memberName = ts.isIdentifier(impl.name) ? impl.name.text : "[computed]";
 
   const sigs = nodes.filter((n) => !n.body);
@@ -969,7 +974,13 @@ export const convertMethodOverloadGroup = (
 
     const parameters: IrParameter[] = sigParams.map((p, i) => ({
       ...p,
-      pattern: implParams[i]!.pattern,
+      pattern:
+        implParams[i]?.pattern ??
+        (() => {
+          throw new Error(
+            `ICE: missing implementation parameter at index ${i} for overload '${memberName}'`
+          );
+        })(),
     }));
 
     const overrideInfo = detectOverride(
@@ -993,7 +1004,12 @@ export const convertMethodOverloadGroup = (
 
     const paramTypesByDeclId = new Map<number, IrType>();
     for (let i = 0; i < implParamDeclIds.length; i++) {
-      const declId = implParamDeclIds[i]!;
+      const declId = implParamDeclIds[i];
+      if (declId === undefined) {
+        throw new Error(
+          `ICE: missing implementation parameter DeclId at index ${i} for overload '${memberName}'`
+        );
+      }
       const t =
         i < parameters.length
           ? parameters[i]?.type
@@ -1010,7 +1026,8 @@ export const convertMethodOverloadGroup = (
     if (sigParams.length < implParams.length) {
       const missing = new Set<number>();
       for (let i = sigParams.length; i < implParamDeclIds.length; i++) {
-        missing.add(implParamDeclIds[i]!);
+        const declId = implParamDeclIds[i];
+        if (declId !== undefined) missing.add(declId);
       }
       if (missing.size > 0 && !assertNoMissingParamRefs(specialized, missing)) {
         throw new Error(

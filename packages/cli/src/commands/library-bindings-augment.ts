@@ -511,7 +511,7 @@ const expandUnionsDeep = (typeText: string): string => {
   let result = typeText;
 
   // Iterate until no more Union_N< patterns remain
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     unionPrefixRe.lastIndex = 0;
     const prefixMatch = unionPrefixRe.exec(result);
@@ -604,10 +604,12 @@ const patchFacadeWithSourceFunctionSignatures = (
 
     // Last arg = return type, remaining args = parameter types
     const facadeParamTypes = funcTypeArgs.slice(0, -1);
-    const facadeReturnType = funcTypeArgs[funcTypeArgs.length - 1]!;
+    const facadeReturnType = funcTypeArgs[funcTypeArgs.length - 1];
+    if (!facadeReturnType) continue;
 
     // Use the first source signature for parameter names
-    const sourceSig = signatures[0]!;
+    const sourceSig = signatures[0];
+    if (!sourceSig) continue;
     const sourceParams = sourceSig.parametersText
       .split(",")
       .map((p) => p.trim())
@@ -1088,7 +1090,15 @@ const collectExtensionWrapperImportsFromSourceType = (opts: {
       aliasName: `__TsonicExt_${ident}`,
     });
 
-    currentNode = args[0]!;
+    const nextNode = args[0];
+    if (!nextNode) {
+      return {
+        ok: false,
+        error:
+          `ExtensionMethods wrapper '${ident}' missing wrapped type argument in ${currentModuleKey}.`,
+      };
+    }
+    currentNode = nextNode;
   }
 
   return { ok: true, value: wrappers };

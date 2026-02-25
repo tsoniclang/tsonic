@@ -27,7 +27,7 @@ import type {
  *
  * INTERNAL ONLY. Not exported from public API.
  */
-export interface HandleRegistry {
+export type HandleRegistry = {
   getDecl(id: DeclId): DeclInfo | undefined;
   getSignature(id: SignatureId): SignatureInfo | undefined;
   getMember(id: MemberId): MemberInfo | undefined;
@@ -41,7 +41,7 @@ export interface HandleRegistry {
 /**
  * Type syntax info stored in the handle registry.
  */
-export interface TypeSyntaxInfo {
+export type TypeSyntaxInfo = {
   readonly typeNode: unknown; // ts.TypeNode — INTERNAL ONLY
 }
 
@@ -49,7 +49,7 @@ export interface TypeSyntaxInfo {
  * Captured class member names for override detection.
  * Pure data — no TS nodes.
  */
-export interface ClassMemberNames {
+export type ClassMemberNames = {
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlySet<string>;
 }
@@ -57,7 +57,7 @@ export interface ClassMemberNames {
 /**
  * Declaration info stored in the handle registry.
  */
-export interface DeclInfo {
+export type DeclInfo = {
   readonly typeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly kind: DeclKind;
   readonly fqName?: string;
@@ -86,7 +86,7 @@ export type DeclKind =
 /**
  * Signature info stored in the handle registry.
  */
-export interface SignatureInfo {
+export type SignatureInfo = {
   readonly parameters: readonly ParameterNode[];
   /** Type node of a TypeScript `this:` parameter (if present). Excluded from `parameters`. */
   readonly thisTypeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
@@ -116,7 +116,7 @@ export type SignatureTypePredicate =
       readonly targetTypeNode: unknown; // ts.TypeNode — INTERNAL ONLY
     };
 
-export interface ParameterNode {
+export type ParameterNode = {
   readonly name: string;
   readonly typeNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly isOptional: boolean;
@@ -124,7 +124,7 @@ export interface ParameterNode {
   readonly mode?: ParameterMode;
 }
 
-export interface TypeParameterNode {
+export type TypeParameterNode = {
   readonly name: string;
   readonly constraintNode?: unknown; // ts.TypeNode — INTERNAL ONLY
   readonly defaultNode?: unknown; // ts.TypeNode — INTERNAL ONLY
@@ -133,7 +133,7 @@ export interface TypeParameterNode {
 /**
  * Member info stored in the handle registry.
  */
-export interface MemberInfo {
+export type MemberInfo = {
   readonly name: string;
   readonly declNode?: unknown; // ts.Declaration — INTERNAL ONLY
   readonly typeNode?: unknown; // ts.TypeNode — INTERNAL ONLY

@@ -22,7 +22,47 @@ import type {
 
 const indentPrefix = (level: number): string => "    ".repeat(level);
 
-const escapeQualifiedIdentifier = (qualifiedName: string): string =>
+const CSHARP_PREDEFINED_TYPE_KEYWORDS: ReadonlySet<string> = new Set([
+  "bool",
+  "byte",
+  "sbyte",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "long",
+  "ulong",
+  "nint",
+  "nuint",
+  "char",
+  "float",
+  "double",
+  "decimal",
+  "string",
+  "object",
+  "void",
+]);
+
+const escapeIdentifierToken = (
+  token: string,
+  options?: { readonly preservePredefinedTypeKeywords?: boolean }
+): string => {
+  if (token.length === 0 || token.startsWith("@")) {
+    return token;
+  }
+  if (
+    options?.preservePredefinedTypeKeywords === true &&
+    CSHARP_PREDEFINED_TYPE_KEYWORDS.has(token)
+  ) {
+    return token;
+  }
+  return escapeCSharpIdentifier(token);
+};
+
+const escapeQualifiedIdentifier = (
+  qualifiedName: string,
+  options?: { readonly preservePredefinedTypeKeywords?: boolean }
+): string =>
   (() => {
     let token = "";
     const parts: string[] = [];
@@ -31,13 +71,13 @@ const escapeQualifiedIdentifier = (qualifiedName: string): string =>
       const ch = qualifiedName[index];
       const next = qualifiedName[index + 1];
       if (ch === ".") {
-        parts.push(escapeCSharpIdentifier(token), ".");
+        parts.push(escapeIdentifierToken(token, options), ".");
         token = "";
         index++;
         continue;
       }
       if (ch === ":" && next === ":") {
-        parts.push(escapeCSharpIdentifier(token), "::");
+        parts.push(escapeIdentifierToken(token, options), "::");
         token = "";
         index += 2;
         continue;
@@ -45,7 +85,7 @@ const escapeQualifiedIdentifier = (qualifiedName: string): string =>
       token += ch;
       index++;
     }
-    parts.push(escapeCSharpIdentifier(token));
+    parts.push(escapeIdentifierToken(token, options));
     return parts.join("");
   })();
 
@@ -84,10 +124,12 @@ export const printType = (type: CSharpTypeAst): string => {
       return type.keyword;
     case "identifierType":
       return type.typeArguments && type.typeArguments.length > 0
-        ? `${escapeQualifiedIdentifier(type.name)}<${type.typeArguments
-            .map(printType)
-            .join(", ")}>`
-        : escapeQualifiedIdentifier(type.name);
+        ? `${escapeQualifiedIdentifier(type.name, {
+            preservePredefinedTypeKeywords: true,
+          })}<${type.typeArguments.map(printType).join(", ")}>`
+        : escapeQualifiedIdentifier(type.name, {
+            preservePredefinedTypeKeywords: true,
+          });
     case "arrayType":
       return `${printType(type.elementType)}[${",".repeat(
         Math.max(0, type.rank - 1)

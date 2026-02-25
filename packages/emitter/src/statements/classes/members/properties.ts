@@ -145,6 +145,7 @@ export const emitPropertyMember = (
 
   if (member.getterBody) {
     lines.push(`${bodyInd}get`);
+    const getterBody = member.getterBody;
     const getterBodyContext = indent(bodyContext);
     const savedUsed = getterBodyContext.usedLocalNames;
     const getterEmitContext: EmitterContext = {
@@ -154,7 +155,7 @@ export const emitPropertyMember = (
     const [getterBlock, getterCtx] = withScoped(
       getterEmitContext,
       { returnType: member.type },
-      (scopedCtx) => emitBlockStatement(member.getterBody!, scopedCtx)
+      (scopedCtx) => emitBlockStatement(getterBody, scopedCtx)
     );
     lines.push(getterBlock);
     bodyContext = { ...dedent(getterCtx), usedLocalNames: savedUsed };
@@ -162,6 +163,7 @@ export const emitPropertyMember = (
 
   if (member.setterBody) {
     lines.push(`${bodyInd}set`);
+    const setterBody = member.setterBody;
     const setterBodyContext = indent(bodyContext);
     const savedUsed = setterBodyContext.usedLocalNames;
 
@@ -189,7 +191,7 @@ export const emitPropertyMember = (
     const [rawSetterBlock, setterCtx] = withScoped(
       setterEmitContext,
       { localNameMap: scopedLocalNameMap },
-      (scopedCtx) => emitBlockStatement(member.setterBody!, scopedCtx)
+      (scopedCtx) => emitBlockStatement(setterBody, scopedCtx)
     );
 
     const setterBlock = (() => {

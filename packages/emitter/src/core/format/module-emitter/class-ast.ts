@@ -270,8 +270,13 @@ const emitMethodMemberAst = (
     parameters.push(parameterAst);
     currentContext = next;
     if (isComplexPattern) {
+      if (!explicitName) {
+        throw new Error(
+          "ICE: missing synthetic parameter name for complex method pattern"
+        );
+      }
       destructuringParams.push({
-        syntheticName: explicitName!,
+        syntheticName: explicitName,
         pattern: parameter.pattern,
         type: parameter.type,
       });
@@ -700,8 +705,13 @@ const emitConstructorMemberAst = (
     parameters.push(parameterAst);
     currentContext = next;
     if (isComplexPattern) {
+      if (!explicitName) {
+        throw new Error(
+          "ICE: missing synthetic parameter name for complex constructor pattern"
+        );
+      }
       destructuringParams.push({
-        syntheticName: explicitName!,
+        syntheticName: explicitName,
         pattern: parameter.pattern,
         type: parameter.type,
       });

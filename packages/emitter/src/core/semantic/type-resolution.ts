@@ -300,14 +300,22 @@ const resolveLocalTypeInfo = (
   }
 
   if (matches.length === 0) return undefined;
-  if (matches.length === 1) return { info: matches[0]!.info };
+  if (matches.length === 1) {
+    const only = matches[0];
+    if (!only) return undefined;
+    return { info: only.info };
+  }
 
   const fqn =
     ref.resolvedClrType ?? (ref.name.includes(".") ? ref.name : undefined);
   if (fqn && fqn.includes(".")) {
     const namespace = fqn.slice(0, fqn.lastIndexOf("."));
     const scoped = matches.filter((m) => m.namespace === namespace);
-    if (scoped.length === 1) return { info: scoped[0]!.info };
+    if (scoped.length === 1) {
+      const only = scoped[0];
+      if (!only) return undefined;
+      return { info: only.info };
+    }
   }
 
   return undefined;

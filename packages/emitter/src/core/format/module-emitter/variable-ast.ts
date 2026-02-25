@@ -88,7 +88,9 @@ const resolveTupleRestType = (
   if (remaining.length === 0)
     return { kind: "arrayType", elementType: { kind: "neverType" } };
   if (remaining.length === 1) {
-    return { kind: "arrayType", elementType: remaining[0]! };
+    const only = remaining[0];
+    if (!only) return { kind: "arrayType", elementType: { kind: "neverType" } };
+    return { kind: "arrayType", elementType: only };
   }
   return {
     kind: "arrayType",

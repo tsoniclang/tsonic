@@ -8,6 +8,10 @@ import type {
   IrModule,
   IrClassDeclaration,
   IrFunctionDeclaration,
+  IrExpression,
+  IrObjectProperty,
+  IrType,
+  IrStatement,
 } from "../types.js";
 
 /**
@@ -71,10 +75,10 @@ describe("Attribute Collection Pass", () => {
     resolvedClrType,
   });
 
-  const makeTypedIdentifier = (name: string, inferredType: unknown) => ({
+  const makeTypedIdentifier = (name: string, inferredType: IrType) => ({
     kind: "identifier" as const,
     name,
-    inferredType: inferredType as any,
+    inferredType,
   });
 
   const makeRefType = (name: string, resolvedClrType?: string) => ({
@@ -86,8 +90,7 @@ describe("Attribute Collection Pass", () => {
   /**
    * Helper to create a minimal member access IR
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const makeMemberAccess = (object: any, property: string) => ({
+  const makeMemberAccess = (object: IrExpression, property: string) => ({
     kind: "memberAccess" as const,
     object,
     property,
@@ -98,8 +101,7 @@ describe("Attribute Collection Pass", () => {
   /**
    * Helper to create a minimal call IR
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const makeCall = (callee: any, args: readonly any[]) => ({
+  const makeCall = (callee: IrExpression, args: readonly IrExpression[]) => ({
     kind: "call" as const,
     callee,
     arguments: args,
@@ -115,32 +117,37 @@ describe("Attribute Collection Pass", () => {
     raw: String(value),
   });
 
-  const makeObject = (properties: readonly unknown[]) => ({
+  const makeObject = (properties: readonly IrObjectProperty[]) => ({
     kind: "object" as const,
     properties,
   });
 
-  const makeObjectProp = (key: string | unknown, value: unknown) => ({
+  const makeObjectProp = (
+    key: string | IrExpression,
+    value: IrExpression
+  ): Extract<IrObjectProperty, { kind: "property" }> => ({
     kind: "property" as const,
-    key: key as any,
-    value: value as any,
+    key,
+    value,
     shorthand: false as const,
   });
 
-  const makeObjectSpread = (expression: unknown) => ({
+  const makeObjectSpread = (
+    expression: IrExpression
+  ): Extract<IrObjectProperty, { kind: "spread" }> => ({
     kind: "spread" as const,
-    expression: expression as any,
+    expression,
   });
 
-  const makeUnaryTypeof = (expression: unknown) => ({
+  const makeUnaryTypeof = (expression: IrExpression) => ({
     kind: "unary" as const,
     operator: "typeof" as const,
-    expression: expression as any,
+    expression,
   });
 
-  const makeSpreadArg = (expression: unknown) => ({
+  const makeSpreadArg = (expression: IrExpression) => ({
     kind: "spread" as const,
-    expression: expression as any,
+    expression,
   });
 
   const makeParameter = (name: string) => ({
@@ -198,7 +205,7 @@ describe("Attribute Collection Pass", () => {
   const makeTypeMarkerCallWithTarget = (
     targetName: string,
     attrName: string,
-    targetArg: unknown,
+    targetArg: IrExpression,
     apiObjectName = "A"
   ) => ({
     kind: "expressionStatement" as const,
@@ -241,7 +248,7 @@ describe("Attribute Collection Pass", () => {
   const makeCtorMarkerCallWithTarget = (
     targetName: string,
     attrName: string,
-    targetArg: unknown
+    targetArg: IrExpression
   ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
@@ -267,7 +274,7 @@ describe("Attribute Collection Pass", () => {
   const makeMethodMarkerCall = (
     targetName: string,
     attrName: string,
-    selector: unknown
+    selector: IrExpression
   ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
@@ -290,8 +297,8 @@ describe("Attribute Collection Pass", () => {
   const makeMethodMarkerCallWithTarget = (
     targetName: string,
     attrName: string,
-    selector: unknown,
-    targetArg: unknown
+    selector: IrExpression,
+    targetArg: IrExpression
   ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
@@ -344,7 +351,7 @@ describe("Attribute Collection Pass", () => {
     targetName: string,
     propName: string,
     attrName: string,
-    targetArg: unknown
+    targetArg: IrExpression
   ) => ({
     kind: "expressionStatement" as const,
     expression: makeCall(
@@ -1430,7 +1437,7 @@ describe("Attribute Collection Pass", () => {
           isExported: true,
           isStruct: false,
         } as IrClassDeclaration,
-        makeAttrDescriptorDecl("d", "ObsoleteAttribute") as unknown as any,
+        makeAttrDescriptorDecl("d", "ObsoleteAttribute") as IrStatement,
         makeAddDescriptorMarkerCall("User", "d"),
       ]);
 

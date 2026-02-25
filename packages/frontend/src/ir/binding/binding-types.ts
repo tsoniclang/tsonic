@@ -31,7 +31,7 @@ import type {
  * All methods return opaque handles. Use HandleRegistry to look up
  * the underlying declaration/signature information.
  */
-export interface Binding {
+export type Binding = {
   // ═══════════════════════════════════════════════════════════════════════════
   // DECLARATION RESOLUTION
   // ═══════════════════════════════════════════════════════════════════════════
@@ -203,7 +203,7 @@ export interface Binding {
  * INVARIANT (Alice's spec): Only createTypeSystem() should access
  * _getHandleRegistry(). All other code uses the TypeSystem API.
  */
-export interface BindingInternal extends Binding {
+export type BindingInternal = {
   /**
    * Get the handle registry for TypeSystem construction.
    *
@@ -212,7 +212,7 @@ export interface BindingInternal extends Binding {
    * All other code should use TypeSystem queries instead.
    */
   _getHandleRegistry(): import("../type-system/internal/handle-types.js").HandleRegistry;
-}
+} & Binding
 
 /**
  * Type predicate information for `x is T` predicates.
@@ -227,7 +227,7 @@ export type TypePredicateInfo = {
 // INTERNAL TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface DeclEntry {
+export type DeclEntry = {
   readonly symbol: ts.Symbol;
   readonly decl?: ts.Declaration;
   readonly typeDeclNode?: ts.Declaration;
@@ -238,7 +238,7 @@ export interface DeclEntry {
   readonly classMemberNames?: ClassMemberNames;
 }
 
-export interface SignatureEntry {
+export type SignatureEntry = {
   readonly signature: ts.Signature;
   readonly decl?: ts.SignatureDeclaration;
   readonly parameters: readonly ParameterNode[];
@@ -257,7 +257,7 @@ export interface SignatureEntry {
   readonly typePredicate?: SignatureTypePredicate;
 }
 
-export interface MemberEntry {
+export type MemberEntry = {
   readonly memberId: MemberId;
   readonly symbol: ts.Symbol;
   readonly decl?: ts.Declaration;
@@ -270,6 +270,6 @@ export interface MemberEntry {
 /**
  * Entry for captured type syntax (Phase 2: TypeSyntaxId).
  */
-export interface TypeSyntaxEntry {
+export type TypeSyntaxEntry = {
   readonly typeNode: ts.TypeNode;
 }

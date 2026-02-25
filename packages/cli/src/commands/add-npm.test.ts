@@ -21,6 +21,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addNpmCommand } from "./add-npm.js";
 
+type TestWorkspaceConfig = {
+  dotnet: {
+    frameworkReferences?: unknown[];
+    packageReferences?: unknown[];
+    msbuildProperties?: Record<string, string>;
+  };
+  testDotnet?: {
+    packageReferences?: unknown[];
+  };
+};
+
 const writeWorkspaceConfig = (dir: string): string => {
   const configPath = join(dir, "tsonic.workspace.json");
   writeFileSync(
@@ -51,9 +62,10 @@ const writeWorkspaceConfig = (dir: string): string => {
   return configPath;
 };
 
-const readWorkspaceConfig = (dir: string): any => {
-  return JSON.parse(readFileSync(join(dir, "tsonic.workspace.json"), "utf-8"));
-};
+const readWorkspaceConfig = (dir: string): TestWorkspaceConfig =>
+  JSON.parse(
+    readFileSync(join(dir, "tsonic.workspace.json"), "utf-8")
+  ) as TestWorkspaceConfig;
 
 const writeLocalNpmPackage = (
   workspaceRoot: string,
@@ -136,7 +148,7 @@ describe("add npm", function () {
       expect(cfg.dotnet.msbuildProperties).to.deep.equal({
         InterceptorsNamespaces: "Acme.Generated",
       });
-      expect(cfg.testDotnet.packageReferences).to.deep.equal([
+      expect(cfg.testDotnet?.packageReferences).to.deep.equal([
         { id: "Acme.Test", version: "2.0.0", types: false },
       ]);
     } finally {

@@ -2061,13 +2061,18 @@ describe("Record Type Expansion", () => {
 
       // Get the key type node and check its flags
       expect(typeRef).not.to.equal(null);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const foundTypeRef = typeRef!;
+      if (!typeRef) {
+        throw new Error("Expected to find Record type reference in test source");
+      }
+      const foundTypeRef: ts.TypeReferenceNode = typeRef;
       const keyTypeNode = foundTypeRef.typeArguments?.[0];
       expect(keyTypeNode).not.to.equal(undefined);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
       // NOTE: This test uses getTypeAtLocation to verify TS internal behavior
-      const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
+      if (!keyTypeNode) {
+        throw new Error("Expected Record<K, V> key type node");
+      }
+      const keyTsType = checker.getTypeAtLocation(keyTypeNode);
 
       // The key type should be a type parameter, not string
       expect(!!(keyTsType.flags & ts.TypeFlags.TypeParameter)).to.equal(true);

@@ -214,6 +214,8 @@ export const substituteTypeParameters = (
   substitutions: ReadonlyMap<string, IrType>
 ): IrType | undefined => {
   if (!type) return undefined;
+  const substituteRequired = (value: IrType): IrType =>
+    substituteTypeParameters(value, substitutions) ?? value;
 
   switch (type.kind) {
     case "typeParameterType":
@@ -221,20 +223,18 @@ export const substituteTypeParameters = (
     case "arrayType":
       return {
         ...type,
-        elementType: substituteTypeParameters(type.elementType, substitutions)!,
+        elementType: substituteRequired(type.elementType),
       };
     case "tupleType":
       return {
         ...type,
-        elementTypes: type.elementTypes.map(
-          (t) => substituteTypeParameters(t, substitutions)!
-        ),
+        elementTypes: type.elementTypes.map((t) => substituteRequired(t)),
       };
     case "dictionaryType":
       return {
         ...type,
-        keyType: substituteTypeParameters(type.keyType, substitutions)!,
-        valueType: substituteTypeParameters(type.valueType, substitutions)!,
+        keyType: substituteRequired(type.keyType),
+        valueType: substituteRequired(type.valueType),
       };
     case "referenceType":
       return {
@@ -242,7 +242,7 @@ export const substituteTypeParameters = (
         ...(type.typeArguments
           ? {
               typeArguments: type.typeArguments.map(
-                (t) => substituteTypeParameters(t, substitutions)!
+                (t) => substituteRequired(t)
               ),
             }
           : {}),
@@ -251,9 +251,7 @@ export const substituteTypeParameters = (
     case "intersectionType":
       return {
         ...type,
-        types: type.types.map(
-          (t) => substituteTypeParameters(t, substitutions)!
-        ),
+        types: type.types.map((t) => substituteRequired(t)),
       };
     case "functionType":
       return {
@@ -262,7 +260,7 @@ export const substituteTypeParameters = (
           ...p,
           type: substituteTypeParameters(p.type, substitutions),
         })),
-        returnType: substituteTypeParameters(type.returnType, substitutions)!,
+        returnType: substituteRequired(type.returnType),
       };
     case "objectType":
       return {
@@ -271,7 +269,7 @@ export const substituteTypeParameters = (
           if (m.kind === "propertySignature") {
             return {
               ...m,
-              type: substituteTypeParameters(m.type, substitutions)!,
+              type: substituteRequired(m.type),
             };
           }
           return {
@@ -570,7 +568,7 @@ export const extractArgumentPassingFromBinding = (
         return [
           simple
             .replace(/\$instance$/, "")
-            .replace(/^\_\_/, "")
+            .replace(/^__/, "")
             .replace(/\$views$/, ""),
         ];
       }
