@@ -15,6 +15,7 @@ import { emitExport } from "../exports.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { statementUsesPointer } from "../../semantic/unsafe.js";
 import { getCSharpName } from "../../../naming-policy.js";
+import { emitEnumDeclarationAst } from "./enum-ast.js";
 import {
   classBlankLine,
   classPreludeMember,
@@ -136,6 +137,17 @@ export const emitStaticContainer = (
 
   // Emit declarations as static members
   for (const stmt of declarations) {
+    if (stmt.kind === "enumDeclaration") {
+      const [enumMember, newContext] = emitEnumDeclarationAst(
+        stmt,
+        bodyCurrentContext,
+        bodyCurrentContext.indentLevel
+      );
+      bodyParts.push(enumMember);
+      bodyCurrentContext = newContext;
+      continue;
+    }
+
     const [code, newContext] = emitStatement(stmt, bodyCurrentContext);
     bodyParts.push(classPreludeMember(code, 0));
     bodyCurrentContext = newContext;

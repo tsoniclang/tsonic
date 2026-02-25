@@ -5,6 +5,7 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, indent } from "../../../types.js";
 import { emitStatement } from "../../../statement-emitter.js";
+import { emitEnumDeclarationAst } from "./enum-ast.js";
 import {
   preludeSection,
   type CSharpNamespaceMemberAst,
@@ -28,6 +29,17 @@ export const emitNamespaceDeclarations = (
   let currentContext = namespaceContext;
 
   for (const decl of declarations) {
+    if (decl.kind === "enumDeclaration") {
+      const [enumMember, newContext] = emitEnumDeclarationAst(
+        decl,
+        namespaceContext,
+        1
+      );
+      members.push(enumMember);
+      currentContext = { ...newContext, hasInheritance };
+      continue;
+    }
+
     // Use the same base context for each declaration to maintain consistent indentation
     const [code, newContext] = emitStatement(decl, namespaceContext);
     members.push(preludeSection(code, 0));
