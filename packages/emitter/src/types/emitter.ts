@@ -1,5 +1,10 @@
 /**
  * Type emission main dispatcher
+ *
+ * Pipeline: IR type → CSharpTypeAst → printType → C# text
+ *
+ * `emitTypeAst` is the primary dispatcher returning typed AST nodes.
+ * `emitType` is a thin shim that prints the AST to text for backward compatibility.
  */
 
 import { IrType } from "@tsonic/frontend";
@@ -14,14 +19,16 @@ import { emitDictionaryType } from "./dictionaries.js";
 import { emitUnionType } from "./unions.js";
 import { emitIntersectionType } from "./intersections.js";
 import { emitLiteralType } from "./literals.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import { printType } from "../core/format/backend-ast/printer.js";
 
 /**
- * Emit a C# type from an IR type
+ * Emit a CSharpTypeAst from an IR type (primary dispatcher)
  */
-export const emitType = (
+export const emitTypeAst = (
   type: IrType,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   switch (type.kind) {
     case "primitiveType":
       return emitPrimitiveType(type, context);
@@ -33,7 +40,10 @@ export const emitType = (
       // Type parameters emit as their mapped name (e.g., A -> TA) when needed to avoid
       // CLR naming collisions with members after namingPolicy transforms.
       return [
-        context.typeParameterNameMap?.get(type.name) ?? type.name,
+        {
+          kind: "identifierType",
+          name: context.typeParameterNameMap?.get(type.name) ?? type.name,
+        },
         context,
       ];
 
@@ -69,13 +79,19 @@ export const emitType = (
 
     case "unknownType":
       // 'unknown' is a legitimate type - emit as nullable object
-      return ["object?", context];
+      return [
+        {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "object" },
+        },
+        context,
+      ];
 
     case "voidType":
-      return ["void", context];
+      return [{ kind: "predefinedType", keyword: "void" }, context];
 
     case "neverType":
-      return ["void", context];
+      return [{ kind: "predefinedType", keyword: "void" }, context];
 
     default: {
       // ICE: All IR types should be handled explicitly
@@ -85,4 +101,18 @@ export const emitType = (
       );
     }
   }
+};
+
+/**
+ * Emit a C# type string from an IR type (backward-compatible shim)
+ *
+ * This is a thin wrapper around emitTypeAst that prints the AST to text.
+ * Prefer emitTypeAst for new code that constructs AST nodes directly.
+ */
+export const emitType = (
+  type: IrType,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  const [ast, newContext] = emitTypeAst(type, context);
+  return [printType(ast), newContext];
 };

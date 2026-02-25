@@ -5,6 +5,7 @@
 
 export {
   emitType,
+  emitTypeAst,
   emitTypeParameters,
   emitParameterType,
   emitPrimitiveType,

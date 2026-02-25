@@ -4,10 +4,11 @@
 
 import { IrDictionaryType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
- * Emit dictionary type as global::System.Collections.Generic.Dictionary<TKey, TValue>
+ * Emit dictionary type as CSharpTypeAst (identifierType node)
  *
  * IrDictionaryType represents:
  * - `{ [k: string]: T }` → Dictionary<string, T>
@@ -20,34 +21,38 @@ import { emitType } from "./emitter.js";
 export const emitDictionaryType = (
   type: IrDictionaryType,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   // Emit key type
-  const [keyTypeStr, ctx1] = emitDictionaryKeyType(type.keyType, context);
+  const [keyTypeAst, ctx1] = emitDictionaryKeyType(type.keyType, context);
 
   // Emit value type
-  const [valueTypeStr, ctx2] = emitType(type.valueType, ctx1);
+  const [valueTypeAst, ctx2] = emitTypeAst(type.valueType, ctx1);
 
   return [
-    `global::System.Collections.Generic.Dictionary<${keyTypeStr}, ${valueTypeStr}>`,
+    {
+      kind: "identifierType",
+      name: "global::System.Collections.Generic.Dictionary",
+      typeArguments: [keyTypeAst, valueTypeAst],
+    },
     ctx2,
   ];
 };
 
 /**
- * Emit dictionary key type.
+ * Emit dictionary key type as CSharpTypeAst.
  * Allowed: string, number (→ double).
  * Unsupported keys trigger ICE - validation should have caught them.
  */
 const emitDictionaryKeyType = (
   keyType: IrDictionaryType["keyType"],
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   if (keyType.kind === "primitiveType") {
     switch (keyType.name) {
       case "string":
-        return ["string", context];
+        return [{ kind: "predefinedType", keyword: "string" }, context];
       case "number":
-        return ["double", context];
+        return [{ kind: "predefinedType", keyword: "double" }, context];
     }
   }
 
