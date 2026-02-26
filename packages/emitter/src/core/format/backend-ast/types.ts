@@ -217,14 +217,6 @@ export type CSharpLambdaExpressionAst = {
   readonly isAsync: boolean;
   readonly parameters: readonly CSharpLambdaParameterAst[];
   readonly body: CSharpExpressionAst | CSharpBlockStatementAst;
-  /**
-   * Pre-rendered block body text from the statement emitter.
-   * When set, the printer uses this instead of printing body.
-   * This is an explicit bridge at the expression/statement boundary:
-   * the statement pipeline is still text-based, so lambda block bodies
-   * carry pre-rendered text until the statement pipeline is converted to AST.
-   */
-  readonly preRenderedBody?: string;
 };
 
 export type CSharpInterpolatedStringPartText = {

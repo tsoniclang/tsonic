@@ -3,9 +3,9 @@
  */
 
 import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
-import { EmitterContext, indent, withStatic } from "../types.js";
+import { EmitterContext, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
-import { emitStatement } from "../statement-emitter.js";
+import { emitBlockStatementAst } from "../statement-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import type {
@@ -139,11 +139,9 @@ export const emitFunctionExpression = (
     expr.inferredType?.kind === "functionType"
       ? expr.inferredType.returnType
       : undefined;
-  const blockContextBase = bodyContextSeeded.isStatic
-    ? indent(bodyContextSeeded)
-    : bodyContextSeeded;
-  const [blockCode] = emitStatement(expr.body, {
-    ...withStatic(blockContextBase, false),
+  const blockContext = withStatic(bodyContextSeeded, false);
+  const [blockAst] = emitBlockStatementAst(expr.body, {
+    ...blockContext,
     returnType,
   });
 
@@ -151,8 +149,7 @@ export const emitFunctionExpression = (
     kind: "lambdaExpression",
     isAsync: expr.isAsync ?? false,
     parameters: paramAsts,
-    body: { kind: "literalExpression", text: "" },
-    preRenderedBody: blockCode,
+    body: blockAst,
   };
   return [result, paramContext];
 };
@@ -179,20 +176,17 @@ export const emitArrowFunction = (
       : undefined;
 
   if (expr.body.kind === "blockStatement") {
-    // Block body: use preRenderedBody since statement emitter returns text
-    const blockContextBase = bodyContextSeeded.isStatic
-      ? indent(bodyContextSeeded)
-      : bodyContextSeeded;
-    const [blockCode] = emitStatement(expr.body, {
-      ...withStatic(blockContextBase, false),
+    // Block body: emit as AST directly
+    const blockContext = withStatic(bodyContextSeeded, false);
+    const [blockAst] = emitBlockStatementAst(expr.body, {
+      ...blockContext,
       returnType,
     });
     const result: CSharpExpressionAst = {
       kind: "lambdaExpression",
       isAsync: expr.isAsync ?? false,
       parameters: paramAsts,
-      body: { kind: "literalExpression", text: "" },
-      preRenderedBody: blockCode,
+      body: blockAst,
     };
     return [result, paramContext];
   } else {

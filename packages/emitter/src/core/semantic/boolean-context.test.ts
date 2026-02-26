@@ -209,5 +209,4 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
       expect(next.tempVarId).to.equal(1);
     });
   });
-
 });

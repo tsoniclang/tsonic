@@ -626,11 +626,6 @@ const printLambdaExpression = (
   const asyncPrefix = expr.isAsync ? "async " : "";
   const params = printLambdaParameters(expr.parameters);
 
-  // Pre-rendered block body from the statement emitter (expression/statement boundary bridge)
-  if (expr.preRenderedBody !== undefined) {
-    return `${asyncPrefix}${params} =>\n${expr.preRenderedBody}`;
-  }
-
   if (expr.body.kind === "blockStatement") {
     // Block body lambda - will be printed inline
     // The caller (statement printer) handles indentation
