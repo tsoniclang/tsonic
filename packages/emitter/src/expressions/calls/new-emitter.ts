@@ -5,11 +5,17 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { emitTypeArguments, generateSpecializedName } from "../identifiers.js";
-import { emitType } from "../../type-emitter.js";
+import {
+  emitTypeArgumentsAst,
+  generateSpecializedName,
+} from "../identifiers.js";
+import { emitType, emitTypeAst } from "../../type-emitter.js";
 import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
 import { printExpression } from "../../core/format/backend-ast/printer.js";
-import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
  * Check if a new expression is new List<T>([...]) with an array literal argument
@@ -71,7 +77,7 @@ const emitListCollectionInitializer = (
   currentContext = calleeContext;
   let calleeText = printExpression(calleeAst);
 
-  let typeArgsStr = "";
+  let typeArgAsts: readonly CSharpTypeAst[] = [];
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
       const [specializedName, specContext] = generateSpecializedName(
@@ -82,11 +88,11 @@ const emitListCollectionInitializer = (
       calleeText = specializedName;
       currentContext = specContext;
     } else {
-      const [typeArgs, typeContext] = emitTypeArguments(
+      const [typeArgs, typeContext] = emitTypeArgumentsAst(
         expr.typeArguments,
         currentContext
       );
-      typeArgsStr = typeArgs;
+      typeArgAsts = typeArgs;
       currentContext = typeContext;
     }
   }
@@ -96,7 +102,7 @@ const emitListCollectionInitializer = (
     { kind: "array" }
   >;
 
-  const elemTexts: string[] = [];
+  const elemAsts: CSharpExpressionAst[] = [];
   for (const element of arrayLiteral.elements) {
     if (element === undefined) {
       continue;
@@ -106,17 +112,24 @@ const emitListCollectionInitializer = (
       return [fallbackAst, fallbackContext];
     } else {
       const [elemAst, ctx] = emitExpressionAst(element, currentContext);
-      elemTexts.push(printExpression(elemAst));
+      elemAsts.push(elemAst);
       currentContext = ctx;
     }
   }
 
-  const text =
-    elemTexts.length === 0
-      ? `new ${calleeText}${typeArgsStr}()`
-      : `new ${calleeText}${typeArgsStr} { ${elemTexts.join(", ")} }`;
+  const typeAst: CSharpTypeAst =
+    typeArgAsts.length > 0
+      ? { kind: "identifierType", name: calleeText, typeArguments: typeArgAsts }
+      : { kind: "identifierType", name: calleeText };
 
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  const result: CSharpExpressionAst = {
+    kind: "objectCreationExpression",
+    type: typeAst,
+    arguments: elemAsts.length === 0 ? [] : [],
+    initializer: elemAsts.length > 0 ? elemAsts : undefined,
+  };
+
+  return [result, currentContext];
 };
 
 /**
@@ -149,25 +162,39 @@ const emitArrayConstructor = (
   const elementType = typeArgs?.[0];
   if (!elementType) {
     return [
-      { kind: "identifierExpression", identifier: "new object[0]" },
+      {
+        kind: "arrayCreationExpression",
+        elementType: { kind: "predefinedType", keyword: "object" },
+        sizeExpression: { kind: "literalExpression", text: "0" },
+      },
       currentContext,
     ];
   }
-  const [elementTypeStr, typeContext] = emitType(elementType, currentContext);
+  const [elementTypeAst, typeContext] = emitTypeAst(
+    elementType,
+    currentContext
+  );
   currentContext = typeContext;
 
-  let sizeStr = "0";
+  let sizeAstNode: CSharpExpressionAst = {
+    kind: "literalExpression",
+    text: "0",
+  };
   if (expr.arguments.length > 0) {
     const sizeArg = expr.arguments[0];
     if (sizeArg && sizeArg.kind !== "spread") {
       const [sizeAst, sizeContext] = emitExpressionAst(sizeArg, currentContext);
-      sizeStr = printExpression(sizeAst);
+      sizeAstNode = sizeAst;
       currentContext = sizeContext;
     }
   }
 
-  const text = `new ${elementTypeStr}[${sizeStr}]`;
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  const result: CSharpExpressionAst = {
+    kind: "arrayCreationExpression",
+    elementType: elementTypeAst,
+    sizeExpression: sizeAstNode,
+  };
+  return [result, currentContext];
 };
 
 const isPromiseConstructorCall = (
@@ -384,7 +411,7 @@ export const emitNew = (
   let currentContext = newContext;
   let calleeText = printExpression(calleeAst);
 
-  let typeArgsStr = "";
+  let typeArgAsts: readonly CSharpTypeAst[] = [];
 
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
@@ -396,16 +423,16 @@ export const emitNew = (
       calleeText = specializedName;
       currentContext = specContext;
     } else {
-      const [typeArgs, typeContext] = emitTypeArguments(
+      const [typeArgs, typeContext] = emitTypeArgumentsAst(
         expr.typeArguments,
         currentContext
       );
-      typeArgsStr = typeArgs;
+      typeArgAsts = typeArgs;
       currentContext = typeContext;
     }
   }
 
-  const argTexts: string[] = [];
+  const argAsts: CSharpExpressionAst[] = [];
   const parameterTypes = expr.parameterTypes ?? [];
   for (let i = 0; i < expr.arguments.length; i++) {
     const arg = expr.arguments[i];
@@ -415,14 +442,22 @@ export const emitNew = (
         arg.expression,
         currentContext
       );
-      argTexts.push(`params ${printExpression(spreadAst)}`);
+      argAsts.push({
+        kind: "argumentModifierExpression",
+        modifier: "params",
+        expression: spreadAst,
+      });
       currentContext = ctx;
     } else {
       const expectedType = parameterTypes[i];
       const castModifier = getPassingModifierFromCast(arg);
       if (castModifier && isLValue(arg)) {
         const [argAst, ctx] = emitExpressionAst(arg, currentContext);
-        argTexts.push(`${castModifier} ${printExpression(argAst)}`);
+        argAsts.push({
+          kind: "argumentModifierExpression",
+          modifier: castModifier,
+          expression: argAst,
+        });
         currentContext = ctx;
       } else {
         const [argAst, ctx] = emitExpressionAst(
@@ -431,16 +466,33 @@ export const emitNew = (
           expectedType
         );
         const passingMode = expr.argumentPassing?.[i];
-        const prefix =
+        const modifier =
           passingMode && passingMode !== "value" && isLValue(arg)
-            ? `${passingMode} `
-            : "";
-        argTexts.push(`${prefix}${printExpression(argAst)}`);
+            ? passingMode
+            : undefined;
+        argAsts.push(
+          modifier
+            ? {
+                kind: "argumentModifierExpression",
+                modifier,
+                expression: argAst,
+              }
+            : argAst
+        );
         currentContext = ctx;
       }
     }
   }
 
-  const text = `new ${calleeText}${typeArgsStr}(${argTexts.join(", ")})`;
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  const typeAst: CSharpTypeAst =
+    typeArgAsts.length > 0
+      ? { kind: "identifierType", name: calleeText, typeArguments: typeArgAsts }
+      : { kind: "identifierType", name: calleeText };
+
+  const result: CSharpExpressionAst = {
+    kind: "objectCreationExpression",
+    type: typeAst,
+    arguments: argAsts,
+  };
+  return [result, currentContext];
 };

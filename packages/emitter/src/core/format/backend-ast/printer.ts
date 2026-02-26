@@ -430,7 +430,13 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
         expr.initializer && expr.initializer.length > 0
           ? ` { ${expr.initializer.map(printExpression).join(", ")} }`
           : "";
-      return `new ${typeName}(${args})${init}`;
+      // Omit () when using collection/object initializer with no constructor args
+      // (C# allows `new List<T> { ... }` without parentheses)
+      const argsSection =
+        expr.initializer && expr.initializer.length > 0 && args.length === 0
+          ? ""
+          : `(${args})`;
+      return `new ${typeName}${argsSection}${init}`;
     }
 
     case "arrayCreationExpression": {

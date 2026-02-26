@@ -193,6 +193,30 @@ export const emitTypeArguments = (
 };
 
 /**
+ * Emit type arguments as typed CSharpTypeAst array.
+ * Returns empty array for empty/null type arguments.
+ */
+export const emitTypeArgumentsAst = (
+  typeArgs: readonly IrType[],
+  context: EmitterContext
+): [readonly CSharpTypeAst[], EmitterContext] => {
+  if (!typeArgs || typeArgs.length === 0) {
+    return [[], context];
+  }
+
+  let currentContext = context;
+  const typeAsts: CSharpTypeAst[] = [];
+
+  for (const typeArg of typeArgs) {
+    const [typeAst, newContext] = emitTypeAst(typeArg, currentContext);
+    currentContext = newContext;
+    typeAsts.push(typeAst);
+  }
+
+  return [typeAsts, currentContext];
+};
+
+/**
  * Generate specialized method/class name from type arguments
  * Example: process with [string, number] → process__string__double
  */
