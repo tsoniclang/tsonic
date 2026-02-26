@@ -1,30 +1,38 @@
 /**
- * Interface declaration emission (as C# classes)
+ * Interface declaration emission — returns CSharpTypeDeclarationAst[]
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent } from "../../types.js";
-import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
+import { EmitterContext } from "../../types.js";
 import {
-  printType,
-  printMember,
-} from "../../core/format/backend-ast/printer.js";
+  emitTypeAst,
+  emitTypeParametersAst,
+} from "../../type-emitter.js";
 import {
   extractInlineObjectTypes,
   emitExtractedType,
   emitInterfaceMemberAsProperty,
+  emitParameters,
 } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { statementUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import type {
+  CSharpTypeDeclarationAst,
+  CSharpMemberAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
- * Emit an interface declaration (as C# class)
+ * Emit an interface declaration as CSharpTypeDeclarationAst[].
+ *
+ * May return multiple declarations when the interface has inline object
+ * type properties (each extracted as a separate class).
  */
 export const emitInterfaceDeclaration = (
   stmt: Extract<IrStatement, { kind: "interfaceDeclaration" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   const savedScoped = {
     typeParameters: context.typeParameters,
     typeParamConstraints: context.typeParamConstraints,
@@ -33,189 +41,197 @@ export const emitInterfaceDeclaration = (
     localNameMap: context.localNameMap,
   };
 
-  // Per spec/16-types-and-interfaces.md §2.1:
-  // - Property-only TS interfaces map to C# classes (instantiable for object literals).
-  // - Interfaces with method signatures map to C# interfaces so classes can implement
-  //   multiple constraints/implements safely in C# (and so generic constraints can be expressed).
-
-  const ind = getIndent(context);
-
   const hasMethodSignatures = stmt.members.some(
     (m) => m.kind === "methodSignature"
   );
 
-  // Build type parameter names set FIRST - needed when emitting member types
-  // Type parameters must be in scope before we emit types that reference them
+  // Build type parameter names set FIRST
   const ifaceTypeParams = new Set<string>([
     ...(context.typeParameters ?? []),
     ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
   ]);
 
-  // Create context with type parameters in scope for member emission
+  // Create context with type parameters in scope
   let currentContext: EmitterContext = {
     ...context,
     typeParameters: ifaceTypeParams,
   };
 
-  // Extract inline object types and emit them as separate classes
-  const extractedTypes = extractInlineObjectTypes(stmt.members, currentContext);
-  const extractedClassCodes: string[] = [];
-
+  // Extract inline object types
+  const extractedTypes = extractInlineObjectTypes(
+    stmt.members,
+    currentContext
+  );
+  const extractedDecls: CSharpTypeDeclarationAst[] = [];
   for (const extracted of extractedTypes) {
-    const [classCode, newContext] = emitExtractedType(
-      extracted,
-      currentContext
-    );
-    extractedClassCodes.push(classCode);
+    const [declAst, newContext] = emitExtractedType(extracted, currentContext);
+    extractedDecls.push(declAst);
     currentContext = newContext;
   }
 
-  const parts: string[] = [];
   const needsUnsafe = statementUsesPointer(stmt);
 
   // Access modifier
   const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
   const accessibility =
     stmt.isExported || promotedToPublic ? "public" : "internal";
-  parts.push(accessibility);
-  if (needsUnsafe) parts.push("unsafe");
-  // Emit as C# interface when methods exist; otherwise keep class/struct for object literals.
-  parts.push(
-    hasMethodSignatures ? "interface" : stmt.isStruct ? "struct" : "class"
-  );
-  parts.push(escapeCSharpIdentifier(stmt.name));
 
-  // Type parameters (if any)
-  if (stmt.typeParameters && stmt.typeParameters.length > 0) {
-    const reservedTypeParamNames = new Set<string>();
-    for (const member of stmt.members) {
-      if (member.kind === "methodSignature") {
-        reservedTypeParamNames.add(
-          emitCSharpName(member.name, "methods", context)
-        );
-        continue;
-      }
-      if (member.kind === "propertySignature") {
-        reservedTypeParamNames.add(
-          emitCSharpName(member.name, "properties", context)
-        );
-      }
+  const modifiers: string[] = [accessibility];
+  if (needsUnsafe) modifiers.push("unsafe");
+
+  // Type parameters
+  const reservedTypeParamNames = new Set<string>();
+  for (const member of stmt.members) {
+    if (member.kind === "methodSignature") {
+      reservedTypeParamNames.add(
+        emitCSharpName(member.name, "methods", context)
+      );
+      continue;
     }
-    const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
+    if (member.kind === "propertySignature") {
+      reservedTypeParamNames.add(
+        emitCSharpName(member.name, "properties", context)
+      );
+    }
+  }
+
+  const [typeParamAsts, constraintAsts, typeParamContext] =
+    emitTypeParametersAst(
       stmt.typeParameters,
       currentContext,
       reservedTypeParamNames
     );
-    parts.push(typeParamsStr);
-    currentContext = typeParamContext;
+  currentContext = typeParamContext;
 
-    // Extended interfaces/classes
-    if (stmt.extends && stmt.extends.length > 0) {
-      const extended: string[] = [];
-      for (const ext of stmt.extends) {
-        const [extTypeAst, newContext] = emitTypeAst(ext, currentContext);
-        currentContext = newContext;
-        extended.push(printType(extTypeAst));
-      }
-      parts.push(":");
-      parts.push(extended.join(", "));
-    }
-
-    // Where clauses for type parameters
-    if (whereClauses.length > 0) {
-      parts.push("\n" + ind + "    " + whereClauses.join("\n" + ind + "    "));
-    }
-  } else {
-    // Extended interfaces/classes (no generics)
-    if (stmt.extends && stmt.extends.length > 0) {
-      const extended: string[] = [];
-      for (const ext of stmt.extends) {
-        const [extTypeAst, newContext] = emitTypeAst(ext, currentContext);
-        currentContext = newContext;
-        extended.push(printType(extTypeAst));
-      }
-      parts.push(":");
-      parts.push(extended.join(", "));
+  // Extended interfaces/classes
+  const interfaces: CSharpTypeAst[] = [];
+  if (stmt.extends && stmt.extends.length > 0) {
+    for (const ext of stmt.extends) {
+      const [extTypeAst, newContext] = emitTypeAst(ext, currentContext);
+      currentContext = newContext;
+      interfaces.push(extTypeAst);
     }
   }
 
-  // Class body with auto-properties
-  const bodyContext = indent(currentContext);
-  const members: string[] = [];
-
-  const memberInd = getIndent(bodyContext);
+  // Build members
+  const members: CSharpMemberAst[] = [];
 
   for (const member of stmt.members) {
     if (!hasMethodSignatures) {
+      // Property-only interface → class/struct members
       const [memberAst, newContext] = emitInterfaceMemberAsProperty(
         member,
-        bodyContext
+        currentContext
       );
-      members.push(printMember(memberAst, memberInd));
+      members.push(memberAst);
       currentContext = newContext;
       continue;
     }
 
-    // C# interface member emission
+    // C# interface members
     if (member.kind === "propertySignature") {
-      const [typeAst, newContext] = emitTypeAst(member.type, currentContext);
-      currentContext = newContext;
-      const typeName = printType(typeAst);
-      const typeStr = member.isOptional ? `${typeName}?` : typeName;
-      const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
-      members.push(
-        `${getIndent(bodyContext)}${typeStr} ${emitCSharpName(member.name, "properties", context)} ${accessors}`
-      );
+      const [baseTypeAst, typeContext] = (() => {
+        if (member.type) {
+          return emitTypeAst(member.type, currentContext);
+        }
+        const objType: CSharpTypeAst = {
+          kind: "identifierType",
+          name: "object",
+        };
+        return [objType, currentContext] as const;
+      })();
+      currentContext = typeContext;
+
+      const typeAst: CSharpTypeAst = member.isOptional
+        ? { kind: "nullableType", underlyingType: baseTypeAst }
+        : baseTypeAst;
+
+      members.push({
+        kind: "propertyDeclaration",
+        attributes: [],
+        modifiers: [],
+        type: typeAst,
+        name: emitCSharpName(member.name, "properties", context),
+        hasGetter: true,
+        hasSetter: !member.isReadonly,
+        isAutoProperty: true,
+      });
       continue;
     }
 
     if (member.kind === "methodSignature") {
-      const returnType = member.returnType
-        ? (() => {
-            const [rtAst, newContext] = emitTypeAst(
-              member.returnType,
-              currentContext
-            );
-            currentContext = newContext;
-            return printType(rtAst);
-          })()
-        : "void";
+      const [returnTypeAst, returnTypeContext] = (() => {
+        if (member.returnType) {
+          return emitTypeAst(member.returnType, currentContext);
+        }
+        const voidType: CSharpTypeAst = {
+          kind: "identifierType",
+          name: "void",
+        };
+        return [voidType, currentContext] as const;
+      })();
+      currentContext = returnTypeContext;
 
-      // NOTE: methodSignature.typeParameters are not supported in emitter yet (rare in TS interface surface).
-      // If needed, they should be lowered to a generic method on the interface.
-      const params = member.parameters
-        .map((p) => {
-          const paramName =
-            p.pattern.kind === "identifierPattern"
-              ? escapeCSharpIdentifier(p.pattern.name)
-              : "param";
-
-          if (!p.type) return `object ${paramName}`;
-          const [ptAst, newContext] = emitTypeAst(p.type, currentContext);
-          currentContext = newContext;
-          return `${printType(ptAst)} ${paramName}`;
-        })
-        .join(", ");
-
-      members.push(
-        `${getIndent(bodyContext)}${returnType} ${emitCSharpName(member.name, "methods", context)}(${params});`
+      const [paramAsts, paramContext] = emitParameters(
+        member.parameters,
+        currentContext
       );
+      currentContext = paramContext;
+
+      members.push({
+        kind: "methodDeclaration",
+        attributes: [],
+        modifiers: [],
+        returnType: returnTypeAst,
+        name: emitCSharpName(member.name, "methods", context),
+        parameters: paramAsts,
+      });
       continue;
     }
   }
 
-  const signature = parts.join(" ");
-  const memberCode = members.join("\n\n");
-  const mainClassCode = `${ind}${signature}\n${ind}{\n${memberCode}\n${ind}}`;
+  // Determine C# declaration kind
+  const mainDecl: CSharpTypeDeclarationAst = hasMethodSignatures
+    ? {
+        kind: "interfaceDeclaration",
+        attributes: [],
+        modifiers,
+        name: escapeCSharpIdentifier(stmt.name),
+        typeParameters:
+          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        interfaces,
+        members,
+        constraints:
+          constraintAsts.length > 0 ? constraintAsts : undefined,
+      }
+    : stmt.isStruct
+      ? {
+          kind: "structDeclaration",
+          attributes: [],
+          modifiers,
+          name: escapeCSharpIdentifier(stmt.name),
+          typeParameters:
+            typeParamAsts.length > 0 ? typeParamAsts : undefined,
+          interfaces,
+          members,
+          constraints:
+            constraintAsts.length > 0 ? constraintAsts : undefined,
+        }
+      : {
+          kind: "classDeclaration",
+          attributes: [],
+          modifiers,
+          name: escapeCSharpIdentifier(stmt.name),
+          typeParameters:
+            typeParamAsts.length > 0 ? typeParamAsts : undefined,
+          interfaces,
+          members,
+          constraints:
+            constraintAsts.length > 0 ? constraintAsts : undefined,
+        };
 
-  // Combine main interface and extracted classes (extracted classes come after)
-  const allParts: string[] = [];
-  allParts.push(mainClassCode);
-  if (extractedClassCodes.length > 0) {
-    allParts.push(...extractedClassCodes);
-  }
+  // Combine main + extracted types
+  const allDecls = [mainDecl, ...extractedDecls];
 
-  const code = allParts.join("\n");
-
-  return [code, { ...currentContext, ...savedScoped }];
+  return [allDecls, { ...currentContext, ...savedScoped }];
 };

@@ -1,22 +1,37 @@
 /**
- * Type alias declaration emission
+ * Type alias declaration emission — returns CSharpTypeDeclarationAst | null
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent } from "../../types.js";
-import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
+import { EmitterContext } from "../../types.js";
+import {
+  emitTypeAst,
+  emitTypeParametersAst,
+} from "../../type-emitter.js";
 import { printType } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import type {
+  CSharpTypeDeclarationAst,
+  CSharpMemberAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
- * Emit a type alias declaration
+ * Emit a type alias declaration as CSharpTypeDeclarationAst | null.
+ *
+ * Returns null for non-structural aliases (these become comments
+ * at the orchestration level).  For structural (object) type aliases,
+ * returns a sealed class or struct declaration.
+ *
+ * When null is returned, the third tuple element carries the comment
+ * text so callers can still emit `// type Foo = Bar`.
  */
 export const emitTypeAliasDeclaration = (
   stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeDeclarationAst | null, EmitterContext, string | undefined] => {
   const savedScoped = {
     typeParameters: context.typeParameters,
     typeParamConstraints: context.typeParamConstraints,
@@ -25,126 +40,138 @@ export const emitTypeAliasDeclaration = (
     localNameMap: context.localNameMap,
   };
 
-  // Per spec/16-types-and-interfaces.md §3:
-  // - Structural type aliases generate C# classes with __Alias suffix
-  // - Simple aliases (primitives, references) emit as comments or using aliases
-
-  const ind = getIndent(context);
-
   // Build type parameter names set FIRST - needed when emitting member types
-  // Type parameters must be in scope before we emit types that reference them
   const aliasTypeParams = new Set<string>([
     ...(context.typeParameters ?? []),
     ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
   ]);
 
   // Create context with type parameters in scope for member emission
-  let currentContext: EmitterContext = {
+  const baseContext: EmitterContext = {
     ...context,
     typeParameters: aliasTypeParams,
   };
 
   // Check if this is a structural (object) type alias
   if (stmt.type.kind === "objectType") {
-    // Generate a sealed class (or struct) for structural type alias
-    const parts: string[] = [];
-    const needsUnsafe = typeUsesPointer(stmt.type);
-
-    const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
-    const accessibility =
-      stmt.isExported || promotedToPublic ? "public" : "internal";
-    parts.push(accessibility);
-    if (needsUnsafe) parts.push("unsafe");
-    // Emit struct or sealed class based on isStruct flag
-    if (stmt.isStruct) {
-      parts.push("struct");
-    } else {
-      parts.push("sealed");
-      parts.push("class");
-    }
-    parts.push(`${escapeCSharpIdentifier(stmt.name)}__Alias`); // Add __Alias suffix per spec §3.4
-
-    // Type parameters (if any)
-    if (stmt.typeParameters && stmt.typeParameters.length > 0) {
-      const reservedTypeParamNames = new Set<string>();
-      for (const member of stmt.type.members) {
-        if (member.kind !== "propertySignature") continue;
-        reservedTypeParamNames.add(
-          emitCSharpName(member.name, "properties", context)
-        );
-      }
-      const [typeParamsStr, whereClauses, typeParamContext] =
-        emitTypeParameters(
-          stmt.typeParameters,
-          currentContext,
-          reservedTypeParamNames
-        );
-      parts.push(typeParamsStr);
-      currentContext = typeParamContext;
-
-      if (whereClauses.length > 0) {
-        parts.push(
-          "\n" + ind + "    " + whereClauses.join("\n" + ind + "    ")
-        );
-      }
-    }
-
-    // Generate properties from object type members
-    const bodyContext = indent(currentContext);
-    const properties: string[] = [];
-
-    if (stmt.type.kind === "objectType") {
-      for (const member of stmt.type.members) {
-        if (member.kind === "propertySignature") {
-          const propParts: string[] = [];
-          propParts.push("public");
-
-          // Required modifier for non-optional properties (C# 11)
-          if (!member.isOptional) {
-            propParts.push("required");
-          }
-
-          // Property type
-          if (member.type) {
-            const [propTypeAst, newContext] = emitTypeAst(
-              member.type,
-              currentContext
-            );
-            currentContext = newContext;
-            const propType = printType(propTypeAst);
-            // Optional members become nullable
-            const typeStr = member.isOptional ? `${propType}?` : propType;
-            propParts.push(typeStr);
-          } else {
-            propParts.push(member.isOptional ? "object?" : "object");
-          }
-
-          propParts.push(emitCSharpName(member.name, "properties", context));
-
-          // Readonly uses init-only, writable uses get; set;
-          // This preserves TS readonly semantics while still allowing object initializers
-          // (and `required` for non-optional properties in C# 11).
-          const accessors = member.isReadonly
-            ? "{ get; init; }"
-            : "{ get; set; }";
-
-          properties.push(
-            `${getIndent(bodyContext)}${propParts.join(" ")} ${accessors}`
-          );
-        }
-      }
-    }
-
-    const signature = parts.join(" ");
-    const propsCode = properties.join("\n");
-    const code = `${ind}${signature}\n${ind}{\n${propsCode}\n${ind}}`;
-
-    return [code, { ...currentContext, ...savedScoped }];
+    const result = emitStructuralTypeAlias(stmt, baseContext);
+    return [result[0], { ...result[1], ...savedScoped }, undefined];
   }
 
-  // For non-structural aliases, emit as comment (C# using aliases are limited)
-  // Use currentContext which has type parameters in scope
-  const [typeAst, newContext] = emitTypeAst(stmt.type, currentContext);
-  const code = `${ind}// type ${stmt.name} = ${printType(typeAst)}`;
-  return [code, { ...newContext, ...savedScoped }];
+  // For non-structural aliases, produce comment text
+  const [typeAst, newContext] = emitTypeAst(stmt.type, baseContext);
+  const commentText = `// type ${stmt.name} = ${printType(typeAst)}`;
+  return [null, { ...newContext, ...savedScoped }, commentText];
+};
+
+/**
+ * Build CSharpTypeDeclarationAst for a structural (object) type alias
+ */
+const emitStructuralTypeAlias = (
+  stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
+  context: EmitterContext
+): [CSharpTypeDeclarationAst, EmitterContext] => {
+  const needsUnsafe = typeUsesPointer(stmt.type);
+
+  const promotedToPublic = context.publicLocalTypes?.has(stmt.name) ?? false;
+  const accessibility =
+    stmt.isExported || promotedToPublic ? "public" : "internal";
+
+  const modifiers: string[] = [accessibility];
+  if (needsUnsafe) modifiers.push("unsafe");
+  if (!stmt.isStruct) modifiers.push("sealed");
+
+  const aliasName = `${escapeCSharpIdentifier(stmt.name)}__Alias`;
+
+  // Type parameters (if any)
+  const reservedTypeParamNames = new Set<string>();
+  if (stmt.type.kind === "objectType") {
+    for (const member of stmt.type.members) {
+      if (member.kind !== "propertySignature") continue;
+      reservedTypeParamNames.add(
+        emitCSharpName(member.name, "properties", context)
+      );
+    }
+  }
+
+  const [typeParamAsts, constraintAsts, typeParamContext] =
+    emitTypeParametersAst(
+      stmt.typeParameters,
+      context,
+      reservedTypeParamNames
+    );
+
+  // Generate member properties from object type members
+  const members: CSharpMemberAst[] = [];
+  let currentContext = typeParamContext;
+
+  if (stmt.type.kind === "objectType") {
+    for (const member of stmt.type.members) {
+      if (member.kind !== "propertySignature") continue;
+
+      const propModifiers: string[] = ["public"];
+      if (!member.isOptional) {
+        propModifiers.push("required");
+      }
+
+      // Property type
+      const [baseTypeAst, typeContext] = (() => {
+        if (member.type) {
+          return emitTypeAst(member.type, currentContext);
+        }
+        const objType: CSharpTypeAst = {
+          kind: "identifierType",
+          name: "object",
+        };
+        return [objType, currentContext] as const;
+      })();
+      currentContext = typeContext;
+
+      const typeAst: CSharpTypeAst = member.isOptional
+        ? { kind: "nullableType", underlyingType: baseTypeAst }
+        : baseTypeAst;
+
+      const propName = emitCSharpName(member.name, "properties", context);
+
+      members.push({
+        kind: "propertyDeclaration",
+        attributes: [],
+        modifiers: propModifiers,
+        type: typeAst,
+        name: propName,
+        hasGetter: true,
+        hasSetter: !member.isReadonly,
+        hasInit: member.isReadonly ? true : undefined,
+        isAutoProperty: true,
+      });
+    }
+  }
+
+  const declAst: CSharpTypeDeclarationAst = stmt.isStruct
+    ? {
+        kind: "structDeclaration",
+        attributes: [],
+        modifiers,
+        name: aliasName,
+        typeParameters:
+          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        interfaces: [],
+        members,
+        constraints:
+          constraintAsts.length > 0 ? constraintAsts : undefined,
+      }
+    : {
+        kind: "classDeclaration",
+        attributes: [],
+        modifiers,
+        name: aliasName,
+        typeParameters:
+          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        interfaces: [],
+        members,
+        constraints:
+          constraintAsts.length > 0 ? constraintAsts : undefined,
+      };
+
+  return [declAst, currentContext];
 };

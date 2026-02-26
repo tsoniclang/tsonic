@@ -9,7 +9,10 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "./types.js";
 import type { CSharpStatementAst } from "./core/format/backend-ast/types.js";
-import { printStatementFlatBlock } from "./core/format/backend-ast/printer.js";
+import {
+  printStatementFlatBlock,
+  printTypeDeclaration,
+} from "./core/format/backend-ast/printer.js";
 
 // Import AST statement emitters from specialized modules
 import {
@@ -148,17 +151,42 @@ export const emitStatement = (
 ): [string, EmitterContext] => {
   // Module-level type declarations - still text-based
   switch (stmt.kind) {
-    case "classDeclaration":
-      return emitClassDeclaration(stmt, context);
+    case "classDeclaration": {
+      const [classDecls, classCtx] = emitClassDeclaration(stmt, context);
+      const ind = getIndent(context);
+      const code = classDecls
+        .map((d) => printTypeDeclaration(d, ind))
+        .join("\n");
+      return [code, classCtx];
+    }
 
-    case "interfaceDeclaration":
-      return emitInterfaceDeclaration(stmt, context);
+    case "interfaceDeclaration": {
+      const [ifaceDecls, ifaceCtx] = emitInterfaceDeclaration(stmt, context);
+      const ind = getIndent(context);
+      const code = ifaceDecls
+        .map((d) => printTypeDeclaration(d, ind))
+        .join("\n");
+      return [code, ifaceCtx];
+    }
 
-    case "enumDeclaration":
-      return emitEnumDeclaration(stmt, context);
+    case "enumDeclaration": {
+      const [enumAst, enumCtx] = emitEnumDeclaration(stmt, context);
+      const ind = getIndent(context);
+      return [printTypeDeclaration(enumAst, ind), enumCtx];
+    }
 
-    case "typeAliasDeclaration":
-      return emitTypeAliasDeclaration(stmt, context);
+    case "typeAliasDeclaration": {
+      const [aliasAst, aliasCtx, commentText] = emitTypeAliasDeclaration(
+        stmt,
+        context
+      );
+      const ind = getIndent(context);
+      if (aliasAst) {
+        return [printTypeDeclaration(aliasAst, ind), aliasCtx];
+      }
+      // Non-structural alias → comment
+      return [commentText ?? `${ind}// type ${stmt.name}`, aliasCtx];
+    }
 
     // Static variable/function declarations are module-level members,
     // not statement-level AST. Route to text emitters.

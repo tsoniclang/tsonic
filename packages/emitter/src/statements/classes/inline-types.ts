@@ -1,14 +1,17 @@
 /**
- * Inline object type extraction and emission
+ * Inline object type extraction and emission — returns CSharpTypeDeclarationAst
  */
 
 import { IrInterfaceMember } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent } from "../../types.js";
+import { EmitterContext } from "../../types.js";
 import { emitInterfaceMemberAsProperty } from "./properties.js";
-import { printMember } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { getCSharpName } from "../../naming-policy.js";
+import type {
+  CSharpTypeDeclarationAst,
+  CSharpMemberAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
  * Extracted inline object type
@@ -45,16 +48,12 @@ export const extractInlineObjectTypes = (
 };
 
 /**
- * Emit an extracted inline object type as a class
+ * Emit an extracted inline object type as CSharpClassDeclarationAst
  */
 export const emitExtractedType = (
   extracted: ExtractedType,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-  let currentContext = context;
-
-  const parts: string[] = [];
+): [CSharpTypeDeclarationAst, EmitterContext] => {
   const escapedClassName = escapeCSharpIdentifier(extracted.className);
   const needsUnsafe = extracted.members.some((m) => {
     if (m.kind === "propertySignature") return typeUsesPointer(m.type);
@@ -66,32 +65,32 @@ export const emitExtractedType = (
     }
     return false;
   });
-  parts.push(
-    `${ind}public${needsUnsafe ? " unsafe" : ""} class ${escapedClassName}`
-  );
-  parts.push(`${ind}{`);
 
-  // Emit properties
-  const bodyContext = indent(currentContext);
-  const memberInd = getIndent(bodyContext);
-  const propertyParts: string[] = [];
-  let bodyCurrentContext = bodyContext;
+  const modifiers: string[] = ["public"];
+  if (needsUnsafe) modifiers.push("unsafe");
+
+  // Emit member properties
+  const members: CSharpMemberAst[] = [];
+  let currentContext = context;
 
   for (const member of extracted.members) {
     const [memberAst, newContext] = emitInterfaceMemberAsProperty(
       member,
-      bodyCurrentContext
+      currentContext
     );
-    propertyParts.push(printMember(memberAst, memberInd));
-    bodyCurrentContext = newContext;
+    members.push(memberAst);
+    currentContext = newContext;
   }
 
-  if (propertyParts.length > 0) {
-    parts.push(propertyParts.join("\n"));
-  }
-
-  parts.push(`${ind}}`);
+  const declAst: CSharpTypeDeclarationAst = {
+    kind: "classDeclaration",
+    attributes: [],
+    modifiers,
+    name: escapedClassName,
+    interfaces: [],
+    members,
+  };
 
   // Return context at original indent level
-  return [parts.join("\n"), context];
+  return [declAst, context];
 };
