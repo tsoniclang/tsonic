@@ -5,23 +5,15 @@
 import { IrStatement, IrType, type IrParameter } from "@tsonic/frontend";
 import {
   EmitterContext,
-  getIndent,
-  indent,
   withAsync,
   withStatic,
-  withScoped,
 } from "../../types.js";
-import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
 import {
-  printType,
-  printAttributes,
-  printParameter,
-} from "../../core/format/backend-ast/printer.js";
-import { emitBlockStatement, emitBlockStatementAst } from "../blocks.js";
-import {
-  emitParametersWithDestructuring,
-  generateParameterDestructuring,
-} from "../classes.js";
+  emitTypeAst,
+  emitTypeParameters,
+  emitTypeParametersAst,
+} from "../../type-emitter.js";
+import { emitBlockStatementAst } from "../blocks.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPatternAst } from "../../patterns.js";
@@ -38,6 +30,7 @@ import type {
   CSharpParameterAst,
   CSharpTypeAst,
   CSharpExpressionAst,
+  CSharpMemberAst,
 } from "../../core/format/backend-ast/types.js";
 
 const getAsyncBodyReturnType = (
@@ -74,12 +67,15 @@ const seedLocalNameMapFromParameters = (
 };
 
 /**
- * Emit a function declaration
+ * Emit a module-level function declaration as CSharpMethodDeclarationAst.
+ *
+ * For generators, builds exchange initialization and wrapper structures
+ * in the method body using AST nodes.
  */
 export const emitFunctionDeclaration = (
   stmt: Extract<IrStatement, { kind: "functionDeclaration" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpMemberAst[], EmitterContext] => {
   const savedScoped = {
     typeParameters: context.typeParameters,
     typeParamConstraints: context.typeParamConstraints,
@@ -89,122 +85,104 @@ export const emitFunctionDeclaration = (
     usedLocalNames: context.usedLocalNames,
   };
 
-  const ind = getIndent(context);
-  const parts: string[] = [];
   const csharpBaseName = getCSharpName(stmt.name, "methods", context);
 
-  // Build type parameter names set FIRST - needed when emitting return type and parameters
-  // Type parameters must be in scope before we emit types that reference them
+  // Build type parameter names set FIRST
   const funcTypeParams = new Set<string>([
     ...(context.typeParameters ?? []),
     ...(stmt.typeParameters?.map((tp) => tp.name) ?? []),
   ]);
 
-  // Create context with type parameters in scope for signature emission
   const signatureContext: EmitterContext = {
     ...context,
     typeParameters: funcTypeParams,
   };
 
-  // Emit the <T, U> syntax and where clauses EARLY so nullable union emission
-  // can see type parameter constraint kinds when emitting return/parameter types.
-  const [typeParamsStr, whereClauses, typeParamContext] = emitTypeParameters(
-    stmt.typeParameters,
-    signatureContext
-  );
+  // Emit type parameters as AST
+  const [typeParamAsts, constraintAsts, typeParamContext] =
+    emitTypeParametersAst(stmt.typeParameters, signatureContext);
   let currentContext = typeParamContext;
 
   // Access modifiers
-  //
-  // Top-level (module) functions are emitted as static methods on the module's
-  // container class. When a module also has namespace-level declarations
-  // (classes/interfaces/enums), those types must still be able to call module-local
-  // helpers. `private` would make them inaccessible, so use `internal` for
-  // non-exported module functions.
   const accessibility = stmt.isExported
     ? "public"
     : context.isStatic
       ? "internal"
       : "private";
-  parts.push(accessibility);
 
-  if (context.isStatic) {
-    parts.push("static");
-  }
+  const modifiers: string[] = [accessibility];
+  if (context.isStatic) modifiers.push("static");
 
-  if (stmt.isAsync && !stmt.isGenerator) {
-    parts.push("async");
-  }
-
-  // Check if this is a bidirectional generator (has TNext type)
+  // Check generator features
   const isBidirectional = needsBidirectionalSupport(stmt);
   const generatorHasReturnType =
     stmt.isGenerator && isBidirectional ? hasGeneratorReturnType(stmt) : false;
 
-  // Return type
+  // Return type AST and async modifier
+  let returnTypeAst: CSharpTypeAst;
   if (stmt.isGenerator) {
     if (isBidirectional) {
-      // Bidirectional generators return the wrapper class
       const wrapperName = `${csharpBaseName}_Generator`;
-      parts.push(wrapperName);
+      returnTypeAst = { kind: "identifierType", name: wrapperName };
     } else {
-      // Unidirectional generators return IEnumerable<exchange> or IAsyncEnumerable<exchange>
       const exchangeName = `${csharpBaseName}_exchange`;
       if (stmt.isAsync) {
-        parts.push(
-          `async global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
-        );
+        modifiers.push("async");
+        returnTypeAst = {
+          kind: "identifierType",
+          name: "global::System.Collections.Generic.IAsyncEnumerable",
+          typeArguments: [{ kind: "identifierType", name: exchangeName }],
+        };
       } else {
-        parts.push(
-          `global::System.Collections.Generic.IEnumerable<${exchangeName}>`
-        );
+        returnTypeAst = {
+          kind: "identifierType",
+          name: "global::System.Collections.Generic.IEnumerable",
+          typeArguments: [{ kind: "identifierType", name: exchangeName }],
+        };
       }
     }
   } else if (stmt.returnType) {
-    const [returnTypeAst, newContext] = emitTypeAst(
-      stmt.returnType,
-      currentContext
-    );
-    const returnType = printType(returnTypeAst);
-    currentContext = newContext;
-    // If async and return type is Promise, it's already converted to Task
-    // Don't wrap it again
+    const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
+    currentContext = retCtx;
     if (
       stmt.isAsync &&
       stmt.returnType.kind === "referenceType" &&
       stmt.returnType.name === "Promise"
     ) {
-      parts.push(returnType); // Already Task<T> from emitType
+      returnTypeAst = retAst;
+    } else if (stmt.isAsync) {
+      modifiers.push("async");
+      returnTypeAst = {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+        typeArguments: [retAst],
+      };
     } else {
-      parts.push(
-        stmt.isAsync
-          ? `global::System.Threading.Tasks.Task<${returnType}>`
-          : returnType
-      );
+      returnTypeAst = retAst;
     }
   } else {
-    parts.push(stmt.isAsync ? "global::System.Threading.Tasks.Task" : "void");
+    if (stmt.isAsync) {
+      modifiers.push("async");
+      returnTypeAst = {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+      };
+    } else {
+      returnTypeAst = { kind: "identifierType", name: "void" };
+    }
   }
 
-  // Function name
-  parts.push(emitCSharpName(stmt.name, "methods", context));
-
-  // Parameters (with destructuring support)
-  const paramsResult = emitParametersWithDestructuring(
-    stmt.parameters,
-    currentContext
-  );
+  // Parameters
+  const paramsResult = buildParameterAsts(stmt.parameters, currentContext);
   currentContext = paramsResult.context;
 
-  // Function body (not a static context - local variables)
-  // Use withScoped to set typeParameters and returnType for nested expressions
+  // Body context setup
   let baseBodyContext = seedLocalNameMapFromParameters(
     stmt.parameters,
-    withAsync(withStatic(indent(currentContext), false), stmt.isAsync)
+    withAsync(withStatic(currentContext, false), stmt.isAsync)
   );
 
-  // Reserve generator-internal locals BEFORE emitting the body so user locals can safely
-  // use these names (and get deterministically renamed) without colliding in C#.
+  // Reserve generator-internal locals
   let generatorExchangeVar = "exchange";
   let generatorIteratorFn = "__iterator";
   let generatorReturnValueVar = "__returnValue";
@@ -214,10 +192,7 @@ export const emitFunctionDeclaration = (
       baseBodyContext
     );
     generatorExchangeVar = exchangeAlloc.emittedName;
-    baseBodyContext = {
-      ...exchangeAlloc.context,
-      generatorExchangeVar,
-    };
+    baseBodyContext = { ...exchangeAlloc.context, generatorExchangeVar };
 
     if (isBidirectional) {
       const iterAlloc = allocateLocalName(generatorIteratorFn, baseBodyContext);
@@ -230,175 +205,229 @@ export const emitFunctionDeclaration = (
           baseBodyContext
         );
         generatorReturnValueVar = retAlloc.emittedName;
-        baseBodyContext = {
-          ...retAlloc.context,
-          generatorReturnValueVar,
-        };
+        baseBodyContext = { ...retAlloc.context, generatorReturnValueVar };
       }
     }
   }
 
-  // Generate parameter destructuring statements BEFORE emitting the body so
-  // any renamed locals are visible to the body emitter via localNameMap.
-  const bodyInd = getIndent(baseBodyContext);
-  const [parameterDestructuringStmts, destructuringContext] =
+  // Generate parameter destructuring as AST
+  const [paramDestructuringStmts, destructuringContext] =
     paramsResult.destructuringParams.length > 0
-      ? generateParameterDestructuring(
+      ? generateParameterDestructuringAst(
           paramsResult.destructuringParams,
-          bodyInd,
           baseBodyContext
         )
-      : [[], baseBodyContext];
+      : [[] as readonly CSharpStatementAst[], baseBodyContext];
 
-  // Emit body with scoped typeParameters and returnType
-  // funcTypeParams was already built at the start of this function
-  const [bodyCode] = withScoped(
-    destructuringContext,
-    {
-      typeParameters: funcTypeParams,
-      returnType:
-        stmt.isAsync && !stmt.isGenerator
-          ? getAsyncBodyReturnType(stmt.isAsync, stmt.returnType)
-          : stmt.returnType,
-    },
-    (scopedCtx) => emitBlockStatement(stmt.body, scopedCtx)
+  // Emit body as AST
+  const bodyReturnType =
+    stmt.isAsync && !stmt.isGenerator
+      ? getAsyncBodyReturnType(stmt.isAsync, stmt.returnType)
+      : stmt.returnType;
+
+  const bodyContext: EmitterContext = {
+    ...destructuringContext,
+    typeParameters: funcTypeParams,
+    returnType: bodyReturnType,
+  };
+
+  const [bodyBlock, bodyCtxAfter] = emitBlockStatementAst(
+    stmt.body,
+    bodyContext
   );
 
-  // Collect out parameters that need initialization
-  const outParams: Array<{ name: string; type: string }> = [];
-  for (const param of stmt.parameters) {
-    // Use param.passing to detect out parameters (type is already unwrapped by frontend)
-    if (param.passing === "out" && param.pattern.kind === "identifierPattern") {
-      // Get the type for default value
-      let typeName = "object";
-      if (param.type) {
-        const [typeAst] = emitTypeAst(param.type, currentContext);
-        typeName = printType(typeAst);
-      }
-      outParams.push({
-        name: escapeCSharpIdentifier(param.pattern.name),
-        type: typeName,
-      });
-    }
-  }
+  // Build final body with injected statements
+  let finalBody: { kind: "blockStatement"; statements: CSharpStatementAst[] };
 
-  // Inject initialization code for generators, out parameters, and destructuring
-  let finalBodyCode = bodyCode;
-  const injectLines: string[] = [];
-
-  // Generate parameter destructuring statements
-  if (parameterDestructuringStmts.length > 0) {
-    injectLines.push(...parameterDestructuringStmts);
-  }
-
-  // Handle bidirectional generators specially
   if (stmt.isGenerator && isBidirectional) {
+    // Bidirectional generator: build wrapper body
     const exchangeName = `${csharpBaseName}_exchange`;
     const wrapperName = `${csharpBaseName}_Generator`;
-    const enumerableType = stmt.isAsync
-      ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
-      : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
-    const asyncModifier = stmt.isAsync ? "async " : "";
+    const enumerableType: CSharpTypeAst = stmt.isAsync
+      ? {
+          kind: "identifierType",
+          name: "global::System.Collections.Generic.IAsyncEnumerable",
+          typeArguments: [{ kind: "identifierType", name: exchangeName }],
+        }
+      : {
+          kind: "identifierType",
+          name: "global::System.Collections.Generic.IEnumerable",
+          typeArguments: [{ kind: "identifierType", name: exchangeName }],
+        };
 
-    // generatorHasReturnType was computed earlier so we can reserve locals before body emission.
-    const hasReturnType = generatorHasReturnType;
+    const wrapperBodyStatements: CSharpStatementAst[] = [];
 
-    // Extract return type for __returnValue variable
-    let returnTypeStr = "object";
-    if (hasReturnType) {
+    // var exchange = new ExchangeName();
+    wrapperBodyStatements.push({
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: { kind: "varType" },
+      declarators: [
+        {
+          name: generatorExchangeVar,
+          initializer: {
+            kind: "objectCreationExpression",
+            type: { kind: "identifierType", name: exchangeName },
+            arguments: [],
+          },
+        },
+      ],
+    });
+
+    // TReturn __returnValue = default!;
+    if (generatorHasReturnType) {
       const {
         returnType: extractedReturnType,
         newContext: typeExtractContext,
       } = extractGeneratorTypeArgs(stmt.returnType, currentContext);
       currentContext = typeExtractContext;
-      returnTypeStr = extractedReturnType;
+
+      wrapperBodyStatements.push({
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "identifierType", name: extractedReturnType },
+        declarators: [
+          {
+            name: generatorReturnValueVar,
+            initializer: {
+              kind: "suppressNullableWarningExpression",
+              expression: { kind: "defaultExpression" },
+            },
+          },
+        ],
+      });
     }
 
-    // Build the body with local iterator function
-    const iteratorBody = bodyCode
-      .split("\n")
-      .slice(1, -1) // Remove opening and closing braces
-      .map((line) => `    ${line}`) // Add extra indent
-      .join("\n");
-
-    // Construct the bidirectional generator body
-    const bodyLines = [
-      `${ind}{`,
-      `${bodyInd}var ${generatorExchangeVar} = new ${exchangeName}();`,
+    // Inner local function __iterator()
+    const innerBodyStatements: CSharpStatementAst[] = [
+      ...paramDestructuringStmts,
+      ...bodyBlock.statements,
     ];
 
-    // Add __returnValue capture if TReturn is not void
-    if (hasReturnType) {
-      bodyLines.push(
-        `${bodyInd}${returnTypeStr} ${generatorReturnValueVar} = default!;`
-      );
+    const iteratorModifiers: string[] = stmt.isAsync ? ["async"] : [];
+
+    wrapperBodyStatements.push({
+      kind: "localFunctionStatement",
+      modifiers: iteratorModifiers,
+      returnType: enumerableType,
+      name: generatorIteratorFn,
+      parameters: [],
+      body: { kind: "blockStatement", statements: innerBodyStatements },
+    });
+
+    // return new WrapperName(__iterator(), exchange, () => __returnValue);
+    const constructorArgs: CSharpExpressionAst[] = [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: generatorIteratorFn,
+        },
+        arguments: [],
+      },
+      { kind: "identifierExpression", identifier: generatorExchangeVar },
+    ];
+
+    if (generatorHasReturnType) {
+      constructorArgs.push({
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [],
+        body: {
+          kind: "identifierExpression",
+          identifier: generatorReturnValueVar,
+        },
+      });
     }
 
-    bodyLines.push(``);
-    bodyLines.push(
-      `${bodyInd}${asyncModifier}${enumerableType} ${generatorIteratorFn}()`
-    );
-    bodyLines.push(`${bodyInd}{`);
-    bodyLines.push(iteratorBody);
-    bodyLines.push(`${bodyInd}}`);
-    bodyLines.push(``);
+    wrapperBodyStatements.push({
+      kind: "returnStatement",
+      expression: {
+        kind: "objectCreationExpression",
+        type: { kind: "identifierType", name: wrapperName },
+        arguments: constructorArgs,
+      },
+    });
 
-    // Wrapper constructor call - pass return value getter if needed
-    if (hasReturnType) {
-      bodyLines.push(
-        `${bodyInd}return new ${wrapperName}(${generatorIteratorFn}(), ${generatorExchangeVar}, () => ${generatorReturnValueVar});`
-      );
-    } else {
-      bodyLines.push(
-        `${bodyInd}return new ${wrapperName}(${generatorIteratorFn}(), ${generatorExchangeVar});`
-      );
-    }
-
-    bodyLines.push(`${ind}}`);
-
-    finalBodyCode = bodyLines.join("\n");
+    finalBody = {
+      kind: "blockStatement",
+      statements: wrapperBodyStatements,
+    };
   } else {
-    // Add generator exchange initialization for unidirectional generators
+    // Non-bidirectional: build body with injected init lines
+    const finalBodyStatements: CSharpStatementAst[] = [];
+
+    // Parameter destructuring
+    finalBodyStatements.push(...paramDestructuringStmts);
+
+    // Generator exchange initialization
     if (stmt.isGenerator) {
       const exchangeName = `${csharpBaseName}_exchange`;
-      injectLines.push(
-        `${bodyInd}var ${generatorExchangeVar} = new ${exchangeName}();`
-      );
+      finalBodyStatements.push({
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [
+          {
+            name: generatorExchangeVar,
+            initializer: {
+              kind: "objectCreationExpression",
+              type: { kind: "identifierType", name: exchangeName },
+              arguments: [],
+            },
+          },
+        ],
+      });
     }
 
-    // Add out parameter initializations
-    if (outParams.length > 0) {
-      for (const outParam of outParams) {
-        injectLines.push(`${bodyInd}${outParam.name} = default;`);
+    // Out parameter initializations
+    for (const param of stmt.parameters) {
+      if (
+        param.passing === "out" &&
+        param.pattern.kind === "identifierPattern"
+      ) {
+        finalBodyStatements.push({
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignmentExpression",
+            operatorToken: "=",
+            left: {
+              kind: "identifierExpression",
+              identifier: escapeCSharpIdentifier(param.pattern.name),
+            },
+            right: { kind: "defaultExpression" },
+          },
+        });
       }
     }
 
-    // Inject lines after opening brace
-    if (injectLines.length > 0) {
-      const lines = bodyCode.split("\n");
-      if (lines.length > 1) {
-        lines.splice(1, 0, ...injectLines, "");
-        finalBodyCode = lines.join("\n");
-      }
-    }
+    // Original body statements
+    finalBodyStatements.push(...bodyBlock.statements);
+
+    finalBody = {
+      kind: "blockStatement",
+      statements: finalBodyStatements,
+    };
   }
 
-  // Emit attributes before the function declaration
+  // Attributes
   const [attrs, attrContext] = emitAttributes(stmt.attributes, currentContext);
   currentContext = attrContext;
 
-  const signature = parts.join(" ");
-  const whereClause =
-    whereClauses.length > 0
-      ? `\n${ind}    ${whereClauses.join(`\n${ind}    `)}`
-      : "";
+  const methodAst: CSharpMemberAst = {
+    kind: "methodDeclaration",
+    attributes: attrs,
+    modifiers,
+    returnType: returnTypeAst,
+    name: emitCSharpName(stmt.name, "methods", context),
+    typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
+    constraints:
+      constraintAsts.length > 0 ? constraintAsts : undefined,
+    parameters: [...paramsResult.paramAsts],
+    body: finalBody,
+  };
 
-  // Build final code with attributes (if any)
-  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
-  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameters.map(printParameter).join(", ")})${whereClause}\n${finalBodyCode}`;
-
-  // Return context - no usings tracking needed with global:: FQN approach
-  return [code, { ...currentContext, ...savedScoped }];
+  return [[methodAst], { ...bodyCtxAfter, ...savedScoped }];
 };
 
 /**

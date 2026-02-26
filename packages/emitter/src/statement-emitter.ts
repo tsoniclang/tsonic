@@ -12,6 +12,7 @@ import type { CSharpStatementAst } from "./core/format/backend-ast/types.js";
 import {
   printStatementFlatBlock,
   printTypeDeclaration,
+  printMember,
 } from "./core/format/backend-ast/printer.js";
 
 // Import AST statement emitters from specialized modules
@@ -198,7 +199,10 @@ export const emitStatement = (
 
     case "functionDeclaration":
       if (context.isStatic) {
-        return emitFunctionDeclaration(stmt, context);
+        const [funcMembers, funcCtx] = emitFunctionDeclaration(stmt, context);
+        const ind = getIndent(context);
+        const code = funcMembers.map((m) => printMember(m, ind)).join("\n\n");
+        return [code, funcCtx];
       }
       break;
   }
