@@ -159,12 +159,9 @@ export const emitUnary = (
     }
 
     const returnTypeText = printType(returnTypeAst);
-    const defaultText =
-      returnTypeAst.kind === "nullableType" &&
-      returnTypeAst.underlyingType.kind === "predefinedType" &&
-      returnTypeAst.underlyingType.keyword === "object"
-        ? "default"
-        : `default(${returnTypeText})`;
+    const defaultText = effectiveExpectedType
+      ? `default(${returnTypeText})`
+      : "default";
 
     const operandStatement = (() => {
       if (isNoopOperand) return "";
