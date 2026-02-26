@@ -4,10 +4,7 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import {
-  emitTypeAst,
-  emitTypeParametersAst,
-} from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { printType } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
@@ -95,11 +92,7 @@ const emitStructuralTypeAlias = (
   }
 
   const [typeParamAsts, constraintAsts, typeParamContext] =
-    emitTypeParametersAst(
-      stmt.typeParameters,
-      context,
-      reservedTypeParamNames
-    );
+    emitTypeParametersAst(stmt.typeParameters, context, reservedTypeParamNames);
 
   // Generate member properties from object type members
   const members: CSharpMemberAst[] = [];
@@ -153,24 +146,20 @@ const emitStructuralTypeAlias = (
         attributes: [],
         modifiers,
         name: aliasName,
-        typeParameters:
-          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         interfaces: [],
         members,
-        constraints:
-          constraintAsts.length > 0 ? constraintAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       }
     : {
         kind: "classDeclaration",
         attributes: [],
         modifiers,
         name: aliasName,
-        typeParameters:
-          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         interfaces: [],
         members,
-        constraints:
-          constraintAsts.length > 0 ? constraintAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       };
 
   return [declAst, currentContext];

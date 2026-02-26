@@ -3,12 +3,7 @@
  */
 
 import { IrClassMember } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  dedent,
-  indent,
-  withScoped,
-} from "../../../types.js";
+import { EmitterContext, dedent, indent, withScoped } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import { emitAttributes } from "../../../core/format/attributes.js";

@@ -3,11 +3,7 @@
  */
 
 import { IrStatement, type IrClassMember, type IrType } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  indent,
-  withClassName,
-} from "../../types.js";
+import { EmitterContext, indent, withClassName } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -231,9 +227,7 @@ export const emitClassDeclaration = (
       bindingKeyCandidates.push(impl.name.slice(0, -"$instance".length));
     }
     if (impl.name.startsWith("__") && impl.name.endsWith("$views")) {
-      bindingKeyCandidates.push(
-        impl.name.slice("__".length, -"$views".length)
-      );
+      bindingKeyCandidates.push(impl.name.slice("__".length, -"$views".length));
     }
 
     const regBinding = bindingKeyCandidates
@@ -273,25 +267,21 @@ export const emitClassDeclaration = (
         attributes: attrs,
         modifiers,
         name: escapedClassName,
-        typeParameters:
-          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         interfaces: implementedInterfaces,
         members: memberAsts,
-        constraints:
-          constraintAsts.length > 0 ? constraintAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       }
     : {
         kind: "classDeclaration",
         attributes: attrs,
         modifiers,
         name: escapedClassName,
-        typeParameters:
-          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         baseType,
         interfaces: implementedInterfaces,
         members: memberAsts,
-        constraints:
-          constraintAsts.length > 0 ? constraintAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       };
 
   // Companion static class for generic class static members

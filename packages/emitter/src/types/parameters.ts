@@ -169,10 +169,7 @@ export const emitTypeParametersAst = (
         // Special case: T extends object → where T : class (C# reference type constraint)
         constraintAsts.push({ typeParameter: tpName, constraints: ["class"] });
       } else {
-        const [cAst, newContext] = emitTypeAst(
-          tp.constraint,
-          currentContext
-        );
+        const [cAst, newContext] = emitTypeAst(tp.constraint, currentContext);
         currentContext = newContext;
         constraintAsts.push({
           typeParameter: tpName,
@@ -186,8 +183,8 @@ export const emitTypeParametersAst = (
 };
 
 /**
- * Legacy text-based emitTypeParameters — thin wrapper around emitTypeParametersAst.
- * Returns [typeParamsStr, whereClauseStrings, context] for callers not yet converted.
+ * Text-based emitTypeParameters — thin wrapper around emitTypeParametersAst.
+ * Returns [typeParamsStr, whereClauseStrings, context].
  */
 export const emitTypeParameters = (
   typeParams: readonly IrTypeParameter[] | undefined,

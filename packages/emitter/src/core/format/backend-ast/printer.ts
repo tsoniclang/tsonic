@@ -1265,16 +1265,16 @@ const printNamespaceDeclaration = (
 };
 
 // ============================================================
-// Flat Block Printer (backward-compatible text shim helper)
+// Flat Block Printer
 // ============================================================
 
 /**
  * Print a statement with "flat block" convention:
  * block braces and inner statements share the same indent level.
  *
- * In the old text-based emitter, emitBlockStatement used getIndent(context)
- * for both braces and inner statements. Control flow bodies were emitted
- * at indent+1 level. This function preserves that convention.
+ * Used by the static container's __TopLevel method and other contexts
+ * where block bodies need Tsonic's flat-block formatting (braces at same
+ * indent as inner statements, not C#-standard nested convention).
  *
  * For compound statements (if/while/for/foreach/switch/try), body blocks
  * are printed at indent+4 with flat block convention (braces and inner

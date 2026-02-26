@@ -7,12 +7,11 @@
  */
 
 import { IrStatement, IrExpression } from "@tsonic/frontend";
-import { EmitterContext, getIndent } from "../types.js";
+import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitStatementAst } from "../statement-emitter.js";
 import { lowerPatternAst } from "../patterns.js";
 import { allocateLocalName } from "../core/format/local-names.js";
-import { printStatementFlatBlock } from "../core/format/backend-ast/printer.js";
 import type {
   CSharpStatementAst,
   CSharpBlockStatementAst,
@@ -130,7 +129,7 @@ export const emitReturnStatementAst = (
 
 /**
  * Emit yield expression as C# yield return with exchange object pattern
- * (Legacy handler for IrYieldExpression - used for unidirectional generators)
+ * (Handler for IrYieldExpression in unidirectional generators)
  *
  * TypeScript: yield value
  * C#:
@@ -355,7 +354,7 @@ export const emitExpressionStatementAst = (
 ): [readonly CSharpStatementAst[], EmitterContext] => {
   // Special handling for yield expressions in generators
   // Note: After yield-lowering pass, generators will have IrYieldStatement nodes instead
-  // This is kept for backward compatibility with unprocessed IR
+  // Handles unprocessed IR (before yield-lowering pass)
   if (stmt.expression.kind === "yield") {
     return emitYieldExpressionAst(stmt.expression, context);
   }
@@ -446,27 +445,4 @@ export const emitGeneratorReturnStatementAst = (
   parts.push({ kind: "yieldStatement", isBreak: true });
 
   return [parts, currentContext];
-};
-
-/**
- * Emit a block statement as text (backward-compatible shim).
- *
- * Routes through the AST pipeline and prints the result.
- * Used by text-based callers (e.g., static function declarations)
- * that haven't been converted to AST yet.
- *
- * Note: the old text path emitted inner statements at the same indent level
- * as the block braces. printBlockStatement (via printStatement) would add an
- * extra innerIndent, so we manually assemble the block to match the old format.
- */
-export const emitBlockStatement = (
-  stmt: Extract<IrStatement, { kind: "blockStatement" }>,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const [ast, ctx] = emitBlockStatementAst(stmt, context);
-  const ind = getIndent(context);
-  const stmts = ast.statements
-    .map((s) => printStatementFlatBlock(s, ind))
-    .join("\n");
-  return [`${ind}{\n${stmts}\n${ind}}`, ctx];
 };

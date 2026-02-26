@@ -3,8 +3,8 @@
  * Per spec/13-generators.md - Generate exchange objects for bidirectional communication
  *
  * Exchange classes are built as CSharpTypeDeclarationAst internally.
- * generateGeneratorExchanges returns [string, EmitterContext] for backward
- * compatibility with the orchestrator (Phase H will switch callers to AST).
+ * generateGeneratorExchanges returns [string, EmitterContext] because
+ * the wrapper class (generator-wrapper.ts) is still text-based.
  */
 
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
@@ -113,7 +113,7 @@ export const generateExchangeClassAst = (
 /**
  * Generate all exchange objects, wrapper classes, and IteratorResult struct for generators in a module.
  *
- * Returns text for backward compatibility with the orchestrator.
+ * Returns text because the wrapper class is still text-based.
  * The exchange classes are built as AST internally.
  */
 export const generateGeneratorExchanges = (

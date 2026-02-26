@@ -7,10 +7,7 @@ import { EmitterContext, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitBlockStatementAst } from "../statement-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
-import {
-  escapeCSharpIdentifier,
-  getIndent,
-} from "../emitter-types/index.js";
+import { escapeCSharpIdentifier, getIndent } from "../emitter-types/index.js";
 import type {
   CSharpExpressionAst,
   CSharpLambdaParameterAst,

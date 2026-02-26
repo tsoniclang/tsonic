@@ -298,9 +298,7 @@ export const emitModule = (
   // Print namespace declarations to text
   const namespaceDeclsParts: string[] = [
     ...namespaceResult.commentLines,
-    ...namespaceResult.declarations.map((d) =>
-      printTypeDeclaration(d, "    ")
-    ),
+    ...namespaceResult.declarations.map((d) => printTypeDeclaration(d, "    ")),
   ];
   const namespaceDeclsCode = namespaceDeclsParts.join("\n");
 
@@ -317,7 +315,10 @@ export const emitModule = (
       hasInheritance,
       hasCollision // Add __Module suffix only when there's a name collision
     );
-    staticContainerCode = printTypeDeclaration(containerResult.declaration, "    ");
+    staticContainerCode = printTypeDeclaration(
+      containerResult.declaration,
+      "    "
+    );
     finalContext = containerResult.context;
   }
 

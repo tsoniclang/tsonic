@@ -3,11 +3,7 @@
  */
 
 import { IrStatement, IrType, type IrParameter } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  withAsync,
-  withStatic,
-} from "../../types.js";
+import { EmitterContext, withAsync, withStatic } from "../../types.js";
 import {
   emitTypeAst,
   emitTypeParameters,
@@ -421,8 +417,7 @@ export const emitFunctionDeclaration = (
     returnType: returnTypeAst,
     name: emitCSharpName(stmt.name, "methods", context),
     typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
-    constraints:
-      constraintAsts.length > 0 ? constraintAsts : undefined,
+    constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
     parameters: [...paramsResult.paramAsts],
     body: finalBody,
   };

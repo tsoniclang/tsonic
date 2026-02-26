@@ -593,5 +593,5 @@ export const emitExpressionAst = (
   );
 };
 
-// Re-export commonly used functions for backward compatibility
+// Re-export commonly used functions from barrel
 export { generateSpecializedName } from "./expressions/identifiers.js";

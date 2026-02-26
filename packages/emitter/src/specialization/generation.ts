@@ -1,5 +1,7 @@
 /**
  * Generate specialized declarations from requests
+ *
+ * Calls AST declaration emitters directly (no text shim).
  */
 
 import {
@@ -8,8 +10,15 @@ import {
   IrBlockStatement,
   IrType,
 } from "@tsonic/frontend";
-import { EmitterContext } from "../types.js";
-import { emitStatement } from "../statement-emitter.js";
+import { EmitterContext, getIndent, withStatic } from "../types.js";
+import {
+  emitClassDeclaration,
+  emitFunctionDeclaration,
+} from "../statements/declarations.js";
+import {
+  printTypeDeclaration,
+  printMember,
+} from "../core/format/backend-ast/printer.js";
 import { SpecializationRequest } from "./types.js";
 import {
   generateSpecializedFunctionName,
@@ -88,8 +97,15 @@ const generateSpecializedFunction = (
     body: substituteStatement(funcDecl.body, substitutions) as IrBlockStatement,
   };
 
-  // Emit the specialized function using the statement emitter
-  return emitStatement(specializedDecl, context);
+  // Emit the specialized function as static method members
+  const staticContext = withStatic(context, true);
+  const [funcMembers, funcCtx] = emitFunctionDeclaration(
+    specializedDecl,
+    staticContext
+  );
+  const ind = getIndent(context);
+  const code = funcMembers.map((m) => printMember(m, ind)).join("\n\n");
+  return [code, funcCtx];
 };
 
 /**
@@ -180,6 +196,9 @@ const generateSpecializedClass = (
     ),
   };
 
-  // Emit the specialized class using the statement emitter
-  return emitStatement(specializedDecl, context);
+  // Emit the specialized class as type declarations
+  const [classDecls, classCtx] = emitClassDeclaration(specializedDecl, context);
+  const ind = getIndent(context);
+  const code = classDecls.map((d) => printTypeDeclaration(d, ind)).join("\n");
+  return [code, classCtx];
 };

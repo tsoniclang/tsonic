@@ -10,10 +10,7 @@ import {
   withAsync,
   withScoped,
 } from "../../../types.js";
-import {
-  emitTypeAst,
-  emitTypeParametersAst,
-} from "../../../type-emitter.js";
+import { emitTypeAst, emitTypeParametersAst } from "../../../type-emitter.js";
 import { printType } from "../../../core/format/backend-ast/printer.js";
 import { emitBlockStatementAst } from "../../../statement-emitter.js";
 import {

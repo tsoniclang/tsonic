@@ -4,7 +4,6 @@
 
 // Block and simple statements (AST)
 export {
-  emitBlockStatement,
   emitBlockStatementAst,
   emitReturnStatementAst,
   emitYieldExpressionAst,

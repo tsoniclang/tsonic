@@ -11,12 +11,7 @@ import {
   NumericKind,
   NUMERIC_KIND_TO_CSHARP,
 } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  getIndent,
-  indent,
-  withStatic,
-} from "../../types.js";
+import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitBlockStatementAst } from "../../statements/blocks.js";
@@ -226,8 +221,7 @@ const resolveStaticFieldType = (
 
   // numericNarrowing
   if (init?.kind === "numericNarrowing" && init.targetKind) {
-    const csharpType =
-      NUMERIC_KIND_TO_CSHARP.get(init.targetKind) ?? "double";
+    const csharpType = NUMERIC_KIND_TO_CSHARP.get(init.targetKind) ?? "double";
     return [{ kind: "identifierType", name: csharpType }, context];
   }
 
@@ -378,12 +372,10 @@ const validateArrowTypeScope = (
 /**
  * Resolve the return type for a static arrow function.
  */
-const resolveArrowReturnType = (
-  arrowFunc: {
-    returnType?: IrType;
-    inferredType?: IrType;
-  }
-): IrType => {
+const resolveArrowReturnType = (arrowFunc: {
+  returnType?: IrType;
+  inferredType?: IrType;
+}): IrType => {
   const result =
     arrowFunc.returnType ??
     (arrowFunc.inferredType?.kind === "functionType"
@@ -425,8 +417,7 @@ const emitStaticArrowFieldMembers = (
 
   // Resolve and validate return type
   const arrowReturnType = resolveArrowReturnType(arrowFunc);
-  const inScopeTypeParams =
-    currentContext.typeParameters ?? new Set<string>();
+  const inScopeTypeParams = currentContext.typeParameters ?? new Set<string>();
   validateArrowTypeScope(arrowFunc, arrowReturnType, inScopeTypeParams);
 
   // Emit parameter types
@@ -452,9 +443,10 @@ const emitStaticArrowFieldMembers = (
   currentContext = retCtx;
 
   const members: CSharpMemberAst[] = [];
-  const fieldName = decl.name.kind === "identifierPattern"
-    ? emitCSharpName(decl.name.name!, "fields", context)
-    : "/* unsupported */";
+  const fieldName =
+    decl.name.kind === "identifierPattern"
+      ? emitCSharpName(decl.name.name!, "fields", context)
+      : "/* unsupported */";
   const implName = `${fieldName}__Impl`;
 
   // Determine field type: delegate, Func<>, or Action<>
@@ -466,9 +458,7 @@ const emitStaticArrowFieldMembers = (
 
   if (needsOptionalArgs) {
     // Custom delegate type for optional parameters
-    const hasInitializer = arrowFunc.parameters.some(
-      (p) => !!p.initializer
-    );
+    const hasInitializer = arrowFunc.parameters.some((p) => !!p.initializer);
     if (hasInitializer) {
       throw new Error(
         "ICE: Arrow function values with default parameter initializers are not supported. Use a named function declaration instead."
@@ -592,13 +582,10 @@ const emitStaticArrowFieldMembers = (
   // Build method body AST
   const bodyResult = (() => {
     if (arrowFunc.body.kind === "blockStatement") {
-      return emitBlockStatementAst(
-        arrowFunc.body,
-        {
-          ...bodyBaseContext,
-          returnType: bodyReturnType,
-        }
-      );
+      return emitBlockStatementAst(arrowFunc.body, {
+        ...bodyBaseContext,
+        returnType: bodyReturnType,
+      });
     }
     const [exprAst, bodyCtx] = emitExpressionAst(
       arrowFunc.body,

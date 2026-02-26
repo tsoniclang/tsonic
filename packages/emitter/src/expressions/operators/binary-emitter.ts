@@ -42,7 +42,7 @@ import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js
  *
  * @param expr - The binary expression
  * @param context - Emitter context
- * @param _expectedType - Unused under new spec (kept for API compatibility)
+ * @param _expectedType - Currently unused
  */
 export const emitBinary = (
   expr: Extract<IrExpression, { kind: "binary" }>,

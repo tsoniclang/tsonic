@@ -4,10 +4,7 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import {
-  emitTypeAst,
-  emitTypeParametersAst,
-} from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import {
   extractInlineObjectTypes,
   emitExtractedType,
@@ -58,10 +55,7 @@ export const emitInterfaceDeclaration = (
   };
 
   // Extract inline object types
-  const extractedTypes = extractInlineObjectTypes(
-    stmt.members,
-    currentContext
-  );
+  const extractedTypes = extractInlineObjectTypes(stmt.members, currentContext);
   const extractedDecls: CSharpTypeDeclarationAst[] = [];
   for (const extracted of extractedTypes) {
     const [declAst, newContext] = emitExtractedType(extracted, currentContext);
@@ -197,12 +191,10 @@ export const emitInterfaceDeclaration = (
         attributes: [],
         modifiers,
         name: escapeCSharpIdentifier(stmt.name),
-        typeParameters:
-          typeParamAsts.length > 0 ? typeParamAsts : undefined,
+        typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
         interfaces,
         members,
-        constraints:
-          constraintAsts.length > 0 ? constraintAsts : undefined,
+        constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
       }
     : stmt.isStruct
       ? {
@@ -210,24 +202,20 @@ export const emitInterfaceDeclaration = (
           attributes: [],
           modifiers,
           name: escapeCSharpIdentifier(stmt.name),
-          typeParameters:
-            typeParamAsts.length > 0 ? typeParamAsts : undefined,
+          typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
           interfaces,
           members,
-          constraints:
-            constraintAsts.length > 0 ? constraintAsts : undefined,
+          constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
         }
       : {
           kind: "classDeclaration",
           attributes: [],
           modifiers,
           name: escapeCSharpIdentifier(stmt.name),
-          typeParameters:
-            typeParamAsts.length > 0 ? typeParamAsts : undefined,
+          typeParameters: typeParamAsts.length > 0 ? typeParamAsts : undefined,
           interfaces,
           members,
-          constraints:
-            constraintAsts.length > 0 ? constraintAsts : undefined,
+          constraints: constraintAsts.length > 0 ? constraintAsts : undefined,
         };
 
   // Combine main + extracted types

@@ -45,7 +45,10 @@ export const emitInterfaceMemberAsProperty = (
           }
           return emitTypeAst(member.type, currentContext);
         }
-        const typeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+        const typeAst: CSharpTypeAst = {
+          kind: "identifierType",
+          name: "object",
+        };
         return [typeAst, currentContext] as const;
       })();
 
@@ -84,7 +87,10 @@ export const emitInterfaceMemberAsProperty = (
         if (member.returnType) {
           return emitTypeAst(member.returnType, currentContext);
         }
-        const voidType: CSharpTypeAst = { kind: "identifierType", name: "void" };
+        const voidType: CSharpTypeAst = {
+          kind: "identifierType",
+          name: "void",
+        };
         return [voidType, currentContext] as const;
       })();
 

@@ -214,8 +214,7 @@ export const emitStaticContainer = (
 
     for (const stmt of mainBodyStmts) {
       const [stmts, newContext] = emitStatementAst(stmt, mainCurrentContext);
-      // Wrap each statement AST in a literal member
-      // (this case is for backward compat - non-entry-point executable statements)
+      // Wrap each statement AST in a literal member (non-entry-point executable statements)
       for (const _ of stmts) {
         astMembers.push({
           kind: "literalMember",
@@ -227,17 +226,11 @@ export const emitStaticContainer = (
     bodyCurrentContext = mainCurrentContext;
   }
 
-  const modifiers = [
-    "public",
-    "static",
-    ...(needsUnsafe ? ["unsafe"] : []),
-  ];
+  const modifiers = ["public", "static", ...(needsUnsafe ? ["unsafe"] : [])];
 
   const declaration: CSharpClassDeclarationAst = {
     kind: "classDeclaration",
-    attributes: [
-      { name: "global::Tsonic.Internal.ModuleContainerAttribute" },
-    ],
+    attributes: [{ name: "global::Tsonic.Internal.ModuleContainerAttribute" }],
     modifiers,
     name: containerName,
     interfaces: [],
