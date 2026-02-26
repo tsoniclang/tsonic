@@ -14,15 +14,15 @@ import {
 } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
-import { printExpression } from "../../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
 
 /**
  * Extract the identifier string from an expression AST that is known to be
- * an identifierExpression. Falls back to printExpression for other shapes.
+ * an identifierExpression. Falls back to extractCalleeNameFromAst for other shapes.
  */
 const extractIdentifierText = (ast: CSharpExpressionAst): string =>
-  ast.kind === "identifierExpression" ? ast.identifier : printExpression(ast);
+  extractCalleeNameFromAst(ast);
 import {
   resolveTypeAlias,
   stripNullish,

@@ -23,7 +23,7 @@ import {
   escapeCharLiteral,
   isNullishLiteral,
 } from "./helpers.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
@@ -234,10 +234,7 @@ export const emitBinary = (
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
     const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
     // For `is`, convert expression to type name (extract from identifierExpression)
-    const rightText =
-      rightAst.kind === "identifierExpression"
-        ? rightAst.identifier
-        : printExpression(rightAst);
+    const rightText = extractCalleeNameFromAst(rightAst);
     const isExpr: CSharpExpressionAst = {
       kind: "isExpression",
       expression: leftAst,

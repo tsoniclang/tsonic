@@ -15,6 +15,7 @@ import {
   printExpression,
   printType,
 } from "../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -78,7 +79,7 @@ const emitListCollectionInitializer = (
     currentContext
   );
   currentContext = calleeContext;
-  let calleeText = printExpression(calleeAst);
+  let calleeText = extractCalleeNameFromAst(calleeAst);
 
   let typeArgAsts: readonly CSharpTypeAst[] = [];
   if (expr.typeArguments && expr.typeArguments.length > 0) {
@@ -451,7 +452,7 @@ export const emitNew = (
 
   const [calleeAst, newContext] = emitExpressionAst(expr.callee, context);
   let currentContext = newContext;
-  let calleeText = printExpression(calleeAst);
+  let calleeText = extractCalleeNameFromAst(calleeAst);
 
   let typeArgAsts: readonly CSharpTypeAst[] = [];
 

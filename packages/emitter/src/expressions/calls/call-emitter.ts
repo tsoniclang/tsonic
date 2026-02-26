@@ -21,7 +21,7 @@ import {
   registerJsonAotType,
   needsIntCast,
 } from "./call-analysis.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -410,7 +410,7 @@ export const emitCall = (
 
   if (expr.typeArguments && expr.typeArguments.length > 0) {
     if (expr.requiresSpecialization) {
-      const calleeText = printExpression(calleeAst);
+      const calleeText = extractCalleeNameFromAst(calleeAst);
       const [specializedName, specContext] = generateSpecializedName(
         calleeText,
         expr.typeArguments,
@@ -463,7 +463,7 @@ export const emitCall = (
     typeArguments: typeArgAsts.length > 0 ? typeArgAsts : undefined,
   };
 
-  const calleeText = printExpression(calleeAst);
+  const calleeText = extractCalleeNameFromAst(calleeAst);
   return [
     wrapIntCast(needsIntCast(expr, calleeText), invocation),
     currentContext,

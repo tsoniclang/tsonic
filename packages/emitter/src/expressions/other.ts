@@ -5,7 +5,6 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
-import { printExpression } from "../core/format/backend-ast/printer.js";
 import type {
   CSharpExpressionAst,
   CSharpInterpolatedStringPart,
@@ -125,9 +124,11 @@ export const emitSpread = (
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
   const [exprAst, newContext] = emitExpressionAst(expr.expression, context);
-  // Use identifierExpression as a fallback for the ...expr pattern
-  const text = `...${printExpression(exprAst)}`;
-  return [{ kind: "identifierExpression", identifier: text }, newContext];
+  // Use prefixUnaryExpression as a fallback for the ...expr pattern
+  return [
+    { kind: "prefixUnaryExpression", operatorToken: "...", operand: exprAst },
+    newContext,
+  ];
 };
 
 /**

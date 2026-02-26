@@ -105,3 +105,5 @@ export {
   printTypeDeclaration,
   printCompilationUnit,
 } from "./printer.js";
+
+export { extractCalleeNameFromAst } from "./utils.js";
