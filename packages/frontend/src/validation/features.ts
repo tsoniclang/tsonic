@@ -27,7 +27,7 @@ export const validateUnsupportedFeatures = (
         createDiagnostic(
           "TSN2001",
           "error",
-          "'with' statement not supported",
+          "'with' statement is not supported in strict AOT mode",
           getNodeLocation(sourceFile, node)
         )
       );

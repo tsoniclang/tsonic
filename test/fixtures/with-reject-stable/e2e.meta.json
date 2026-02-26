@@ -1,0 +1,5 @@
+{
+  "expectFailure": true,
+  "description": "'with' is permanently unsupported in strict AOT mode and must remain a hard error.",
+  "expectedErrors": ["TSN2001", "'with' statement"]
+}
