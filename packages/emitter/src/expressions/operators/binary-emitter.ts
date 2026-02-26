@@ -233,8 +233,11 @@ export const emitBinary = (
   if (expr.operator === "instanceof") {
     const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
     const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
-    // For `is`, convert expression to type name
-    const rightText = printExpression(rightAst);
+    // For `is`, convert expression to type name (extract from identifierExpression)
+    const rightText =
+      rightAst.kind === "identifierExpression"
+        ? rightAst.identifier
+        : printExpression(rightAst);
     const isExpr: CSharpExpressionAst = {
       kind: "isExpression",
       expression: leftAst,
