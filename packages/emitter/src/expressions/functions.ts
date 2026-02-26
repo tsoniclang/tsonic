@@ -6,10 +6,13 @@ import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
 import { EmitterContext, indent, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
-import { emitType } from "../type-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { printExpression } from "../core/format/backend-ast/printer.js";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpExpressionAst,
+  CSharpLambdaParameterAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -64,12 +67,12 @@ const isTypeParameterLike = (
 };
 
 /**
- * Emit lambda parameters.
+ * Emit lambda parameters as typed AST nodes.
  */
-const emitLambdaParameters = (
+const emitLambdaParametersAst = (
   parameters: readonly IrParameter[],
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpLambdaParameterAst[], EmitterContext] => {
   let currentContext = context;
 
   const allHaveConcreteTypes = parameters.every((p) => {
@@ -79,32 +82,40 @@ const emitLambdaParameters = (
     return !isTypeParameterLike(actualType, currentContext);
   });
 
-  const parts: string[] = [];
+  const paramAsts: CSharpLambdaParameterAst[] = [];
 
   for (const param of parameters) {
-    let name = "_";
-    if (param.pattern.kind === "identifierPattern") {
-      name = escapeCSharpIdentifier(param.pattern.name);
-    }
+    const name =
+      param.pattern.kind === "identifierPattern"
+        ? escapeCSharpIdentifier(param.pattern.name)
+        : "_";
 
-    const modifier = param.passing !== "value" ? `${param.passing} ` : "";
+    const modifier = param.passing !== "value" ? param.passing : undefined;
 
     if (allHaveConcreteTypes && param.type) {
       const unwrapped = unwrapParameterModifierType(param.type);
       const actualType = unwrapped ?? param.type;
 
-      const [typeStr, newContext] = emitType(actualType, currentContext);
+      const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
       currentContext = newContext;
 
-      const optionalSuffix =
-        param.isOptional && !typeStr.trimEnd().endsWith("?") ? "?" : "";
-      parts.push(`${modifier}${typeStr}${optionalSuffix} ${name}`);
+      // Wrap in nullable if optional and not already nullable
+      const finalTypeAst: CSharpTypeAst =
+        param.isOptional && typeAst.kind !== "nullableType"
+          ? { kind: "nullableType", underlyingType: typeAst }
+          : typeAst;
+
+      paramAsts.push(
+        modifier
+          ? { name, type: finalTypeAst, modifier }
+          : { name, type: finalTypeAst }
+      );
     } else {
-      parts.push(name);
+      paramAsts.push(modifier ? { name, modifier } : { name });
     }
   }
 
-  return [parts.join(", "), currentContext];
+  return [paramAsts, currentContext];
 };
 
 /**
@@ -114,7 +125,7 @@ export const emitFunctionExpression = (
   expr: Extract<IrExpression, { kind: "functionExpression" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const [paramList, paramContext] = emitLambdaParameters(
+  const [paramAsts, paramContext] = emitLambdaParametersAst(
     expr.parameters,
     context
   );
@@ -136,10 +147,14 @@ export const emitFunctionExpression = (
     returnType,
   });
 
-  // Block body: bridge via identifierExpression since emitStatement returns text
-  const asyncPrefix = expr.isAsync ? "async " : "";
-  const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
-  return [{ kind: "identifierExpression", identifier: text }, paramContext];
+  const result: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: expr.isAsync ?? false,
+    parameters: paramAsts,
+    body: { kind: "literalExpression", text: "" },
+    preRenderedBody: blockCode,
+  };
+  return [result, paramContext];
 };
 
 /**
@@ -149,7 +164,7 @@ export const emitArrowFunction = (
   expr: Extract<IrExpression, { kind: "arrowFunction" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
-  const [paramList, paramContext] = emitLambdaParameters(
+  const [paramAsts, paramContext] = emitLambdaParametersAst(
     expr.parameters,
     context
   );
@@ -158,14 +173,13 @@ export const emitArrowFunction = (
     paramContext
   );
 
-  const asyncPrefix = expr.isAsync ? "async " : "";
   const returnType =
     expr.inferredType?.kind === "functionType"
       ? expr.inferredType.returnType
       : undefined;
 
   if (expr.body.kind === "blockStatement") {
-    // Block body: bridge via identifierExpression
+    // Block body: use preRenderedBody since statement emitter returns text
     const blockContextBase = bodyContextSeeded.isStatic
       ? indent(bodyContextSeeded)
       : bodyContextSeeded;
@@ -173,8 +187,14 @@ export const emitArrowFunction = (
       ...withStatic(blockContextBase, false),
       returnType,
     });
-    const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
-    return [{ kind: "identifierExpression", identifier: text }, paramContext];
+    const result: CSharpExpressionAst = {
+      kind: "lambdaExpression",
+      isAsync: expr.isAsync ?? false,
+      parameters: paramAsts,
+      body: { kind: "literalExpression", text: "" },
+      preRenderedBody: blockCode,
+    };
+    return [result, paramContext];
   } else {
     // Expression body: (params) => expression
     const [exprAst] = emitExpressionAst(
@@ -182,10 +202,14 @@ export const emitArrowFunction = (
       bodyContextSeeded,
       returnType
     );
-    const exprText = printExpression(exprAst);
-    const text = `${asyncPrefix}(${paramList}) => ${exprText}`;
     // Arrow/function expressions are separate CLR methods; do not leak lexical
     // remaps / local allocations to the outer scope.
-    return [{ kind: "identifierExpression", identifier: text }, paramContext];
+    const result: CSharpExpressionAst = {
+      kind: "lambdaExpression",
+      isAsync: expr.isAsync ?? false,
+      parameters: paramAsts,
+      body: exprAst,
+    };
+    return [result, paramContext];
   }
 };

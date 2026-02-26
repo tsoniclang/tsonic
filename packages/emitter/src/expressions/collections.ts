@@ -4,7 +4,7 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "../type-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import {
   getPropertyType,
@@ -13,8 +13,14 @@ import {
   selectUnionMemberForObjectLiteral,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
-import { printExpression } from "../core/format/backend-ast/printer.js";
-import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
+import {
+  printExpression,
+  printType,
+} from "../core/format/backend-ast/printer.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
 type ObjectMemberKind = "method" | "property" | "field" | "enumMember";
 
@@ -186,8 +192,12 @@ export const emitArray = (
   let currentContext = context;
   const elementAsts: CSharpExpressionAst[] = [];
 
-  // Determine element type
-  let elementType = "object";
+  // Determine element type as AST
+  let elementTypeAst: CSharpTypeAst = {
+    kind: "predefinedType",
+    keyword: "object",
+  };
+  let elementTypeResolved = false;
   let expectedElementType: IrType | undefined = undefined;
 
   // Priority 1: Use explicit type annotation
@@ -199,11 +209,12 @@ export const emitArray = (
 
     if (resolvedExpected.kind === "arrayType") {
       expectedElementType = resolvedExpected.elementType;
-      const [elemTypeStr, newContext] = emitType(
+      const [typeAst, newContext] = emitTypeAst(
         resolvedExpected.elementType,
         currentContext
       );
-      elementType = elemTypeStr;
+      elementTypeAst = typeAst;
+      elementTypeResolved = true;
       currentContext = newContext;
     } else if (
       resolvedExpected.kind === "referenceType" &&
@@ -214,15 +225,16 @@ export const emitArray = (
       const firstArg = resolvedExpected.typeArguments[0];
       if (firstArg) {
         expectedElementType = firstArg;
-        const [elemTypeStr, newContext] = emitType(firstArg, currentContext);
-        elementType = elemTypeStr;
+        const [typeAst, newContext] = emitTypeAst(firstArg, currentContext);
+        elementTypeAst = typeAst;
+        elementTypeResolved = true;
         currentContext = newContext;
       }
     }
   }
 
   // Priority 2: Infer from literals
-  if (elementType === "object") {
+  if (!elementTypeResolved) {
     const definedElements = expr.elements.filter(
       (el): el is IrExpression => el !== undefined
     );
@@ -247,30 +259,35 @@ export const emitArray = (
           const hasLong = literals.some((lit) => lit.numericIntent === "Int64");
 
           if (hasDouble) {
-            elementType = "double";
+            elementTypeAst = { kind: "predefinedType", keyword: "double" };
+            elementTypeResolved = true;
           } else if (hasLong) {
-            elementType = "long";
+            elementTypeAst = { kind: "predefinedType", keyword: "long" };
+            elementTypeResolved = true;
           } else {
-            elementType = "int";
+            elementTypeAst = { kind: "predefinedType", keyword: "int" };
+            elementTypeResolved = true;
           }
         } else if (literals.every((lit) => typeof lit.value === "string")) {
-          elementType = "string";
+          elementTypeAst = { kind: "predefinedType", keyword: "string" };
+          elementTypeResolved = true;
         } else if (literals.every((lit) => typeof lit.value === "boolean")) {
-          elementType = "bool";
+          elementTypeAst = { kind: "predefinedType", keyword: "bool" };
+          elementTypeResolved = true;
         }
       }
     }
   }
 
   // Priority 3: Fall back to inferred type
-  if (elementType === "object") {
+  if (!elementTypeResolved) {
     if (expr.inferredType && expr.inferredType.kind === "arrayType") {
       expectedElementType = expr.inferredType.elementType;
-      const [elemTypeStr, newContext] = emitType(
+      const [typeAst, newContext] = emitTypeAst(
         expr.inferredType.elementType,
         currentContext
       );
-      elementType = elemTypeStr;
+      elementTypeAst = typeAst;
       currentContext = newContext;
     }
   }
@@ -290,7 +307,11 @@ export const emitArray = (
     const firstSpread = spreadElements[0];
     if (!firstSpread) {
       return [
-        { kind: "identifierExpression", identifier: "new object[0]" },
+        {
+          kind: "arrayCreationExpression",
+          elementType: { kind: "predefinedType", keyword: "object" },
+          sizeExpression: { kind: "literalExpression", text: "0" },
+        },
         currentContext,
       ];
     }
@@ -366,20 +387,24 @@ export const emitArray = (
         kind: "invocationExpression",
         expression: {
           kind: "identifierExpression",
-          identifier: `global::System.Array.Empty<${elementType}>`,
+          identifier: "global::System.Array.Empty",
         },
         arguments: [],
+        typeArguments: [elementTypeAst],
       },
       currentContext,
     ];
   }
 
   // new T[] { elem1, elem2, ... }
-  // Bridge via identifierExpression since arrayCreationExpression doesn't support
-  // both elementType-as-text and initializer cleanly in all cases
-  const elemTexts = elementAsts.map(printExpression);
-  const text = `new ${elementType}[] { ${elemTexts.join(", ")} }`;
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  return [
+    {
+      kind: "arrayCreationExpression",
+      elementType: elementTypeAst,
+      initializer: elementAsts,
+    },
+    currentContext,
+  ];
 };
 
 /**
@@ -441,21 +466,21 @@ export const emitObject = (
     return selected ?? strippedType;
   })();
 
-  const [typeName, typeContext] = resolveContextualType(
+  const [typeAst, typeContext] = resolveContextualTypeAst(
     instantiationType,
     currentContext
   );
   currentContext = typeContext;
 
-  if (!typeName) {
+  if (!typeAst) {
     throw new Error(
       "ICE: Object literal without contextual type reached emitter - validation missed TSN7403"
     );
   }
 
-  const safeTypeName = typeName.endsWith("?")
-    ? typeName.slice(0, -1)
-    : typeName;
+  // Strip nullable wrapper for object construction
+  const safeTypeAst: CSharpTypeAst =
+    typeAst.kind === "nullableType" ? typeAst.underlyingType : typeAst;
 
   // Check if object has spreads - use IIFE pattern
   if (expr.hasSpreads) {
@@ -463,13 +488,13 @@ export const emitObject = (
       expr,
       currentContext,
       effectiveType,
-      safeTypeName,
+      safeTypeAst,
       instantiationType
     );
   }
 
   // Regular object literal with nominal type
-  const propertyParts: string[] = [];
+  const initializerAsts: CSharpExpressionAst[] = [];
 
   for (const prop of expr.properties) {
     if (prop.kind === "spread") {
@@ -492,13 +517,25 @@ export const emitObject = (
         currentContext,
         propertyExpectedType
       );
-      propertyParts.push(`${key} = ${printExpression(valueAst)}`);
+      initializerAsts.push({
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: { kind: "identifierExpression", identifier: key },
+        right: valueAst,
+      });
       currentContext = newContext;
     }
   }
 
-  const text = `new ${safeTypeName} { ${propertyParts.join(", ")} }`;
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  return [
+    {
+      kind: "objectCreationExpression",
+      type: safeTypeAst,
+      arguments: [],
+      initializer: initializerAsts,
+    },
+    currentContext,
+  ];
 };
 
 /**
@@ -508,10 +545,11 @@ const emitObjectWithSpreads = (
   expr: Extract<IrExpression, { kind: "object" }>,
   context: EmitterContext,
   effectiveType: IrType | undefined,
-  typeName: string,
+  typeAst: CSharpTypeAst,
   targetType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
+  const typeName = printType(typeAst);
   const assignments: string[] = [];
 
   for (const prop of expr.properties) {
@@ -552,8 +590,42 @@ const emitObjectWithSpreads = (
     "return __tmp",
   ].join("; ");
 
-  const text = `((global::System.Func<${typeName}>)(() => { ${body}; }))()`;
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  // IIFE: ((System.Func<T>)(() => { body; }))()
+  // The lambda body contains inline statements — use expression body
+  // with identifierExpression as a bridge at the statement boundary.
+  const funcTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Func",
+    typeArguments: [typeAst],
+  };
+  const lambdaAst: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [],
+    body: {
+      kind: "identifierExpression",
+      identifier: `{ ${body}; }`,
+    },
+  };
+  const castAst: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: funcTypeAst,
+    expression: {
+      kind: "parenthesizedExpression",
+      expression: lambdaAst,
+    },
+  };
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: castAst,
+      },
+      arguments: [],
+    },
+    currentContext,
+  ];
 };
 
 /**
@@ -680,11 +752,17 @@ const emitDictionaryLiteral = (
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
 
-  const [keyTypeStr, ctx1] = emitDictKeyType(dictType.keyType, currentContext);
-  const [valueTypeStr, ctx2] = emitType(dictType.valueType, ctx1);
+  const keyTypeAst = emitDictKeyTypeAst(dictType.keyType);
+  const [valueTypeAst, ctx2] = emitTypeAst(dictType.valueType, currentContext);
   currentContext = ctx2;
 
-  const entries: string[] = [];
+  const dictTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Collections.Generic.Dictionary",
+    typeArguments: [keyTypeAst, valueTypeAst],
+  };
+
+  const initializerAsts: CSharpExpressionAst[] = [];
 
   for (const prop of expr.properties) {
     if (prop.kind === "spread") {
@@ -701,35 +779,41 @@ const emitDictionaryLiteral = (
         currentContext,
         dictType.valueType
       );
-      entries.push(
-        `["${escapeCSharpString(prop.key)}"] = ${printExpression(valueAst)}`
-      );
+      // Dictionary initializer: ["key"] = value
+      initializerAsts.push({
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: {
+          kind: "identifierExpression",
+          identifier: `["${escapeCSharpString(prop.key)}"]`,
+        },
+        right: valueAst,
+      });
       currentContext = newContext;
     }
   }
 
-  const dictTypeName = `global::System.Collections.Generic.Dictionary<${keyTypeStr}, ${valueTypeStr}>`;
-  const text =
-    entries.length === 0
-      ? `new ${dictTypeName}()`
-      : `new ${dictTypeName} { ${entries.join(", ")} }`;
-
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  return [
+    {
+      kind: "objectCreationExpression",
+      type: dictTypeAst,
+      arguments: [],
+      initializer: initializerAsts.length > 0 ? initializerAsts : undefined,
+    },
+    currentContext,
+  ];
 };
 
 /**
- * Emit dictionary key type.
+ * Emit dictionary key type as AST.
  */
-const emitDictKeyType = (
-  keyType: IrType,
-  context: EmitterContext
-): [string, EmitterContext] => {
+const emitDictKeyTypeAst = (keyType: IrType): CSharpTypeAst => {
   if (keyType.kind === "primitiveType") {
     switch (keyType.name) {
       case "string":
-        return ["string", context];
+        return { kind: "predefinedType", keyword: "string" };
       case "number":
-        return ["double", context];
+        return { kind: "predefinedType", keyword: "double" };
     }
   }
 
@@ -739,12 +823,12 @@ const emitDictKeyType = (
 };
 
 /**
- * Resolve contextual type to C# type string.
+ * Resolve contextual type to C# type AST.
  */
-const resolveContextualType = (
+const resolveContextualTypeAst = (
   contextualType: IrType | undefined,
   context: EmitterContext
-): [string | undefined, EmitterContext] => {
+): [CSharpTypeAst | undefined, EmitterContext] => {
   if (!contextualType) {
     return [undefined, context];
   }
@@ -759,26 +843,26 @@ const resolveContextualType = (
         contextualType.typeArguments.length > 0
       ) {
         let currentContext = context;
-        const typeArgStrs: string[] = [];
+        const typeArgAsts: CSharpTypeAst[] = [];
         for (const typeArg of contextualType.typeArguments) {
-          const [typeArgStr, newContext] = emitType(typeArg, currentContext);
-          typeArgStrs.push(typeArgStr);
+          const [typeArgAst, newContext] = emitTypeAst(typeArg, currentContext);
+          typeArgAsts.push(typeArgAst);
           currentContext = newContext;
         }
         return [
-          `${importBinding.clrName}<${typeArgStrs.join(", ")}>`,
+          {
+            kind: "identifierType",
+            name: importBinding.clrName,
+            typeArguments: typeArgAsts,
+          },
           currentContext,
         ];
       }
-      return [importBinding.clrName, context];
+      return [{ kind: "identifierType", name: importBinding.clrName }, context];
     }
-
-    const [typeStr, newContext] = emitType(contextualType, context);
-    return [typeStr, newContext];
   }
 
-  const [typeStr, newContext] = emitType(contextualType, context);
-  return [typeStr, newContext];
+  return emitTypeAst(contextualType, context);
 };
 
 /**
@@ -793,7 +877,7 @@ const emitTupleLiteral = (
   tupleType: Extract<IrType, { kind: "tupleType" }>
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
-  const elemTexts: string[] = [];
+  const elemAsts: CSharpExpressionAst[] = [];
 
   const definedElements = expr.elements.filter(
     (el): el is IrExpression => el !== undefined
@@ -809,12 +893,11 @@ const emitTupleLiteral = (
         currentContext,
         expectedElementType
       );
-      elemTexts.push(printExpression(elemAst));
+      elemAsts.push(elemAst);
       currentContext = newContext;
     }
   }
 
   // C# tuple literal: (elem1, elem2, ...)
-  const text = `(${elemTexts.join(", ")})`;
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  return [{ kind: "tupleExpression", elements: elemAsts }, currentContext];
 };

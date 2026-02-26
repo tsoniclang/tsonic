@@ -9,9 +9,12 @@ import {
   emitTypeArgumentsAst,
   generateSpecializedName,
 } from "../identifiers.js";
-import { emitType, emitTypeAst } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
+import {
+  printExpression,
+  printType,
+} from "../../core/format/backend-ast/printer.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -291,25 +294,34 @@ const emitPromiseConstructor = (
   }
 
   let currentContext = context;
-  const [taskTypeTextRaw, taskTypeContext] = expr.inferredType
-    ? emitType(expr.inferredType, currentContext)
-    : ["global::System.Threading.Tasks.Task", currentContext];
+  const [taskTypeAstRaw, taskTypeContext] = expr.inferredType
+    ? emitTypeAst(expr.inferredType, currentContext)
+    : [
+        {
+          kind: "identifierType" as const,
+          name: "global::System.Threading.Tasks.Task",
+        },
+        currentContext,
+      ];
   currentContext = taskTypeContext;
-  const taskTypeText =
-    taskTypeTextRaw.length > 0
-      ? taskTypeTextRaw
-      : "global::System.Threading.Tasks.Task";
-
+  const taskTypeAst: CSharpTypeAst =
+    taskTypeAstRaw.kind === "identifierType" && taskTypeAstRaw.name.length === 0
+      ? { kind: "identifierType", name: "global::System.Threading.Tasks.Task" }
+      : taskTypeAstRaw;
   const promiseValueType = getPromiseValueType(expr);
-  let valueTypeText = "bool";
+  let valueTypeAst: CSharpTypeAst = {
+    kind: "predefinedType",
+    keyword: "bool",
+  };
   if (promiseValueType) {
-    const [valueType, valueTypeContext] = emitType(
+    const [vTypeAst, valueTypeContext] = emitTypeAst(
       promiseValueType,
       currentContext
     );
-    valueTypeText = valueType;
+    valueTypeAst = vTypeAst;
     currentContext = valueTypeContext;
   }
+  const valueTypeText = printType(valueTypeAst);
 
   // Track resolve parameter name for void promise
   const resolveParam =
@@ -374,15 +386,45 @@ const emitPromiseConstructor = (
     ? `global::System.Action<${valueTypeText}> __tsonic_resolve = (value) => __tsonic_tcs.TrySetResult(value);`
     : "global::System.Action __tsonic_resolve = () => __tsonic_tcs.TrySetResult(true);";
 
-  const text =
-    `((global::System.Func<${taskTypeText}>)(() => { ` +
+  const bodyText =
+    `{ ` +
     `var __tsonic_tcs = new global::System.Threading.Tasks.TaskCompletionSource<${valueTypeText}>(); ` +
     `${resolveDecl} ` +
     `global::System.Action<object?> __tsonic_reject = (error) => __tsonic_tcs.TrySetException((error as global::System.Exception) ?? new global::System.Exception(error?.ToString() ?? "Promise rejected")); ` +
     `try { ${executorInvokeTarget}(${invokeArgs}); } catch (global::System.Exception ex) { __tsonic_tcs.TrySetException(ex); } ` +
-    `return __tsonic_tcs.Task; }))()`;
+    `return __tsonic_tcs.Task; }`;
 
-  return [{ kind: "identifierExpression", identifier: text }, currentContext];
+  // IIFE: ((System.Func<Task<T>>)(() => { body }))()
+  const funcTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Func",
+    typeArguments: [taskTypeAst],
+  };
+  const lambdaAst: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [],
+    body: { kind: "identifierExpression", identifier: bodyText },
+  };
+  const castAst: CSharpExpressionAst = {
+    kind: "castExpression",
+    type: funcTypeAst,
+    expression: {
+      kind: "parenthesizedExpression",
+      expression: lambdaAst,
+    },
+  };
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: castAst,
+      },
+      arguments: [],
+    },
+    currentContext,
+  ];
 };
 
 /**

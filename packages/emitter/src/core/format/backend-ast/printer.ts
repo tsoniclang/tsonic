@@ -278,6 +278,8 @@ const getExpressionPrecedence = (expr: CSharpExpressionAst): number => {
       return 16;
     case "argumentModifierExpression":
       return 16; // Argument modifier is used in argument position only
+    case "tupleExpression":
+      return 16; // Tuple literals are primary expressions
     case "lambdaExpression":
       return 0; // Lambda needs parens almost everywhere
     case "throwExpression":
@@ -536,6 +538,11 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
     case "argumentModifierExpression":
       return `${expr.modifier} ${printExpression(expr.expression)}`;
 
+    case "tupleExpression": {
+      const elems = expr.elements.map(printExpression).join(", ");
+      return `(${elems})`;
+    }
+
     default: {
       const exhaustiveCheck: never = expr;
       throw new Error(
@@ -619,6 +626,11 @@ const printLambdaExpression = (
   const asyncPrefix = expr.isAsync ? "async " : "";
   const params = printLambdaParameters(expr.parameters);
 
+  // Pre-rendered block body from the statement emitter (expression/statement boundary bridge)
+  if (expr.preRenderedBody !== undefined) {
+    return `${asyncPrefix}${params} =>\n${expr.preRenderedBody}`;
+  }
+
   if (expr.body.kind === "blockStatement") {
     // Block body lambda - will be printed inline
     // The caller (statement printer) handles indentation
@@ -631,14 +643,15 @@ const printLambdaExpression = (
 const printLambdaParameters = (
   params: readonly CSharpLambdaParameterAst[]
 ): string => {
-  if (params.length === 1 && !params[0]!.type) {
+  if (params.length === 1 && !params[0]!.type && !params[0]!.modifier) {
     return escapeIdentifier(params[0]!.name);
   }
-  const parts = params.map((p) =>
-    p.type
-      ? `${printType(p.type)} ${escapeIdentifier(p.name)}`
-      : escapeIdentifier(p.name)
-  );
+  const parts = params.map((p) => {
+    const mod = p.modifier ? `${p.modifier} ` : "";
+    return p.type
+      ? `${mod}${printType(p.type)} ${escapeIdentifier(p.name)}`
+      : `${mod}${escapeIdentifier(p.name)}`;
+  });
   return `(${parts.join(", ")})`;
 };
 

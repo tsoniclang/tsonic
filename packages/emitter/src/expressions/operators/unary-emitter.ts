@@ -9,10 +9,16 @@
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { emitType } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
-import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+import {
+  printExpression,
+  printType,
+} from "../../core/format/backend-ast/printer.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
  * Emit a unary operator expression as CSharpExpressionAst (-, +, !, ~, typeof, void, delete)
@@ -135,21 +141,30 @@ export const emitUnary = (
         ? expectedType
         : undefined;
 
-    let returnTypeText = "object?";
-    let defaultText = "default";
+    let returnTypeAst: CSharpTypeAst = {
+      kind: "nullableType",
+      underlyingType: { kind: "predefinedType", keyword: "object" },
+    };
     if (effectiveExpectedType) {
       try {
-        const [typeText, next] = emitType(
+        const [typeAst, next] = emitTypeAst(
           effectiveExpectedType,
           currentContext
         );
         currentContext = next;
-        returnTypeText = typeText;
-        defaultText = `default(${typeText})`;
+        returnTypeAst = typeAst;
       } catch {
         // Fall back to object? + default literal.
       }
     }
+
+    const returnTypeText = printType(returnTypeAst);
+    const defaultText =
+      returnTypeAst.kind === "nullableType" &&
+      returnTypeAst.underlyingType.kind === "predefinedType" &&
+      returnTypeAst.underlyingType.keyword === "object"
+        ? "default"
+        : `default(${returnTypeText})`;
 
     const operandStatement = (() => {
       if (isNoopOperand) return "";
@@ -168,6 +183,41 @@ export const emitUnary = (
       return `_ = ${operandText}; `;
     })();
 
+    // Build IIFE: ((System.Func<T>)(() => { body }))()
+    const buildIife = (
+      isAsync: boolean,
+      funcReturnTypeAst: CSharpTypeAst
+    ): CSharpExpressionAst => {
+      const bodyText = `{ ${operandStatement}return ${defaultText}; }`;
+      const funcTypeAst: CSharpTypeAst = {
+        kind: "identifierType",
+        name: "global::System.Func",
+        typeArguments: [funcReturnTypeAst],
+      };
+      const lambdaAst: CSharpExpressionAst = {
+        kind: "lambdaExpression",
+        isAsync,
+        parameters: [],
+        body: { kind: "identifierExpression", identifier: bodyText },
+      };
+      const castAst: CSharpExpressionAst = {
+        kind: "castExpression",
+        type: funcTypeAst,
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: lambdaAst,
+        },
+      };
+      return {
+        kind: "invocationExpression",
+        expression: {
+          kind: "parenthesizedExpression",
+          expression: castAst,
+        },
+        arguments: [],
+      };
+    };
+
     if (operand.kind === "await") {
       if (!currentContext.isAsync) {
         throw new Error(
@@ -175,16 +225,16 @@ export const emitUnary = (
         );
       }
 
-      const taskReturnType = `global::System.Threading.Tasks.Task<${returnTypeText}>`;
-      const text = `await ((global::System.Func<${taskReturnType}>)(async () => { ${operandStatement}return ${defaultText}; }))()`;
-      return [
-        { kind: "identifierExpression", identifier: text },
-        currentContext,
-      ];
+      const taskTypeAst: CSharpTypeAst = {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+        typeArguments: [returnTypeAst],
+      };
+      const iifeAst = buildIife(true, taskTypeAst);
+      return [{ kind: "awaitExpression", expression: iifeAst }, currentContext];
     }
 
-    const text = `((global::System.Func<${returnTypeText}>)(() => { ${operandStatement}return ${defaultText}; }))()`;
-    return [{ kind: "identifierExpression", identifier: text }, currentContext];
+    return [buildIife(false, returnTypeAst), currentContext];
   }
 
   // Standard prefix operator: -, +, ~

@@ -208,6 +208,8 @@ export type CSharpAwaitExpressionAst = {
 export type CSharpLambdaParameterAst = {
   readonly name: string;
   readonly type?: CSharpTypeAst;
+  /** "ref", "out", "in" */
+  readonly modifier?: string;
 };
 
 export type CSharpLambdaExpressionAst = {
@@ -215,6 +217,14 @@ export type CSharpLambdaExpressionAst = {
   readonly isAsync: boolean;
   readonly parameters: readonly CSharpLambdaParameterAst[];
   readonly body: CSharpExpressionAst | CSharpBlockStatementAst;
+  /**
+   * Pre-rendered block body text from the statement emitter.
+   * When set, the printer uses this instead of printing body.
+   * This is an explicit bridge at the expression/statement boundary:
+   * the statement pipeline is still text-based, so lambda block bodies
+   * carry pre-rendered text until the statement pipeline is converted to AST.
+   */
+  readonly preRenderedBody?: string;
 };
 
 export type CSharpInterpolatedStringPartText = {
@@ -259,6 +269,11 @@ export type CSharpArgumentModifierExpressionAst = {
   readonly expression: CSharpExpressionAst;
 };
 
+export type CSharpTupleExpressionAst = {
+  readonly kind: "tupleExpression";
+  readonly elements: readonly CSharpExpressionAst[];
+};
+
 export type CSharpSwitchExpressionArmAst = {
   readonly pattern: CSharpPatternAst;
   readonly whenClause?: CSharpExpressionAst;
@@ -299,7 +314,8 @@ export type CSharpExpressionAst =
   | CSharpSuppressNullableWarningExpressionAst
   | CSharpTypeofExpressionAst
   | CSharpSwitchExpressionAst
-  | CSharpArgumentModifierExpressionAst;
+  | CSharpArgumentModifierExpressionAst
+  | CSharpTupleExpressionAst;
 
 // ============================================================
 // Pattern AST (for is-expressions and switch patterns)
