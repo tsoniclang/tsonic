@@ -4,11 +4,7 @@
 
 import { IrStatement, IrType, type IrParameter } from "@tsonic/frontend";
 import { EmitterContext, withAsync, withStatic } from "../../types.js";
-import {
-  emitTypeAst,
-  emitTypeParameters,
-  emitTypeParametersAst,
-} from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
 import { emitBlockStatementAst } from "../blocks.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -62,6 +58,29 @@ const seedLocalNameMapFromParameters = (
   return { ...context, localNameMap: map, usedLocalNames: used };
 };
 
+const restoreFunctionScopeContext = (
+  outerContext: EmitterContext,
+  innerContext: EmitterContext,
+  savedScoped: {
+    readonly typeParameters: EmitterContext["typeParameters"];
+    readonly typeParamConstraints: EmitterContext["typeParamConstraints"];
+    readonly typeParameterNameMap: EmitterContext["typeParameterNameMap"];
+    readonly returnType: EmitterContext["returnType"];
+    readonly narrowedBindings: EmitterContext["narrowedBindings"];
+    readonly voidResolveNames: EmitterContext["voidResolveNames"];
+    readonly localNameMap: EmitterContext["localNameMap"];
+    readonly usedLocalNames: EmitterContext["usedLocalNames"];
+  }
+): EmitterContext => ({
+  ...outerContext,
+  ...innerContext,
+  ...savedScoped,
+  indentLevel: outerContext.indentLevel,
+  isStatic: outerContext.isStatic,
+  isAsync: outerContext.isAsync,
+  className: outerContext.className,
+});
+
 /**
  * Emit a module-level function declaration as CSharpMethodDeclarationAst.
  *
@@ -77,6 +96,8 @@ export const emitFunctionDeclaration = (
     typeParamConstraints: context.typeParamConstraints,
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
+    narrowedBindings: context.narrowedBindings,
+    voidResolveNames: context.voidResolveNames,
     localNameMap: context.localNameMap,
     usedLocalNames: context.usedLocalNames,
   };
@@ -140,6 +161,9 @@ export const emitFunctionDeclaration = (
   } else if (stmt.returnType) {
     const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
     currentContext = retCtx;
+    if (stmt.isAsync) {
+      modifiers.push("async");
+    }
     if (
       stmt.isAsync &&
       stmt.returnType.kind === "referenceType" &&
@@ -147,7 +171,6 @@ export const emitFunctionDeclaration = (
     ) {
       returnTypeAst = retAst;
     } else if (stmt.isAsync) {
-      modifiers.push("async");
       returnTypeAst = {
         kind: "identifierType",
         name: "global::System.Threading.Tasks.Task",
@@ -273,15 +296,20 @@ export const emitFunctionDeclaration = (
     // TReturn __returnValue = default!;
     if (generatorHasReturnType) {
       const {
-        returnType: extractedReturnType,
+        returnType: extractedReturnTypeAst,
         newContext: typeExtractContext,
       } = extractGeneratorTypeArgs(stmt.returnType, currentContext);
       currentContext = typeExtractContext;
+      if (!extractedReturnTypeAst) {
+        throw new Error(
+          "ICE: Generator marked with non-void return type but no return type AST was extracted."
+        );
+      }
 
       wrapperBodyStatements.push({
         kind: "localDeclarationStatement",
         modifiers: [],
-        type: { kind: "identifierType", name: extractedReturnType },
+        type: extractedReturnTypeAst,
         declarators: [
           {
             name: generatorReturnValueVar,
@@ -422,7 +450,10 @@ export const emitFunctionDeclaration = (
     body: finalBody,
   };
 
-  return [[methodAst], { ...bodyCtxAfter, ...savedScoped }];
+  return [
+    [methodAst],
+    restoreFunctionScopeContext(context, bodyCtxAfter, savedScoped),
+  ];
 };
 
 /**
@@ -555,6 +586,8 @@ export const emitFunctionDeclarationAst = (
     typeParamConstraints: context.typeParamConstraints,
     typeParameterNameMap: context.typeParameterNameMap,
     returnType: context.returnType,
+    narrowedBindings: context.narrowedBindings,
+    voidResolveNames: context.voidResolveNames,
     localNameMap: context.localNameMap,
     usedLocalNames: context.usedLocalNames,
   };
@@ -573,8 +606,8 @@ export const emitFunctionDeclarationAst = (
     typeParameters: funcTypeParams,
   };
 
-  // Emit type parameters (still text-based for where clauses)
-  const [_typeParamsStr, _whereClauses, typeParamContext] = emitTypeParameters(
+  // Build type parameter mapping for scoped emission.
+  const [, , typeParamContext] = emitTypeParametersAst(
     stmt.typeParameters,
     signatureContext
   );
@@ -625,6 +658,9 @@ export const emitFunctionDeclarationAst = (
   } else if (stmt.returnType) {
     const [retAst, retCtx] = emitTypeAst(stmt.returnType, currentContext);
     currentContext = retCtx;
+    if (stmt.isAsync) {
+      modifiers.push("async");
+    }
     if (
       stmt.isAsync &&
       stmt.returnType.kind === "referenceType" &&
@@ -749,15 +785,20 @@ export const emitFunctionDeclarationAst = (
     // TReturn __returnValue = default!; (if has return type)
     if (generatorHasReturnType) {
       const {
-        returnType: extractedReturnType,
+        returnType: extractedReturnTypeAst,
         newContext: typeExtractContext,
       } = extractGeneratorTypeArgs(stmt.returnType, currentContext);
       currentContext = typeExtractContext;
+      if (!extractedReturnTypeAst) {
+        throw new Error(
+          "ICE: Generator marked with non-void return type but no return type AST was extracted."
+        );
+      }
 
       wrapperBodyStatements.push({
         kind: "localDeclarationStatement",
         modifiers: [],
-        type: { kind: "identifierType", name: extractedReturnType },
+        type: extractedReturnTypeAst,
         declarators: [
           {
             name: generatorReturnValueVar,
@@ -831,7 +872,10 @@ export const emitFunctionDeclarationAst = (
       body: { kind: "blockStatement", statements: wrapperBodyStatements },
     };
 
-    return [[localFn], { ...bodyCtxAfter, ...savedScoped }];
+    return [
+      [localFn],
+      restoreFunctionScopeContext(context, bodyCtxAfter, savedScoped),
+    ];
   }
 
   // Non-bidirectional: build body with injected init lines
@@ -891,5 +935,8 @@ export const emitFunctionDeclarationAst = (
     body: { kind: "blockStatement", statements: finalBodyStatements },
   };
 
-  return [[localFn], { ...bodyCtxAfter, ...savedScoped }];
+  return [
+    [localFn],
+    restoreFunctionScopeContext(context, bodyCtxAfter, savedScoped),
+  ];
 };

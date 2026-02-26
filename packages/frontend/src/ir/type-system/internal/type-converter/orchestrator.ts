@@ -200,9 +200,5 @@ export const convertType = (
   return { kind: "anyType" };
 };
 
-// Re-export specialized converters for backward compatibility
-export { convertFunctionType } from "./functions.js";
-export { convertObjectType } from "./objects.js";
-
 // Export types
 export type { IrFunctionType, IrObjectType, IrDictionaryType, IrTupleType };

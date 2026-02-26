@@ -21,7 +21,7 @@ export const convertTypeAliasDeclaration = (
   ctx: ProgramContext
 ): readonly IrStatement[] => {
   // PHASE 4 (Alice's spec): Use captureTypeSyntax + typeFromSyntax
-  // This replaces the deprecated convertTypeNode pattern.
+  // Type aliases are converted through the unified type conversion path.
   const typeSyntaxId = ctx.binding.captureTypeSyntax(node.type);
   const baseAlias: IrTypeAliasDeclaration = {
     kind: "typeAliasDeclaration",

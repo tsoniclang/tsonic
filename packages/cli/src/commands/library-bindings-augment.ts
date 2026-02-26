@@ -1336,27 +1336,20 @@ export const overlayDependencyBindings = (
 };
 
 export const resolveDependencyBindingsDirForDll = (dllPath: string): string => {
-  // Try nearest project-style locations first while walking up from the DLL.
-  // Supports both:
-  // - <project>/generated/bin/Release/<tfm>/<Assembly>.dll
-  // - <project>/dist/<tfm>/<Assembly>.dll
-  // and still accepts the legacy sibling location:
-  // - <project>/dist/<tfm>/<Assembly>.dll -> <project>/dist/tsonic/bindings
+  // Walk up from the DLL and resolve the nearest project-style bindings directory:
+  // - <project>/dist/tsonic/bindings
   let cursor = resolve(dirname(dllPath));
   for (let i = 0; i < 24; i++) {
     const projectStyle = join(cursor, "dist", "tsonic", "bindings");
     if (existsSync(projectStyle)) return projectStyle;
-
-    const legacySibling = join(cursor, "tsonic", "bindings");
-    if (existsSync(legacySibling)) return legacySibling;
 
     const parent = dirname(cursor);
     if (parent === cursor) break;
     cursor = parent;
   }
 
-  // Preserve previous behavior (silent no-op in overlay if dir does not exist).
-  return join(dirname(dirname(dllPath)), "tsonic", "bindings");
+  // No bindings directory found; caller checks existsSync before use.
+  return join(resolve(dirname(dllPath)), "dist", "tsonic", "bindings");
 };
 
 export const augmentLibraryBindingsFromSource = (

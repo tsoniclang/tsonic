@@ -5,7 +5,6 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../type-emitter.js";
-import { printType } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
@@ -18,17 +17,13 @@ import type {
 /**
  * Emit a type alias declaration as CSharpTypeDeclarationAst | null.
  *
- * Returns null for non-structural aliases (these become comments
- * at the orchestration level).  For structural (object) type aliases,
+ * Returns null for non-structural aliases (type-only, erased in C#). For structural (object) type aliases,
  * returns a sealed class or struct declaration.
- *
- * When null is returned, the third tuple element carries the comment
- * text so callers can still emit `// type Foo = Bar`.
  */
 export const emitTypeAliasDeclaration = (
   stmt: Extract<IrStatement, { kind: "typeAliasDeclaration" }>,
   context: EmitterContext
-): [CSharpTypeDeclarationAst | null, EmitterContext, string | undefined] => {
+): [CSharpTypeDeclarationAst | null, EmitterContext] => {
   const savedScoped = {
     typeParameters: context.typeParameters,
     typeParamConstraints: context.typeParamConstraints,
@@ -52,13 +47,12 @@ export const emitTypeAliasDeclaration = (
   // Check if this is a structural (object) type alias
   if (stmt.type.kind === "objectType") {
     const result = emitStructuralTypeAlias(stmt, baseContext);
-    return [result[0], { ...result[1], ...savedScoped }, undefined];
+    return [result[0], { ...result[1], ...savedScoped }];
   }
 
-  // For non-structural aliases, produce comment text
-  const [typeAst, newContext] = emitTypeAst(stmt.type, baseContext);
-  const commentText = `// type ${stmt.name} = ${printType(typeAst)}`;
-  return [null, { ...newContext, ...savedScoped }, commentText];
+  // Non-structural aliases are type-only in TS and do not emit C# declarations.
+  const [, newContext] = emitTypeAst(stmt.type, baseContext);
+  return [null, { ...newContext, ...savedScoped }];
 };
 
 /**

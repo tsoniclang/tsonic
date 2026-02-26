@@ -55,7 +55,7 @@ describe("Type Aliases (spec/16 §3)", () => {
     expect(result).to.include("public required double y { get; set; }");
   });
 
-  it("should emit non-structural type alias as comment", () => {
+  it("should erase non-structural type aliases from C# output", () => {
     const module: IrModule = {
       kind: "module",
       filePath: "/src/types.ts",
@@ -78,7 +78,8 @@ describe("Type Aliases (spec/16 §3)", () => {
 
     const result = emitModule(module);
 
-    expect(result).to.include("// type ID = double");
+    expect(result).to.not.include("// type ID = double");
+    expect(result).to.not.include("class ID__Alias");
   });
 
   it("should emit recursive type alias with self-reference", () => {

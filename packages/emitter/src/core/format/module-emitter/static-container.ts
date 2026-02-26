@@ -5,12 +5,16 @@
  * The container holds static fields, methods, and a __TopLevel() entry point.
  */
 
-import { IrModule, IrStatement, isExecutableStatement } from "@tsonic/frontend";
+import {
+  IrModule,
+  IrPattern,
+  IrStatement,
+  isExecutableStatement,
+} from "@tsonic/frontend";
 import {
   EmitterContext,
   type ValueSymbolInfo,
   indent,
-  getIndent,
   withStatic,
   withClassName,
 } from "../../../types.js";
@@ -41,6 +45,34 @@ export const collectStaticContainerValueSymbols = (
 ): ReadonlyMap<string, ValueSymbolInfo> => {
   const valueSymbols = new Map<string, ValueSymbolInfo>();
 
+  const collectPatternIdentifiers = (pattern: IrPattern): readonly string[] => {
+    switch (pattern.kind) {
+      case "identifierPattern":
+        return [pattern.name];
+      case "arrayPattern": {
+        const names: string[] = [];
+        for (const element of pattern.elements) {
+          if (!element) continue;
+          names.push(...collectPatternIdentifiers(element.pattern));
+        }
+        return names;
+      }
+      case "objectPattern": {
+        const names: string[] = [];
+        for (const property of pattern.properties) {
+          if (property.kind === "property") {
+            names.push(...collectPatternIdentifiers(property.value));
+          } else {
+            names.push(...collectPatternIdentifiers(property.pattern));
+          }
+        }
+        return names;
+      }
+      default:
+        return [];
+    }
+  };
+
   for (const member of members) {
     if (member.kind === "functionDeclaration") {
       valueSymbols.set(member.name, {
@@ -51,11 +83,12 @@ export const collectStaticContainerValueSymbols = (
     }
     if (member.kind === "variableDeclaration") {
       for (const decl of member.declarations) {
-        if (decl.name.kind !== "identifierPattern") continue;
-        valueSymbols.set(decl.name.name, {
-          kind: "variable",
-          csharpName: getCSharpName(decl.name.name, "fields", context),
-        });
+        for (const name of collectPatternIdentifiers(decl.name)) {
+          valueSymbols.set(name, {
+            kind: "variable",
+            csharpName: getCSharpName(name, "fields", context),
+          });
+        }
       }
     }
   }
@@ -130,7 +163,6 @@ export const emitStaticContainer = (
 
   const astMembers: CSharpMemberAst[] = [];
   let bodyCurrentContext = bodyContext;
-  const bodyInd = getIndent(bodyContext);
 
   // Emit declarations as static members
   for (const stmt of declarations) {
@@ -156,16 +188,7 @@ export const emitStaticContainer = (
       }
 
       case "typeAliasDeclaration": {
-        const [, aliasCtx, commentText] = emitTypeAliasDeclaration(
-          stmt,
-          bodyCurrentContext
-        );
-        if (commentText) {
-          astMembers.push({
-            kind: "literalMember",
-            text: `${bodyInd}${commentText}`,
-          });
-        }
+        const [, aliasCtx] = emitTypeAliasDeclaration(stmt, bodyCurrentContext);
         bodyCurrentContext = aliasCtx;
         break;
       }
@@ -178,11 +201,7 @@ export const emitStaticContainer = (
 
   // Handle explicit exports
   for (const exp of module.exports) {
-    const [exportText, exportCtx] = emitExport(exp, bodyCurrentContext);
-    if (exportText) {
-      astMembers.push({ kind: "literalMember", text: exportText });
-    }
-    bodyCurrentContext = exportCtx;
+    bodyCurrentContext = emitExport(exp, bodyCurrentContext);
   }
 
   // Wrap executable statements in __TopLevel method
@@ -208,21 +227,24 @@ export const emitStaticContainer = (
     });
     bodyCurrentContext = mainCurrentContext;
   } else if (mainBodyStmts.length > 0) {
-    // Not an entry point - emit statements as literal members
+    // Not an entry point - run top-level statements in a static constructor.
     const mainBodyContext = withStatic(indent(bodyCurrentContext), false);
     let mainCurrentContext = mainBodyContext;
+    const ctorStatements: CSharpStatementAst[] = [];
 
     for (const stmt of mainBodyStmts) {
       const [stmts, newContext] = emitStatementAst(stmt, mainCurrentContext);
-      // Wrap each statement AST in a literal member (non-entry-point executable statements)
-      for (const _ of stmts) {
-        astMembers.push({
-          kind: "literalMember",
-          text: `// executable statement in non-entry static container`,
-        });
-      }
+      ctorStatements.push(...stmts);
       mainCurrentContext = newContext;
     }
+    astMembers.push({
+      kind: "constructorDeclaration",
+      attributes: [],
+      modifiers: ["static"],
+      name: containerName,
+      parameters: [],
+      body: { kind: "blockStatement", statements: ctorStatements },
+    });
     bodyCurrentContext = mainCurrentContext;
   }
 
@@ -230,7 +252,14 @@ export const emitStaticContainer = (
 
   const declaration: CSharpClassDeclarationAst = {
     kind: "classDeclaration",
-    attributes: [{ name: "global::Tsonic.Internal.ModuleContainerAttribute" }],
+    attributes: [
+      {
+        type: {
+          kind: "identifierType",
+          name: "global::Tsonic.Internal.ModuleContainerAttribute",
+        },
+      },
+    ],
     modifiers,
     name: containerName,
     interfaces: [],

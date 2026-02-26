@@ -19,10 +19,9 @@
  * ```
  */
 
-import { IrAttribute, IrAttributeArg, IrType } from "@tsonic/frontend";
+import { IrAttribute, IrAttributeArg } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { printType } from "./backend-ast/printer.js";
 import type {
   CSharpAttributeAst,
   CSharpExpressionAst,
@@ -96,26 +95,43 @@ const emitAttributeArgAst = (
  * Falls back to printType for exotic shapes.
  */
 const extractTypeName = (typeAst: CSharpTypeAst): string => {
-  if (typeAst.kind === "identifierType") {
-    if (typeAst.typeArguments && typeAst.typeArguments.length > 0) {
-      return printType(typeAst);
-    }
-    return typeAst.name;
+  if (typeAst.kind === "predefinedType") {
+    return typeAst.keyword;
   }
-  if (typeAst.kind === "predefinedType") return typeAst.keyword;
-  return printType(typeAst);
-};
-
-/**
- * Get the fully qualified name for an attribute type.
- * Resolves IrType to its C# name.
- */
-const getAttributeTypeName = (
-  type: IrType,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const [typeAst, newContext] = emitTypeAst(type, context);
-  return [extractTypeName(typeAst), newContext];
+  if (typeAst.kind === "identifierType") {
+    const args =
+      typeAst.typeArguments && typeAst.typeArguments.length > 0
+        ? `<${typeAst.typeArguments.map(extractTypeName).join(", ")}>`
+        : "";
+    return `${typeAst.name}${args}`;
+  }
+  if (typeAst.kind === "nullableType") {
+    return `${extractTypeName(typeAst.underlyingType)}?`;
+  }
+  if (typeAst.kind === "arrayType") {
+    const rank =
+      typeAst.rank > 1
+        ? `[${",".repeat(Math.max(0, typeAst.rank - 1))}]`
+        : "[]";
+    return `${extractTypeName(typeAst.elementType)}${rank}`;
+  }
+  if (typeAst.kind === "pointerType") {
+    return `${extractTypeName(typeAst.elementType)}*`;
+  }
+  if (typeAst.kind === "tupleType") {
+    const elems = typeAst.elements
+      .map((e) =>
+        e.name
+          ? `${extractTypeName(e.type)} ${e.name}`
+          : extractTypeName(e.type)
+      )
+      .join(", ");
+    return `(${elems})`;
+  }
+  if (typeAst.kind === "varType") {
+    return "var";
+  }
+  throw new Error("ICE: Unsupported attribute type AST.");
 };
 
 /**
@@ -125,10 +141,7 @@ const emitAttributeAst = (
   attr: IrAttribute,
   context: EmitterContext
 ): [CSharpAttributeAst, EmitterContext] => {
-  const [typeName, typeContext] = getAttributeTypeName(
-    attr.attributeType,
-    context
-  );
+  const [typeAst, typeContext] = emitTypeAst(attr.attributeType, context);
 
   const args: CSharpExpressionAst[] = [];
   let currentContext = typeContext;
@@ -153,7 +166,7 @@ const emitAttributeAst = (
   }
 
   const result: CSharpAttributeAst = {
-    name: typeName,
+    type: typeAst,
     ...(args.length > 0 ? { arguments: args } : {}),
     ...(attr.target ? { target: attr.target } : {}),
   };

@@ -3,11 +3,7 @@
  */
 
 export { emitTypeAst } from "./emitter.js";
-export {
-  emitTypeParameters,
-  emitTypeParametersAst,
-  emitParameterType,
-} from "./parameters.js";
+export { emitTypeParametersAst, emitParameterType } from "./parameters.js";
 export { emitPrimitiveType } from "./primitives.js";
 export { emitReferenceType } from "./references.js";
 export { emitArrayType } from "./arrays.js";

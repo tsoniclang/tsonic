@@ -9,8 +9,8 @@ namespace TestCases.common.classes.fieldinference
         public bool active { get; set; } = true;
 
         public void increment()
-            {
+        {
             this.count++;
-            }
+        }
     }
 }

@@ -111,7 +111,7 @@ const typesEqualForIsType = (
 ): boolean => {
   if (!a || !b) return false;
 
-  // Bridge primitive types to their canonical CLR types (System.String etc).
+  // Canonicalize primitive aliases to CLR names (System.String etc).
   if (a.kind === "primitiveType" && b.kind === "referenceType") {
     const clr = getClrName(b);
     const expected = primitiveTypeToClrName(a.name);

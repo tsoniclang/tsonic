@@ -483,10 +483,3 @@ export const convertExpression = (
     sourceSpan: getSourceSpan(node),
   };
 };
-
-// Re-export commonly used functions for backward compatibility
-export {
-  deriveIdentifierType,
-  extractTypeArguments,
-  checkIfRequiresSpecialization,
-} from "./converters/expressions/helpers.js";

@@ -112,8 +112,15 @@ export const emitInterfaceMemberAsProperty = (
         name,
         parameters: paramAsts,
         expressionBody: {
-          kind: "literalExpression",
-          text: "throw new NotImplementedException()",
+          kind: "throwExpression",
+          expression: {
+            kind: "objectCreationExpression",
+            type: {
+              kind: "identifierType",
+              name: "global::System.NotImplementedException",
+            },
+            arguments: [],
+          },
         },
       };
 

@@ -6,8 +6,7 @@ import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
-import { lowerAssignmentPattern } from "../../patterns.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
+import { lowerAssignmentPatternAst } from "../../patterns.js";
 import { hasInt32Proof } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
@@ -80,28 +79,20 @@ export const emitAssignment = (
       expr.left.kind === "arrayPattern" ||
       expr.left.kind === "objectPattern");
 
-  // Handle destructuring assignment patterns
-  // NOTE: Pattern lowering currently returns text strings (Phase 4 will convert to AST).
-  // For now, bridge through identifierExpression with the lowered text.
+  // Handle destructuring assignment patterns with AST lowering.
   if (isPattern && expr.operator === "=") {
     const pattern = expr.left as IrPattern;
 
     // Emit the RHS first
     const [rightAst, rightContext] = emitExpressionAst(expr.right, context);
-    const rightText = printExpression(rightAst);
-
-    // Use lowerAssignmentPattern to generate the destructuring expression
-    const result = lowerAssignmentPattern(
+    const result = lowerAssignmentPatternAst(
       pattern,
-      rightText,
+      rightAst,
       expr.right.inferredType,
       rightContext
     );
 
-    return [
-      { kind: "identifierExpression", identifier: result.expression },
-      result.context,
-    ];
+    return [result.expression, result.context];
   }
 
   // Standard assignment (expression on left side)

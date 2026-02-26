@@ -5,10 +5,10 @@
 import { IrType, IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
-import { printType } from "../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import type {
   CSharpTypeAst,
+  CSharpTypeParameterConstraintNodeAst,
   CSharpTypeParameterAst,
   CSharpTypeParameterConstraintAst,
 } from "../core/format/backend-ast/types.js";
@@ -133,23 +133,31 @@ export const emitTypeParametersAst = (
         // Structural constraints generate interfaces - reference them
         constraintAsts.push({
           typeParameter: tpName,
-          constraints: [`__Constraint_${tp.name}`],
+          constraints: [
+            {
+              kind: "typeConstraint",
+              type: {
+                kind: "identifierType",
+                name: `__Constraint_${tp.name}`,
+              },
+            },
+          ],
         });
       } else if (tp.constraint.kind === "intersectionType") {
         // Multiple constraints: T extends A & B → where T : A, B
-        const constraintParts: string[] = [];
+        const constraintParts: CSharpTypeParameterConstraintNodeAst[] = [];
         for (const member of tp.constraint.types) {
           if (member.kind === "referenceType" && member.name === "struct") {
-            constraintParts.push("struct");
+            constraintParts.push({ kind: "structConstraint" });
           } else if (
             member.kind === "referenceType" &&
             member.name === "object"
           ) {
-            constraintParts.push("class");
+            constraintParts.push({ kind: "classConstraint" });
           } else {
             const [cAst, newContext] = emitTypeAst(member, currentContext);
             currentContext = newContext;
-            constraintParts.push(printType(cAst));
+            constraintParts.push({ kind: "typeConstraint", type: cAst });
           }
         }
         constraintAsts.push({
@@ -161,49 +169,31 @@ export const emitTypeParametersAst = (
         tp.constraint.name === "struct"
       ) {
         // Special case: T extends struct → where T : struct (C# value type constraint)
-        constraintAsts.push({ typeParameter: tpName, constraints: ["struct"] });
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [{ kind: "structConstraint" }],
+        });
       } else if (
         tp.constraint.kind === "referenceType" &&
         tp.constraint.name === "object"
       ) {
         // Special case: T extends object → where T : class (C# reference type constraint)
-        constraintAsts.push({ typeParameter: tpName, constraints: ["class"] });
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [{ kind: "classConstraint" }],
+        });
       } else {
         const [cAst, newContext] = emitTypeAst(tp.constraint, currentContext);
         currentContext = newContext;
         constraintAsts.push({
           typeParameter: tpName,
-          constraints: [printType(cAst)],
+          constraints: [{ kind: "typeConstraint", type: cAst }],
         });
       }
     }
   }
 
   return [typeParamAsts, constraintAsts, currentContext];
-};
-
-/**
- * Text-based emitTypeParameters — thin wrapper around emitTypeParametersAst.
- * Returns [typeParamsStr, whereClauseStrings, context].
- */
-export const emitTypeParameters = (
-  typeParams: readonly IrTypeParameter[] | undefined,
-  context: EmitterContext,
-  reservedCsharpNames?: ReadonlySet<string>
-): [string, string[], EmitterContext] => {
-  const [paramAsts, constraintAsts, nextCtx] = emitTypeParametersAst(
-    typeParams,
-    context,
-    reservedCsharpNames
-  );
-  if (paramAsts.length === 0) {
-    return ["", [], nextCtx];
-  }
-  const typeParamsStr = `<${paramAsts.map((p) => p.name).join(", ")}>`;
-  const whereClauses = constraintAsts.map(
-    (c) => `where ${c.typeParameter} : ${c.constraints.join(", ")}`
-  );
-  return [typeParamsStr, whereClauses, nextCtx];
 };
 
 /**

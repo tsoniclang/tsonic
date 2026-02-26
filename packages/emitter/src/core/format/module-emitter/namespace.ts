@@ -6,7 +6,7 @@
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext, indent, getIndent } from "../../../types.js";
+import { EmitterContext, indent } from "../../../types.js";
 import {
   emitClassDeclaration,
   emitInterfaceDeclaration,
@@ -17,15 +17,14 @@ import type { CSharpTypeDeclarationAst } from "../backend-ast/types.js";
 
 export type NamespaceEmissionResult = {
   readonly declarations: readonly CSharpTypeDeclarationAst[];
-  readonly commentLines: readonly string[];
   readonly context: EmitterContext;
 };
 
 /**
  * Emit namespace-level declarations as AST type declarations.
  *
- * Returns AST declarations plus any comment-only lines (e.g., non-structural
- * type aliases that emit `// type Foo = ...`).
+ * Returns AST declarations. Non-structural type aliases are type-only and do
+ * not emit C# declarations.
  */
 export const emitNamespaceDeclarations = (
   declarations: readonly IrStatement[],
@@ -33,7 +32,6 @@ export const emitNamespaceDeclarations = (
   hasInheritance: boolean
 ): NamespaceEmissionResult => {
   const astDecls: CSharpTypeDeclarationAst[] = [];
-  const commentLines: string[] = [];
   const namespaceContext = { ...indent(baseContext), hasInheritance };
   let currentContext = namespaceContext;
 
@@ -66,15 +64,12 @@ export const emitNamespaceDeclarations = (
       }
 
       case "typeAliasDeclaration": {
-        const [aliasAst, aliasCtx, commentText] = emitTypeAliasDeclaration(
+        const [aliasAst, aliasCtx] = emitTypeAliasDeclaration(
           decl,
           declContext
         );
         if (aliasAst) {
           astDecls.push(aliasAst);
-        } else {
-          const ind = getIndent(declContext);
-          commentLines.push(commentText ?? `${ind}// type ${decl.name}`);
         }
         currentContext = { ...aliasCtx, hasInheritance };
         break;
@@ -88,7 +83,6 @@ export const emitNamespaceDeclarations = (
 
   return {
     declarations: astDecls,
-    commentLines,
     context: currentContext,
   };
 };

@@ -11,13 +11,15 @@ import {
   NumericKind,
   NUMERIC_KIND_TO_CSHARP,
 } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
+import { EmitterContext, indent, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitBlockStatementAst } from "../../statements/blocks.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { lowerPattern, lowerPatternAst } from "../../patterns.js";
+import {
+  lowerPatternAst,
+  lowerPatternToStaticMembersAst,
+} from "../../patterns.js";
 import {
   allocateLocalName,
   registerLocalName,
@@ -27,6 +29,7 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpStatementAst,
   CSharpTypeAst,
@@ -254,7 +257,7 @@ const resolveStaticFieldType = (
       context
     );
     let currentContext = calleeContext;
-    const calleeText = printExpression(calleeAst);
+    const calleeText = extractCalleeNameFromAst(calleeAst);
 
     if (newExpr.typeArguments && newExpr.typeArguments.length > 0) {
       const typeArgs: CSharpTypeAst[] = [];
@@ -443,10 +446,18 @@ const emitStaticArrowFieldMembers = (
   currentContext = retCtx;
 
   const members: CSharpMemberAst[] = [];
-  const fieldName =
-    decl.name.kind === "identifierPattern"
-      ? emitCSharpName(decl.name.name!, "fields", context)
-      : "/* unsupported */";
+  if (decl.name.kind !== "identifierPattern") {
+    throw new Error(
+      "ICE: Arrow function value declarations must use identifier bindings."
+    );
+  }
+  const declName = decl.name.name;
+  if (!declName) {
+    throw new Error(
+      "ICE: Identifier-pattern variable declaration missing name in static arrow lowering."
+    );
+  }
+  const fieldName = emitCSharpName(declName, "fields", context);
   const implName = `${fieldName}__Impl`;
 
   // Determine field type: delegate, Func<>, or Action<>
@@ -478,7 +489,12 @@ const emitStaticArrowFieldMembers = (
     for (let i = 0; i < arrowFunc.parameters.length; i++) {
       const param = arrowFunc.parameters[i];
       if (!param?.type) continue;
-      const pTypeAst = paramTypeAsts[i]!;
+      const pTypeAst = paramTypeAsts[i];
+      if (!pTypeAst) {
+        throw new Error(
+          "ICE: Parameter type AST missing while emitting arrow delegate signature."
+        );
+      }
       const paramName =
         param.pattern.kind === "identifierPattern"
           ? escapeCSharpIdentifier(param.pattern.name)
@@ -506,7 +522,10 @@ const emitStaticArrowFieldMembers = (
   } else {
     // Func<> or Action<>
     const isVoidReturn =
-      returnTypeAst.kind === "identifierType" && returnTypeAst.name === "void";
+      (returnTypeAst.kind === "identifierType" &&
+        returnTypeAst.name === "void") ||
+      (returnTypeAst.kind === "predefinedType" &&
+        returnTypeAst.keyword === "void");
     if (isVoidReturn) {
       fieldTypeAst =
         paramTypeAsts.length === 0
@@ -547,7 +566,12 @@ const emitStaticArrowFieldMembers = (
   for (let i = 0; i < arrowFunc.parameters.length; i++) {
     const param = arrowFunc.parameters[i];
     if (!param?.type) continue;
-    const mTypeAst = paramTypeAsts[i]!;
+    const mTypeAst = paramTypeAsts[i];
+    if (!mTypeAst) {
+      throw new Error(
+        "ICE: Parameter type AST missing while emitting arrow implementation method."
+      );
+    }
     const paramName =
       param.pattern.kind === "identifierPattern"
         ? escapeCSharpIdentifier(param.pattern.name)
@@ -618,7 +642,23 @@ const emitStaticArrowFieldMembers = (
     body: bodyAst,
   });
 
-  return [members, paramCtx];
+  return [
+    members,
+    {
+      ...context,
+      ...paramCtx,
+      indentLevel: context.indentLevel,
+      isStatic: context.isStatic,
+      isAsync: context.isAsync,
+      className: context.className,
+      returnType: context.returnType,
+      typeParameters: context.typeParameters,
+      typeParamConstraints: context.typeParamConstraints,
+      typeParameterNameMap: context.typeParameterNameMap,
+      localNameMap: context.localNameMap,
+      usedLocalNames: context.usedLocalNames,
+    },
+  ];
 };
 
 /**
@@ -628,22 +668,19 @@ export const emitVariableDeclaration = (
   stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
   context: EmitterContext
 ): [readonly CSharpMemberAst[], EmitterContext] => {
-  const ind = getIndent(context);
   let currentContext = context;
   const members: CSharpMemberAst[] = [];
 
   for (const decl of stmt.declarations) {
-    // Handle destructuring patterns via text-based lowerPattern
+    // Handle destructuring patterns as static field AST members.
     if (
       decl.name.kind === "arrayPattern" ||
       decl.name.kind === "objectPattern"
     ) {
       if (!decl.initializer) {
-        members.push({
-          kind: "literalMember",
-          text: `${ind}/* destructuring without initializer - error */`,
-        });
-        continue;
+        throw new Error(
+          "Destructuring declaration requires an initializer in static context."
+        );
       }
 
       const [initAst, newContext] = emitExpressionAst(
@@ -653,18 +690,13 @@ export const emitVariableDeclaration = (
       );
       currentContext = newContext;
       const patternType = decl.type ?? decl.initializer.inferredType;
-
-      const result = lowerPattern(
+      const result = lowerPatternToStaticMembersAst(
         decl.name,
-        printExpression(initAst),
+        initAst,
         patternType,
-        ind,
         currentContext
       );
-
-      for (const line of result.statements) {
-        members.push({ kind: "literalMember", text: line });
-      }
+      members.push(...result.members);
       currentContext = result.context;
       continue;
     }
@@ -718,14 +750,31 @@ export const emitVariableDeclaration = (
         initializer: initializerAst,
       });
     } else {
-      members.push({
-        kind: "literalMember",
-        text: `${ind}/* unsupported pattern */`,
-      });
+      throw new Error(
+        "Unsupported variable declaration pattern in static context."
+      );
     }
   }
 
-  return [members, currentContext];
+  return [
+    members,
+    {
+      ...context,
+      ...currentContext,
+      indentLevel: context.indentLevel,
+      isStatic: context.isStatic,
+      isAsync: context.isAsync,
+      className: context.className,
+      returnType: context.returnType,
+      narrowedBindings: context.narrowedBindings,
+      voidResolveNames: context.voidResolveNames,
+      typeParameters: context.typeParameters,
+      typeParamConstraints: context.typeParamConstraints,
+      typeParameterNameMap: context.typeParameterNameMap,
+      localNameMap: context.localNameMap,
+      usedLocalNames: context.usedLocalNames,
+    },
+  ];
 };
 
 /**

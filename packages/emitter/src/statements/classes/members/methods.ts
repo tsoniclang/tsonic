@@ -11,7 +11,6 @@ import {
   withScoped,
 } from "../../../types.js";
 import { emitTypeAst, emitTypeParametersAst } from "../../../type-emitter.js";
-import { printType } from "../../../core/format/backend-ast/printer.js";
 import { emitBlockStatementAst } from "../../../statement-emitter.js";
 import {
   emitParametersWithDestructuring,
@@ -23,6 +22,7 @@ import { emitCSharpName } from "../../../naming-policy.js";
 import type {
   CSharpMemberAst,
   CSharpBlockStatementAst,
+  CSharpExpressionAst,
   CSharpTypeAst,
   CSharpStatementAst,
 } from "../../../core/format/backend-ast/types.js";
@@ -206,10 +206,10 @@ export const emitMethodMember = (
   const outParamStmts: CSharpStatementAst[] = [];
   for (const param of member.parameters) {
     if (param.passing === "out" && param.pattern.kind === "identifierPattern") {
-      let typeName = "object";
+      let defaultExpr: CSharpExpressionAst = { kind: "defaultExpression" };
       if (param.type) {
         const [typeAst] = emitTypeAst(param.type, currentContext);
-        typeName = printType(typeAst);
+        defaultExpr = { kind: "defaultExpression", type: typeAst };
       }
       outParamStmts.push({
         kind: "expressionStatement",
@@ -220,10 +220,7 @@ export const emitMethodMember = (
             kind: "identifierExpression",
             identifier: escapeCSharpIdentifier(param.pattern.name),
           },
-          right: {
-            kind: "literalExpression",
-            text: `default(${typeName})`,
-          },
+          right: defaultExpr,
         },
       });
     }

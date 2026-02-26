@@ -8,6 +8,7 @@ import type { IrClassMember } from "@tsonic/frontend";
 import type { EmitterContext, EmitterOptions } from "../../../types.js";
 import { emitMethodMember } from "./methods.js";
 import { emitPropertyMember } from "./properties.js";
+import { printMember } from "../../../core/format/backend-ast/printer.js";
 
 const defaultOptions: EmitterOptions = {
   rootNamespace: "Test",
@@ -38,7 +39,8 @@ describe("Shadowing member emission", () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [code] = emitMethodMember(member as any, context);
+    const [ast] = emitMethodMember(member as any, context);
+    const code = printMember(ast, "");
     expect(code).to.include("public new void Foo()");
   });
 
@@ -56,7 +58,8 @@ describe("Shadowing member emission", () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [code] = emitPropertyMember(member as any, context);
+    const [ast] = emitPropertyMember(member as any, context);
+    const code = printMember(ast, "");
     expect(code).to.include("public new string Value");
   });
 });

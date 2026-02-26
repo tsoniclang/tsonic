@@ -19,23 +19,20 @@ describe("type-resolution", () => {
   describe("containsTypeParameter", () => {
     it("returns true for typeParameterType IR kind", () => {
       const type: IrType = { kind: "typeParameterType", name: "T" };
-      const typeParams = new Set<string>();
 
-      expect(containsTypeParameter(type, typeParams)).to.be.true;
+      expect(containsTypeParameter(type)).to.be.true;
     });
 
-    it("returns true for referenceType matching typeParams set (legacy)", () => {
+    it("returns false for referenceType named like type parameter", () => {
       const type: IrType = { kind: "referenceType", name: "T" };
-      const typeParams = new Set(["T"]);
 
-      expect(containsTypeParameter(type, typeParams)).to.be.true;
+      expect(containsTypeParameter(type)).to.be.false;
     });
 
     it("returns false for referenceType not in typeParams set", () => {
       const type: IrType = { kind: "referenceType", name: "string" };
-      const typeParams = new Set(["T"]);
 
-      expect(containsTypeParameter(type, typeParams)).to.be.false;
+      expect(containsTypeParameter(type)).to.be.false;
     });
 
     it("returns true for Array<T> containing type parameter", () => {
@@ -44,9 +41,7 @@ describe("type-resolution", () => {
         name: "Array",
         typeArguments: [{ kind: "typeParameterType", name: "T" }],
       };
-      const typeParams = new Set<string>();
-
-      expect(containsTypeParameter(type, typeParams)).to.be.true;
+      expect(containsTypeParameter(type)).to.be.true;
     });
 
     it("returns false for Array<string> (concrete type)", () => {
@@ -55,9 +50,7 @@ describe("type-resolution", () => {
         name: "Array",
         typeArguments: [{ kind: "primitiveType", name: "string" }],
       };
-      const typeParams = new Set<string>();
-
-      expect(containsTypeParameter(type, typeParams)).to.be.false;
+      expect(containsTypeParameter(type)).to.be.false;
     });
 
     it("returns true for arrayType with type parameter element", () => {
@@ -65,9 +58,7 @@ describe("type-resolution", () => {
         kind: "arrayType",
         elementType: { kind: "typeParameterType", name: "T" },
       };
-      const typeParams = new Set<string>();
-
-      expect(containsTypeParameter(type, typeParams)).to.be.true;
+      expect(containsTypeParameter(type)).to.be.true;
     });
 
     it("returns true for union type containing type parameter", () => {
@@ -78,16 +69,12 @@ describe("type-resolution", () => {
           { kind: "typeParameterType", name: "T" },
         ],
       };
-      const typeParams = new Set<string>();
-
-      expect(containsTypeParameter(type, typeParams)).to.be.true;
+      expect(containsTypeParameter(type)).to.be.true;
     });
 
     it("returns false for primitive types", () => {
       const type: IrType = { kind: "primitiveType", name: "number" };
-      const typeParams = new Set(["T"]);
-
-      expect(containsTypeParameter(type, typeParams)).to.be.false;
+      expect(containsTypeParameter(type)).to.be.false;
     });
   });
 
@@ -102,14 +89,14 @@ describe("type-resolution", () => {
       expect(result).to.deep.equal({ kind: "primitiveType", name: "string" });
     });
 
-    it("substitutes type parameter in referenceType (legacy)", () => {
+    it("does not substitute plain referenceType names", () => {
       const type: IrType = { kind: "referenceType", name: "T" };
       const typeParamNames = ["T"];
       const typeArgs: IrType[] = [{ kind: "primitiveType", name: "number" }];
 
       const result = substituteTypeArgs(type, typeParamNames, typeArgs);
 
-      expect(result).to.deep.equal({ kind: "primitiveType", name: "number" });
+      expect(result).to.deep.equal({ kind: "referenceType", name: "T" });
     });
 
     it("substitutes type argument in generic reference", () => {

@@ -314,7 +314,6 @@ export const emitModule = (
     adapterDecls,
     specializationDecls,
     exchangeDecls,
-    namespaceDeclComments: namespaceResult.commentLines,
     namespaceDecls: namespaceResult.declarations,
     staticContainerDecl,
   };

@@ -7,20 +7,8 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
-const getBareTypeParameterName = (
-  type: IrType,
-  context: EmitterContext
-): string | undefined => {
+const getBareTypeParameterName = (type: IrType): string | undefined => {
   if (type.kind === "typeParameterType") return type.name;
-
-  // Legacy representation: type parameters sometimes arrive as referenceType nodes.
-  if (
-    type.kind === "referenceType" &&
-    (context.typeParameters?.has(type.name) ?? false) &&
-    (!type.typeArguments || type.typeArguments.length === 0)
-  ) {
-    return type.name;
-  }
 
   return undefined;
 };
@@ -103,7 +91,7 @@ export const emitUnionType = (
 
     // `T | null` where `T` is an unconstrained type parameter cannot be represented as `T?`
     // in C# (it forbids assigning null). Fall back to `object?` and rely on casts at use sites.
-    const typeParamName = getBareTypeParameterName(firstType, context);
+    const typeParamName = getBareTypeParameterName(firstType);
     if (typeParamName) {
       const constraintKind =
         context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";

@@ -11,7 +11,6 @@ export {
   type ExtractedType,
   emitParameters,
   emitParametersWithDestructuring,
-  generateParameterDestructuring,
   type ParameterEmissionResult,
   capitalize,
 } from "./classes/index.js";

@@ -67,10 +67,8 @@ export const emitTryStatementAst = (
     context: EmitterContext;
   } = stmt.finallyBlock
     ? (() => {
-        const [fb, fc] = emitBlockStatementAst(
-          stmt.finallyBlock!,
-          currentContext
-        );
+        const finallyBlock = stmt.finallyBlock;
+        const [fb, fc] = emitBlockStatementAst(finallyBlock, currentContext);
         return { finallyBody: fb, context: fc };
       })()
     : { context: currentContext };

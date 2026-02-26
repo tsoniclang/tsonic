@@ -2,9 +2,7 @@
  * Generator Exchange Object Generator
  * Per spec/13-generators.md - Generate exchange objects for bidirectional communication
  *
- * Exchange classes are built as CSharpTypeDeclarationAst.
- * Wrapper classes (generator-wrapper.ts) are still text-based and wrapped
- * in CSharpLiteralTypeDeclarationAst.
+ * Exchange and wrapper classes are built as typed CSharpTypeDeclarationAst.
  */
 
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
@@ -111,7 +109,6 @@ export const generateExchangeClassAst = (
 
 /**
  * Generate all exchange objects and wrapper classes for generators in a module.
- * Returns AST type declarations (wrapper classes use literalDeclaration).
  */
 export const generateGeneratorExchanges = (
   module: IrModule,
@@ -135,14 +132,14 @@ export const generateGeneratorExchanges = (
     currentContext = exchangeContext;
     decls.push(exchangeAst);
 
-    // Wrapper class (text-based, wrapped in literalDeclaration)
+    // Wrapper class
     if (needsBidirectionalSupport(generator)) {
-      const [wrapperCode, wrapperContext] = generateWrapperClass(
+      const [wrapperDecl, wrapperContext] = generateWrapperClass(
         generator,
         currentContext
       );
       currentContext = wrapperContext;
-      decls.push({ kind: "literalDeclaration", text: wrapperCode });
+      decls.push(wrapperDecl);
     }
   }
 

@@ -95,28 +95,6 @@ const GLOBALS_ALIASES: ReadonlyMap<string, string> = new Map([
 ]);
 
 // ═══════════════════════════════════════════════════════════════════════════
-// RECORD-BASED EXPORTS (for backward compatibility during migration)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Record-based primitive type → CLR System.* mappings.
- * Used for direct property access in type normalization.
- *
- * @deprecated Use normalizeToClrName() instead
- */
-export const PRIMITIVE_TO_CLR_FQ: Readonly<Record<string, string>> =
-  Object.fromEntries(PRIMITIVE_ALIASES);
-
-/**
- * Record-based globals → CLR System.* mappings.
- * Used for direct property access in type normalization.
- *
- * @deprecated Use normalizeToClrName() instead
- */
-export const GLOBALS_TO_CLR_FQ: Readonly<Record<string, string>> =
-  Object.fromEntries(GLOBALS_ALIASES);
-
-// ═══════════════════════════════════════════════════════════════════════════
 // ALIAS TABLE BUILDER
 // ═══════════════════════════════════════════════════════════════════════════
 

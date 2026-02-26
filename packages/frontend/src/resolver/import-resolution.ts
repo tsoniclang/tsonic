@@ -33,17 +33,10 @@ export const resolveImport = (
   importSpecifier: string,
   containingFile: string,
   sourceRoot: string,
-  opts?: ClrBindingsResolver | ResolveImportOptions
+  opts?: ResolveImportOptions
 ): Result<ResolvedModule, Diagnostic> => {
-  // Support both old signature (clrResolver only) and new signature (options object)
-  const clrResolver =
-    opts && "resolve" in opts
-      ? (opts as ClrBindingsResolver)
-      : (opts as ResolveImportOptions | undefined)?.clrResolver;
-  const bindings =
-    opts && "resolve" in opts
-      ? undefined
-      : (opts as ResolveImportOptions | undefined)?.bindings;
+  const clrResolver = opts?.clrResolver;
+  const bindings = opts?.bindings;
 
   if (isLocalImport(importSpecifier)) {
     return resolveLocalImport(importSpecifier, containingFile, sourceRoot);

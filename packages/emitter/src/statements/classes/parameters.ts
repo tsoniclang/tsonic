@@ -11,7 +11,7 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { lowerParameterPattern } from "../../patterns.js";
+import { lowerPatternAst } from "../../patterns.js";
 import { emitParameterAttributes } from "../../core/format/attributes.js";
 import type {
   CSharpExpressionAst,
@@ -156,25 +156,24 @@ export const emitParametersWithDestructuring = (
 };
 
 /**
- * Generate destructuring statements for parameters
- *
- * Call this after emitParametersWithDestructuring to get the statements
- * that should be injected at the start of the function body.
+ * Generate destructuring statements as AST nodes.
  */
-export const generateParameterDestructuring = (
+export const generateParameterDestructuringAst = (
   destructuringParams: readonly ParameterDestructuringInfo[],
-  indent: string,
   context: EmitterContext
-): [readonly string[], EmitterContext] => {
+): [readonly CSharpStatementAst[], EmitterContext] => {
   let currentContext = context;
-  const statements: string[] = [];
+  const statements: CSharpStatementAst[] = [];
 
   for (const info of destructuringParams) {
-    const result = lowerParameterPattern(
+    const inputExpr = {
+      kind: "identifierExpression" as const,
+      identifier: info.syntheticName,
+    };
+    const result = lowerPatternAst(
       info.pattern,
-      info.syntheticName,
+      inputExpr,
       info.type,
-      indent,
       currentContext
     );
     statements.push(...result.statements);
@@ -182,35 +181,4 @@ export const generateParameterDestructuring = (
   }
 
   return [statements, currentContext];
-};
-
-/**
- * Generate destructuring statements as AST nodes.
- *
- * Uses the text-based lowering pipeline and wraps results in
- * expressionStatement + literalExpression nodes (the literalExpression
- * text is the statement body without trailing semicolon or indent).
- */
-export const generateParameterDestructuringAst = (
-  destructuringParams: readonly ParameterDestructuringInfo[],
-  context: EmitterContext
-): [readonly CSharpStatementAst[], EmitterContext] => {
-  // Use empty indent since AST statements don't carry indentation
-  const [textLines, nextContext] = generateParameterDestructuring(
-    destructuringParams,
-    "",
-    context
-  );
-  const stmts: CSharpStatementAst[] = textLines.map((line) => {
-    // Strip trailing semicolon and whitespace — expressionStatement adds ";"
-    const trimmed = line.trim().replace(/;$/, "");
-    return {
-      kind: "expressionStatement" as const,
-      expression: {
-        kind: "literalExpression" as const,
-        text: trimmed,
-      },
-    };
-  });
-  return [stmts, nextContext];
 };

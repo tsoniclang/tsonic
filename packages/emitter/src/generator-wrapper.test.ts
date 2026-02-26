@@ -18,6 +18,10 @@ import {
 } from "./generator-wrapper.js";
 import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
 import { createContext } from "./types.js";
+import {
+  printType,
+  printTypeDeclaration,
+} from "./core/format/backend-ast/printer.js";
 
 /**
  * Helper to create a generator function declaration
@@ -62,8 +66,8 @@ describe("Generator Wrapper", () => {
 
       const result = extractGeneratorTypeArgs(returnType, context);
 
-      expect(result.yieldType).to.equal("double");
-      expect(result.returnType).to.equal("void");
+      expect(printType(result.yieldType)).to.equal("double");
+      expect(result.returnType).to.equal(undefined);
       expect(result.hasNextType).to.be.false;
     });
 
@@ -77,9 +81,13 @@ describe("Generator Wrapper", () => {
 
       const result = extractGeneratorTypeArgs(returnType, context);
 
-      expect(result.yieldType).to.equal("string");
-      expect(result.returnType).to.equal("double");
-      expect(result.nextType).to.equal("bool");
+      expect(printType(result.yieldType)).to.equal("string");
+      expect(result.returnType).to.not.equal(undefined);
+      if (!result.returnType) {
+        throw new Error("Expected returnType for Generator<TYield, TReturn, TNext>");
+      }
+      expect(printType(result.returnType)).to.equal("double");
+      expect(printType(result.nextType)).to.equal("bool");
       expect(result.hasNextType).to.be.true;
     });
 
@@ -93,8 +101,8 @@ describe("Generator Wrapper", () => {
 
       const result = extractGeneratorTypeArgs(returnType, context);
 
-      expect(result.yieldType).to.equal("double");
-      expect(result.returnType).to.equal("void");
+      expect(printType(result.yieldType)).to.equal("double");
+      expect(result.returnType).to.equal(undefined);
       expect(result.hasNextType).to.be.false;
     });
 
@@ -104,8 +112,8 @@ describe("Generator Wrapper", () => {
 
       const result = extractGeneratorTypeArgs(returnType, context);
 
-      expect(result.yieldType).to.equal("object");
-      expect(result.returnType).to.equal("void");
+      expect(printType(result.yieldType)).to.equal("object");
+      expect(result.returnType).to.equal(undefined);
       expect(result.hasNextType).to.be.false;
     });
 
@@ -114,8 +122,8 @@ describe("Generator Wrapper", () => {
 
       const result = extractGeneratorTypeArgs(undefined, context);
 
-      expect(result.yieldType).to.equal("object");
-      expect(result.returnType).to.equal("void");
+      expect(printType(result.yieldType)).to.equal("object");
+      expect(result.returnType).to.equal(undefined);
       expect(result.hasNextType).to.be.false;
     });
   });
@@ -187,7 +195,8 @@ describe("Generator Wrapper", () => {
       );
       const context = createContext({ rootNamespace: "Test" });
 
-      const [code] = generateWrapperClass(func, context);
+      const [wrapperAst] = generateWrapperClass(func, context);
+      const code = printTypeDeclaration(wrapperAst, "");
 
       // Class declaration
       expect(code).to.include("public sealed class counter_Generator");
@@ -242,7 +251,8 @@ describe("Generator Wrapper", () => {
       );
       const context = createContext({ rootNamespace: "Test" });
 
-      const [code] = generateWrapperClass(func, context);
+      const [wrapperAst] = generateWrapperClass(func, context);
+      const code = printTypeDeclaration(wrapperAst, "");
 
       // Async class
       expect(code).to.include("public sealed class asyncCounter_Generator");
@@ -274,7 +284,8 @@ describe("Generator Wrapper", () => {
       );
       const context = createContext({ rootNamespace: "Test" });
 
-      const [code] = generateWrapperClass(func, context);
+      const [wrapperAst] = generateWrapperClass(func, context);
+      const code = printTypeDeclaration(wrapperAst, "");
 
       expect(code).to.include("global::Tsonic.Runtime.IteratorResult<string>");
       expect(code).to.include("string? value = default");

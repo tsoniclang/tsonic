@@ -23,6 +23,7 @@ import type {
   CSharpMemberAst,
   CSharpTypeDeclarationAst,
   CSharpTypeParameterAst,
+  CSharpTypeParameterConstraintNodeAst,
   CSharpTypeParameterConstraintAst,
   CSharpAttributeAst,
   CSharpEnumMemberAst,
@@ -147,7 +148,10 @@ const escapeIdentifier = (name: string): string =>
  * Escape segments in a qualified name (e.g. "global::Foo.stackalloc.Bar").
  * The "global::" prefix and predefined type keywords are preserved.
  */
-const escapeQualifiedName = (name: string): string => {
+const escapeQualifiedName = (
+  name: string,
+  preservePredefinedTypeKeywords: boolean = false
+): string => {
   const globalPrefix = "global::";
   const hasGlobal = name.startsWith(globalPrefix);
   const body = hasGlobal ? name.slice(globalPrefix.length) : name;
@@ -155,7 +159,8 @@ const escapeQualifiedName = (name: string): string => {
   const escaped = body
     .split(".")
     .map((segment) =>
-      CSHARP_KEYWORDS.has(segment) && !PREDEFINED_TYPE_KEYWORDS.has(segment)
+      CSHARP_KEYWORDS.has(segment) &&
+      !(preservePredefinedTypeKeywords && PREDEFINED_TYPE_KEYWORDS.has(segment))
         ? `@${segment}`
         : segment
     )
@@ -354,7 +359,7 @@ export const printType = (type: CSharpTypeAst): string => {
       return type.keyword;
 
     case "identifierType": {
-      const name = escapeQualifiedName(type.name);
+      const name = escapeQualifiedName(type.name, true);
       if (!type.typeArguments || type.typeArguments.length === 0) {
         return name;
       }
@@ -1004,7 +1009,7 @@ export const printParameter = (param: CSharpParameterAst): string => {
               a.arguments && a.arguments.length > 0
                 ? `(${a.arguments.map(printExpression).join(", ")})`
                 : "";
-            return `[${targetPrefix}${a.name}${args}]`;
+            return `[${targetPrefix}${printType(a.type)}${args}]`;
           })
           .join("") + " "
       : "";
@@ -1070,11 +1075,11 @@ export const printMember = (
       lines.push(`${bodyIndent}{`);
       if (member.getterBody) {
         lines.push(`${bodyIndent}get`);
-        lines.push(printStatementFlatBlock(member.getterBody, accessorIndent));
+        lines.push(printBlockStatement(member.getterBody, accessorIndent));
       }
       if (member.setterBody) {
         lines.push(`${bodyIndent}set`);
-        lines.push(printStatementFlatBlock(member.setterBody, accessorIndent));
+        lines.push(printBlockStatement(member.setterBody, accessorIndent));
       }
       lines.push(`${bodyIndent}}`);
       return lines.join("\n");
@@ -1093,7 +1098,7 @@ export const printMember = (
         return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints} => ${printExpression(member.expressionBody)};`;
       }
       if (member.body) {
-        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints}\n${printStatementFlatBlock(member.body, indent)}`;
+        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints}\n${printBlockStatement(member.body, indent)}`;
       }
       // Abstract/interface method (no body)
       return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints};`;
@@ -1108,7 +1113,7 @@ export const printMember = (
         member.baseArguments !== undefined
           ? ` : base(${member.baseArguments.map(printExpression).join(", ")})`
           : "";
-      return `${attrs}${indent}${mods}${escapeIdentifier(member.name)}(${params})${baseCall}\n${printStatementFlatBlock(member.body, indent)}`;
+      return `${attrs}${indent}${mods}${escapeIdentifier(member.name)}(${params})${baseCall}\n${printBlockStatement(member.body, indent)}`;
     }
 
     case "delegateDeclaration": {
@@ -1118,9 +1123,6 @@ export const printMember = (
       const params = member.parameters.map(printParameter).join(", ");
       return `${indent}${mods}delegate ${ret} ${escapeIdentifier(member.name)}(${params});`;
     }
-
-    case "literalMember":
-      return member.text;
 
     default: {
       const exhaustiveCheck: never = member;
@@ -1177,16 +1179,6 @@ export const printTypeDeclaration = (
       return `${attrs}${indent}${mods}enum ${escapeIdentifier(decl.name)}\n${indent}{\n${members}\n${indent}}`;
     }
 
-    case "literalDeclaration":
-      // Re-indent pre-rendered text to match the current indent level
-      if (indent && decl.text) {
-        return decl.text
-          .split("\n")
-          .map((line) => (line ? indent + line : line))
-          .join("\n");
-      }
-      return decl.text;
-
     default: {
       const exhaustiveCheck: never = decl;
       throw new Error(
@@ -1216,10 +1208,34 @@ const printConstraints = (
   indent: string
 ): string => {
   if (!constraints || constraints.length === 0) return "";
+
+  const printConstraint = (
+    constraint: CSharpTypeParameterConstraintNodeAst
+  ): string => {
+    switch (constraint.kind) {
+      case "typeConstraint":
+        return printType(constraint.type);
+      case "classConstraint":
+        return "class";
+      case "structConstraint":
+        return "struct";
+      case "constructorConstraint":
+        return "new()";
+      default: {
+        const exhaustiveCheck: never = constraint;
+        throw new Error(
+          `ICE: Unhandled type parameter constraint kind: ${(exhaustiveCheck as CSharpTypeParameterConstraintNodeAst).kind}`
+        );
+      }
+    }
+  };
+
   return constraints
     .map(
       (c) =>
-        `\n${indent}    where ${c.typeParameter} : ${c.constraints.join(", ")}`
+        `\n${indent}    where ${escapeIdentifier(c.typeParameter)} : ${c.constraints
+          .map(printConstraint)
+          .join(", ")}`
     )
     .join("");
 };
@@ -1236,7 +1252,7 @@ export const printAttributes = (
         a.arguments && a.arguments.length > 0
           ? `(${a.arguments.map(printExpression).join(", ")})`
           : "";
-      return `${indent}[${targetPrefix}${a.name}${args}]\n`;
+      return `${indent}[${targetPrefix}${printType(a.type)}${args}]\n`;
     })
     .join("");
 };
@@ -1255,7 +1271,7 @@ export const printCompilationUnit = (
   }
 
   const usings = unit.usings
-    .map((u) => `using ${escapeQualifiedName(u.namespace)};`)
+    .map((u) => `using ${escapeQualifiedName(u.namespace, false)};`)
     .join("\n");
   if (usings) {
     parts.push(usings);
@@ -1280,7 +1296,7 @@ export const printCompilationUnit = (
 const printNamespaceDeclaration = (
   ns: CSharpNamespaceDeclarationAst
 ): string => {
-  const name = escapeQualifiedName(ns.name);
+  const name = escapeQualifiedName(ns.name, false);
   const members = ns.members
     .map((m) => printTypeDeclaration(m, "    "))
     .join("\n\n");
@@ -1424,7 +1440,7 @@ export const printStatementFlatBlock = (
           ? `<${stmt.typeParameters.join(", ")}>`
           : "";
       const params = stmt.parameters.map(printParameter).join(", ");
-      const body = printStatementFlatBlock(stmt.body, bodyIndent);
+      const body = printBlockStatement(stmt.body, indent);
       return `${indent}${mods}${ret} ${escapeIdentifier(stmt.name)}${typeParams}(${params})\n${body}`;
     }
 

@@ -25,7 +25,6 @@ export type AssemblyParts = {
   readonly adapterDecls: readonly CSharpTypeDeclarationAst[];
   readonly specializationDecls: readonly CSharpTypeDeclarationAst[];
   readonly exchangeDecls: readonly CSharpTypeDeclarationAst[];
-  readonly namespaceDeclComments: readonly string[];
   readonly namespaceDecls: readonly CSharpTypeDeclarationAst[];
   readonly staticContainerDecl: CSharpTypeDeclarationAst | undefined;
 };
@@ -44,11 +43,6 @@ export const assembleOutput = (
     ...parts.specializationDecls,
     ...parts.exchangeDecls,
   ];
-
-  // Add comment-only type alias declarations as literal declarations
-  for (const comment of parts.namespaceDeclComments) {
-    namespaceMembers.push({ kind: "literalDeclaration", text: comment });
-  }
 
   namespaceMembers.push(...parts.namespaceDecls);
 

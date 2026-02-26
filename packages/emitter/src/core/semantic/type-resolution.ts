@@ -20,73 +20,59 @@ import type { LocalTypeInfo, EmitterContext } from "../../types.js";
 /**
  * Check if a type contains any type parameter.
  *
- * Uses both:
- * 1. IR kind "typeParameterType" (explicit type parameter node)
- * 2. Name matching via typeParams set (for referenceType nodes)
+ * Uses IR kind "typeParameterType" only.
  *
  * @param type - The IR type to check
- * @param typeParams - Set of type parameter names in current scope
  * @returns true if the type contains a type parameter
  */
-export const containsTypeParameter = (
-  type: IrType,
-  typeParams: ReadonlySet<string>
-): boolean => {
+export const containsTypeParameter = (type: IrType): boolean => {
   switch (type.kind) {
     case "typeParameterType":
       // New IR kind - always a type parameter
       return true;
 
     case "referenceType":
-      // Check if this referenceType is actually a type parameter
-      if (typeParams.has(type.name)) {
-        return true;
-      }
       // Recurse into type arguments
       if (type.typeArguments) {
-        return type.typeArguments.some((arg) =>
-          containsTypeParameter(arg, typeParams)
-        );
+        return type.typeArguments.some((arg) => containsTypeParameter(arg));
       }
       return false;
 
     case "arrayType":
-      return containsTypeParameter(type.elementType, typeParams);
+      return containsTypeParameter(type.elementType);
 
     case "dictionaryType":
       return (
-        containsTypeParameter(type.keyType, typeParams) ||
-        containsTypeParameter(type.valueType, typeParams)
+        containsTypeParameter(type.keyType) ||
+        containsTypeParameter(type.valueType)
       );
 
     case "unionType":
     case "intersectionType":
-      return type.types.some((t) => containsTypeParameter(t, typeParams));
+      return type.types.some((t) => containsTypeParameter(t));
 
     case "tupleType":
-      return type.elementTypes.some((t) =>
-        containsTypeParameter(t, typeParams)
-      );
+      return type.elementTypes.some((t) => containsTypeParameter(t));
 
     case "functionType":
-      if (containsTypeParameter(type.returnType, typeParams)) {
+      if (containsTypeParameter(type.returnType)) {
         return true;
       }
       return type.parameters.some(
-        (p) => p.type && containsTypeParameter(p.type, typeParams)
+        (p) => p.type && containsTypeParameter(p.type)
       );
 
     case "objectType":
       return type.members.some((m) => {
         if (m.kind === "propertySignature") {
-          return containsTypeParameter(m.type, typeParams);
+          return containsTypeParameter(m.type);
         }
         if (m.kind === "methodSignature") {
-          if (m.returnType && containsTypeParameter(m.returnType, typeParams)) {
+          if (m.returnType && containsTypeParameter(m.returnType)) {
             return true;
           }
           return m.parameters.some(
-            (p) => p.type && containsTypeParameter(p.type, typeParams)
+            (p) => p.type && containsTypeParameter(p.type)
           );
         }
         return false;
@@ -149,11 +135,6 @@ const substituteType = (
     }
 
     case "referenceType": {
-      // Check if this referenceType is actually a type parameter
-      const substitution = mapping.get(type.name);
-      if (substitution && !type.typeArguments) {
-        return substitution;
-      }
       // Recurse into type arguments
       if (type.typeArguments) {
         return {

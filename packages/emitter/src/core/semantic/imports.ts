@@ -13,7 +13,7 @@ import { EmitterContext, ImportBinding, LocalTypeInfo } from "../../types.js";
 import { resolveImportPath } from "./module-map.js";
 import { emitCSharpName } from "../../naming-policy.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { printType } from "../format/backend-ast/printer.js";
+import { renderTypeAst } from "../format/backend-ast/utils.js";
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.
@@ -134,9 +134,6 @@ const createClrImportBinding = (
       // Value import:
       // - If tsbindgen provided a flattened export mapping, bind directly to
       //   the declaring CLR type + member.
-      // - Otherwise fall back to "namespace.member" (legacy), though this will
-      //   typically be invalid C# for true values. We rely on frontend validation
-      //   to prevent missing export bindings in airplane-grade builds.
       if (spec.resolvedClrValue) {
         return {
           localName,
@@ -147,14 +144,9 @@ const createClrImportBinding = (
           },
         };
       }
-      return {
-        localName,
-        importBinding: {
-          kind: "value",
-          clrName: namespaceFqn,
-          member: spec.name,
-        },
-      };
+      throw new Error(
+        `ICE: Missing resolvedClrValue for CLR value import '${spec.name}' from '${namespace}'.`
+      );
     }
   }
 
@@ -233,7 +225,7 @@ const createImportBinding = (
           // so the resulting C# type is usable across files.
           qualifyLocalTypes: true,
         });
-        const typeName = printType(typeAst);
+        const typeName = renderTypeAst(typeAst);
 
         return {
           localName,
@@ -286,90 +278,4 @@ const createImportBinding = (
   }
 
   return null;
-};
-
-/**
- * Resolve local import to a namespace (legacy fallback for single-file compilation)
- */
-export const resolveLocalImport = (
-  imp: IrImport,
-  currentFilePath: string,
-  rootNamespace: string
-): string | null => {
-  // Normalize paths - handle both Unix and Windows separators
-  const normalize = (p: string) => p.replace(/\\/g, "/");
-  const currentFile = normalize(currentFilePath);
-
-  // Get the directory of the current file
-  const currentDir = currentFile.substring(0, currentFile.lastIndexOf("/"));
-
-  // Resolve the import path relative to current directory
-  const resolvedPath = resolveRelativePath(currentDir, imp.source);
-
-  // Remove .ts extension and get directory path
-  const withoutExtension = resolvedPath.replace(/\.ts$/, "");
-  const dirPath = withoutExtension.substring(
-    0,
-    withoutExtension.lastIndexOf("/")
-  );
-
-  // Convert directory path to namespace - only use path after last "/src/"
-  const relativePath = extractRelativePath(dirPath);
-  const parts = relativePath.split("/").filter((p) => p !== "" && p !== ".");
-
-  return parts.length === 0
-    ? rootNamespace
-    : `${rootNamespace}.${parts.join(".")}`;
-};
-
-/**
- * Resolve a relative import path from a given directory
- */
-const resolveRelativePath = (currentDir: string, source: string): string => {
-  if (source.startsWith("./")) {
-    return `${currentDir}/${source.substring(2)}`;
-  }
-
-  if (source.startsWith("../")) {
-    const parts = currentDir.split("/");
-    const sourceCopy = source;
-    return resolveParentPath(parts, sourceCopy);
-  }
-
-  return `${currentDir}/${source}`;
-};
-
-/**
- * Resolve parent path references (..)
- */
-const resolveParentPath = (parts: string[], source: string): string => {
-  if (!source.startsWith("../")) {
-    return `${parts.join("/")}/${source}`;
-  }
-  return resolveParentPath(parts.slice(0, -1), source.substring(3));
-};
-
-/**
- * Extract relative path from a directory path
- */
-const extractRelativePath = (dirPath: string): string => {
-  const srcIndex = dirPath.lastIndexOf("/src/");
-
-  if (srcIndex >= 0) {
-    return dirPath.substring(srcIndex + 5);
-  }
-
-  if (dirPath.endsWith("/src")) {
-    return "";
-  }
-
-  if (dirPath.startsWith("src/")) {
-    return dirPath.substring(4);
-  }
-
-  if (dirPath === "src") {
-    return "";
-  }
-
-  return "";
 };

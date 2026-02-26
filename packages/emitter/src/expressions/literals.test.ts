@@ -99,18 +99,17 @@ describe("emitLiteral", () => {
       expect(printExpression(fragment)).to.equal("null");
     });
 
-    it("emits 'default' when expectedType uses legacy referenceType for type param", () => {
+    it("emits 'null' for plain referenceType expectedType", () => {
       const expr: Extract<IrExpression, { kind: "literal" }> = {
         kind: "literal",
         value: null,
       };
-      // Legacy: type parameter represented as referenceType
       const expectedType: IrType = { kind: "referenceType", name: "T" };
       const context = createContext(new Set(["T"]));
 
       const [fragment] = emitLiteral(expr, context, expectedType);
 
-      expect(printExpression(fragment)).to.equal("default");
+      expect(printExpression(fragment)).to.equal("null");
     });
 
     // Bug 2 regression: null to value type (CS0037)

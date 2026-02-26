@@ -150,7 +150,7 @@ export const createBinding = (checker: ts.TypeChecker): BindingInternal => {
     const decl = signature.getDeclaration();
 
     // Extract declaring identity (CRITICAL for Alice's spec: resolveCall needs this)
-    const declaringIdentity = extractDeclaringIdentity(decl, checker);
+    const declaringIdentity = extractDeclaringIdentity(decl);
 
     // Extract type predicate from return type (ALICE'S SPEC: pure syntax inspection)
     const returnTypeNode = getReturnTypeNode(decl);

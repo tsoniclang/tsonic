@@ -1,51 +1,127 @@
 /**
- * Generator Wrapper Class Generator
- * Per spec/13-generators.md - Generate wrapper classes for bidirectional communication
+ * Generator wrapper declaration emission.
  *
- * For TypeScript: function* accumulator(start = 0): Generator<number, void, number> { }
- *
- * Generates:
- * 1. Exchange class: accumulator_exchange { Input?, Output }
- * 2. Wrapper class: accumulator_Generator { next(), return(), throw() }
- * 3. Core method: accumulator_core(exchange) returning IEnumerable<exchange>
- * 4. Public method: accumulator(start = 0) returning accumulator_Generator
+ * Builds wrapper classes as typed CSharp AST declarations (no text templates).
  */
 
 import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent } from "./types.js";
+import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
-import { printType } from "./core/format/backend-ast/printer.js";
 import { emitCSharpName, getCSharpName } from "./naming-policy.js";
+import type {
+  CSharpExpressionAst,
+  CSharpMemberAst,
+  CSharpParameterAst,
+  CSharpStatementAst,
+  CSharpTypeAst,
+  CSharpTypeDeclarationAst,
+} from "./core/format/backend-ast/types.js";
+
+type GeneratorTypeArgs = {
+  readonly yieldType: CSharpTypeAst;
+  readonly returnType?: CSharpTypeAst;
+  readonly nextType: CSharpTypeAst;
+  readonly hasNextType: boolean;
+  readonly newContext: EmitterContext;
+};
+
+const objectTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+const boolTypeAst: CSharpTypeAst = { kind: "predefinedType", keyword: "bool" };
+
+const literal = (text: string): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text,
+});
+
+const id = (identifier: string): CSharpExpressionAst => ({
+  kind: "identifierExpression",
+  identifier,
+});
+
+const member = (
+  expression: CSharpExpressionAst,
+  memberName: string
+): CSharpExpressionAst => ({
+  kind: "memberAccessExpression",
+  expression,
+  memberName,
+});
+
+const invoke = (
+  expression: CSharpExpressionAst,
+  args: readonly CSharpExpressionAst[] = []
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression,
+  arguments: args,
+});
+
+const assign = (
+  left: CSharpExpressionAst,
+  right: CSharpExpressionAst
+): CSharpExpressionAst => ({
+  kind: "assignmentExpression",
+  operatorToken: "=",
+  left,
+  right,
+});
+
+const suppressDefault = (): CSharpExpressionAst => ({
+  kind: "suppressNullableWarningExpression",
+  expression: { kind: "defaultExpression" },
+});
+
+const iteratorResultType = (yieldType: CSharpTypeAst): CSharpTypeAst => ({
+  kind: "identifierType",
+  name: "global::Tsonic.Runtime.IteratorResult",
+  typeArguments: [yieldType],
+});
+
+const iteratorResultCtor = (
+  yieldType: CSharpTypeAst,
+  value: CSharpExpressionAst,
+  done: boolean
+): CSharpExpressionAst => ({
+  kind: "objectCreationExpression",
+  type: iteratorResultType(yieldType),
+  arguments: [value, literal(done ? "true" : "false")],
+});
+
+const taskOf = (typeArg: CSharpTypeAst): CSharpTypeAst => ({
+  kind: "identifierType",
+  name: "global::System.Threading.Tasks.Task",
+  typeArguments: [typeArg],
+});
+
+const funcType = (typeArg: CSharpTypeAst): CSharpTypeAst => ({
+  kind: "identifierType",
+  name: "global::System.Func",
+  typeArguments: [typeArg],
+});
 
 /**
- * Extract Generator type arguments from a return type
- * Generator<T, TReturn, TNext> -> { yieldType: T, returnType: TReturn, nextType: TNext }
+ * Extract generator type arguments as CSharpTypeAst.
+ *
+ * Generator<TYield, TReturn, TNext> -> { yieldType, returnType?, nextType }
  */
 export const extractGeneratorTypeArgs = (
   returnType: IrType | undefined,
   context: EmitterContext
-): {
-  yieldType: string;
-  returnType: string;
-  nextType: string;
-  hasNextType: boolean;
-  newContext: EmitterContext;
-} => {
-  let yieldType = "object";
-  let retType = "void";
-  let nextType = "object";
+): GeneratorTypeArgs => {
+  let yieldType: CSharpTypeAst = objectTypeAst;
+  let returnTypeAst: CSharpTypeAst | undefined;
+  let nextType: CSharpTypeAst = objectTypeAst;
   let hasNextType = false;
   let currentContext = context;
 
   if (returnType?.kind === "referenceType") {
     const typeRef = returnType;
-    // Generator<Yield, Return, Next> or AsyncGenerator<Yield, Return, Next>
     if (typeRef.typeArguments && typeRef.typeArguments.length > 0) {
       const yieldTypeArg = typeRef.typeArguments[0];
       if (yieldTypeArg) {
         const [ytAst, ctx1] = emitTypeAst(yieldTypeArg, currentContext);
         currentContext = ctx1;
-        yieldType = printType(ytAst);
+        yieldType = ytAst;
       }
 
       if (typeRef.typeArguments.length > 1) {
@@ -60,7 +136,7 @@ export const extractGeneratorTypeArgs = (
         ) {
           const [rtAst, ctx2] = emitTypeAst(returnTypeArg, currentContext);
           currentContext = ctx2;
-          retType = printType(rtAst);
+          returnTypeAst = rtAst;
         }
       }
 
@@ -75,7 +151,7 @@ export const extractGeneratorTypeArgs = (
         ) {
           const [ntAst, ctx3] = emitTypeAst(nextTypeArg, currentContext);
           currentContext = ctx3;
-          nextType = printType(ntAst);
+          nextType = ntAst;
           hasNextType = true;
         }
       }
@@ -84,71 +160,344 @@ export const extractGeneratorTypeArgs = (
 
   return {
     yieldType,
-    returnType: retType,
+    returnType: returnTypeAst,
     nextType,
     hasNextType,
     newContext: currentContext,
   };
 };
 
-// Note: IteratorResult<T> is now defined in Tsonic.Runtime.Generators
-// Use global::Tsonic.Runtime.IteratorResult<T> in generated code
+const buildConstructor = (
+  wrapperName: string,
+  exchangeName: string,
+  isAsync: boolean,
+  returnType: CSharpTypeAst | undefined
+): CSharpMemberAst => {
+  const enumerableType: CSharpTypeAst = {
+    kind: "identifierType",
+    name: isAsync
+      ? "global::System.Collections.Generic.IAsyncEnumerable"
+      : "global::System.Collections.Generic.IEnumerable",
+    typeArguments: [{ kind: "identifierType", name: exchangeName }],
+  };
+
+  const parameters: CSharpParameterAst[] = [
+    { name: "enumerable", type: enumerableType },
+    { name: "exchange", type: { kind: "identifierType", name: exchangeName } },
+  ];
+
+  if (returnType) {
+    parameters.push({
+      name: "getReturnValue",
+      type: funcType(returnType),
+    });
+  }
+
+  const getEnumeratorCall = invoke(
+    member(id("enumerable"), isAsync ? "GetAsyncEnumerator" : "GetEnumerator")
+  );
+
+  const statements: CSharpStatementAst[] = [
+    {
+      kind: "expressionStatement",
+      expression: assign(id("_enumerator"), getEnumeratorCall),
+    },
+    {
+      kind: "expressionStatement",
+      expression: assign(id("_exchange"), id("exchange")),
+    },
+  ];
+
+  if (returnType) {
+    statements.push({
+      kind: "expressionStatement",
+      expression: assign(id("_getReturnValue"), id("getReturnValue")),
+    });
+  }
+
+  return {
+    kind: "constructorDeclaration",
+    attributes: [],
+    modifiers: ["public"],
+    name: wrapperName,
+    parameters,
+    body: { kind: "blockStatement", statements },
+  };
+};
+
+const buildDoneGuard = (yieldType: CSharpTypeAst): CSharpStatementAst => ({
+  kind: "ifStatement",
+  condition: id("_done"),
+  thenStatement: {
+    kind: "blockStatement",
+    statements: [
+      {
+        kind: "returnStatement",
+        expression: iteratorResultCtor(yieldType, suppressDefault(), true),
+      },
+    ],
+  },
+});
+
+const buildNextMethod = (
+  yieldType: CSharpTypeAst,
+  nextType: CSharpTypeAst,
+  hasNextType: boolean,
+  isAsync: boolean,
+  nextMethodName: string
+): CSharpMemberAst => {
+  const resultType = iteratorResultType(yieldType);
+  const returnType = isAsync ? taskOf(resultType) : resultType;
+  const paramType = hasNextType
+    ? { kind: "nullableType" as const, underlyingType: nextType }
+    : { kind: "nullableType" as const, underlyingType: objectTypeAst };
+
+  const moveNextExpr = invoke(
+    member(id("_enumerator"), isAsync ? "MoveNextAsync" : "MoveNext")
+  );
+  const moveNextCondition = isAsync
+    ? ({
+        kind: "awaitExpression",
+        expression: moveNextExpr,
+      } as CSharpExpressionAst)
+    : moveNextExpr;
+
+  return {
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: ["public", ...(isAsync ? ["async"] : [])],
+    returnType,
+    name: nextMethodName,
+    parameters: [
+      {
+        name: "value",
+        type: paramType,
+        defaultValue: { kind: "defaultExpression" },
+      },
+    ],
+    body: {
+      kind: "blockStatement",
+      statements: [
+        buildDoneGuard(yieldType),
+        {
+          kind: "expressionStatement",
+          expression: assign(member(id("_exchange"), "Input"), id("value")),
+        },
+        {
+          kind: "ifStatement",
+          condition: moveNextCondition,
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "returnStatement",
+                expression: iteratorResultCtor(
+                  yieldType,
+                  member(id("_exchange"), "Output"),
+                  false
+                ),
+              },
+            ],
+          },
+        },
+        {
+          kind: "expressionStatement",
+          expression: assign(id("_done"), literal("true")),
+        },
+        {
+          kind: "returnStatement",
+          expression: iteratorResultCtor(yieldType, suppressDefault(), true),
+        },
+      ],
+    },
+  };
+};
+
+const buildReturnValueProperty = (
+  returnType: CSharpTypeAst,
+  propertyName: string
+): CSharpMemberAst => ({
+  kind: "propertyDeclaration",
+  attributes: [],
+  modifiers: ["public"],
+  type: returnType,
+  name: propertyName,
+  hasGetter: true,
+  hasSetter: false,
+  isAutoProperty: false,
+  getterBody: {
+    kind: "blockStatement",
+    statements: [
+      {
+        kind: "returnStatement",
+        expression: {
+          kind: "conditionalExpression",
+          condition: id("_wasExternallyTerminated"),
+          whenTrue: id("_returnValue"),
+          whenFalse: invoke(id("_getReturnValue")),
+        },
+      },
+    ],
+  },
+});
+
+const buildDisposeExpression = (isAsync: boolean): CSharpExpressionAst =>
+  isAsync
+    ? {
+        kind: "awaitExpression",
+        expression: invoke(member(id("_enumerator"), "DisposeAsync")),
+      }
+    : invoke(member(id("_enumerator"), "Dispose"));
+
+const buildReturnMethod = (
+  yieldType: CSharpTypeAst,
+  returnType: CSharpTypeAst | undefined,
+  isAsync: boolean,
+  returnMethodName: string
+): CSharpMemberAst => {
+  const resultType = iteratorResultType(yieldType);
+  const methodReturnType = isAsync ? taskOf(resultType) : resultType;
+  const returnParamType = returnType ?? {
+    kind: "nullableType",
+    underlyingType: objectTypeAst,
+  };
+
+  const statements: CSharpStatementAst[] = [
+    {
+      kind: "expressionStatement",
+      expression: assign(id("_done"), literal("true")),
+    },
+  ];
+
+  if (returnType) {
+    statements.push(
+      {
+        kind: "expressionStatement",
+        expression: assign(id("_returnValue"), id("value")),
+      },
+      {
+        kind: "expressionStatement",
+        expression: assign(id("_wasExternallyTerminated"), literal("true")),
+      }
+    );
+  }
+
+  statements.push({
+    kind: "expressionStatement",
+    expression: buildDisposeExpression(isAsync),
+  });
+
+  statements.push({
+    kind: "returnStatement",
+    expression: iteratorResultCtor(yieldType, suppressDefault(), true),
+  });
+
+  return {
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: ["public", ...(isAsync ? ["async"] : [])],
+    returnType: methodReturnType,
+    name: returnMethodName,
+    parameters: [
+      {
+        name: "value",
+        type: returnParamType,
+        defaultValue: suppressDefault(),
+      },
+    ],
+    body: { kind: "blockStatement", statements },
+  };
+};
+
+const buildThrowMethod = (
+  yieldType: CSharpTypeAst,
+  isAsync: boolean,
+  throwMethodName: string
+): CSharpMemberAst => {
+  const resultType = iteratorResultType(yieldType);
+  const methodReturnType = isAsync ? taskOf(resultType) : resultType;
+
+  const disposeCall: CSharpExpressionAst = isAsync
+    ? invoke(
+        member(
+          invoke(
+            member(invoke(member(id("_enumerator"), "DisposeAsync")), "AsTask")
+          ),
+          "Wait"
+        )
+      )
+    : invoke(member(id("_enumerator"), "Dispose"));
+
+  const exPattern = {
+    kind: "declarationPattern" as const,
+    type: { kind: "identifierType" as const, name: "global::System.Exception" },
+    designation: "ex",
+  };
+
+  return {
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: ["public"],
+    returnType: methodReturnType,
+    name: throwMethodName,
+    parameters: [{ name: "e", type: objectTypeAst }],
+    body: {
+      kind: "blockStatement",
+      statements: [
+        {
+          kind: "expressionStatement",
+          expression: assign(id("_done"), literal("true")),
+        },
+        { kind: "expressionStatement", expression: disposeCall },
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "isExpression",
+            expression: id("e"),
+            pattern: exPattern,
+          },
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [{ kind: "throwStatement", expression: id("ex") }],
+          },
+        },
+        {
+          kind: "throwStatement",
+          expression: {
+            kind: "objectCreationExpression",
+            type: {
+              kind: "identifierType",
+              name: "global::System.Exception",
+            },
+            arguments: [
+              {
+                kind: "binaryExpression",
+                operatorToken: "??",
+                left: invoke({
+                  kind: "conditionalMemberAccessExpression",
+                  expression: id("e"),
+                  memberName: "ToString",
+                }),
+                right: {
+                  kind: "literalExpression",
+                  text: '"Unknown error"',
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+};
 
 /**
- * Generate wrapper class for a generator function
- *
- * Example for: function* accumulator(start = 0): Generator<number, void, number>
- *
- * public sealed class accumulator_Generator
- * {
- *     private readonly global::System.Collections.Generic.IEnumerator<accumulator_exchange> _enumerator;
- *     private readonly accumulator_exchange _exchange;
- *     private bool _done = false;
- *
- *     public accumulator_Generator(global::System.Collections.Generic.IEnumerable<accumulator_exchange> enumerable, accumulator_exchange exchange)
- *     {
- *         _enumerator = enumerable.GetEnumerator();
- *         _exchange = exchange;
- *     }
- *
- *     public global::Tsonic.Runtime.IteratorResult<double> next(double? value = default)
- *     {
- *         if (_done) return new global::Tsonic.Runtime.IteratorResult<double>(default!, true);
- *         _exchange.Input = value;
- *         if (_enumerator.MoveNext())
- *         {
- *             return new global::Tsonic.Runtime.IteratorResult<double>(_exchange.Output, false);
- *         }
- *         _done = true;
- *         return new global::Tsonic.Runtime.IteratorResult<double>(default!, true);
- *     }
- *
- *     public global::Tsonic.Runtime.IteratorResult<double> @return(TReturn value = default!)
- *     {
- *         _done = true;
- *         _returnValue = value;
- *         _wasExternallyTerminated = true;
- *         _enumerator.Dispose();
- *         return new global::Tsonic.Runtime.IteratorResult<double>(default!, true);
- *     }
- *
- *     public global::Tsonic.Runtime.IteratorResult<double> @throw(object e)
- *     {
- *         _done = true;
- *         _enumerator.Dispose();
- *         if (e is global::System.Exception ex) throw ex;
- *         throw new global::System.Exception(e?.ToString() ?? "Unknown error");
- *     }
- * }
+ * Generate wrapper class declaration for a generator function.
  */
 export const generateWrapperClass = (
   func: IrFunctionDeclaration,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-  const bodyInd = getIndent(indent(context));
-  const innerInd = getIndent(indent(indent(context)));
-  const parts: string[] = [];
+): [CSharpTypeDeclarationAst, EmitterContext] => {
   let currentContext = context;
 
   const csharpBaseName = getCSharpName(func.name, "methods", context);
@@ -163,214 +512,109 @@ export const generateWrapperClass = (
     context
   );
 
-  // Extract type arguments
-  const { yieldType, returnType, nextType, hasNextType, newContext } =
-    extractGeneratorTypeArgs(func.returnType, currentContext);
-  currentContext = newContext;
+  const {
+    yieldType,
+    returnType,
+    nextType,
+    hasNextType,
+    newContext: typeContext,
+  } = extractGeneratorTypeArgs(func.returnType, currentContext);
+  currentContext = typeContext;
 
-  // Use yieldType for IteratorResult
-  const resultType = yieldType;
+  const enumeratorType: CSharpTypeAst = {
+    kind: "identifierType",
+    name: func.isAsync
+      ? "global::System.Collections.Generic.IAsyncEnumerator"
+      : "global::System.Collections.Generic.IEnumerator",
+    typeArguments: [{ kind: "identifierType", name: exchangeName }],
+  };
 
-  parts.push(`${ind}public sealed class ${wrapperName}`);
-  parts.push(`${ind}{`);
+  const members: CSharpMemberAst[] = [
+    {
+      kind: "fieldDeclaration",
+      attributes: [],
+      modifiers: ["private", "readonly"],
+      type: enumeratorType,
+      name: "_enumerator",
+    },
+    {
+      kind: "fieldDeclaration",
+      attributes: [],
+      modifiers: ["private", "readonly"],
+      type: { kind: "identifierType", name: exchangeName },
+      name: "_exchange",
+    },
+  ];
 
-  // Private fields
-  const enumeratorType = func.isAsync
-    ? `global::System.Collections.Generic.IAsyncEnumerator<${exchangeName}>`
-    : `global::System.Collections.Generic.IEnumerator<${exchangeName}>`;
-  parts.push(`${bodyInd}private readonly ${enumeratorType} _enumerator;`);
-  parts.push(`${bodyInd}private readonly ${exchangeName} _exchange;`);
-  // Return value getter - captures TReturn from generator return statements (natural completion)
-  const hasReturnType = returnType !== "void";
-  if (hasReturnType) {
-    parts.push(
-      `${bodyInd}private readonly global::System.Func<${returnType}> _getReturnValue;`
+  if (returnType) {
+    members.push(
+      {
+        kind: "fieldDeclaration",
+        attributes: [],
+        modifiers: ["private", "readonly"],
+        type: funcType(returnType),
+        name: "_getReturnValue",
+      },
+      {
+        kind: "fieldDeclaration",
+        attributes: [],
+        modifiers: ["private"],
+        type: returnType,
+        name: "_returnValue",
+        initializer: suppressDefault(),
+      },
+      {
+        kind: "fieldDeclaration",
+        attributes: [],
+        modifiers: ["private"],
+        type: boolTypeAst,
+        name: "_wasExternallyTerminated",
+        initializer: literal("false"),
+      }
     );
-    // Field for external termination via @return(value)
-    parts.push(`${bodyInd}private ${returnType} _returnValue = default!;`);
-    parts.push(`${bodyInd}private bool _wasExternallyTerminated = false;`);
-  }
-  parts.push(`${bodyInd}private bool _done = false;`);
-  parts.push("");
-
-  // Constructor
-  const enumerableType = func.isAsync
-    ? `global::System.Collections.Generic.IAsyncEnumerable<${exchangeName}>`
-    : `global::System.Collections.Generic.IEnumerable<${exchangeName}>`;
-
-  // Constructor signature includes return value getter if TReturn is not void
-  const constructorParams = hasReturnType
-    ? `${enumerableType} enumerable, ${exchangeName} exchange, global::System.Func<${returnType}> getReturnValue`
-    : `${enumerableType} enumerable, ${exchangeName} exchange`;
-
-  parts.push(`${bodyInd}public ${wrapperName}(${constructorParams})`);
-  parts.push(`${bodyInd}{`);
-  parts.push(
-    `${innerInd}_enumerator = enumerable.${func.isAsync ? "GetAsyncEnumerator()" : "GetEnumerator()"};`
-  );
-  parts.push(`${innerInd}_exchange = exchange;`);
-  if (hasReturnType) {
-    parts.push(`${innerInd}_getReturnValue = getReturnValue;`);
-  }
-  parts.push(`${bodyInd}}`);
-  parts.push("");
-
-  // next() method
-  const nextReturnType = func.isAsync
-    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${resultType}>>`
-    : `global::Tsonic.Runtime.IteratorResult<${resultType}>`;
-  const nextParamType = hasNextType ? `${nextType}?` : "object?";
-  const asyncKeyword = func.isAsync ? "async " : "";
-  const awaitKeyword = func.isAsync ? "await " : "";
-  const moveNextMethod = func.isAsync ? "MoveNextAsync()" : "MoveNext()";
-
-  parts.push(
-    `${bodyInd}public ${asyncKeyword}${nextReturnType} ${nextMethodName}(${nextParamType} value = default)`
-  );
-  parts.push(`${bodyInd}{`);
-  // When already done, return cached result (with TReturn value if available)
-  // Note: JS IteratorResult has value: TYield | TReturn on completion
-  // We use default! for the value since the consumer should check done first
-  parts.push(
-    `${innerInd}if (_done) return new global::Tsonic.Runtime.IteratorResult<${resultType}>(default!, true);`
-  );
-  parts.push(`${innerInd}_exchange.Input = value;`);
-  parts.push(`${innerInd}if (${awaitKeyword}_enumerator.${moveNextMethod})`);
-  parts.push(`${innerInd}{`);
-  parts.push(
-    `${innerInd}    return new global::Tsonic.Runtime.IteratorResult<${resultType}>(_exchange.Output, false);`
-  );
-  parts.push(`${innerInd}}`);
-  parts.push(`${innerInd}_done = true;`);
-  // When iterator completes, return default! for the value
-  // The return value can be accessed via the returnValue property if TReturn is not void
-  // Note: JavaScript IteratorResult has value: TYield | TReturn, but C# can't represent this union
-  parts.push(
-    `${innerInd}return new global::Tsonic.Runtime.IteratorResult<${resultType}>(default!, true);`
-  );
-  parts.push(`${bodyInd}}`);
-  parts.push("");
-
-  // returnValue property - provides access to TReturn when generator completes
-  if (hasReturnType) {
-    parts.push(`${bodyInd}/// <summary>`);
-    parts.push(
-      `${bodyInd}/// Gets the return value of the generator after it completes.`
-    );
-    parts.push(
-      `${bodyInd}/// Only valid after the generator is done (next() returned done=true).`
-    );
-    parts.push(
-      `${bodyInd}/// If terminated via return(value), returns that value.`
-    );
-    parts.push(
-      `${bodyInd}/// Otherwise, returns the value from the generator's return statement.`
-    );
-    parts.push(`${bodyInd}/// </summary>`);
-    parts.push(
-      `${bodyInd}public ${returnType} ${returnValuePropertyName} => _wasExternallyTerminated ? _returnValue : _getReturnValue();`
-    );
-    parts.push("");
   }
 
-  // return() method - use @ prefix since 'return' is a C# keyword
-  // Per JS spec: return(value) takes TReturn, not TYield
-  // The returned IteratorResult still uses TYield for type consistency with next()
-  const returnReturnType = func.isAsync
-    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${resultType}>>`
-    : `global::Tsonic.Runtime.IteratorResult<${resultType}>`;
+  members.push({
+    kind: "fieldDeclaration",
+    attributes: [],
+    modifiers: ["private"],
+    type: boolTypeAst,
+    name: "_done",
+    initializer: literal("false"),
+  });
 
-  // Parameter type is TReturn (returnType), not TYield (resultType)
-  // For void-return generators, use object? since return() can be called with no argument
-  const returnParamType = returnType !== "void" ? returnType : "object?";
+  members.push(
+    buildConstructor(wrapperName, exchangeName, func.isAsync, returnType)
+  );
+  members.push(
+    buildNextMethod(
+      yieldType,
+      nextType,
+      hasNextType,
+      func.isAsync,
+      nextMethodName
+    )
+  );
 
-  parts.push(`${bodyInd}/// <summary>`);
-  parts.push(
-    `${bodyInd}/// Terminates the generator and sets the return value.`
-  );
-  parts.push(`${bodyInd}/// </summary>`);
-  parts.push(
-    `${bodyInd}/// <param name="value">The return value (TReturn type)</param>`
-  );
-  parts.push(
-    `${bodyInd}/// <returns>IteratorResult with done=true and default TYield value</returns>`
-  );
-  parts.push(`${bodyInd}/// <remarks>`);
-  parts.push(
-    `${bodyInd}/// NOTE: The passed value does NOT appear in the returned IteratorResult.value.`
-  );
-  parts.push(
-    `${bodyInd}/// C# cannot represent JavaScript's TYield | TReturn union type.`
-  );
-  parts.push(
-    `${bodyInd}/// Access the return value via the 'returnValue' property after calling this method.`
-  );
-  parts.push(`${bodyInd}/// </remarks>`);
-  parts.push(
-    `${bodyInd}public ${asyncKeyword}${returnReturnType} ${returnMethodName}(${returnParamType} value = default!)`
-  );
-  parts.push(`${bodyInd}{`);
-  parts.push(`${innerInd}_done = true;`);
-  // If TReturn is not void, capture the return value for the returnValue property
-  if (hasReturnType) {
-    parts.push(`${innerInd}_returnValue = value;`);
-    parts.push(`${innerInd}_wasExternallyTerminated = true;`);
+  if (returnType) {
+    members.push(buildReturnValueProperty(returnType, returnValuePropertyName));
   }
-  if (func.isAsync) {
-    parts.push(`${innerInd}await _enumerator.DisposeAsync();`);
-  } else {
-    parts.push(`${innerInd}_enumerator.Dispose();`);
-  }
-  // Return IteratorResult with default TYield (since we're returning TReturn via returnValue property)
-  parts.push(
-    `${innerInd}return new global::Tsonic.Runtime.IteratorResult<${resultType}>(default!, true);`
-  );
-  parts.push(`${bodyInd}}`);
-  parts.push("");
 
-  // throw() method - use @ prefix since 'throw' is a C# keyword
-  // NOTE: Unlike JavaScript, this does NOT inject the exception at the suspended
-  // yield point. C# iterators don't support resumption with exceptions.
-  // This method terminates the generator and throws the exception externally.
-  // This is a semantic limitation - JS generators can catch thrown exceptions
-  // inside try/catch around yield, but our C# implementation cannot.
-  const throwReturnType = func.isAsync
-    ? `global::System.Threading.Tasks.Task<global::Tsonic.Runtime.IteratorResult<${resultType}>>`
-    : `global::Tsonic.Runtime.IteratorResult<${resultType}>`;
+  members.push(
+    buildReturnMethod(yieldType, returnType, func.isAsync, returnMethodName)
+  );
+  members.push(buildThrowMethod(yieldType, func.isAsync, throwMethodName));
 
-  parts.push(`${bodyInd}/// <summary>`);
-  parts.push(
-    `${bodyInd}/// Terminates the generator and throws the provided exception.`
-  );
-  parts.push(
-    `${bodyInd}/// NOTE: Unlike JavaScript, this does NOT inject the exception at the`
-  );
-  parts.push(
-    `${bodyInd}/// suspended yield point. The exception is thrown externally after`
-  );
-  parts.push(
-    `${bodyInd}/// disposing the enumerator. This is a limitation of C# iterators.`
-  );
-  parts.push(`${bodyInd}/// </summary>`);
-  parts.push(
-    `${bodyInd}public ${throwReturnType} ${throwMethodName}(object e)`
-  );
-  parts.push(`${bodyInd}{`);
-  parts.push(`${innerInd}_done = true;`);
-  if (func.isAsync) {
-    parts.push(`${innerInd}_enumerator.DisposeAsync().AsTask().Wait();`);
-  } else {
-    parts.push(`${innerInd}_enumerator.Dispose();`);
-  }
-  parts.push(`${innerInd}if (e is global::System.Exception ex) throw ex;`);
-  parts.push(
-    `${innerInd}throw new global::System.Exception(e?.ToString() ?? "Unknown error");`
-  );
-  parts.push(`${bodyInd}}`);
+  const classAst: CSharpTypeDeclarationAst = {
+    kind: "classDeclaration",
+    attributes: [],
+    modifiers: ["public", "sealed"],
+    name: wrapperName,
+    interfaces: [],
+    members,
+  };
 
-  parts.push(`${ind}}`);
-
-  return [parts.join("\n"), currentContext];
+  return [classAst, currentContext];
 };
 
 /**
@@ -386,7 +630,6 @@ export const needsBidirectionalSupport = (
     const typeRef = func.returnType;
     if (typeRef.typeArguments && typeRef.typeArguments.length > 2) {
       const nextTypeArg = typeRef.typeArguments[2];
-      // Check if TNext is not undefined
       if (
         nextTypeArg &&
         !(
@@ -404,7 +647,6 @@ export const needsBidirectionalSupport = (
 
 /**
  * Check if a generator function has a return type (TReturn is not void/undefined)
- * This determines whether we need to capture the return value via closure
  */
 export const hasGeneratorReturnType = (
   func: IrFunctionDeclaration
@@ -413,10 +655,8 @@ export const hasGeneratorReturnType = (
 
   if (func.returnType?.kind === "referenceType") {
     const typeRef = func.returnType;
-    // TReturn is the second type argument: Generator<Yield, Return, Next>
     if (typeRef.typeArguments && typeRef.typeArguments.length > 1) {
       const returnTypeArg = typeRef.typeArguments[1];
-      // Check if TReturn is not void/undefined
       if (
         returnTypeArg &&
         returnTypeArg.kind !== "voidType" &&

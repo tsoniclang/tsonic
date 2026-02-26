@@ -3,7 +3,7 @@
  * Main dispatcher - re-exports from specialized modules
  */
 
-// Re-export everything from types subdirectory for backward compatibility
+// Re-export everything from the split IR type modules.
 export type {
   // Module types
   IrModule,

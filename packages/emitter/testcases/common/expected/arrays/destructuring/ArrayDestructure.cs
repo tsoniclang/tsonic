@@ -1,14 +1,14 @@
 namespace TestCases.common.arrays.destructuring
 {
-        [global::Tsonic.Internal.ModuleContainerAttribute]
-        public static class ArrayDestructure
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class ArrayDestructure
+    {
+        public static double destructure(double[] arr)
         {
-            public static double destructure(double[] arr)
-                {
-                var __arr0 = arr;
-                double first = __arr0[0];
-                double second = __arr0[1];
-                return first + second;
-                }
+            var __arr0 = arr;
+            double first = __arr0[0];
+            double second = __arr0[1];
+            return first + second;
         }
+    }
 }

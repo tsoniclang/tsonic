@@ -24,9 +24,10 @@ describe("CLI Parser", () => {
         expect(result.command).to.equal("generate");
       });
 
-      it("should parse project:init as two-word command", () => {
+      it("should parse project init as command+positional (no alias)", () => {
         const result = parseArgs(["project", "init"]);
-        expect(result.command).to.equal("init");
+        expect(result.command).to.equal("project");
+        expect(result.positionals).to.deep.equal(["init"]);
       });
 
       it("should parse add:package as two-word command", () => {

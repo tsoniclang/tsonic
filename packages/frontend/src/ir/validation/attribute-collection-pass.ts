@@ -12,14 +12,9 @@
  * - add(A.attr(AttrCtor, ...args))                    - Descriptor form
  * - add(descriptor) where `const descriptor = A.attr(...)`
  *
- * Backward compatibility:
- * - A.on(fn).type.add(AttrCtor, ...args) attaches to a function declaration
- *
  * Notes:
  * - This API is compiler-only. All recognized marker statements are removed.
  * - Invalid marker calls are errors (no silent drops).
- *
- * Thin re-export wrapper — implementation split into attribute-collection/ sub-modules.
  */
 
 export {

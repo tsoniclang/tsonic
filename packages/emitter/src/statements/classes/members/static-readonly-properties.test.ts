@@ -7,6 +7,7 @@ import { expect } from "chai";
 import type { IrClassMember } from "@tsonic/frontend";
 import type { EmitterContext, EmitterOptions } from "../../../types.js";
 import { emitPropertyMember } from "./properties.js";
+import { printMember } from "../../../core/format/backend-ast/printer.js";
 
 const defaultOptions: EmitterOptions = {
   rootNamespace: "Test",
@@ -40,7 +41,8 @@ describe("Static readonly property emission", () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [code] = emitPropertyMember(member as any, context);
+    const [ast] = emitPropertyMember(member as any, context);
+    const code = printMember(ast, "");
     expect(code).to.include("public static int Value");
     expect(code).to.include("{ get; }");
     expect(code).to.not.include("init");

@@ -5,7 +5,11 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitAttributes, emitParameterAttributes } from "./attributes.js";
-import { printAttributes, printExpression } from "./backend-ast/printer.js";
+import {
+  printAttributes,
+  printExpression,
+  printType,
+} from "./backend-ast/printer.js";
 import { getIndent } from "../../types.js";
 import type { IrAttribute } from "@tsonic/frontend";
 import type { EmitterContext, EmitterOptions } from "../../types.js";
@@ -48,7 +52,7 @@ const formatInlineAttrs = (attrs: readonly CSharpAttributeAst[]): string => {
           a.arguments && a.arguments.length > 0
             ? `(${a.arguments.map(printExpression).join(", ")})`
             : "";
-        return `[${targetPrefix}${a.name}${args}]`;
+        return `[${targetPrefix}${printType(a.type)}${args}]`;
       })
       .join("") + " "
   );

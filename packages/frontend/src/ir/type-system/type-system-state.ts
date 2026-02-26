@@ -481,7 +481,7 @@ export const BUILTIN_NOMINALS: Readonly<Record<string, string>> = {
  *
  * CRITICAL (Alice's spec): Empty arrays are ILLEGAL.
  * Poisoned results must have correct arity so callers cannot
- * detect failure via `length === 0` and fall back to legacy.
+ * detect failure via `length === 0`.
  *
  * @param arity Number of parameters/arguments (from CallQuery.argumentCount)
  * @param diagnostics Diagnostics explaining why resolution failed

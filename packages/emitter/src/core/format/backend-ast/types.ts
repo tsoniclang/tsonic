@@ -527,7 +527,7 @@ export type CSharpStatementAst =
 // ============================================================
 
 export type CSharpAttributeAst = {
-  readonly name: string;
+  readonly type: CSharpTypeAst;
   readonly arguments?: readonly CSharpExpressionAst[];
   /** Attribute target specifier, e.g. "return", "assembly", "field" */
   readonly target?: string;
@@ -592,9 +592,24 @@ export type CSharpTypeParameterAst = {
   readonly name: string;
 };
 
+export type CSharpTypeParameterConstraintNodeAst =
+  | {
+      readonly kind: "typeConstraint";
+      readonly type: CSharpTypeAst;
+    }
+  | {
+      readonly kind: "classConstraint";
+    }
+  | {
+      readonly kind: "structConstraint";
+    }
+  | {
+      readonly kind: "constructorConstraint";
+    };
+
 export type CSharpTypeParameterConstraintAst = {
   readonly typeParameter: string;
-  readonly constraints: readonly string[];
+  readonly constraints: readonly CSharpTypeParameterConstraintNodeAst[];
 };
 
 export type CSharpDelegateDeclarationAst = {
@@ -605,18 +620,12 @@ export type CSharpDelegateDeclarationAst = {
   readonly parameters: readonly CSharpParameterAst[];
 };
 
-export type CSharpLiteralMemberAst = {
-  readonly kind: "literalMember";
-  readonly text: string;
-};
-
 export type CSharpMemberAst =
   | CSharpFieldDeclarationAst
   | CSharpPropertyDeclarationAst
   | CSharpMethodDeclarationAst
   | CSharpConstructorDeclarationAst
-  | CSharpDelegateDeclarationAst
-  | CSharpLiteralMemberAst;
+  | CSharpDelegateDeclarationAst;
 
 export type CSharpClassDeclarationAst = {
   readonly kind: "classDeclaration";
@@ -660,17 +669,11 @@ export type CSharpEnumDeclarationAst = {
   readonly members: readonly CSharpEnumMemberAst[];
 };
 
-export type CSharpLiteralTypeDeclarationAst = {
-  readonly kind: "literalDeclaration";
-  readonly text: string;
-};
-
 export type CSharpTypeDeclarationAst =
   | CSharpClassDeclarationAst
   | CSharpStructDeclarationAst
   | CSharpInterfaceDeclarationAst
-  | CSharpEnumDeclarationAst
-  | CSharpLiteralTypeDeclarationAst;
+  | CSharpEnumDeclarationAst;
 
 // ============================================================
 // Top-level compilation unit

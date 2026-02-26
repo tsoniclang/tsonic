@@ -313,12 +313,10 @@ export const isReadonlyMember = (decl: ts.Declaration | undefined): boolean => {
  * CLR FQ name for inheritance substitution.
  *
  * @param decl The signature declaration (method, function, etc.)
- * @param _checker TypeChecker (kept for backwards compatibility, unused)
  * @returns { typeTsName, memberName } or undefined if not a member
  */
 export const extractDeclaringIdentity = (
-  decl: ts.SignatureDeclaration | undefined,
-  _checker: ts.TypeChecker
+  decl: ts.SignatureDeclaration | undefined
 ): { typeTsName: string; memberName: string } | undefined => {
   if (!decl) return undefined;
 

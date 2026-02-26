@@ -27,41 +27,12 @@ import type {
 import type { AliasTable } from "./internal/universe/alias-table.js";
 import type { UnifiedTypeCatalog } from "./internal/universe/types.js";
 
-// ─────────────────────────────────────────────────────────────────────────
-// Re-exports from split modules for backwards compatibility
-// ─────────────────────────────────────────────────────────────────────────
-
-// Types and values that were previously defined in this file and are now
-// in type-system-state.ts. Re-exported so that index.ts and other consumers
-// continue to work without import path changes.
 export type {
   MemberRef,
   CallQuery,
   ResolvedCall,
-  TypePredicateResult,
   Site,
-  TypeSubstitutionMap,
-  RawSignatureInfo,
-  HandleRegistry,
-  DeclInfo,
-  DeclKind,
-  SignatureInfo,
-  SignatureTypePredicateRaw,
-  ParameterNode,
-  TypeParameterNode,
-  MemberInfo,
-  TypeSyntaxInfo,
-  ClassMemberNames,
-  TypeRegistryAPI,
-  TypeParameterEntry,
-  TypeRegistryEntry,
-  TypeRegistryMemberInfo,
-  NominalEnvAPI,
-  MemberLookupResult,
-  NominalLookupResult,
-  TypeSystemState,
 } from "./type-system-state.js";
-
 export { BUILTIN_NOMINALS, poisonedCall } from "./type-system-state.js";
 
 // Import types needed for the TypeAuthority interface and TypeSystemConfig
@@ -134,8 +105,7 @@ export type TypeAuthority = {
    * ALICE'S SPEC (Phase 4): TypeSystem receives opaque handles, not ts.TypeNode.
    * This keeps the TypeSystem public API free of TypeScript types.
    *
-   * NOTE: The deprecated convertTypeNode() method has been removed.
-   * All converters now use captureTypeSyntax() + typeFromSyntax().
+   * All converters use captureTypeSyntax() + typeFromSyntax().
    */
   typeFromSyntax(typeSyntaxId: TypeSyntaxId): IrType;
 

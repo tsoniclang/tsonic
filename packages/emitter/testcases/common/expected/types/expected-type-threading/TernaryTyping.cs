@@ -1,15 +1,15 @@
 namespace TestCases.common.types.expectedtypethreading
 {
-        [global::Tsonic.Internal.ModuleContainerAttribute]
-        public static class TernaryTyping
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class TernaryTyping
+    {
+        public static readonly int ternaryInt = true ? 5 : 10;
+
+        public static readonly int nestedTernary = true ? false ? 1 : 2 : 3;
+
+        public static int ternaryReturn(bool flag)
         {
-            public static readonly int ternaryInt = true ? 5 : 10;
-
-            public static readonly int nestedTernary = true ? false ? 1 : 2 : 3;
-
-            public static int ternaryReturn(bool flag)
-                {
-                return flag ? 100 : 200;
-                }
+            return flag ? 100 : 200;
         }
+    }
 }

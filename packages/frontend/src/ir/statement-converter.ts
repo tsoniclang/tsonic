@@ -194,7 +194,3 @@ export const convertStatementSingle = (
   // At this point, result is IrStatement (not array, not null)
   return result as IrStatement;
 };
-
-// Re-export commonly used functions for backward compatibility
-export { convertBlockStatement } from "./converters/statements/control.js";
-export { convertParameters } from "./converters/statements/helpers.js";

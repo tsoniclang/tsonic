@@ -100,7 +100,7 @@ export class ClrBindingsResolver {
     // - "System.Linq.js" -> "System.Linq"
     // - "Microsoft.EntityFrameworkCore/internal/index.js" -> "Microsoft.EntityFrameworkCore"
     const namespaceKey = this.extractNamespaceKey(subpath);
-    if (!namespaceKey) return { isClr: false };
+    if (namespaceKey === null) return { isClr: false };
 
     // Prefer exports-aware resolution:
     // - Resolve the namespace facade "@pkg/<Namespace>.js" via Node resolution (honors package.json exports).
@@ -108,7 +108,10 @@ export class ClrBindingsResolver {
     //
     // This supports bindings packages that keep generated artifacts under dist/ (not committed),
     // while keeping ergonomic imports like "@pkg/System.Linq.js".
-    const facadeSpecifier = `${packageName}/${namespaceKey}.js`;
+    const facadeSpecifier =
+      namespaceKey === ""
+        ? `${packageName}/index.js`
+        : `${packageName}/${namespaceKey}.js`;
     const resolvedFacadePath = this.resolveModulePath(
       packageName,
       facadeSpecifier
@@ -128,31 +131,22 @@ export class ClrBindingsResolver {
         resolvedFacadePath,
       });
 
-    // Fallback for packages that do not provide a resolvable facade stub.
-    // This preserves legacy behavior where bindings are discovered purely by
-    // "<pkgRoot>/<subpath>/bindings.json" without consulting exports.
-    const legacyBindingsPath =
-      bindingsPath ?? this.findBindingsPathLegacy(pkgRoot, subpath);
-
-    if (!legacyBindingsPath) {
+    if (!bindingsPath) {
       return { isClr: false };
     }
 
     // Extract namespace from bindings.json (tsbindgen format)
     // This is the authoritative namespace, not the subpath
-    const resolvedNamespace = this.extractNamespace(
-      legacyBindingsPath,
-      namespaceKey
-    );
+    const resolvedNamespace = this.extractNamespace(bindingsPath, namespaceKey);
 
     // Extract assembly name from bindings.json types
-    const assembly = this.extractAssembly(legacyBindingsPath);
+    const assembly = this.extractAssembly(bindingsPath);
 
     return {
       isClr: true,
       packageName,
       resolvedNamespace,
-      bindingsPath: legacyBindingsPath,
+      bindingsPath,
       assembly,
     };
   }
@@ -171,7 +165,10 @@ export class ClrBindingsResolver {
     ).trim();
     if (!firstSeg) return null;
 
-    return firstSeg.endsWith(".js") ? firstSeg.slice(0, -3) : firstSeg;
+    const normalized = firstSeg.endsWith(".js")
+      ? firstSeg.slice(0, -3)
+      : firstSeg;
+    return normalized === "index" ? "" : normalized;
   }
 
   private resolveModulePath(
@@ -236,40 +233,31 @@ export class ClrBindingsResolver {
       // also provide a *root* bindings.json for the empty namespace (""). If we pick
       // that for a non-empty namespace import (e.g. "xunit-types/Xunit.js"), we end up
       // with missing CLR bindings for the imported symbols.
-      const sibling = join(currentDir, namespaceKey, "bindings.json");
-      if (this.hasBindingsForNamespace(sibling, namespaceKey)) return sibling;
+      const siblingNamespace = namespaceKey === "" ? "index" : namespaceKey;
+      const sibling = join(currentDir, siblingNamespace, "bindings.json");
+      if (
+        namespaceKey === ""
+          ? this.hasBindings(sibling)
+          : this.hasBindingsForNamespace(sibling, namespaceKey)
+      ) {
+        return sibling;
+      }
 
       // Case 2: bindings.json is directly in this directory (e.g. "<ns>/bindings.json").
       const direct = join(currentDir, "bindings.json");
-      if (this.hasBindingsForNamespace(direct, namespaceKey)) return direct;
+      if (
+        namespaceKey === ""
+          ? this.hasBindings(direct)
+          : this.hasBindingsForNamespace(direct, namespaceKey)
+      ) {
+        return direct;
+      }
 
       if (currentDir === pkgRoot) return null;
 
       const parent = dirname(currentDir);
       if (parent === currentDir) return null;
       currentDir = parent;
-    }
-  }
-
-  private findBindingsPathLegacy(
-    pkgRoot: string,
-    subpath: string
-  ): string | null {
-    // Strip .js extension from the full subpath and walk up segments until a directory
-    // containing bindings.json is found under pkgRoot.
-    const namespaceSubpath = subpath.endsWith(".js")
-      ? subpath.slice(0, -3)
-      : subpath;
-
-    let current = namespaceSubpath;
-    while (true) {
-      const bindingsPath = join(pkgRoot, current, "bindings.json");
-      if (this.hasBindings(bindingsPath)) return bindingsPath;
-
-      // Walk up one path segment.
-      const idx = Math.max(current.lastIndexOf("/"), current.lastIndexOf("\\"));
-      if (idx <= 0) return null;
-      current = current.slice(0, idx);
     }
   }
 

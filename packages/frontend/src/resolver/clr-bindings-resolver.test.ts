@@ -176,36 +176,6 @@ describe("ClrBindingsResolver (npm exports + dist bindings)", () => {
     expect(result.assembly).to.equal(spec.assemblyName);
   });
 
-  it("keeps legacy bindings discovery working when no facade stub is resolvable", () => {
-    const workspaceRoot = createWorkspaceRoot();
-
-    const packageName = "legacy-bindings";
-    const namespaceKey = "System.Text";
-    const pkgRoot = createUnscopedPackageRoot(workspaceRoot, packageName);
-    mkdirSync(pkgRoot, { recursive: true });
-    writeJson(join(pkgRoot, "package.json"), {
-      name: packageName,
-      private: true,
-      type: "module",
-    });
-
-    const nsDir = join(pkgRoot, namespaceKey);
-    mkdirSync(join(nsDir, "internal"), { recursive: true });
-    const bindingsPath = join(nsDir, "bindings.json");
-    writeJson(bindingsPath, {
-      namespace: "System.Text",
-      types: [{ assemblyName: "System.Text.Encoding" }],
-    });
-
-    // No "System.Text.js" exists: exports-aware resolution fails, legacy discovery must succeed.
-    const resolver = createClrBindingsResolver(workspaceRoot);
-    const result = resolver.resolve(`${packageName}/${namespaceKey}.js`);
-    expect(result.isClr).to.equal(true);
-    if (!result.isClr) return;
-    expect(result.bindingsPath).to.equal(bindingsPath);
-    expect(result.resolvedNamespace).to.equal("System.Text");
-  });
-
   it("prefers <Namespace>/bindings.json over a root bindings.json when resolving a namespace facade", () => {
     const workspaceRoot = createWorkspaceRoot();
 
