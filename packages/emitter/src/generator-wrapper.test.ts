@@ -84,7 +84,9 @@ describe("Generator Wrapper", () => {
       expect(printType(result.yieldType)).to.equal("string");
       expect(result.returnType).to.not.equal(undefined);
       if (!result.returnType) {
-        throw new Error("Expected returnType for Generator<TYield, TReturn, TNext>");
+        throw new Error(
+          "Expected returnType for Generator<TYield, TReturn, TNext>"
+        );
       }
       expect(printType(result.returnType)).to.equal("double");
       expect(printType(result.nextType)).to.equal("bool");
