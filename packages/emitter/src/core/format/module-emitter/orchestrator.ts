@@ -5,6 +5,7 @@
 import { IrModule, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterOptions, createContext } from "../../../types.js";
 import { generateStructuralAdapters } from "../../../adapter-generator.js";
+import { printTypeDeclaration } from "../backend-ast/printer.js";
 import {
   collectSpecializations,
   generateSpecializations,
@@ -224,10 +225,13 @@ export const emitModule = (
 
   // Collect type parameters and generate adapters
   const typeParams = collectTypeParameters(module);
-  const [adaptersCode, adaptersContext] = generateStructuralAdapters(
+  const [adapterDecls, adaptersContext] = generateStructuralAdapters(
     typeParams,
     processedContext
   );
+  const adaptersCode = adapterDecls
+    .map((d) => printTypeDeclaration(d, ""))
+    .join("\n\n");
 
   // Collect specializations and generate monomorphized versions
   const specializations = collectSpecializations(module);

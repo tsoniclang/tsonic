@@ -1,17 +1,26 @@
 /**
  * Generator Exchange Object Generator
  * Per spec/13-generators.md - Generate exchange objects for bidirectional communication
+ *
+ * Exchange classes are built as CSharpTypeDeclarationAst internally.
+ * generateGeneratorExchanges returns [string, EmitterContext] for backward
+ * compatibility with the orchestrator (Phase H will switch callers to AST).
  */
 
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent } from "./types.js";
+import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
-import { printType } from "./core/format/backend-ast/printer.js";
+import { printTypeDeclaration } from "./core/format/backend-ast/printer.js";
 import {
   needsBidirectionalSupport,
   generateWrapperClass,
 } from "./generator-wrapper.js";
 import { getCSharpName } from "./naming-policy.js";
+import type {
+  CSharpTypeDeclarationAst,
+  CSharpMemberAst,
+  CSharpTypeAst,
+} from "./core/format/backend-ast/types.js";
 
 /**
  * Collect all generator functions from a module
@@ -23,89 +32,89 @@ const collectGenerators = (module: IrModule): IrFunctionDeclaration[] => {
     if (stmt.kind === "functionDeclaration" && stmt.isGenerator) {
       generators.push(stmt);
     }
-    // Note: Generator methods in classes are not handled here; generator support is currently
-    // implemented for module-level generator functions.
   }
 
   return generators;
 };
 
 /**
- * Generate exchange object class for a generator function
- *
- * Example:
- * function* accumulator(start = 0): Generator<number, void, number> { }
- *
- * Generates:
- * public sealed class accumulator_exchange
- * {
- *     public double? Input { get; set; }
- *     public double Output { get; set; }
- * }
+ * Generate exchange object class as CSharpTypeDeclarationAst
  */
-const generateExchangeClass = (
+export const generateExchangeClassAst = (
   func: IrFunctionDeclaration,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-  const bodyInd = getIndent(indent(context));
-  const parts: string[] = [];
+): [CSharpTypeDeclarationAst, EmitterContext] => {
   let currentContext = context;
-
   const csharpBaseName = getCSharpName(func.name, "methods", context);
   const exchangeName = `${csharpBaseName}_exchange`;
 
-  parts.push(`${ind}public sealed class ${exchangeName}`);
-  parts.push(`${ind}{`);
-
-  // Determine output type from return type or yield expressions
-  // For now, use 'object' as default, will refine based on type inference
-  let outputType = "object";
-  let inputType = "object";
+  // Determine output/input types from return type
+  let outputTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
+  let inputTypeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
 
   if (func.returnType && func.returnType.kind === "referenceType") {
-    // Generator<Yield, Return, Next>
-    // typeArguments[0] is the Yield type (Output)
-    // typeArguments[2] is the Next type (Input)
     const typeRef = func.returnType;
     if (typeRef.typeArguments && typeRef.typeArguments.length > 0) {
       const yieldTypeArg = typeRef.typeArguments[0];
       if (yieldTypeArg) {
-        const [yieldTypeAst, newContext1] = emitTypeAst(
-          yieldTypeArg,
-          currentContext
-        );
-        currentContext = newContext1;
-        outputType = printType(yieldTypeAst);
+        const [yieldAst, ctx1] = emitTypeAst(yieldTypeArg, currentContext);
+        currentContext = ctx1;
+        outputTypeAst = yieldAst;
       }
 
       if (typeRef.typeArguments.length > 2) {
         const nextTypeArg = typeRef.typeArguments[2];
         if (nextTypeArg) {
-          const [nextTypeAst, newContext2] = emitTypeAst(
-            nextTypeArg,
-            currentContext
-          );
-          currentContext = newContext2;
-          inputType = printType(nextTypeAst);
+          const [nextAst, ctx2] = emitTypeAst(nextTypeArg, currentContext);
+          currentContext = ctx2;
+          inputTypeAst = nextAst;
         }
       }
     }
   }
 
-  // Input property (always nullable since generator might not receive value)
-  parts.push(`${bodyInd}public ${inputType}? Input { get; set; }`);
+  const members: CSharpMemberAst[] = [
+    // Input property (nullable)
+    {
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: { kind: "nullableType", underlyingType: inputTypeAst },
+      name: "Input",
+      hasGetter: true,
+      hasSetter: true,
+      isAutoProperty: true,
+    },
+    // Output property
+    {
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: outputTypeAst,
+      name: "Output",
+      hasGetter: true,
+      hasSetter: true,
+      isAutoProperty: true,
+    },
+  ];
 
-  // Output property
-  parts.push(`${bodyInd}public ${outputType} Output { get; set; }`);
+  const declAst: CSharpTypeDeclarationAst = {
+    kind: "classDeclaration",
+    attributes: [],
+    modifiers: ["public", "sealed"],
+    name: exchangeName,
+    interfaces: [],
+    members,
+  };
 
-  parts.push(`${ind}}`);
-
-  return [parts.join("\n"), currentContext];
+  return [declAst, currentContext];
 };
 
 /**
- * Generate all exchange objects, wrapper classes, and IteratorResult struct for generators in a module
+ * Generate all exchange objects, wrapper classes, and IteratorResult struct for generators in a module.
+ *
+ * Returns text for backward compatibility with the orchestrator.
+ * The exchange classes are built as AST internally.
  */
 export const generateGeneratorExchanges = (
   module: IrModule,
@@ -120,19 +129,17 @@ export const generateGeneratorExchanges = (
   const parts: string[] = [];
   let currentContext = context;
 
-  // Generate exchange classes and wrapper classes for each generator
-  // Note: IteratorResult<T> is now in Tsonic.Runtime, not emitted per-module
   for (const generator of generators) {
-    // Exchange class (for all generators)
-    const [exchangeCode, exchangeContext] = generateExchangeClass(
+    // Exchange class (AST-based, printed to text)
+    const [exchangeAst, exchangeContext] = generateExchangeClassAst(
       generator,
       currentContext
     );
     currentContext = exchangeContext;
-    parts.push(exchangeCode);
+    parts.push(printTypeDeclaration(exchangeAst, "    "));
     parts.push("");
 
-    // Wrapper class (only for bidirectional generators)
+    // Wrapper class (text-based, only for bidirectional generators)
     if (needsBidirectionalSupport(generator)) {
       const [wrapperCode, wrapperContext] = generateWrapperClass(
         generator,

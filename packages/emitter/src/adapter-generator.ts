@@ -1,92 +1,99 @@
 /**
  * Adapter Generator - Generate C# adapters for structural constraints
  * Per spec/15-generics.md §4 - Structural Constraints & Adapters
+ *
+ * Returns CSharpTypeDeclarationAst[] (interface + wrapper class).
  */
 
 import { IrTypeParameter } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent } from "./types.js";
+import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
-import { printType } from "./core/format/backend-ast/printer.js";
 import { emitCSharpName } from "./naming-policy.js";
+import type {
+  CSharpTypeDeclarationAst,
+  CSharpMemberAst,
+  CSharpTypeAst,
+} from "./core/format/backend-ast/types.js";
 
 /**
  * Generate adapter interface and wrapper class for a structural constraint
- *
- * Example:
- * Input: T extends { id: number; name: string }
- * Output:
- *   interface __Constraint_T {
- *     double id { get; }
- *     string name { get; }
- *   }
- *
- *   sealed class __Wrapper_T : __Constraint_T {
- *     public double id { get; set; }
- *     public string name { get; set; }
- *   }
  */
 export const generateStructuralAdapter = (
   typeParam: IrTypeParameter,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   if (!typeParam.isStructuralConstraint || !typeParam.structuralMembers) {
-    return ["", context];
+    return [[], context];
   }
 
-  const ind = getIndent(context);
-  const bodyInd = getIndent(indent(context));
-  const parts: string[] = [];
   let currentContext = context;
-
   const interfaceName = `__Constraint_${typeParam.name}`;
   const wrapperName = `__Wrapper_${typeParam.name}`;
 
-  // Generate interface
-  parts.push(`${ind}public interface ${interfaceName}`);
-  parts.push(`${ind}{`);
+  // Build interface members (readonly properties)
+  const interfaceMembers: CSharpMemberAst[] = [];
+  // Build wrapper members (read-write properties)
+  const wrapperMembers: CSharpMemberAst[] = [];
 
   for (const member of typeParam.structuralMembers) {
-    if (member.kind === "propertySignature") {
-      const [memberTypeAst, newContext] = emitTypeAst(
-        member.type,
-        currentContext
-      );
-      currentContext = newContext;
-      const memberType = printType(memberTypeAst);
+    if (member.kind !== "propertySignature") continue;
 
-      const optional = member.isOptional ? "?" : "";
-      parts.push(
-        `${bodyInd}${memberType}${optional} ${emitCSharpName(member.name, "properties", context)} { get; }`
-      );
-    }
+    const [memberTypeAst, newContext] = emitTypeAst(
+      member.type,
+      currentContext
+    );
+    currentContext = newContext;
+
+    const typeAst: CSharpTypeAst = member.isOptional
+      ? { kind: "nullableType", underlyingType: memberTypeAst }
+      : memberTypeAst;
+
+    const propName = emitCSharpName(member.name, "properties", context);
+
+    // Interface: get-only
+    interfaceMembers.push({
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: [],
+      type: typeAst,
+      name: propName,
+      hasGetter: true,
+      hasSetter: false,
+      isAutoProperty: true,
+    });
+
+    // Wrapper: public get/set
+    wrapperMembers.push({
+      kind: "propertyDeclaration",
+      attributes: [],
+      modifiers: ["public"],
+      type: typeAst,
+      name: propName,
+      hasGetter: true,
+      hasSetter: true,
+      isAutoProperty: true,
+    });
   }
 
-  parts.push(`${ind}}`);
-  parts.push(""); // Blank line
+  const interfaceDecl: CSharpTypeDeclarationAst = {
+    kind: "interfaceDeclaration",
+    attributes: [],
+    modifiers: ["public"],
+    name: interfaceName,
+    interfaces: [],
+    members: interfaceMembers,
+  };
 
-  // Generate wrapper class
-  parts.push(`${ind}public sealed class ${wrapperName} : ${interfaceName}`);
-  parts.push(`${ind}{`);
+  const wrapperDecl: CSharpTypeDeclarationAst = {
+    kind: "classDeclaration",
+    attributes: [],
+    modifiers: ["public", "sealed"],
+    name: wrapperName,
+    interfaces: [{ kind: "identifierType", name: interfaceName }],
+    members: wrapperMembers,
+  };
 
-  for (const member of typeParam.structuralMembers) {
-    if (member.kind === "propertySignature") {
-      const [memberTypeAst, newContext] = emitTypeAst(
-        member.type,
-        currentContext
-      );
-      currentContext = newContext;
-      const memberType = printType(memberTypeAst);
-
-      const optional = member.isOptional ? "?" : "";
-      parts.push(
-        `${bodyInd}public ${memberType}${optional} ${emitCSharpName(member.name, "properties", context)} { get; set; }`
-      );
-    }
-  }
-
-  parts.push(`${ind}}`);
-
-  return [parts.join("\n"), currentContext];
+  return [[interfaceDecl, wrapperDecl], currentContext];
 };
 
 /**
@@ -95,30 +102,24 @@ export const generateStructuralAdapter = (
 export const generateStructuralAdapters = (
   typeParams: readonly IrTypeParameter[] | undefined,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   if (!typeParams || typeParams.length === 0) {
-    return ["", context];
+    return [[], context];
   }
 
-  const adapters: string[] = [];
+  const adapters: CSharpTypeDeclarationAst[] = [];
   let currentContext = context;
 
   for (const tp of typeParams) {
     if (tp.isStructuralConstraint && tp.structuralMembers) {
-      const [adapterCode, newContext] = generateStructuralAdapter(
+      const [adapterDecls, newContext] = generateStructuralAdapter(
         tp,
         currentContext
       );
-      if (adapterCode) {
-        adapters.push(adapterCode);
-        currentContext = newContext;
-      }
+      adapters.push(...adapterDecls);
+      currentContext = newContext;
     }
   }
 
-  if (adapters.length === 0) {
-    return ["", context];
-  }
-
-  return [adapters.join("\n\n"), currentContext];
+  return [adapters, currentContext];
 };
