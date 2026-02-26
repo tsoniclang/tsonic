@@ -146,6 +146,7 @@ const deriveNewExpressionType = (
  * DETERMINISTIC: Only uses TypeNodes from declarations, not TS type inference.
  * Returns undefined if type cannot be determined from declarations alone.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- recursive helper, retained for future use
 const deriveTypeFromInitializer = (
   initializer: ts.Expression,
   ctx: ProgramContext

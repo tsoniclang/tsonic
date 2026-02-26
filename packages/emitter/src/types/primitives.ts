@@ -11,27 +11,29 @@
 
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+
+const PRIMITIVE_TYPE_MAP: Record<string, string> = {
+  number: "double",
+  int: "int",
+  string: "string",
+  boolean: "bool",
+  char: "char",
+  null: "object",
+  undefined: "object",
+};
 
 /**
- * Emit primitive types (number, int, string, boolean, null, undefined)
+ * Emit primitive types as CSharpTypeAst (predefinedType nodes)
  *
  * For numeric types:
- * - primitiveType(name="number") → "double"
- * - primitiveType(name="int") → "int"
+ * - primitiveType(name="number") → predefinedType("double")
+ * - primitiveType(name="int") → predefinedType("int")
  */
 export const emitPrimitiveType = (
   type: Extract<IrType, { kind: "primitiveType" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const typeMap: Record<string, string> = {
-    number: "double",
-    int: "int",
-    string: "string",
-    boolean: "bool",
-    char: "char",
-    null: "object",
-    undefined: "object",
-  };
-
-  return [typeMap[type.name] ?? "object", context];
+): [CSharpTypeAst, EmitterContext] => {
+  const keyword = PRIMITIVE_TYPE_MAP[type.name] ?? "object";
+  return [{ kind: "predefinedType", keyword }, context];
 };

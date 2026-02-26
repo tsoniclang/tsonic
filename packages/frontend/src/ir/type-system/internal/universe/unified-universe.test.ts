@@ -65,6 +65,7 @@ describe("buildUnifiedUniverse", () => {
     );
     const fooId = catalog.resolveTsName("Foo");
     expect(fooId).to.not.equal(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const member = catalog.getMember(fooId!, "count");
     expect(member?.type?.kind).to.equal("unionType");
     if (member?.type?.kind === "unionType") {
@@ -110,6 +111,7 @@ describe("buildUnifiedUniverse", () => {
     );
     const fooId = catalog.resolveTsName("Foo");
     expect(fooId).to.not.equal(undefined);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const member = catalog.getMember(fooId!, "count");
     expect(member?.type?.kind).to.equal("unionType");
     if (member?.type?.kind === "unionType") {

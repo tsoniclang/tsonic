@@ -7,8 +7,9 @@
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
 import { substituteTypeArgs } from "../core/semantic/type-resolution.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
  * C# primitive type names that can be emitted directly without qualification.
@@ -140,8 +141,14 @@ const resolveCanonicalLocalTypeTarget = (
   return context.options.canonicalLocalTypeTargets?.get(key);
 };
 
-const normalizeGenericTypeArgument = (typeName: string): string =>
-  typeName === "void" ? "object" : typeName;
+/**
+ * Normalize a generic type argument AST: void → object.
+ * C# generic type arguments cannot be void, so we substitute object.
+ */
+const normalizeGenericTypeArgAst = (ast: CSharpTypeAst): CSharpTypeAst =>
+  ast.kind === "predefinedType" && ast.keyword === "void"
+    ? { kind: "predefinedType", keyword: "object" }
+    : ast;
 
 /**
  * Check if a type name indicates an unsupported support type.
@@ -167,12 +174,40 @@ const checkUnsupportedSupportType = (typeName: string): string | undefined => {
 };
 
 /**
- * Emit reference types with type arguments
+ * Emit type arguments as CSharpTypeAst[], with void→object normalization.
+ */
+const emitTypeArgAsts = (
+  typeArguments: readonly IrType[],
+  context: EmitterContext
+): [CSharpTypeAst[], EmitterContext] => {
+  const typeArgAsts: CSharpTypeAst[] = [];
+  let currentContext = context;
+  for (const typeArg of typeArguments) {
+    const [paramAst, newContext] = emitTypeAst(typeArg, currentContext);
+    typeArgAsts.push(normalizeGenericTypeArgAst(paramAst));
+    currentContext = newContext;
+  }
+  return [typeArgAsts, currentContext];
+};
+
+/**
+ * Build an identifierType with optional type arguments.
+ */
+const identifierTypeWithArgs = (
+  name: string,
+  typeArgAsts: CSharpTypeAst[] | undefined
+): CSharpTypeAst =>
+  typeArgAsts && typeArgAsts.length > 0
+    ? { kind: "identifierType", name, typeArguments: typeArgAsts }
+    : { kind: "identifierType", name };
+
+/**
+ * Emit reference types as CSharpTypeAst
  */
 export const emitReferenceType = (
   type: Extract<IrType, { kind: "referenceType" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   const { name, typeArguments, resolvedClrType, typeId } = type;
 
   // Check if this is a local type alias.
@@ -203,7 +238,7 @@ export const emitReferenceType = (
               typeArguments
             )
           : typeInfo.type;
-      return emitType(underlyingType, context);
+      return emitTypeAst(underlyingType, context);
     }
     // For `objectType` aliases - fall through and emit the alias name; it will be
     // rewritten to `__Alias` in the local-type handling below.
@@ -215,16 +250,16 @@ export const emitReferenceType = (
       ? resolvedClrType
       : toGlobalClr(resolvedClrType);
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-      return [`${qualifiedClr}<${typeParams.join(", ")}>`, currentContext];
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [identifierTypeWithArgs(qualifiedClr, typeArgAsts), newContext];
     }
-    return [qualifiedClr, context];
+    // For primitives, emit as predefinedType; for others, identifierType
+    return [
+      CSHARP_PRIMITIVES.has(resolvedClrType)
+        ? { kind: "predefinedType", keyword: resolvedClrType }
+        : { kind: "identifierType", name: qualifiedClr },
+      context,
+    ];
   }
 
   // Check if this type is imported - use pre-computed CLR name directly.
@@ -233,16 +268,10 @@ export const emitReferenceType = (
   const qualifiedName = resolveImportedTypeClrName(name, context);
   if (qualifiedName) {
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-      return [`${qualifiedName}<${typeParams.join(", ")}>`, currentContext];
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [identifierTypeWithArgs(qualifiedName, typeArgAsts), newContext];
     }
-    return [qualifiedName, context];
+    return [{ kind: "identifierType", name: qualifiedName }, context];
   }
 
   // Check for unsupported support types
@@ -257,27 +286,65 @@ export const emitReferenceType = (
   if (name === "Array" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
-      return [`object[]`, context];
+      return [
+        {
+          kind: "arrayType",
+          elementType: { kind: "predefinedType", keyword: "object" },
+          rank: 1,
+        },
+        context,
+      ];
     }
-    const [elementType, newContext] = emitType(firstArg, context);
-    return [`${elementType}[]`, newContext];
+    const [elementTypeAst, newContext] = emitTypeAst(firstArg, context);
+    return [
+      { kind: "arrayType", elementType: elementTypeAst, rank: 1 },
+      newContext,
+    ];
   }
 
   if (name === "Promise" && typeArguments && typeArguments.length > 0) {
     const firstArg = typeArguments[0];
     if (!firstArg) {
-      return [`global::System.Threading.Tasks.Task`, context];
+      return [
+        {
+          kind: "identifierType",
+          name: "global::System.Threading.Tasks.Task",
+        },
+        context,
+      ];
     }
-    const [elementType, newContext] = emitType(firstArg, context);
+    const [elementTypeAst, newContext] = emitTypeAst(firstArg, context);
     // Promise<void> should map to Task (not Task<void>)
-    if (elementType === "void") {
-      return [`global::System.Threading.Tasks.Task`, newContext];
+    if (
+      elementTypeAst.kind === "predefinedType" &&
+      elementTypeAst.keyword === "void"
+    ) {
+      return [
+        {
+          kind: "identifierType",
+          name: "global::System.Threading.Tasks.Task",
+        },
+        newContext,
+      ];
     }
-    return [`global::System.Threading.Tasks.Task<${elementType}>`, newContext];
+    return [
+      {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+        typeArguments: [elementTypeAst],
+      },
+      newContext,
+    ];
   }
 
   if (name === "Promise") {
-    return ["global::System.Threading.Tasks.Task", context];
+    return [
+      {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+      },
+      context,
+    ];
   }
 
   // Map core Span<T> to System.Span<T>.
@@ -292,8 +359,15 @@ export const emitReferenceType = (
     if (!inner) {
       throw new Error("ICE: Span<T> missing type argument");
     }
-    const [innerType, newContext] = emitType(inner, context);
-    return [`global::System.Span<${innerType}>`, newContext];
+    const [innerTypeAst, newContext] = emitTypeAst(inner, context);
+    return [
+      {
+        kind: "identifierType",
+        name: "global::System.Span",
+        typeArguments: [innerTypeAst],
+      },
+      newContext,
+    ];
   }
 
   // Map core ptr<T> to C# unsafe pointer type: T*
@@ -307,8 +381,8 @@ export const emitReferenceType = (
     if (!inner) {
       throw new Error("ICE: ptr<T> missing type argument");
     }
-    const [innerType, newContext] = emitType(inner, context);
-    return [`${innerType}*`, newContext];
+    const [innerTypeAst, newContext] = emitTypeAst(inner, context);
+    return [{ kind: "pointerType", elementType: innerTypeAst }, newContext];
   }
 
   // NOTE: Map and Set must be explicitly imported (not ambient)
@@ -316,33 +390,34 @@ export const emitReferenceType = (
   // Map PromiseLike to Task
   if (name === "PromiseLike") {
     // PromiseLike is in both globals packages - safe to map unconditionally
-    return ["global::System.Threading.Tasks.Task", context];
+    return [
+      {
+        kind: "identifierType",
+        name: "global::System.Threading.Tasks.Task",
+      },
+      context,
+    ];
   }
 
   // C# primitive types can be emitted directly
   if (CSHARP_PRIMITIVES.has(name)) {
-    return [name, context];
+    return [{ kind: "predefinedType", keyword: name }, context];
   }
 
   // Type parameters in scope can be emitted directly
   if (context.typeParameters?.has(name)) {
-    return [context.typeParameterNameMap?.get(name) ?? name, context];
+    const mappedName = context.typeParameterNameMap?.get(name) ?? name;
+    return [{ kind: "identifierType", name: mappedName }, context];
   }
 
   const canonicalLocalTarget = resolveCanonicalLocalTypeTarget(name, context);
   if (canonicalLocalTarget) {
     const qualified = toGlobalClr(canonicalLocalTarget);
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [identifierTypeWithArgs(qualified, typeArgAsts), newContext];
     }
-    return [qualified, context];
+    return [{ kind: "identifierType", name: qualified }, context];
   }
 
   // IMPORTANT: Check local types BEFORE binding registry.
@@ -363,18 +438,10 @@ export const emitReferenceType = (
     }
 
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
 
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-
-      const generic = `${csharpName}<${typeParams.join(", ")}>`;
       if (!context.qualifyLocalTypes) {
-        return [generic, currentContext];
+        return [identifierTypeWithArgs(csharpName, typeArgAsts), newContext];
       }
 
       const moduleNamespace =
@@ -390,11 +457,17 @@ export const emitReferenceType = (
           ? `${moduleNamespace}.${container}`
           : moduleNamespace;
 
-      return [`global::${qualifiedPrefix}.${generic}`, currentContext];
+      return [
+        identifierTypeWithArgs(
+          `global::${qualifiedPrefix}.${csharpName}`,
+          typeArgAsts
+        ),
+        newContext,
+      ];
     }
 
     if (!context.qualifyLocalTypes) {
-      return [csharpName, context];
+      return [{ kind: "identifierType", name: csharpName }, context];
     }
 
     const moduleNamespace =
@@ -408,7 +481,13 @@ export const emitReferenceType = (
         ? `${moduleNamespace}.${container}`
         : moduleNamespace;
 
-    return [`global::${qualifiedPrefix}.${csharpName}`, context];
+    return [
+      {
+        kind: "identifierType",
+        name: `global::${qualifiedPrefix}.${csharpName}`,
+      },
+      context,
+    ];
   }
 
   // Canonical nominal identity from the UnifiedUniverse.
@@ -418,17 +497,11 @@ export const emitReferenceType = (
     const qualified = toGlobalClr(clrTypeNameToCSharp(typeId.clrName));
 
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [identifierTypeWithArgs(qualified, typeArgAsts), newContext];
     }
 
-    return [qualified, context];
+    return [{ kind: "identifierType", name: qualified }, context];
   }
 
   // Resolve external types via binding registry (must be fully qualified)
@@ -443,17 +516,11 @@ export const emitReferenceType = (
     const qualified = toGlobalClr(clrTypeNameToCSharp(clr));
 
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [identifierTypeWithArgs(qualified, typeArgAsts), newContext];
     }
 
-    return [qualified, context];
+    return [{ kind: "identifierType", name: qualified }, context];
   }
 
   // Synthetic cross-module types (e.g. compiler-generated anonymous types) are
@@ -467,17 +534,11 @@ export const emitReferenceType = (
     );
 
     if (typeArguments && typeArguments.length > 0) {
-      const typeParams: string[] = [];
-      let currentContext = context;
-      for (const typeArg of typeArguments) {
-        const [paramType, newContext] = emitType(typeArg, currentContext);
-        typeParams.push(normalizeGenericTypeArgument(paramType));
-        currentContext = newContext;
-      }
-      return [`${qualified}<${typeParams.join(", ")}>`, currentContext];
+      const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);
+      return [identifierTypeWithArgs(qualified, typeArgAsts), newContext];
     }
 
-    return [qualified, context];
+    return [{ kind: "identifierType", name: qualified }, context];
   }
 
   // Hard failure: unresolved external reference type

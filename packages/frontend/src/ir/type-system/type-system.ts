@@ -120,7 +120,7 @@ import { expandUtility as utExpandUtility } from "./type-system-utilities.js";
  *
  * Key method: resolveCall(query) — single entry point for all call resolution.
  */
-export interface TypeAuthority {
+export type TypeAuthority = {
   // ─────────────────────────────────────────────────────────────────────────
   // Type Syntax Conversion
   // ─────────────────────────────────────────────────────────────────────────
@@ -380,7 +380,7 @@ export interface TypeAuthority {
    * Clear accumulated diagnostics.
    */
   clearDiagnostics(): void;
-}
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPESYSTEM FACTORY CONFIG

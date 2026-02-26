@@ -4,7 +4,8 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
-import { emitExpression } from "../../../expression-emitter.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
+import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../../statement-emitter.js";
 
 /**
@@ -15,7 +16,8 @@ export const emitSwitchStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  const [exprFrag, exprContext] = emitExpression(stmt.expression, context);
+  const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
+  const exprText = printExpression(exprAst);
 
   let currentContext = indent(exprContext);
   const caseInd = getIndent(currentContext);
@@ -23,12 +25,12 @@ export const emitSwitchStatement = (
 
   for (const switchCase of stmt.cases) {
     if (switchCase.test) {
-      const [testFrag, testContext] = emitExpression(
+      const [testAst, testContext] = emitExpressionAst(
         switchCase.test,
         currentContext
       );
       currentContext = testContext;
-      cases.push(`${caseInd}case ${testFrag.text}:`);
+      cases.push(`${caseInd}case ${printExpression(testAst)}:`);
     } else {
       cases.push(`${caseInd}default:`);
     }
@@ -55,6 +57,6 @@ export const emitSwitchStatement = (
     }
   }
 
-  const code = `${ind}switch (${exprFrag.text})\n${ind}{\n${cases.join("\n")}\n${ind}}`;
+  const code = `${ind}switch (${exprText})\n${ind}{\n${cases.join("\n")}\n${ind}}`;
   return [code, dedent(currentContext)];
 };

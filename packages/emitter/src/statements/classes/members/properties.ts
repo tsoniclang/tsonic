@@ -10,7 +10,8 @@ import {
   indent,
   withScoped,
 } from "../../../types.js";
-import { emitExpression } from "../../../expression-emitter.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
+import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import { emitType } from "../../../type-emitter.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitBlockStatement } from "../../blocks.js";
@@ -104,12 +105,12 @@ export const emitPropertyMember = (
   if (shouldEmitField) {
     let code = `${attrPrefix}${ind}${parts.join(" ")};`;
     if (member.initializer) {
-      const [initFrag, finalContext] = emitExpression(
+      const [initAst, finalContext] = emitExpressionAst(
         member.initializer,
         currentContext
       );
       currentContext = finalContext;
-      code = `${attrPrefix}${ind}${parts.join(" ")} = ${initFrag.text};`;
+      code = `${attrPrefix}${ind}${parts.join(" ")} = ${printExpression(initAst)};`;
     }
     return [code, currentContext];
   }
@@ -125,12 +126,12 @@ export const emitPropertyMember = (
 
     let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
     if (member.initializer) {
-      const [initFrag, finalContext] = emitExpression(
+      const [initAst, finalContext] = emitExpressionAst(
         member.initializer,
         currentContext
       );
       currentContext = finalContext;
-      code += ` = ${initFrag.text};`;
+      code += ` = ${printExpression(initAst)};`;
     }
     return [code, currentContext];
   }
@@ -154,6 +155,7 @@ export const emitPropertyMember = (
     const [getterBlock, getterCtx] = withScoped(
       getterEmitContext,
       { returnType: member.type },
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       (scopedCtx) => emitBlockStatement(member.getterBody!, scopedCtx)
     );
     lines.push(getterBlock);
@@ -189,6 +191,7 @@ export const emitPropertyMember = (
     const [rawSetterBlock, setterCtx] = withScoped(
       setterEmitContext,
       { localNameMap: scopedLocalNameMap },
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       (scopedCtx) => emitBlockStatement(member.setterBody!, scopedCtx)
     );
 

@@ -511,7 +511,6 @@ const expandUnionsDeep = (typeText: string): string => {
   let result = typeText;
 
   // Iterate until no more Union_N< patterns remain
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     unionPrefixRe.lastIndex = 0;
     const prefixMatch = unionPrefixRe.exec(result);
@@ -604,9 +603,11 @@ const patchFacadeWithSourceFunctionSignatures = (
 
     // Last arg = return type, remaining args = parameter types
     const facadeParamTypes = funcTypeArgs.slice(0, -1);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const facadeReturnType = funcTypeArgs[funcTypeArgs.length - 1]!;
 
     // Use the first source signature for parameter names
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const sourceSig = signatures[0]!;
     const sourceParams = sourceSig.parametersText
       .split(",")
@@ -1088,6 +1089,7 @@ const collectExtensionWrapperImportsFromSourceType = (opts: {
       aliasName: `__TsonicExt_${ident}`,
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     currentNode = args[0]!;
   }
 

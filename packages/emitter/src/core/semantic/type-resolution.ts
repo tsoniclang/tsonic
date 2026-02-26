@@ -300,6 +300,7 @@ const resolveLocalTypeInfo = (
   }
 
   if (matches.length === 0) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   if (matches.length === 1) return { info: matches[0]!.info };
 
   const fqn =
@@ -307,6 +308,7 @@ const resolveLocalTypeInfo = (
   if (fqn && fqn.includes(".")) {
     const namespace = fqn.slice(0, fqn.lastIndexOf("."));
     const scoped = matches.filter((m) => m.namespace === namespace);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     if (scoped.length === 1) return { info: scoped[0]!.info };
   }
 

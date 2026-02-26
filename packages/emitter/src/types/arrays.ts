@@ -7,17 +7,19 @@
 
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
- * Emit array types as native CLR arrays
+ * Emit array types as CSharpTypeAst (arrayType nodes)
  */
 export const emitArrayType = (
   type: Extract<IrType, { kind: "arrayType" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const [elementType, newContext] = emitType(type.elementType, context);
-
-  // Always emit native CLR array
-  return [`${elementType}[]`, newContext];
+): [CSharpTypeAst, EmitterContext] => {
+  const [elementTypeAst, newContext] = emitTypeAst(type.elementType, context);
+  return [
+    { kind: "arrayType", elementType: elementTypeAst, rank: 1 },
+    newContext,
+  ];
 };

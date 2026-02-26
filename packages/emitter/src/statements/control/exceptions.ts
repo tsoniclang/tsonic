@@ -4,7 +4,8 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitBlockStatement } from "../blocks.js";
 import {
   allocateLocalName,
@@ -71,6 +72,6 @@ export const emitThrowStatement = (
   context: EmitterContext
 ): [string, EmitterContext] => {
   const ind = getIndent(context);
-  const [exprFrag, newContext] = emitExpression(stmt.expression, context);
-  return [`${ind}throw ${exprFrag.text};`, newContext];
+  const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);
+  return [`${ind}throw ${printExpression(exprAst)};`, newContext];
 };

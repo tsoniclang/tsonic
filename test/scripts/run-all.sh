@@ -44,7 +44,6 @@ UNIT_STATUS="unknown"
 TSC_STATUS="unknown"
 RUNTIME_SYNC_STATUS="unknown"
 AOT_PREFLIGHT_STATUS="not-run"
-E2E_FORCE_NO_AOT=false
 
 QUICK_MODE=false
 SKIP_UNIT=false
@@ -164,16 +163,6 @@ nativeaot_preflight_check() {
     fi
 
     echo -e "${RED}NativeAOT preflight failed for RID '$rid'.${NC}" | tee -a "$log_file"
-    if grep -Eq "MSB4216|MSB4027|ComputeManagedAssemblies" "$probe_log"; then
-        echo "Detected host ILLink/MSBuild task-host failure (MSB4216/MSB4027)." | tee -a "$log_file"
-        echo "This is an environment/toolchain issue, not a fixture-level regression." | tee -a "$log_file"
-        echo "Proceeding with fixture execution in managed mode (--no-aot)." | tee -a "$log_file"
-        echo "Preflight output:" | tee -a "$log_file"
-        sed -n '1,80p' "$probe_log" | tee -a "$log_file"
-
-        rm -rf "$tmp_dir" 2>/dev/null || true
-        return 2
-    fi
     echo "Preflight output:" | tee -a "$log_file"
     sed -n '1,80p' "$probe_log" | tee -a "$log_file"
 
@@ -334,17 +323,11 @@ else
         if nativeaot_preflight_check "$LOG_FILE"; then
             AOT_PREFLIGHT_STATUS="passed"
         else
-            preflight_rc=$?
-            if [ "$preflight_rc" -eq 2 ]; then
-                AOT_PREFLIGHT_STATUS="host-toolchain-fallback-noaot"
-                E2E_FORCE_NO_AOT=true
-            else
-                AOT_PREFLIGHT_STATUS="failed"
-                RUN_E2E_FIXTURES=false
-                # Count once so the run fails clearly without cascading noise.
-                E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
-                echo -e "${RED}FAIL: NativeAOT preflight failed; skipping fixture execution.${NC}" | tee -a "$LOG_FILE"
-            fi
+            AOT_PREFLIGHT_STATUS="failed"
+            RUN_E2E_FIXTURES=false
+            # Count once so the run fails clearly without cascading noise.
+            E2E_DOTNET_FAILED=$((E2E_DOTNET_FAILED + 1))
+            echo -e "${RED}FAIL: NativeAOT preflight failed; skipping fixture execution.${NC}" | tee -a "$LOG_FILE"
         fi
         echo "" | tee -a "$LOG_FILE"
     else
@@ -451,9 +434,6 @@ else
 
         # Build and run - capture errors to file
         build_args=("build" "--project" "$fixture_name" "--config" "tsonic.workspace.json")
-        if [ "$E2E_FORCE_NO_AOT" = true ]; then
-            build_args+=("--no-aot")
-        fi
 
         if node "$TSONIC_BIN" "${build_args[@]}" 2>"$error_file"; then
             # Optional post-build commands (for fixtures that need extra validation steps).
@@ -497,16 +477,6 @@ else
                 fi
             fi
 
-            skip_runtime_due_no_aot=false
-            if [ "$E2E_FORCE_NO_AOT" = true ] && [ -f "$meta_file" ]; then
-                requires_native_aot_runtime=$(
-                    node -e 'const fs=require("fs"); try { const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(m.requiresNativeAotRuntime === true ? "1" : "0"); } catch { process.stdout.write("0"); }' "$meta_file" 2>/dev/null || echo "0"
-                )
-                if [ "$requires_native_aot_runtime" = "1" ]; then
-                    skip_runtime_due_no_aot=true
-                fi
-            fi
-
             # Find executable
             # Some .NET publish outputs mark DLLs as executable; filter those out.
             exe_path=""
@@ -540,9 +510,7 @@ else
                 fi
             fi
 
-            if [ "$skip_runtime_due_no_aot" = true ]; then
-                result="PASS (build only; nativeaot runtime skipped)"
-            elif [ -n "$exe_path" ] && [ -x "$exe_path" ]; then
+            if [ -n "$exe_path" ] && [ -x "$exe_path" ]; then
                 # Check for expected output
                 if [ -f "expected-output.txt" ]; then
                     actual=$("$exe_path" 2>&1 || true)
@@ -672,9 +640,6 @@ else
 
         # Build should FAIL
         build_args=("build" "--project" "$fixture_name" "--config" "tsonic.workspace.json")
-        if [ "$E2E_FORCE_NO_AOT" = true ]; then
-            build_args+=("--no-aot")
-        fi
 
         if node "$TSONIC_BIN" "${build_args[@]}" >/dev/null 2>&1; then
             result="FAIL (expected error but succeeded)"

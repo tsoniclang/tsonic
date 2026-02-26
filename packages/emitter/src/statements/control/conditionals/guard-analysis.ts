@@ -12,8 +12,9 @@ import {
   LocalTypeInfo,
   NarrowedBinding,
 } from "../../../types.js";
-import { emitExpression } from "../../../expression-emitter.js";
+import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
+import { printExpression } from "../../../core/format/backend-ast/printer.js";
 import {
   resolveTypeAlias,
   stripNullish,
@@ -194,6 +195,7 @@ const hasProperty = (
     }
 
     if (matches.length === 1) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       candidates.push(matches[0]!);
     } else if (matches.length > 1) {
       const list = matches.sort().join(", ");
@@ -245,6 +247,7 @@ const resolveLocalTypesForReference = (
   }
 
   if (matches.length === 0) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   if (matches.length === 1) return matches[0]!.localTypes;
 
   // Disambiguate by CLR FQN when available.
@@ -254,6 +257,7 @@ const resolveLocalTypesForReference = (
     const lastDot = fqn.lastIndexOf(".");
     const ns = fqn.slice(0, lastDot);
     const filtered = matches.filter((m) => m.namespace === ns);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     if (filtered.length === 1) return filtered[0]!.localTypes;
   }
 
@@ -514,8 +518,8 @@ export const tryResolveInGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [rhsFrag] = emitIdentifier(condition.right, context);
-  const escapedOrig = rhsFrag.text;
+  const [rhsAst] = emitIdentifier(condition.right, context);
+  const escapedOrig = printExpression(rhsAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -597,8 +601,8 @@ export const tryResolvePredicateGuard = (
   const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
-  const [argFrag] = emitIdentifier(arg, context);
-  const escapedOrig = argFrag.text;
+  const [argAst] = emitIdentifier(arg, context);
+  const escapedOrig = printExpression(argAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -638,15 +642,15 @@ export const tryResolveInstanceofGuard = (
   if (condition.left.kind !== "identifier") return undefined;
 
   const originalName = condition.left.name;
-  const [lhsFrag, ctxAfterLhs] = emitIdentifier(condition.left, context);
-  const escapedOrig = lhsFrag.text;
+  const [lhsAst, ctxAfterLhs] = emitIdentifier(condition.left, context);
+  const escapedOrig = printExpression(lhsAst);
 
   const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
 
   // Emit RHS as a type name (e.g., global::System.String)
-  const [rhsFrag, ctxAfterRhs] = emitExpression(condition.right, ctxWithId);
-  const rhsTypeText = rhsFrag.text;
+  const [rhsAst, ctxAfterRhs] = emitExpressionAst(condition.right, ctxWithId);
+  const rhsTypeText = printExpression(rhsAst);
 
   // Pattern variable name for the narrowed value.
   const narrowedName = `${originalName}__is_${nextId}`;

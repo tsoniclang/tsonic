@@ -4,7 +4,8 @@
 
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 const getBareTypeParameterName = (
   type: IrType,
@@ -25,12 +26,12 @@ const getBareTypeParameterName = (
 };
 
 /**
- * Emit union types as nullable (T?), Union<T1, T2>, or object
+ * Emit union types as CSharpTypeAst: nullable (T?), Union<T1, T2>, or object
  */
 export const emitUnionType = (
   type: Extract<IrType, { kind: "unionType" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   // C# doesn't have native union types
   // Strategy:
   // 1. Nullable types (T | null | undefined) → T?
@@ -75,18 +76,29 @@ export const emitUnionType = (
   })();
 
   if (literalBase) {
-    const [baseType, newContext] = emitType(
+    const [baseTypeAst, newContext] = emitTypeAst(
       { kind: "primitiveType", name: literalBase },
       context
     );
-    return [hasNullish ? `${baseType}?` : baseType, newContext];
+    return [
+      hasNullish
+        ? { kind: "nullableType", underlyingType: baseTypeAst }
+        : baseTypeAst,
+      newContext,
+    ];
   }
 
   if (nonNullTypes.length === 1) {
     // This is a nullable type (T | null | undefined)
     const firstType = nonNullTypes[0];
     if (!firstType) {
-      return ["object?", context];
+      return [
+        {
+          kind: "nullableType",
+          underlyingType: { kind: "predefinedType", keyword: "object" },
+        },
+        context,
+      ];
     }
 
     // `T | null` where `T` is an unconstrained type parameter cannot be represented as `T?`
@@ -96,33 +108,43 @@ export const emitUnionType = (
       const constraintKind =
         context.typeParamConstraints?.get(typeParamName) ?? "unconstrained";
       if (constraintKind === "unconstrained") {
-        return ["object?", context];
+        return [
+          {
+            kind: "nullableType",
+            underlyingType: { kind: "predefinedType", keyword: "object" },
+          },
+          context,
+        ];
       }
     }
 
-    const [baseType, newContext] = emitType(firstType, context);
+    const [baseTypeAst, newContext] = emitTypeAst(firstType, context);
     // Add ? suffix for nullable types (both value types and reference types)
     // This includes string?, int?, double?, etc. per spec/04-type-mappings.md
-    return [`${baseType}?`, newContext];
+    return [{ kind: "nullableType", underlyingType: baseTypeAst }, newContext];
   }
 
   // Multi-type unions (2-8 types) → Union<T1, T2, ...>
   if (type.types.length >= 2 && type.types.length <= 8) {
-    const typeStrings: string[] = [];
+    const typeArgAsts: CSharpTypeAst[] = [];
     let currentContext = context;
 
     for (const t of type.types) {
-      const [typeStr, newContext] = emitType(t, currentContext);
-      typeStrings.push(typeStr);
+      const [typeAst, newContext] = emitTypeAst(t, currentContext);
+      typeArgAsts.push(typeAst);
       currentContext = newContext;
     }
 
     return [
-      `global::Tsonic.Runtime.Union<${typeStrings.join(", ")}>`,
+      {
+        kind: "identifierType",
+        name: "global::Tsonic.Runtime.Union",
+        typeArguments: typeArgAsts,
+      },
       currentContext,
     ];
   }
 
   // Fallback for unions with more than 8 types: use object
-  return ["object", context];
+  return [{ kind: "predefinedType", keyword: "object" }, context];
 };

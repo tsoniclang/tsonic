@@ -414,6 +414,7 @@ export const runCli = async (args: string[]): Promise<number> => {
     if (nearest) return { ok: true, value: nearest };
 
     if (projects.length === 1) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return { ok: true, value: join(projects[0]!, PROJECT_CONFIG_FILE) };
     }
 
@@ -515,6 +516,7 @@ export const runCli = async (args: string[]): Promise<number> => {
   const config =
     parsed.command === "test"
       ? (() => {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           const testsCfg = baseProjectConfig.tests!;
           const outDir =
             testsCfg.outputDirectory ??

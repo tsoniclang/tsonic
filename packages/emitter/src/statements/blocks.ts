@@ -4,7 +4,8 @@
 
 import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../types.js";
-import { emitExpression } from "../expression-emitter.js";
+import { emitExpressionAst } from "../expression-emitter.js";
+import { printExpression } from "../core/format/backend-ast/printer.js";
 import { emitStatement } from "../statement-emitter.js";
 import { lowerPattern } from "../patterns.js";
 import { allocateLocalName } from "../core/format/local-names.js";
@@ -70,12 +71,13 @@ export const emitReturnStatement = (
         (expr.kind === "identifier" &&
           (expr.name === "undefined" || expr.name === "null"));
 
-      const [exprFrag, newContext] = emitExpression(expr, context);
+      const [exprAst, newContext] = emitExpressionAst(expr, context);
 
       if (isNoopExpr) {
         return [`${ind}return;`, newContext];
       }
 
+      const exprText = printExpression(exprAst);
       if (
         expr.kind === "call" ||
         expr.kind === "new" ||
@@ -83,19 +85,19 @@ export const emitReturnStatement = (
         expr.kind === "update" ||
         expr.kind === "await"
       ) {
-        return [`${ind}${exprFrag.text};\n${ind}return;`, newContext];
+        return [`${ind}${exprText};\n${ind}return;`, newContext];
       }
 
-      return [`${ind}_ = ${exprFrag.text};\n${ind}return;`, newContext];
+      return [`${ind}_ = ${exprText};\n${ind}return;`, newContext];
     }
 
     // Pass returnType as expectedType for null → default conversion in generic contexts
-    const [exprFrag, newContext] = emitExpression(
+    const [exprAst, newContext] = emitExpressionAst(
       stmt.expression,
       context,
       context.returnType
     );
-    return [`${ind}return ${exprFrag.text};`, newContext];
+    return [`${ind}return ${printExpression(exprAst)};`, newContext];
   }
 
   return [`${ind}return;`, context];
@@ -126,7 +128,7 @@ export const emitYieldExpression = (
   if (expr.delegate) {
     // yield* delegation
     if (expr.expression) {
-      const [delegateFrag, newContext] = emitExpression(
+      const [delegateAst, newContext] = emitExpressionAst(
         expr.expression,
         currentContext
       );
@@ -138,20 +140,20 @@ export const emitYieldExpression = (
       const itemAlloc = allocateLocalName("item", currentContext);
       currentContext = itemAlloc.context;
       parts.push(
-        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${delegateFrag.text})`
+        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${printExpression(delegateAst)})`
       );
       parts.push(`${ind}    yield return ${itemAlloc.emittedName};`);
     }
   } else {
     // Regular yield
     if (expr.expression) {
-      const [valueFrag, newContext] = emitExpression(
+      const [valueAst, newContext] = emitExpressionAst(
         expr.expression,
         currentContext
       );
       currentContext = newContext;
       const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
-      parts.push(`${ind}${exchangeVar}.Output = ${valueFrag.text};`);
+      parts.push(`${ind}${exchangeVar}.Output = ${printExpression(valueAst)};`);
       parts.push(`${ind}yield return ${exchangeVar};`);
     } else {
       // Bare yield (no value)
@@ -189,7 +191,7 @@ export const emitYieldStatement = (
   if (stmt.delegate) {
     // yield* delegation - emit foreach pattern
     if (stmt.output) {
-      const [delegateFrag, newContext] = emitExpression(
+      const [delegateAst, newContext] = emitExpressionAst(
         stmt.output,
         currentContext
       );
@@ -201,20 +203,20 @@ export const emitYieldStatement = (
       const itemAlloc = allocateLocalName("item", currentContext);
       currentContext = itemAlloc.context;
       parts.push(
-        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${delegateFrag.text})`
+        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${printExpression(delegateAst)})`
       );
       parts.push(`${ind}    yield return ${itemAlloc.emittedName};`);
     }
   } else {
     // Regular yield with optional bidirectional support
     if (stmt.output) {
-      const [valueFrag, newContext] = emitExpression(
+      const [valueAst, newContext] = emitExpressionAst(
         stmt.output,
         currentContext
       );
       currentContext = newContext;
       const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
-      parts.push(`${ind}${exchangeVar}.Output = ${valueFrag.text};`);
+      parts.push(`${ind}${exchangeVar}.Output = ${printExpression(valueAst)};`);
     }
     const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
     parts.push(`${ind}yield return ${exchangeVar};`);
@@ -259,7 +261,8 @@ export const emitExpressionStatement = (
   // without introducing runtime helpers.
   if (stmt.expression.kind === "unary" && stmt.expression.operator === "void") {
     const operand = stmt.expression.expression;
-    const [operandFrag, newContext] = emitExpression(operand, context);
+    const [operandAst, newContext] = emitExpressionAst(operand, context);
+    const operandText = printExpression(operandAst);
 
     // If the operand is already a valid statement-expression (call/new/assignment/
     // update/await), emit it directly. Otherwise, use a discard assignment.
@@ -270,14 +273,14 @@ export const emitExpressionStatement = (
       operand.kind === "update" ||
       operand.kind === "await"
     ) {
-      return [`${ind}${operandFrag.text};`, newContext];
+      return [`${ind}${operandText};`, newContext];
     }
 
-    return [`${ind}_ = ${operandFrag.text};`, newContext];
+    return [`${ind}_ = ${operandText};`, newContext];
   }
 
-  const [exprFrag, newContext] = emitExpression(stmt.expression, context);
-  return [`${ind}${exprFrag.text};`, newContext];
+  const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);
+  return [`${ind}${printExpression(exprAst)};`, newContext];
 };
 
 /**
@@ -307,12 +310,12 @@ export const emitGeneratorReturnStatement = (
 
   if (stmt.expression) {
     // Capture the return value in __returnValue before terminating
-    const [valueFrag, newContext] = emitExpression(
+    const [valueAst, newContext] = emitExpressionAst(
       stmt.expression,
       currentContext
     );
     currentContext = newContext;
-    parts.push(`${ind}${returnVar} = ${valueFrag.text};`);
+    parts.push(`${ind}${returnVar} = ${printExpression(valueAst)};`);
   }
 
   // Terminate the iterator

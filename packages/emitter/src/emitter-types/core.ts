@@ -8,6 +8,7 @@ import type {
   IrInterfaceMember,
   IrClassMember,
 } from "@tsonic/frontend";
+import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 
 /**
  * Module identity for import resolution
@@ -225,7 +226,7 @@ export type NarrowedBinding =
   | { readonly kind: "rename"; readonly name: string; readonly type?: IrType }
   | {
       readonly kind: "expr";
-      readonly exprText: string;
+      readonly exprAst: CSharpExpressionAst;
       readonly type?: IrType;
     };
 
@@ -340,18 +341,6 @@ export type EmitResult = {
   readonly code: string;
   /** Updated context after emission */
   readonly context: EmitterContext;
-};
-
-/**
- * Helper type for C# code fragments
- */
-export type CSharpFragment = {
-  /** The code fragment */
-  readonly text: string;
-  /** Whether this needs parentheses when used in expressions */
-  readonly needsParens?: boolean;
-  /** Precedence level for operator expressions */
-  readonly precedence?: number;
 };
 
 /**

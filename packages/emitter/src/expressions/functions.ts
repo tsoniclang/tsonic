@@ -3,16 +3,16 @@
  */
 
 import { IrExpression, IrParameter, IrType } from "@tsonic/frontend";
-import {
-  EmitterContext,
-  CSharpFragment,
-  indent,
-  withStatic,
-} from "../types.js";
-import { emitExpression } from "../expression-emitter.js";
+import { EmitterContext, indent, withStatic } from "../types.js";
+import { emitExpressionAst } from "../expression-emitter.js";
 import { emitStatement } from "../statement-emitter.js";
-import { emitType } from "../type-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import type {
+  CSharpExpressionAst,
+  CSharpLambdaParameterAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -32,7 +32,6 @@ const seedLocalNameMapFromParameters = (
 
 /**
  * Unwrap ref/out/in wrapper types (e.g., ref<T> -> T)
- * Returns the inner type if it's a wrapper, null otherwise.
  */
 const unwrapParameterModifierType = (type: IrType): IrType | null => {
   if (type.kind !== "referenceType") {
@@ -40,7 +39,6 @@ const unwrapParameterModifierType = (type: IrType): IrType | null => {
   }
 
   const name = type.name;
-  // Check for wrapper types: out<T>, ref<T>, In<T>
   if (
     (name === "out" || name === "ref" || name === "In") &&
     type.typeArguments &&
@@ -69,73 +67,65 @@ const isTypeParameterLike = (
 };
 
 /**
- * Emit lambda parameters.
- * Rules:
- * - If ALL params have types, emit typed: (Type a, Type b) => ...
- * - If ANY param is missing type, emit untyped: (a, b) => ...
- * - Support ref/out/in modifiers
- * - Never emit = default or initializers (not valid in C# lambdas)
+ * Emit lambda parameters as typed AST nodes.
  */
-const emitLambdaParameters = (
+const emitLambdaParametersAst = (
   parameters: readonly IrParameter[],
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpLambdaParameterAst[], EmitterContext] => {
   let currentContext = context;
 
-  // Check if ALL parameters have types - "all-or-nothing" rule
-  // C# doesn't allow mixing typed and untyped lambda parameters
   const allHaveConcreteTypes = parameters.every((p) => {
     if (!p.type) return false;
     const unwrapped = unwrapParameterModifierType(p.type);
     const actualType = unwrapped ?? p.type;
-    // If the "type" is a type parameter (or references one), omit all types and let C# infer.
-    // This avoids emitting invalid C# like `(T x) => ...` in non-generic scopes.
     return !isTypeParameterLike(actualType, currentContext);
   });
 
-  const parts: string[] = [];
+  const paramAsts: CSharpLambdaParameterAst[] = [];
 
   for (const param of parameters) {
-    // Get parameter name
-    let name = "_";
-    if (param.pattern.kind === "identifierPattern") {
-      name = escapeCSharpIdentifier(param.pattern.name);
-    }
+    const name =
+      param.pattern.kind === "identifierPattern"
+        ? escapeCSharpIdentifier(param.pattern.name)
+        : "_";
 
-    // Get modifier (ref/out/in)
-    const modifier = param.passing !== "value" ? `${param.passing} ` : "";
+    const modifier = param.passing !== "value" ? param.passing : undefined;
 
     if (allHaveConcreteTypes && param.type) {
-      // Emit typed parameter
-      // Unwrap ref/out/in wrapper types if present
       const unwrapped = unwrapParameterModifierType(param.type);
       const actualType = unwrapped ?? param.type;
 
-      const [typeStr, newContext] = emitType(actualType, currentContext);
+      const [typeAst, newContext] = emitTypeAst(actualType, currentContext);
       currentContext = newContext;
 
-      const optionalSuffix =
-        param.isOptional && !typeStr.trimEnd().endsWith("?") ? "?" : "";
-      parts.push(`${modifier}${typeStr}${optionalSuffix} ${name}`);
+      // Wrap in nullable if optional and not already nullable
+      const finalTypeAst: CSharpTypeAst =
+        param.isOptional && typeAst.kind !== "nullableType"
+          ? { kind: "nullableType", underlyingType: typeAst }
+          : typeAst;
+
+      paramAsts.push(
+        modifier
+          ? { name, type: finalTypeAst, modifier }
+          : { name, type: finalTypeAst }
+      );
     } else {
-      // Emit untyped parameter (name only)
-      // Note: modifiers don't work without types in C# lambdas
-      parts.push(name);
+      paramAsts.push(modifier ? { name, modifier } : { name });
     }
   }
 
-  return [parts.join(", "), currentContext];
+  return [paramAsts, currentContext];
 };
 
 /**
- * Emit a function expression as C# lambda
+ * Emit a function expression as CSharpExpressionAst (C# lambda)
  */
 export const emitFunctionExpression = (
   expr: Extract<IrExpression, { kind: "functionExpression" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  // Emit parameters
-  const [paramList, paramContext] = emitLambdaParameters(
+): [CSharpExpressionAst, EmitterContext] => {
+  const [paramAsts, paramContext] = emitLambdaParametersAst(
     expr.parameters,
     context
   );
@@ -157,20 +147,24 @@ export const emitFunctionExpression = (
     returnType,
   });
 
-  const asyncPrefix = expr.isAsync ? "async " : "";
-  const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
-  return [{ text }, paramContext];
+  const result: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: expr.isAsync ?? false,
+    parameters: paramAsts,
+    body: { kind: "literalExpression", text: "" },
+    preRenderedBody: blockCode,
+  };
+  return [result, paramContext];
 };
 
 /**
- * Emit an arrow function as C# lambda
+ * Emit an arrow function as CSharpExpressionAst (C# lambda)
  */
 export const emitArrowFunction = (
   expr: Extract<IrExpression, { kind: "arrowFunction" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
-  // Emit parameters
-  const [paramList, paramContext] = emitLambdaParameters(
+): [CSharpExpressionAst, EmitterContext] => {
+  const [paramAsts, paramContext] = emitLambdaParametersAst(
     expr.parameters,
     context
   );
@@ -179,15 +173,13 @@ export const emitArrowFunction = (
     paramContext
   );
 
-  const asyncPrefix = expr.isAsync ? "async " : "";
   const returnType =
     expr.inferredType?.kind === "functionType"
       ? expr.inferredType.returnType
       : undefined;
 
-  // Arrow function body can be block or expression
   if (expr.body.kind === "blockStatement") {
-    // Block body: (params) => { ... }
+    // Block body: use preRenderedBody since statement emitter returns text
     const blockContextBase = bodyContextSeeded.isStatic
       ? indent(bodyContextSeeded)
       : bodyContextSeeded;
@@ -195,14 +187,29 @@ export const emitArrowFunction = (
       ...withStatic(blockContextBase, false),
       returnType,
     });
-    const text = `${asyncPrefix}(${paramList}) =>\n${blockCode}`;
-    return [{ text }, paramContext];
+    const result: CSharpExpressionAst = {
+      kind: "lambdaExpression",
+      isAsync: expr.isAsync ?? false,
+      parameters: paramAsts,
+      body: { kind: "literalExpression", text: "" },
+      preRenderedBody: blockCode,
+    };
+    return [result, paramContext];
   } else {
     // Expression body: (params) => expression
-    const [exprCode] = emitExpression(expr.body, bodyContextSeeded, returnType);
-    const text = `${asyncPrefix}(${paramList}) => ${exprCode.text}`;
+    const [exprAst] = emitExpressionAst(
+      expr.body,
+      bodyContextSeeded,
+      returnType
+    );
     // Arrow/function expressions are separate CLR methods; do not leak lexical
     // remaps / local allocations to the outer scope.
-    return [{ text }, paramContext];
+    const result: CSharpExpressionAst = {
+      kind: "lambdaExpression",
+      isAsync: expr.isAsync ?? false,
+      parameters: paramAsts,
+      body: exprAst,
+    };
+    return [result, paramContext];
   }
 };

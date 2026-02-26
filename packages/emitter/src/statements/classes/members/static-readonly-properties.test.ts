@@ -39,6 +39,7 @@ describe("Static readonly property emission", () => {
       accessibility: "public",
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [code] = emitPropertyMember(member as any, context);
     expect(code).to.include("public static int Value");
     expect(code).to.include("{ get; }");

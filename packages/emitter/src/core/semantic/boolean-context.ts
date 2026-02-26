@@ -7,19 +7,26 @@
  * This module provides a shared, deterministic lowering for boolean contexts.
  *
  * IMPORTANT:
- * - This operates on IR + emitted text; it must not import emitExpression to avoid cycles.
- * - Callers provide an emitExpression-like function.
+ * - This operates on IR + emitted text; it must not import emitExpressionAst to avoid cycles.
+ * - Callers provide an emit function.
  */
 
 import type { IrExpression, IrType } from "@tsonic/frontend";
-import type { CSharpFragment, EmitterContext } from "../../types.js";
+import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
+import { printExpression } from "../format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 
 export type EmitExprFn = (
   expr: IrExpression,
   context: EmitterContext
-) => [CSharpFragment, EmitterContext];
+) => [{ readonly text: string }, EmitterContext];
+
+export type EmitExprAstFn = (
+  expr: IrExpression,
+  context: EmitterContext
+) => [CSharpExpressionAst, EmitterContext];
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
@@ -588,6 +595,84 @@ export const emitBooleanCondition = (
 
   const [frag, next] = emitExpr(expr, context);
   return toBooleanCondition(expr, frag.text, next);
+};
+
+/**
+ * Convert an expression to a valid C# boolean condition, returning a typed AST node.
+ *
+ * Delegates to the text-based toBooleanCondition and bridges:
+ * - If the text is unchanged (boolean/inherently-boolean pass-through), returns the original AST.
+ * - Otherwise wraps the lowered text in identifierExpression.
+ */
+export const toBooleanConditionAst = (
+  expr: IrExpression,
+  emittedAst: CSharpExpressionAst,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  const emittedText = printExpression(emittedAst);
+  const [resultText, resultCtx] = toBooleanCondition(
+    expr,
+    emittedText,
+    context
+  );
+
+  // Pass-through: the text-based function returned the input unchanged.
+  // Return the original AST to preserve typed structure.
+  if (resultText === emittedText) {
+    return [emittedAst, resultCtx];
+  }
+
+  // Wrap in parenthesizedExpression so the printer treats the lowered text
+  // as an atomic unit — prevents precedence issues like `!expr != 0` when
+  // the lowered text contains operators (e.g. `expr != 0` for int truthiness).
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: { kind: "identifierExpression", identifier: resultText },
+    },
+    resultCtx,
+  ];
+};
+
+/**
+ * Emit a boolean-context expression as a typed AST node.
+ *
+ * Special-cases logical &&/|| into proper binaryExpression AST nodes
+ * with printer-handled parenthesization.
+ */
+export const emitBooleanConditionAst = (
+  expr: IrExpression,
+  emitExprAst: EmitExprAstFn,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    expr.kind === "logical" &&
+    (expr.operator === "&&" || expr.operator === "||")
+  ) {
+    const [leftAst, leftCtx] = emitBooleanConditionAst(
+      expr.left,
+      emitExprAst,
+      context
+    );
+    const [rightAst, rightCtx] = emitBooleanConditionAst(
+      expr.right,
+      emitExprAst,
+      leftCtx
+    );
+
+    return [
+      {
+        kind: "binaryExpression",
+        operatorToken: expr.operator,
+        left: leftAst,
+        right: rightAst,
+      },
+      rightCtx,
+    ];
+  }
+
+  const [exprAst, exprCtx] = emitExprAst(expr, context);
+  return toBooleanConditionAst(expr, exprAst, exprCtx);
 };
 
 /**

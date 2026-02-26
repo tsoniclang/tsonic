@@ -4,42 +4,71 @@
 
 import { IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
- * Emit function types as global::System.Func<> or global::System.Action<> delegates
+ * Emit function types as CSharpTypeAst (identifierType nodes for Func<>/Action<>)
  */
 export const emitFunctionType = (
   type: Extract<IrType, { kind: "functionType" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   // For function types, we'll use Func<> or Action<> delegates
-  const paramTypes: string[] = [];
+  const paramTypeAsts: CSharpTypeAst[] = [];
   let currentContext = context;
 
   for (const param of type.parameters) {
     const paramType = param.type ?? { kind: "anyType" as const };
-    const [typeStr, newContext] = emitType(paramType, currentContext);
-    paramTypes.push(typeStr);
+    const [typeAst, newContext] = emitTypeAst(paramType, currentContext);
+    paramTypeAsts.push(typeAst);
     currentContext = newContext;
   }
 
   const returnTypeNode = type.returnType ?? { kind: "voidType" as const };
-  const [returnType, newContext] = emitType(returnTypeNode, currentContext);
+  const [returnTypeAst, newContext] = emitTypeAst(
+    returnTypeNode,
+    currentContext
+  );
 
-  if (returnType === "void") {
-    if (paramTypes.length === 0) {
-      return ["global::System.Action", newContext];
+  // Check if return type is void (predefinedType with keyword "void")
+  const isVoidReturn =
+    returnTypeAst.kind === "predefinedType" && returnTypeAst.keyword === "void";
+
+  if (isVoidReturn) {
+    if (paramTypeAsts.length === 0) {
+      return [
+        { kind: "identifierType", name: "global::System.Action" },
+        newContext,
+      ];
     }
-    return [`global::System.Action<${paramTypes.join(", ")}>`, newContext];
+    return [
+      {
+        kind: "identifierType",
+        name: "global::System.Action",
+        typeArguments: paramTypeAsts,
+      },
+      newContext,
+    ];
   }
 
-  if (paramTypes.length === 0) {
-    return [`global::System.Func<${returnType}>`, newContext];
+  if (paramTypeAsts.length === 0) {
+    return [
+      {
+        kind: "identifierType",
+        name: "global::System.Func",
+        typeArguments: [returnTypeAst],
+      },
+      newContext,
+    ];
   }
 
   return [
-    `global::System.Func<${paramTypes.join(", ")}, ${returnType}>`,
+    {
+      kind: "identifierType",
+      name: "global::System.Func",
+      typeArguments: [...paramTypeAsts, returnTypeAst],
+    },
     newContext,
   ];
 };

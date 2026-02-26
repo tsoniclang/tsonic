@@ -3,18 +3,23 @@
  */
 
 import { IrExpression, IrType } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../types.js";
-import { emitType } from "../type-emitter.js";
+import { EmitterContext } from "../types.js";
+import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import { printType } from "../core/format/backend-ast/printer.js";
+import type {
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "../core/format/backend-ast/types.js";
 
 /**
- * Emit an identifier, using resolved binding info if available
+ * Emit an identifier as CSharpExpressionAst
  */
 export const emitIdentifier = (
   expr: Extract<IrExpression, { kind: "identifier" }>,
   context: EmitterContext,
   expectedType?: IrType
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Special case for undefined -> default
   if (expr.name === "undefined") {
     if (
@@ -22,15 +27,21 @@ export const emitIdentifier = (
       (expectedType?.kind === "primitiveType" &&
         expectedType.name === "undefined")
     ) {
-      return [{ text: "default(object)" }, context];
+      return [
+        {
+          kind: "defaultExpression",
+          type: { kind: "predefinedType", keyword: "object" },
+        },
+        context,
+      ];
     }
-    return [{ text: "default" }, context];
+    return [{ kind: "defaultExpression" }, context];
   }
 
   // TypeScript `super` maps to C# `base` for member access/calls.
   // (`super()` constructor calls are handled separately in constructor emission.)
   if (expr.name === "super") {
-    return [{ text: "base" }, context];
+    return [{ kind: "identifierExpression", identifier: "base" }, context];
   }
 
   // Narrowing remap for union type guards
@@ -40,10 +51,16 @@ export const emitIdentifier = (
     const narrowed = context.narrowedBindings.get(expr.name);
     if (narrowed) {
       if (narrowed.kind === "rename") {
-        return [{ text: escapeCSharpIdentifier(narrowed.name) }, context];
+        return [
+          {
+            kind: "identifierExpression",
+            identifier: escapeCSharpIdentifier(narrowed.name),
+          },
+          context,
+        ];
       } else {
-        // kind === "expr" - emit expression text verbatim (no escaping)
-        return [{ text: narrowed.exprText }, context];
+        // kind === "expr" - emit pre-built AST (e.g., parenthesized AsN() call)
+        return [narrowed.exprAst, context];
       }
     }
   }
@@ -51,7 +68,10 @@ export const emitIdentifier = (
   // Lexical remap for locals/parameters (prevents C# CS0136 shadowing errors).
   const remappedLocal = context.localNameMap?.get(expr.name);
   if (remappedLocal) {
-    return [{ text: remappedLocal }, context];
+    return [
+      { kind: "identifierExpression", identifier: remappedLocal },
+      context,
+    ];
   }
 
   // Check if this identifier is from an import
@@ -62,10 +82,19 @@ export const emitIdentifier = (
       // Use pre-computed clrName directly (all resolution done when building binding)
       if (binding.member) {
         // Value import with member - Container.member
-        return [{ text: `${binding.clrName}.${binding.member}` }, context];
+        return [
+          {
+            kind: "identifierExpression",
+            identifier: `${binding.clrName}.${binding.member}`,
+          },
+          context,
+        ];
       }
       // Type, namespace, or default import - use clrName directly
-      return [{ text: binding.clrName }, context];
+      return [
+        { kind: "identifierExpression", identifier: binding.clrName },
+        context,
+      ];
     }
   }
 
@@ -79,52 +108,84 @@ export const emitIdentifier = (
       context.className !== context.moduleStaticClassName
     ) {
       return [
-        { text: `${context.moduleStaticClassName}.${memberName}` },
+        {
+          kind: "identifierExpression",
+          identifier: `${context.moduleStaticClassName}.${memberName}`,
+        },
         context,
       ];
     }
-    return [{ text: memberName }, context];
+    return [{ kind: "identifierExpression", identifier: memberName }, context];
   }
 
   // Use custom C# name from binding if specified (with global:: prefix)
   if (expr.csharpName && expr.resolvedAssembly) {
     const fqn = `global::${expr.resolvedAssembly}.${expr.csharpName}`;
-    return [{ text: fqn }, context];
+    return [{ kind: "identifierExpression", identifier: fqn }, context];
   }
 
   // Use resolved binding if available (from binding manifest) with global:: prefix
   // resolvedClrType is already the full CLR type name, just add global::
   if (expr.resolvedClrType) {
     const fqn = `global::${expr.resolvedClrType}`;
-    return [{ text: fqn }, context];
+    return [{ kind: "identifierExpression", identifier: fqn }, context];
   }
 
   // Fallback: use identifier as-is (escape C# keywords)
-  return [{ text: escapeCSharpIdentifier(expr.name) }, context];
+  return [
+    {
+      kind: "identifierExpression",
+      identifier: escapeCSharpIdentifier(expr.name),
+    },
+    context,
+  ];
 };
 
 /**
- * Emit type arguments as C# generic type parameters
- * Example: [string, number] → <string, double>
+ * Emit type arguments as CSharpTypeAst[]
  */
-export const emitTypeArguments = (
+export const emitTypeArgumentAsts = (
   typeArgs: readonly IrType[],
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst[], EmitterContext] => {
   if (!typeArgs || typeArgs.length === 0) {
-    return ["", context];
+    return [[], context];
   }
 
   let currentContext = context;
-  const typeStrings: string[] = [];
+  const typeAsts: CSharpTypeAst[] = [];
 
   for (const typeArg of typeArgs) {
-    const [typeStr, newContext] = emitType(typeArg, currentContext);
+    const [typeAst, newContext] = emitTypeAst(typeArg, currentContext);
     currentContext = newContext;
-    typeStrings.push(typeStr);
+    typeAsts.push(typeAst);
   }
 
-  return [`<${typeStrings.join(", ")}>`, currentContext];
+  return [typeAsts, currentContext];
+};
+
+/**
+ * Emit type arguments as typed CSharpTypeAst array.
+ * Returns empty array for empty/null type arguments.
+ */
+export const emitTypeArgumentsAst = (
+  typeArgs: readonly IrType[],
+  context: EmitterContext
+): [readonly CSharpTypeAst[], EmitterContext] => {
+  if (!typeArgs || typeArgs.length === 0) {
+    return [[], context];
+  }
+
+  let currentContext = context;
+  const typeAsts: CSharpTypeAst[] = [];
+
+  for (const typeArg of typeArgs) {
+    const [typeAst, newContext] = emitTypeAst(typeArg, currentContext);
+    currentContext = newContext;
+    typeAsts.push(typeAst);
+  }
+
+  return [typeAsts, currentContext];
 };
 
 /**
@@ -140,8 +201,9 @@ export const generateSpecializedName = (
   const typeNames: string[] = [];
 
   for (const typeArg of typeArgs) {
-    const [typeName, newContext] = emitType(typeArg, currentContext);
+    const [typeAst, newContext] = emitTypeAst(typeArg, currentContext);
     currentContext = newContext;
+    const typeName = printType(typeAst);
     // Sanitize type name for use in identifier (remove <>, ?, etc.)
     const sanitized = typeName.replace(/[<>?,\s]/g, "_").replace(/\./g, "_");
     typeNames.push(sanitized);

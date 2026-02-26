@@ -9,7 +9,8 @@ import {
   NUMERIC_KIND_TO_CSHARP,
 } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../statement-emitter.js";
 import { emitType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -204,7 +205,7 @@ export const emitVariableDeclaration = (
       }
 
       // Emit the RHS expression
-      const [initFrag, newContext] = emitExpression(
+      const [initAst, newContext] = emitExpressionAst(
         decl.initializer,
         currentContext,
         decl.type
@@ -217,7 +218,7 @@ export const emitVariableDeclaration = (
       // Lower the pattern to C# statements
       const result = lowerPattern(
         decl.name,
-        initFrag.text,
+        printExpression(initAst),
         patternType,
         ind,
         currentContext
@@ -473,11 +474,12 @@ export const emitVariableDeclaration = (
         // This preserves explicit type arguments like `int` instead of using
         // inferredType which TypeScript sees as `number`
         const newExpr = decl.initializer;
-        const [calleeFrag, calleeContext] = emitExpression(
+        const [calleeAst, calleeContext] = emitExpressionAst(
           newExpr.callee,
           currentContext
         );
         currentContext = calleeContext;
+        const calleeText = printExpression(calleeAst);
 
         if (newExpr.typeArguments && newExpr.typeArguments.length > 0) {
           // Emit type with explicit type arguments
@@ -487,10 +489,10 @@ export const emitVariableDeclaration = (
             typeArgs.push(typeArgStr);
             currentContext = newCtx;
           }
-          varDecl += `${calleeFrag.text}<${typeArgs.join(", ")}> `;
+          varDecl += `${calleeText}<${typeArgs.join(", ")}> `;
         } else {
           // Non-generic constructor
-          varDecl += `${calleeFrag.text} `;
+          varDecl += `${calleeText} `;
         }
       } else if (decl.initializer?.kind === "literal") {
         const lit = decl.initializer;
@@ -693,11 +695,12 @@ export const emitVariableDeclaration = (
             });
             bodyText = `\n${blockCode}`;
           } else {
-            const [exprCode] = emitExpression(
+            const [exprAst] = emitExpressionAst(
               arrowFunc.body,
               bodyBaseContext,
               bodyReturnType
             );
+            const exprText = printExpression(exprAst);
             const bodyInd = getIndent(bodyBaseContext);
             const isVoidReturn =
               !bodyReturnType ||
@@ -705,8 +708,8 @@ export const emitVariableDeclaration = (
               (bodyReturnType.kind === "primitiveType" &&
                 bodyReturnType.name === "undefined");
             const retOrExpr = isVoidReturn
-              ? `${exprCode.text};`
-              : `return ${exprCode.text};`;
+              ? `${exprText};`
+              : `return ${exprText};`;
             bodyText = `\n${ind}{\n${bodyInd}${retOrExpr}\n${ind}}`;
           }
 
@@ -718,13 +721,13 @@ export const emitVariableDeclaration = (
           continue;
         }
 
-        const [initFrag, newContext] = emitExpression(
+        const [initAst, newContext] = emitExpressionAst(
           decl.initializer,
           currentContext,
           decl.type // Pass expected type for contextual typing (e.g., array literals)
         );
         currentContext = newContext;
-        varDecl += ` = ${initFrag.text}`;
+        varDecl += ` = ${printExpression(initAst)}`;
       }
 
       // Register local names after emitting the initializer (C# scoping rules).

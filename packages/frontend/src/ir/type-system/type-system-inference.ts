@@ -410,9 +410,11 @@ export const inferLambdaType = (
 
         if (returns.length === 0) return { kind: "voidType" as const };
 
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const first = inferExpressionType(state, returns[0]!, env);
         if (!first) return undefined;
         for (let i = 1; i < returns.length; i++) {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           const t = inferExpressionType(state, returns[i]!, env);
           if (!t || !typesEqual(t, first)) return undefined;
         }

@@ -914,7 +914,7 @@ export const convertMethodOverloadGroup = (
     );
   }
 
-  const impl = impls[0]!;
+  const impl = impls[0] as ts.MethodDeclaration;
   const memberName = ts.isIdentifier(impl.name) ? impl.name.text : "[computed]";
 
   const sigs = nodes.filter((n) => !n.body);
@@ -969,7 +969,7 @@ export const convertMethodOverloadGroup = (
 
     const parameters: IrParameter[] = sigParams.map((p, i) => ({
       ...p,
-      pattern: implParams[i]!.pattern,
+      pattern: (implParams[i] as IrParameter).pattern,
     }));
 
     const overrideInfo = detectOverride(
@@ -993,7 +993,7 @@ export const convertMethodOverloadGroup = (
 
     const paramTypesByDeclId = new Map<number, IrType>();
     for (let i = 0; i < implParamDeclIds.length; i++) {
-      const declId = implParamDeclIds[i]!;
+      const declId = implParamDeclIds[i] as number;
       const t =
         i < parameters.length
           ? parameters[i]?.type
@@ -1010,7 +1010,7 @@ export const convertMethodOverloadGroup = (
     if (sigParams.length < implParams.length) {
       const missing = new Set<number>();
       for (let i = sigParams.length; i < implParamDeclIds.length; i++) {
-        missing.add(implParamDeclIds[i]!);
+        missing.add(implParamDeclIds[i] as number);
       }
       if (missing.size > 0 && !assertNoMissingParamRefs(specialized, missing)) {
         throw new Error(

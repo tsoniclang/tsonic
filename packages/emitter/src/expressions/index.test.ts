@@ -429,6 +429,7 @@ describe("Expression Emission", () => {
   it("should emit fluent Queryable extension methods broadly (Where/Select/FirstOrDefault/etc.)", () => {
     const methods: ReadonlyArray<{
       readonly member: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       readonly args: any[];
     }> = [
       { member: "Where", args: [{ kind: "identifier", name: "pred" }] },

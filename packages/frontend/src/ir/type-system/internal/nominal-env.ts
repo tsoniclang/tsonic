@@ -97,10 +97,12 @@ export const substituteIrType = (
         return {
           ...type,
           typeArguments: hasTypeArgs
-            ? type.typeArguments!.map((arg) => substituteIrType(arg, subst))
+            ? (type.typeArguments ?? []).map((arg) =>
+                substituteIrType(arg, subst)
+              )
             : type.typeArguments,
           structuralMembers: hasStructural
-            ? type.structuralMembers!.map((m) => {
+            ? (type.structuralMembers ?? []).map((m) => {
                 if (m.kind === "propertySignature") {
                   return {
                     ...m,

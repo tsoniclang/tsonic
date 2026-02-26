@@ -3,14 +3,16 @@
  */
 
 import { IrExpression, IrType, IrPattern } from "@tsonic/frontend";
-import { EmitterContext, CSharpFragment } from "../../types.js";
-import { emitExpression } from "../../expression-emitter.js";
+import { EmitterContext } from "../../types.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import { lowerAssignmentPattern } from "../../patterns.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { hasInt32Proof } from "./helpers.js";
+import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
- * Emit an assignment expression (=, +=, -=, etc.)
+ * Emit an assignment expression as CSharpExpressionAst
  *
  * Passes the LHS type as expected type to RHS, enabling proper integer
  * literal emission for cases like `this.value = this.value + 1`.
@@ -18,7 +20,7 @@ import { hasInt32Proof } from "./helpers.js";
 export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
-): [CSharpFragment, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Array element assignment uses native CLR indexer
   // HARD GATE: Index must be proven Int32 (validated by proof pass)
   if (
@@ -42,16 +44,33 @@ export const emitAssignment = (
       );
     }
 
-    const [objectFrag, objectContext] = emitExpression(
+    const [objectAst, objectContext] = emitExpressionAst(
       leftExpr.object,
       context
     );
-    const [indexFrag, indexContext] = emitExpression(indexExpr, objectContext);
-    const [rightFrag, rightContext] = emitExpression(expr.right, indexContext);
+    const [indexAst, indexContext] = emitExpressionAst(
+      indexExpr,
+      objectContext
+    );
+    const [rightAst, rightContext] = emitExpressionAst(
+      expr.right,
+      indexContext
+    );
 
-    // Use native CLR indexer
-    const text = `${objectFrag.text}[${indexFrag.text}] = ${rightFrag.text}`;
-    return [{ text, precedence: 2 }, rightContext];
+    // Use native CLR indexer: arr[idx] = value
+    return [
+      {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: {
+          kind: "elementAccessExpression",
+          expression: objectAst,
+          arguments: [indexAst],
+        },
+        right: rightAst,
+      },
+      rightContext,
+    ];
   }
 
   // Left side can be an expression or a pattern (for destructuring)
@@ -62,25 +81,31 @@ export const emitAssignment = (
       expr.left.kind === "objectPattern");
 
   // Handle destructuring assignment patterns
+  // NOTE: Pattern lowering currently returns text strings (Phase 4 will convert to AST).
+  // For now, bridge through identifierExpression with the lowered text.
   if (isPattern && expr.operator === "=") {
     const pattern = expr.left as IrPattern;
 
     // Emit the RHS first
-    const [rightFrag, rightContext] = emitExpression(expr.right, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, context);
+    const rightText = printExpression(rightAst);
 
     // Use lowerAssignmentPattern to generate the destructuring expression
     const result = lowerAssignmentPattern(
       pattern,
-      rightFrag.text,
+      rightText,
       expr.right.inferredType,
       rightContext
     );
 
-    return [{ text: result.expression, precedence: 2 }, result.context];
+    return [
+      { kind: "identifierExpression", identifier: result.expression },
+      result.context,
+    ];
   }
 
   // Standard assignment (expression on left side)
-  let leftText: string;
+  let leftAst: CSharpExpressionAst;
   let leftContext: EmitterContext;
   let leftType: IrType | undefined;
 
@@ -88,12 +113,18 @@ export const emitAssignment = (
     // Identifier pattern with compound assignment (+=, etc.)
     const pattern = expr.left as IrPattern;
     if (pattern.kind === "identifierPattern") {
-      leftText = emitRemappedLocalName(pattern.name, context);
+      leftAst = {
+        kind: "identifierExpression",
+        identifier: emitRemappedLocalName(pattern.name, context),
+      };
       leftContext = context;
       leftType = pattern.type;
     } else {
       // Compound assignment to array/object pattern - not valid in JS
-      leftText = "/* invalid compound destructuring */";
+      leftAst = {
+        kind: "identifierExpression",
+        identifier: "/* invalid compound destructuring */",
+      };
       leftContext = context;
     }
   } else {
@@ -111,8 +142,8 @@ export const emitAssignment = (
           })()
         : context;
 
-    const [leftFrag, ctx] = emitExpression(leftExpr, leftCtx);
-    leftText = leftFrag.text;
+    const [emittedLeftAst, ctx] = emitExpressionAst(leftExpr, leftCtx);
+    leftAst = emittedLeftAst;
     // Restore narrowing for RHS emission (reads) when we suppressed it for the LHS.
     leftContext =
       leftCtx !== context
@@ -122,12 +153,19 @@ export const emitAssignment = (
   }
 
   // Pass LHS type as expected type to RHS for proper integer handling
-  const [rightFrag, rightContext] = emitExpression(
+  const [rightAst, rightContext] = emitExpressionAst(
     expr.right,
     leftContext,
     leftType
   );
 
-  const text = `${leftText} ${expr.operator} ${rightFrag.text}`;
-  return [{ text, precedence: 2 }, rightContext];
+  return [
+    {
+      kind: "assignmentExpression",
+      operatorToken: expr.operator,
+      left: leftAst,
+      right: rightAst,
+    },
+    rightContext,
+  ];
 };
