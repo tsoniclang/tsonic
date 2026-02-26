@@ -5,9 +5,10 @@
  * In C#, only boolean expressions are valid conditions (if/while/for/?:/!).
  *
  * This module provides a shared, deterministic lowering for boolean contexts.
+ * All functions return typed CSharpExpressionAst nodes — no text bridging.
  *
  * IMPORTANT:
- * - This operates on IR + emitted text; it must not import emitExpressionAst to avoid cycles.
+ * - This operates on IR + emitted AST; it must not import emitExpressionAst to avoid cycles.
  * - Callers provide an emit function.
  */
 
@@ -15,7 +16,6 @@ import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext } from "../../types.js";
 import { allocateLocalName } from "../format/local-names.js";
 import { substituteTypeArgs } from "./type-resolution.js";
-import { printExpression } from "../format/backend-ast/printer.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 
 export type EmitExprAstFn = (
@@ -114,74 +114,127 @@ const isInherentlyBooleanExpression = (expr: IrExpression): boolean => {
   return false;
 };
 
-const isSimpleOperandExpression = (expr: IrExpression): boolean => {
-  // These IR kinds emit C# primary/postfix expressions that don't need parentheses
-  // before appending a comparison like `!= null` / `!= 0`.
-  switch (expr.kind) {
-    case "identifier":
-    case "memberAccess":
-    case "call":
-    case "new":
-    case "this":
-    case "literal":
-      return true;
+// ============================================================
+// AST construction helpers
+// ============================================================
+
+/** Wrap an AST expression in parentheses if it has lower precedence than `is` (relational = 10). */
+const wrapForIs = (ast: CSharpExpressionAst): CSharpExpressionAst => {
+  switch (ast.kind) {
+    case "assignmentExpression":
+    case "conditionalExpression":
+    case "lambdaExpression":
+    case "throwExpression":
+      return { kind: "parenthesizedExpression", expression: ast };
+    case "binaryExpression": {
+      // Binary operators with precedence < relational (10) need wrapping
+      switch (ast.operatorToken) {
+        case "??":
+        case "||":
+        case "&&":
+        case "|":
+        case "^":
+        case "&":
+        case "==":
+        case "!=":
+          return { kind: "parenthesizedExpression", expression: ast };
+        default:
+          return ast;
+      }
+    }
     default:
-      return false;
+      return ast;
   }
 };
 
-const emitRuntimeTruthinessCondition = (
-  expr: IrExpression,
-  emittedText: string,
+const identifierExpr = (name: string): CSharpExpressionAst => ({
+  kind: "identifierExpression",
+  identifier: name,
+});
+
+const literalExpr = (text: string): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text,
+});
+
+/**
+ * Build the canonical JS-like truthiness switch expression text for a temp variable.
+ * This is a constant template that only depends on the temp variable name.
+ */
+const buildTruthySwitchText = (tmp: string): string =>
+  `${tmp} switch { ` +
+  `bool => (bool)${tmp}, ` +
+  `string => ((string)${tmp}).Length != 0, ` +
+  `sbyte => (sbyte)${tmp} != 0, ` +
+  `byte => (byte)${tmp} != 0, ` +
+  `short => (short)${tmp} != 0, ` +
+  `ushort => (ushort)${tmp} != 0, ` +
+  `int => (int)${tmp} != 0, ` +
+  `uint => (uint)${tmp} != 0U, ` +
+  `long => (long)${tmp} != 0L, ` +
+  `ulong => (ulong)${tmp} != 0UL, ` +
+  `nint => (nint)${tmp} != 0, ` +
+  `nuint => (nuint)${tmp} != 0, ` +
+  `global::System.Int128 => (global::System.Int128)${tmp} != 0, ` +
+  `global::System.UInt128 => (global::System.UInt128)${tmp} != 0, ` +
+  `global::System.Half => ((global::System.Half)${tmp}) != (global::System.Half)0 && !global::System.Half.IsNaN((global::System.Half)${tmp}), ` +
+  `float => ((float)${tmp}) != 0f && !float.IsNaN((float)${tmp}), ` +
+  `double => ((double)${tmp}) != 0d && !double.IsNaN((double)${tmp}), ` +
+  `decimal => (decimal)${tmp} != 0m, ` +
+  `char => (char)${tmp} != '\\0', ` +
+  `_ => true }`;
+
+// ============================================================
+// Runtime truthiness (AST-native)
+// ============================================================
+
+const emitRuntimeTruthinessConditionAst = (
+  emittedAst: CSharpExpressionAst,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Use a pattern variable to evaluate the operand exactly once, then apply JS-like truthiness.
   //
   // This is the airplane-grade fallback when we cannot trust inferredType:
   // - Never emit `x != null` for unknowns (silently miscompiles boxed value types like bool/int).
   // - Use runtime type checks to preserve semantics deterministically.
   const nextId = (context.tempVarId ?? 0) + 1;
-  let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+  const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
   const alloc = allocateLocalName(`__tsonic_truthy_${nextId}`, ctxWithId);
-  ctxWithId = alloc.context;
   const tmp = alloc.emittedName;
 
-  const operand = isSimpleOperandExpression(expr)
-    ? emittedText
-    : `(${emittedText})`;
+  // Build: (operand is object __tmp && (__tmp switch { ... }))
+  const isObjectExpr: CSharpExpressionAst = {
+    kind: "isExpression",
+    expression: wrapForIs(emittedAst),
+    pattern: {
+      kind: "declarationPattern",
+      type: { kind: "predefinedType", keyword: "object" },
+      designation: tmp,
+    },
+  };
 
-  // Note: avoid pattern variables inside the switch arms to prevent C# name collisions.
-  // This switch is the canonical JS-like truthiness for runtime CLR values:
-  // - null → false (handled by `operand is object tmp`)
-  // - bool → itself
-  // - string → length != 0
-  // - numeric primitives → != 0 (and NaN is falsy for floating-point)
-  // - other objects → truthy
-  const truthySwitch =
-    `${tmp} switch { ` +
-    `bool => (bool)${tmp}, ` +
-    `string => ((string)${tmp}).Length != 0, ` +
-    `sbyte => (sbyte)${tmp} != 0, ` +
-    `byte => (byte)${tmp} != 0, ` +
-    `short => (short)${tmp} != 0, ` +
-    `ushort => (ushort)${tmp} != 0, ` +
-    `int => (int)${tmp} != 0, ` +
-    `uint => (uint)${tmp} != 0U, ` +
-    `long => (long)${tmp} != 0L, ` +
-    `ulong => (ulong)${tmp} != 0UL, ` +
-    `nint => (nint)${tmp} != 0, ` +
-    `nuint => (nuint)${tmp} != 0, ` +
-    `global::System.Int128 => (global::System.Int128)${tmp} != 0, ` +
-    `global::System.UInt128 => (global::System.UInt128)${tmp} != 0, ` +
-    `global::System.Half => ((global::System.Half)${tmp}) != (global::System.Half)0 && !global::System.Half.IsNaN((global::System.Half)${tmp}), ` +
-    `float => ((float)${tmp}) != 0f && !float.IsNaN((float)${tmp}), ` +
-    `double => ((double)${tmp}) != 0d && !double.IsNaN((double)${tmp}), ` +
-    `decimal => (decimal)${tmp} != 0m, ` +
-    `char => (char)${tmp} != '\\0', ` +
-    `_ => true }`;
+  const switchExpr: CSharpExpressionAst = {
+    kind: "parenthesizedExpression",
+    expression: literalExpr(buildTruthySwitchText(tmp)),
+  };
 
-  return [`(${operand} is object ${tmp} && (${truthySwitch}))`, ctxWithId];
+  return [
+    {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "binaryExpression",
+        operatorToken: "&&",
+        left: isObjectExpr,
+        right: switchExpr,
+      },
+    },
+    alloc.context,
+  ];
 };
+
+// ============================================================
+// Type resolution helpers
+// ============================================================
 
 const resolveLocalTypeAlias = (
   type: IrType,
@@ -241,12 +294,16 @@ const getLiteralUnionBasePrimitive = (
   return base;
 };
 
-const emitUnionTruthinessCondition = (
+// ============================================================
+// Union truthiness (AST-native)
+// ============================================================
+
+const emitUnionTruthinessConditionAst = (
   expr: IrExpression,
-  emittedText: string,
+  emittedAst: CSharpExpressionAst,
   unionType: Extract<IrType, { kind: "unionType" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   // Align boolean-context emission with union type emission:
   // - (T | null | undefined) behaves like a nullable (falsy when nullish)
   // - literal unions behave like their primitive base at runtime
@@ -262,30 +319,30 @@ const emitUnionTruthinessCondition = (
       name: literalBase,
     } as IrType;
     if (!hasNullish) {
-      return toBooleanCondition(
+      return toBooleanConditionAst(
         { ...expr, inferredType: baseType },
-        emittedText,
+        emittedAst,
         context
       );
     }
 
     // Nullable literal union (e.g. "a" | "b" | null) → value is falsy when nullish.
     const nextId = (context.tempVarId ?? 0) + 1;
-    let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+    const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
     const alloc = allocateLocalName(
       `__tsonic_truthy_nullable_${nextId}`,
       ctxWithId
     );
-    ctxWithId = alloc.context;
     const tmp = alloc.emittedName;
 
-    const operand = isSimpleOperandExpression(expr)
-      ? emittedText
-      : `(${emittedText})`;
-    const [innerCond, innerCtx] = toBooleanCondition(
-      { kind: "identifier", name: tmp, inferredType: baseType } as IrExpression,
-      tmp,
-      ctxWithId
+    const [innerCondAst, innerCtx] = toBooleanConditionAst(
+      {
+        kind: "identifier",
+        name: tmp,
+        inferredType: baseType,
+      } as IrExpression,
+      identifierExpr(tmp),
+      alloc.context
     );
     const emittedNonNull =
       literalBase === "string"
@@ -293,8 +350,25 @@ const emitUnionTruthinessCondition = (
         : literalBase === "number"
           ? "double"
           : "bool";
+    // Build: (operand is Type tmp && innerCond)
     return [
-      `(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`,
+      {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "binaryExpression",
+          operatorToken: "&&",
+          left: {
+            kind: "isExpression",
+            expression: wrapForIs(emittedAst),
+            pattern: {
+              kind: "declarationPattern",
+              type: { kind: "predefinedType", keyword: emittedNonNull },
+              designation: tmp,
+            },
+          },
+          right: innerCondAst,
+        },
+      },
       innerCtx,
     ];
   }
@@ -302,37 +376,37 @@ const emitUnionTruthinessCondition = (
   // Nullable union: (T | null | undefined) → treat as `T?` truthiness.
   if (hasNullish && nonNullTypes.length === 1) {
     const nonNull = nonNullTypes[0];
-    if (!nonNull) return ["false", context];
+    if (!nonNull) return [literalExpr("false"), context];
 
     // For non-primitive nullable unions (e.g. `T[] | undefined`, `SomeRef | null`),
     // emit truthiness directly against the operand with non-null inferred type.
     // This avoids nested nullable pattern variables while preserving exact semantics.
     if (nonNull.kind !== "primitiveType") {
-      return toBooleanCondition(
+      return toBooleanConditionAst(
         { ...expr, inferredType: nonNull },
-        emittedText,
+        emittedAst,
         context
       );
     }
 
     const nextId = (context.tempVarId ?? 0) + 1;
-    let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+    const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
     const alloc = allocateLocalName(
       `__tsonic_truthy_nullable_${nextId}`,
       ctxWithId
     );
-    ctxWithId = alloc.context;
     const tmp = alloc.emittedName;
 
-    const operand = isSimpleOperandExpression(expr)
-      ? emittedText
-      : `(${emittedText})`;
     // Pattern-match the non-null value into a strongly-typed temp and apply truthiness to it.
     // This handles both nullable value types (int?) and nullable reference types (string?).
-    const [innerCond, innerCtx] = toBooleanCondition(
-      { kind: "identifier", name: tmp, inferredType: nonNull } as IrExpression,
-      tmp,
-      ctxWithId
+    const [innerCondAst, innerCtx] = toBooleanConditionAst(
+      {
+        kind: "identifier",
+        name: tmp,
+        inferredType: nonNull,
+      } as IrExpression,
+      identifierExpr(tmp),
+      alloc.context
     );
     const emittedNonNull =
       nonNull.name === "number"
@@ -346,8 +420,25 @@ const emitUnionTruthinessCondition = (
               : nonNull.name === "char"
                 ? "char"
                 : "object";
+    // Build: (operand is Type tmp && innerCond)
     return [
-      `(${operand} is ${emittedNonNull} ${tmp} && ${innerCond})`,
+      {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "binaryExpression",
+          operatorToken: "&&",
+          left: {
+            kind: "isExpression",
+            expression: wrapForIs(emittedAst),
+            pattern: {
+              kind: "declarationPattern",
+              type: { kind: "predefinedType", keyword: emittedNonNull },
+              designation: tmp,
+            },
+          },
+          right: innerCondAst,
+        },
+      },
       innerCtx,
     ];
   }
@@ -355,81 +446,141 @@ const emitUnionTruthinessCondition = (
   // 2-8 unions use runtime Union<T1..Tn>. We must inspect the active variant.
   if (unionType.types.length >= 2 && unionType.types.length <= 8) {
     const nextId = (context.tempVarId ?? 0) + 1;
-    let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+    const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
     const alloc = allocateLocalName(
       `__tsonic_truthy_union_${nextId}`,
       ctxWithId
     );
-    ctxWithId = alloc.context;
     const u = alloc.emittedName;
 
-    const operand = isSimpleOperandExpression(expr)
-      ? emittedText
-      : `(${emittedText})`;
-
-    // Build nested conditional chain: u.Is1() ? truth(u.As1()) : u.Is2() ? truth(u.As2()) : ...
-    let chainCtx = ctxWithId;
-    const branchExprs: string[] = [];
+    // Build per-member truthiness ASTs
+    let chainCtx = alloc.context;
+    const branchAsts: CSharpExpressionAst[] = [];
 
     for (let i = 0; i < unionType.types.length; i++) {
       const memberN = i + 1;
       const memberType = unionType.types[i];
-      if (!memberType) {
-        branchExprs.push("false");
+      if (!memberType || isNullishType(memberType)) {
+        branchAsts.push(literalExpr("false"));
         continue;
       }
 
-      if (isNullishType(memberType)) {
-        branchExprs.push("false");
-        continue;
-      }
+      const memberEmittedAst: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: identifierExpr(u),
+          memberName: `As${memberN}`,
+        },
+        arguments: [],
+      };
 
-      const [memberCond, memberCtx] = toBooleanCondition(
+      const [memberCondAst, memberCtx] = toBooleanConditionAst(
         {
           kind: "identifier",
           name: `${u}__${memberN}`,
           inferredType: memberType,
         } as IrExpression,
-        `${u}.As${memberN}()`,
+        memberEmittedAst,
         chainCtx
       );
-      branchExprs.push(memberCond);
+      branchAsts.push(memberCondAst);
       chainCtx = memberCtx;
     }
 
-    let chain = branchExprs[branchExprs.length - 1] ?? "false";
-    for (let i = branchExprs.length - 2; i >= 0; i--) {
-      const n = i + 1;
-      chain = `${u}.Is${n}() ? (${branchExprs[i]}) : (${chain})`;
-    }
+    // Build nested conditional chain: u.Is1() ? (cond1) : u.Is2() ? (cond2) : ...
+    const buildChain = (start: number): CSharpExpressionAst => {
+      const last = branchAsts[branchAsts.length - 1];
+      if (start === branchAsts.length - 1) {
+        return last ?? literalExpr("false");
+      }
+      const branch = branchAsts[start];
+      return {
+        kind: "conditionalExpression",
+        condition: {
+          kind: "invocationExpression",
+          expression: {
+            kind: "memberAccessExpression",
+            expression: identifierExpr(u),
+            memberName: `Is${start + 1}`,
+          },
+          arguments: [],
+        },
+        whenTrue: {
+          kind: "parenthesizedExpression",
+          expression: branch ?? literalExpr("false"),
+        },
+        whenFalse: {
+          kind: "parenthesizedExpression",
+          expression: buildChain(start + 1),
+        },
+      };
+    };
 
+    const chainAst = buildChain(0);
+
+    // Build: (operand is var u && u is not null && (chain))
     return [
-      `(${operand} is var ${u} && ${u} is not null && (${chain}))`,
+      {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "binaryExpression",
+          operatorToken: "&&",
+          left: {
+            kind: "binaryExpression",
+            operatorToken: "&&",
+            left: {
+              kind: "isExpression",
+              expression: wrapForIs(emittedAst),
+              pattern: { kind: "varPattern", designation: u },
+            },
+            right: {
+              kind: "isExpression",
+              expression: identifierExpr(u),
+              pattern: {
+                kind: "negatedPattern",
+                pattern: {
+                  kind: "constantPattern",
+                  expression: literalExpr("null"),
+                },
+              },
+            },
+          },
+          right: {
+            kind: "parenthesizedExpression",
+            expression: chainAst,
+          },
+        },
+      },
       chainCtx,
     ];
   }
 
   // Fallback for unions >8 (emitted as object): runtime truthiness matches JS semantics.
-  return emitRuntimeTruthinessCondition(expr, emittedText, context);
+  return emitRuntimeTruthinessConditionAst(emittedAst, context);
 };
 
+// ============================================================
+// Main boolean-condition lowering (AST-native)
+// ============================================================
+
 /**
- * Convert an expression to a valid C# boolean condition.
+ * Convert an expression to a valid C# boolean condition, returning a typed AST node.
  *
  * Rules (deterministic):
  * - Booleans: use as-is
- * - Reference types (objects, arrays, dictionaries, unions, ...): `expr != null`
+ * - Reference types (objects, arrays, dictionaries, unions, ...): runtime truthiness
  * - Strings: `!string.IsNullOrEmpty(expr)`
  * - Numbers: JS truthiness check: false iff 0 or NaN
  * - int: `expr != 0`
- * - char: `expr != '\\0'`
+ * - char: `expr != '\0'`
  * - null/undefined literals: `false`
  */
-export const toBooleanCondition = (
+export const toBooleanConditionAst = (
   expr: IrExpression,
-  emittedText: string,
+  emittedAst: CSharpExpressionAst,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   const inferredType = expr.inferredType;
   const resolved = inferredType
     ? resolveLocalTypeAlias(
@@ -442,44 +593,44 @@ export const toBooleanCondition = (
   // Literal truthiness can be fully resolved without re-evaluating anything.
   if (expr.kind === "literal") {
     if (expr.value === null || expr.value === undefined) {
-      return ["false", context];
+      return [literalExpr("false"), context];
     }
     if (typeof expr.value === "boolean") {
-      return [expr.value ? "true" : "false", context];
+      return [literalExpr(expr.value ? "true" : "false"), context];
     }
     if (typeof expr.value === "number") {
-      return [expr.value === 0 ? "false" : "true", context];
+      return [literalExpr(expr.value === 0 ? "false" : "true"), context];
     }
     if (typeof expr.value === "string") {
-      return [expr.value.length === 0 ? "false" : "true", context];
+      return [literalExpr(expr.value.length === 0 ? "false" : "true"), context];
     }
   }
 
   // If already boolean, use as-is
   if (isBooleanCondition(expr)) {
-    return [emittedText, context];
+    return [emittedAst, context];
   }
 
   // If we can prove from syntax alone that this is a boolean expression, use as-is.
   if (isInherentlyBooleanExpression(expr)) {
-    return [emittedText, context];
+    return [emittedAst, context];
   }
 
   // Unknown/any/missing type: use a safe runtime truthiness check instead of `!= null`,
   // which can silently miscompile boxed value types (e.g., bool).
   if (!type || type.kind === "unknownType" || type.kind === "anyType") {
-    return emitRuntimeTruthinessCondition(expr, emittedText, context);
+    return emitRuntimeTruthinessConditionAst(emittedAst, context);
   }
 
   if (type.kind === "unionType") {
-    return emitUnionTruthinessCondition(expr, emittedText, type, context);
+    return emitUnionTruthinessConditionAst(expr, emittedAst, type, context);
   }
 
   // Non-primitive types in TS can still map to CLR value types (e.g. `long`, `System.Boolean` wrappers).
   // Never emit `x != null` here: it can silently miscompile boxed value types (always true).
   // Use canonical runtime truthiness instead.
   if (type.kind !== "primitiveType") {
-    return emitRuntimeTruthinessCondition(expr, emittedText, context);
+    return emitRuntimeTruthinessConditionAst(emittedAst, context);
   }
 
   // For primitives that are not boolean
@@ -487,93 +638,112 @@ export const toBooleanCondition = (
     switch (type.name) {
       case "null":
       case "undefined":
-        return ["false", context];
+        return [literalExpr("false"), context];
 
       case "string":
-        return [`!string.IsNullOrEmpty(${emittedText})`, context];
+        // !string.IsNullOrEmpty(expr)
+        return [
+          {
+            kind: "prefixUnaryExpression",
+            operatorToken: "!",
+            operand: {
+              kind: "invocationExpression",
+              expression: {
+                kind: "memberAccessExpression",
+                expression: identifierExpr("string"),
+                memberName: "IsNullOrEmpty",
+              },
+              arguments: [emittedAst],
+            },
+          },
+          context,
+        ];
 
       case "int":
+        // expr != 0
         return [
-          `${isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`} != 0`,
+          {
+            kind: "binaryExpression",
+            operatorToken: "!=",
+            left: emittedAst,
+            right: literalExpr("0"),
+          },
           context,
         ];
 
       case "char":
+        // expr != '\0'
         return [
-          `${isSimpleOperandExpression(expr) ? emittedText : `(${emittedText})`} != '\\0'`,
+          {
+            kind: "binaryExpression",
+            operatorToken: "!=",
+            left: emittedAst,
+            right: literalExpr("'\\0'"),
+          },
           context,
         ];
 
       case "number": {
         // JS truthiness for numbers: falsy iff 0 or NaN.
         // Use a pattern var to avoid evaluating the expression twice.
+        // Build: (operand is double __tmp && __tmp != 0 && !double.IsNaN(__tmp))
         const nextId = (context.tempVarId ?? 0) + 1;
-        let ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
-        const alloc = allocateLocalName(
+        const ctxWithId: EmitterContext = { ...context, tempVarId: nextId };
+        const numAlloc = allocateLocalName(
           `__tsonic_truthy_num_${nextId}`,
           ctxWithId
         );
-        ctxWithId = alloc.context;
-        const tmp = alloc.emittedName;
-        const operand = isSimpleOperandExpression(expr)
-          ? emittedText
-          : `(${emittedText})`;
+        const tmp = numAlloc.emittedName;
         return [
-          `(${operand} is double ${tmp} && ${tmp} != 0 && !double.IsNaN(${tmp}))`,
-          ctxWithId,
+          {
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "&&",
+              left: {
+                kind: "isExpression",
+                expression: wrapForIs(emittedAst),
+                pattern: {
+                  kind: "declarationPattern",
+                  type: { kind: "predefinedType", keyword: "double" },
+                  designation: tmp,
+                },
+              },
+              right: {
+                kind: "binaryExpression",
+                operatorToken: "&&",
+                left: {
+                  kind: "binaryExpression",
+                  operatorToken: "!=",
+                  left: identifierExpr(tmp),
+                  right: literalExpr("0"),
+                },
+                right: {
+                  kind: "prefixUnaryExpression",
+                  operatorToken: "!",
+                  operand: {
+                    kind: "invocationExpression",
+                    expression: {
+                      kind: "memberAccessExpression",
+                      expression: identifierExpr("double"),
+                      memberName: "IsNaN",
+                    },
+                    arguments: [identifierExpr(tmp)],
+                  },
+                },
+              },
+            },
+          },
+          numAlloc.context,
         ];
       }
 
       case "boolean":
-        return [emittedText, context];
+        return [emittedAst, context];
     }
   }
 
-  return [emittedText, context];
-};
-
-/**
- * Convert an expression to a valid C# boolean condition, returning a typed AST node.
- *
- * Delegates to the text-based toBooleanCondition and bridges:
- * - If the text is unchanged (boolean/inherently-boolean pass-through), returns the original AST.
- * - Otherwise wraps the lowered text in identifierExpression.
- */
-export const toBooleanConditionAst = (
-  expr: IrExpression,
-  emittedAst: CSharpExpressionAst,
-  context: EmitterContext
-): [CSharpExpressionAst, EmitterContext] => {
-  const emittedText = printExpression(emittedAst);
-  const [resultText, resultCtx] = toBooleanCondition(
-    expr,
-    emittedText,
-    context
-  );
-
-  // Pass-through: the text-based function returned the input unchanged.
-  // Return the original AST to preserve typed structure.
-  if (resultText === emittedText) {
-    return [emittedAst, resultCtx];
-  }
-
-  // The text-based lowering produces pre-rendered text (e.g., `z0 != 0`).
-  // Wrap in parenthesizedExpression so outer operators (e.g., `!`) bind
-  // correctly — `!(z0 != 0)` not `!z0 != 0`.
-  // If the text already has outer parentheses, skip wrapping to avoid
-  // triple-paren scenarios like `if (((a ?? b) != 0))`.
-  const alreadyParenthesized =
-    resultText.startsWith("(") && resultText.endsWith(")");
-  const innerAst: CSharpExpressionAst = {
-    kind: "identifierExpression",
-    identifier: resultText,
-  };
-  return [
-    alreadyParenthesized
-      ? innerAst
-      : { kind: "parenthesizedExpression", expression: innerAst },
-    resultCtx,
-  ];
+  return [emittedAst, context];
 };
 
 /**

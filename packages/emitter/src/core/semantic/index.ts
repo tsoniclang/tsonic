@@ -32,7 +32,6 @@ export {
 } from "./unsafe.js";
 export {
   isBooleanType,
-  toBooleanCondition,
   toBooleanConditionAst,
   emitBooleanConditionAst,
   type EmitExprAstFn,

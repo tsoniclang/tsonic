@@ -1,8 +1,10 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { toBooleanCondition } from "./boolean-context.js";
+import { toBooleanConditionAst } from "./boolean-context.js";
+import { printExpression } from "../format/backend-ast/printer.js";
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext, EmitterOptions } from "../../types.js";
+import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 
 const defaultOptions: EmitterOptions = {
   rootNamespace: "Test",
@@ -38,26 +40,41 @@ const union = (types: readonly IrType[]): IrType =>
 const id = (name: string, inferredType?: IrType): IrExpression =>
   ({ kind: "identifier", name, inferredType }) as IrExpression;
 
-describe("Boolean-context lowering (toBooleanCondition)", () => {
-  describe("toBooleanCondition", () => {
+const idAst = (name: string): CSharpExpressionAst => ({
+  kind: "identifierExpression",
+  identifier: name,
+});
+
+/** Helper: call toBooleanConditionAst and print the result to comparable text. */
+const toText = (
+  expr: IrExpression,
+  emittedAst: CSharpExpressionAst,
+  ctx: EmitterContext
+): [string, EmitterContext] => {
+  const [ast, nextCtx] = toBooleanConditionAst(expr, emittedAst, ctx);
+  return [printExpression(ast), nextCtx];
+};
+
+describe("Boolean-context lowering (toBooleanConditionAst)", () => {
+  describe("toBooleanConditionAst", () => {
     it("treats primitive boolean as a condition (no rewriting)", () => {
       const ctx = createContext();
       const expr = id("b", prim("boolean"));
-      const [text] = toBooleanCondition(expr, "b", ctx);
+      const [text] = toText(expr, idAst("b"), ctx);
       expect(text).to.equal("b");
     });
 
     it("coerces CLR bool (System.Boolean) surfaced as referenceType into a boolean condition", () => {
       const ctx = createContext();
       const expr = id("bclBool", ref("System.Boolean"));
-      const [text] = toBooleanCondition(expr, "bclBool", ctx);
+      const [text] = toText(expr, idAst("bclBool"), ctx);
       expect(text).to.equal("bclBool");
     });
 
     it("coerces CLR int (System.Int32) surfaced as referenceType into `!= 0` truthiness", () => {
       const ctx = createContext();
       const expr = id("bclInt", ref("System.Int32"));
-      const [text] = toBooleanCondition(expr, "bclInt", ctx);
+      const [text] = toText(expr, idAst("bclInt"), ctx);
       expect(text).to.equal("bclInt != 0");
     });
 
@@ -65,34 +82,34 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
       const ctx = createContext({ tempVarId: 0 });
 
       const longExpr = id("l", ref("System.Int64"));
-      const [longText] = toBooleanCondition(longExpr, "l", ctx);
+      const [longText] = toText(longExpr, idAst("l"), ctx);
       expect(longText).to.include("long =>");
       expect(longText).to.include("!= 0L");
       expect(longText).to.not.include("!= null");
 
       const floatExpr = id("f", ref("System.Single"));
-      const [floatText] = toBooleanCondition(floatExpr, "f", ctx);
+      const [floatText] = toText(floatExpr, idAst("f"), ctx);
       expect(floatText).to.include("float =>");
       expect(floatText).to.include("!= 0f");
       expect(floatText).to.include("!float.IsNaN");
       expect(floatText).to.not.include("!= null");
 
       const charExpr = id("c", ref("System.Char"));
-      const [charText] = toBooleanCondition(charExpr, "c", ctx);
+      const [charText] = toText(charExpr, idAst("c"), ctx);
       expect(charText).to.equal("c != '\\0'");
     });
 
     it("emits !string.IsNullOrEmpty for primitive strings", () => {
       const ctx = createContext();
       const expr = id("s", prim("string"));
-      const [text] = toBooleanCondition(expr, "s", ctx);
+      const [text] = toText(expr, idAst("s"), ctx);
       expect(text).to.equal("!string.IsNullOrEmpty(s)");
     });
 
     it("emits JS truthiness for primitive numbers (false iff 0 or NaN) with a single-eval pattern var", () => {
       const ctx = createContext({ tempVarId: 0 });
       const expr = id("n", prim("number"));
-      const [text, next] = toBooleanCondition(expr, "n", ctx);
+      const [text, next] = toText(expr, idAst("n"), ctx);
       expect(text).to.match(/n is double __tsonic_truthy_num_1/);
       expect(text).to.include("!= 0");
       expect(text).to.include("!double.IsNaN");
@@ -109,8 +126,15 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
         inferredType: prim("number"),
       } as IrExpression;
 
-      const [text, next] = toBooleanCondition(expr, "a ?? b", ctx);
-      expect(text).to.match(/\(\(a \?\? b\) is double __tsonic_truthy_num_1/);
+      const emittedAst: CSharpExpressionAst = {
+        kind: "binaryExpression",
+        operatorToken: "??",
+        left: idAst("a"),
+        right: idAst("b"),
+      };
+
+      const [text, next] = toText(expr, emittedAst, ctx);
+      expect(text).to.match(/\(a \?\? b\) is double __tsonic_truthy_num_1/);
       expect(next.tempVarId).to.equal(1);
     });
 
@@ -118,18 +142,14 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
       const ctx = createContext({ tempVarId: 0 });
 
       const unknownExpr = id("x", { kind: "unknownType" } as IrType);
-      const [unknownText, unknownNext] = toBooleanCondition(
-        unknownExpr,
-        "x",
-        ctx
-      );
+      const [unknownText, unknownNext] = toText(unknownExpr, idAst("x"), ctx);
       expect(unknownText).to.include("switch {");
       expect(unknownText).to.include("bool =>");
       expect(unknownText).to.not.include("!= null");
       expect(unknownNext.tempVarId).to.equal(1);
 
       const anyExpr = id("y", { kind: "anyType" } as IrType);
-      const [anyText, anyNext] = toBooleanCondition(anyExpr, "y", ctx);
+      const [anyText, anyNext] = toText(anyExpr, idAst("y"), ctx);
       expect(anyText).to.include("switch {");
       expect(anyText).to.include("string =>");
       expect(anyText).to.not.include("!= null");
@@ -146,7 +166,14 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
         inferredType: prim("boolean"),
       } as IrExpression;
 
-      const [text] = toBooleanCondition(expr, "a == b", ctx);
+      const emittedAst: CSharpExpressionAst = {
+        kind: "binaryExpression",
+        operatorToken: "==",
+        left: idAst("a"),
+        right: idAst("b"),
+      };
+
+      const [text] = toText(expr, emittedAst, ctx);
       expect(text).to.equal("a == b");
     });
 
@@ -156,7 +183,7 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
         "x",
         union([prim("int"), prim("null"), prim("undefined")])
       );
-      const [text, next] = toBooleanCondition(expr, "x", ctx);
+      const [text, next] = toText(expr, idAst("x"), ctx);
       expect(text).to.match(/x is int __tsonic_truthy_nullable_1/);
       expect(text).to.include("__tsonic_truthy_nullable_1 != 0");
       expect(next.tempVarId).to.equal(1);
@@ -172,7 +199,7 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
           prim("undefined"),
         ])
       );
-      const [text, next] = toBooleanCondition(expr, "x", ctx);
+      const [text, next] = toText(expr, idAst("x"), ctx);
       expect(text).to.match(/x is object __tsonic_truthy_1/);
       expect(text).to.include("switch {");
       expect(text).to.not.include("__tsonic_truthy_nullable_");
@@ -182,7 +209,7 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
     it("handles 2-8 unions via IsN/AsN active-variant checks", () => {
       const ctx = createContext({ tempVarId: 0 });
       const expr = id("u", union([prim("int"), prim("string")]));
-      const [text, next] = toBooleanCondition(expr, "u", ctx);
+      const [text, next] = toText(expr, idAst("u"), ctx);
       expect(text).to.match(/u is var __tsonic_truthy_union_1/);
       expect(text).to.include("__tsonic_truthy_union_1.Is1()");
       expect(text).to.include("__tsonic_truthy_union_1.As1()");
@@ -201,7 +228,7 @@ describe("Boolean-context lowering (toBooleanCondition)", () => {
         ])
       );
 
-      const [text, next] = toBooleanCondition(expr, "x", ctx);
+      const [text, next] = toText(expr, idAst("x"), ctx);
       expect(text).to.match(/x is string __tsonic_truthy_nullable_1/);
       expect(text).to.include(
         "!string.IsNullOrEmpty(__tsonic_truthy_nullable_1)"
