@@ -4,7 +4,8 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
-import { emitType, emitTypeParameters } from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
+import { printType } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { emitCSharpName } from "../../naming-policy.js";
@@ -105,11 +106,12 @@ export const emitTypeAliasDeclaration = (
 
           // Property type
           if (member.type) {
-            const [propType, newContext] = emitType(
+            const [propTypeAst, newContext] = emitTypeAst(
               member.type,
               currentContext
             );
             currentContext = newContext;
+            const propType = printType(propTypeAst);
             // Optional members become nullable
             const typeStr = member.isOptional ? `${propType}?` : propType;
             propParts.push(typeStr);
@@ -142,7 +144,7 @@ export const emitTypeAliasDeclaration = (
 
   // For non-structural aliases, emit as comment (C# using aliases are limited)
   // Use currentContext which has type parameters in scope
-  const [typeName, newContext] = emitType(stmt.type, currentContext);
-  const code = `${ind}// type ${stmt.name} = ${typeName}`;
+  const [typeAst, newContext] = emitTypeAst(stmt.type, currentContext);
+  const code = `${ind}// type ${stmt.name} = ${printType(typeAst)}`;
   return [code, { ...newContext, ...savedScoped }];
 };

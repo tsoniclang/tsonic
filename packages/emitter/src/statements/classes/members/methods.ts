@@ -11,7 +11,8 @@ import {
   withAsync,
   withScoped,
 } from "../../../types.js";
-import { emitType, emitTypeParameters } from "../../../type-emitter.js";
+import { emitTypeAst, emitTypeParameters } from "../../../type-emitter.js";
+import { printType } from "../../../core/format/backend-ast/printer.js";
 import { emitBlockStatement } from "../../blocks.js";
 import {
   emitParametersWithDestructuring,
@@ -125,10 +126,11 @@ export const emitMethodMember = (
 
   // Return type - use signatureContext which has method type parameters in scope
   if (member.returnType) {
-    const [returnType, newContext] = emitType(
+    const [returnTypeAst, newContext] = emitTypeAst(
       member.returnType,
       currentContext
     );
+    const returnType = printType(returnTypeAst);
     currentContext = newContext;
     // If async and return type is Promise, it's already converted to Task
     // Don't wrap it again
@@ -220,8 +222,8 @@ export const emitMethodMember = (
       // Get the type for default value
       let typeName = "object";
       if (param.type) {
-        const [typeStr] = emitType(param.type, currentContext);
-        typeName = typeStr;
+        const [typeAst] = emitTypeAst(param.type, currentContext);
+        typeName = printType(typeAst);
       }
       outParams.push({
         name: escapeCSharpIdentifier(param.pattern.name),

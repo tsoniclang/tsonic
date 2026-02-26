@@ -11,11 +11,8 @@ import {
   withStatic,
   withScoped,
 } from "../../types.js";
-import {
-  emitType,
-  emitTypeAst,
-  emitTypeParameters,
-} from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
+import { printType } from "../../core/format/backend-ast/printer.js";
 import { emitBlockStatement, emitBlockStatementAst } from "../blocks.js";
 import {
   emitParametersWithDestructuring,
@@ -160,7 +157,11 @@ export const emitFunctionDeclaration = (
       }
     }
   } else if (stmt.returnType) {
-    const [returnType, newContext] = emitType(stmt.returnType, currentContext);
+    const [returnTypeAst, newContext] = emitTypeAst(
+      stmt.returnType,
+      currentContext
+    );
+    const returnType = printType(returnTypeAst);
     currentContext = newContext;
     // If async and return type is Promise, it's already converted to Task
     // Don't wrap it again
@@ -267,8 +268,8 @@ export const emitFunctionDeclaration = (
       // Get the type for default value
       let typeName = "object";
       if (param.type) {
-        const [typeStr] = emitType(param.type, currentContext);
-        typeName = typeStr;
+        const [typeAst] = emitTypeAst(param.type, currentContext);
+        typeName = printType(typeAst);
       }
       outParams.push({
         name: escapeCSharpIdentifier(param.pattern.name),

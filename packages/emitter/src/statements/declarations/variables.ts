@@ -10,9 +10,12 @@ import {
 } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
+import {
+  printExpression,
+  printType,
+} from "../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../statement-emitter.js";
-import { emitType, emitTypeAst } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern, lowerPatternAst } from "../../patterns.js";
 import {
@@ -263,21 +266,21 @@ export const emitVariableDeclaration = (
     } else if (context.isStatic && decl.initializer?.kind === "typeAssertion") {
       // Type assertion: `obj as Person` -> emit the target type
       const assertExpr = decl.initializer;
-      const [typeName, newContext] = emitType(
+      const [typeAst, newContext] = emitTypeAst(
         assertExpr.targetType,
         currentContext
       );
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (context.isStatic && decl.initializer?.kind === "asinterface") {
       const ifaceExpr = decl.initializer;
       const targetType = resolveAsInterfaceTargetType(
         ifaceExpr.targetType,
         currentContext
       );
-      const [typeName, newContext] = emitType(targetType, currentContext);
+      const [typeAst, newContext] = emitTypeAst(targetType, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (
       decl.initializer &&
       decl.initializer.kind === "arrowFunction" &&
@@ -290,8 +293,11 @@ export const emitVariableDeclaration = (
 
       for (const param of arrowFunc.parameters) {
         if (param.type) {
-          const [paramType, newCtx] = emitType(param.type, currentContext);
-          paramTypes.push(paramType);
+          const [paramTypeAst, newCtx] = emitTypeAst(
+            param.type,
+            currentContext
+          );
+          paramTypes.push(printType(paramTypeAst));
           currentContext = newCtx;
         } else {
           // ICE: Frontend validation (TSN7405) should have caught this.
@@ -386,7 +392,11 @@ export const emitVariableDeclaration = (
         );
       }
 
-      const [returnType, retCtx] = emitType(arrowReturnType, currentContext);
+      const [returnTypeAst, retCtx] = emitTypeAst(
+        arrowReturnType,
+        currentContext
+      );
+      const returnType = printType(returnTypeAst);
       currentContext = retCtx;
 
       const needsOptionalArgs = arrowFunc.parameters.some(
@@ -433,8 +443,12 @@ export const emitVariableDeclaration = (
           const param = arrowFunc.parameters[i];
           if (!param?.type) continue;
 
-          const [paramType, newCtx] = emitType(param.type, currentContext);
+          const [paramTypeAst, newCtx] = emitTypeAst(
+            param.type,
+            currentContext
+          );
           currentContext = newCtx;
+          const paramType = printType(paramTypeAst);
 
           const paramName =
             param.pattern.kind === "identifierPattern"
@@ -467,9 +481,9 @@ export const emitVariableDeclaration = (
       }
     } else if (context.isStatic && decl.type) {
       // Static fields: emit explicit type (required - can't use 'var' for fields)
-      const [typeName, newContext] = emitType(decl.type, currentContext);
+      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (context.isStatic) {
       // Static fields cannot use 'var' - infer type from initializer if possible
       // Priority: 1) new expression with type args, 2) literals, 3) fall back to object
@@ -489,8 +503,8 @@ export const emitVariableDeclaration = (
           // Emit type with explicit type arguments
           const typeArgs: string[] = [];
           for (const typeArg of newExpr.typeArguments) {
-            const [typeArgStr, newCtx] = emitType(typeArg, currentContext);
-            typeArgs.push(typeArgStr);
+            const [typeArgAst, newCtx] = emitTypeAst(typeArg, currentContext);
+            typeArgs.push(printType(typeArgAst));
             currentContext = newCtx;
           }
           varDecl += `${calleeText}<${typeArgs.join(", ")}> `;
@@ -520,12 +534,12 @@ export const emitVariableDeclaration = (
         canEmitTypeExplicitly(decl.initializer.inferredType)
       ) {
         // Use initializer's inferred type (function return types, etc.)
-        const [typeName, newContext] = emitType(
+        const [typeAst, newContext] = emitTypeAst(
           decl.initializer.inferredType,
           currentContext
         );
         currentContext = newContext;
-        varDecl += `${typeName} `;
+        varDecl += `${printType(typeAst)} `;
       } else {
         varDecl += "object ";
       }
@@ -540,9 +554,9 @@ export const emitVariableDeclaration = (
         decl.initializer.targetType,
         currentContext
       );
-      const [typeName, newContext] = emitType(targetType, currentContext);
+      const [typeAst, newContext] = emitTypeAst(targetType, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (
       !context.isStatic &&
       decl.type &&
@@ -551,9 +565,9 @@ export const emitVariableDeclaration = (
       // Local variables with an explicit TypeScript annotation must preserve that type in C#.
       // Using `var` would re-infer from the initializer and can break semantics (e.g. base-typed
       // variables that are reassigned to different derived instances).
-      const [typeName, newContext] = emitType(decl.type, currentContext);
+      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (
       !context.isStatic &&
       decl.type &&
@@ -567,9 +581,9 @@ export const emitVariableDeclaration = (
     ) {
       // `var x = default;` / `var x = null;` is invalid because there is no target type.
       // When the TypeScript source has an explicit type annotation, emit the explicit C# type.
-      const [typeName, newContext] = emitType(decl.type, currentContext);
+      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (
       !context.isStatic &&
       !decl.type &&
@@ -586,9 +600,9 @@ export const emitVariableDeclaration = (
       // otherwise fall back to object? to keep emission valid.
       const fallbackType = decl.initializer.inferredType;
       if (fallbackType && canEmitTypeExplicitly(fallbackType)) {
-        const [typeName, newContext] = emitType(fallbackType, currentContext);
+        const [typeAst, newContext] = emitTypeAst(fallbackType, currentContext);
         currentContext = newContext;
-        varDecl += `${typeName} `;
+        varDecl += `${printType(typeAst)} `;
       } else {
         varDecl += "object? ";
       }
@@ -600,9 +614,9 @@ export const emitVariableDeclaration = (
     ) {
       // Local variable with type that has no C# literal suffix (byte, sbyte, short, ushort)
       // Must emit explicit type since `var x = 200;` would infer `int`
-      const [typeName, newContext] = emitType(decl.type, currentContext);
+      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else if (!context.isStatic && decl.initializer?.kind === "stackalloc") {
       // stackalloc expressions must be target-typed to produce Span<T> (otherwise they become T* and require unsafe).
       const targetType = decl.type ?? decl.initializer.inferredType;
@@ -611,9 +625,9 @@ export const emitVariableDeclaration = (
           "ICE: stackalloc initializer missing target type (no decl.type and no inferredType)"
         );
       }
-      const [typeName, newContext] = emitType(targetType, currentContext);
+      const [typeAst, newContext] = emitTypeAst(targetType, currentContext);
       currentContext = newContext;
-      varDecl += `${typeName} `;
+      varDecl += `${printType(typeAst)} `;
     } else {
       // Local variables use `var` - idiomatic C# when RHS is self-documenting
       varDecl += "var ";
@@ -649,10 +663,11 @@ export const emitVariableDeclaration = (
             );
           }
 
-          const [returnTypeName, returnCtx] = emitType(
+          const [returnTypeAst, returnCtx] = emitTypeAst(
             arrowReturnType,
             currentContext
           );
+          const returnTypeName = printType(returnTypeAst);
 
           // Emit typed method parameters (method groups cannot infer types like lambdas can).
           const methodParams: string[] = [];
@@ -661,8 +676,9 @@ export const emitVariableDeclaration = (
             const param = arrowFunc.parameters[i];
             if (!param?.type) continue;
 
-            const [paramType, newCtx] = emitType(param.type, paramCtx);
+            const [paramTypeAst, newCtx] = emitTypeAst(param.type, paramCtx);
             paramCtx = newCtx;
+            const paramType = printType(paramTypeAst);
 
             const paramName =
               param.pattern.kind === "identifierPattern"

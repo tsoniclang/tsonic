@@ -13,7 +13,8 @@
 
 import { IrFunctionDeclaration, IrType } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
-import { emitType } from "./type-emitter.js";
+import { emitTypeAst } from "./type-emitter.js";
+import { printType } from "./core/format/backend-ast/printer.js";
 import { emitCSharpName, getCSharpName } from "./naming-policy.js";
 
 /**
@@ -42,9 +43,9 @@ export const extractGeneratorTypeArgs = (
     if (typeRef.typeArguments && typeRef.typeArguments.length > 0) {
       const yieldTypeArg = typeRef.typeArguments[0];
       if (yieldTypeArg) {
-        const [yt, ctx1] = emitType(yieldTypeArg, currentContext);
+        const [ytAst, ctx1] = emitTypeAst(yieldTypeArg, currentContext);
         currentContext = ctx1;
-        yieldType = yt;
+        yieldType = printType(ytAst);
       }
 
       if (typeRef.typeArguments.length > 1) {
@@ -57,9 +58,9 @@ export const extractGeneratorTypeArgs = (
             returnTypeArg.name === "undefined"
           )
         ) {
-          const [rt, ctx2] = emitType(returnTypeArg, currentContext);
+          const [rtAst, ctx2] = emitTypeAst(returnTypeArg, currentContext);
           currentContext = ctx2;
-          retType = rt;
+          retType = printType(rtAst);
         }
       }
 
@@ -72,9 +73,9 @@ export const extractGeneratorTypeArgs = (
             nextTypeArg.name === "undefined"
           )
         ) {
-          const [nt, ctx3] = emitType(nextTypeArg, currentContext);
+          const [ntAst, ctx3] = emitTypeAst(nextTypeArg, currentContext);
           currentContext = ctx3;
-          nextType = nt;
+          nextType = printType(ntAst);
           hasNextType = true;
         }
       }

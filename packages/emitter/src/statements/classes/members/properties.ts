@@ -11,8 +11,11 @@ import {
   withScoped,
 } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
-import { printExpression } from "../../../core/format/backend-ast/printer.js";
-import { emitType } from "../../../type-emitter.js";
+import {
+  printExpression,
+  printType,
+} from "../../../core/format/backend-ast/printer.js";
+import { emitTypeAst } from "../../../type-emitter.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { emitCSharpName } from "../../../naming-policy.js";
@@ -77,7 +80,8 @@ export const emitPropertyMember = (
   // Property type - uses standard type emission pipeline
   // Note: type is always set for class fields (from annotation or inference)
   if (member.type) {
-    const [typeName, newContext] = emitType(member.type, currentContext);
+    const [typeAst, newContext] = emitTypeAst(member.type, currentContext);
+    const typeName = printType(typeAst);
     currentContext = newContext;
     parts.push(typeName);
   } else {

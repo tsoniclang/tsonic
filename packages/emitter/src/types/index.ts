@@ -2,7 +2,7 @@
  * Type emitter - Public API
  */
 
-export { emitType, emitTypeAst } from "./emitter.js";
+export { emitTypeAst } from "./emitter.js";
 export { emitTypeParameters, emitParameterType } from "./parameters.js";
 export { emitPrimitiveType } from "./primitives.js";
 export { emitReferenceType } from "./references.js";

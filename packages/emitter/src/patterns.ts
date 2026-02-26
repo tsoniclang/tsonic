@@ -44,7 +44,8 @@ import {
   IrExpression,
 } from "@tsonic/frontend";
 import { EmitterContext } from "./emitter-types/index.js";
-import { emitType, emitTypeAst } from "./types/emitter.js";
+import { emitTypeAst } from "./types/emitter.js";
+import { printType } from "./core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "./emitter-types/identifiers.js";
 import {
   allocateLocalName,
@@ -94,7 +95,7 @@ const lowerIdentifier = (
   // In static context, we can't use 'var' - need explicit type with modifiers
   if (ctx.isStatic) {
     const escapedName = escapeCSharpIdentifier(name);
-    const typeStr = type ? emitType(type, ctx)[0] : "object";
+    const typeStr = type ? printType(emitTypeAst(type, ctx)[0]) : "object";
     const stmt = `${indent}private static readonly ${typeStr} ${escapedName} = ${inputExpr};`;
     return { statements: [stmt], context: ctx };
   }
@@ -106,8 +107,8 @@ const lowerIdentifier = (
   // Local context: use var when type not available
   let typeStr = "var";
   if (type) {
-    const [emittedType, next] = emitType(type, currentCtx);
-    typeStr = emittedType;
+    const [emittedTypeAst, next] = emitTypeAst(type, currentCtx);
+    typeStr = printType(emittedTypeAst);
     currentCtx = next;
   }
 
@@ -141,10 +142,10 @@ const lowerArrayPattern = (
 
   // In static context, we can't use 'var' - need explicit type
   if (ctx.isStatic && arrayType) {
-    const [typeStr, ctx2] = emitType(arrayType, currentCtx);
+    const [typeAst, ctx2] = emitTypeAst(arrayType, currentCtx);
     currentCtx = ctx2;
     statements.push(
-      `${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`
+      `${indent}private static readonly ${printType(typeAst)} ${tempName} = ${inputExpr};`
     );
   } else if (ctx.isStatic) {
     // Static without type - use object as fallback
@@ -230,10 +231,10 @@ const lowerObjectPattern = (
 
   // In static context, we can't use 'var' - need explicit type with modifiers
   if (ctx.isStatic && inputType) {
-    const [typeStr, ctx2] = emitType(inputType, currentCtx);
+    const [typeAst, ctx2] = emitTypeAst(inputType, currentCtx);
     currentCtx = ctx2;
     statements.push(
-      `${indent}private static readonly ${typeStr} ${tempName} = ${inputExpr};`
+      `${indent}private static readonly ${printType(typeAst)} ${tempName} = ${inputExpr};`
     );
   } else if (ctx.isStatic) {
     // Static without type - use object as fallback

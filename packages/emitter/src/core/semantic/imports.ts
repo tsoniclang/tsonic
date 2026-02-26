@@ -12,7 +12,8 @@ import { IrImport, IrModule, IrImportSpecifier } from "@tsonic/frontend";
 import { EmitterContext, ImportBinding, LocalTypeInfo } from "../../types.js";
 import { resolveImportPath } from "./module-map.js";
 import { emitCSharpName } from "../../naming-policy.js";
-import { emitType } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { printType } from "../format/backend-ast/printer.js";
 
 /**
  * Process imports and build ImportBindings for local and CLR modules.
@@ -224,7 +225,7 @@ const createImportBinding = (
           );
         }
 
-        const [typeName] = emitType(localType.type, {
+        const [typeAst] = emitTypeAst(localType.type, {
           ...context,
           localTypes: targetLocalTypes,
           moduleNamespace: namespace,
@@ -232,6 +233,7 @@ const createImportBinding = (
           // so the resulting C# type is usable across files.
           qualifyLocalTypes: true,
         });
+        const typeName = printType(typeAst);
 
         return {
           localName,

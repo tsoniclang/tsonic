@@ -9,7 +9,8 @@ import {
   indent,
   withClassName,
 } from "../../types.js";
-import { emitType, emitTypeParameters } from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
+import { printType } from "../../core/format/backend-ast/printer.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/format/attributes.js";
@@ -215,12 +216,12 @@ export const emitClassDeclaration = (
 
   // Handle superclass (extends clause)
   if (stmt.superClass) {
-    const [superClassType, newContext] = emitType(
+    const [superClassTypeAst, newContext] = emitTypeAst(
       stmt.superClass,
       currentContext
     );
     currentContext = newContext;
-    heritage.push(superClassType);
+    heritage.push(printType(superClassTypeAst));
   }
 
   // Handle interfaces (implements clause)
@@ -262,9 +263,9 @@ export const emitClassDeclaration = (
 
     if (!isLocalCSharpInterface && !isClrInterface) continue;
 
-    const [implType, newContext] = emitType(impl, currentContext);
+    const [implTypeAst, newContext] = emitTypeAst(impl, currentContext);
     currentContext = newContext;
-    implementedInterfaces.push(implType);
+    implementedInterfaces.push(printType(implTypeAst));
   }
   heritage.push(...implementedInterfaces);
 

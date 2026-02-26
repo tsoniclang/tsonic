@@ -4,7 +4,8 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import { emitType } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { printType } from "../../core/format/backend-ast/printer.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 
 /**
@@ -256,7 +257,11 @@ export const registerJsonAotType = (
   }
 
   const registry = context.options.jsonAotRegistry;
-  const [rawTypeStr] = emitType(type, { ...context, qualifyLocalTypes: true });
+  const [rawTypeAst] = emitTypeAst(type, {
+    ...context,
+    qualifyLocalTypes: true,
+  });
+  const rawTypeStr = printType(rawTypeAst);
   const typeStr = rawTypeStr.endsWith("?")
     ? rawTypeStr.slice(0, -1)
     : rawTypeStr;

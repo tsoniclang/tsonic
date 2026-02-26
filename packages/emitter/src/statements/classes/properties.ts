@@ -4,7 +4,8 @@
 
 import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
-import { emitType } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { printType } from "../../core/format/backend-ast/printer.js";
 import { emitParameters } from "./parameters.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 
@@ -38,12 +39,12 @@ export const emitInterfaceMemberAsProperty = (
           // Use naming policy for generated type names
           typeName = getCSharpName(member.name, "classes", context);
         } else {
-          const [emittedType, newContext] = emitType(
+          const [emittedTypeAst, newContext] = emitTypeAst(
             member.type,
             currentContext
           );
           currentContext = newContext;
-          typeName = emittedType;
+          typeName = printType(emittedTypeAst);
         }
         // Optional members become nullable (spec §2.1)
         const typeStr = member.isOptional ? `${typeName}?` : typeName;
@@ -71,12 +72,12 @@ export const emitInterfaceMemberAsProperty = (
 
       // Return type
       if (member.returnType) {
-        const [returnType, newContext] = emitType(
+        const [returnTypeAst, newContext] = emitTypeAst(
           member.returnType,
           currentContext
         );
         currentContext = newContext;
-        parts.push(returnType);
+        parts.push(printType(returnTypeAst));
       } else {
         parts.push("void");
       }

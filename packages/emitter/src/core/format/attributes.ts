@@ -21,7 +21,8 @@
 
 import { IrAttribute, IrAttributeArg, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import { emitType } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { printType } from "./backend-ast/printer.js";
 import { getIndent } from "../../emitter-types/index.js";
 
 /**
@@ -43,12 +44,12 @@ const emitAttributeArg = (
     case "boolean":
       return [arg.value ? "true" : "false", context];
     case "typeof": {
-      const [typeStr, newContext] = emitType(arg.type, context);
-      return [`typeof(${typeStr})`, newContext];
+      const [typeAst, newContext] = emitTypeAst(arg.type, context);
+      return [`typeof(${printType(typeAst)})`, newContext];
     }
     case "enum": {
-      const [typeStr, newContext] = emitType(arg.type, context);
-      return [`${typeStr}.${arg.member}`, newContext];
+      const [typeAst, newContext] = emitTypeAst(arg.type, context);
+      return [`${printType(typeAst)}.${arg.member}`, newContext];
     }
     case "array": {
       const parts: string[] = [];
@@ -71,8 +72,9 @@ const getAttributeTypeName = (
   type: IrType,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  // Use emitType to get the proper C# type name with global:: prefix
-  return emitType(type, context);
+  // Use emitTypeAst to get the proper C# type name with global:: prefix
+  const [typeAst, newContext] = emitTypeAst(type, context);
+  return [printType(typeAst), newContext];
 };
 
 /**

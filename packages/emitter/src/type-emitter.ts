@@ -4,7 +4,6 @@
  */
 
 export {
-  emitType,
   emitTypeAst,
   emitTypeParameters,
   emitParameterType,

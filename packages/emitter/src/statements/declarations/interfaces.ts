@@ -4,7 +4,8 @@
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
-import { emitType, emitTypeParameters } from "../../type-emitter.js";
+import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
+import { printType } from "../../core/format/backend-ast/printer.js";
 import {
   extractInlineObjectTypes,
   emitExtractedType,
@@ -109,9 +110,9 @@ export const emitInterfaceDeclaration = (
     if (stmt.extends && stmt.extends.length > 0) {
       const extended: string[] = [];
       for (const ext of stmt.extends) {
-        const [extType, newContext] = emitType(ext, currentContext);
+        const [extTypeAst, newContext] = emitTypeAst(ext, currentContext);
         currentContext = newContext;
-        extended.push(extType);
+        extended.push(printType(extTypeAst));
       }
       parts.push(":");
       parts.push(extended.join(", "));
@@ -126,9 +127,9 @@ export const emitInterfaceDeclaration = (
     if (stmt.extends && stmt.extends.length > 0) {
       const extended: string[] = [];
       for (const ext of stmt.extends) {
-        const [extType, newContext] = emitType(ext, currentContext);
+        const [extTypeAst, newContext] = emitTypeAst(ext, currentContext);
         currentContext = newContext;
-        extended.push(extType);
+        extended.push(printType(extTypeAst));
       }
       parts.push(":");
       parts.push(extended.join(", "));
@@ -152,8 +153,9 @@ export const emitInterfaceDeclaration = (
 
     // C# interface member emission
     if (member.kind === "propertySignature") {
-      const [typeName, newContext] = emitType(member.type, currentContext);
+      const [typeAst, newContext] = emitTypeAst(member.type, currentContext);
       currentContext = newContext;
+      const typeName = printType(typeAst);
       const typeStr = member.isOptional ? `${typeName}?` : typeName;
       const accessors = member.isReadonly ? "{ get; }" : "{ get; set; }";
       members.push(
@@ -165,12 +167,12 @@ export const emitInterfaceDeclaration = (
     if (member.kind === "methodSignature") {
       const returnType = member.returnType
         ? (() => {
-            const [rt, newContext] = emitType(
+            const [rtAst, newContext] = emitTypeAst(
               member.returnType,
               currentContext
             );
             currentContext = newContext;
-            return rt;
+            return printType(rtAst);
           })()
         : "void";
 
@@ -184,9 +186,9 @@ export const emitInterfaceDeclaration = (
               : "param";
 
           if (!p.type) return `object ${paramName}`;
-          const [pt, newContext] = emitType(p.type, currentContext);
+          const [ptAst, newContext] = emitTypeAst(p.type, currentContext);
           currentContext = newContext;
-          return `${pt} ${paramName}`;
+          return `${printType(ptAst)} ${paramName}`;
         })
         .join(", ");
 

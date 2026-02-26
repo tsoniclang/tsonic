@@ -5,7 +5,8 @@
 
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
-import { emitType } from "./type-emitter.js";
+import { emitTypeAst } from "./type-emitter.js";
+import { printType } from "./core/format/backend-ast/printer.js";
 import {
   needsBidirectionalSupport,
   generateWrapperClass,
@@ -70,17 +71,23 @@ const generateExchangeClass = (
     if (typeRef.typeArguments && typeRef.typeArguments.length > 0) {
       const yieldTypeArg = typeRef.typeArguments[0];
       if (yieldTypeArg) {
-        const [yieldType, newContext1] = emitType(yieldTypeArg, currentContext);
+        const [yieldTypeAst, newContext1] = emitTypeAst(
+          yieldTypeArg,
+          currentContext
+        );
         currentContext = newContext1;
-        outputType = yieldType;
+        outputType = printType(yieldTypeAst);
       }
 
       if (typeRef.typeArguments.length > 2) {
         const nextTypeArg = typeRef.typeArguments[2];
         if (nextTypeArg) {
-          const [nextType, newContext2] = emitType(nextTypeArg, currentContext);
+          const [nextTypeAst, newContext2] = emitTypeAst(
+            nextTypeArg,
+            currentContext
+          );
           currentContext = newContext2;
-          inputType = nextType;
+          inputType = printType(nextTypeAst);
         }
       }
     }

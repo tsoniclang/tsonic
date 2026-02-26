@@ -4,7 +4,8 @@
 
 import { IrType, IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
+import { printType } from "../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 
 type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
@@ -135,12 +136,12 @@ export const emitTypeParameters = (
           ) {
             constraintParts.push("class");
           } else {
-            const [constraintStr, newContext] = emitType(
+            const [constraintAst, newContext] = emitTypeAst(
               member,
               currentContext
             );
             currentContext = newContext;
-            constraintParts.push(constraintStr);
+            constraintParts.push(printType(constraintAst));
           }
         }
         whereClauses.push(`where ${tpName} : ${constraintParts.join(", ")}`);
@@ -157,12 +158,12 @@ export const emitTypeParameters = (
         // Special case: T extends object → where T : class (C# reference type constraint)
         whereClauses.push(`where ${tpName} : class`);
       } else {
-        const [constraintStr, newContext] = emitType(
+        const [constraintAst, newContext] = emitTypeAst(
           tp.constraint,
           currentContext
         );
         currentContext = newContext;
-        whereClauses.push(`where ${tpName} : ${constraintStr}`);
+        whereClauses.push(`where ${tpName} : ${printType(constraintAst)}`);
       }
     }
   }
@@ -206,7 +207,8 @@ export const emitParameterType = (
   const unwrapped = unwrapParameterModifierType(typeNode);
   const actualType = unwrapped ?? typeNode;
 
-  const [baseType, newContext] = emitType(actualType, context);
+  const [baseTypeAst, newContext] = emitTypeAst(actualType, context);
+  const baseType = printType(baseTypeAst);
 
   // For optional parameters, add ? suffix for nullable types
   // This includes both value types (double?, int?) and reference types (string?)

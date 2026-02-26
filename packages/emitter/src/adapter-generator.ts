@@ -5,7 +5,8 @@
 
 import { IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "./types.js";
-import { emitType } from "./type-emitter.js";
+import { emitTypeAst } from "./type-emitter.js";
+import { printType } from "./core/format/backend-ast/printer.js";
 import { emitCSharpName } from "./naming-policy.js";
 
 /**
@@ -46,8 +47,12 @@ export const generateStructuralAdapter = (
 
   for (const member of typeParam.structuralMembers) {
     if (member.kind === "propertySignature") {
-      const [memberType, newContext] = emitType(member.type, currentContext);
+      const [memberTypeAst, newContext] = emitTypeAst(
+        member.type,
+        currentContext
+      );
       currentContext = newContext;
+      const memberType = printType(memberTypeAst);
 
       const optional = member.isOptional ? "?" : "";
       parts.push(
@@ -65,8 +70,12 @@ export const generateStructuralAdapter = (
 
   for (const member of typeParam.structuralMembers) {
     if (member.kind === "propertySignature") {
-      const [memberType, newContext] = emitType(member.type, currentContext);
+      const [memberTypeAst, newContext] = emitTypeAst(
+        member.type,
+        currentContext
+      );
       currentContext = newContext;
+      const memberType = printType(memberTypeAst);
 
       const optional = member.isOptional ? "?" : "";
       parts.push(
