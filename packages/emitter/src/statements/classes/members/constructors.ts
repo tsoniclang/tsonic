@@ -5,7 +5,11 @@
 import { IrClassMember, IrStatement, type IrParameter } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
-import { printExpression } from "../../../core/format/backend-ast/printer.js";
+import {
+  printExpression,
+  printAttributes,
+  printParameter,
+} from "../../../core/format/backend-ast/printer.js";
 import { emitBlockStatement } from "../../blocks.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
@@ -51,12 +55,12 @@ export const emitConstructorMember = (
   const parts: string[] = [];
 
   // Emit attributes before the constructor declaration
-  const [attributesCode, attrContext] = emitAttributes(
+  const [attrs, attrContext] = emitAttributes(
     member.attributes,
     currentContext
   );
   currentContext = attrContext;
-  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
 
   // Access modifier
   const accessibility = member.accessibility ?? "public";
@@ -81,7 +85,7 @@ export const emitConstructorMember = (
   if (!member.body) {
     // Abstract or interface constructor without body
     const signature = parts.join(" ");
-    const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameterList});`;
+    const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameters.map(printParameter).join(", ")});`;
     return [code, { ...currentContext, ...savedScoped }];
   }
 
@@ -148,7 +152,7 @@ export const emitConstructorMember = (
   }
 
   const signature = parts.join(" ");
-  const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameterList})${baseCall}\n${finalBodyCode}`;
+  const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameters.map(printParameter).join(", ")})${baseCall}\n${finalBodyCode}`;
 
   const returnedContext = dedent(finalContext);
   return [code, { ...returnedContext, ...savedScoped }];

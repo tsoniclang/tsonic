@@ -379,6 +379,7 @@ export type CSharpParameterAst = {
   readonly defaultValue?: CSharpExpressionAst;
   /** "ref", "out", "in", "params", "this" */
   readonly modifiers?: readonly string[];
+  readonly attributes?: readonly CSharpAttributeAst[];
 };
 
 export type CSharpLocalFunctionStatementAst = {
@@ -526,6 +527,8 @@ export type CSharpStatementAst =
 export type CSharpAttributeAst = {
   readonly name: string;
   readonly arguments?: readonly CSharpExpressionAst[];
+  /** Attribute target specifier, e.g. "return", "assembly", "field" */
+  readonly target?: string;
 };
 
 export type CSharpFieldDeclarationAst = {

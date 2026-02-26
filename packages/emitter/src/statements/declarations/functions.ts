@@ -12,7 +12,11 @@ import {
   withScoped,
 } from "../../types.js";
 import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
-import { printType } from "../../core/format/backend-ast/printer.js";
+import {
+  printType,
+  printAttributes,
+  printParameter,
+} from "../../core/format/backend-ast/printer.js";
 import { emitBlockStatement, emitBlockStatementAst } from "../blocks.js";
 import {
   emitParametersWithDestructuring,
@@ -380,10 +384,7 @@ export const emitFunctionDeclaration = (
   }
 
   // Emit attributes before the function declaration
-  const [attributesCode, attrContext] = emitAttributes(
-    stmt.attributes,
-    currentContext
-  );
+  const [attrs, attrContext] = emitAttributes(stmt.attributes, currentContext);
   currentContext = attrContext;
 
   const signature = parts.join(" ");
@@ -393,8 +394,8 @@ export const emitFunctionDeclaration = (
       : "";
 
   // Build final code with attributes (if any)
-  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
+  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameters.map(printParameter).join(", ")})${whereClause}\n${finalBodyCode}`;
 
   // Return context - no usings tracking needed with global:: FQN approach
   return [code, { ...currentContext, ...savedScoped }];

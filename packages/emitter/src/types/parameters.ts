@@ -7,6 +7,7 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import { printType } from "../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
 
@@ -194,13 +195,13 @@ const unwrapParameterModifierType = (type: IrType): IrType | null => {
 };
 
 /**
- * Emit a parameter type with optional and default value handling
+ * Emit a parameter type as CSharpTypeAst with optional/nullable handling
  */
 export const emitParameterType = (
   type: IrType | undefined,
   isOptional: boolean,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   const typeNode = type ?? { kind: "anyType" as const };
 
   // Unwrap ref/out/in wrapper types - the modifier is handled separately
@@ -208,14 +209,13 @@ export const emitParameterType = (
   const actualType = unwrapped ?? typeNode;
 
   const [baseTypeAst, newContext] = emitTypeAst(actualType, context);
-  const baseType = printType(baseTypeAst);
 
-  // For optional parameters, add ? suffix for nullable types
+  // For optional parameters, wrap in nullable
   // This includes both value types (double?, int?) and reference types (string?)
   // per spec/04-type-mappings.md:21-78
   if (isOptional) {
-    return [`${baseType}?`, newContext];
+    return [{ kind: "nullableType", underlyingType: baseTypeAst }, newContext];
   }
 
-  return [baseType, newContext];
+  return [baseTypeAst, newContext];
 };

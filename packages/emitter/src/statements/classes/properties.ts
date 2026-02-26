@@ -5,7 +5,10 @@
 import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../../types.js";
 import { emitTypeAst } from "../../type-emitter.js";
-import { printType } from "../../core/format/backend-ast/printer.js";
+import {
+  printType,
+  printParameter,
+} from "../../core/format/backend-ast/printer.js";
 import { emitParameters } from "./parameters.js";
 import { emitCSharpName, getCSharpName } from "../../naming-policy.js";
 
@@ -86,12 +89,16 @@ export const emitInterfaceMemberAsProperty = (
       parts.push(emitCSharpName(member.name, "methods", context));
 
       // Parameters
-      const params = emitParameters(member.parameters, currentContext);
-      currentContext = params[1];
+      const [paramAsts, paramContext] = emitParameters(
+        member.parameters,
+        currentContext
+      );
+      currentContext = paramContext;
+      const paramList = paramAsts.map(printParameter).join(", ");
 
       // Methods in interfaces are abstract declarations
       return [
-        `${ind}${parts.join(" ")}(${params[0]}) => throw new NotImplementedException();`,
+        `${ind}${parts.join(" ")}(${paramList}) => throw new NotImplementedException();`,
         currentContext,
       ];
     }

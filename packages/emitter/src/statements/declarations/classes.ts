@@ -10,7 +10,10 @@ import {
   withClassName,
 } from "../../types.js";
 import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
-import { printType } from "../../core/format/backend-ast/printer.js";
+import {
+  printType,
+  printAttributes,
+} from "../../core/format/backend-ast/printer.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { emitAttributes } from "../../core/format/attributes.js";
@@ -295,13 +298,13 @@ export const emitClassDeclaration = (
 
   // Emit attributes before the class declaration
   // Use original context (not the one after processing members) for correct indentation
-  const [attributesCode] = emitAttributes(stmt.attributes, context);
+  const [attrs] = emitAttributes(stmt.attributes, context);
 
   const signature = parts.join(" ");
   const memberCode = members.join("\n\n");
 
   // Build final code with attributes (if any)
-  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
   const mainClassCode = `${attrPrefix}${ind}${signature}${typeParamsStr}${heritageStr}${whereClause}\n${ind}{\n${memberCode}\n${ind}}`;
 
   // TS allows static members on generic classes, but C# requires selecting a concrete arity.

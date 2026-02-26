@@ -14,6 +14,7 @@ import { emitExpressionAst } from "../../../expression-emitter.js";
 import {
   printExpression,
   printType,
+  printAttributes,
 } from "../../../core/format/backend-ast/printer.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
@@ -98,13 +99,13 @@ export const emitPropertyMember = (
   );
 
   // Emit attributes before the property declaration
-  const [attributesCode, attrContext] = emitAttributes(
+  const [attrs, attrContext] = emitAttributes(
     member.attributes,
     currentContext
   );
   currentContext = attrContext;
 
-  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
+  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
 
   if (shouldEmitField) {
     let code = `${attrPrefix}${ind}${parts.join(" ")};`;

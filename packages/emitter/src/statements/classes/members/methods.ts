@@ -12,7 +12,11 @@ import {
   withScoped,
 } from "../../../types.js";
 import { emitTypeAst, emitTypeParameters } from "../../../type-emitter.js";
-import { printType } from "../../../core/format/backend-ast/printer.js";
+import {
+  printType,
+  printAttributes,
+  printParameter,
+} from "../../../core/format/backend-ast/printer.js";
 import { emitBlockStatement } from "../../blocks.js";
 import {
   emitParametersWithDestructuring,
@@ -188,7 +192,7 @@ export const emitMethodMember = (
   if (!member.body) {
     // Abstract method without body
     // Emit attributes before the method declaration
-    const [attributesCode, attrContext] = emitAttributes(
+    const [attrs, attrContext] = emitAttributes(
       member.attributes,
       currentContext
     );
@@ -196,8 +200,8 @@ export const emitMethodMember = (
     const signature = parts.join(" ");
 
     // Build final code with attributes (if any)
-    const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-    const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause};`;
+    const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
+    const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameters.map(printParameter).join(", ")})${whereClause};`;
     return [code, attrContext];
   }
 
@@ -258,7 +262,7 @@ export const emitMethodMember = (
   // Emit attributes before the method declaration.
   // IMPORTANT: Use method-level indentation (not body indentation).
   const methodLevelContext = dedent(finalContext);
-  const [attributesCode, attrContext] = emitAttributes(
+  const [attrs, attrContext] = emitAttributes(
     member.attributes,
     methodLevelContext
   );
@@ -266,8 +270,8 @@ export const emitMethodMember = (
   const signature = parts.join(" ");
 
   // Build final code with attributes (if any)
-  const attrPrefix = attributesCode ? attributesCode + "\n" : "";
-  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameterList})${whereClause}\n${finalBodyCode}`;
+  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
+  const code = `${attrPrefix}${ind}${signature}${typeParamsStr}(${paramsResult.parameters.map(printParameter).join(", ")})${whereClause}\n${finalBodyCode}`;
 
   return [code, { ...attrContext, ...savedScoped }];
 };

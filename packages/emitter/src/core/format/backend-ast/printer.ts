@@ -442,18 +442,20 @@ export const printExpression = (expr: CSharpExpressionAst): string => {
     }
 
     case "arrayCreationExpression": {
-      const elemType = printType(expr.elementType);
+      // varType element type → implicitly-typed new[] { ... }
+      const isImplicit = expr.elementType.kind === "varType";
+      const elemType = isImplicit ? "" : ` ${printType(expr.elementType)}`;
       if (expr.initializer && expr.initializer.length > 0) {
         const elems = expr.initializer.map(printExpression).join(", ");
         if (expr.sizeExpression) {
-          return `new ${elemType}[${printExpression(expr.sizeExpression)}] { ${elems} }`;
+          return `new${elemType}[${printExpression(expr.sizeExpression)}] { ${elems} }`;
         }
-        return `new ${elemType}[] { ${elems} }`;
+        return `new${elemType}[] { ${elems} }`;
       }
       if (expr.sizeExpression) {
-        return `new ${elemType}[${printExpression(expr.sizeExpression)}]`;
+        return `new${elemType}[${printExpression(expr.sizeExpression)}]`;
       }
-      return `new ${elemType}[0]`;
+      return `new${elemType}[0]`;
     }
 
     case "stackAllocArrayCreationExpression":
@@ -972,7 +974,20 @@ const printCatchClause = (
   return `${indent}catch (${typeName}${ident})${filter}\n${body}`;
 };
 
-const printParameter = (param: CSharpParameterAst): string => {
+export const printParameter = (param: CSharpParameterAst): string => {
+  const attrPrefix =
+    param.attributes && param.attributes.length > 0
+      ? param.attributes
+          .map((a) => {
+            const targetPrefix = a.target ? `${a.target}: ` : "";
+            const args =
+              a.arguments && a.arguments.length > 0
+                ? `(${a.arguments.map(printExpression).join(", ")})`
+                : "";
+            return `[${targetPrefix}${a.name}${args}]`;
+          })
+          .join("") + " "
+      : "";
   const mods =
     param.modifiers && param.modifiers.length > 0
       ? `${param.modifiers.join(" ")} `
@@ -982,7 +997,7 @@ const printParameter = (param: CSharpParameterAst): string => {
   const defaultVal = param.defaultValue
     ? ` = ${printExpression(param.defaultValue)}`
     : "";
-  return `${mods}${typeName} ${name}${defaultVal}`;
+  return `${attrPrefix}${mods}${typeName} ${name}${defaultVal}`;
 };
 
 // ============================================================
@@ -1145,18 +1160,19 @@ const printConstraints = (
     .join("");
 };
 
-const printAttributes = (
+export const printAttributes = (
   attrs: readonly CSharpAttributeAst[],
   indent: string
 ): string => {
   if (attrs.length === 0) return "";
   return attrs
     .map((a) => {
+      const targetPrefix = a.target ? `${a.target}: ` : "";
       const args =
         a.arguments && a.arguments.length > 0
           ? `(${a.arguments.map(printExpression).join(", ")})`
           : "";
-      return `${indent}[${a.name}${args}]\n`;
+      return `${indent}[${targetPrefix}${a.name}${args}]\n`;
     })
     .join("");
 };
