@@ -1,0 +1,5 @@
+{
+  "expectFailure": true,
+  "description": "import.meta is permanently unsupported in strict AOT mode and must remain a hard error.",
+  "expectedErrors": ["TSN2001", "Meta properties (import.meta) not supported"]
+}

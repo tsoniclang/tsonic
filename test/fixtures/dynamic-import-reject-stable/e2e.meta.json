@@ -1,0 +1,5 @@
+{
+  "expectFailure": true,
+  "description": "dynamic import() is permanently unsupported in strict AOT mode and must remain a hard error.",
+  "expectedErrors": ["TSN2001", "Dynamic import() not supported"]
+}
