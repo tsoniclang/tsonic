@@ -660,11 +660,17 @@ export type CSharpEnumDeclarationAst = {
   readonly members: readonly CSharpEnumMemberAst[];
 };
 
+export type CSharpLiteralTypeDeclarationAst = {
+  readonly kind: "literalDeclaration";
+  readonly text: string;
+};
+
 export type CSharpTypeDeclarationAst =
   | CSharpClassDeclarationAst
   | CSharpStructDeclarationAst
   | CSharpInterfaceDeclarationAst
-  | CSharpEnumDeclarationAst;
+  | CSharpEnumDeclarationAst
+  | CSharpLiteralTypeDeclarationAst;
 
 // ============================================================
 // Top-level compilation unit
@@ -683,6 +689,7 @@ export type CSharpNamespaceDeclarationAst = {
 
 export type CSharpCompilationUnitAst = {
   readonly kind: "compilationUnit";
+  readonly header?: string;
   readonly usings: readonly CSharpUsingDirectiveAst[];
   readonly members: readonly (
     | CSharpNamespaceDeclarationAst

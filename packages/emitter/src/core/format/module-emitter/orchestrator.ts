@@ -5,7 +5,6 @@
 import { IrModule, IrStatement, IrType } from "@tsonic/frontend";
 import { EmitterOptions, createContext } from "../../../types.js";
 import { generateStructuralAdapters } from "../../../adapter-generator.js";
-import { printTypeDeclaration } from "../backend-ast/printer.js";
 import {
   collectSpecializations,
   generateSpecializations,
@@ -229,19 +228,16 @@ export const emitModule = (
     typeParams,
     processedContext
   );
-  const adaptersCode = adapterDecls
-    .map((d) => printTypeDeclaration(d, ""))
-    .join("\n\n");
 
   // Collect specializations and generate monomorphized versions
   const specializations = collectSpecializations(module);
-  const [specializationsCode, specializationsContext] = generateSpecializations(
+  const [specializationDecls, specializationsContext] = generateSpecializations(
     specializations,
     adaptersContext
   );
 
   // Generate exchange objects for generators
-  const [exchangesCode, exchangesContext] = generateGeneratorExchanges(
+  const [exchangeDecls, exchangesContext] = generateGeneratorExchanges(
     module,
     specializationsContext
   );
@@ -295,16 +291,9 @@ export const emitModule = (
     hasInheritance
   );
 
-  // Print namespace declarations to text
-  const namespaceDeclsParts: string[] = [
-    ...namespaceResult.commentLines,
-    ...namespaceResult.declarations.map((d) => printTypeDeclaration(d, "    ")),
-  ];
-  const namespaceDeclsCode = namespaceDeclsParts.join("\n");
-
   // Emit static container class if there are any static members
   // Use __Module suffix when there's a name collision with namespace-level declarations
-  let staticContainerCode = "";
+  let staticContainerDecl = undefined;
   let finalContext = namespaceResult.context;
 
   if (staticContainerMembers.length > 0) {
@@ -315,21 +304,19 @@ export const emitModule = (
       hasInheritance,
       hasCollision // Add __Module suffix only when there's a name collision
     );
-    staticContainerCode = printTypeDeclaration(
-      containerResult.declaration,
-      "    "
-    );
+    staticContainerDecl = containerResult.declaration;
     finalContext = containerResult.context;
   }
 
-  // Assemble final output
+  // Assemble final output from AST declarations
   const parts: AssemblyParts = {
     header,
-    adaptersCode,
-    specializationsCode,
-    exchangesCode,
-    namespaceDeclsCode,
-    staticContainerCode,
+    adapterDecls,
+    specializationDecls,
+    exchangeDecls,
+    namespaceDeclComments: namespaceResult.commentLines,
+    namespaceDecls: namespaceResult.declarations,
+    staticContainerDecl,
   };
 
   return assembleOutput(module, parts, finalContext);

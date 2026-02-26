@@ -2,15 +2,14 @@
  * Generator Exchange Object Generator
  * Per spec/13-generators.md - Generate exchange objects for bidirectional communication
  *
- * Exchange classes are built as CSharpTypeDeclarationAst internally.
- * generateGeneratorExchanges returns [string, EmitterContext] because
- * the wrapper class (generator-wrapper.ts) is still text-based.
+ * Exchange classes are built as CSharpTypeDeclarationAst.
+ * Wrapper classes (generator-wrapper.ts) are still text-based and wrapped
+ * in CSharpLiteralTypeDeclarationAst.
  */
 
 import { IrModule, IrFunctionDeclaration } from "@tsonic/frontend";
 import { EmitterContext } from "./types.js";
 import { emitTypeAst } from "./type-emitter.js";
-import { printTypeDeclaration } from "./core/format/backend-ast/printer.js";
 import {
   needsBidirectionalSupport,
   generateWrapperClass,
@@ -111,45 +110,41 @@ export const generateExchangeClassAst = (
 };
 
 /**
- * Generate all exchange objects, wrapper classes, and IteratorResult struct for generators in a module.
- *
- * Returns text because the wrapper class is still text-based.
- * The exchange classes are built as AST internally.
+ * Generate all exchange objects and wrapper classes for generators in a module.
+ * Returns AST type declarations (wrapper classes use literalDeclaration).
  */
 export const generateGeneratorExchanges = (
   module: IrModule,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   const generators = collectGenerators(module);
 
   if (generators.length === 0) {
-    return ["", context];
+    return [[], context];
   }
 
-  const parts: string[] = [];
+  const decls: CSharpTypeDeclarationAst[] = [];
   let currentContext = context;
 
   for (const generator of generators) {
-    // Exchange class (AST-based, printed to text)
+    // Exchange class (fully AST)
     const [exchangeAst, exchangeContext] = generateExchangeClassAst(
       generator,
       currentContext
     );
     currentContext = exchangeContext;
-    parts.push(printTypeDeclaration(exchangeAst, "    "));
-    parts.push("");
+    decls.push(exchangeAst);
 
-    // Wrapper class (text-based, only for bidirectional generators)
+    // Wrapper class (text-based, wrapped in literalDeclaration)
     if (needsBidirectionalSupport(generator)) {
       const [wrapperCode, wrapperContext] = generateWrapperClass(
         generator,
         currentContext
       );
       currentContext = wrapperContext;
-      parts.push(wrapperCode);
-      parts.push("");
+      decls.push({ kind: "literalDeclaration", text: wrapperCode });
     }
   }
 
-  return [parts.join("\n"), currentContext];
+  return [decls, currentContext];
 };

@@ -1,7 +1,8 @@
 /**
  * Generate specialized declarations from requests
  *
- * Calls AST declaration emitters directly (no text shim).
+ * Calls AST declaration emitters directly, returns CSharpTypeDeclarationAst[].
+ * Function specializations are wrapped in a static helper class.
  */
 
 import {
@@ -10,15 +11,12 @@ import {
   IrBlockStatement,
   IrType,
 } from "@tsonic/frontend";
-import { EmitterContext, getIndent, withStatic } from "../types.js";
+import { EmitterContext, withStatic } from "../types.js";
 import {
   emitClassDeclaration,
   emitFunctionDeclaration,
 } from "../statements/declarations.js";
-import {
-  printTypeDeclaration,
-  printMember,
-} from "../core/format/backend-ast/printer.js";
+import type { CSharpTypeDeclarationAst } from "../core/format/backend-ast/types.js";
 import { SpecializationRequest } from "./types.js";
 import {
   generateSpecializedFunctionName,
@@ -27,48 +25,49 @@ import {
 import { substituteType, substituteStatement } from "./substitution.js";
 
 /**
- * Generate specialized declarations from requests
- * Returns C# code for the specialized declarations
+ * Generate specialized declarations from requests.
+ * Returns AST type declarations for all specializations.
  */
 export const generateSpecializations = (
   requests: readonly SpecializationRequest[],
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   if (requests.length === 0) {
-    return ["", context];
+    return [[], context];
   }
 
-  const parts: string[] = [];
+  const decls: CSharpTypeDeclarationAst[] = [];
   let currentContext = context;
 
   for (const request of requests) {
     if (request.kind === "function") {
-      const [code, newContext] = generateSpecializedFunction(
+      const [funcDecls, newContext] = generateSpecializedFunction(
         request,
         currentContext
       );
-      parts.push(code);
+      decls.push(...funcDecls);
       currentContext = newContext;
     } else if (request.kind === "class") {
-      const [code, newContext] = generateSpecializedClass(
+      const [classDecls, newContext] = generateSpecializedClass(
         request,
         currentContext
       );
-      parts.push(code);
+      decls.push(...classDecls);
       currentContext = newContext;
     }
   }
 
-  return [parts.join("\n\n"), currentContext];
+  return [decls, currentContext];
 };
 
 /**
- * Generate a specialized function by substituting type parameters
+ * Generate a specialized function by substituting type parameters.
+ * Wraps the specialized methods in a static class for namespace-level placement.
  */
 const generateSpecializedFunction = (
   request: SpecializationRequest,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   const funcDecl = request.declaration as IrFunctionDeclaration;
 
   // Create type substitution map
@@ -103,9 +102,18 @@ const generateSpecializedFunction = (
     specializedDecl,
     staticContext
   );
-  const ind = getIndent(context);
-  const code = funcMembers.map((m) => printMember(m, ind)).join("\n\n");
-  return [code, funcCtx];
+
+  // Wrap in a static class for namespace-level placement
+  const classDecl: CSharpTypeDeclarationAst = {
+    kind: "classDeclaration",
+    attributes: [],
+    modifiers: ["public", "static"],
+    name: `${specializedDecl.name}__Specialized`,
+    interfaces: [],
+    members: funcMembers,
+  };
+
+  return [[classDecl], funcCtx];
 };
 
 /**
@@ -114,7 +122,7 @@ const generateSpecializedFunction = (
 const generateSpecializedClass = (
   request: SpecializationRequest,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpTypeDeclarationAst[], EmitterContext] => {
   const classDecl = request.declaration as IrClassDeclaration;
 
   // Create type substitution map
@@ -197,8 +205,5 @@ const generateSpecializedClass = (
   };
 
   // Emit the specialized class as type declarations
-  const [classDecls, classCtx] = emitClassDeclaration(specializedDecl, context);
-  const ind = getIndent(context);
-  const code = classDecls.map((d) => printTypeDeclaration(d, ind)).join("\n");
-  return [code, classCtx];
+  return emitClassDeclaration(specializedDecl, context);
 };

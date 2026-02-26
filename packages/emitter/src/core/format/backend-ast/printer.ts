@@ -1177,6 +1177,16 @@ export const printTypeDeclaration = (
       return `${attrs}${indent}${mods}enum ${escapeIdentifier(decl.name)}\n${indent}{\n${members}\n${indent}}`;
     }
 
+    case "literalDeclaration":
+      // Re-indent pre-rendered text to match the current indent level
+      if (indent && decl.text) {
+        return decl.text
+          .split("\n")
+          .map((line) => (line ? indent + line : line))
+          .join("\n");
+      }
+      return decl.text;
+
     default: {
       const exhaustiveCheck: never = decl;
       throw new Error(
@@ -1238,9 +1248,20 @@ export const printAttributes = (
 export const printCompilationUnit = (
   unit: CSharpCompilationUnitAst
 ): string => {
+  const parts: string[] = [];
+
+  if (unit.header) {
+    parts.push(unit.header);
+  }
+
   const usings = unit.usings
     .map((u) => `using ${escapeQualifiedName(u.namespace)};`)
     .join("\n");
+  if (usings) {
+    parts.push(usings);
+    parts.push("");
+  }
+
   const members = unit.members
     .map((m) => {
       if (m.kind === "namespaceDeclaration") {
@@ -1249,9 +1270,11 @@ export const printCompilationUnit = (
       return printTypeDeclaration(m, "");
     })
     .join("\n\n");
+  if (members) {
+    parts.push(members);
+  }
 
-  const parts = [usings, members].filter((p) => p.length > 0);
-  return parts.join("\n\n") + "\n";
+  return parts.join("\n");
 };
 
 const printNamespaceDeclaration = (
