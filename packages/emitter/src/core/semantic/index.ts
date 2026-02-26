@@ -34,8 +34,6 @@ export {
   isBooleanType,
   toBooleanCondition,
   toBooleanConditionAst,
-  emitBooleanCondition,
   emitBooleanConditionAst,
-  type EmitExprFn,
   type EmitExprAstFn,
 } from "./boolean-context.js";

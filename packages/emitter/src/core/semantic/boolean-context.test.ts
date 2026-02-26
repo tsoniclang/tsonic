@@ -1,6 +1,6 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import { emitBooleanCondition, toBooleanCondition } from "./boolean-context.js";
+import { toBooleanCondition } from "./boolean-context.js";
 import type { IrExpression, IrType } from "@tsonic/frontend";
 import type { EmitterContext, EmitterOptions } from "../../types.js";
 
@@ -38,40 +38,7 @@ const union = (types: readonly IrType[]): IrType =>
 const id = (name: string, inferredType?: IrType): IrExpression =>
   ({ kind: "identifier", name, inferredType }) as IrExpression;
 
-const emitExpr = (
-  expr: IrExpression,
-  context: EmitterContext
-): [{ text: string }, EmitterContext] => {
-  switch (expr.kind) {
-    case "identifier":
-      return [{ text: expr.name }, context];
-    case "literal":
-      return [
-        {
-          text:
-            typeof expr.value === "string"
-              ? JSON.stringify(expr.value)
-              : String(expr.value),
-        },
-        context,
-      ];
-    case "binary": {
-      const lhs = expr.left.kind === "identifier" ? expr.left.name : "lhs";
-      const rhs = expr.right.kind === "identifier" ? expr.right.name : "rhs";
-      const op =
-        expr.operator === "==="
-          ? "=="
-          : expr.operator === "!=="
-            ? "!="
-            : expr.operator;
-      return [{ text: `${lhs} ${op} ${rhs}` }, context];
-    }
-    default:
-      return [{ text: "__expr" }, context];
-  }
-};
-
-describe("Boolean-context lowering (emitBooleanCondition/toBooleanCondition)", () => {
+describe("Boolean-context lowering (toBooleanCondition)", () => {
   describe("toBooleanCondition", () => {
     it("treats primitive boolean as a condition (no rewriting)", () => {
       const ctx = createContext();
@@ -243,74 +210,4 @@ describe("Boolean-context lowering (emitBooleanCondition/toBooleanCondition)", (
     });
   });
 
-  describe("emitBooleanCondition", () => {
-    it("applies truthiness to each operand for logical && / || (preserving short-circuit form)", () => {
-      const ctx = createContext();
-
-      const expr = {
-        kind: "logical",
-        operator: "&&",
-        left: id("a", prim("int")),
-        right: id("b", prim("int")),
-        inferredType: prim("int"),
-      } as IrExpression;
-
-      const [text] = emitBooleanCondition(expr, emitExpr, ctx);
-      expect(text).to.equal("a != 0 && b != 0");
-    });
-
-    it("parenthesizes `||` operands when they appear under `&&` so grouping is preserved", () => {
-      const ctx = createContext();
-
-      const expr = {
-        kind: "logical",
-        operator: "&&",
-        left: {
-          kind: "logical",
-          operator: "||",
-          left: id("a", prim("int")),
-          right: id("b", prim("int")),
-          inferredType: prim("int"),
-        },
-        right: id("c", prim("int")),
-        inferredType: prim("int"),
-      } as IrExpression;
-
-      const [text] = emitBooleanCondition(expr, emitExpr, ctx);
-      expect(text).to.equal("(a != 0 || b != 0) && c != 0");
-    });
-
-    it("does not rewrite inherently-boolean expressions", () => {
-      const ctx = createContext();
-
-      const expr = {
-        kind: "binary",
-        operator: "==",
-        left: id("a", prim("int")),
-        right: id("b", prim("int")),
-        inferredType: prim("boolean"),
-      } as IrExpression;
-
-      const [text] = emitBooleanCondition(expr, emitExpr, ctx);
-      expect(text).to.equal("a == b");
-    });
-
-    it("uses runtime truthiness for unknown operands (never `!= null`) while preserving logical operators", () => {
-      const ctx = createContext({ tempVarId: 0 });
-
-      const expr = {
-        kind: "logical",
-        operator: "||",
-        left: id("x", { kind: "unknownType" } as IrType),
-        right: id("y", prim("boolean")),
-        inferredType: { kind: "unknownType" } as IrType,
-      } as IrExpression;
-
-      const [text, next] = emitBooleanCondition(expr, emitExpr, ctx);
-      expect(text).to.include("switch {");
-      expect(text).to.include("|| y");
-      expect(text).to.not.include("!= null");
-      expect(next.tempVarId).to.equal(1);
-    });
-  });
 });

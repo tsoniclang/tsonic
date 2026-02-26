@@ -18,11 +18,6 @@ import { substituteTypeArgs } from "./type-resolution.js";
 import { printExpression } from "../format/backend-ast/printer.js";
 import type { CSharpExpressionAst } from "../format/backend-ast/types.js";
 
-export type EmitExprFn = (
-  expr: IrExpression,
-  context: EmitterContext
-) => [{ readonly text: string }, EmitterContext];
-
 export type EmitExprAstFn = (
   expr: IrExpression,
   context: EmitterContext
@@ -535,66 +530,6 @@ export const toBooleanCondition = (
   }
 
   return [emittedText, context];
-};
-
-/**
- * Emit a boolean-context expression.
- *
- * Special-cases logical &&/|| so that `ToBoolean(a && b)` is emitted as
- * `ToBoolean(a) && ToBoolean(b)` (and similarly for `||`), matching JS.
- */
-export const emitBooleanCondition = (
-  expr: IrExpression,
-  emitExpr: EmitExprFn,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const getLogicalPrecedence = (op: "&&" | "||"): number =>
-    op === "&&" ? 6 : 5;
-
-  const maybeParenthesizeLogicalOperand = (
-    operandExpr: IrExpression,
-    operandText: string,
-    parentOp: "&&" | "||"
-  ): string => {
-    if (operandExpr.kind !== "logical") return operandText;
-    if (operandExpr.operator !== "&&" && operandExpr.operator !== "||")
-      return operandText;
-
-    const parentPrec = getLogicalPrecedence(parentOp);
-    const childPrec = getLogicalPrecedence(operandExpr.operator);
-    return childPrec < parentPrec ? `(${operandText})` : operandText;
-  };
-
-  if (
-    expr.kind === "logical" &&
-    (expr.operator === "&&" || expr.operator === "||")
-  ) {
-    const [lhsText, lhsCtx] = emitBooleanCondition(
-      expr.left,
-      emitExpr,
-      context
-    );
-    const [rhsText, rhsCtx] = emitBooleanCondition(
-      expr.right,
-      emitExpr,
-      lhsCtx
-    );
-
-    const lhsWrapped = maybeParenthesizeLogicalOperand(
-      expr.left,
-      lhsText,
-      expr.operator
-    );
-    const rhsWrapped = maybeParenthesizeLogicalOperand(
-      expr.right,
-      rhsText,
-      expr.operator
-    );
-    return [`${lhsWrapped} ${expr.operator} ${rhsWrapped}`, rhsCtx];
-  }
-
-  const [frag, next] = emitExpr(expr, context);
-  return toBooleanCondition(expr, frag.text, next);
 };
 
 /**
