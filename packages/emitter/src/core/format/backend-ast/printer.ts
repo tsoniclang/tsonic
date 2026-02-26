@@ -1111,6 +1111,17 @@ export const printMember = (
       return `${attrs}${indent}${mods}${escapeIdentifier(member.name)}(${params})${baseCall}\n${printStatementFlatBlock(member.body, indent)}`;
     }
 
+    case "delegateDeclaration": {
+      const mods =
+        member.modifiers.length > 0 ? `${member.modifiers.join(" ")} ` : "";
+      const ret = printType(member.returnType);
+      const params = member.parameters.map(printParameter).join(", ");
+      return `${indent}${mods}delegate ${ret} ${escapeIdentifier(member.name)}(${params});`;
+    }
+
+    case "literalMember":
+      return member.text;
+
     default: {
       const exhaustiveCheck: never = member;
       throw new Error(

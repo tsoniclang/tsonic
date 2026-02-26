@@ -3,18 +3,23 @@
  */
 
 import {
+  IrBlockStatement,
+  IrExpression,
   IrParameter,
   IrStatement,
   IrType,
+  NumericKind,
   NUMERIC_KIND_TO_CSHARP,
 } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
-import { emitExpressionAst } from "../../expression-emitter.js";
 import {
-  printExpression,
-  printType,
-} from "../../core/format/backend-ast/printer.js";
-import { emitStatement } from "../../statement-emitter.js";
+  EmitterContext,
+  getIndent,
+  indent,
+  withStatic,
+} from "../../types.js";
+import { emitExpressionAst } from "../../expression-emitter.js";
+import { printExpression } from "../../core/format/backend-ast/printer.js";
+import { emitBlockStatementAst } from "../../statements/blocks.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { lowerPattern, lowerPatternAst } from "../../patterns.js";
@@ -30,6 +35,9 @@ import { emitCSharpName } from "../../naming-policy.js";
 import type {
   CSharpStatementAst,
   CSharpTypeAst,
+  CSharpExpressionAst,
+  CSharpMemberAst,
+  CSharpParameterAst,
 } from "../../core/format/backend-ast/types.js";
 
 const getAsyncBodyReturnType = (
@@ -186,43 +194,479 @@ const seedLocalNameMapFromParameters = (
 };
 
 /**
- * Emit a variable declaration
+ * Resolve the C# type AST for a static field declaration.
+ *
+ * Priority:
+ * 1) numericNarrowing initializer (e.g., `1000 as int`) - use CLR type
+ * 2) typeAssertion initializer (e.g., `obj as Person`) - use target type
+ * 3) asinterface initializer (e.g., `asinterface<IQueryable<T>>(db.Events)`) - use target type
+ * 4) Explicit/inferred IR type
+ * 5) Infer from initializer (new, literal, inferredType)
+ * 6) Fallback to object
+ *
+ * Arrow function types are handled separately in emitStaticArrowFieldMembers.
+ */
+const resolveStaticFieldType = (
+  decl: {
+    readonly type?: IrType;
+    readonly initializer?: {
+      readonly kind: string;
+      readonly targetKind?: NumericKind;
+      readonly targetType?: IrType;
+      readonly callee?: unknown;
+      readonly typeArguments?: readonly IrType[];
+      readonly value?: unknown;
+      readonly numericIntent?: NumericKind;
+      readonly inferredType?: IrType;
+    };
+  },
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  const init = decl.initializer;
+
+  // numericNarrowing
+  if (init?.kind === "numericNarrowing" && init.targetKind) {
+    const csharpType =
+      NUMERIC_KIND_TO_CSHARP.get(init.targetKind) ?? "double";
+    return [{ kind: "identifierType", name: csharpType }, context];
+  }
+
+  // typeAssertion
+  if (init?.kind === "typeAssertion" && init.targetType) {
+    return emitTypeAst(init.targetType, context);
+  }
+
+  // asinterface
+  if (init?.kind === "asinterface" && init.targetType) {
+    const targetType = resolveAsInterfaceTargetType(init.targetType, context);
+    return emitTypeAst(targetType, context);
+  }
+
+  // Explicit type annotation
+  if (decl.type) {
+    return emitTypeAst(decl.type, context);
+  }
+
+  // Infer from new expression
+  if (init?.kind === "new") {
+    // Type is inferred from the new expression callee + type args.
+    // We emit the callee as expression AST and construct a type from it.
+    const newExpr = init as {
+      callee: Parameters<typeof emitExpressionAst>[0];
+      typeArguments?: readonly IrType[];
+    };
+    const [calleeAst, calleeContext] = emitExpressionAst(
+      newExpr.callee,
+      context
+    );
+    let currentContext = calleeContext;
+    const calleeText = printExpression(calleeAst);
+
+    if (newExpr.typeArguments && newExpr.typeArguments.length > 0) {
+      const typeArgs: CSharpTypeAst[] = [];
+      for (const typeArg of newExpr.typeArguments) {
+        const [typeArgAst, newCtx] = emitTypeAst(typeArg, currentContext);
+        typeArgs.push(typeArgAst);
+        currentContext = newCtx;
+      }
+      return [
+        { kind: "identifierType", name: calleeText, typeArguments: typeArgs },
+        currentContext,
+      ];
+    }
+    return [{ kind: "identifierType", name: calleeText }, currentContext];
+  }
+
+  // Infer from literal
+  if (init?.kind === "literal") {
+    const lit = init as { value: unknown; numericIntent?: NumericKind };
+    if (typeof lit.value === "string") {
+      return [{ kind: "identifierType", name: "string" }, context];
+    }
+    if (typeof lit.value === "number") {
+      const csharpType = lit.numericIntent
+        ? (NUMERIC_KIND_TO_CSHARP.get(lit.numericIntent) ?? "double")
+        : "double";
+      return [{ kind: "identifierType", name: csharpType }, context];
+    }
+    if (typeof lit.value === "boolean") {
+      return [{ kind: "identifierType", name: "bool" }, context];
+    }
+    return [{ kind: "identifierType", name: "object" }, context];
+  }
+
+  // Infer from initializer's inferred type
+  if (init?.inferredType && canEmitTypeExplicitly(init.inferredType)) {
+    return emitTypeAst(init.inferredType, context);
+  }
+
+  return [{ kind: "identifierType", name: "object" }, context];
+};
+
+/**
+ * Validate that an arrow function's type parameters are in scope.
+ * Throws ICE if an out-of-scope type parameter is found.
+ */
+const validateArrowTypeScope = (
+  arrowFunc: { parameters: readonly IrParameter[]; returnType?: IrType },
+  arrowReturnType: IrType,
+  inScopeTypeParams: ReadonlySet<string>
+): void => {
+  const findOutOfScopeTypeParam = (type: IrType): string | undefined => {
+    switch (type.kind) {
+      case "typeParameterType":
+        return inScopeTypeParams.has(type.name) ? undefined : type.name;
+      case "arrayType":
+        return findOutOfScopeTypeParam(type.elementType);
+      case "dictionaryType": {
+        const key = findOutOfScopeTypeParam(type.keyType);
+        return key ?? findOutOfScopeTypeParam(type.valueType);
+      }
+      case "referenceType":
+        if (type.typeArguments) {
+          for (const arg of type.typeArguments) {
+            const hit = findOutOfScopeTypeParam(arg);
+            if (hit) return hit;
+          }
+        }
+        return undefined;
+      case "unionType":
+        for (const t of type.types) {
+          const hit = findOutOfScopeTypeParam(t);
+          if (hit) return hit;
+        }
+        return undefined;
+      case "tupleType":
+        for (const e of type.elementTypes) {
+          const hit = findOutOfScopeTypeParam(e);
+          if (hit) return hit;
+        }
+        return undefined;
+      case "functionType": {
+        for (const p of type.parameters) {
+          if (!p.type) continue;
+          const hit = findOutOfScopeTypeParam(p.type);
+          if (hit) return hit;
+        }
+        return type.returnType
+          ? findOutOfScopeTypeParam(type.returnType)
+          : undefined;
+      }
+      default:
+        return undefined;
+    }
+  };
+
+  for (const param of arrowFunc.parameters) {
+    if (!param.type) continue;
+    const hit = findOutOfScopeTypeParam(param.type);
+    if (hit) {
+      throw new Error(
+        `ICE: Generic function value reached emitter (type parameter '${hit}' is not in scope). Validation should have emitted TSN7432.`
+      );
+    }
+  }
+
+  const retHit = findOutOfScopeTypeParam(arrowReturnType);
+  if (retHit) {
+    throw new Error(
+      `ICE: Generic function value reached emitter (type parameter '${retHit}' is not in scope). Validation should have emitted TSN7432.`
+    );
+  }
+};
+
+/**
+ * Resolve the return type for a static arrow function.
+ */
+const resolveArrowReturnType = (
+  arrowFunc: {
+    returnType?: IrType;
+    inferredType?: IrType;
+  }
+): IrType => {
+  const result =
+    arrowFunc.returnType ??
+    (arrowFunc.inferredType?.kind === "functionType"
+      ? arrowFunc.inferredType.returnType
+      : undefined);
+  if (!result) {
+    throw new Error(
+      "ICE: Arrow function without return type reached emitter - neither explicit nor inferred type available"
+    );
+  }
+  return result;
+};
+
+/**
+ * Emit a static arrow function as field + companion __Impl method.
+ *
+ * Returns:
+ * - For optional-arg arrows: [delegate decl, field, __Impl method]
+ * - For regular arrows: [field, __Impl method]
+ */
+const emitStaticArrowFieldMembers = (
+  stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
+  decl: {
+    readonly name: { readonly kind: string; readonly name?: string };
+    readonly initializer: {
+      readonly kind: "arrowFunction";
+      readonly parameters: readonly IrParameter[];
+      readonly returnType?: IrType;
+      readonly inferredType?: IrType;
+      readonly isAsync: boolean;
+      readonly body: IrBlockStatement | IrExpression;
+    };
+    readonly type?: IrType;
+  },
+  context: EmitterContext
+): [readonly CSharpMemberAst[], EmitterContext] => {
+  const arrowFunc = decl.initializer;
+  let currentContext = context;
+
+  // Resolve and validate return type
+  const arrowReturnType = resolveArrowReturnType(arrowFunc);
+  const inScopeTypeParams =
+    currentContext.typeParameters ?? new Set<string>();
+  validateArrowTypeScope(arrowFunc, arrowReturnType, inScopeTypeParams);
+
+  // Emit parameter types
+  const paramTypeAsts: CSharpTypeAst[] = [];
+  for (const param of arrowFunc.parameters) {
+    if (param.type) {
+      const [paramTypeAst, newCtx] = emitTypeAst(param.type, currentContext);
+      paramTypeAsts.push(paramTypeAst);
+      currentContext = newCtx;
+    } else {
+      const paramName =
+        param.pattern.kind === "identifierPattern"
+          ? param.pattern.name
+          : "unknown";
+      throw new Error(
+        `ICE: Untyped parameter '${paramName}' reached emitter - validation missed TSN7405`
+      );
+    }
+  }
+
+  // Emit return type AST
+  const [returnTypeAst, retCtx] = emitTypeAst(arrowReturnType, currentContext);
+  currentContext = retCtx;
+
+  const members: CSharpMemberAst[] = [];
+  const fieldName = decl.name.kind === "identifierPattern"
+    ? emitCSharpName(decl.name.name!, "fields", context)
+    : "/* unsupported */";
+  const implName = `${fieldName}__Impl`;
+
+  // Determine field type: delegate, Func<>, or Action<>
+  const needsOptionalArgs = arrowFunc.parameters.some(
+    (p) => p.isOptional || !!p.initializer
+  );
+
+  let fieldTypeAst: CSharpTypeAst;
+
+  if (needsOptionalArgs) {
+    // Custom delegate type for optional parameters
+    const hasInitializer = arrowFunc.parameters.some(
+      (p) => !!p.initializer
+    );
+    if (hasInitializer) {
+      throw new Error(
+        "ICE: Arrow function values with default parameter initializers are not supported. Use a named function declaration instead."
+      );
+    }
+    if (decl.name.kind !== "identifierPattern") {
+      throw new Error(
+        "ICE: Arrow function value with optional params must use an identifier binding."
+      );
+    }
+
+    const delegateTypeName = `${fieldName}__Delegate`;
+    const access = stmt.isExported ? "public" : "internal";
+
+    // Build delegate parameter ASTs
+    const delegateParams: CSharpParameterAst[] = [];
+    for (let i = 0; i < arrowFunc.parameters.length; i++) {
+      const param = arrowFunc.parameters[i];
+      if (!param?.type) continue;
+      const pTypeAst = paramTypeAsts[i]!;
+      const paramName =
+        param.pattern.kind === "identifierPattern"
+          ? escapeCSharpIdentifier(param.pattern.name)
+          : `p${i}`;
+      delegateParams.push({
+        name: paramName,
+        type: param.isOptional
+          ? { kind: "nullableType", underlyingType: pTypeAst }
+          : pTypeAst,
+        defaultValue: param.isOptional
+          ? { kind: "defaultExpression" }
+          : undefined,
+      });
+    }
+
+    members.push({
+      kind: "delegateDeclaration",
+      modifiers: [access],
+      returnType: returnTypeAst,
+      name: delegateTypeName,
+      parameters: delegateParams,
+    });
+
+    fieldTypeAst = { kind: "identifierType", name: delegateTypeName };
+  } else {
+    // Func<> or Action<>
+    const isVoidReturn =
+      returnTypeAst.kind === "identifierType" && returnTypeAst.name === "void";
+    if (isVoidReturn) {
+      fieldTypeAst =
+        paramTypeAsts.length === 0
+          ? { kind: "identifierType", name: "global::System.Action" }
+          : {
+              kind: "identifierType",
+              name: "global::System.Action",
+              typeArguments: paramTypeAsts,
+            };
+    } else {
+      fieldTypeAst = {
+        kind: "identifierType",
+        name: "global::System.Func",
+        typeArguments: [...paramTypeAsts, returnTypeAst],
+      };
+    }
+  }
+
+  // Field: public/internal static FieldType fieldName = implName;
+  const fieldModifiers = [
+    stmt.isExported ? "public" : "internal",
+    "static",
+    ...(stmt.declarationKind === "const" ? ["readonly"] : []),
+  ];
+
+  members.push({
+    kind: "fieldDeclaration",
+    attributes: [],
+    modifiers: fieldModifiers,
+    type: fieldTypeAst,
+    name: fieldName,
+    initializer: { kind: "identifierExpression", identifier: implName },
+  });
+
+  // __Impl method: private static ReturnType implName(params) { ... }
+  const methodParams: CSharpParameterAst[] = [];
+  let paramCtx = currentContext;
+  for (let i = 0; i < arrowFunc.parameters.length; i++) {
+    const param = arrowFunc.parameters[i];
+    if (!param?.type) continue;
+    const mTypeAst = paramTypeAsts[i]!;
+    const paramName =
+      param.pattern.kind === "identifierPattern"
+        ? escapeCSharpIdentifier(param.pattern.name)
+        : `p${i}`;
+    methodParams.push({
+      name: paramName,
+      type: param.isOptional
+        ? { kind: "nullableType", underlyingType: mTypeAst }
+        : mTypeAst,
+      defaultValue: param.isOptional
+        ? { kind: "defaultExpression" }
+        : undefined,
+    });
+  }
+
+  const bodyBaseContext = seedLocalNameMapFromParameters(
+    arrowFunc.parameters,
+    withStatic(indent(paramCtx), false)
+  );
+
+  const bodyReturnType = getAsyncBodyReturnType(
+    arrowFunc.isAsync,
+    arrowReturnType
+  );
+
+  const methodModifiers = [
+    "private",
+    "static",
+    ...(arrowFunc.isAsync ? ["async"] : []),
+  ];
+
+  // Build method body AST
+  const bodyResult = (() => {
+    if (arrowFunc.body.kind === "blockStatement") {
+      return emitBlockStatementAst(
+        arrowFunc.body,
+        {
+          ...bodyBaseContext,
+          returnType: bodyReturnType,
+        }
+      );
+    }
+    const [exprAst, bodyCtx] = emitExpressionAst(
+      arrowFunc.body,
+      bodyBaseContext,
+      bodyReturnType
+    );
+    const isVoidReturn =
+      !bodyReturnType ||
+      bodyReturnType.kind === "voidType" ||
+      (bodyReturnType.kind === "primitiveType" &&
+        bodyReturnType.name === "undefined");
+    const blockAst = {
+      kind: "blockStatement" as const,
+      statements: isVoidReturn
+        ? [{ kind: "expressionStatement" as const, expression: exprAst }]
+        : [{ kind: "returnStatement" as const, expression: exprAst }],
+    };
+    return [blockAst, bodyCtx] as const;
+  })();
+  const bodyAst = bodyResult[0];
+  paramCtx = bodyResult[1];
+
+  members.push({
+    kind: "methodDeclaration",
+    attributes: [],
+    modifiers: methodModifiers,
+    returnType: returnTypeAst,
+    name: implName,
+    parameters: methodParams,
+    body: bodyAst,
+  });
+
+  return [members, paramCtx];
+};
+
+/**
+ * Emit a static variable declaration as AST members (fields, methods, delegates).
  */
 export const emitVariableDeclaration = (
   stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpMemberAst[], EmitterContext] => {
   const ind = getIndent(context);
   let currentContext = context;
-  const declarations: string[] = [];
+  const members: CSharpMemberAst[] = [];
 
   for (const decl of stmt.declarations) {
-    // Handle destructuring patterns EARLY - they use lowerPattern which generates `var` declarations
-    // Skip all the type inference logic for these
+    // Handle destructuring patterns via text-based lowerPattern
     if (
       decl.name.kind === "arrayPattern" ||
       decl.name.kind === "objectPattern"
     ) {
       if (!decl.initializer) {
-        // Destructuring requires an initializer
-        declarations.push(
-          `${ind}/* destructuring without initializer - error */`
-        );
+        members.push({
+          kind: "literalMember",
+          text: `${ind}/* destructuring without initializer - error */`,
+        });
         continue;
       }
 
-      // Emit the RHS expression
       const [initAst, newContext] = emitExpressionAst(
         decl.initializer,
         currentContext,
         decl.type
       );
       currentContext = newContext;
-
-      // Use explicit type annotation if present, otherwise use initializer's inferred type
       const patternType = decl.type ?? decl.initializer.inferredType;
 
-      // Lower the pattern to C# statements
       const result = lowerPattern(
         decl.name,
         printExpression(initAst),
@@ -231,544 +675,70 @@ export const emitVariableDeclaration = (
         currentContext
       );
 
-      // Add all generated statements
-      declarations.push(...result.statements);
+      for (const line of result.statements) {
+        members.push({ kind: "literalMember", text: line });
+      }
       currentContext = result.context;
       continue;
     }
 
-    let varDecl = "";
-
-    // In static contexts, variable declarations become fields with modifiers
-    if (context.isStatic) {
-      // Exported: public, non-exported: internal (module-local helpers may be used by
-      // namespace-level declarations emitted outside the static container class).
-      varDecl = stmt.isExported ? "public static " : "internal static ";
-      if (stmt.declarationKind === "const") {
-        varDecl += "readonly ";
-      }
+    // Arrow function in static context → field + __Impl method (+ optional delegate)
+    if (context.isStatic && decl.initializer?.kind === "arrowFunction") {
+      const [arrowMembers, arrowCtx] = emitStaticArrowFieldMembers(
+        stmt,
+        decl as Parameters<typeof emitStaticArrowFieldMembers>[1],
+        currentContext
+      );
+      members.push(...arrowMembers);
+      currentContext = arrowCtx;
+      continue;
     }
 
-    // Determine the C# type
-    // Priority:
-    // 1) numericNarrowing initializer (e.g., `1000 as int`) - use CLR type
-    // 2) typeAssertion initializer (e.g., `obj as Person`) - use target type
-    // 3) asinterface initializer (e.g., `asinterface<IQueryable<T>>(db.Events)`) - use target type
-    // 3) Explicit/inferred IR type
-    // 4) Arrow function inference
-    // 5) var
-    if (context.isStatic && decl.initializer?.kind === "numericNarrowing") {
-      // Numeric narrowing: `1000 as int` -> emit the target CLR type
-      const narrowingExpr = decl.initializer;
-      const csharpType =
-        NUMERIC_KIND_TO_CSHARP.get(narrowingExpr.targetKind) ?? "double";
-      varDecl += `${csharpType} `;
-    } else if (context.isStatic && decl.initializer?.kind === "typeAssertion") {
-      // Type assertion: `obj as Person` -> emit the target type
-      const assertExpr = decl.initializer;
-      const [typeAst, newContext] = emitTypeAst(
-        assertExpr.targetType,
-        currentContext
-      );
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (context.isStatic && decl.initializer?.kind === "asinterface") {
-      const ifaceExpr = decl.initializer;
-      const targetType = resolveAsInterfaceTargetType(
-        ifaceExpr.targetType,
-        currentContext
-      );
-      const [typeAst, newContext] = emitTypeAst(targetType, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (
-      decl.initializer &&
-      decl.initializer.kind === "arrowFunction" &&
-      context.isStatic
-    ) {
-      // For arrow functions in static context without explicit type, infer Func<> type
-      const arrowFunc = decl.initializer;
-
-      const paramTypes: string[] = [];
-
-      for (const param of arrowFunc.parameters) {
-        if (param.type) {
-          const [paramTypeAst, newCtx] = emitTypeAst(
-            param.type,
-            currentContext
-          );
-          paramTypes.push(printType(paramTypeAst));
-          currentContext = newCtx;
-        } else {
-          // ICE: Frontend validation (TSN7405) should have caught this.
-          const paramName =
-            param.pattern.kind === "identifierPattern"
-              ? param.pattern.name
-              : "unknown";
-          throw new Error(
-            `ICE: Untyped parameter '${paramName}' reached emitter - validation missed TSN7405`
-          );
-        }
-      }
-
-      // Get return type: explicit annotation, or infer from TS checker
-      const arrowReturnType =
-        arrowFunc.returnType ??
-        (arrowFunc.inferredType?.kind === "functionType"
-          ? arrowFunc.inferredType.returnType
-          : undefined);
-
-      if (!arrowReturnType) {
-        // ICE: Neither explicit nor inferred return type available
-        throw new Error(
-          "ICE: Arrow function without return type reached emitter - neither explicit nor inferred type available"
-        );
-      }
-
-      // Generic functions cannot be represented as values in C#.
-      // Detect out-of-scope type parameters (e.g., `<T>(x: T) => ...`) and fail
-      // instead of generating invalid C# that references an undeclared `T`.
-      const inScopeTypeParams =
-        currentContext.typeParameters ?? new Set<string>();
-      const findOutOfScopeTypeParam = (type: IrType): string | undefined => {
-        switch (type.kind) {
-          case "typeParameterType":
-            return inScopeTypeParams.has(type.name) ? undefined : type.name;
-          case "arrayType":
-            return findOutOfScopeTypeParam(type.elementType);
-          case "dictionaryType": {
-            const key = findOutOfScopeTypeParam(type.keyType);
-            return key ?? findOutOfScopeTypeParam(type.valueType);
-          }
-          case "referenceType":
-            if (type.typeArguments) {
-              for (const arg of type.typeArguments) {
-                const hit = findOutOfScopeTypeParam(arg);
-                if (hit) return hit;
-              }
-            }
-            return undefined;
-          case "unionType":
-            for (const t of type.types) {
-              const hit = findOutOfScopeTypeParam(t);
-              if (hit) return hit;
-            }
-            return undefined;
-          case "tupleType":
-            for (const e of type.elementTypes) {
-              const hit = findOutOfScopeTypeParam(e);
-              if (hit) return hit;
-            }
-            return undefined;
-          case "functionType": {
-            for (const p of type.parameters) {
-              if (!p.type) continue;
-              const hit = findOutOfScopeTypeParam(p.type);
-              if (hit) return hit;
-            }
-            return type.returnType
-              ? findOutOfScopeTypeParam(type.returnType)
-              : undefined;
-          }
-          default:
-            return undefined;
-        }
-      };
-
-      for (const param of arrowFunc.parameters) {
-        if (!param.type) continue;
-        const hit = findOutOfScopeTypeParam(param.type);
-        if (hit) {
-          throw new Error(
-            `ICE: Generic function value reached emitter (type parameter '${hit}' is not in scope). Validation should have emitted TSN7432.`
-          );
-        }
-      }
-
-      const retHit = findOutOfScopeTypeParam(arrowReturnType);
-      if (retHit) {
-        throw new Error(
-          `ICE: Generic function value reached emitter (type parameter '${retHit}' is not in scope). Validation should have emitted TSN7432.`
-        );
-      }
-
-      const [returnTypeAst, retCtx] = emitTypeAst(
-        arrowReturnType,
-        currentContext
-      );
-      const returnType = printType(returnTypeAst);
-      currentContext = retCtx;
-
-      const needsOptionalArgs = arrowFunc.parameters.some(
-        (p) => p.isOptional || !!p.initializer
-      );
-
-      if (needsOptionalArgs) {
-        // C# lambdas do not support optional/default parameters, and Func<> cannot encode them.
-        // Emit a custom delegate type with optional parameters so call sites like `f(a, b)`
-        // remain valid when the TS source omits optional args.
-        //
-        // NOTE: We currently do not support parameter initializers for arrow-function values.
-        // Optional-only (`x?: T`) is supported via `= default` on the delegate signature.
-        const hasInitializer = arrowFunc.parameters.some(
-          (p) => !!p.initializer
-        );
-        if (hasInitializer) {
-          throw new Error(
-            "ICE: Arrow function values with default parameter initializers are not supported. Use a named function declaration instead."
-          );
-        }
-
-        if (decl.name.kind !== "identifierPattern") {
-          throw new Error(
-            "ICE: Arrow function value with optional params must use an identifier binding."
-          );
-        }
-
-        const originalFieldName = decl.name.name;
-        const emittedFieldName = emitCSharpName(
-          originalFieldName,
-          "fields",
-          context
-        );
-        const delegateTypeName = `${emittedFieldName}__Delegate`;
-        const access = stmt.isExported
-          ? "public"
-          : context.isStatic
-            ? "internal"
-            : "private";
-
-        const delegateParams: string[] = [];
-        for (let i = 0; i < arrowFunc.parameters.length; i++) {
-          const param = arrowFunc.parameters[i];
-          if (!param?.type) continue;
-
-          const [paramTypeAst, newCtx] = emitTypeAst(
-            param.type,
-            currentContext
-          );
-          currentContext = newCtx;
-          const paramType = printType(paramTypeAst);
-
-          const paramName =
-            param.pattern.kind === "identifierPattern"
-              ? escapeCSharpIdentifier(param.pattern.name)
-              : `p${i}`;
-
-          const optionalSuffix = param.isOptional ? "?" : "";
-          const defaultSuffix = param.isOptional ? " = default" : "";
-          delegateParams.push(
-            `${paramType}${optionalSuffix} ${paramName}${defaultSuffix}`
-          );
-        }
-
-        declarations.push(
-          `${ind}${access} delegate ${returnType} ${delegateTypeName}(${delegateParams.join(", ")});`
-        );
-        varDecl += `${delegateTypeName} `;
-      } else {
-        if (returnType === "void") {
-          const actionType =
-            paramTypes.length === 0
-              ? "global::System.Action"
-              : `global::System.Action<${paramTypes.join(", ")}>`;
-          varDecl += `${actionType} `;
-        } else {
-          const allTypes = [...paramTypes, returnType];
-          const funcType = `global::System.Func<${allTypes.join(", ")}>`;
-          varDecl += `${funcType} `;
-        }
-      }
-    } else if (context.isStatic && decl.type) {
-      // Static fields: emit explicit type (required - can't use 'var' for fields)
-      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (context.isStatic) {
-      // Static fields cannot use 'var' - infer type from initializer if possible
-      // Priority: 1) new expression with type args, 2) literals, 3) fall back to object
-      if (decl.initializer?.kind === "new") {
-        // Construct type from the new expression's callee and type arguments
-        // This preserves explicit type arguments like `int` instead of using
-        // inferredType which TypeScript sees as `number`
-        const newExpr = decl.initializer;
-        const [calleeAst, calleeContext] = emitExpressionAst(
-          newExpr.callee,
-          currentContext
-        );
-        currentContext = calleeContext;
-        const calleeText = printExpression(calleeAst);
-
-        if (newExpr.typeArguments && newExpr.typeArguments.length > 0) {
-          // Emit type with explicit type arguments
-          const typeArgs: string[] = [];
-          for (const typeArg of newExpr.typeArguments) {
-            const [typeArgAst, newCtx] = emitTypeAst(typeArg, currentContext);
-            typeArgs.push(printType(typeArgAst));
-            currentContext = newCtx;
-          }
-          varDecl += `${calleeText}<${typeArgs.join(", ")}> `;
-        } else {
-          // Non-generic constructor
-          varDecl += `${calleeText} `;
-        }
-      } else if (decl.initializer?.kind === "literal") {
-        const lit = decl.initializer;
-        if (typeof lit.value === "string") {
-          varDecl += "string ";
-        } else if (typeof lit.value === "number") {
-          // Use expression-level numericIntent (from literal lexeme) to determine int vs double
-          // INVARIANT: numericIntent is on the literal expression, NOT on the type
-          const numericIntent = lit.numericIntent;
-          const csharpType = numericIntent
-            ? (NUMERIC_KIND_TO_CSHARP.get(numericIntent) ?? "double")
-            : "double";
-          varDecl += `${csharpType} `;
-        } else if (typeof lit.value === "boolean") {
-          varDecl += "bool ";
-        } else {
-          varDecl += "object ";
-        }
-      } else if (
-        decl.initializer?.inferredType &&
-        canEmitTypeExplicitly(decl.initializer.inferredType)
-      ) {
-        // Use initializer's inferred type (function return types, etc.)
-        const [typeAst, newContext] = emitTypeAst(
-          decl.initializer.inferredType,
-          currentContext
-        );
-        currentContext = newContext;
-        varDecl += `${printType(typeAst)} `;
-      } else {
-        varDecl += "object ";
-      }
-    } else if (
-      !context.isStatic &&
-      !decl.type &&
-      decl.initializer?.kind === "asinterface"
-    ) {
-      // `asinterface<T>(x)` is type-only. For locals, preserve the target type in the LHS
-      // so C# gets an interface-typed variable without emitting a cast.
-      const targetType = resolveAsInterfaceTargetType(
-        decl.initializer.targetType,
-        currentContext
-      );
-      const [typeAst, newContext] = emitTypeAst(targetType, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (
-      !context.isStatic &&
-      decl.type &&
-      canEmitTypeExplicitly(decl.type)
-    ) {
-      // Local variables with an explicit TypeScript annotation must preserve that type in C#.
-      // Using `var` would re-infer from the initializer and can break semantics (e.g. base-typed
-      // variables that are reassigned to different derived instances).
-      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (
-      !context.isStatic &&
-      decl.type &&
-      decl.initializer &&
-      ((decl.initializer.kind === "literal" &&
-        (decl.initializer.value === undefined ||
-          decl.initializer.value === null)) ||
-        (decl.initializer.kind === "identifier" &&
-          (decl.initializer.name === "undefined" ||
-            decl.initializer.name === "null")))
-    ) {
-      // `var x = default;` / `var x = null;` is invalid because there is no target type.
-      // When the TypeScript source has an explicit type annotation, emit the explicit C# type.
-      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (
-      !context.isStatic &&
-      !decl.type &&
-      decl.initializer &&
-      ((decl.initializer.kind === "literal" &&
-        (decl.initializer.value === undefined ||
-          decl.initializer.value === null)) ||
-        (decl.initializer.kind === "identifier" &&
-          (decl.initializer.name === "undefined" ||
-            decl.initializer.name === "null")))
-    ) {
-      // Nullish initializer without an explicit annotation cannot be emitted with `var`.
-      // Prefer the initializer's inferred type if it is explicitly nameable in C#,
-      // otherwise fall back to object? to keep emission valid.
-      const fallbackType = decl.initializer.inferredType;
-      if (fallbackType && canEmitTypeExplicitly(fallbackType)) {
-        const [typeAst, newContext] = emitTypeAst(fallbackType, currentContext);
-        currentContext = newContext;
-        varDecl += `${printType(typeAst)} `;
-      } else {
-        varDecl += "object? ";
-      }
-    } else if (
-      !context.isStatic &&
-      decl.type &&
-      decl.initializer?.kind !== "stackalloc" &&
-      needsExplicitLocalType(decl.type, currentContext)
-    ) {
-      // Local variable with type that has no C# literal suffix (byte, sbyte, short, ushort)
-      // Must emit explicit type since `var x = 200;` would infer `int`
-      const [typeAst, newContext] = emitTypeAst(decl.type, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else if (!context.isStatic && decl.initializer?.kind === "stackalloc") {
-      // stackalloc expressions must be target-typed to produce Span<T> (otherwise they become T* and require unsafe).
-      const targetType = decl.type ?? decl.initializer.inferredType;
-      if (!targetType) {
-        throw new Error(
-          "ICE: stackalloc initializer missing target type (no decl.type and no inferredType)"
-        );
-      }
-      const [typeAst, newContext] = emitTypeAst(targetType, currentContext);
-      currentContext = newContext;
-      varDecl += `${printType(typeAst)} `;
-    } else {
-      // Local variables use `var` - idiomatic C# when RHS is self-documenting
-      varDecl += "var ";
-    }
-
-    // Handle different pattern types
+    // Simple identifier field declaration
     if (decl.name.kind === "identifierPattern") {
-      // Simple identifier pattern (escape C# keywords)
       const originalName = decl.name.name;
-      const localName = context.isStatic
-        ? emitCSharpName(originalName, "fields", context)
-        : (() => {
-            const alloc = allocateLocalName(originalName, currentContext);
-            currentContext = alloc.context;
-            return alloc.emittedName;
-          })();
-      varDecl += localName;
+      const fieldName = emitCSharpName(originalName, "fields", context);
 
-      // Add initializer if present
+      // Determine type
+      const [typeAst, typeCtx] = resolveStaticFieldType(decl, currentContext);
+      currentContext = typeCtx;
+
+      // Determine modifiers
+      const modifiers = [
+        stmt.isExported ? "public" : "internal",
+        "static",
+        ...(stmt.declarationKind === "const" ? ["readonly"] : []),
+      ];
+
+      // Emit initializer
+      let initializerAst: CSharpExpressionAst | undefined;
       if (decl.initializer) {
-        if (context.isStatic && decl.initializer.kind === "arrowFunction") {
-          const arrowFunc = decl.initializer;
-          const implName = `${localName}__Impl`;
-
-          const arrowReturnType =
-            arrowFunc.returnType ??
-            (arrowFunc.inferredType?.kind === "functionType"
-              ? arrowFunc.inferredType.returnType
-              : undefined);
-          if (!arrowReturnType) {
-            throw new Error(
-              "ICE: Arrow function without return type reached emitter - neither explicit nor inferred type available"
-            );
-          }
-
-          const [returnTypeAst, returnCtx] = emitTypeAst(
-            arrowReturnType,
-            currentContext
-          );
-          const returnTypeName = printType(returnTypeAst);
-
-          // Emit typed method parameters (method groups cannot infer types like lambdas can).
-          const methodParams: string[] = [];
-          let paramCtx = returnCtx;
-          for (let i = 0; i < arrowFunc.parameters.length; i++) {
-            const param = arrowFunc.parameters[i];
-            if (!param?.type) continue;
-
-            const [paramTypeAst, newCtx] = emitTypeAst(param.type, paramCtx);
-            paramCtx = newCtx;
-            const paramType = printType(paramTypeAst);
-
-            const paramName =
-              param.pattern.kind === "identifierPattern"
-                ? escapeCSharpIdentifier(param.pattern.name)
-                : `p${i}`;
-
-            const optionalSuffix = param.isOptional ? "?" : "";
-            const defaultSuffix = param.isOptional ? " = default" : "";
-            methodParams.push(
-              `${paramType}${optionalSuffix} ${paramName}${defaultSuffix}`
-            );
-          }
-
-          const accessibility = "private";
-          const staticPrefix = "static";
-          const asyncPrefix = arrowFunc.isAsync ? "async " : "";
-          const signature = `${ind}${accessibility} ${staticPrefix} ${asyncPrefix}${returnTypeName} ${implName}(${methodParams.join(", ")})`;
-
-          const bodyBaseContext = seedLocalNameMapFromParameters(
-            arrowFunc.parameters,
-            withStatic(indent(paramCtx), false)
-          );
-
-          const bodyReturnType = getAsyncBodyReturnType(
-            arrowFunc.isAsync,
-            arrowReturnType
-          );
-
-          let bodyText = "";
-          if (arrowFunc.body.kind === "blockStatement") {
-            const [blockCode] = emitStatement(arrowFunc.body, {
-              ...bodyBaseContext,
-              returnType: bodyReturnType,
-            });
-            bodyText = `\n${blockCode}`;
-          } else {
-            const [exprAst] = emitExpressionAst(
-              arrowFunc.body,
-              bodyBaseContext,
-              bodyReturnType
-            );
-            const exprText = printExpression(exprAst);
-            const bodyInd = getIndent(bodyBaseContext);
-            const isVoidReturn =
-              !bodyReturnType ||
-              bodyReturnType.kind === "voidType" ||
-              (bodyReturnType.kind === "primitiveType" &&
-                bodyReturnType.name === "undefined");
-            const retOrExpr = isVoidReturn
-              ? `${exprText};`
-              : `return ${exprText};`;
-            bodyText = `\n${ind}{\n${bodyInd}${retOrExpr}\n${ind}}`;
-          }
-
-          // Assign the field to a single delegate instance (method group) while keeping the
-          // implementation in a regular method body (needed for EF query precompilation).
-          varDecl += ` = ${implName}`;
-          declarations.push(`${ind}${varDecl};`);
-          declarations.push(`${signature}${bodyText}`);
-          continue;
-        }
-
         const [initAst, newContext] = emitExpressionAst(
           decl.initializer,
           currentContext,
-          decl.type // Pass expected type for contextual typing (e.g., array literals)
+          decl.type
         );
         currentContext = newContext;
-        varDecl += ` = ${printExpression(initAst)}`;
+        initializerAst = initAst;
       }
 
-      // Register local names after emitting the initializer (C# scoping rules).
-      // Static fields are not locals and must not participate in shadowing logic.
-      if (!context.isStatic) {
-        currentContext = registerLocalName(
-          originalName,
-          localName,
-          currentContext
-        );
-      }
-      declarations.push(`${ind}${varDecl};`);
+      members.push({
+        kind: "fieldDeclaration",
+        attributes: [],
+        modifiers,
+        type: typeAst,
+        name: fieldName,
+        initializer: initializerAst,
+      });
     } else {
-      // Unknown pattern kind - emit placeholder
-      // (arrayPattern and objectPattern are handled early with continue)
-      varDecl += "/* unsupported pattern */";
-      declarations.push(`${ind}${varDecl};`);
+      members.push({
+        kind: "literalMember",
+        text: `${ind}/* unsupported pattern */`,
+      });
     }
   }
 
-  return [declarations.join("\n"), currentContext];
+  return [members, currentContext];
 };
 
 /**

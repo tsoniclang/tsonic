@@ -597,11 +597,26 @@ export type CSharpTypeParameterConstraintAst = {
   readonly constraints: readonly string[];
 };
 
+export type CSharpDelegateDeclarationAst = {
+  readonly kind: "delegateDeclaration";
+  readonly modifiers: readonly string[];
+  readonly returnType: CSharpTypeAst;
+  readonly name: string;
+  readonly parameters: readonly CSharpParameterAst[];
+};
+
+export type CSharpLiteralMemberAst = {
+  readonly kind: "literalMember";
+  readonly text: string;
+};
+
 export type CSharpMemberAst =
   | CSharpFieldDeclarationAst
   | CSharpPropertyDeclarationAst
   | CSharpMethodDeclarationAst
-  | CSharpConstructorDeclarationAst;
+  | CSharpConstructorDeclarationAst
+  | CSharpDelegateDeclarationAst
+  | CSharpLiteralMemberAst;
 
 export type CSharpClassDeclarationAst = {
   readonly kind: "classDeclaration";

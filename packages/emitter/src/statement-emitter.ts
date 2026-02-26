@@ -193,7 +193,12 @@ export const emitStatement = (
     // not statement-level AST. Route to text emitters.
     case "variableDeclaration":
       if (context.isStatic) {
-        return emitVariableDeclaration(stmt, context);
+        const [varMembers, varCtx] = emitVariableDeclaration(stmt, context);
+        const varInd = getIndent(context);
+        const varCode = varMembers
+          .map((m) => printMember(m, varInd))
+          .join("\n");
+        return [varCode, varCtx];
       }
       break;
 
