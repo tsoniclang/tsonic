@@ -295,6 +295,15 @@ export const emitModule = (
     hasInheritance
   );
 
+  // Print namespace declarations to text
+  const namespaceDeclsParts: string[] = [
+    ...namespaceResult.commentLines,
+    ...namespaceResult.declarations.map((d) =>
+      printTypeDeclaration(d, "    ")
+    ),
+  ];
+  const namespaceDeclsCode = namespaceDeclsParts.join("\n");
+
   // Emit static container class if there are any static members
   // Use __Module suffix when there's a name collision with namespace-level declarations
   let staticContainerCode = "";
@@ -308,7 +317,7 @@ export const emitModule = (
       hasInheritance,
       hasCollision // Add __Module suffix only when there's a name collision
     );
-    staticContainerCode = containerResult.code;
+    staticContainerCode = printTypeDeclaration(containerResult.declaration, "    ");
     finalContext = containerResult.context;
   }
 
@@ -318,7 +327,7 @@ export const emitModule = (
     adaptersCode,
     specializationsCode,
     exchangesCode,
-    namespaceDeclsCode: namespaceResult.code,
+    namespaceDeclsCode,
     staticContainerCode,
   };
 
