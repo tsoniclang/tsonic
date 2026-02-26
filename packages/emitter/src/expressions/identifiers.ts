@@ -6,7 +6,7 @@ import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { printType } from "../core/format/backend-ast/printer.js";
+import { renderTypeAst } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
   CSharpTypeAst,
@@ -203,7 +203,7 @@ export const generateSpecializedName = (
   for (const typeArg of typeArgs) {
     const [typeAst, newContext] = emitTypeAst(typeArg, currentContext);
     currentContext = newContext;
-    const typeName = printType(typeAst);
+    const typeName = renderTypeAst(typeAst);
     // Sanitize type name for use in identifier (remove <>, ?, etc.)
     const sanitized = typeName.replace(/[<>?,\s]/g, "_").replace(/\./g, "_");
     typeNames.push(sanitized);

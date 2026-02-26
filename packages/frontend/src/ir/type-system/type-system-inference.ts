@@ -943,7 +943,7 @@ export const typeOfMember = (
     return unknownType;
   }
 
-  // 2. Check cache (use clrName as key for compatibility)
+  // 2. Check cache
   const cacheKey = makeMemberCacheKey(
     normalized.typeId.stableId,
     memberName,

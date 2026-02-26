@@ -6,9 +6,32 @@ import { IrExpression } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { isDefinitelyValueType } from "../../core/semantic/type-resolution.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { isBooleanType } from "./helpers.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
+
+/**
+ * Check if an expression AST contains conditional access (`?.` or `?[`).
+ * Used to detect nullable value type scenarios in `??` optimization.
+ */
+const containsConditionalAccess = (ast: CSharpExpressionAst): boolean => {
+  switch (ast.kind) {
+    case "conditionalMemberAccessExpression":
+      return true;
+    case "memberAccessExpression":
+      return containsConditionalAccess(ast.expression);
+    case "invocationExpression":
+      return containsConditionalAccess(ast.expression);
+    case "elementAccessExpression":
+      return containsConditionalAccess(ast.expression);
+    case "parenthesizedExpression":
+      return containsConditionalAccess(ast.expression);
+    case "identifierExpression":
+      // Pre-rendered text may contain ?. or ?[ patterns
+      return ast.identifier.includes("?.") || ast.identifier.includes("?[");
+    default:
+      return false;
+  }
+};
 
 /**
  * Emit a logical operator expression as CSharpExpressionAst
@@ -46,8 +69,7 @@ export const emitLogical = (
     // Conditional access (`?.` / `?[`) produces nullable value types in C# even when the
     // underlying member type is non-nullable (e.g., `string?.Length` → `int?`).
     // In that case the fallback is still meaningful and must be preserved.
-    const leftText = printExpression(leftAst);
-    if (!leftText.includes("?.") && !leftText.includes("?[")) {
+    if (!containsConditionalAccess(leftAst)) {
       return [leftAst, leftContext];
     }
   }

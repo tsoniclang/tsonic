@@ -3,8 +3,8 @@
  *
  * Pipeline: IR type → CSharpTypeAst → printType → C# text
  *
- * `emitTypeAst` is the primary dispatcher returning typed AST nodes.
- * `emitType` is a thin shim that prints the AST to text for backward compatibility.
+ * `emitTypeAst` is the sole entry point, returning typed AST nodes.
+ * Callers use `printType()` from the printer when they need text.
  */
 
 import { IrType } from "@tsonic/frontend";
@@ -20,7 +20,6 @@ import { emitUnionType } from "./unions.js";
 import { emitIntersectionType } from "./intersections.js";
 import { emitLiteralType } from "./literals.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
-import { printType } from "../core/format/backend-ast/printer.js";
 
 /**
  * Emit a CSharpTypeAst from an IR type (primary dispatcher)
@@ -101,18 +100,4 @@ export const emitTypeAst = (
       );
     }
   }
-};
-
-/**
- * Emit a C# type string from an IR type (backward-compatible shim)
- *
- * This is a thin wrapper around emitTypeAst that prints the AST to text.
- * Prefer emitTypeAst for new code that constructs AST nodes directly.
- */
-export const emitType = (
-  type: IrType,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  const [ast, newContext] = emitTypeAst(type, context);
-  return [printType(ast), newContext];
 };

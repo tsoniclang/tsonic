@@ -329,45 +329,6 @@ export class DotnetMetadataRegistry {
   }
 
   /**
-   * Check if a member is virtual (can be overridden)
-   */
-  isVirtualMember(qualifiedTypeName: string, memberSignature: string): boolean {
-    // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
-    const memberMetadata = this.getPropertyMetadata(
-      qualifiedTypeName,
-      memberSignature
-    );
-    return memberMetadata?.virtual === true;
-  }
-
-  /**
-   * Check if a member is sealed (cannot be overridden)
-   */
-  isSealedMember(qualifiedTypeName: string, memberSignature: string): boolean {
-    // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
-    const memberMetadata = this.getPropertyMetadata(
-      qualifiedTypeName,
-      memberSignature
-    );
-    return memberMetadata?.sealed === true;
-  }
-
-  /**
-   * Get the CLR visibility for a member, if known.
-   */
-  getMemberVisibility(
-    qualifiedTypeName: string,
-    memberSignature: string
-  ): DotnetMemberMetadata["visibility"] | undefined {
-    // Legacy: kept for existing callers (none currently). Prefer getMethodMetadata/getPropertyMetadata.
-    const memberMetadata = this.getPropertyMetadata(
-      qualifiedTypeName,
-      memberSignature
-    );
-    return memberMetadata?.visibility;
-  }
-
-  /**
    * Get all loaded type names
    */
   getAllTypeNames(): readonly string[] {

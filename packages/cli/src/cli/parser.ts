@@ -40,11 +40,6 @@ export const parseArgs = (
     if (!command && !arg.startsWith("-")) {
       command = arg;
       const nextArg = args[i + 1];
-      // Legacy alias: "project init" -> "init"
-      if (command === "project" && nextArg === "init") {
-        command = "init";
-        i++;
-      }
       // Handle "add package" as two-word command
       if (command === "add") {
         if (nextArg === "package") {

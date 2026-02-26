@@ -17,7 +17,7 @@ import {
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import { printExpression } from "../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 
 // ============================================================================
@@ -535,7 +535,7 @@ export const emitMemberAccess = (
     // HARD GATE: clrIndexer + stringChar require Int32 proof
     const indexExpr = expr.property as IrExpression;
     if (!hasInt32Proof(indexExpr)) {
-      const propText = printExpression(propAst);
+      const propText = extractCalleeNameFromAst(propAst);
       throw new Error(
         `Internal Compiler Error: CLR indexer requires Int32 index (accessKind=${accessKind}). ` +
           `Expression '${propText}' has no Int32 proof. ` +

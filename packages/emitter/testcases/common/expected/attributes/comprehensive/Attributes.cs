@@ -5,9 +5,9 @@ namespace TestCases.common.attributes.comprehensive
     {
         [global::System.ObsoleteAttribute("ctor")]
         public User()
-            {
+        {
 
-            }
+        }
 
         private string _nameField { get; set; }
 
@@ -16,27 +16,28 @@ namespace TestCases.common.attributes.comprehensive
             {
             get
                 {
-                return this._nameField;
+                    return this._nameField;
                 }
             set
                 {
-                this._nameField = value;
+                    this._nameField = value;
                 }
             }
 
         [global::System.ObsoleteAttribute("method")]
         public void save()
-            {
+        {
 
-            }
+        }
     }
+
     public class NoCtor
     {
         [global::System.ObsoleteAttribute("implicit")]
         public NoCtor()
-            {
+        {
 
-            }
+        }
 
         public double value { get; set; }
     }

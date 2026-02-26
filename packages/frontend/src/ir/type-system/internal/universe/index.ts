@@ -89,9 +89,6 @@ export {
   getGlobalNames,
   normalizeToClrName,
   getInstanceInterfaceName,
-  // Backward compatibility (deprecated - use normalizeToClrName instead)
-  PRIMITIVE_TO_CLR_FQ,
-  GLOBALS_TO_CLR_FQ,
 } from "./alias-table.js";
 
 // ═══════════════════════════════════════════════════════════════════════════

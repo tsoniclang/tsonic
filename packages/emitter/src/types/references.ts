@@ -53,28 +53,6 @@ const toGlobalClr = (clr: string): string => {
 };
 
 /**
- * Extract CLR name from a binding object.
- * Handles both tsbindgen format (clrName) and internal format (name).
- */
-const getBindingClrName = (b: unknown): string | undefined => {
-  if (!b || typeof b !== "object") return undefined;
-
-  // Legacy/duck-typed support: { clrName: "System.Action", ... }
-  const maybeClrName = (b as { clrName?: unknown }).clrName;
-  if (typeof maybeClrName === "string" && maybeClrName.length > 0) {
-    return maybeClrName;
-  }
-
-  // internal TypeBinding: { name: "System.Console", alias: "Console", ... }
-  const maybeName = (b as { name?: unknown }).name;
-  if (typeof maybeName === "string" && maybeName.length > 0) {
-    return maybeName;
-  }
-
-  return undefined;
-};
-
-/**
  * Convert CLR metadata type names into C#-emittable type names.
  *
  * tsbindgen bindings use CLR "full names" that include:
@@ -509,11 +487,7 @@ export const emitReferenceType = (
   // IMPORTANT: This is checked AFTER localTypes to ensure local types take precedence
   const regBinding = context.bindingsRegistry?.get(name);
   if (regBinding) {
-    const clr = getBindingClrName(regBinding);
-    if (!clr) {
-      throw new Error(`ICE: Binding for '${name}' has no CLR name`);
-    }
-    const qualified = toGlobalClr(clrTypeNameToCSharp(clr));
+    const qualified = toGlobalClr(clrTypeNameToCSharp(regBinding.name));
 
     if (typeArguments && typeArguments.length > 0) {
       const [typeArgAsts, newContext] = emitTypeArgAsts(typeArguments, context);

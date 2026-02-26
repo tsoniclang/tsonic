@@ -11,12 +11,10 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
-import {
-  printExpression,
-  printType,
-} from "../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 
@@ -87,7 +85,7 @@ export const emitUnary = (
     }
 
     const [targetAst, newContext] = emitExpressionAst(target, context);
-    const targetText = printExpression(targetAst);
+    const targetText = extractCalleeNameFromAst(targetAst);
     return [
       {
         kind: "identifierExpression",
@@ -121,9 +119,7 @@ export const emitUnary = (
     //   (() => { <eval expr>; return default(<T>); })()
     //
     // In statement position, emitExpressionStatement handles this separately.
-    // Complex IIFE pattern - bridge via identifierExpression.
     const operand = expr.expression;
-    const operandText = printExpression(operandAst);
 
     // If the operand is a literal null/undefined, evaluation is a no-op.
     const isNoopOperand =
@@ -158,34 +154,50 @@ export const emitUnary = (
       }
     }
 
-    const returnTypeText = printType(returnTypeAst);
-    const defaultText = effectiveExpectedType
-      ? `default(${returnTypeText})`
-      : "default";
+    const defaultExpr: CSharpExpressionAst = {
+      kind: "defaultExpression",
+      type: effectiveExpectedType ? returnTypeAst : undefined,
+    };
 
-    const operandStatement = (() => {
-      if (isNoopOperand) return "";
+    // Build the operand evaluation statement (if not a no-op).
+    const isStatementExpr =
+      operand.kind === "call" ||
+      operand.kind === "new" ||
+      operand.kind === "assignment" ||
+      operand.kind === "update" ||
+      operand.kind === "await";
 
-      // If the operand is already a valid statement-expression, emit it directly.
-      if (
-        operand.kind === "call" ||
-        operand.kind === "new" ||
-        operand.kind === "assignment" ||
-        operand.kind === "update" ||
-        operand.kind === "await"
-      ) {
-        return `${operandText}; `;
-      }
-
-      return `_ = ${operandText}; `;
-    })();
+    const operandStatements: readonly CSharpStatementAst[] = isNoopOperand
+      ? []
+      : [
+          {
+            kind: "expressionStatement" as const,
+            expression: isStatementExpr
+              ? operandAst
+              : ({
+                  kind: "assignmentExpression",
+                  operatorToken: "=",
+                  left: {
+                    kind: "identifierExpression",
+                    identifier: "_",
+                  },
+                  right: operandAst,
+                } as CSharpExpressionAst),
+          },
+        ];
 
     // Build IIFE: ((System.Func<T>)(() => { body }))()
     const buildIife = (
       isAsync: boolean,
       funcReturnTypeAst: CSharpTypeAst
     ): CSharpExpressionAst => {
-      const bodyText = `{ ${operandStatement}return ${defaultText}; }`;
+      const body: CSharpStatementAst = {
+        kind: "blockStatement",
+        statements: [
+          ...operandStatements,
+          { kind: "returnStatement", expression: defaultExpr },
+        ],
+      };
       const funcTypeAst: CSharpTypeAst = {
         kind: "identifierType",
         name: "global::System.Func",
@@ -195,7 +207,7 @@ export const emitUnary = (
         kind: "lambdaExpression",
         isAsync,
         parameters: [],
-        body: { kind: "identifierExpression", identifier: bodyText },
+        body,
       };
       const castAst: CSharpExpressionAst = {
         kind: "castExpression",

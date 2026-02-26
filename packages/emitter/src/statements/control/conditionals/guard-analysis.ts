@@ -14,7 +14,15 @@ import {
 } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
-import { printExpression } from "../../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../../core/format/backend-ast/utils.js";
+import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
+
+/**
+ * Extract the identifier string from an expression AST that is known to be
+ * an identifierExpression. Falls back to extractCalleeNameFromAst for other shapes.
+ */
+const extractIdentifierText = (ast: CSharpExpressionAst): string =>
+  extractCalleeNameFromAst(ast);
 import {
   resolveTypeAlias,
   stripNullish,
@@ -519,7 +527,7 @@ export const tryResolveInGuard = (
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
   const [rhsAst] = emitIdentifier(condition.right, context);
-  const escapedOrig = printExpression(rhsAst);
+  const escapedOrig = extractIdentifierText(rhsAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -602,7 +610,7 @@ export const tryResolvePredicateGuard = (
 
   const narrowedName = `${originalName}__${memberN}_${nextId}`;
   const [argAst] = emitIdentifier(arg, context);
-  const escapedOrig = printExpression(argAst);
+  const escapedOrig = extractIdentifierText(argAst);
   const escapedNarrow = escapeCSharpIdentifier(narrowedName);
 
   const narrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
@@ -643,14 +651,14 @@ export const tryResolveInstanceofGuard = (
 
   const originalName = condition.left.name;
   const [lhsAst, ctxAfterLhs] = emitIdentifier(condition.left, context);
-  const escapedOrig = printExpression(lhsAst);
+  const escapedOrig = extractIdentifierText(lhsAst);
 
   const nextId = (ctxAfterLhs.tempVarId ?? 0) + 1;
   const ctxWithId: EmitterContext = { ...ctxAfterLhs, tempVarId: nextId };
 
   // Emit RHS as a type name (e.g., global::System.String)
   const [rhsAst, ctxAfterRhs] = emitExpressionAst(condition.right, ctxWithId);
-  const rhsTypeText = printExpression(rhsAst);
+  const rhsTypeText = extractIdentifierText(rhsAst);
 
   // Pattern variable name for the narrowed value.
   const narrowedName = `${originalName}__is_${nextId}`;

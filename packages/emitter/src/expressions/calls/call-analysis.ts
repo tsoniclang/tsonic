@@ -4,7 +4,8 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import { emitType } from "../../type-emitter.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import { renderTypeAst } from "../../core/format/backend-ast/utils.js";
 import { containsTypeParameter } from "../../core/semantic/type-resolution.js";
 
 /**
@@ -250,13 +251,17 @@ export const registerJsonAotType = (
   // If the type contains any generic parameters in the current scope (T, U, ...),
   // we cannot emit `[JsonSerializable(typeof(T))]` because `T` is not in scope in the
   // generated context class. Skip registration to keep emission valid.
-  if (containsTypeParameter(type, context.typeParameters ?? new Set())) {
+  if (containsTypeParameter(type)) {
     context.options.jsonAotRegistry.needsJsonAot = true;
     return;
   }
 
   const registry = context.options.jsonAotRegistry;
-  const [rawTypeStr] = emitType(type, { ...context, qualifyLocalTypes: true });
+  const [rawTypeAst] = emitTypeAst(type, {
+    ...context,
+    qualifyLocalTypes: true,
+  });
+  const rawTypeStr = renderTypeAst(rawTypeAst);
   const typeStr = rawTypeStr.endsWith("?")
     ? rawTypeStr.slice(0, -1)
     : rawTypeStr;

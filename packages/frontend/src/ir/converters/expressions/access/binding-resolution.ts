@@ -402,7 +402,7 @@ export const resolveExtensionMethodsBinding = (
     sigDeclaringTypeNameForError = sigDeclaringTypeName;
     if (!sigDeclaringTypeName) return undefined;
 
-    // Legacy tsbindgen format: extension methods emitted on `__Ext_*` bucket interfaces.
+    // Extension method bucket format: methods emitted on `__Ext_*` interfaces.
     if (sigDeclaringTypeName.startsWith("__Ext_")) {
       return ctx.bindings.resolveExtensionMethod(
         sigDeclaringTypeName,

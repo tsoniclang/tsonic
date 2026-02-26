@@ -694,10 +694,11 @@ describe("Destructuring Pattern Lowering", () => {
 
       const result = emitModule(module);
 
-      // Should emit sequence expression for assignment
-      expect(result).to.include("__t0 = arr");
-      expect(result).to.include("a = __t0[0]");
-      expect(result).to.include("b = __t0[1]");
+      // Should emit an IIFE that preserves assignment expression semantics.
+      expect(result).to.include("global::System.Func");
+      expect(result).to.match(/=\s*arr;/);
+      expect(result).to.match(/a\s*=\s*__t\d+\[0\]/);
+      expect(result).to.match(/b\s*=\s*__t\d+\[1\]/);
     });
 
     it("should handle identifier pattern assignment (simple case)", () => {

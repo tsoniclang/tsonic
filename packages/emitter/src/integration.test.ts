@@ -97,6 +97,21 @@ const compileToCSharp = (
 };
 
 describe("End-to-End Integration", () => {
+  describe("Arrow Field Delegates", () => {
+    it("should emit Action for static void arrow fields (never Func<void>)", () => {
+      const source = `
+        export const noop: () => void = () => {};
+      `;
+
+      const csharp = compileToCSharp(source);
+
+      expect(csharp).to.match(
+        /public\s+static\s+readonly\s+global::System\.Action\s+noop\s*=/
+      );
+      expect(csharp).not.to.match(/global::System\.Func\s*<\s*void\s*>/);
+    });
+  });
+
   describe("Generic Functions", () => {
     it("should compile generic identity function to C#", () => {
       const source = `
@@ -401,7 +416,9 @@ describe("End-to-End Integration", () => {
 
       // Should have all type definitions
       expect(csharp).to.include("class User");
-      expect(csharp).to.include("// type UserId = double"); // number → double in C#
+      // Non-structural aliases are erased; usage sites should still resolve correctly.
+      expect(csharp).to.not.include("// type UserId = double");
+      expect(csharp).to.match(/findById\s*\(\s*double\s+id\s*\)/);
 
       // Should have the repository class
       expect(csharp).to.include("class UserRepository");

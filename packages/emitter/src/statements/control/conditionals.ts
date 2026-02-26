@@ -2,5 +2,5 @@
  * Conditional statement emitters (if, switch) - barrel re-export.
  */
 
-export { emitIfStatement } from "./conditionals/if-emitter.js";
-export { emitSwitchStatement } from "./conditionals/switch-emitter.js";
+export { emitIfStatementAst } from "./conditionals/if-emitter.js";
+export { emitSwitchStatementAst } from "./conditionals/switch-emitter.js";

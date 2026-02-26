@@ -354,7 +354,7 @@ export const substituteIrType = (
     }
 
     case "referenceType": {
-      // Legacy representation: type parameters sometimes arrive as referenceType nodes.
+      // Some converter paths represent bare type parameters as referenceType nodes.
       // If the type name matches a substitution key and has no type arguments,
       // treat it as a bare type parameter (e.g., TEntity) and substitute directly.
       if (!type.typeArguments || type.typeArguments.length === 0) {

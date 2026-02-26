@@ -95,9 +95,8 @@ export const emitLiteral = (
     // 2. Value type contexts where null is invalid (CS0037)
     //    Example: Result<number, string> { value: null } → { value = default }
     if (expectedType) {
-      const typeParams = context.typeParameters ?? new Set<string>();
       if (
-        containsTypeParameter(expectedType, typeParams) ||
+        containsTypeParameter(expectedType) ||
         isDefinitelyValueType(expectedType)
       ) {
         return [{ kind: "defaultExpression" }, context];

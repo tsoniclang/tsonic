@@ -62,3 +62,7 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
     - Open a PR for that branch, merge it to `main`, then re-run `./scripts/publish-npm.sh` to publish.
   - If versions are ahead (local > npm), it runs the full build + full test suite and publishes.
 - If you ever discover npm has a higher version than `main`, do not rewrite history: bump `main` to the next patch and publish from there.
+
+## Compatibility Policy (IMPORTANT)
+
+- Backward compatibility is not required unless specifically and explicitly requested by the maintainer.

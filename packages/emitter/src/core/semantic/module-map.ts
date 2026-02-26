@@ -11,7 +11,7 @@ import type {
 } from "../../emitter-types/core.js";
 import { buildLocalTypes } from "./local-types.js";
 
-// Re-export types for backward compatibility
+// Re-export types from barrel
 export type { ModuleIdentity, ModuleMap, ExportSource, ExportMap };
 
 /**

@@ -4,7 +4,7 @@
  * Main dispatcher - delegates to specialized modules
  */
 
-// Re-export everything from specialization modules for backward compatibility
+// Re-export specialization modules from barrel
 export type { SpecializationRequest } from "./specialization/types.js";
 export { collectSpecializations } from "./specialization/collection.js";
 export { generateSpecializations } from "./specialization/generation.js";

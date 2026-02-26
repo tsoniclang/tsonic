@@ -1,6 +1,8 @@
 /**
  * Final output assembly
  *
+ * Builds a CSharpCompilationUnitAst from all emitted parts and prints it.
+ *
  * NOTE: Tsonic generally avoids `using` statements. All type and member references
  * use fully-qualified `global::` names to eliminate ambiguity.
  *
@@ -10,86 +12,61 @@
 
 import { IrModule } from "@tsonic/frontend";
 import { EmitterContext } from "../../../types.js";
+import { printCompilationUnit } from "../backend-ast/printer.js";
+import type {
+  CSharpCompilationUnitAst,
+  CSharpNamespaceDeclarationAst,
+  CSharpTypeDeclarationAst,
+  CSharpUsingDirectiveAst,
+} from "../backend-ast/types.js";
 
 export type AssemblyParts = {
   readonly header: string;
-  readonly adaptersCode: string;
-  readonly specializationsCode: string;
-  readonly exchangesCode: string;
-  readonly namespaceDeclsCode: string;
-  readonly staticContainerCode: string;
+  readonly adapterDecls: readonly CSharpTypeDeclarationAst[];
+  readonly specializationDecls: readonly CSharpTypeDeclarationAst[];
+  readonly exchangeDecls: readonly CSharpTypeDeclarationAst[];
+  readonly namespaceDecls: readonly CSharpTypeDeclarationAst[];
+  readonly staticContainerDecl: CSharpTypeDeclarationAst | undefined;
 };
 
 /**
- * Assemble final C# output from all parts
+ * Build CSharpCompilationUnitAst and print to C# text
  */
 export const assembleOutput = (
   module: IrModule,
   parts: AssemblyParts,
   finalContext: EmitterContext
 ): string => {
-  const result: string[] = [];
+  // Collect namespace members in order
+  const namespaceMembers: CSharpTypeDeclarationAst[] = [
+    ...parts.adapterDecls,
+    ...parts.specializationDecls,
+    ...parts.exchangeDecls,
+  ];
 
-  if (parts.header) {
-    result.push(parts.header);
+  namespaceMembers.push(...parts.namespaceDecls);
+
+  if (parts.staticContainerDecl) {
+    namespaceMembers.push(parts.staticContainerDecl);
   }
 
-  const usings = Array.from(finalContext.usings);
-  if (usings.length > 0) {
-    usings.sort();
-    for (const ns of usings) {
-      result.push(`using ${ns};`);
-    }
-    result.push("");
-  }
+  const namespaceDecl: CSharpNamespaceDeclarationAst = {
+    kind: "namespaceDeclaration",
+    name: module.namespace,
+    members: namespaceMembers,
+  };
 
-  result.push(`namespace ${module.namespace}`);
-  result.push("{");
+  // Collect using directives
+  const usings: CSharpUsingDirectiveAst[] = Array.from(finalContext.usings)
+    .sort()
+    .map((ns) => ({ kind: "usingDirective" as const, namespace: ns }));
 
-  // Emit adapters before class code
-  if (parts.adaptersCode) {
-    const indentedAdapters = parts.adaptersCode
-      .split("\n")
-      .map((line) => (line ? "    " + line : line))
-      .join("\n");
-    result.push(indentedAdapters);
-    result.push("");
-  }
+  const compilationUnit: CSharpCompilationUnitAst = {
+    kind: "compilationUnit",
+    header: parts.header || undefined,
+    usings,
+    members: [namespaceDecl],
+  };
 
-  // Emit specializations after adapters
-  if (parts.specializationsCode) {
-    const indentedSpecializations = parts.specializationsCode
-      .split("\n")
-      .map((line) => (line ? "    " + line : line))
-      .join("\n");
-    result.push(indentedSpecializations);
-    result.push("");
-  }
-
-  // Emit generator exchange objects after specializations
-  if (parts.exchangesCode) {
-    const indentedExchanges = parts.exchangesCode
-      .split("\n")
-      .map((line) => (line ? "    " + line : line))
-      .join("\n");
-    result.push(indentedExchanges);
-    result.push("");
-  }
-
-  // Emit namespace-level declarations first
-  if (parts.namespaceDeclsCode) {
-    result.push(parts.namespaceDeclsCode);
-  }
-
-  // Then emit static container if needed
-  if (parts.staticContainerCode) {
-    if (parts.namespaceDeclsCode) {
-      result.push("");
-    }
-    result.push(parts.staticContainerCode);
-  }
-
-  result.push("}");
-
-  return result.join("\n");
+  return printCompilationUnit(compilationUnit);
 };

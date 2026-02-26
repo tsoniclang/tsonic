@@ -9,12 +9,9 @@ import * as ts from "typescript";
 import { IrType } from "../../../types.js";
 import type { Binding } from "../../../binding/index.js";
 import { convertType as convertTypeInternal } from "./orchestrator.js";
-
-export {
-  convertType,
-  convertFunctionType,
-  convertObjectType,
-} from "./orchestrator.js";
+export { convertType } from "./orchestrator.js";
+export { convertFunctionType } from "./functions.js";
+export { convertObjectType } from "./objects.js";
 
 /**
  * Convert a captured type node (unknown) to IrType.

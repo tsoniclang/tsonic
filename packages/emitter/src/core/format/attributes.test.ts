@@ -5,8 +5,15 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitAttributes, emitParameterAttributes } from "./attributes.js";
+import {
+  printAttributes,
+  printExpression,
+  printType,
+} from "./backend-ast/printer.js";
+import { getIndent } from "../../types.js";
 import type { IrAttribute } from "@tsonic/frontend";
 import type { EmitterContext, EmitterOptions } from "../../types.js";
+import type { CSharpAttributeAst } from "./backend-ast/types.js";
 
 const defaultOptions: EmitterOptions = {
   rootNamespace: "Test",
@@ -24,18 +31,45 @@ const createContext = (indentLevel = 0): EmitterContext => ({
   usings: new Set<string>(),
 });
 
+/**
+ * Format attribute ASTs as declaration-level text (multi-line with indent)
+ */
+const formatAttrs = (
+  attrs: readonly CSharpAttributeAst[],
+  context: EmitterContext
+): string => printAttributes(attrs, getIndent(context));
+
+/**
+ * Format attribute ASTs as inline parameter attributes: [Attr1][Attr2]<space>
+ */
+const formatInlineAttrs = (attrs: readonly CSharpAttributeAst[]): string => {
+  if (attrs.length === 0) return "";
+  return (
+    attrs
+      .map((a) => {
+        const targetPrefix = a.target ? `${a.target}: ` : "";
+        const args =
+          a.arguments && a.arguments.length > 0
+            ? `(${a.arguments.map(printExpression).join(", ")})`
+            : "";
+        return `[${targetPrefix}${printType(a.type)}${args}]`;
+      })
+      .join("") + " "
+  );
+};
+
 describe("Attribute Emission", () => {
   describe("emitAttributes", () => {
-    it("should return empty string when no attributes", () => {
+    it("should return empty array when no attributes", () => {
       const context = createContext();
       const [result, _ctx] = emitAttributes(undefined, context);
-      expect(result).to.equal("");
+      expect(result).to.deep.equal([]);
     });
 
-    it("should return empty string for empty array", () => {
+    it("should return empty array for empty input", () => {
       const context = createContext();
       const [result, _ctx] = emitAttributes([], context);
-      expect(result).to.equal("");
+      expect(result).to.deep.equal([]);
     });
 
     it("should emit single attribute without arguments", () => {
@@ -51,7 +85,8 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("[global::System.SerializableAttribute]");
+      const text = formatAttrs(result, context);
+      expect(text).to.include("[global::System.SerializableAttribute]");
     });
 
     it("should emit attribute target specifier when provided", () => {
@@ -78,7 +113,8 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include(
+      const text = formatAttrs(result, context);
+      expect(text).to.include(
         "[return: global::System.Runtime.InteropServices.MarshalAsAttribute(global::System.Runtime.InteropServices.UnmanagedType.Bool)]"
       );
     });
@@ -96,8 +132,9 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("System.ObsoleteAttribute");
-      expect(result).to.include('"Use NewClass instead"');
+      const text = formatAttrs(result, context);
+      expect(text).to.include("System.ObsoleteAttribute");
+      expect(text).to.include('"Use NewClass instead"');
     });
 
     it("should emit attribute with positional number argument", () => {
@@ -113,8 +150,9 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("MyApp.CustomAttribute");
-      expect(result).to.include("(42)");
+      const text = formatAttrs(result, context);
+      expect(text).to.include("MyApp.CustomAttribute");
+      expect(text).to.include("(42)");
     });
 
     it("should emit attribute with positional boolean argument", () => {
@@ -130,7 +168,8 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("(true)");
+      const text = formatAttrs(result, context);
+      expect(text).to.include("(true)");
     });
 
     it("should emit attribute with named arguments", () => {
@@ -149,9 +188,10 @@ describe("Attribute Emission", () => {
         ]),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("DataContractAttribute");
-      expect(result).to.include('Name = "UserDTO"');
-      expect(result).to.include('Namespace = "urn:example"');
+      const text = formatAttrs(result, context);
+      expect(text).to.include("DataContractAttribute");
+      expect(text).to.include('Name = "UserDTO"');
+      expect(text).to.include('Namespace = "urn:example"');
     });
 
     it("should emit attribute with mixed positional and named arguments", () => {
@@ -167,8 +207,9 @@ describe("Attribute Emission", () => {
         namedArgs: new Map([["IsError", { kind: "boolean", value: true }]]),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include('"Deprecated"');
-      expect(result).to.include("IsError = true");
+      const text = formatAttrs(result, context);
+      expect(text).to.include('"Deprecated"');
+      expect(text).to.include("IsError = true");
     });
 
     it("should emit multiple attributes on separate lines", () => {
@@ -196,7 +237,8 @@ describe("Attribute Emission", () => {
         },
       ];
       const [result, _ctx] = emitAttributes(attrs, context);
-      const lines = result.split("\n");
+      const text = formatAttrs(result, context);
+      const lines = text.split("\n").filter((l) => l.length > 0);
       expect(lines).to.have.length(2);
       expect(lines[0]).to.include("SerializableAttribute");
       expect(lines[1]).to.include("ObsoleteAttribute");
@@ -215,8 +257,9 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
+      const text = formatAttrs(result, context);
       // Should have 4 spaces (2 * 2 spaces per level)
-      expect(result).to.match(/^ {4}\[/);
+      expect(text).to.match(/^ {4}\[/);
     });
 
     it("should emit typeof argument", () => {
@@ -241,7 +284,8 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("typeof(global::MyApp.CustomConverter)");
+      const text = formatAttrs(result, context);
+      expect(text).to.include("typeof(global::MyApp.CustomConverter)");
     });
 
     it("should emit enum argument", () => {
@@ -267,7 +311,8 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include("Newtonsoft.Json.Required.Always");
+      const text = formatAttrs(result, context);
+      expect(text).to.include("Newtonsoft.Json.Required.Always");
     });
 
     it("should emit array argument", () => {
@@ -291,7 +336,8 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include('new[] { "PropertyId", "Ts" }');
+      const text = formatAttrs(result, context);
+      expect(text).to.include('new[] { "PropertyId", "Ts" }');
     });
 
     it("should escape special characters in string arguments", () => {
@@ -307,15 +353,16 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitAttributes([attr], context);
-      expect(result).to.include('"Say \\"Hello\\" and \\\\escape"');
+      const text = formatAttrs(result, context);
+      expect(text).to.include('"Say \\"Hello\\" and \\\\escape"');
     });
   });
 
   describe("emitParameterAttributes", () => {
-    it("should return empty string when no attributes", () => {
+    it("should return empty array when no attributes", () => {
       const context = createContext();
       const [result, _ctx] = emitParameterAttributes(undefined, context);
-      expect(result).to.equal("");
+      expect(result).to.deep.equal([]);
     });
 
     it("should emit inline attribute with trailing space", () => {
@@ -331,8 +378,9 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitParameterAttributes([attr], context);
-      expect(result).to.match(/^\[.*\] $/);
-      expect(result).to.include("NotNullAttribute");
+      const text = formatInlineAttrs(result);
+      expect(text).to.match(/^\[.*\] $/);
+      expect(text).to.include("NotNullAttribute");
     });
 
     it("should emit inline attribute target specifier when provided", () => {
@@ -349,10 +397,11 @@ describe("Attribute Emission", () => {
         namedArgs: new Map(),
       };
       const [result, _ctx] = emitParameterAttributes([attr], context);
-      expect(result).to.include(
+      const text = formatInlineAttrs(result);
+      expect(text).to.include(
         "[param: global::System.Runtime.InteropServices.InAttribute]"
       );
-      expect(result).to.match(/ $/);
+      expect(text).to.match(/ $/);
     });
 
     it("should emit multiple inline attributes", () => {
@@ -381,11 +430,12 @@ describe("Attribute Emission", () => {
         },
       ];
       const [result, _ctx] = emitParameterAttributes(attrs, context);
+      const text = formatInlineAttrs(result);
       // Should be on same line: [Attr1][Attr2]<space>
-      expect(result).to.not.include("\n");
-      expect(result).to.include("NotNullAttribute");
-      expect(result).to.include("CallerMemberNameAttribute");
-      expect(result).to.match(/ $/);
+      expect(text).to.not.include("\n");
+      expect(text).to.include("NotNullAttribute");
+      expect(text).to.include("CallerMemberNameAttribute");
+      expect(text).to.match(/ $/);
     });
   });
 });

@@ -9,11 +9,16 @@
 import { IrParameter, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitParameterType } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { lowerParameterPattern } from "../../patterns.js";
+import { lowerPatternAst } from "../../patterns.js";
 import { emitParameterAttributes } from "../../core/format/attributes.js";
+import type {
+  CSharpExpressionAst,
+  CSharpParameterAst,
+  CSharpStatementAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
  * Info about a parameter that needs destructuring in the function body
@@ -28,8 +33,8 @@ type ParameterDestructuringInfo = {
  * Result of parameter emission
  */
 export type ParameterEmissionResult = {
-  /** The C# parameter list string */
-  readonly parameterList: string;
+  /** The C# parameter ASTs */
+  readonly parameters: readonly CSharpParameterAst[];
   /** Parameters that need destructuring in the function body */
   readonly destructuringParams: readonly ParameterDestructuringInfo[];
   /** Updated context */
@@ -37,7 +42,7 @@ export type ParameterEmissionResult = {
 };
 
 /**
- * Emit parameters for functions and methods
+ * Emit parameters for functions and methods as CSharpParameterAst[].
  *
  * For simple identifier patterns, emits directly as C# parameters.
  * For complex patterns (array/object), generates synthetic parameter names
@@ -46,15 +51,15 @@ export type ParameterEmissionResult = {
 export const emitParameters = (
   parameters: readonly IrParameter[],
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpParameterAst[], EmitterContext] => {
   const result = emitParametersWithDestructuring(parameters, context);
-  return [result.parameterList, result.context];
+  return [result.parameters, result.context];
 };
 
 /**
  * Emit parameters with full destructuring support
  *
- * Returns both the parameter list and info about parameters that need
+ * Returns both the parameter ASTs and info about parameters that need
  * destructuring statements in the function body.
  */
 export const emitParametersWithDestructuring = (
@@ -62,7 +67,7 @@ export const emitParametersWithDestructuring = (
   context: EmitterContext
 ): ParameterEmissionResult => {
   let currentContext = context;
-  const params: string[] = [];
+  const params: CSharpParameterAst[] = [];
   const destructuringParams: ParameterDestructuringInfo[] = [];
   let syntheticParamIndex = 0;
 
@@ -70,7 +75,7 @@ export const emitParametersWithDestructuring = (
     const isRest = param.isRest;
     const isOptional = param.isOptional;
 
-    const [parameterAttributePrefix, attrContext] = emitParameterAttributes(
+    const [paramAttrs, attrContext] = emitParameterAttributes(
       param.attributes,
       currentContext
     );
@@ -84,21 +89,19 @@ export const emitParametersWithDestructuring = (
     if (param.passing !== "value") {
       modifiers.push(param.passing);
     }
-    const modifierPrefix =
-      modifiers.length > 0 ? `${modifiers.join(" ")} ` : "";
+
     const actualType: IrType | undefined = param.type;
 
     // Parameter type
-    let paramType = "object";
+    let typeAst: CSharpTypeAst = { kind: "identifierType", name: "object" };
     if (actualType) {
-      const [typeName, newContext] = emitParameterType(
+      const [tAst, newContext] = emitParameterType(
         actualType,
         isOptional,
         currentContext
       );
       currentContext = newContext;
-      paramType = typeName;
-      // Rest parameters use native T[] arrays with params modifier
+      typeAst = tAst;
     }
 
     // Determine parameter name based on pattern kind
@@ -123,50 +126,54 @@ export const emitParametersWithDestructuring = (
       paramName = "param";
     }
 
-    // Construct parameter string with modifiers if present
-    let paramStr = `${parameterAttributePrefix}${modifierPrefix}${paramType} ${paramName}`;
+    // Default value
+    let defaultValue: CSharpExpressionAst | undefined;
     if (param.initializer) {
-      // Emit the default value directly
       const [defaultAst, newContext] = emitExpressionAst(
         param.initializer,
         currentContext
       );
       currentContext = newContext;
-      paramStr = `${modifierPrefix}${paramType} ${paramName} = ${printExpression(defaultAst)}`;
+      defaultValue = defaultAst;
     } else if (isOptional && !isRest) {
-      paramStr += " = default";
+      defaultValue = { kind: "defaultExpression" };
     }
 
-    params.push(paramStr);
+    params.push({
+      name: paramName,
+      type: typeAst,
+      ...(defaultValue ? { defaultValue } : {}),
+      ...(modifiers.length > 0 ? { modifiers } : {}),
+      ...(paramAttrs.length > 0 ? { attributes: paramAttrs } : {}),
+    });
   }
 
   return {
-    parameterList: params.join(", "),
+    parameters: params,
     destructuringParams,
     context: currentContext,
   };
 };
 
 /**
- * Generate destructuring statements for parameters
- *
- * Call this after emitParametersWithDestructuring to get the statements
- * that should be injected at the start of the function body.
+ * Generate destructuring statements as AST nodes.
  */
-export const generateParameterDestructuring = (
+export const generateParameterDestructuringAst = (
   destructuringParams: readonly ParameterDestructuringInfo[],
-  indent: string,
   context: EmitterContext
-): [readonly string[], EmitterContext] => {
+): [readonly CSharpStatementAst[], EmitterContext] => {
   let currentContext = context;
-  const statements: string[] = [];
+  const statements: CSharpStatementAst[] = [];
 
   for (const info of destructuringParams) {
-    const result = lowerParameterPattern(
+    const inputExpr = {
+      kind: "identifierExpression" as const,
+      identifier: info.syntheticName,
+    };
+    const result = lowerPatternAst(
       info.pattern,
-      info.syntheticName,
+      inputExpr,
       info.type,
-      indent,
       currentContext
     );
     statements.push(...result.statements);

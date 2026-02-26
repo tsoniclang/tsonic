@@ -217,14 +217,8 @@ export type CSharpLambdaExpressionAst = {
   readonly isAsync: boolean;
   readonly parameters: readonly CSharpLambdaParameterAst[];
   readonly body: CSharpExpressionAst | CSharpBlockStatementAst;
-  /**
-   * Pre-rendered block body text from the statement emitter.
-   * When set, the printer uses this instead of printing body.
-   * This is an explicit bridge at the expression/statement boundary:
-   * the statement pipeline is still text-based, so lambda block bodies
-   * carry pre-rendered text until the statement pipeline is converted to AST.
-   */
-  readonly preRenderedBody?: string;
+  /** Indent hint for block bodies (expressions don't track indentation) */
+  readonly bodyIndent?: string;
 };
 
 export type CSharpInterpolatedStringPartText = {
@@ -387,6 +381,7 @@ export type CSharpParameterAst = {
   readonly defaultValue?: CSharpExpressionAst;
   /** "ref", "out", "in", "params", "this" */
   readonly modifiers?: readonly string[];
+  readonly attributes?: readonly CSharpAttributeAst[];
 };
 
 export type CSharpLocalFunctionStatementAst = {
@@ -532,8 +527,10 @@ export type CSharpStatementAst =
 // ============================================================
 
 export type CSharpAttributeAst = {
-  readonly name: string;
+  readonly type: CSharpTypeAst;
   readonly arguments?: readonly CSharpExpressionAst[];
+  /** Attribute target specifier, e.g. "return", "assembly", "field" */
+  readonly target?: string;
 };
 
 export type CSharpFieldDeclarationAst = {
@@ -553,8 +550,14 @@ export type CSharpPropertyDeclarationAst = {
   readonly name: string;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
+  /** C# 9 init-only setter (`{ get; init; }`) */
+  readonly hasInit?: boolean;
   readonly initializer?: CSharpExpressionAst;
   readonly isAutoProperty: boolean;
+  /** Explicit getter body (when isAutoProperty is false) */
+  readonly getterBody?: CSharpBlockStatementAst;
+  /** Explicit setter body (when isAutoProperty is false) */
+  readonly setterBody?: CSharpBlockStatementAst;
 };
 
 export type CSharpMethodDeclarationAst = {
@@ -589,16 +592,40 @@ export type CSharpTypeParameterAst = {
   readonly name: string;
 };
 
+export type CSharpTypeParameterConstraintNodeAst =
+  | {
+      readonly kind: "typeConstraint";
+      readonly type: CSharpTypeAst;
+    }
+  | {
+      readonly kind: "classConstraint";
+    }
+  | {
+      readonly kind: "structConstraint";
+    }
+  | {
+      readonly kind: "constructorConstraint";
+    };
+
 export type CSharpTypeParameterConstraintAst = {
   readonly typeParameter: string;
-  readonly constraints: readonly string[];
+  readonly constraints: readonly CSharpTypeParameterConstraintNodeAst[];
+};
+
+export type CSharpDelegateDeclarationAst = {
+  readonly kind: "delegateDeclaration";
+  readonly modifiers: readonly string[];
+  readonly returnType: CSharpTypeAst;
+  readonly name: string;
+  readonly parameters: readonly CSharpParameterAst[];
 };
 
 export type CSharpMemberAst =
   | CSharpFieldDeclarationAst
   | CSharpPropertyDeclarationAst
   | CSharpMethodDeclarationAst
-  | CSharpConstructorDeclarationAst;
+  | CSharpConstructorDeclarationAst
+  | CSharpDelegateDeclarationAst;
 
 export type CSharpClassDeclarationAst = {
   readonly kind: "classDeclaration";
@@ -665,6 +692,7 @@ export type CSharpNamespaceDeclarationAst = {
 
 export type CSharpCompilationUnitAst = {
   readonly kind: "compilationUnit";
+  readonly header?: string;
   readonly usings: readonly CSharpUsingDirectiveAst[];
   readonly members: readonly (
     | CSharpNamespaceDeclarationAst

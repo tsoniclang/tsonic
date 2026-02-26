@@ -5,26 +5,28 @@ namespace TestCases.common.classes.genericinheritance
         public TId id { get; set; }
 
         public Entity(TId id)
-            {
+        {
             this.id = id;
-            }
+        }
     }
+
     public class NamedEntity<TId> : Entity<TId>
     {
         public string name { get; set; }
 
         public NamedEntity(TId id, string name) : base(id)
-            {
+        {
             this.name = name;
-            }
+        }
     }
+
     public class User : NamedEntity<int>
     {
         public string email { get; set; }
 
         public User(int id, string name, string email) : base(id, name)
-            {
+        {
             this.email = email;
-            }
+        }
     }
 }

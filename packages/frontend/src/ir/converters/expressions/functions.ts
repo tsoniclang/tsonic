@@ -11,7 +11,7 @@ import {
 } from "../../types.js";
 import { getSourceSpan } from "./helpers.js";
 import { convertExpression } from "../../expression-converter.js";
-import { convertBlockStatement } from "../../statement-converter.js";
+import { convertBlockStatement } from "../statements/control.js";
 import { convertBindingName } from "../../syntax/binding-patterns.js";
 import type { ProgramContext } from "../../program-context.js";
 

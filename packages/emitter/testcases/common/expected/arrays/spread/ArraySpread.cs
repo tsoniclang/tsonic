@@ -1,11 +1,11 @@
 namespace TestCases.common.arrays.spread
 {
-        [global::Tsonic.Internal.ModuleContainerAttribute]
-        public static class ArraySpread
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class ArraySpread
+    {
+        public static double[] spreadArray(double[] arr1, double[] arr2)
         {
-            public static double[] spreadArray(double[] arr1, double[] arr2)
-                {
-                return global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Concat(arr1, arr2));
-                }
+            return global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Concat(arr1, arr2));
         }
+    }
 }

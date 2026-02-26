@@ -11,12 +11,10 @@ import {
 } from "../identifiers.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { isLValue, getPassingModifierFromCast } from "./call-analysis.js";
-import {
-  printExpression,
-  printType,
-} from "../../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 
@@ -78,7 +76,7 @@ const emitListCollectionInitializer = (
     currentContext
   );
   currentContext = calleeContext;
-  let calleeText = printExpression(calleeAst);
+  let calleeText = extractCalleeNameFromAst(calleeAst);
 
   let typeArgAsts: readonly CSharpTypeAst[] = [];
   if (expr.typeArguments && expr.typeArguments.length > 0) {
@@ -321,7 +319,6 @@ const emitPromiseConstructor = (
     valueTypeAst = vTypeAst;
     currentContext = valueTypeContext;
   }
-  const valueTypeText = printType(valueTypeAst);
 
   // Track resolve parameter name for void promise
   const resolveParam =
@@ -365,34 +362,283 @@ const emitPromiseConstructor = (
     ? { ...executorContext, voidResolveNames: undefined }
     : executorContext;
 
-  const executorText = printExpression(executorAst);
   const executorArity = getExecutorArity(expr);
-  const resolveCallbackType = promiseValueType
-    ? `global::System.Action<${valueTypeText}>`
-    : "global::System.Action";
-  const executorDelegateType =
-    executorArity >= 2
-      ? `global::System.Action<${resolveCallbackType}, global::System.Action<object?>>`
-      : `global::System.Action<${resolveCallbackType}>`;
-  // Wrap executorText in parens so the C# parser doesn't confuse
-  // typed lambda params with a cast: (DelegateType)((params) => body)
-  const executorInvokeTarget = `((${executorDelegateType})(${executorText}))`;
-  const invokeArgs =
-    executorArity >= 2
-      ? "__tsonic_resolve, __tsonic_reject"
-      : "__tsonic_resolve";
 
-  const resolveDecl = promiseValueType
-    ? `global::System.Action<${valueTypeText}> __tsonic_resolve = (value) => __tsonic_tcs.TrySetResult(value);`
-    : "global::System.Action __tsonic_resolve = () => __tsonic_tcs.TrySetResult(true);";
+  const tcsTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Threading.Tasks.TaskCompletionSource",
+    typeArguments: [valueTypeAst],
+  };
 
-  const bodyText =
-    `{ ` +
-    `var __tsonic_tcs = new global::System.Threading.Tasks.TaskCompletionSource<${valueTypeText}>(); ` +
-    `${resolveDecl} ` +
-    `global::System.Action<object?> __tsonic_reject = (error) => __tsonic_tcs.TrySetException((error as global::System.Exception) ?? new global::System.Exception(error?.ToString() ?? "Promise rejected")); ` +
-    `try { ${executorInvokeTarget}(${invokeArgs}); } catch (global::System.Exception ex) { __tsonic_tcs.TrySetException(ex); } ` +
-    `return __tsonic_tcs.Task; }`;
+  const resolveCallbackTypeAst: CSharpTypeAst = promiseValueType
+    ? {
+        kind: "identifierType",
+        name: "global::System.Action",
+        typeArguments: [valueTypeAst],
+      }
+    : { kind: "identifierType", name: "global::System.Action" };
+
+  const rejectCallbackTypeAst: CSharpTypeAst = {
+    kind: "identifierType",
+    name: "global::System.Action",
+    typeArguments: [
+      {
+        kind: "nullableType",
+        underlyingType: { kind: "identifierType", name: "object" },
+      },
+    ],
+  };
+
+  const executorDelegateTypeAst: CSharpTypeAst =
+    executorArity >= 2
+      ? {
+          kind: "identifierType",
+          name: "global::System.Action",
+          typeArguments: [resolveCallbackTypeAst, rejectCallbackTypeAst],
+        }
+      : {
+          kind: "identifierType",
+          name: "global::System.Action",
+          typeArguments: [resolveCallbackTypeAst],
+        };
+
+  const resolveLambda: CSharpExpressionAst = promiseValueType
+    ? {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [{ name: "value", type: valueTypeAst }],
+        body: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "expressionStatement",
+              expression: {
+                kind: "invocationExpression",
+                expression: {
+                  kind: "memberAccessExpression",
+                  expression: {
+                    kind: "identifierExpression",
+                    identifier: "__tsonic_tcs",
+                  },
+                  memberName: "TrySetResult",
+                },
+                arguments: [
+                  { kind: "identifierExpression", identifier: "value" },
+                ],
+              },
+            },
+          ],
+        },
+      }
+    : {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [],
+        body: {
+          kind: "blockStatement",
+          statements: [
+            {
+              kind: "expressionStatement",
+              expression: {
+                kind: "invocationExpression",
+                expression: {
+                  kind: "memberAccessExpression",
+                  expression: {
+                    kind: "identifierExpression",
+                    identifier: "__tsonic_tcs",
+                  },
+                  memberName: "TrySetResult",
+                },
+                arguments: [{ kind: "literalExpression", text: "true" }],
+              },
+            },
+          ],
+        },
+      };
+
+  const rejectLambda: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [
+      {
+        name: "error",
+        type: {
+          kind: "nullableType",
+          underlyingType: { kind: "identifierType", name: "object" },
+        },
+      },
+    ],
+    body: {
+      kind: "blockStatement",
+      statements: [
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "invocationExpression",
+            expression: {
+              kind: "memberAccessExpression",
+              expression: {
+                kind: "identifierExpression",
+                identifier: "__tsonic_tcs",
+              },
+              memberName: "TrySetException",
+            },
+            arguments: [
+              {
+                kind: "binaryExpression",
+                operatorToken: "??",
+                left: {
+                  kind: "asExpression",
+                  expression: {
+                    kind: "identifierExpression",
+                    identifier: "error",
+                  },
+                  type: {
+                    kind: "identifierType",
+                    name: "global::System.Exception",
+                  },
+                },
+                right: {
+                  kind: "objectCreationExpression",
+                  type: {
+                    kind: "identifierType",
+                    name: "global::System.Exception",
+                  },
+                  arguments: [
+                    {
+                      kind: "binaryExpression",
+                      operatorToken: "??",
+                      left: {
+                        kind: "invocationExpression",
+                        expression: {
+                          kind: "conditionalMemberAccessExpression",
+                          expression: {
+                            kind: "identifierExpression",
+                            identifier: "error",
+                          },
+                          memberName: "ToString",
+                        },
+                        arguments: [],
+                      },
+                      right: {
+                        kind: "literalExpression",
+                        text: '"Promise rejected"',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+
+  const invokeTarget: CSharpExpressionAst = {
+    kind: "parenthesizedExpression",
+    expression: {
+      kind: "castExpression",
+      type: executorDelegateTypeAst,
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: executorAst,
+      },
+    },
+  };
+
+  const invokeArgs: CSharpExpressionAst[] =
+    executorArity >= 2
+      ? [
+          { kind: "identifierExpression", identifier: "__tsonic_resolve" },
+          { kind: "identifierExpression", identifier: "__tsonic_reject" },
+        ]
+      : [{ kind: "identifierExpression", identifier: "__tsonic_resolve" }];
+
+  const bodyStatements: CSharpStatementAst[] = [
+    {
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: { kind: "varType" },
+      declarators: [
+        {
+          name: "__tsonic_tcs",
+          initializer: {
+            kind: "objectCreationExpression",
+            type: tcsTypeAst,
+            arguments: [],
+          },
+        },
+      ],
+    },
+    {
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: resolveCallbackTypeAst,
+      declarators: [{ name: "__tsonic_resolve", initializer: resolveLambda }],
+    },
+    {
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: rejectCallbackTypeAst,
+      declarators: [{ name: "__tsonic_reject", initializer: rejectLambda }],
+    },
+    {
+      kind: "tryStatement",
+      body: {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "expressionStatement",
+            expression: {
+              kind: "invocationExpression",
+              expression: invokeTarget,
+              arguments: invokeArgs,
+            },
+          },
+        ],
+      },
+      catches: [
+        {
+          type: { kind: "identifierType", name: "global::System.Exception" },
+          identifier: "ex",
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: {
+                  kind: "invocationExpression",
+                  expression: {
+                    kind: "memberAccessExpression",
+                    expression: {
+                      kind: "identifierExpression",
+                      identifier: "__tsonic_tcs",
+                    },
+                    memberName: "TrySetException",
+                  },
+                  arguments: [
+                    { kind: "identifierExpression", identifier: "ex" },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      kind: "returnStatement",
+      expression: {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: "__tsonic_tcs",
+        },
+        memberName: "Task",
+      },
+    },
+  ];
 
   // IIFE: ((System.Func<Task<T>>)(() => { body }))()
   const funcTypeAst: CSharpTypeAst = {
@@ -404,7 +650,10 @@ const emitPromiseConstructor = (
     kind: "lambdaExpression",
     isAsync: false,
     parameters: [],
-    body: { kind: "identifierExpression", identifier: bodyText },
+    body: {
+      kind: "blockStatement",
+      statements: bodyStatements,
+    },
   };
   const castAst: CSharpExpressionAst = {
     kind: "castExpression",
@@ -451,7 +700,7 @@ export const emitNew = (
 
   const [calleeAst, newContext] = emitExpressionAst(expr.callee, context);
   let currentContext = newContext;
-  let calleeText = printExpression(calleeAst);
+  let calleeText = extractCalleeNameFromAst(calleeAst);
 
   let typeArgAsts: readonly CSharpTypeAst[] = [];
 

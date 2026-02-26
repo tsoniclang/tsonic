@@ -4,8 +4,14 @@
 
 import { IrType, IrTypeParameter } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType } from "./emitter.js";
+import { emitTypeAst } from "./emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import type {
+  CSharpTypeAst,
+  CSharpTypeParameterConstraintNodeAst,
+  CSharpTypeParameterAst,
+  CSharpTypeParameterConstraintAst,
+} from "../core/format/backend-ast/types.js";
 
 type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
 
@@ -49,16 +55,20 @@ const inferTypeParamConstraintKind = (
 };
 
 /**
- * Emit C# type parameters with constraints
- * Example: <T, U extends Foo> → <T, U> with where clauses
+ * Emit C# type parameters with constraints as AST nodes.
+ * Example: <T, U extends Foo> → typeParams=[{name:"T"},{name:"U"}], constraints=[{...}]
  */
-export const emitTypeParameters = (
+export const emitTypeParametersAst = (
   typeParams: readonly IrTypeParameter[] | undefined,
   context: EmitterContext,
   reservedCsharpNames?: ReadonlySet<string>
-): [string, string[], EmitterContext] => {
+): [
+  readonly CSharpTypeParameterAst[],
+  readonly CSharpTypeParameterConstraintAst[],
+  EmitterContext,
+] => {
   if (!typeParams || typeParams.length === 0) {
-    return ["", [], context];
+    return [[], [], context];
   }
 
   const normalizeCsharpIdentifier = (id: string): string =>
@@ -101,13 +111,12 @@ export const emitTypeParameters = (
     mergedConstraints.set(tp.name, inferTypeParamConstraintKind(tp));
   }
 
-  const paramNames = typeParams
-    .map((tp) => mergedTypeParamNameMap.get(tp.name) ?? tp.name)
-    .join(", ");
-  const typeParamsStr = `<${paramNames}>`;
+  const typeParamAsts: CSharpTypeParameterAst[] = typeParams.map((tp) => ({
+    name: mergedTypeParamNameMap.get(tp.name) ?? tp.name,
+  }));
 
-  // Build where clauses for constraints
-  const whereClauses: string[] = [];
+  // Build where clause AST nodes for constraints
+  const constraintAsts: CSharpTypeParameterConstraintAst[] = [];
   let currentContext: EmitterContext = {
     ...context,
     typeParamConstraints: mergedConstraints,
@@ -122,52 +131,69 @@ export const emitTypeParameters = (
       // Don't call emitType on objectType constraints (would trigger ICE)
       if (tp.isStructuralConstraint) {
         // Structural constraints generate interfaces - reference them
-        whereClauses.push(`where ${tpName} : __Constraint_${tp.name}`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [
+            {
+              kind: "typeConstraint",
+              type: {
+                kind: "identifierType",
+                name: `__Constraint_${tp.name}`,
+              },
+            },
+          ],
+        });
       } else if (tp.constraint.kind === "intersectionType") {
         // Multiple constraints: T extends A & B → where T : A, B
-        const constraintParts: string[] = [];
+        const constraintParts: CSharpTypeParameterConstraintNodeAst[] = [];
         for (const member of tp.constraint.types) {
           if (member.kind === "referenceType" && member.name === "struct") {
-            constraintParts.push("struct");
+            constraintParts.push({ kind: "structConstraint" });
           } else if (
             member.kind === "referenceType" &&
             member.name === "object"
           ) {
-            constraintParts.push("class");
+            constraintParts.push({ kind: "classConstraint" });
           } else {
-            const [constraintStr, newContext] = emitType(
-              member,
-              currentContext
-            );
+            const [cAst, newContext] = emitTypeAst(member, currentContext);
             currentContext = newContext;
-            constraintParts.push(constraintStr);
+            constraintParts.push({ kind: "typeConstraint", type: cAst });
           }
         }
-        whereClauses.push(`where ${tpName} : ${constraintParts.join(", ")}`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: constraintParts,
+        });
       } else if (
         tp.constraint.kind === "referenceType" &&
         tp.constraint.name === "struct"
       ) {
         // Special case: T extends struct → where T : struct (C# value type constraint)
-        whereClauses.push(`where ${tpName} : struct`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [{ kind: "structConstraint" }],
+        });
       } else if (
         tp.constraint.kind === "referenceType" &&
         tp.constraint.name === "object"
       ) {
         // Special case: T extends object → where T : class (C# reference type constraint)
-        whereClauses.push(`where ${tpName} : class`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [{ kind: "classConstraint" }],
+        });
       } else {
-        const [constraintStr, newContext] = emitType(
-          tp.constraint,
-          currentContext
-        );
+        const [cAst, newContext] = emitTypeAst(tp.constraint, currentContext);
         currentContext = newContext;
-        whereClauses.push(`where ${tpName} : ${constraintStr}`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [{ kind: "typeConstraint", type: cAst }],
+        });
       }
     }
   }
 
-  return [typeParamsStr, whereClauses, currentContext];
+  return [typeParamAsts, constraintAsts, currentContext];
 };
 
 /**
@@ -193,27 +219,27 @@ const unwrapParameterModifierType = (type: IrType): IrType | null => {
 };
 
 /**
- * Emit a parameter type with optional and default value handling
+ * Emit a parameter type as CSharpTypeAst with optional/nullable handling
  */
 export const emitParameterType = (
   type: IrType | undefined,
   isOptional: boolean,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpTypeAst, EmitterContext] => {
   const typeNode = type ?? { kind: "anyType" as const };
 
   // Unwrap ref/out/in wrapper types - the modifier is handled separately
   const unwrapped = unwrapParameterModifierType(typeNode);
   const actualType = unwrapped ?? typeNode;
 
-  const [baseType, newContext] = emitType(actualType, context);
+  const [baseTypeAst, newContext] = emitTypeAst(actualType, context);
 
-  // For optional parameters, add ? suffix for nullable types
+  // For optional parameters, wrap in nullable
   // This includes both value types (double?, int?) and reference types (string?)
   // per spec/04-type-mappings.md:21-78
   if (isOptional) {
-    return [`${baseType}?`, newContext];
+    return [{ kind: "nullableType", underlyingType: baseTypeAst }, newContext];
   }
 
-  return [baseType, newContext];
+  return [baseTypeAst, newContext];
 };

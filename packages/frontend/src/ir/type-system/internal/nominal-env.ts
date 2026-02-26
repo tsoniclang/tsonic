@@ -63,8 +63,6 @@ export type NominalEnv = {
   /**
    * Get the complete inheritance chain for a nominal type.
    * Returns TypeIds in order from child to parent.
-   *
-   * Only follows "extends" edges (matches legacy behavior).
    */
   readonly getInheritanceChain: (typeId: TypeId) => readonly TypeId[];
 };
@@ -84,10 +82,6 @@ export const substituteIrType = (
     }
 
     case "referenceType": {
-      // Check if the type itself is a type parameter (legacy format)
-      const replacement = subst.get(type.name);
-      if (replacement) return replacement;
-
       // Substitute in type arguments and structural members
       const hasTypeArgs = type.typeArguments && type.typeArguments.length > 0;
       const hasStructural =

@@ -2,24 +2,26 @@
  * Statement emitters barrel exports
  */
 
-// Block and simple statements
+// Block and simple statements (AST)
 export {
-  emitBlockStatement,
-  emitReturnStatement,
-  emitYieldStatement,
-  emitExpressionStatement,
+  emitBlockStatementAst,
+  emitReturnStatementAst,
+  emitYieldExpressionAst,
+  emitYieldStatementAst,
+  emitExpressionStatementAst,
+  emitGeneratorReturnStatementAst,
 } from "./blocks.js";
 
-// Control flow statements
+// Control flow statements (AST)
 export {
-  emitIfStatement,
-  emitWhileStatement,
-  emitForStatement,
-  emitForOfStatement,
-  emitForInStatement,
-  emitSwitchStatement,
-  emitTryStatement,
-  emitThrowStatement,
+  emitIfStatementAst,
+  emitWhileStatementAst,
+  emitForStatementAst,
+  emitForOfStatementAst,
+  emitForInStatementAst,
+  emitSwitchStatementAst,
+  emitTryStatementAst,
+  emitThrowStatementAst,
 } from "./control.js";
 
 // Class-related helpers
@@ -36,7 +38,9 @@ export {
 // Declaration emitters
 export {
   emitVariableDeclaration,
+  emitVariableDeclarationAst,
   emitFunctionDeclaration,
+  emitFunctionDeclarationAst,
   emitClassDeclaration,
   emitInterfaceDeclaration,
   emitEnumDeclaration,

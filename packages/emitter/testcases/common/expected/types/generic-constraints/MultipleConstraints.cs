@@ -3,47 +3,48 @@ namespace TestCases.common.types.genericconstraints
     public class ComparableShowable<T>
     {
         public int compareTo(T other)
-            {
+        {
             return 0;
-            }
+        }
 
         public string show()
-            {
+        {
             return "";
-            }
+        }
     }
+
     public class NumberValue : ComparableShowable<NumberValue>
     {
         public int value { get; set; }
 
         public NumberValue(int value) : base()
-            {
+        {
             this.value = value;
-            }
+        }
 
         public override int compareTo(NumberValue other)
-            {
+        {
             return this.value - other.value;
-            }
+        }
 
         public override string show()
-            {
+        {
             return $"Value: {this.value}";
-            }
+        }
     }
 
-            [global::Tsonic.Internal.ModuleContainerAttribute]
-            public static class MultipleConstraints
+    [global::Tsonic.Internal.ModuleContainerAttribute]
+    public static class MultipleConstraints
+    {
+        public static string maxAndShow<T>(T a, T b)
+            where T : ComparableShowable<T>
+        {
+            var comparison = a.compareTo(b);
+            if (comparison >= 0)
             {
-                public static string maxAndShow<T>(T a, T b)
-                    where T : ComparableShowable<T>
-                    {
-                    var comparison = a.compareTo(b);
-                    if (comparison >= 0)
-                        {
-                        return a.show();
-                        }
-                    return b.show();
-                    }
+                return a.show();
             }
+            return b.show();
+        }
+    }
 }

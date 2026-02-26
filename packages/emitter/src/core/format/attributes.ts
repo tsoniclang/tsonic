@@ -1,7 +1,7 @@
 /**
  * Attribute emission helpers
  *
- * Emits C# attribute syntax from IrAttribute nodes.
+ * Emits C# attribute syntax from IrAttribute nodes as CSharpAttributeAst.
  *
  * Example:
  * ```typescript
@@ -19,158 +19,211 @@
  * ```
  */
 
-import { IrAttribute, IrAttributeArg, IrType } from "@tsonic/frontend";
+import { IrAttribute, IrAttributeArg } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
-import { emitType } from "../../type-emitter.js";
-import { getIndent } from "../../emitter-types/index.js";
+import { emitTypeAst } from "../../type-emitter.js";
+import type {
+  CSharpAttributeAst,
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "./backend-ast/types.js";
 
 /**
- * Emit a single attribute argument value.
+ * Emit a single attribute argument value as CSharpExpressionAst.
  */
-const emitAttributeArg = (
+const emitAttributeArgAst = (
   arg: IrAttributeArg,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpExpressionAst, EmitterContext] => {
   switch (arg.kind) {
     case "string":
-      // Escape string for C# literal
       return [
-        `"${arg.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
+        {
+          kind: "literalExpression",
+          text: `"${arg.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
+        },
         context,
       ];
     case "number":
-      return [String(arg.value), context];
+      return [{ kind: "literalExpression", text: String(arg.value) }, context];
     case "boolean":
-      return [arg.value ? "true" : "false", context];
+      return [
+        { kind: "literalExpression", text: arg.value ? "true" : "false" },
+        context,
+      ];
     case "typeof": {
-      const [typeStr, newContext] = emitType(arg.type, context);
-      return [`typeof(${typeStr})`, newContext];
+      const [typeAst, newContext] = emitTypeAst(arg.type, context);
+      return [{ kind: "typeofExpression", type: typeAst }, newContext];
     }
     case "enum": {
-      const [typeStr, newContext] = emitType(arg.type, context);
-      return [`${typeStr}.${arg.member}`, newContext];
+      const [typeAst, newContext] = emitTypeAst(arg.type, context);
+      return [
+        {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: extractTypeName(typeAst),
+          },
+          memberName: arg.member,
+        },
+        newContext,
+      ];
     }
     case "array": {
-      const parts: string[] = [];
+      const elements: CSharpExpressionAst[] = [];
       let currentContext = context;
       for (const el of arg.elements) {
-        const [elStr, newContext] = emitAttributeArg(el, currentContext);
-        parts.push(elStr);
+        const [elAst, newContext] = emitAttributeArgAst(el, currentContext);
+        elements.push(elAst);
         currentContext = newContext;
       }
-      return [`new[] { ${parts.join(", ")} }`, currentContext];
+      return [
+        {
+          kind: "arrayCreationExpression",
+          elementType: { kind: "varType" },
+          initializer: elements,
+        },
+        currentContext,
+      ];
     }
   }
 };
 
 /**
- * Get the fully qualified name for an attribute type.
- * Resolves IrType to its C# name.
+ * Extract a printable type name from a CSharpTypeAst without calling printType.
+ * Handles the common cases (identifierType, predefinedType).
+ * Falls back to printType for exotic shapes.
  */
-const getAttributeTypeName = (
-  type: IrType,
-  context: EmitterContext
-): [string, EmitterContext] => {
-  // Use emitType to get the proper C# type name with global:: prefix
-  return emitType(type, context);
+const extractTypeName = (typeAst: CSharpTypeAst): string => {
+  if (typeAst.kind === "predefinedType") {
+    return typeAst.keyword;
+  }
+  if (typeAst.kind === "identifierType") {
+    const args =
+      typeAst.typeArguments && typeAst.typeArguments.length > 0
+        ? `<${typeAst.typeArguments.map(extractTypeName).join(", ")}>`
+        : "";
+    return `${typeAst.name}${args}`;
+  }
+  if (typeAst.kind === "nullableType") {
+    return `${extractTypeName(typeAst.underlyingType)}?`;
+  }
+  if (typeAst.kind === "arrayType") {
+    const rank =
+      typeAst.rank > 1
+        ? `[${",".repeat(Math.max(0, typeAst.rank - 1))}]`
+        : "[]";
+    return `${extractTypeName(typeAst.elementType)}${rank}`;
+  }
+  if (typeAst.kind === "pointerType") {
+    return `${extractTypeName(typeAst.elementType)}*`;
+  }
+  if (typeAst.kind === "tupleType") {
+    const elems = typeAst.elements
+      .map((e) =>
+        e.name
+          ? `${extractTypeName(e.type)} ${e.name}`
+          : extractTypeName(e.type)
+      )
+      .join(", ");
+    return `(${elems})`;
+  }
+  if (typeAst.kind === "varType") {
+    return "var";
+  }
+  throw new Error("ICE: Unsupported attribute type AST.");
 };
 
 /**
- * Emit a single attribute.
- *
- * @param attr - The IR attribute to emit
- * @param context - Emitter context
- * @returns Tuple of [attribute text (without brackets), context]
+ * Emit a single attribute as CSharpAttributeAst.
  */
-const emitAttribute = (
+const emitAttributeAst = (
   attr: IrAttribute,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const [typeName, typeContext] = getAttributeTypeName(
-    attr.attributeType,
-    context
-  );
+): [CSharpAttributeAst, EmitterContext] => {
+  const [typeAst, typeContext] = emitTypeAst(attr.attributeType, context);
 
-  const parts: string[] = [];
+  const args: CSharpExpressionAst[] = [];
   let currentContext = typeContext;
 
   // Emit positional arguments
   for (const arg of attr.positionalArgs) {
-    const [argStr, newContext] = emitAttributeArg(arg, currentContext);
-    parts.push(argStr);
+    const [argAst, newContext] = emitAttributeArgAst(arg, currentContext);
+    args.push(argAst);
     currentContext = newContext;
   }
 
-  // Emit named arguments
+  // Emit named arguments as assignment expressions
   for (const [name, arg] of attr.namedArgs) {
-    const [argStr, newContext] = emitAttributeArg(arg, currentContext);
-    parts.push(`${name} = ${argStr}`);
+    const [argAst, newContext] = emitAttributeArgAst(arg, currentContext);
+    args.push({
+      kind: "assignmentExpression",
+      operatorToken: "=",
+      left: { kind: "identifierExpression", identifier: name },
+      right: argAst,
+    });
     currentContext = newContext;
   }
 
-  // Build attribute text
-  const argsStr = parts.length > 0 ? `(${parts.join(", ")})` : "";
-  const targetPrefix = attr.target ? `${attr.target}: ` : "";
-  return [`${targetPrefix}${typeName}${argsStr}`, currentContext];
+  const result: CSharpAttributeAst = {
+    type: typeAst,
+    ...(args.length > 0 ? { arguments: args } : {}),
+    ...(attr.target ? { target: attr.target } : {}),
+  };
+
+  return [result, currentContext];
 };
 
 /**
- * Emit all attributes for a declaration.
+ * Emit all attributes for a declaration as CSharpAttributeAst[].
  *
  * @param attributes - Array of attributes (may be undefined)
  * @param context - Emitter context
- * @returns Tuple of [attribute lines string, context]
- *
- * Returns empty string if no attributes.
- * Each attribute is on its own line with the current indentation.
+ * @returns Tuple of [attribute ASTs, context]
  */
 export const emitAttributes = (
   attributes: readonly IrAttribute[] | undefined,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpAttributeAst[], EmitterContext] => {
   if (!attributes || attributes.length === 0) {
-    return ["", context];
+    return [[], context];
   }
 
-  const ind = getIndent(context);
-  const lines: string[] = [];
+  const result: CSharpAttributeAst[] = [];
   let currentContext = context;
 
   for (const attr of attributes) {
-    const [attrStr, newContext] = emitAttribute(attr, currentContext);
+    const [attrAst, newContext] = emitAttributeAst(attr, currentContext);
     currentContext = newContext;
-    lines.push(`${ind}[${attrStr}]`);
+    result.push(attrAst);
   }
 
-  return [lines.join("\n"), currentContext];
+  return [result, currentContext];
 };
 
 /**
- * Emit parameter-level attributes inline.
+ * Emit parameter-level attributes as CSharpAttributeAst[].
  *
  * @param attributes - Array of attributes (may be undefined)
  * @param context - Emitter context
- * @returns Tuple of [attribute prefix string, context]
- *
- * Returns empty string if no attributes.
- * Format: `[Attr1][Attr2] ` (with trailing space if any attributes)
+ * @returns Tuple of [attribute ASTs, context]
  */
 export const emitParameterAttributes = (
   attributes: readonly IrAttribute[] | undefined,
   context: EmitterContext
-): [string, EmitterContext] => {
+): [readonly CSharpAttributeAst[], EmitterContext] => {
   if (!attributes || attributes.length === 0) {
-    return ["", context];
+    return [[], context];
   }
 
-  const parts: string[] = [];
+  const result: CSharpAttributeAst[] = [];
   let currentContext = context;
 
   for (const attr of attributes) {
-    const [attrStr, newContext] = emitAttribute(attr, currentContext);
+    const [attrAst, newContext] = emitAttributeAst(attr, currentContext);
     currentContext = newContext;
-    parts.push(`[${attrStr}]`);
+    result.push(attrAst);
   }
 
-  return [parts.join("") + " ", currentContext];
+  return [result, currentContext];
 };

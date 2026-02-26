@@ -14,7 +14,7 @@
 import * as ts from "typescript";
 import type { IrType, IrMethodSignature } from "../../types/index.js";
 import { getNamespaceFromPath } from "../../../resolver/namespace.js";
-import { GLOBALS_TO_CLR_FQ } from "./universe/alias-table.js";
+import { normalizeToClrName } from "./universe/alias-table.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CANONICAL CLR NAME HELPERS
@@ -48,14 +48,14 @@ const getCanonicalClrFQName = (
   if (!isFromWellKnownLib) return undefined;
 
   // Check direct mapping (String, Array, Number, etc.)
-  const directMapping = GLOBALS_TO_CLR_FQ[simpleName];
-  if (directMapping) return directMapping;
+  const directMapping = normalizeToClrName(simpleName);
+  if (directMapping !== simpleName) return directMapping;
 
   // Handle $instance companions - they map to System.X$instance
   if (simpleName.endsWith("$instance")) {
     const baseName = simpleName.slice(0, -9); // Remove "$instance"
-    const baseClrName = GLOBALS_TO_CLR_FQ[baseName];
-    if (baseClrName) {
+    const baseClrName = normalizeToClrName(baseName);
+    if (baseClrName !== baseName) {
       return `${baseClrName}$instance`;
     }
   }
@@ -63,8 +63,8 @@ const getCanonicalClrFQName = (
   // Handle __X$views companions - they map to System.X$views
   if (simpleName.includes("$views")) {
     const baseName = simpleName.replace("__", "").replace("$views", "");
-    const baseClrName = GLOBALS_TO_CLR_FQ[baseName];
-    if (baseClrName) {
+    const baseClrName = normalizeToClrName(baseName);
+    if (baseClrName !== baseName) {
       return `${baseClrName}$views`;
     }
   }
@@ -135,7 +135,7 @@ export type TypeRegistry = {
   readonly resolveNominal: (fqName: string) => TypeRegistryEntry | undefined;
 
   /**
-   * Resolve a type by simple name (for backwards compatibility).
+   * Resolve a type by simple name.
    * Returns first match if multiple types have the same simple name.
    */
   readonly resolveBySimpleName: (

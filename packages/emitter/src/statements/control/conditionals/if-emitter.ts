@@ -1,18 +1,23 @@
 /**
  * If-statement emitter with union/instanceof/nullable guard narrowing.
+ * Returns CSharpStatementAst nodes.
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
+import { EmitterContext } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
-import { printExpression } from "../../../core/format/backend-ast/printer.js";
-import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
-import { emitStatement } from "../../../statement-emitter.js";
+import type {
+  CSharpExpressionAst,
+  CSharpStatementAst,
+  CSharpBlockStatementAst,
+} from "../../../core/format/backend-ast/types.js";
+import { emitStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import {
-  emitBooleanCondition,
-  toBooleanCondition,
+  emitBooleanConditionAst,
+  toBooleanConditionAst,
+  type EmitExprAstFn,
 } from "../../../core/semantic/boolean-context.js";
 import {
   tryResolvePredicateGuard,
@@ -23,6 +28,9 @@ import {
   tryResolveNullableGuard,
   isDefinitelyTerminating,
 } from "./guard-analysis.js";
+
+/** Standard emitExpressionAst adapter for emitBooleanConditionAst callback. */
+const emitExprAstCb: EmitExprAstFn = (e, ctx) => emitExpressionAst(e, ctx);
 
 /**
  * Build AST for a union narrowing expression: (escapedOrig.AsN())
@@ -43,17 +51,26 @@ const buildUnionNarrowAst = (
   },
 });
 
+/** Wrap an array of statements in a single statement (block if >1). */
+const wrapInBlock = (
+  stmts: readonly CSharpStatementAst[]
+): CSharpStatementAst => {
+  if (stmts.length === 1 && stmts[0]) return stmts[0];
+  return { kind: "blockStatement", statements: [...stmts] };
+};
+
 /**
- * Emit a forced block with a preamble line (e.g., var narrowed = x.AsN()).
- * If bodyStmt is already a block, emits its statements directly to avoid nesting.
+ * Emit a forced block with a preamble line as AST.
+ * Builds a blockStatement with preamble statements + body statements.
+ *
+ * If bodyStmt is already a block, its statements are inlined to avoid nesting.
  */
-const emitForcedBlockWithPreamble = (
-  preambleLine: string,
+const emitForcedBlockWithPreambleAst = (
+  preambleStmts: readonly CSharpStatementAst[],
   bodyStmt: IrStatement,
-  bodyCtx: EmitterContext,
-  outerInd: string
-): [string, EmitterContext] => {
-  const parts: string[] = [preambleLine];
+  bodyCtx: EmitterContext
+): [CSharpBlockStatementAst, EmitterContext] => {
+  const allStatements: CSharpStatementAst[] = [...preambleStmts];
 
   const emitBodyStatements = (
     statements: readonly IrStatement[],
@@ -61,8 +78,8 @@ const emitForcedBlockWithPreamble = (
   ): EmitterContext => {
     let currentCtx = ctx;
     for (const s of statements) {
-      const [code, next] = emitStatement(s, currentCtx);
-      parts.push(code);
+      const [stmts, next] = emitStatementAst(s, currentCtx);
+      allStatements.push(...stmts);
       currentCtx = next;
     }
     return currentCtx;
@@ -72,25 +89,85 @@ const emitForcedBlockWithPreamble = (
     bodyStmt.kind === "blockStatement"
       ? emitBodyStatements(bodyStmt.statements, bodyCtx)
       : (() => {
-          const [code, next] = emitStatement(bodyStmt, bodyCtx);
-          parts.push(code);
+          const [stmts, next] = emitStatementAst(bodyStmt, bodyCtx);
+          allStatements.push(...stmts);
           return next;
         })();
 
-  const blockBody = parts.join("\n");
-  const code = `${outerInd}{\n${blockBody}\n${outerInd}}`;
-  return [code, finalCtx];
+  return [{ kind: "blockStatement", statements: allStatements }, finalCtx];
 };
 
 /**
- * Emit an if statement
+ * Build a `var name = expr.AsN();` statement as AST.
  */
-export const emitIfStatement = (
+const buildCastLocalDecl = (
+  varName: string,
+  receiverName: string,
+  memberN: number
+): CSharpStatementAst => ({
+  kind: "localDeclarationStatement",
+  modifiers: [],
+  type: { kind: "varType" },
+  declarators: [
+    {
+      name: varName,
+      initializer: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: receiverName,
+          },
+          memberName: `As${memberN}`,
+        },
+        arguments: [],
+      },
+    },
+  ],
+});
+
+/**
+ * Build the condition expression `orig.IsN()` or `!orig.IsN()`.
+ */
+const buildIsNCondition = (
+  escapedOrig: string,
+  memberN: number,
+  negate: boolean
+): CSharpExpressionAst => {
+  const isCall: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: { kind: "identifierExpression", identifier: escapedOrig },
+      memberName: `Is${memberN}`,
+    },
+    arguments: [],
+  };
+  return negate
+    ? { kind: "prefixUnaryExpression", operatorToken: "!", operand: isCall }
+    : isCall;
+};
+
+/**
+ * Build the condition expression `orig is TypeName varName`.
+ */
+const buildIsPatternCondition = (
+  escapedOrig: string,
+  rhsTypeText: string,
+  escapedNarrow: string
+): CSharpExpressionAst => ({
+  kind: "identifierExpression",
+  identifier: `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`,
+});
+
+/**
+ * Emit an if statement as AST
+ */
+export const emitIfStatementAst = (
   stmt: Extract<IrStatement, { kind: "ifStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-
+): [readonly CSharpStatementAst[], EmitterContext] => {
   // Case A: if (isUser(account)) { ... }
   // Predicate narrowing rewrite → if (account.IsN()) { var account__N_k = account.AsN(); ... }
   if (stmt.condition.kind === "call") {
@@ -98,41 +175,44 @@ export const emitIfStatement = (
     if (guard) {
       const { memberN, ctxWithId, escapedOrig, escapedNarrow, narrowedMap } =
         guard;
-      const condText = `${escapedOrig}.Is${memberN}()`;
+
+      const condAst = buildIsNCondition(escapedOrig, memberN, false);
+      const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
 
       const thenCtx: EmitterContext = {
-        ...indent(ctxWithId),
+        ...ctxWithId,
         narrowedBindings: narrowedMap,
       };
 
-      const thenInd = getIndent(thenCtx);
-      const castLine = `${thenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
-
-      const [thenCode, thenBodyCtx] = emitForcedBlockWithPreamble(
-        castLine,
+      const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
+        [castStmt],
         stmt.thenStatement,
-        thenCtx,
-        ind
+        thenCtx
       );
 
-      let finalContext = dedent(thenBodyCtx);
-      finalContext = {
-        ...finalContext,
+      let finalContext: EmitterContext = {
+        ...thenBodyCtx,
         narrowedBindings: ctxWithId.narrowedBindings,
       };
 
-      let code = `${ind}if (${condText})\n${thenCode}`;
-
+      let elseStmt: CSharpStatementAst | undefined;
       if (stmt.elseStatement) {
-        const [elseCode, elseCtx] = emitStatement(
+        const [elseStmts, elseCtx] = emitStatementAst(
           stmt.elseStatement,
-          indent(finalContext)
+          finalContext
         );
-        code += `\n${ind}else\n${elseCode}`;
-        finalContext = dedent(elseCtx);
+        elseStmt = wrapInBlock(elseStmts);
+        finalContext = elseCtx;
       }
 
-      return [code, finalContext];
+      const ifStmt: CSharpStatementAst = {
+        kind: "ifStatement",
+        condition: condAst,
+        thenStatement: thenBlock,
+        elseStatement: elseStmt,
+      };
+
+      return [[ifStmt], finalContext];
     }
   }
 
@@ -150,94 +230,108 @@ export const emitIfStatement = (
       narrowedMap,
     } = inGuard;
 
-    const condText = `${escapedOrig}.Is${memberN}()`;
+    const condAst = buildIsNCondition(escapedOrig, memberN, false);
+    const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
 
     const thenCtx: EmitterContext = {
-      ...indent(ctxWithId),
+      ...ctxWithId,
       narrowedBindings: narrowedMap,
     };
 
-    const thenInd = getIndent(thenCtx);
-    const castLine = `${thenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
-
-    const [thenCode, thenBodyCtx] = emitForcedBlockWithPreamble(
-      castLine,
+    const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
+      [castStmt],
       stmt.thenStatement,
-      thenCtx,
-      ind
+      thenCtx
     );
 
-    let finalContext = dedent(thenBodyCtx);
+    let finalContext: EmitterContext = thenBodyCtx;
 
-    let code = `${ind}if (${condText})\n${thenCode}`;
+    let elseStmt: CSharpStatementAst | undefined;
 
-    // Optional else branch narrowing (2-member unions only)
     if (stmt.elseStatement) {
       if (unionArity === 2) {
         const otherMemberN = memberN === 1 ? 2 : 1;
         const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
         const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-        elseNarrowedMap.set(originalName, {
-          kind: "expr",
-          exprAst,
-        });
+        elseNarrowedMap.set(originalName, { kind: "expr", exprAst });
 
         const elseCtx: EmitterContext = {
-          ...indent({ ...finalContext, narrowedBindings: elseNarrowedMap }),
+          ...finalContext,
+          narrowedBindings: elseNarrowedMap,
         };
 
-        const [elseCode, elseCtxAfter] = emitStatement(
+        const [elseStmts, elseCtxAfter] = emitStatementAst(
           stmt.elseStatement,
           elseCtx
         );
-        code += `\n${ind}else\n${elseCode}`;
-        finalContext = dedent(elseCtxAfter);
+        elseStmt = wrapInBlock(elseStmts);
         finalContext = {
-          ...finalContext,
+          ...elseCtxAfter,
           narrowedBindings: ctxWithId.narrowedBindings,
         };
-        return [code, finalContext];
+
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenBlock,
+              elseStatement: elseStmt,
+            },
+          ],
+          finalContext,
+        ];
       }
 
-      // If we can't narrow ELSE safely, emit it without narrowing.
-      const [elseCode, elseCtx] = emitStatement(
-        stmt.elseStatement,
-        indent({
-          ...finalContext,
-          narrowedBindings: ctxWithId.narrowedBindings,
-        })
-      );
-      code += `\n${ind}else\n${elseCode}`;
-      finalContext = dedent(elseCtx);
-      finalContext = {
+      // Can't narrow ELSE safely, emit without narrowing.
+      const [elseStmts, elseCtx] = emitStatementAst(stmt.elseStatement, {
         ...finalContext,
         narrowedBindings: ctxWithId.narrowedBindings,
+      });
+      elseStmt = wrapInBlock(elseStmts);
+      finalContext = {
+        ...elseCtx,
+        narrowedBindings: ctxWithId.narrowedBindings,
       };
-      return [code, finalContext];
+
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: thenBlock,
+            elseStatement: elseStmt,
+          },
+        ],
+        finalContext,
+      ];
     }
 
-    // Post-if narrowing for early-exit patterns (2-member unions only):
-    // if (auth.Is2()) return ...;
-    // // auth is now member 1 in the remainder
+    // Post-if narrowing for early-exit patterns (2-member unions only)
     if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
       const otherMemberN = memberN === 1 ? 2 : 1;
       const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
       const postMap = new Map(ctxWithId.narrowedBindings ?? []);
       postMap.set(originalName, { kind: "expr", exprAst });
       finalContext = { ...finalContext, narrowedBindings: postMap };
-      return [code, finalContext];
+      return [
+        [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+        finalContext,
+      ];
     }
 
-    // Restore narrowedBindings to the incoming scope.
     finalContext = {
       ...finalContext,
       narrowedBindings: ctxWithId.narrowedBindings,
     };
-    return [code, finalContext];
+    return [
+      [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+      finalContext,
+    ];
   }
 
   // Case A4: if (shape.kind === "circle") { ... }
-  // Discriminant literal equality narrowing → if (shape.IsN()) / if (!shape.IsN())
+  // Discriminant literal equality narrowing
   const eqGuard = tryResolveDiscriminantEqualityGuard(stmt.condition, context);
   if (eqGuard) {
     const {
@@ -252,160 +346,194 @@ export const emitIfStatement = (
     } = eqGuard;
 
     const isInequality = operator === "!==" || operator === "!=";
-    const condText = isInequality
-      ? `!${escapedOrig}.Is${memberN}()`
-      : `${escapedOrig}.Is${memberN}()`;
+    const condAst = buildIsNCondition(escapedOrig, memberN, isInequality);
 
-    let code = `${ind}if (${condText})`;
     let finalContext: EmitterContext = ctxWithId;
 
     // Equality: narrow THEN to memberN. Inequality: narrow ELSE to memberN.
     if (!isInequality) {
+      const castStmt = buildCastLocalDecl(escapedNarrow, escapedOrig, memberN);
       const thenCtx: EmitterContext = {
-        ...indent(ctxWithId),
+        ...ctxWithId,
         narrowedBindings: narrowedMap,
       };
-      const thenInd = getIndent(thenCtx);
-      const castLine = `${thenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
-      const [thenCode, thenBodyCtx] = emitForcedBlockWithPreamble(
-        castLine,
+      const [thenBlock, thenBodyCtx] = emitForcedBlockWithPreambleAst(
+        [castStmt],
         stmt.thenStatement,
-        thenCtx,
-        ind
+        thenCtx
       );
-      code += `\n${thenCode}`;
-      finalContext = dedent(thenBodyCtx);
+      finalContext = thenBodyCtx;
 
+      let elseStmt: CSharpStatementAst | undefined;
       if (stmt.elseStatement) {
-        // Else-branch narrowing only for 2-member unions.
         if (unionArity === 2) {
           const otherMemberN = memberN === 1 ? 2 : 1;
           const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
           const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-          elseNarrowedMap.set(originalName, {
-            kind: "expr",
-            exprAst,
-          });
+          elseNarrowedMap.set(originalName, { kind: "expr", exprAst });
 
-          const elseCtx: EmitterContext = {
-            ...indent({ ...finalContext, narrowedBindings: elseNarrowedMap }),
-          };
-
-          const [elseCode, elseCtxAfter] = emitStatement(
+          const [elseStmts, elseCtxAfter] = emitStatementAst(
             stmt.elseStatement,
-            elseCtx
+            { ...finalContext, narrowedBindings: elseNarrowedMap }
           );
-          code += `\n${ind}else\n${elseCode}`;
-          finalContext = dedent(elseCtxAfter);
+          elseStmt = wrapInBlock(elseStmts);
           finalContext = {
-            ...finalContext,
+            ...elseCtxAfter,
             narrowedBindings: ctxWithId.narrowedBindings,
           };
-          return [code, finalContext];
+          return [
+            [
+              {
+                kind: "ifStatement",
+                condition: condAst,
+                thenStatement: thenBlock,
+                elseStatement: elseStmt,
+              },
+            ],
+            finalContext,
+          ];
         }
 
-        const [elseCode, elseCtx] = emitStatement(
-          stmt.elseStatement,
-          indent({
-            ...finalContext,
-            narrowedBindings: ctxWithId.narrowedBindings,
-          })
-        );
-        code += `\n${ind}else\n${elseCode}`;
-        finalContext = dedent(elseCtx);
-        finalContext = {
+        const [elseStmts, elseCtx] = emitStatementAst(stmt.elseStatement, {
           ...finalContext,
           narrowedBindings: ctxWithId.narrowedBindings,
+        });
+        elseStmt = wrapInBlock(elseStmts);
+        finalContext = {
+          ...elseCtx,
+          narrowedBindings: ctxWithId.narrowedBindings,
         };
-        return [code, finalContext];
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenBlock,
+              elseStatement: elseStmt,
+            },
+          ],
+          finalContext,
+        ];
       }
 
-      // Post-if narrowing for early-exit patterns (2-member unions only).
+      // Post-if narrowing for early-exit patterns (2-member unions only)
       if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
         const otherMemberN = memberN === 1 ? 2 : 1;
         const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
         const postMap = new Map(ctxWithId.narrowedBindings ?? []);
         postMap.set(originalName, { kind: "expr", exprAst });
         finalContext = { ...finalContext, narrowedBindings: postMap };
-        return [code, finalContext];
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenBlock,
+            },
+          ],
+          finalContext,
+        ];
       }
 
       finalContext = {
         ...finalContext,
         narrowedBindings: ctxWithId.narrowedBindings,
       };
-      return [code, finalContext];
+      return [
+        [{ kind: "ifStatement", condition: condAst, thenStatement: thenBlock }],
+        finalContext,
+      ];
     }
 
-    // Inequality: THEN is "not memberN" (no narrowing unless arity==2), ELSE is memberN.
+    // Inequality: THEN is "not memberN", ELSE is memberN
     {
-      // Emit THEN (optionally narrowed to other member when arity==2).
-      const [thenCode, thenCtxAfter] = (() => {
-        if (unionArity === 2) {
-          const otherMemberN = memberN === 1 ? 2 : 1;
-          const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
-          const thenNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
-          thenNarrowedMap.set(originalName, {
-            kind: "expr",
-            exprAst,
-          });
-          const thenCtx: EmitterContext = {
-            ...indent({ ...ctxWithId, narrowedBindings: thenNarrowedMap }),
-          };
-          return emitStatement(stmt.thenStatement, thenCtx);
-        }
-        return emitStatement(
+      let thenStmt: CSharpStatementAst;
+      let thenCtx: EmitterContext;
+
+      if (unionArity === 2) {
+        const otherMemberN = memberN === 1 ? 2 : 1;
+        const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
+        const thenNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
+        thenNarrowedMap.set(originalName, { kind: "expr", exprAst });
+
+        const [thenStmts, thenCtxAfter] = emitStatementAst(stmt.thenStatement, {
+          ...ctxWithId,
+          narrowedBindings: thenNarrowedMap,
+        });
+        thenStmt = wrapInBlock(thenStmts);
+        thenCtx = thenCtxAfter;
+      } else {
+        const [thenStmts, thenCtxAfter] = emitStatementAst(
           stmt.thenStatement,
-          indent({ ...ctxWithId, narrowedBindings: ctxWithId.narrowedBindings })
+          ctxWithId
         );
-      })();
-
-      code += `\n${thenCode}`;
-      finalContext = dedent(thenCtxAfter);
-
-      if (stmt.elseStatement) {
-        const elseCtx: EmitterContext = {
-          ...indent(ctxWithId),
-          narrowedBindings: narrowedMap,
-        };
-        const elseInd = getIndent(elseCtx);
-        const castLine = `${elseInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
-        const [elseCode, elseBodyCtx] = emitForcedBlockWithPreamble(
-          castLine,
-          stmt.elseStatement,
-          elseCtx,
-          ind
-        );
-        code += `\n${ind}else\n${elseCode}`;
-        finalContext = dedent(elseBodyCtx);
-        finalContext = {
-          ...finalContext,
-          narrowedBindings: ctxWithId.narrowedBindings,
-        };
-        return [code, finalContext];
+        thenStmt = wrapInBlock(thenStmts);
+        thenCtx = thenCtxAfter;
       }
 
-      // Post-if narrowing for early-exit patterns (2-member unions only):
-      // if (!x.IsN()) return ...;
-      // // x is now member N
+      finalContext = thenCtx;
+
+      let elseStmt: CSharpStatementAst | undefined;
+      if (stmt.elseStatement) {
+        const castStmt = buildCastLocalDecl(
+          escapedNarrow,
+          escapedOrig,
+          memberN
+        );
+        const [elseBlock, elseBodyCtx] = emitForcedBlockWithPreambleAst(
+          [castStmt],
+          stmt.elseStatement,
+          { ...ctxWithId, narrowedBindings: narrowedMap }
+        );
+        elseStmt = elseBlock;
+        finalContext = {
+          ...elseBodyCtx,
+          narrowedBindings: ctxWithId.narrowedBindings,
+        };
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenStmt,
+              elseStatement: elseStmt,
+            },
+          ],
+          finalContext,
+        ];
+      }
+
+      // Post-if narrowing for early-exit patterns
       if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
         const exprAst = buildUnionNarrowAst(escapedOrig, memberN);
         const postMap = new Map(ctxWithId.narrowedBindings ?? []);
         postMap.set(originalName, { kind: "expr", exprAst });
         finalContext = { ...finalContext, narrowedBindings: postMap };
-        return [code, finalContext];
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: condAst,
+              thenStatement: thenStmt,
+            },
+          ],
+          finalContext,
+        ];
       }
 
       finalContext = {
         ...finalContext,
         narrowedBindings: ctxWithId.narrowedBindings,
       };
-      return [code, finalContext];
+      return [
+        [{ kind: "ifStatement", condition: condAst, thenStatement: thenStmt }],
+        finalContext,
+      ];
     }
   }
 
   // Case A2: if (x instanceof Foo) { ... }
-  // C# pattern var narrowing → if (x is Foo x__is_k) { ... } (then-branch sees narrowed x)
+  // C# pattern var narrowing → if (x is Foo x__is_k) { ... }
   const instanceofGuard = tryResolveInstanceofGuard(stmt.condition, context);
   if (instanceofGuard) {
     const {
@@ -416,31 +544,47 @@ export const emitIfStatement = (
       narrowedMap,
     } = instanceofGuard;
 
-    const condText = `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`;
+    const condAst = buildIsPatternCondition(
+      escapedOrig,
+      rhsTypeText,
+      escapedNarrow
+    );
 
     const thenCtx: EmitterContext = {
-      ...indent(ctxAfterRhs),
+      ...ctxAfterRhs,
       narrowedBindings: narrowedMap,
     };
-    const [thenCode, thenCtxAfter] = emitStatement(stmt.thenStatement, thenCtx);
+    const [thenStmts, thenCtxAfter] = emitStatementAst(
+      stmt.thenStatement,
+      thenCtx
+    );
 
-    let code = `${ind}if (${condText})\n${thenCode}`;
-    let finalContext = dedent(thenCtxAfter);
-    finalContext = {
-      ...finalContext,
+    let finalContext: EmitterContext = {
+      ...thenCtxAfter,
       narrowedBindings: ctxAfterRhs.narrowedBindings,
     };
 
+    let elseStmt: CSharpStatementAst | undefined;
     if (stmt.elseStatement) {
-      const [elseCode, elseCtx] = emitStatement(
+      const [elseStmts, elseCtx] = emitStatementAst(
         stmt.elseStatement,
-        indent(finalContext)
+        finalContext
       );
-      code += `\n${ind}else\n${elseCode}`;
-      finalContext = dedent(elseCtx);
+      elseStmt = wrapInBlock(elseStmts);
+      finalContext = elseCtx;
     }
 
-    return [code, finalContext];
+    return [
+      [
+        {
+          kind: "ifStatement",
+          condition: condAst,
+          thenStatement: wrapInBlock(thenStmts),
+          elseStatement: elseStmt,
+        },
+      ],
+      finalContext,
+    ];
   }
 
   // Case B: if (!isUser(account)) { ... } else { ... }
@@ -464,15 +608,13 @@ export const emitIfStatement = (
         narrowedMap,
       } = guard;
 
-      const condText = `!${escapedOrig}.Is${memberN}()`;
+      const condAst = buildIsNCondition(escapedOrig, memberN, true);
 
-      // For 2-member unions: narrow THEN branch to the OTHER member
-      // For N>2 unions: can't narrow THEN to a single type (it could be any of N-1 members)
-      let thenCode: string;
+      // THEN branch: for 2-member unions narrow to OTHER member
+      let thenStmt: CSharpStatementAst;
       let thenCtx: EmitterContext;
 
       if (unionArity === 2) {
-        // Calculate the other member index (if memberN is 1, other is 2; if memberN is 2, other is 1)
         const otherMemberN = memberN === 1 ? 2 : 1;
         const nextId = (ctxWithId.tempVarId ?? 0) + 1;
         const thenCtxWithId: EmitterContext = {
@@ -489,46 +631,51 @@ export const emitIfStatement = (
           name: thenNarrowedName,
         });
 
-        const thenCtxNarrowed: EmitterContext = {
-          ...indent(thenCtxWithId),
-          narrowedBindings: thenNarrowedMap,
-        };
-        const thenInd = getIndent(thenCtxNarrowed);
-        const thenCastLine = `${thenInd}var ${escapedThenNarrow} = ${escapedOrig}.As${otherMemberN}();`;
+        const thenCastStmt = buildCastLocalDecl(
+          escapedThenNarrow,
+          escapedOrig,
+          otherMemberN
+        );
 
-        [thenCode, thenCtx] = emitForcedBlockWithPreamble(
-          thenCastLine,
+        const [thenBlock, thenBlockCtx] = emitForcedBlockWithPreambleAst(
+          [thenCastStmt],
           stmt.thenStatement,
-          thenCtxNarrowed,
-          ind
+          { ...thenCtxWithId, narrowedBindings: thenNarrowedMap }
         );
+        thenStmt = thenBlock;
+        thenCtx = thenBlockCtx;
       } else {
-        // N>2 unions: can't narrow THEN branch to a single type
-        [thenCode, thenCtx] = emitStatement(
+        const [thenStmts, thenCtxAfter] = emitStatementAst(
           stmt.thenStatement,
-          indent(context)
+          context
         );
+        thenStmt = wrapInBlock(thenStmts);
+        thenCtx = thenCtxAfter;
       }
 
-      // else branch: narrowing applies (to guard's target type)
-      const elseCtxNarrowed: EmitterContext = {
-        ...indent(ctxWithId),
-        narrowedBindings: narrowedMap,
-      };
-      const elseInd = getIndent(elseCtxNarrowed);
-      const castLine = `${elseInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
-
-      const [elseBlock, _elseBodyCtx] = emitForcedBlockWithPreamble(
-        castLine,
+      // ELSE branch: narrowing applies (to guard's target type)
+      const elseCastStmt = buildCastLocalDecl(
+        escapedNarrow,
+        escapedOrig,
+        memberN
+      );
+      const [elseBlock, _elseBodyCtx] = emitForcedBlockWithPreambleAst(
+        [elseCastStmt],
         stmt.elseStatement,
-        elseCtxNarrowed,
-        ind
+        { ...ctxWithId, narrowedBindings: narrowedMap }
       );
 
-      // Note: narrow bindings should not leak from if-else branches
-      // We return thenCtx to preserve original semantics
-      const code = `${ind}if (${condText})\n${thenCode}\n${ind}else\n${elseBlock}`;
-      return [code, dedent(thenCtx)];
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: thenStmt,
+            elseStatement: elseBlock,
+          },
+        ],
+        thenCtx,
+      ];
     }
   }
 
@@ -550,34 +697,44 @@ export const emitIfStatement = (
         narrowedMap,
       } = guard;
 
-      const condText = `${escapedOrig} is ${rhsTypeText} ${escapedNarrow}`;
+      const condAst = buildIsPatternCondition(
+        escapedOrig,
+        rhsTypeText,
+        escapedNarrow
+      );
 
       // THEN branch is the original ELSE (narrowed)
       const thenCtx: EmitterContext = {
-        ...indent(ctxAfterRhs),
+        ...ctxAfterRhs,
         narrowedBindings: narrowedMap,
       };
-      const [thenCode, thenCtxAfter] = emitStatement(
+      const [thenStmts, thenCtxAfter] = emitStatementAst(
         stmt.elseStatement,
         thenCtx
       );
 
       // ELSE branch is the original THEN (not narrowed)
-      const [elseCode, elseCtxAfter] = emitStatement(
-        stmt.thenStatement,
-        indent({
-          ...dedent(thenCtxAfter),
-          narrowedBindings: ctxAfterRhs.narrowedBindings,
-        })
-      );
+      const [elseStmts, elseCtxAfter] = emitStatementAst(stmt.thenStatement, {
+        ...thenCtxAfter,
+        narrowedBindings: ctxAfterRhs.narrowedBindings,
+      });
 
-      const code = `${ind}if (${condText})\n${thenCode}\n${ind}else\n${elseCode}`;
-      return [code, dedent(elseCtxAfter)];
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: wrapInBlock(thenStmts),
+            elseStatement: wrapInBlock(elseStmts),
+          },
+        ],
+        elseCtxAfter,
+      ];
     }
   }
 
   // Case C: if (isUser(account) && account.foo) { ... }
-  // Logical AND with predicate guard on left → nested-if lowering (preserves short-circuit)
+  // Logical AND with predicate guard on left → nested-if lowering
   if (stmt.condition.kind === "logical" && stmt.condition.operator === "&&") {
     const left = stmt.condition.left;
     const right = stmt.condition.right;
@@ -588,73 +745,92 @@ export const emitIfStatement = (
         const { memberN, ctxWithId, escapedOrig, escapedNarrow, narrowedMap } =
           guard;
 
-        // Outer: if (x.IsN())
-        const outerCond = `${escapedOrig}.Is${memberN}()`;
+        const outerCondAst = buildIsNCondition(escapedOrig, memberN, false);
+        const castStmt = buildCastLocalDecl(
+          escapedNarrow,
+          escapedOrig,
+          memberN
+        );
 
-        // Outer-then creates narrowed var
+        // Emit RHS condition under narrowed context
         const outerThenCtx: EmitterContext = {
-          ...indent(ctxWithId),
+          ...ctxWithId,
           narrowedBindings: narrowedMap,
         };
-        const outerThenInd = getIndent(outerThenCtx);
-        const castLine = `${outerThenInd}var ${escapedNarrow} = ${escapedOrig}.As${memberN}();`;
 
-        // Emit RHS condition under narrowed context (TS semantics: rhs sees narrowed x)
         const [rhsAst, rhsCtxAfterEmit] = emitExpressionAst(
           right,
           outerThenCtx
         );
-        const [rhsCondText, rhsCtxAfterCond] = toBooleanCondition(
+        const [rhsCondAst, rhsCtxAfterCond] = toBooleanConditionAst(
           right,
-          printExpression(rhsAst),
+          rhsAst,
           rhsCtxAfterEmit
         );
 
         // When RHS true: emit original THEN under narrowed context
-        const [thenCode, thenCtxAfter] = emitStatement(
+        const [thenStmts, thenCtxAfter] = emitStatementAst(
           stmt.thenStatement,
-          indent(rhsCtxAfterCond)
+          rhsCtxAfterCond
         );
 
-        // Helper to clear narrowing from context
         const clearNarrowing = (ctx: EmitterContext): EmitterContext => ({
           ...ctx,
           narrowedBindings: ctxWithId.narrowedBindings,
         });
 
-        let inner = `${outerThenInd}if (${rhsCondText})\n${thenCode}`;
-        let currentCtx = dedent(thenCtxAfter);
-
+        // Build inner if
+        let innerElse: CSharpStatementAst | undefined;
+        let currentCtx = thenCtxAfter;
         if (stmt.elseStatement) {
-          const [elseCode, elseCtx] = emitStatement(
+          const [innerElseStmts, innerElseCtx] = emitStatementAst(
             stmt.elseStatement,
-            indent(clearNarrowing(currentCtx))
+            clearNarrowing(currentCtx)
           );
-          inner += `\n${outerThenInd}else\n${elseCode}`;
-          currentCtx = dedent(elseCtx);
+          innerElse = wrapInBlock(innerElseStmts);
+          currentCtx = innerElseCtx;
         }
 
-        const outerThenBlock = `${ind}{\n${castLine}\n${inner}\n${ind}}`;
+        const innerIf: CSharpStatementAst = {
+          kind: "ifStatement",
+          condition: rhsCondAst,
+          thenStatement: wrapInBlock(thenStmts),
+          elseStatement: innerElse,
+        };
+
+        // Build outer then block: { cast; innerIf }
+        const outerThenBlock: CSharpBlockStatementAst = {
+          kind: "blockStatement",
+          statements: [castStmt, innerIf],
+        };
 
         // Outer else: emit ELSE as-is (no narrowing)
-        let code = `${ind}if (${outerCond})\n${outerThenBlock}`;
+        let outerElse: CSharpStatementAst | undefined;
         let finalContext = clearNarrowing(currentCtx);
-
         if (stmt.elseStatement) {
-          const [outerElseCode, outerElseCtx] = emitStatement(
+          const [outerElseStmts, outerElseCtx] = emitStatementAst(
             stmt.elseStatement,
-            indent(finalContext)
+            finalContext
           );
-          code += `\n${ind}else\n${outerElseCode}`;
-          finalContext = dedent(outerElseCtx);
+          outerElse = wrapInBlock(outerElseStmts);
+          finalContext = outerElseCtx;
         }
 
-        return [code, finalContext];
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: outerCondAst,
+              thenStatement: outerThenBlock,
+              elseStatement: outerElse,
+            },
+          ],
+          finalContext,
+        ];
       }
     }
 
     // Case C2: if (x instanceof Foo && x.foo) { ... }
-    // Preserve short-circuit and expose narrowed x in RHS and THEN.
     if (left.kind === "binary" && left.operator === "instanceof") {
       const guard = tryResolveInstanceofGuard(left, context);
       if (guard) {
@@ -672,40 +848,63 @@ export const emitIfStatement = (
         };
 
         const [rhsAst, rhsCtxAfterEmit] = emitExpressionAst(right, rhsCtx);
-        const [rhsCondText, rhsCtxAfterCond] = toBooleanCondition(
+        const [rhsCondAst, rhsCtxAfterCond] = toBooleanConditionAst(
           right,
-          printExpression(rhsAst),
+          rhsAst,
           rhsCtxAfterEmit
         );
 
-        const condText = `(${escapedOrig} is ${rhsTypeText} ${escapedNarrow} && ${rhsCondText})`;
+        // Combined condition: (orig is TypeName narrow && rhsCond)
+        const isPatternAst = buildIsPatternCondition(
+          escapedOrig,
+          rhsTypeText,
+          escapedNarrow
+        );
+        const combinedCondAst: CSharpExpressionAst = {
+          kind: "parenthesizedExpression",
+          expression: {
+            kind: "binaryExpression",
+            operatorToken: "&&",
+            left: isPatternAst,
+            right: rhsCondAst,
+          },
+        };
 
         const thenCtx: EmitterContext = {
-          ...indent(rhsCtxAfterCond),
+          ...rhsCtxAfterCond,
           narrowedBindings: narrowedMap,
         };
-        const [thenCode, thenCtxAfter] = emitStatement(
+        const [thenStmts, thenCtxAfter] = emitStatementAst(
           stmt.thenStatement,
           thenCtx
         );
 
-        let code = `${ind}if (${condText})\n${thenCode}`;
-        let finalContext = dedent(thenCtxAfter);
-        finalContext = {
-          ...finalContext,
+        let finalContext: EmitterContext = {
+          ...thenCtxAfter,
           narrowedBindings: ctxAfterRhs.narrowedBindings,
         };
 
+        let elseStmt: CSharpStatementAst | undefined;
         if (stmt.elseStatement) {
-          const [elseCode, elseCtx] = emitStatement(
+          const [elseStmts, elseCtx] = emitStatementAst(
             stmt.elseStatement,
-            indent(finalContext)
+            finalContext
           );
-          code += `\n${ind}else\n${elseCode}`;
-          finalContext = dedent(elseCtx);
+          elseStmt = wrapInBlock(elseStmts);
+          finalContext = elseCtx;
         }
 
-        return [code, finalContext];
+        return [
+          [
+            {
+              kind: "ifStatement",
+              condition: combinedCondAst,
+              thenStatement: wrapInBlock(thenStmts),
+              elseStatement: elseStmt,
+            },
+          ],
+          finalContext,
+        ];
       }
     }
   }
@@ -718,19 +917,7 @@ export const emitIfStatement = (
   if (nullableGuard && nullableGuard.isValueType) {
     const { key, targetExpr, narrowsInThen, strippedType } = nullableGuard;
 
-    // IMPORTANT: Avoid stacking `.Value` when:
-    // - we are emitting an else-if chain, and
-    // - an outer nullable guard already narrowed the identifier in the else-branch.
-    //
-    // Example (TS):
-    //   if (x === undefined) { ... } else if (x !== undefined) { use(x) }
-    //
-    // In C#, we might narrow `x` in the outer ELSE (x.Value). If we build a new
-    // narrowed binding by reading `x` via emitIdentifier (which consults narrowedBindings),
-    // we'd accidentally create `x.Value.Value`.
-    //
-    // So: build the `.Value` access from the *raw* identifier (respecting CS0136 remaps),
-    // but ignoring existing narrowedBindings.
+    // Avoid stacking `.Value` (see detailed comment in original text emitter)
     const [idAst] =
       targetExpr.kind === "identifier"
         ? emitIdentifier(targetExpr, {
@@ -755,101 +942,104 @@ export const emitIfStatement = (
     });
 
     // Soundness: In compound conditions (A && B), we must NOT apply "else" narrowing.
-    // `!(A && (id == null))` does not imply `id != null` unless A is provably true.
-    //
-    // Therefore:
-    // - For simple guards: allow both THEN (id != null) and ELSE (id == null) narrowing.
-    // - For &&-nested guards: only allow THEN narrowing when the guard is `!= null`.
     const isAndCondition =
       stmt.condition.kind === "logical" && stmt.condition.operator === "&&";
     if (isAndCondition && !simpleNullableGuard && !narrowsInThen) {
-      // `id == null` inside `&&` - narrowing would only be valid in the THEN branch
-      // (and even then it's "id is null", not `.Value`-usable). Skip nullable rewrite.
-      // Fall through to standard if emission.
+      // `id == null` inside `&&` - skip nullable rewrite, fall through to standard.
     } else {
-      // Emit condition (boolean context)
-      const [condText, condCtxAfterCond] = emitBooleanCondition(
+      // Emit condition
+      const [condAst, condCtxAfterCond] = emitBooleanConditionAst(
         stmt.condition,
-        (e, ctx) => {
-          const [ast, c] = emitExpressionAst(e, ctx);
-          return [{ text: printExpression(ast) }, c];
-        },
+        emitExprAstCb,
         context
       );
 
       // Apply narrowing to appropriate branch
       const thenCtx: EmitterContext = {
-        ...indent(condCtxAfterCond),
+        ...condCtxAfterCond,
         narrowedBindings: narrowsInThen
           ? narrowedMap
           : condCtxAfterCond.narrowedBindings,
       };
 
-      const [thenCode, thenCtxAfter] = emitStatement(
+      const [thenStmts, thenCtxAfter] = emitStatementAst(
         stmt.thenStatement,
         thenCtx
       );
 
-      let code = `${ind}if (${condText})\n${thenCode}`;
-      let finalContext = dedent(thenCtxAfter);
-
-      // Clear narrowing after branch
-      finalContext = {
-        ...finalContext,
+      let finalContext: EmitterContext = {
+        ...thenCtxAfter,
         narrowedBindings: context.narrowedBindings,
       };
 
+      let elseStmt: CSharpStatementAst | undefined;
       if (stmt.elseStatement) {
         const elseCtx: EmitterContext = {
-          ...indent(finalContext),
+          ...finalContext,
           narrowedBindings: !narrowsInThen
             ? simpleNullableGuard
               ? narrowedMap
               : context.narrowedBindings
             : context.narrowedBindings,
         };
-        const [elseCode, elseCtxAfter] = emitStatement(
+        const [elseStmts, elseCtxAfter] = emitStatementAst(
           stmt.elseStatement,
           elseCtx
         );
-        code += `\n${ind}else\n${elseCode}`;
-        finalContext = dedent(elseCtxAfter);
+        elseStmt = wrapInBlock(elseStmts);
         finalContext = {
-          ...finalContext,
+          ...elseCtxAfter,
           narrowedBindings: context.narrowedBindings,
         };
       }
 
-      return [code, finalContext];
+      return [
+        [
+          {
+            kind: "ifStatement",
+            condition: condAst,
+            thenStatement: wrapInBlock(thenStmts),
+            elseStatement: elseStmt,
+          },
+        ],
+        finalContext,
+      ];
     }
   }
 
   // Standard if-statement emission (no narrowing)
-  const [condText, condCtxAfterCond] = emitBooleanCondition(
+  const [condAst, condCtxAfterCond] = emitBooleanConditionAst(
     stmt.condition,
-    (e, ctx) => {
-      const [ast, c] = emitExpressionAst(e, ctx);
-      return [{ text: printExpression(ast) }, c];
-    },
+    emitExprAstCb,
     context
   );
 
-  const [thenCode, thenContext] = emitStatement(
+  const [thenStmts, thenContext] = emitStatementAst(
     stmt.thenStatement,
-    indent(condCtxAfterCond)
+    condCtxAfterCond
   );
 
-  let code = `${ind}if (${condText})\n${thenCode}`;
-  let finalContext = dedent(thenContext);
+  let finalContext = thenContext;
 
+  let elseStmt: CSharpStatementAst | undefined;
   if (stmt.elseStatement) {
-    const [elseCode, elseContext] = emitStatement(
+    const [elseStmts, elseContext] = emitStatementAst(
       stmt.elseStatement,
-      indent(finalContext)
+      finalContext
     );
-    code += `\n${ind}else\n${elseCode}`;
-    finalContext = dedent(elseContext);
+    elseStmt = wrapInBlock(elseStmts);
+    finalContext = elseContext;
   }
 
-  return [code, finalContext];
+  return [
+    [
+      {
+        kind: "ifStatement",
+        condition: condAst,
+        thenStatement: wrapInBlock(thenStmts),
+        elseStatement: elseStmt,
+      },
+    ],
+    finalContext,
+  ];
 };

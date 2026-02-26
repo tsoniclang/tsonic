@@ -555,5 +555,5 @@ const isPathMatch = (modulePath: string, entryPointPath: string): boolean => {
   return false;
 };
 
-// Re-export emitModule for backward compatibility
+// Re-export emitModule from barrel
 export { emitModule } from "./core/format/module-emitter.js";

@@ -224,20 +224,20 @@ export const emitModule = (
 
   // Collect type parameters and generate adapters
   const typeParams = collectTypeParameters(module);
-  const [adaptersCode, adaptersContext] = generateStructuralAdapters(
+  const [adapterDecls, adaptersContext] = generateStructuralAdapters(
     typeParams,
     processedContext
   );
 
   // Collect specializations and generate monomorphized versions
   const specializations = collectSpecializations(module);
-  const [specializationsCode, specializationsContext] = generateSpecializations(
+  const [specializationDecls, specializationsContext] = generateSpecializations(
     specializations,
     adaptersContext
   );
 
   // Generate exchange objects for generators
-  const [exchangesCode, exchangesContext] = generateGeneratorExchanges(
+  const [exchangeDecls, exchangesContext] = generateGeneratorExchanges(
     module,
     specializationsContext
   );
@@ -293,7 +293,7 @@ export const emitModule = (
 
   // Emit static container class if there are any static members
   // Use __Module suffix when there's a name collision with namespace-level declarations
-  let staticContainerCode = "";
+  let staticContainerDecl = undefined;
   let finalContext = namespaceResult.context;
 
   if (staticContainerMembers.length > 0) {
@@ -304,18 +304,18 @@ export const emitModule = (
       hasInheritance,
       hasCollision // Add __Module suffix only when there's a name collision
     );
-    staticContainerCode = containerResult.code;
+    staticContainerDecl = containerResult.declaration;
     finalContext = containerResult.context;
   }
 
-  // Assemble final output
+  // Assemble final output from AST declarations
   const parts: AssemblyParts = {
     header,
-    adaptersCode,
-    specializationsCode,
-    exchangesCode,
-    namespaceDeclsCode: namespaceResult.code,
-    staticContainerCode,
+    adapterDecls,
+    specializationDecls,
+    exchangeDecls,
+    namespaceDecls: namespaceResult.declarations,
+    staticContainerDecl,
   };
 
   return assembleOutput(module, parts, finalContext);

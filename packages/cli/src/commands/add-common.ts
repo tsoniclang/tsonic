@@ -219,7 +219,7 @@ export const resolvePackageRoot = (
       ok: false,
       error:
         `Missing ${packageName} in node_modules.\n` +
-        `Install it (recommended: 'tsonic project init') and retry.\n` +
+        `Install it (recommended: 'tsonic init') and retry.\n` +
         `${error instanceof Error ? error.message : String(error)}`,
     };
   }

@@ -5,6 +5,7 @@
 import { describe, it } from "mocha";
 import { expect } from "chai";
 import { emitParameters } from "../statements/classes/parameters.js";
+import { printParameter } from "../core/format/backend-ast/printer.js";
 import type { IrParameter } from "@tsonic/frontend";
 import type { EmitterContext } from "../types.js";
 
@@ -38,7 +39,8 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted] = emitParameters(params, baseContext);
+    const [paramAsts] = emitParameters(params, baseContext);
+    const emitted = paramAsts.map(printParameter).join(", ");
     expect(emitted).to.equal("out int result");
   });
 
@@ -63,7 +65,8 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted] = emitParameters(params, baseContext);
+    const [paramAsts] = emitParameters(params, baseContext);
+    const emitted = paramAsts.map(printParameter).join(", ");
     expect(emitted).to.equal("ref int value");
   });
 
@@ -88,7 +91,8 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted] = emitParameters(params, baseContext);
+    const [paramAsts] = emitParameters(params, baseContext);
+    const emitted = paramAsts.map(printParameter).join(", ");
     expect(emitted).to.equal("in int value");
   });
 
@@ -141,7 +145,8 @@ describe("Parameter modifiers (ref/out/in)", () => {
       },
     ];
 
-    const [emitted] = emitParameters(params, baseContext);
+    const [paramAsts] = emitParameters(params, baseContext);
+    const emitted = paramAsts.map(printParameter).join(", ");
     expect(emitted).to.equal("int input, out int output, ref int counter");
   });
 });

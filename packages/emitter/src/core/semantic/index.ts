@@ -23,7 +23,7 @@ export {
   canonicalizeFilePath,
 } from "./module-map.js";
 export { validateNamingPolicyCollisions } from "./naming-collisions.js";
-export { processImports, resolveLocalImport } from "./imports.js";
+export { processImports } from "./imports.js";
 export {
   statementUsesPointer,
   expressionUsesPointer,
@@ -32,10 +32,7 @@ export {
 } from "./unsafe.js";
 export {
   isBooleanType,
-  toBooleanCondition,
   toBooleanConditionAst,
-  emitBooleanCondition,
   emitBooleanConditionAst,
-  type EmitExprFn,
   type EmitExprAstFn,
 } from "./boolean-context.js";

@@ -13,12 +13,10 @@ import {
   selectUnionMemberForObjectLiteral,
 } from "../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../naming-policy.js";
-import {
-  printExpression,
-  printType,
-} from "../core/format/backend-ast/printer.js";
+import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../core/format/backend-ast/types.js";
 
@@ -549,17 +547,34 @@ const emitObjectWithSpreads = (
   targetType: IrType | undefined
 ): [CSharpExpressionAst, EmitterContext] => {
   let currentContext = context;
-  const typeName = printType(typeAst);
-  const assignments: string[] = [];
+  const bodyStatements: CSharpStatementAst[] = [];
+
+  // var __tmp = new TypeName()
+  const initStatement: CSharpStatementAst = {
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: { kind: "varType" },
+    declarators: [
+      {
+        name: "__tmp",
+        initializer: {
+          kind: "objectCreationExpression",
+          type: typeAst,
+          arguments: [],
+        },
+      },
+    ],
+  };
+  bodyStatements.push(initStatement);
 
   for (const prop of expr.properties) {
     if (prop.kind === "spread") {
-      const [spreadAssignments, newContext] = emitSpreadPropertyCopies(
+      const [spreadStatements, newContext] = emitSpreadPropertyCopyStatements(
         targetType,
         prop.expression,
         currentContext
       );
-      assignments.push(...spreadAssignments);
+      bodyStatements.push(...spreadStatements);
       currentContext = newContext;
     } else {
       const key =
@@ -579,20 +594,30 @@ const emitObjectWithSpreads = (
         currentContext,
         propertyExpectedType
       );
-      assignments.push(`__tmp.${key} = ${printExpression(valueAst)}`);
+      bodyStatements.push({
+        kind: "expressionStatement",
+        expression: {
+          kind: "assignmentExpression",
+          operatorToken: "=",
+          left: {
+            kind: "memberAccessExpression",
+            expression: { kind: "identifierExpression", identifier: "__tmp" },
+            memberName: key,
+          },
+          right: valueAst,
+        },
+      });
       currentContext = newContext;
     }
   }
 
-  const body = [
-    `var __tmp = new ${typeName}()`,
-    ...assignments,
-    "return __tmp",
-  ].join("; ");
+  // return __tmp
+  bodyStatements.push({
+    kind: "returnStatement",
+    expression: { kind: "identifierExpression", identifier: "__tmp" },
+  });
 
-  // IIFE: ((System.Func<T>)(() => { body; }))()
-  // The lambda body contains inline statements — use expression body
-  // with identifierExpression as a bridge at the statement boundary.
+  // IIFE: ((System.Func<T>)(() => { body }))()
   const funcTypeAst: CSharpTypeAst = {
     kind: "identifierType",
     name: "global::System.Func",
@@ -602,10 +627,7 @@ const emitObjectWithSpreads = (
     kind: "lambdaExpression",
     isAsync: false,
     parameters: [],
-    body: {
-      kind: "identifierExpression",
-      identifier: `{ ${body}; }`,
-    },
+    body: { kind: "blockStatement", statements: bodyStatements },
   };
   const castAst: CSharpExpressionAst = {
     kind: "castExpression",
@@ -629,23 +651,29 @@ const emitObjectWithSpreads = (
 };
 
 /**
- * Emit property copy assignments from a spread source.
+ * Emit property copy assignments from a spread source as AST statements.
  */
-const emitSpreadPropertyCopies = (
+const emitSpreadPropertyCopyStatements = (
   targetType: IrType | undefined,
   spreadExpr: IrExpression,
   context: EmitterContext
-): [string[], EmitterContext] => {
+): [CSharpStatementAst[], EmitterContext] => {
   let currentContext = context;
-  const assignments: string[] = [];
+  const statements: CSharpStatementAst[] = [];
 
   const spreadType = spreadExpr.inferredType;
 
   if (!spreadType) {
     const [exprAst, newContext] = emitExpressionAst(spreadExpr, currentContext);
-    const exprText = printExpression(exprAst);
-    assignments.push(`/* spread: ${exprText} (no type info) */`);
-    return [assignments, newContext];
+    const exprText = extractCalleeNameFromAst(exprAst);
+    statements.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "identifierExpression",
+        identifier: `/* spread: ${exprText} (no type info) */`,
+      },
+    });
+    return [statements, newContext];
   }
 
   const [sourceAst, sourceContext] = emitExpressionAst(
@@ -653,7 +681,6 @@ const emitSpreadPropertyCopies = (
     currentContext
   );
   currentContext = sourceContext;
-  const sourceExpr = printExpression(sourceAst);
 
   const propertyNames = getObjectTypePropertyNames(spreadType, currentContext);
 
@@ -668,10 +695,26 @@ const emitSpreadPropertyCopies = (
       propName,
       currentContext
     );
-    assignments.push(`__tmp.${targetMember} = ${sourceExpr}.${sourceMember}`);
+    statements.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: {
+          kind: "memberAccessExpression",
+          expression: { kind: "identifierExpression", identifier: "__tmp" },
+          memberName: targetMember,
+        },
+        right: {
+          kind: "memberAccessExpression",
+          expression: sourceAst,
+          memberName: sourceMember,
+        },
+      },
+    });
   }
 
-  return [assignments, currentContext];
+  return [statements, currentContext];
 };
 
 /**

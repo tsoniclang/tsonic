@@ -84,6 +84,7 @@ export type {
   CSharpAttributeAst,
   CSharpEnumMemberAst,
   CSharpTypeParameterAst,
+  CSharpTypeParameterConstraintNodeAst,
   CSharpTypeParameterConstraintAst,
   CSharpTypeDeclarationAst,
   CSharpClassDeclarationAst,
@@ -104,4 +105,8 @@ export {
   printMember,
   printTypeDeclaration,
   printCompilationUnit,
+  printAttributes,
+  printParameter,
 } from "./printer.js";
+
+export { extractCalleeNameFromAst, renderTypeAst } from "./utils.js";

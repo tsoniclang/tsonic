@@ -3,10 +3,10 @@
  */
 
 export {
-  emitWhileStatement,
-  emitForStatement,
-  emitForOfStatement,
-  emitForInStatement,
+  emitWhileStatementAst,
+  emitForStatementAst,
+  emitForOfStatementAst,
+  emitForInStatementAst,
 } from "./loops.js";
-export { emitIfStatement, emitSwitchStatement } from "./conditionals.js";
-export { emitTryStatement, emitThrowStatement } from "./exceptions.js";
+export { emitIfStatementAst, emitSwitchStatementAst } from "./conditionals.js";
+export { emitTryStatementAst, emitThrowStatementAst } from "./exceptions.js";
