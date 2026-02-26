@@ -8,6 +8,7 @@ import type {
   IrInterfaceMember,
   IrClassMember,
 } from "@tsonic/frontend";
+import type { CSharpExpressionAst } from "../core/format/backend-ast/types.js";
 
 /**
  * Module identity for import resolution
@@ -225,7 +226,7 @@ export type NarrowedBinding =
   | { readonly kind: "rename"; readonly name: string; readonly type?: IrType }
   | {
       readonly kind: "expr";
-      readonly exprText: string;
+      readonly exprAst: CSharpExpressionAst;
       readonly type?: IrType;
     };
 

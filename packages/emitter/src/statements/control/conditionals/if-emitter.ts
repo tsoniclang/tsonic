@@ -7,6 +7,7 @@ import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
 import { emitIdentifier } from "../../../expressions/identifiers.js";
 import { printExpression } from "../../../core/format/backend-ast/printer.js";
+import type { CSharpExpressionAst } from "../../../core/format/backend-ast/types.js";
 import { emitStatement } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import {
@@ -22,6 +23,25 @@ import {
   tryResolveNullableGuard,
   isDefinitelyTerminating,
 } from "./guard-analysis.js";
+
+/**
+ * Build AST for a union narrowing expression: (escapedOrig.AsN())
+ */
+const buildUnionNarrowAst = (
+  escapedOrig: string,
+  memberN: number
+): CSharpExpressionAst => ({
+  kind: "parenthesizedExpression",
+  expression: {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: { kind: "identifierExpression", identifier: escapedOrig },
+      memberName: `As${memberN}`,
+    },
+    arguments: [],
+  },
+});
 
 /**
  * Emit a forced block with a preamble line (e.g., var narrowed = x.AsN()).
@@ -155,11 +175,11 @@ export const emitIfStatement = (
     if (stmt.elseStatement) {
       if (unionArity === 2) {
         const otherMemberN = memberN === 1 ? 2 : 1;
-        const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+        const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
         const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
         elseNarrowedMap.set(originalName, {
           kind: "expr",
-          exprText: inlineExpr,
+          exprAst,
         });
 
         const elseCtx: EmitterContext = {
@@ -201,9 +221,9 @@ export const emitIfStatement = (
     // // auth is now member 1 in the remainder
     if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
       const otherMemberN = memberN === 1 ? 2 : 1;
-      const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+      const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
       const postMap = new Map(ctxWithId.narrowedBindings ?? []);
-      postMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+      postMap.set(originalName, { kind: "expr", exprAst });
       finalContext = { ...finalContext, narrowedBindings: postMap };
       return [code, finalContext];
     }
@@ -260,11 +280,11 @@ export const emitIfStatement = (
         // Else-branch narrowing only for 2-member unions.
         if (unionArity === 2) {
           const otherMemberN = memberN === 1 ? 2 : 1;
-          const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+          const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
           const elseNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
           elseNarrowedMap.set(originalName, {
             kind: "expr",
-            exprText: inlineExpr,
+            exprAst,
           });
 
           const elseCtx: EmitterContext = {
@@ -303,9 +323,9 @@ export const emitIfStatement = (
       // Post-if narrowing for early-exit patterns (2-member unions only).
       if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
         const otherMemberN = memberN === 1 ? 2 : 1;
-        const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+        const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
         const postMap = new Map(ctxWithId.narrowedBindings ?? []);
-        postMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+        postMap.set(originalName, { kind: "expr", exprAst });
         finalContext = { ...finalContext, narrowedBindings: postMap };
         return [code, finalContext];
       }
@@ -323,11 +343,11 @@ export const emitIfStatement = (
       const [thenCode, thenCtxAfter] = (() => {
         if (unionArity === 2) {
           const otherMemberN = memberN === 1 ? 2 : 1;
-          const inlineExpr = `(${escapedOrig}.As${otherMemberN}())`;
+          const exprAst = buildUnionNarrowAst(escapedOrig, otherMemberN);
           const thenNarrowedMap = new Map(ctxWithId.narrowedBindings ?? []);
           thenNarrowedMap.set(originalName, {
             kind: "expr",
-            exprText: inlineExpr,
+            exprAst,
           });
           const thenCtx: EmitterContext = {
             ...indent({ ...ctxWithId, narrowedBindings: thenNarrowedMap }),
@@ -369,9 +389,9 @@ export const emitIfStatement = (
       // if (!x.IsN()) return ...;
       // // x is now member N
       if (unionArity === 2 && isDefinitelyTerminating(stmt.thenStatement)) {
-        const inlineExpr = `(${escapedOrig}.As${memberN}())`;
+        const exprAst = buildUnionNarrowAst(escapedOrig, memberN);
         const postMap = new Map(ctxWithId.narrowedBindings ?? []);
-        postMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+        postMap.set(originalName, { kind: "expr", exprAst });
         finalContext = { ...finalContext, narrowedBindings: postMap };
         return [code, finalContext];
       }
@@ -726,7 +746,11 @@ export const emitIfStatement = (
     const narrowedMap = new Map(context.narrowedBindings ?? []);
     narrowedMap.set(key, {
       kind: "expr",
-      exprText: `${printExpression(idAst)}.Value`,
+      exprAst: {
+        kind: "memberAccessExpression",
+        expression: idAst,
+        memberName: "Value",
+      },
       type: strippedType,
     });
 

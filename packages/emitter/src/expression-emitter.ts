@@ -594,7 +594,4 @@ export const emitExpressionAst = (
 };
 
 // Re-export commonly used functions for backward compatibility
-export {
-  emitTypeArguments,
-  generateSpecializedName,
-} from "./expressions/identifiers.js";
+export { generateSpecializedName } from "./expressions/identifiers.js";

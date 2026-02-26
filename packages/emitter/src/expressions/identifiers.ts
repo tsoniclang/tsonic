@@ -4,7 +4,7 @@
 
 import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../types.js";
-import { emitType, emitTypeAst } from "../type-emitter.js";
+import { emitTypeAst } from "../type-emitter.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { printType } from "../core/format/backend-ast/printer.js";
 import type {
@@ -59,12 +59,8 @@ export const emitIdentifier = (
           context,
         ];
       } else {
-        // kind === "expr" - emit expression text verbatim (no escaping)
-        // Use identifierExpression for verbatim text (may contain dots/parens)
-        return [
-          { kind: "identifierExpression", identifier: narrowed.exprText },
-          context,
-        ];
+        // kind === "expr" - emit pre-built AST (e.g., parenthesized AsN() call)
+        return [narrowed.exprAst, context];
       }
     }
   }
@@ -166,30 +162,6 @@ export const emitTypeArgumentAsts = (
   }
 
   return [typeAsts, currentContext];
-};
-
-/**
- * Emit type arguments as C# generic type parameters string (backward-compatible)
- * Example: [string, number] → <string, double>
- */
-export const emitTypeArguments = (
-  typeArgs: readonly IrType[],
-  context: EmitterContext
-): [string, EmitterContext] => {
-  if (!typeArgs || typeArgs.length === 0) {
-    return ["", context];
-  }
-
-  let currentContext = context;
-  const typeStrings: string[] = [];
-
-  for (const typeArg of typeArgs) {
-    const [typeStr, newContext] = emitType(typeArg, currentContext);
-    currentContext = newContext;
-    typeStrings.push(typeStr);
-  }
-
-  return [`<${typeStrings.join(", ")}>`, currentContext];
 };
 
 /**

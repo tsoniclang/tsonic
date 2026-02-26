@@ -323,10 +323,7 @@ export const emitMemberAccess = (
           context,
         ];
       }
-      return [
-        { kind: "identifierExpression", identifier: narrowed.exprText },
-        context,
-      ];
+      return [narrowed.exprAst, context];
     }
   }
 
@@ -401,8 +398,17 @@ export const emitMemberAccess = (
             // All members have the property: use Match lambda
             const lambdaArgs = members.map(
               (_, i): CSharpExpressionAst => ({
-                kind: "identifierExpression",
-                identifier: `__m${i + 1} => __m${i + 1}.${escapedProp}`,
+                kind: "lambdaExpression",
+                isAsync: false,
+                parameters: [{ name: `__m${i + 1}` }],
+                body: {
+                  kind: "memberAccessExpression",
+                  expression: {
+                    kind: "identifierExpression",
+                    identifier: `__m${i + 1}`,
+                  },
+                  memberName: escapedProp,
+                },
               })
             );
             return [

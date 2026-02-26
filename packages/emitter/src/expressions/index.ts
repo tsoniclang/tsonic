@@ -6,11 +6,7 @@
 export { emitLiteral } from "./literals.js";
 
 // Identifiers and type helpers
-export {
-  emitIdentifier,
-  emitTypeArguments,
-  generateSpecializedName,
-} from "./identifiers.js";
+export { emitIdentifier, generateSpecializedName } from "./identifiers.js";
 
 // Collections
 export { emitArray, emitObject } from "./collections.js";

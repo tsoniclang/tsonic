@@ -324,11 +324,25 @@ export const emitConditional = (
           };
 
     // Create inline narrowing binding: x -> (x.AsN())
-    const inlineExpr = `(${escapedOrig}.As${memberN}())`;
+    const exprAst: CSharpExpressionAst = {
+      kind: "parenthesizedExpression",
+      expression: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: escapedOrig,
+          },
+          memberName: `As${memberN}`,
+        },
+        arguments: [],
+      },
+    };
     const narrowedMap = new Map<string, NarrowedBinding>(
       context.narrowedBindings ?? []
     );
-    narrowedMap.set(originalName, { kind: "expr", exprText: inlineExpr });
+    narrowedMap.set(originalName, { kind: "expr", exprAst });
 
     const narrowedContext: EmitterContext = {
       ...context,
