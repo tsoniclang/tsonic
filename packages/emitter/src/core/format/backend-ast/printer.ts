@@ -309,6 +309,20 @@ const needsParensInBinary = (
     if (child.kind === "assignmentExpression") {
       return false;
     }
+    // Associative operators at exclusive precedence levels: grouping doesn't
+    // change semantics, so right-side parens are unnecessary.
+    // Each of these operators is the sole occupant of its precedence level,
+    // so same-prec right child must be the same operator.
+    if (
+      child.kind === "binaryExpression" &&
+      (child.operatorToken === "&&" ||
+        child.operatorToken === "||" ||
+        child.operatorToken === "|" ||
+        child.operatorToken === "&" ||
+        child.operatorToken === "^")
+    ) {
+      return false;
+    }
     // Left-associative (and ?? for readability): right operand at same precedence needs parens
     return true;
   }
@@ -629,9 +643,15 @@ const printLambdaExpression = (
   const params = printLambdaParameters(expr.parameters);
 
   if (expr.body.kind === "blockStatement") {
-    // Block body lambda - will be printed inline
-    // The caller (statement printer) handles indentation
-    return `${asyncPrefix}${params} =>\n${printStatement(expr.body, "")}`;
+    if (expr.bodyIndent != null) {
+      // Multi-line block body with flat-block convention (braces + body at same indent)
+      return `${asyncPrefix}${params} =>\n${printStatementFlatBlock(expr.body, expr.bodyIndent)}`;
+    }
+    // Inline single-line block body: () => { stmt1; stmt2; }
+    const stmts = expr.body.statements
+      .map((s) => printStatement(s, ""))
+      .join(" ");
+    return `${asyncPrefix}${params} => { ${stmts} }`;
   }
 
   return `${asyncPrefix}${params} => ${printExpression(expr.body)}`;

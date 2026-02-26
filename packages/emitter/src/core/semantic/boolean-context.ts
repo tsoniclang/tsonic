@@ -644,16 +644,19 @@ export const toBooleanConditionAst = (
         // !string.IsNullOrEmpty(expr)
         return [
           {
-            kind: "prefixUnaryExpression",
-            operatorToken: "!",
-            operand: {
-              kind: "invocationExpression",
-              expression: {
-                kind: "memberAccessExpression",
-                expression: identifierExpr("string"),
-                memberName: "IsNullOrEmpty",
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "prefixUnaryExpression",
+              operatorToken: "!",
+              operand: {
+                kind: "invocationExpression",
+                expression: {
+                  kind: "memberAccessExpression",
+                  expression: literalExpr("string"),
+                  memberName: "IsNullOrEmpty",
+                },
+                arguments: [emittedAst],
               },
-              arguments: [emittedAst],
             },
           },
           context,
@@ -663,10 +666,13 @@ export const toBooleanConditionAst = (
         // expr != 0
         return [
           {
-            kind: "binaryExpression",
-            operatorToken: "!=",
-            left: emittedAst,
-            right: literalExpr("0"),
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "!=",
+              left: emittedAst,
+              right: literalExpr("0"),
+            },
           },
           context,
         ];
@@ -675,10 +681,13 @@ export const toBooleanConditionAst = (
         // expr != '\0'
         return [
           {
-            kind: "binaryExpression",
-            operatorToken: "!=",
-            left: emittedAst,
-            right: literalExpr("'\\0'"),
+            kind: "parenthesizedExpression",
+            expression: {
+              kind: "binaryExpression",
+              operatorToken: "!=",
+              left: emittedAst,
+              right: literalExpr("'\\0'"),
+            },
           },
           context,
         ];
@@ -725,7 +734,7 @@ export const toBooleanConditionAst = (
                     kind: "invocationExpression",
                     expression: {
                       kind: "memberAccessExpression",
-                      expression: identifierExpr("double"),
+                      expression: literalExpr("double"),
                       memberName: "IsNaN",
                     },
                     arguments: [identifierExpr(tmp)],

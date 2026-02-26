@@ -75,7 +75,7 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
       const ctx = createContext();
       const expr = id("bclInt", ref("System.Int32"));
       const [text] = toText(expr, idAst("bclInt"), ctx);
-      expect(text).to.equal("bclInt != 0");
+      expect(text).to.equal("(bclInt != 0)");
     });
 
     it("coerces other CLR primitives surfaced as referenceType via runtime truthiness (no `!= null` boxing bugs)", () => {
@@ -96,14 +96,14 @@ describe("Boolean-context lowering (toBooleanConditionAst)", () => {
 
       const charExpr = id("c", ref("System.Char"));
       const [charText] = toText(charExpr, idAst("c"), ctx);
-      expect(charText).to.equal("c != '\\0'");
+      expect(charText).to.equal("(c != '\\0')");
     });
 
     it("emits !string.IsNullOrEmpty for primitive strings", () => {
       const ctx = createContext();
       const expr = id("s", prim("string"));
       const [text] = toText(expr, idAst("s"), ctx);
-      expect(text).to.equal("!string.IsNullOrEmpty(s)");
+      expect(text).to.equal("(!string.IsNullOrEmpty(s))");
     });
 
     it("emits JS truthiness for primitive numbers (false iff 0 or NaN) with a single-eval pattern var", () => {

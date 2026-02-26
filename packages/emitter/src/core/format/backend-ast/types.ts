@@ -217,6 +217,8 @@ export type CSharpLambdaExpressionAst = {
   readonly isAsync: boolean;
   readonly parameters: readonly CSharpLambdaParameterAst[];
   readonly body: CSharpExpressionAst | CSharpBlockStatementAst;
+  /** Indent hint for block bodies (expressions don't track indentation) */
+  readonly bodyIndent?: string;
 };
 
 export type CSharpInterpolatedStringPartText = {

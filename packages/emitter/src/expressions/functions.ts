@@ -7,7 +7,10 @@ import { EmitterContext, withStatic } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
 import { emitBlockStatementAst } from "../statement-emitter.js";
 import { emitTypeAst } from "../type-emitter.js";
-import { escapeCSharpIdentifier } from "../emitter-types/index.js";
+import {
+  escapeCSharpIdentifier,
+  getIndent,
+} from "../emitter-types/index.js";
 import type {
   CSharpExpressionAst,
   CSharpLambdaParameterAst,
@@ -150,6 +153,7 @@ export const emitFunctionExpression = (
     isAsync: expr.isAsync ?? false,
     parameters: paramAsts,
     body: blockAst,
+    bodyIndent: getIndent(blockContext),
   };
   return [result, paramContext];
 };
@@ -187,6 +191,7 @@ export const emitArrowFunction = (
       isAsync: expr.isAsync ?? false,
       parameters: paramAsts,
       body: blockAst,
+      bodyIndent: getIndent(blockContext),
     };
     return [result, paramContext];
   } else {
