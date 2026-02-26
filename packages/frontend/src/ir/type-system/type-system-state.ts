@@ -210,7 +210,7 @@ export type RawSignatureInfo = {
  * Created and managed by the Binding layer. TypeSystem uses this
  * to look up declaration and signature information.
  */
-export interface HandleRegistry {
+export type HandleRegistry = {
   /** Get declaration info for a DeclId */
   getDecl(id: DeclId): DeclInfo | undefined;
 
@@ -227,7 +227,7 @@ export interface HandleRegistry {
    * TypeSystem uses this internally to convert captured syntax to IrType.
    */
   getTypeSyntax(id: TypeSyntaxId): TypeSyntaxInfo | undefined;
-}
+};
 
 /**
  * Type syntax info stored in the handle registry.
@@ -365,7 +365,7 @@ export type MemberInfo = {
  *
  * After Step 3, TypeRegistry stores pure IR.
  */
-export interface TypeRegistryAPI {
+export type TypeRegistryAPI = {
   /** Resolve a type by fully-qualified name */
   resolveNominal(fqName: string): TypeRegistryEntry | undefined;
 
@@ -380,7 +380,7 @@ export interface TypeRegistryAPI {
 
   /** Check if a type is registered */
   hasType(fqName: string): boolean;
-}
+};
 
 /**
  * Type parameter info in TypeRegistry.
@@ -424,7 +424,7 @@ export type TypeRegistryMemberInfo = {
 /**
  * NominalEnv API — Phase 6: TypeId-based interface.
  */
-export interface NominalEnvAPI {
+export type NominalEnvAPI = {
   /** Get inheritance chain for a type (returns TypeIds) */
   getInheritanceChain(typeId: TypeId): readonly TypeId[];
 
@@ -441,7 +441,7 @@ export interface NominalEnvAPI {
     receiverTypeArgs: readonly IrType[],
     memberName: string
   ): MemberLookupResult | undefined;
-}
+};
 
 /**
  * Result of looking up a member in the inheritance chain.

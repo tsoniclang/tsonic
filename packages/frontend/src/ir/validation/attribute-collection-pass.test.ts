@@ -71,10 +71,11 @@ describe("Attribute Collection Pass", () => {
     resolvedClrType,
   });
 
-  const makeTypedIdentifier = (name: string, inferredType: unknown) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeTypedIdentifier = (name: string, inferredType: unknown): any => ({
     kind: "identifier" as const,
     name,
-    inferredType: inferredType as any,
+    inferredType,
   });
 
   const makeRefType = (name: string, resolvedClrType?: string) => ({
@@ -87,7 +88,7 @@ describe("Attribute Collection Pass", () => {
    * Helper to create a minimal member access IR
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const makeMemberAccess = (object: any, property: string) => ({
+  const makeMemberAccess = (object: any, property: string): any => ({
     kind: "memberAccess" as const,
     object,
     property,
@@ -99,7 +100,7 @@ describe("Attribute Collection Pass", () => {
    * Helper to create a minimal call IR
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const makeCall = (callee: any, args: readonly any[]) => ({
+  const makeCall = (callee: any, args: readonly any[]): any => ({
     kind: "call" as const,
     callee,
     arguments: args,
@@ -120,27 +121,31 @@ describe("Attribute Collection Pass", () => {
     properties,
   });
 
-  const makeObjectProp = (key: string | unknown, value: unknown) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeObjectProp = (key: string | unknown, value: unknown): any => ({
     kind: "property" as const,
-    key: key as any,
-    value: value as any,
+    key,
+    value,
     shorthand: false as const,
   });
 
-  const makeObjectSpread = (expression: unknown) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeObjectSpread = (expression: unknown): any => ({
     kind: "spread" as const,
-    expression: expression as any,
+    expression,
   });
 
-  const makeUnaryTypeof = (expression: unknown) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeUnaryTypeof = (expression: unknown): any => ({
     kind: "unary" as const,
     operator: "typeof" as const,
-    expression: expression as any,
+    expression,
   });
 
-  const makeSpreadArg = (expression: unknown) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeSpreadArg = (expression: unknown): any => ({
     kind: "spread" as const,
-    expression: expression as any,
+    expression,
   });
 
   const makeParameter = (name: string) => ({
@@ -1430,7 +1435,8 @@ describe("Attribute Collection Pass", () => {
           isExported: true,
           isStruct: false,
         } as IrClassDeclaration,
-        makeAttrDescriptorDecl("d", "ObsoleteAttribute") as unknown as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        makeAttrDescriptorDecl("d", "ObsoleteAttribute") as any,
         makeAddDescriptorMarkerCall("User", "d"),
       ]);
 

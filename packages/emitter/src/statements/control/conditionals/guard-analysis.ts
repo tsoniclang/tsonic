@@ -195,6 +195,7 @@ const hasProperty = (
     }
 
     if (matches.length === 1) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       candidates.push(matches[0]!);
     } else if (matches.length > 1) {
       const list = matches.sort().join(", ");
@@ -246,6 +247,7 @@ const resolveLocalTypesForReference = (
   }
 
   if (matches.length === 0) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   if (matches.length === 1) return matches[0]!.localTypes;
 
   // Disambiguate by CLR FQN when available.
@@ -255,6 +257,7 @@ const resolveLocalTypesForReference = (
     const lastDot = fqn.lastIndexOf(".");
     const ns = fqn.slice(0, lastDot);
     const filtered = matches.filter((m) => m.namespace === ns);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     if (filtered.length === 1) return filtered[0]!.localTypes;
   }
 

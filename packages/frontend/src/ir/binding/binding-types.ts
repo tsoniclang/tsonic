@@ -31,7 +31,7 @@ import type {
  * All methods return opaque handles. Use HandleRegistry to look up
  * the underlying declaration/signature information.
  */
-export interface Binding {
+export type Binding = {
   // ═══════════════════════════════════════════════════════════════════════════
   // DECLARATION RESOLUTION
   // ═══════════════════════════════════════════════════════════════════════════
@@ -195,7 +195,7 @@ export interface Binding {
    * Convenience method for capturing generic type arguments like `Foo<A, B, C>`.
    */
   captureTypeArgs(nodes: readonly ts.TypeNode[]): readonly TypeSyntaxId[];
-}
+};
 
 /**
  * BindingInternal — extended interface for TypeSystem construction only.
@@ -203,7 +203,7 @@ export interface Binding {
  * INVARIANT (Alice's spec): Only createTypeSystem() should access
  * _getHandleRegistry(). All other code uses the TypeSystem API.
  */
-export interface BindingInternal extends Binding {
+export type BindingInternal = Binding & {
   /**
    * Get the handle registry for TypeSystem construction.
    *
@@ -212,7 +212,7 @@ export interface BindingInternal extends Binding {
    * All other code should use TypeSystem queries instead.
    */
   _getHandleRegistry(): import("../type-system/internal/handle-types.js").HandleRegistry;
-}
+};
 
 /**
  * Type predicate information for `x is T` predicates.
@@ -227,7 +227,7 @@ export type TypePredicateInfo = {
 // INTERNAL TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface DeclEntry {
+export type DeclEntry = {
   readonly symbol: ts.Symbol;
   readonly decl?: ts.Declaration;
   readonly typeDeclNode?: ts.Declaration;
@@ -236,9 +236,9 @@ export interface DeclEntry {
   readonly kind: DeclKind;
   readonly fqName?: string;
   readonly classMemberNames?: ClassMemberNames;
-}
+};
 
-export interface SignatureEntry {
+export type SignatureEntry = {
   readonly signature: ts.Signature;
   readonly decl?: ts.SignatureDeclaration;
   readonly parameters: readonly ParameterNode[];
@@ -255,9 +255,9 @@ export interface SignatureEntry {
   readonly declaringMemberName?: string;
   /** Type predicate extracted from return type (x is T) */
   readonly typePredicate?: SignatureTypePredicate;
-}
+};
 
-export interface MemberEntry {
+export type MemberEntry = {
   readonly memberId: MemberId;
   readonly symbol: ts.Symbol;
   readonly decl?: ts.Declaration;
@@ -265,11 +265,11 @@ export interface MemberEntry {
   readonly typeNode?: ts.TypeNode;
   readonly isOptional: boolean;
   readonly isReadonly: boolean;
-}
+};
 
 /**
  * Entry for captured type syntax (Phase 2: TypeSyntaxId).
  */
-export interface TypeSyntaxEntry {
+export type TypeSyntaxEntry = {
   readonly typeNode: ts.TypeNode;
-}
+};

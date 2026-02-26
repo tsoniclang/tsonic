@@ -136,6 +136,7 @@ export const emitBinary = (
           }
 
           if (matches.length === 1) {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             candidates.push(matches[0]!);
           } else if (matches.length > 1) {
             const list = matches.sort().join(", ");

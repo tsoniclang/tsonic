@@ -155,6 +155,7 @@ export const emitPropertyMember = (
     const [getterBlock, getterCtx] = withScoped(
       getterEmitContext,
       { returnType: member.type },
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       (scopedCtx) => emitBlockStatement(member.getterBody!, scopedCtx)
     );
     lines.push(getterBlock);
@@ -190,6 +191,7 @@ export const emitPropertyMember = (
     const [rawSetterBlock, setterCtx] = withScoped(
       setterEmitContext,
       { localNameMap: scopedLocalNameMap },
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       (scopedCtx) => emitBlockStatement(member.setterBody!, scopedCtx)
     );
 

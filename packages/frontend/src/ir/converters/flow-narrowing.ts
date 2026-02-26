@@ -44,8 +44,9 @@ const tryResolveTruthyNarrowing = (
     unwrapped.arguments.length === 1
   ) {
     const typeArg = unwrapped.typeArguments[0];
-    const valueArg = unwrapExpr(unwrapped.arguments[0]!);
-    if (!typeArg) return undefined;
+    const rawArg = unwrapped.arguments[0];
+    if (!typeArg || !rawArg) return undefined;
+    const valueArg = unwrapExpr(rawArg);
     if (!ts.isIdentifier(valueArg)) return undefined;
 
     const targetType = ctx.typeSystem.typeFromSyntax(

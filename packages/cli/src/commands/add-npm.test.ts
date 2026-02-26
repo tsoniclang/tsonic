@@ -51,6 +51,7 @@ const writeWorkspaceConfig = (dir: string): string => {
   return configPath;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const readWorkspaceConfig = (dir: string): any => {
   return JSON.parse(readFileSync(join(dir, "tsonic.workspace.json"), "utf-8"));
 };

@@ -54,6 +54,7 @@ const resolveLocalTypesForReference = (
   }
 
   if (matches.length === 0) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   if (matches.length === 1) return matches[0]!.localTypes;
 
   const fqn =
@@ -61,6 +62,7 @@ const resolveLocalTypesForReference = (
   if (fqn && fqn.includes(".")) {
     const ns = fqn.slice(0, fqn.lastIndexOf("."));
     const filtered = matches.filter((m) => m.namespace === ns);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     if (filtered.length === 1) return filtered[0]!.localTypes;
   }
 

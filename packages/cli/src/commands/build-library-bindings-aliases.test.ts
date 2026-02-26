@@ -667,6 +667,7 @@ describe("build command (library bindings)", function () {
         });
 
       expect(entityInternalPath).to.not.equal(undefined);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const coreEntitiesInternal = readFileSync(entityInternalPath!, "utf-8");
       expect(coreEntitiesInternal).to.match(
         /set Maybe\(value: [^)]+undefined\)\s*;/

@@ -643,8 +643,9 @@ const printLambdaExpression = (
 const printLambdaParameters = (
   params: readonly CSharpLambdaParameterAst[]
 ): string => {
-  if (params.length === 1 && !params[0]!.type && !params[0]!.modifier) {
-    return escapeIdentifier(params[0]!.name);
+  const sole = params.length === 1 ? params[0] : undefined;
+  if (sole && !sole.type && !sole.modifier) {
+    return escapeIdentifier(sole.name);
   }
   const parts = params.map((p) => {
     const mod = p.modifier ? `${p.modifier} ` : "";

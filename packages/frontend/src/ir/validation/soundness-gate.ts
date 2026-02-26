@@ -425,7 +425,7 @@ const validateExpression = (
       }
       break;
 
-    case "memberAccess":
+    case "memberAccess": {
       validateExpression(expr.object, ctx);
       if (typeof expr.property !== "string") {
         validateExpression(expr.property, ctx);
@@ -452,6 +452,7 @@ const validateExpression = (
         );
       }
       break;
+    }
 
     case "call":
       // istype<T>(x) is a compiler-only marker used for overload specialization.

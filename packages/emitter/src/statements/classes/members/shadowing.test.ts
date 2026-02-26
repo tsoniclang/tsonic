@@ -37,6 +37,7 @@ describe("Shadowing member emission", () => {
       body: { kind: "blockStatement", statements: [] },
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [code] = emitMethodMember(member as any, context);
     expect(code).to.include("public new void Foo()");
   });
@@ -54,6 +55,7 @@ describe("Shadowing member emission", () => {
       isShadow: true,
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [code] = emitPropertyMember(member as any, context);
     expect(code).to.include("public new string Value");
   });

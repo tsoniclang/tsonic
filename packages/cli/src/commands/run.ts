@@ -7,6 +7,7 @@ import { constants as osConstants } from "node:os";
 import type { ResolvedConfig, Result } from "../types.js";
 import { buildCommand } from "./build.js";
 
+// eslint-disable-next-line no-undef
 const signalToExitCode = (signal: NodeJS.Signals): number => {
   const signalNumber = (
     osConstants.signals as Record<string, number | undefined>

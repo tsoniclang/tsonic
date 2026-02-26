@@ -2065,8 +2065,8 @@ describe("Record Type Expansion", () => {
       const foundTypeRef = typeRef!;
       const keyTypeNode = foundTypeRef.typeArguments?.[0];
       expect(keyTypeNode).not.to.equal(undefined);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       // NOTE: This test uses getTypeAtLocation to verify TS internal behavior
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const keyTsType = checker.getTypeAtLocation(keyTypeNode!);
 
       // The key type should be a type parameter, not string

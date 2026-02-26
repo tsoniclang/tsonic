@@ -550,7 +550,6 @@ export const restoreCommand = (
     if (roots.length === 0) {
       // Still continue to DLL/framework binding sections if present.
       // (They are independent dependency kinds.)
-      // eslint-disable-next-line no-empty
     } else {
       const closure = new Set<string>();
       const queue: string[] = [...roots];
@@ -724,7 +723,7 @@ export const restoreCommand = (
               error:
                 `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
                 `It is required by meta-package root '${node.packageId}', which must produce real CLR bindings.\n` +
-                `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+                `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
             };
           }
 
@@ -760,7 +759,7 @@ export const restoreCommand = (
             error:
               `Cannot auto-generate meta-package bindings for '${node.packageId}': no seed DLLs found.\n` +
               `This package contains no compile-time DLLs and none of its dependency DLLs are eligible for claiming.\n` +
-              `Fix: provide an explicit bindings package via 'types: \"<pkg>\"' or reference a non-meta package that contains the required APIs.`,
+              `Fix: provide an explicit bindings package via 'types: "<pkg>"' or reference a non-meta package that contains the required APIs.`,
           };
         }
 
@@ -795,7 +794,7 @@ export const restoreCommand = (
             error:
               `PackageReference '${declared.id}' is marked as 'types: false' but it contains CLR assemblies.\n` +
               `This package is part of the bindings dependency closure and therefore requires bindings.\n` +
-              `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+              `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
           };
         }
         if (declared?.types !== undefined) {
@@ -848,7 +847,7 @@ export const restoreCommand = (
                 error:
                   `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
                   `It is required by '${node.packageId}' and therefore requires bindings.\n` +
-                  `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+                  `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
               };
             }
 
@@ -931,7 +930,7 @@ export const restoreCommand = (
               error:
                 `NuGet dependency '${depNode.packageId}' is marked as 'types: false' but it contains CLR assemblies.\n` +
                 `It is required by '${node.packageId}' and therefore requires bindings.\n` +
-                `Fix: remove 'types: false' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+                `Fix: remove 'types: false' or provide an external bindings package via 'types: "<pkg>"'.`,
             };
           }
           const typesPkg = typesPackageByPkgId.get(depPkgNorm);
@@ -1232,7 +1231,7 @@ export const restoreCommand = (
             error:
               `Assembly '${asm.name}' depends on '${depAsm?.name ?? depId}', but that dependency is configured with 'types: false'.\n` +
               `Bindings generation for '${asm.name}' requires bindings for all referenced assemblies.\n` +
-              `Fix: remove 'types: false' for '${depAsm?.name ?? depId}' or provide an external bindings package via 'types: \"<pkg>\"'.`,
+              `Fix: remove 'types: false' for '${depAsm?.name ?? depId}' or provide an external bindings package via 'types: "<pkg>"'.`,
           };
         }
       }
