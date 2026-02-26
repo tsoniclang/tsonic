@@ -40,9 +40,9 @@ namespace TestCases.common.types.expectedtypethreading
                     case 1:
                         return 100;
                     case 2:
-                            return 200;
+                        return 200;
                     default:
-                                return 0;
+                        return 0;
                 }
                 }
         }

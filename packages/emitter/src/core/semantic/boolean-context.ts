@@ -622,14 +622,21 @@ export const toBooleanConditionAst = (
     return [emittedAst, resultCtx];
   }
 
-  // Wrap in parenthesizedExpression so the printer treats the lowered text
-  // as an atomic unit — prevents precedence issues like `!expr != 0` when
-  // the lowered text contains operators (e.g. `expr != 0` for int truthiness).
+  // The text-based lowering produces pre-rendered text (e.g., `z0 != 0`).
+  // Wrap in parenthesizedExpression so outer operators (e.g., `!`) bind
+  // correctly — `!(z0 != 0)` not `!z0 != 0`.
+  // If the text already has outer parentheses, skip wrapping to avoid
+  // triple-paren scenarios like `if (((a ?? b) != 0))`.
+  const alreadyParenthesized =
+    resultText.startsWith("(") && resultText.endsWith(")");
+  const innerAst: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: resultText,
+  };
   return [
-    {
-      kind: "parenthesizedExpression",
-      expression: { kind: "identifierExpression", identifier: resultText },
-    },
+    alreadyParenthesized
+      ? innerAst
+      : { kind: "parenthesizedExpression", expression: innerAst },
     resultCtx,
   ];
 };

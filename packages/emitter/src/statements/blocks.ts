@@ -1,54 +1,62 @@
 /**
  * Block and simple statement emitters
+ *
+ * Returns CSharpStatementAst nodes. Multi-statement lowerings (e.g., void-return
+ * splitting into `expr; return;`) return arrays of statements that the parent
+ * block flattens into its own statements array.
  */
 
 import { IrStatement, IrExpression } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "../types.js";
 import { emitExpressionAst } from "../expression-emitter.js";
-import { printExpression } from "../core/format/backend-ast/printer.js";
-import { emitStatement } from "../statement-emitter.js";
-import { lowerPattern } from "../patterns.js";
+import { emitStatementAst } from "../statement-emitter.js";
+import { lowerPatternAst } from "../patterns.js";
 import { allocateLocalName } from "../core/format/local-names.js";
+import { printStatementFlatBlock } from "../core/format/backend-ast/printer.js";
+import type {
+  CSharpStatementAst,
+  CSharpBlockStatementAst,
+  CSharpExpressionAst,
+} from "../core/format/backend-ast/types.js";
 
 /**
- * Emit a block statement
+ * Emit a block statement as AST
  */
-export const emitBlockStatement = (
+export const emitBlockStatementAst = (
   stmt: Extract<IrStatement, { kind: "blockStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [CSharpBlockStatementAst, EmitterContext] => {
   const outerNameMap = context.localNameMap;
   // New lexical scope for locals (prevents C# CS0136 shadowing errors).
   let currentContext: EmitterContext = {
     ...context,
     localNameMap: new Map(outerNameMap ?? []),
   };
-  const statements: string[] = [];
+  const statements: CSharpStatementAst[] = [];
 
   for (const s of stmt.statements) {
-    const [code, newContext] = emitStatement(s, currentContext);
-    statements.push(code);
+    const [stmts, newContext] = emitStatementAst(s, currentContext);
+    statements.push(...stmts);
     currentContext = newContext;
   }
 
-  const bodyCode = statements.join("\n");
   return [
-    `${ind}{\n${bodyCode}\n${ind}}`,
+    { kind: "blockStatement", statements },
     { ...currentContext, localNameMap: outerNameMap },
   ];
 };
 
 /**
- * Emit a return statement
+ * Emit a return statement as AST.
  * Uses context.returnType to pass expectedType for null → default conversion in generic contexts.
+ *
+ * Returns an array because void-return lowering may produce multiple statements
+ * (e.g., `expr; return;` for side-effectful expressions in void-returning functions).
  */
-export const emitReturnStatement = (
+export const emitReturnStatementAst = (
   stmt: Extract<IrStatement, { kind: "returnStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-
+): [readonly CSharpStatementAst[], EmitterContext] => {
   if (stmt.expression) {
     // In TypeScript, `return expr;` is permitted in a `void`-returning function and
     // simply returns `undefined` after evaluating `expr` for side effects.
@@ -74,10 +82,11 @@ export const emitReturnStatement = (
       const [exprAst, newContext] = emitExpressionAst(expr, context);
 
       if (isNoopExpr) {
-        return [`${ind}return;`, newContext];
+        return [[{ kind: "returnStatement" }], newContext];
       }
 
-      const exprText = printExpression(exprAst);
+      const returnStmt: CSharpStatementAst = { kind: "returnStatement" };
+
       if (
         expr.kind === "call" ||
         expr.kind === "new" ||
@@ -85,10 +94,26 @@ export const emitReturnStatement = (
         expr.kind === "update" ||
         expr.kind === "await"
       ) {
-        return [`${ind}${exprText};\n${ind}return;`, newContext];
+        return [
+          [{ kind: "expressionStatement", expression: exprAst }, returnStmt],
+          newContext,
+        ];
       }
 
-      return [`${ind}_ = ${exprText};\n${ind}return;`, newContext];
+      // Use discard assignment for expressions that aren't valid C# statement-expressions
+      const discardAssign: CSharpExpressionAst = {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: { kind: "identifierExpression", identifier: "_" },
+        right: exprAst,
+      };
+      return [
+        [
+          { kind: "expressionStatement", expression: discardAssign },
+          returnStmt,
+        ],
+        newContext,
+      ];
     }
 
     // Pass returnType as expectedType for null → default conversion in generic contexts
@@ -97,10 +122,10 @@ export const emitReturnStatement = (
       context,
       context.returnType
     );
-    return [`${ind}return ${printExpression(exprAst)};`, newContext];
+    return [[{ kind: "returnStatement", expression: exprAst }], newContext];
   }
 
-  return [`${ind}return;`, context];
+  return [[{ kind: "returnStatement" }], context];
 };
 
 /**
@@ -117,13 +142,12 @@ export const emitReturnStatement = (
  *   foreach (var item in OtherGenerator())
  *     yield return item;
  */
-export const emitYieldExpression = (
+export const emitYieldExpressionAst = (
   expr: Extract<IrExpression, { kind: "yield" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   let currentContext = context;
-  const parts: string[] = [];
+  const parts: CSharpStatementAst[] = [];
 
   if (expr.delegate) {
     // yield* delegation
@@ -134,15 +158,23 @@ export const emitYieldExpression = (
       );
       currentContext = newContext;
       // Use await foreach for async generators, foreach for sync
-      const foreachKeyword = currentContext.isAsync
-        ? "await foreach"
-        : "foreach";
       const itemAlloc = allocateLocalName("item", currentContext);
       currentContext = itemAlloc.context;
-      parts.push(
-        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${printExpression(delegateAst)})`
-      );
-      parts.push(`${ind}    yield return ${itemAlloc.emittedName};`);
+      parts.push({
+        kind: "foreachStatement",
+        isAwait: currentContext.isAsync,
+        type: { kind: "varType" },
+        identifier: itemAlloc.emittedName,
+        expression: delegateAst,
+        body: {
+          kind: "yieldStatement",
+          isBreak: false,
+          expression: {
+            kind: "identifierExpression",
+            identifier: itemAlloc.emittedName,
+          },
+        },
+      });
     }
   } else {
     // Regular yield
@@ -153,16 +185,45 @@ export const emitYieldExpression = (
       );
       currentContext = newContext;
       const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
-      parts.push(`${ind}${exchangeVar}.Output = ${printExpression(valueAst)};`);
-      parts.push(`${ind}yield return ${exchangeVar};`);
+      parts.push({
+        kind: "expressionStatement",
+        expression: {
+          kind: "assignmentExpression",
+          operatorToken: "=",
+          left: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "identifierExpression",
+              identifier: exchangeVar,
+            },
+            memberName: "Output",
+          },
+          right: valueAst,
+        },
+      });
+      parts.push({
+        kind: "yieldStatement",
+        isBreak: false,
+        expression: {
+          kind: "identifierExpression",
+          identifier: exchangeVar,
+        },
+      });
     } else {
       // Bare yield (no value)
       const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
-      parts.push(`${ind}yield return ${exchangeVar};`);
+      parts.push({
+        kind: "yieldStatement",
+        isBreak: false,
+        expression: {
+          kind: "identifierExpression",
+          identifier: exchangeVar,
+        },
+      });
     }
   }
 
-  return [parts.join("\n"), currentContext];
+  return [parts, currentContext];
 };
 
 /**
@@ -180,13 +241,12 @@ export const emitYieldExpression = (
  *   exchange.Output = value;
  *   yield return exchange;
  */
-export const emitYieldStatement = (
+export const emitYieldStatementAst = (
   stmt: Extract<IrStatement, { kind: "yieldStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   let currentContext = context;
-  const parts: string[] = [];
+  const parts: CSharpStatementAst[] = [];
 
   if (stmt.delegate) {
     // yield* delegation - emit foreach pattern
@@ -197,15 +257,23 @@ export const emitYieldStatement = (
       );
       currentContext = newContext;
       // Use await foreach for async generators, foreach for sync
-      const foreachKeyword = currentContext.isAsync
-        ? "await foreach"
-        : "foreach";
       const itemAlloc = allocateLocalName("item", currentContext);
       currentContext = itemAlloc.context;
-      parts.push(
-        `${ind}${foreachKeyword} (var ${itemAlloc.emittedName} in ${printExpression(delegateAst)})`
-      );
-      parts.push(`${ind}    yield return ${itemAlloc.emittedName};`);
+      parts.push({
+        kind: "foreachStatement",
+        isAwait: currentContext.isAsync,
+        type: { kind: "varType" },
+        identifier: itemAlloc.emittedName,
+        expression: delegateAst,
+        body: {
+          kind: "yieldStatement",
+          isBreak: false,
+          expression: {
+            kind: "identifierExpression",
+            identifier: itemAlloc.emittedName,
+          },
+        },
+      });
     }
   } else {
     // Regular yield with optional bidirectional support
@@ -216,18 +284,58 @@ export const emitYieldStatement = (
       );
       currentContext = newContext;
       const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
-      parts.push(`${ind}${exchangeVar}.Output = ${printExpression(valueAst)};`);
+      parts.push({
+        kind: "expressionStatement",
+        expression: {
+          kind: "assignmentExpression",
+          operatorToken: "=",
+          left: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "identifierExpression",
+              identifier: exchangeVar,
+            },
+            memberName: "Output",
+          },
+          right: valueAst,
+        },
+      });
     }
     const exchangeVar = currentContext.generatorExchangeVar ?? "exchange";
-    parts.push(`${ind}yield return ${exchangeVar};`);
+    parts.push({
+      kind: "yieldStatement",
+      isBreak: false,
+      expression: {
+        kind: "identifierExpression",
+        identifier: exchangeVar,
+      },
+    });
 
     // Handle receiveTarget for bidirectional communication
     if (stmt.receiveTarget) {
-      const lowered = lowerPattern(
+      const inputExpr: CSharpExpressionAst = {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "binaryExpression",
+          operatorToken: "??",
+          left: {
+            kind: "memberAccessExpression",
+            expression: {
+              kind: "identifierExpression",
+              identifier: exchangeVar,
+            },
+            memberName: "Input",
+          },
+          right: {
+            kind: "suppressNullableWarningExpression",
+            expression: { kind: "defaultExpression" },
+          },
+        },
+      };
+      const lowered = lowerPatternAst(
         stmt.receiveTarget,
-        `(${exchangeVar}.Input ?? default!)`,
+        inputExpr,
         stmt.receivedType,
-        ind,
         currentContext
       );
       parts.push(...lowered.statements);
@@ -235,23 +343,21 @@ export const emitYieldStatement = (
     }
   }
 
-  return [parts.join("\n"), currentContext];
+  return [parts, currentContext];
 };
 
 /**
- * Emit an expression statement
+ * Emit an expression statement as AST
  */
-export const emitExpressionStatement = (
+export const emitExpressionStatementAst = (
   stmt: Extract<IrStatement, { kind: "expressionStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-
+): [readonly CSharpStatementAst[], EmitterContext] => {
   // Special handling for yield expressions in generators
   // Note: After yield-lowering pass, generators will have IrYieldStatement nodes instead
   // This is kept for backward compatibility with unprocessed IR
   if (stmt.expression.kind === "yield") {
-    return emitYieldExpression(stmt.expression, context);
+    return emitYieldExpressionAst(stmt.expression, context);
   }
 
   // TypeScript `void expr;` evaluates `expr` and discards the result.
@@ -262,7 +368,6 @@ export const emitExpressionStatement = (
   if (stmt.expression.kind === "unary" && stmt.expression.operator === "void") {
     const operand = stmt.expression.expression;
     const [operandAst, newContext] = emitExpressionAst(operand, context);
-    const operandText = printExpression(operandAst);
 
     // If the operand is already a valid statement-expression (call/new/assignment/
     // update/await), emit it directly. Otherwise, use a discard assignment.
@@ -273,14 +378,26 @@ export const emitExpressionStatement = (
       operand.kind === "update" ||
       operand.kind === "await"
     ) {
-      return [`${ind}${operandText};`, newContext];
+      return [
+        [{ kind: "expressionStatement", expression: operandAst }],
+        newContext,
+      ];
     }
 
-    return [`${ind}_ = ${operandText};`, newContext];
+    const discardAssign: CSharpExpressionAst = {
+      kind: "assignmentExpression",
+      operatorToken: "=",
+      left: { kind: "identifierExpression", identifier: "_" },
+      right: operandAst,
+    };
+    return [
+      [{ kind: "expressionStatement", expression: discardAssign }],
+      newContext,
+    ];
   }
 
   const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);
-  return [`${ind}${printExpression(exprAst)};`, newContext];
+  return [[{ kind: "expressionStatement", expression: exprAst }], newContext];
 };
 
 /**
@@ -299,14 +416,13 @@ export const emitExpressionStatement = (
  * The __returnValue variable is declared in the enclosing function emission.
  * The wrapper's _getReturnValue closure captures this value when iteration completes.
  */
-export const emitGeneratorReturnStatement = (
+export const emitGeneratorReturnStatementAst = (
   stmt: Extract<IrStatement, { kind: "generatorReturnStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   let currentContext = context;
   const returnVar = currentContext.generatorReturnValueVar ?? "__returnValue";
-  const parts: string[] = [];
+  const parts: CSharpStatementAst[] = [];
 
   if (stmt.expression) {
     // Capture the return value in __returnValue before terminating
@@ -315,11 +431,42 @@ export const emitGeneratorReturnStatement = (
       currentContext
     );
     currentContext = newContext;
-    parts.push(`${ind}${returnVar} = ${printExpression(valueAst)};`);
+    parts.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "assignmentExpression",
+        operatorToken: "=",
+        left: { kind: "identifierExpression", identifier: returnVar },
+        right: valueAst,
+      },
+    });
   }
 
   // Terminate the iterator
-  parts.push(`${ind}yield break;`);
+  parts.push({ kind: "yieldStatement", isBreak: true });
 
-  return [parts.join("\n"), currentContext];
+  return [parts, currentContext];
+};
+
+/**
+ * Emit a block statement as text (backward-compatible shim).
+ *
+ * Routes through the AST pipeline and prints the result.
+ * Used by text-based callers (e.g., static function declarations)
+ * that haven't been converted to AST yet.
+ *
+ * Note: the old text path emitted inner statements at the same indent level
+ * as the block braces. printBlockStatement (via printStatement) would add an
+ * extra innerIndent, so we manually assemble the block to match the old format.
+ */
+export const emitBlockStatement = (
+  stmt: Extract<IrStatement, { kind: "blockStatement" }>,
+  context: EmitterContext
+): [string, EmitterContext] => {
+  const [ast, ctx] = emitBlockStatementAst(stmt, context);
+  const ind = getIndent(context);
+  const stmts = ast.statements
+    .map((s) => printStatementFlatBlock(s, ind))
+    .join("\n");
+  return [`${ind}{\n${stmts}\n${ind}}`, ctx];
 };

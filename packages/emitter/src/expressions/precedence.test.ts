@@ -170,7 +170,7 @@ describe("Emitter precedence + parentheses", () => {
     ]);
 
     const result = emitModule(module);
-    expect(result).to.include("if ((a ?? b) != 0)");
+    expect(result).to.include("if (((a ?? b) != 0))");
   });
 
   it("parenthesizes `as` results before postfix member access", () => {

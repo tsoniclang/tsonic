@@ -12,9 +12,9 @@ import { EmitterContext, getIndent, indent, withStatic } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { printExpression } from "../../core/format/backend-ast/printer.js";
 import { emitStatement } from "../../statement-emitter.js";
-import { emitType } from "../../type-emitter.js";
+import { emitType, emitTypeAst } from "../../type-emitter.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
-import { lowerPattern } from "../../patterns.js";
+import { lowerPattern, lowerPatternAst } from "../../patterns.js";
 import {
   allocateLocalName,
   registerLocalName,
@@ -24,6 +24,10 @@ import {
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
 import { emitCSharpName } from "../../naming-policy.js";
+import type {
+  CSharpStatementAst,
+  CSharpTypeAst,
+} from "../../core/format/backend-ast/types.js";
 
 const getAsyncBodyReturnType = (
   isAsync: boolean,
@@ -749,4 +753,188 @@ export const emitVariableDeclaration = (
   }
 
   return [declarations.join("\n"), currentContext];
+};
+
+/**
+ * Helper: check if an initializer is a nullish expression (undefined/null literal or identifier).
+ */
+const isNullishInitializer = (init: {
+  kind: string;
+  value?: unknown;
+  name?: string;
+}): boolean =>
+  (init.kind === "literal" &&
+    ((init as { value: unknown }).value === undefined ||
+      (init as { value: unknown }).value === null)) ||
+  (init.kind === "identifier" &&
+    ((init as { name: string }).name === "undefined" ||
+      (init as { name: string }).name === "null"));
+
+/**
+ * Determine the C# type AST for a local variable declaration.
+ *
+ * Priority:
+ * 1) asinterface initializer - use target type
+ * 2) Explicit/inferred IR type (if C#-emittable)
+ * 3) Nullish initializer with annotation - use explicit type
+ * 4) Nullish initializer without annotation - use inferred or object?
+ * 5) Types needing explicit declaration (byte, sbyte, short, ushort)
+ * 6) stackalloc - target-typed to produce Span<T>
+ * 7) var
+ */
+const resolveLocalTypeAst = (
+  decl: {
+    readonly type?: IrType;
+    readonly initializer?: {
+      readonly kind: string;
+      readonly value?: unknown;
+      readonly name?: string;
+      readonly targetType?: IrType;
+      readonly inferredType?: IrType;
+    };
+  },
+  context: EmitterContext
+): [CSharpTypeAst, EmitterContext] => {
+  // asinterface<T>(x) - preserve target type in LHS
+  if (!decl.type && decl.initializer?.kind === "asinterface") {
+    const targetType = resolveAsInterfaceTargetType(
+      (decl.initializer as { targetType: IrType }).targetType,
+      context
+    );
+    return emitTypeAst(targetType, context);
+  }
+
+  // Explicit TypeScript annotation that is C#-emittable
+  if (decl.type && canEmitTypeExplicitly(decl.type)) {
+    return emitTypeAst(decl.type, context);
+  }
+
+  // Nullish initializer with explicit annotation → must use explicit type
+  if (decl.type && decl.initializer && isNullishInitializer(decl.initializer)) {
+    return emitTypeAst(decl.type, context);
+  }
+
+  // Nullish initializer without annotation → use inferred type or object?
+  if (
+    !decl.type &&
+    decl.initializer &&
+    isNullishInitializer(decl.initializer)
+  ) {
+    const fallbackType = decl.initializer.inferredType;
+    if (fallbackType && canEmitTypeExplicitly(fallbackType)) {
+      return emitTypeAst(fallbackType, context);
+    }
+    return [{ kind: "identifierType", name: "object?" }, context];
+  }
+
+  // Types that need explicit declaration (byte, sbyte, short, ushort)
+  if (
+    decl.type &&
+    decl.initializer?.kind !== "stackalloc" &&
+    needsExplicitLocalType(decl.type, context)
+  ) {
+    return emitTypeAst(decl.type, context);
+  }
+
+  // stackalloc - must be target-typed to produce Span<T>
+  if (decl.initializer?.kind === "stackalloc") {
+    const targetType = decl.type ?? decl.initializer.inferredType;
+    if (!targetType) {
+      throw new Error(
+        "ICE: stackalloc initializer missing target type (no decl.type and no inferredType)"
+      );
+    }
+    return emitTypeAst(targetType, context);
+  }
+
+  // Default: var
+  return [{ kind: "varType" }, context];
+};
+
+/**
+ * Emit a local (non-static) variable declaration as AST.
+ *
+ * Static variable declarations (module-level fields) are handled by the
+ * text-based emitVariableDeclaration above.
+ */
+export const emitVariableDeclarationAst = (
+  stmt: Extract<IrStatement, { kind: "variableDeclaration" }>,
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  let currentContext = context;
+  const statements: CSharpStatementAst[] = [];
+
+  for (const decl of stmt.declarations) {
+    // Handle destructuring patterns with AST lowering
+    if (
+      decl.name.kind === "arrayPattern" ||
+      decl.name.kind === "objectPattern"
+    ) {
+      if (!decl.initializer) {
+        // Destructuring requires an initializer
+        statements.push({ kind: "emptyStatement" });
+        continue;
+      }
+
+      const [initAst, newContext] = emitExpressionAst(
+        decl.initializer,
+        currentContext,
+        decl.type
+      );
+      currentContext = newContext;
+
+      const patternType = decl.type ?? decl.initializer.inferredType;
+      const result = lowerPatternAst(
+        decl.name,
+        initAst,
+        patternType,
+        currentContext
+      );
+      statements.push(...result.statements);
+      currentContext = result.context;
+      continue;
+    }
+
+    // Simple identifier pattern
+    if (decl.name.kind === "identifierPattern") {
+      const originalName = decl.name.name;
+
+      // Determine type AST (may update context)
+      const [typeAst, typeContext] = resolveLocalTypeAst(decl, currentContext);
+      currentContext = typeContext;
+
+      // Allocate local name
+      const alloc = allocateLocalName(originalName, currentContext);
+      const localName = alloc.emittedName;
+      currentContext = alloc.context;
+
+      // Emit initializer (after allocation, before registration - C# scoping)
+      let initAst = undefined;
+      if (decl.initializer) {
+        const [exprAst, newContext] = emitExpressionAst(
+          decl.initializer,
+          currentContext,
+          decl.type
+        );
+        currentContext = newContext;
+        initAst = exprAst;
+      }
+
+      // Register local name after initializer emission
+      currentContext = registerLocalName(
+        originalName,
+        localName,
+        currentContext
+      );
+
+      statements.push({
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: typeAst,
+        declarators: [{ name: localName, initializer: initAst }],
+      });
+    }
+  }
+
+  return [statements, currentContext];
 };

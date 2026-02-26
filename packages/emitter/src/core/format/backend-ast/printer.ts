@@ -1198,3 +1198,149 @@ const printNamespaceDeclaration = (
     .join("\n\n");
   return `namespace ${name}\n{\n${members}\n}`;
 };
+
+// ============================================================
+// Flat Block Printer (backward-compatible text shim helper)
+// ============================================================
+
+/**
+ * Print a statement with "flat block" convention:
+ * block braces and inner statements share the same indent level.
+ *
+ * In the old text-based emitter, emitBlockStatement used getIndent(context)
+ * for both braces and inner statements. Control flow bodies were emitted
+ * at indent+1 level. This function preserves that convention.
+ *
+ * For compound statements (if/while/for/foreach/switch/try), body blocks
+ * are printed at indent+4 with flat block convention (braces and inner
+ * statements at the same level).
+ */
+export const printStatementFlatBlock = (
+  stmt: CSharpStatementAst,
+  indent: string
+): string => {
+  const bodyIndent = indent + "    ";
+  switch (stmt.kind) {
+    case "blockStatement": {
+      const inner = stmt.statements
+        .map((s) => printStatementFlatBlock(s, indent))
+        .join("\n");
+      return `${indent}{\n${inner}\n${indent}}`;
+    }
+
+    case "ifStatement": {
+      const cond = printExpression(stmt.condition);
+      const thenBody = printStatementFlatBlock(stmt.thenStatement, bodyIndent);
+
+      if (!stmt.elseStatement) {
+        return `${indent}if (${cond})\n${thenBody}`;
+      }
+
+      // Else-if chain
+      if (stmt.elseStatement.kind === "ifStatement") {
+        const elseIfText = printStatementFlatBlock(stmt.elseStatement, indent);
+        const elseIfBody = elseIfText.slice(indent.length);
+        return `${indent}if (${cond})\n${thenBody}\n${indent}else ${elseIfBody}`;
+      }
+
+      const elseBody = printStatementFlatBlock(stmt.elseStatement, bodyIndent);
+      return `${indent}if (${cond})\n${thenBody}\n${indent}else\n${elseBody}`;
+    }
+
+    case "whileStatement": {
+      const cond = printExpression(stmt.condition);
+      const body = printStatementFlatBlock(stmt.body, bodyIndent);
+      return `${indent}while (${cond})\n${body}`;
+    }
+
+    case "forStatement": {
+      const parts: string[] = [];
+      if (stmt.declaration) {
+        const typeStr = printType(stmt.declaration.type);
+        const decls = stmt.declaration.declarators
+          .map((d) =>
+            d.initializer
+              ? `${escapeIdentifier(d.name)} = ${printExpression(d.initializer)}`
+              : escapeIdentifier(d.name)
+          )
+          .join(", ");
+        parts.push(`${typeStr} ${decls}`);
+      } else if (stmt.initializers && stmt.initializers.length > 0) {
+        parts.push(stmt.initializers.map(printExpression).join(", "));
+      } else {
+        parts.push("");
+      }
+      parts.push(stmt.condition ? printExpression(stmt.condition) : "");
+      parts.push(stmt.incrementors.map(printExpression).join(", "));
+      const header = parts.join("; ");
+      const body = printStatementFlatBlock(stmt.body, bodyIndent);
+      return `${indent}for (${header})\n${body}`;
+    }
+
+    case "foreachStatement": {
+      const awaitStr = stmt.isAwait ? "await " : "";
+      const typeStr = printType(stmt.type);
+      const ident = escapeIdentifier(stmt.identifier);
+      const collection = printExpression(stmt.expression);
+      const body = printStatementFlatBlock(stmt.body, bodyIndent);
+      return `${indent}${awaitStr}foreach (${typeStr} ${ident} in ${collection})\n${body}`;
+    }
+
+    case "switchStatement": {
+      const expr = printExpression(stmt.expression);
+      const sections = stmt.sections
+        .map((s) => {
+          const labels = s.labels
+            .map((l) => printSwitchLabel(l, bodyIndent))
+            .join("\n");
+          const stmtInd = bodyIndent + "    ";
+          const sectionStmts = s.statements
+            .map((st) => printStatementFlatBlock(st, stmtInd))
+            .join("\n");
+          return `${labels}\n${sectionStmts}`;
+        })
+        .join("\n");
+      return `${indent}switch (${expr})\n${indent}{\n${sections}\n${indent}}`;
+    }
+
+    case "tryStatement": {
+      // Try/catch/finally bodies are at the SAME indent as the keyword
+      // (the old text emitter did NOT call indent() for try/catch bodies)
+      const tryBody = printStatementFlatBlock(stmt.body, indent);
+      const catches = stmt.catches
+        .map((c) => {
+          const catchBody = printStatementFlatBlock(c.body, indent);
+          if (!c.type) {
+            return `${indent}catch\n${catchBody}`;
+          }
+          const typeName = printType(c.type);
+          const ident = c.identifier
+            ? ` ${escapeIdentifier(c.identifier)}`
+            : "";
+          const filter = c.filter ? ` when (${printExpression(c.filter)})` : "";
+          return `${indent}catch (${typeName}${ident})${filter}\n${catchBody}`;
+        })
+        .join("\n");
+      const finallyStr = stmt.finallyBody
+        ? `\n${indent}finally\n${printStatementFlatBlock(stmt.finallyBody, indent)}`
+        : "";
+      return `${indent}try\n${tryBody}\n${catches}${finallyStr}`;
+    }
+
+    case "localFunctionStatement": {
+      const mods =
+        stmt.modifiers.length > 0 ? `${stmt.modifiers.join(" ")} ` : "";
+      const ret = printType(stmt.returnType);
+      const typeParams =
+        stmt.typeParameters && stmt.typeParameters.length > 0
+          ? `<${stmt.typeParameters.join(", ")}>`
+          : "";
+      const params = stmt.parameters.map(printParameter).join(", ");
+      const body = printStatementFlatBlock(stmt.body, bodyIndent);
+      return `${indent}${mods}${ret} ${escapeIdentifier(stmt.name)}${typeParams}(${params})\n${body}`;
+    }
+
+    default:
+      return printStatement(stmt, indent);
+  }
+};

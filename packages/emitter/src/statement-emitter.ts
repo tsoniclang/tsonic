@@ -1,56 +1,153 @@
 /**
- * Statement Emitter - IR statements to C# code
+ * Statement Emitter - IR statements to C# AST nodes
  * Main dispatcher - delegates to specialized modules
+ *
+ * emitStatementAst: returns CSharpStatementAst[] (the AST pipeline)
+ * emitStatement: backward-compatible text shim for callers not yet on AST
  */
 
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent } from "./types.js";
+import type { CSharpStatementAst } from "./core/format/backend-ast/types.js";
+import { printStatementFlatBlock } from "./core/format/backend-ast/printer.js";
 
-// Import statement emitters from specialized modules
+// Import AST statement emitters from specialized modules
 import {
-  emitVariableDeclaration,
-  emitFunctionDeclaration,
+  emitBlockStatementAst,
+  emitReturnStatementAst,
+  emitExpressionStatementAst,
+  emitYieldStatementAst,
+  emitGeneratorReturnStatementAst,
+} from "./statements/blocks.js";
+
+import {
+  emitIfStatementAst,
+  emitWhileStatementAst,
+  emitForStatementAst,
+  emitForOfStatementAst,
+  emitForInStatementAst,
+  emitSwitchStatementAst,
+  emitTryStatementAst,
+  emitThrowStatementAst,
+} from "./statements/control.js";
+
+import {
+  emitVariableDeclarationAst,
+  emitFunctionDeclarationAst,
+} from "./statements/declarations.js";
+
+// Text-based declaration emitters (module-level, not yet on AST)
+import {
   emitClassDeclaration,
   emitInterfaceDeclaration,
   emitEnumDeclaration,
   emitTypeAliasDeclaration,
+  emitVariableDeclaration,
+  emitFunctionDeclaration,
 } from "./statements/declarations.js";
 
-import {
-  emitBlockStatement,
-  emitReturnStatement,
-  emitExpressionStatement,
-  emitYieldStatement,
-  emitGeneratorReturnStatement,
-} from "./statements/blocks.js";
+/**
+ * Emit an IR statement as C# AST nodes.
+ *
+ * Returns an array because some IR statements lower to multiple C# statements
+ * (e.g., void-return splitting, yield exchange patterns, destructuring).
+ * The parent block flattens these into its own statements array.
+ *
+ * Only handles true statement-level emissions. Module-level declarations
+ * (class, interface, enum, type-alias) are handled by the text shim.
+ */
+export const emitStatementAst = (
+  stmt: IrStatement,
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  switch (stmt.kind) {
+    case "blockStatement": {
+      const [ast, ctx] = emitBlockStatementAst(stmt, context);
+      return [[ast], ctx];
+    }
 
-import {
-  emitIfStatement,
-  emitWhileStatement,
-  emitForStatement,
-  emitForOfStatement,
-  emitForInStatement,
-  emitSwitchStatement,
-  emitTryStatement,
-  emitThrowStatement,
-} from "./statements/control.js";
+    case "returnStatement":
+      return emitReturnStatementAst(stmt, context);
+
+    case "expressionStatement":
+      return emitExpressionStatementAst(stmt, context);
+
+    case "yieldStatement":
+      return emitYieldStatementAst(stmt, context);
+
+    case "generatorReturnStatement":
+      return emitGeneratorReturnStatementAst(stmt, context);
+
+    case "ifStatement":
+      return emitIfStatementAst(stmt, context);
+
+    case "whileStatement":
+      return emitWhileStatementAst(stmt, context);
+
+    case "forStatement":
+      return emitForStatementAst(stmt, context);
+
+    case "forOfStatement":
+      return emitForOfStatementAst(stmt, context);
+
+    case "forInStatement":
+      return emitForInStatementAst(stmt, context);
+
+    case "switchStatement":
+      return emitSwitchStatementAst(stmt, context);
+
+    case "tryStatement":
+      return emitTryStatementAst(stmt, context);
+
+    case "throwStatement":
+      return emitThrowStatementAst(stmt, context);
+
+    case "variableDeclaration":
+      return emitVariableDeclarationAst(stmt, context);
+
+    case "functionDeclaration":
+      return emitFunctionDeclarationAst(stmt, context);
+
+    case "breakStatement":
+      return [[{ kind: "breakStatement" }], context];
+
+    case "continueStatement":
+      return [[{ kind: "continueStatement" }], context];
+
+    case "emptyStatement":
+      return [[{ kind: "emptyStatement" }], context];
+
+    // Module-level declarations are handled by the text shim below.
+    // If they reach here, it's an ICE.
+    case "classDeclaration":
+    case "interfaceDeclaration":
+    case "enumDeclaration":
+    case "typeAliasDeclaration":
+      throw new Error(
+        `ICE: Module-level declaration ${stmt.kind} reached emitStatementAst. ` +
+          `Use emitStatement (text shim) for module-level declarations.`
+      );
+
+    default:
+      throw new Error(
+        `Unhandled IR statement kind: ${String((stmt as { kind?: unknown }).kind)}`
+      );
+  }
+};
 
 /**
- * Emit a C# statement from an IR statement
+ * Emit a C# statement from an IR statement (backward-compatible text shim).
+ *
+ * Routes module-level declarations (class, interface, enum, type-alias,
+ * and static variable/function declarations) to text-based emitters.
+ * Everything else goes through the AST pipeline and is printed.
  */
 export const emitStatement = (
   stmt: IrStatement,
   context: EmitterContext
 ): [string, EmitterContext] => {
-  const ind = getIndent(context);
-
+  // Module-level type declarations - still text-based
   switch (stmt.kind) {
-    case "variableDeclaration":
-      return emitVariableDeclaration(stmt, context);
-
-    case "functionDeclaration":
-      return emitFunctionDeclaration(stmt, context);
-
     case "classDeclaration":
       return emitClassDeclaration(stmt, context);
 
@@ -63,65 +160,31 @@ export const emitStatement = (
     case "typeAliasDeclaration":
       return emitTypeAliasDeclaration(stmt, context);
 
-    case "blockStatement":
-      return emitBlockStatement(stmt, context);
+    // Static variable/function declarations are module-level members,
+    // not statement-level AST. Route to text emitters.
+    case "variableDeclaration":
+      if (context.isStatic) {
+        return emitVariableDeclaration(stmt, context);
+      }
+      break;
 
-    case "ifStatement":
-      return emitIfStatement(stmt, context);
-
-    case "whileStatement":
-      return emitWhileStatement(stmt, context);
-
-    // Note: doWhileStatement not in current IR types
-    // case "doWhileStatement":
-    //   return emitDoWhileStatement(stmt, context);
-
-    case "forStatement":
-      return emitForStatement(stmt, context);
-
-    case "forOfStatement":
-      return emitForOfStatement(stmt, context);
-
-    case "forInStatement":
-      return emitForInStatement(stmt, context);
-
-    case "switchStatement":
-      return emitSwitchStatement(stmt, context);
-
-    case "tryStatement":
-      return emitTryStatement(stmt, context);
-
-    case "throwStatement":
-      return emitThrowStatement(stmt, context);
-
-    case "returnStatement":
-      return emitReturnStatement(stmt, context);
-
-    case "breakStatement":
-      return [`${ind}break;`, context];
-
-    case "continueStatement":
-      return [`${ind}continue;`, context];
-
-    case "expressionStatement":
-      return emitExpressionStatement(stmt, context);
-
-    case "yieldStatement":
-      return emitYieldStatement(stmt, context);
-
-    case "generatorReturnStatement":
-      return emitGeneratorReturnStatement(stmt, context);
-
-    case "emptyStatement":
-      return [`${ind};`, context];
-
-    default:
-      throw new Error(
-        `Unhandled IR statement kind: ${String((stmt as { kind?: unknown }).kind)}`
-      );
+    case "functionDeclaration":
+      if (context.isStatic) {
+        return emitFunctionDeclaration(stmt, context);
+      }
+      break;
   }
+
+  // Statement-level: use AST pipeline and print to text.
+  // Use printStatementFlatBlock so that blockStatement ASTs are printed
+  // with the old Tsonic convention (braces and inner at same indent level)
+  // rather than the printer's standard C# convention (inner at +4).
+  const [stmts, ctx] = emitStatementAst(stmt, context);
+  const ind = getIndent(context);
+  const text = stmts.map((s) => printStatementFlatBlock(s, ind)).join("\n");
+  return [text, ctx];
 };
 
-// Re-export commonly used functions for backward compatibility
-export { emitBlockStatement } from "./statements/blocks.js";
+// Re-export for backward compatibility
+export { emitBlockStatementAst } from "./statements/blocks.js";
 export { emitParameters } from "./statements/classes.js";

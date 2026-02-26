@@ -1,29 +1,33 @@
 /**
  * Exception handling emitters (try, throw)
+ * Returns CSharpStatementAst nodes.
  */
 
 import { IrStatement } from "@tsonic/frontend";
-import { EmitterContext, getIndent } from "../../types.js";
+import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
-import { emitBlockStatement } from "../blocks.js";
+import { emitBlockStatementAst } from "../blocks.js";
 import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
+import type {
+  CSharpStatementAst,
+  CSharpBlockStatementAst,
+  CSharpCatchClauseAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
- * Emit a try statement
+ * Emit a try statement as AST
  */
-export const emitTryStatement = (
+export const emitTryStatementAst = (
   stmt: Extract<IrStatement, { kind: "tryStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-  const [tryBlock, tryContext] = emitBlockStatement(stmt.tryBlock, context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  const [tryBody, tryContext] = emitBlockStatementAst(stmt.tryBlock, context);
 
-  let code = `${ind}try\n${tryBlock}`;
   let currentContext = tryContext;
+  const catches: CSharpCatchClauseAst[] = [];
 
   if (stmt.catchClause) {
     const param =
@@ -42,36 +46,52 @@ export const emitTryStatement = (
       alloc.emittedName,
       alloc.context
     );
-    const escapedParam = alloc.emittedName;
 
-    const [catchBlock, catchContext] = emitBlockStatement(
+    const [catchBody, catchContext] = emitBlockStatementAst(
       stmt.catchClause.body,
       catchScopeContext
     );
-    code += `\n${ind}catch (global::System.Exception ${escapedParam})\n${catchBlock}`;
+    catches.push({
+      type: {
+        kind: "identifierType",
+        name: "global::System.Exception",
+      },
+      identifier: alloc.emittedName,
+      body: catchBody,
+    });
     currentContext = { ...catchContext, localNameMap: outerMap };
   }
 
-  if (stmt.finallyBlock) {
-    const [finallyBlock, finallyContext] = emitBlockStatement(
-      stmt.finallyBlock,
-      currentContext
-    );
-    code += `\n${ind}finally\n${finallyBlock}`;
-    currentContext = finallyContext;
-  }
+  const finallyResult: {
+    finallyBody?: CSharpBlockStatementAst;
+    context: EmitterContext;
+  } = stmt.finallyBlock
+    ? (() => {
+        const [fb, fc] = emitBlockStatementAst(
+          stmt.finallyBlock!,
+          currentContext
+        );
+        return { finallyBody: fb, context: fc };
+      })()
+    : { context: currentContext };
 
-  return [code, currentContext];
+  const tryStmt: CSharpStatementAst = {
+    kind: "tryStatement",
+    body: tryBody,
+    catches,
+    finallyBody: finallyResult.finallyBody,
+  };
+
+  return [[tryStmt], finallyResult.context];
 };
 
 /**
- * Emit a throw statement
+ * Emit a throw statement as AST
  */
-export const emitThrowStatement = (
+export const emitThrowStatementAst = (
   stmt: Extract<IrStatement, { kind: "throwStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, newContext] = emitExpressionAst(stmt.expression, context);
-  return [`${ind}throw ${printExpression(exprAst)};`, newContext];
+  return [[{ kind: "throwStatement", expression: exprAst }], newContext];
 };

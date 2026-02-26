@@ -1,22 +1,30 @@
 /**
  * Loop statement emitters (while, for, for-of, for-in)
+ * Returns CSharpStatementAst nodes.
  */
 
 import { IrStatement, IrExpression } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent, dedent } from "../../types.js";
+import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
-import { printExpression } from "../../core/format/backend-ast/printer.js";
-import { emitStatement } from "../../statement-emitter.js";
-import { lowerPattern } from "../../patterns.js";
+import { emitStatementAst } from "../../statement-emitter.js";
+import { lowerPatternAst } from "../../patterns.js";
 import {
   resolveTypeAlias,
   stripNullish,
 } from "../../core/semantic/type-resolution.js";
-import { emitBooleanCondition } from "../../core/semantic/boolean-context.js";
+import {
+  emitBooleanConditionAst,
+  type EmitExprAstFn,
+} from "../../core/semantic/boolean-context.js";
 import {
   allocateLocalName,
   registerLocalName,
 } from "../../core/format/local-names.js";
+import type {
+  CSharpStatementAst,
+  CSharpExpressionAst,
+  CSharpLocalDeclarationStatementAst,
+} from "../../core/format/backend-ast/types.js";
 
 /**
  * Information about a canonical integer loop counter.
@@ -138,42 +146,53 @@ const isIntegerIncrement = (expr: IrExpression, varName: string): boolean => {
   return false;
 };
 
+/** Helper: wrap multiple statements in a block, pass through single statements. */
+const wrapInBlock = (
+  stmts: readonly CSharpStatementAst[]
+): CSharpStatementAst => {
+  if (stmts.length === 1 && stmts[0]) return stmts[0];
+  return { kind: "blockStatement", statements: [...stmts] };
+};
+
+/** Standard emitExpressionAst adapter for emitBooleanConditionAst callback. */
+const emitExprAstCb: EmitExprAstFn = (e, ctx) => emitExpressionAst(e, ctx);
+
 /**
- * Emit a while statement
+ * Emit a while statement as AST
  */
-export const emitWhileStatement = (
+export const emitWhileStatementAst = (
   stmt: Extract<IrStatement, { kind: "whileStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
-  const [condText, condContext] = emitBooleanCondition(
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  const [condAst, condContext] = emitBooleanConditionAst(
     stmt.condition,
-    (e, ctx) => {
-      const [ast, c] = emitExpressionAst(e, ctx);
-      return [{ text: printExpression(ast) }, c];
-    },
+    emitExprAstCb,
     context
   );
 
-  const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(condContext));
+  const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, condContext);
 
-  const code = `${ind}while (${condText})\n${bodyCode}`;
-  return [code, dedent(bodyContext)];
+  const whileStmt: CSharpStatementAst = {
+    kind: "whileStatement",
+    condition: condAst,
+    body: wrapInBlock(bodyStmts),
+  };
+
+  return [[whileStmt], bodyContext];
 };
 
 /**
- * Emit a for statement
+ * Emit a for statement as AST
  *
  * Special handling for canonical integer loop counters:
  * `for (let i = 0; i < n; i++)` emits as `for (int i = 0; ...)` in C#.
  * This avoids the double→int conversion cost when using loop variables
  * as CLR indexers (e.g., list[i]).
  */
-export const emitForStatement = (
+export const emitForStatementAst = (
   stmt: Extract<IrStatement, { kind: "forStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   const outerNameMap = context.localNameMap;
   let currentContext: EmitterContext = {
     ...context,
@@ -184,7 +203,9 @@ export const emitForStatement = (
   const canonicalLoop = detectCanonicalIntLoop(stmt);
 
   // Initializer
-  let init = "";
+  let declaration: CSharpLocalDeclarationStatementAst | undefined;
+  let initializers: CSharpExpressionAst[] | undefined;
+
   if (stmt.initializer) {
     if (canonicalLoop) {
       // Canonical integer loop: emit `int varName = value` directly
@@ -194,81 +215,111 @@ export const emitForStatement = (
         alloc.emittedName,
         alloc.context
       );
-      init = `int ${alloc.emittedName} = ${canonicalLoop.initialValue}`;
+      declaration = {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "identifierType", name: "int" },
+        declarators: [
+          {
+            name: alloc.emittedName,
+            initializer: {
+              kind: "literalExpression",
+              text: String(canonicalLoop.initialValue),
+            },
+          },
+        ],
+      };
     } else if (stmt.initializer.kind === "variableDeclaration") {
-      const [initCode, newContext] = emitStatement(
+      // Non-canonical variable declaration: emit through AST pipeline
+      const [initStmts, newContext] = emitStatementAst(
         stmt.initializer,
         currentContext
       );
       currentContext = newContext;
-      // Strip trailing semicolon from variable declaration
-      init = initCode.trim().replace(/;$/, "");
+      // For for-loop initializers, expect a single localDeclarationStatement.
+      // Multi-statement initializers (destructuring) are not valid in C# for-loops.
+      if (
+        initStmts.length === 1 &&
+        initStmts[0]?.kind === "localDeclarationStatement"
+      ) {
+        declaration = initStmts[0];
+      } else {
+        throw new Error(
+          `ICE: For-loop variable initializer produced ${initStmts.length} statements ` +
+            `(expected single localDeclarationStatement). Complex destructuring in for-loop ` +
+            `initializers is not supported.`
+        );
+      }
     } else {
+      // Expression initializer
       const [initAst, newContext] = emitExpressionAst(
         stmt.initializer,
         currentContext
       );
       currentContext = newContext;
-      init = printExpression(initAst);
+      initializers = [initAst];
     }
   }
 
   // Condition
-  let cond = "";
+  let condition: CSharpExpressionAst | undefined;
   if (stmt.condition) {
-    const [condText, newContext] = emitBooleanCondition(
+    const [condAst, newContext] = emitBooleanConditionAst(
       stmt.condition,
-      (e, ctx) => {
-        const [ast, c] = emitExpressionAst(e, ctx);
-        return [{ text: printExpression(ast) }, c];
-      },
+      emitExprAstCb,
       currentContext
     );
     currentContext = newContext;
-    cond = condText;
+    condition = condAst;
   }
 
   // Update
-  let update = "";
+  const incrementors: CSharpExpressionAst[] = [];
   if (stmt.update) {
     const [updateAst, newContext] = emitExpressionAst(
       stmt.update,
       currentContext
     );
     currentContext = newContext;
-    update = printExpression(updateAst);
+    incrementors.push(updateAst);
   }
 
   // Body - if canonical loop, add the var to intLoopVars so indexers don't cast
-  let bodyContext: EmitterContext;
-  if (canonicalLoop) {
-    const existingIntVars = currentContext.intLoopVars ?? new Set<string>();
-    const emittedName =
-      currentContext.localNameMap?.get(canonicalLoop.varName) ??
-      canonicalLoop.varName;
-    const newIntVars = new Set([...existingIntVars, emittedName]);
-    const contextWithIntVar = {
-      ...indent(currentContext),
-      intLoopVars: newIntVars,
-    };
-    const [code, ctx] = emitStatement(stmt.body, contextWithIntVar);
-    // Remove the var from intLoopVars after body (restore previous scope)
-    bodyContext = { ...ctx, intLoopVars: existingIntVars };
-    const finalCode = `${ind}for (${init}; ${cond}; ${update})\n${code}`;
-    const finalContext = dedent(bodyContext);
-    return [finalCode, { ...finalContext, localNameMap: outerNameMap }];
-  }
+  const bodyContextBase: EmitterContext = canonicalLoop
+    ? (() => {
+        const existingIntVars = currentContext.intLoopVars ?? new Set<string>();
+        const emittedName =
+          currentContext.localNameMap?.get(canonicalLoop.varName) ??
+          canonicalLoop.varName;
+        const newIntVars = new Set([...existingIntVars, emittedName]);
+        return { ...currentContext, intLoopVars: newIntVars };
+      })()
+    : currentContext;
 
-  const [bodyCode, ctx] = emitStatement(stmt.body, indent(currentContext));
-  bodyContext = ctx;
+  const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, bodyContextBase);
 
-  const code = `${ind}for (${init}; ${cond}; ${update})\n${bodyCode}`;
-  const finalContext = dedent(bodyContext);
-  return [code, { ...finalContext, localNameMap: outerNameMap }];
+  // Restore intLoopVars after body (remove canonical loop var from scope)
+  const finalBodyContext: EmitterContext = canonicalLoop
+    ? {
+        ...bodyContext,
+        intLoopVars: currentContext.intLoopVars ?? new Set<string>(),
+      }
+    : bodyContext;
+
+  const forStmt: CSharpStatementAst = {
+    kind: "forStatement",
+    declaration,
+    initializers,
+    condition,
+    incrementors,
+    body: wrapInBlock(bodyStmts),
+  };
+
+  return [[forStmt], { ...finalBodyContext, localNameMap: outerNameMap }];
 };
 
 /**
- * Emit a for-of statement
+ * Emit a for-of statement as AST
  *
  * TypeScript: for (const x of items) { ... }
  * C#: foreach (var x in items) { ... }
@@ -276,21 +327,16 @@ export const emitForStatement = (
  * TypeScript: for await (const x of asyncItems) { ... }
  * C#: await foreach (var x in asyncItems) { ... }
  */
-export const emitForOfStatement = (
+export const emitForOfStatementAst = (
   stmt: Extract<IrStatement, { kind: "forOfStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
-  const exprText = printExpression(exprAst);
   const outerNameMap = exprContext.localNameMap;
   let loopContext: EmitterContext = {
     ...exprContext,
     localNameMap: new Map(outerNameMap ?? []),
   };
-
-  // Use foreach in C#, with await prefix for async iteration
-  const foreachKeyword = stmt.isAwait ? "await foreach" : "foreach";
 
   if (stmt.variable.kind === "identifierPattern") {
     // Simple identifier: for (const x of items) -> foreach (var x in items)
@@ -302,13 +348,18 @@ export const emitForOfStatement = (
       alloc.context
     );
     const varName = alloc.emittedName;
-    const [bodyCode, bodyContext] = emitStatement(
-      stmt.body,
-      indent(loopContext)
-    );
-    const code = `${ind}${foreachKeyword} (var ${varName} in ${exprText})\n${bodyCode}`;
-    const finalContext = dedent(bodyContext);
-    return [code, { ...finalContext, localNameMap: outerNameMap }];
+    const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, loopContext);
+
+    const foreachStmt: CSharpStatementAst = {
+      kind: "foreachStatement",
+      isAwait: stmt.isAwait,
+      type: { kind: "varType" },
+      identifier: varName,
+      expression: exprAst,
+      body: wrapInBlock(bodyStmts),
+    };
+
+    return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
   }
 
   // Complex pattern: for (const [a, b] of items) or for (const {x, y} of items)
@@ -316,7 +367,6 @@ export const emitForOfStatement = (
   const tempAlloc = allocateLocalName("__item", loopContext);
   const tempVar = tempAlloc.emittedName;
   loopContext = tempAlloc.context;
-  const bodyIndent = getIndent(indent(loopContext));
 
   // Get element type from the expression's inferred type
   const elementType =
@@ -324,47 +374,57 @@ export const emitForOfStatement = (
       ? stmt.expression.inferredType.elementType
       : undefined;
 
-  // Lower the pattern to destructuring statements
-  const lowerResult = lowerPattern(
+  // Lower the pattern to destructuring statements (AST)
+  const lowerResult = lowerPatternAst(
     stmt.variable,
-    tempVar,
+    { kind: "identifierExpression", identifier: tempVar },
     elementType,
-    bodyIndent,
     loopContext
   );
 
   // Emit the original loop body
-  const [bodyCode, bodyContext] = emitStatement(
+  const [bodyStmts, bodyContext] = emitStatementAst(
     stmt.body,
-    indent(lowerResult.context)
+    lowerResult.context
   );
 
-  // Combine: pattern lowering + original body
-  const combinedBody =
-    lowerResult.statements.length > 0
-      ? `${ind}{\n${lowerResult.statements.join("\n")}\n${bodyCode}\n${ind}}`
-      : bodyCode;
+  // Combine: pattern lowering + original body in a block
+  const combinedStatements: CSharpStatementAst[] = [
+    ...lowerResult.statements,
+    ...bodyStmts,
+  ];
 
-  const code = `${ind}${foreachKeyword} (var ${tempVar} in ${exprText})\n${combinedBody}`;
-  const finalContext = dedent(bodyContext);
-  return [code, { ...finalContext, localNameMap: outerNameMap }];
+  // If the original body was a block, flatten its statements to avoid nested blocks
+  const bodyAst: CSharpStatementAst =
+    combinedStatements.length === 1 && combinedStatements[0]
+      ? combinedStatements[0]
+      : { kind: "blockStatement", statements: combinedStatements };
+
+  const foreachStmt: CSharpStatementAst = {
+    kind: "foreachStatement",
+    isAwait: stmt.isAwait,
+    type: { kind: "varType" },
+    identifier: tempVar,
+    expression: exprAst,
+    body: bodyAst,
+  };
+
+  return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
 };
 
 /**
- * Emit a for-in statement
+ * Emit a for-in statement as AST
  *
  * TypeScript: for (const k in dict) { ... }
  * C#: foreach (var k in dict.Keys) { ... }
  *
  * Note: We currently support for-in only for `Record<string, T>` / dictionaryType receivers.
  */
-export const emitForInStatement = (
+export const emitForInStatementAst = (
   stmt: Extract<IrStatement, { kind: "forInStatement" }>,
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [readonly CSharpStatementAst[], EmitterContext] => {
   const [exprAst, exprContext] = emitExpressionAst(stmt.expression, context);
-  const exprText = printExpression(exprAst);
   const outerNameMap = exprContext.localNameMap;
   let loopContext: EmitterContext = {
     ...exprContext,
@@ -397,10 +457,27 @@ export const emitForInStatement = (
     alloc.context
   );
   const varName = alloc.emittedName;
-  const iterExpr = `(${exprText}).Keys`;
 
-  const [bodyCode, bodyContext] = emitStatement(stmt.body, indent(loopContext));
-  const code = `${ind}foreach (var ${varName} in ${iterExpr})\n${bodyCode}`;
-  const finalContext = dedent(bodyContext);
-  return [code, { ...finalContext, localNameMap: outerNameMap }];
+  // Iterate over .Keys: (expr).Keys
+  const keysExpr: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "parenthesizedExpression",
+      expression: exprAst,
+    },
+    memberName: "Keys",
+  };
+
+  const [bodyStmts, bodyContext] = emitStatementAst(stmt.body, loopContext);
+
+  const foreachStmt: CSharpStatementAst = {
+    kind: "foreachStatement",
+    isAwait: false,
+    type: { kind: "varType" },
+    identifier: varName,
+    expression: keysExpr,
+    body: wrapInBlock(bodyStmts),
+  };
+
+  return [[foreachStmt], { ...bodyContext, localNameMap: outerNameMap }];
 };

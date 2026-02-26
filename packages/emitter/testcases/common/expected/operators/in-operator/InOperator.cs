@@ -8,10 +8,10 @@ namespace TestCases.common.operators.inoperator
                 {
                 var auth = global::TestCases.common.operators.inoperator.Auth.getAuth(fail);
                 if (auth.Is2())
-                {
+                    {
                     var auth__2_1 = auth.As2();
                     return auth__2_1.error;
-                }
+                    }
                 return "ok";
                 }
         }

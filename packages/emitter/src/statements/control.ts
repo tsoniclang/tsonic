@@ -4,12 +4,12 @@
  */
 
 export {
-  emitIfStatement,
-  emitWhileStatement,
-  emitForStatement,
-  emitForOfStatement,
-  emitForInStatement,
-  emitSwitchStatement,
-  emitTryStatement,
-  emitThrowStatement,
+  emitIfStatementAst,
+  emitWhileStatementAst,
+  emitForStatementAst,
+  emitForOfStatementAst,
+  emitForInStatementAst,
+  emitSwitchStatementAst,
+  emitTryStatementAst,
+  emitThrowStatementAst,
 } from "./control/index.js";

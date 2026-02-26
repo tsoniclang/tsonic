@@ -5,7 +5,9 @@
 
 export {
   emitVariableDeclaration,
+  emitVariableDeclarationAst,
   emitFunctionDeclaration,
+  emitFunctionDeclarationAst,
   emitClassDeclaration,
   emitInterfaceDeclaration,
   emitEnumDeclaration,

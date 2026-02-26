@@ -44,13 +44,19 @@ import {
   IrExpression,
 } from "@tsonic/frontend";
 import { EmitterContext } from "./emitter-types/index.js";
-import { emitType } from "./types/emitter.js";
+import { emitType, emitTypeAst } from "./types/emitter.js";
 import { escapeCSharpIdentifier } from "./emitter-types/identifiers.js";
 import {
   allocateLocalName,
   emitRemappedLocalName,
   registerLocalName,
 } from "./core/format/local-names.js";
+import { emitExpressionAst } from "./expression-emitter.js";
+import type {
+  CSharpStatementAst,
+  CSharpExpressionAst,
+  CSharpTypeAst,
+} from "./core/format/backend-ast/types.js";
 
 /**
  * Result of pattern lowering - a list of C# statements
@@ -611,4 +617,332 @@ const lowerAssignmentPatternElement = (
 
   // Nested pattern - recurse
   return lowerAssignmentPattern(pattern, inputExpr, type, ctx);
+};
+
+// ============================================================================
+// AST-returning pattern lowering (used by AST pipeline)
+// ============================================================================
+
+/**
+ * Result of AST-based pattern lowering
+ */
+export type LoweringResultAst = {
+  /** Statement AST nodes generated from the pattern */
+  readonly statements: readonly CSharpStatementAst[];
+  /** The context after lowering (with any new locals registered) */
+  readonly context: EmitterContext;
+};
+
+/**
+ * Emit a default expression as AST
+ */
+const emitDefaultExprAst = (
+  expr: IrExpression,
+  ctx: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  if (expr.kind === "literal") {
+    if (typeof expr.value === "string") {
+      return [{ kind: "literalExpression", text: `"${expr.value}"` }, ctx];
+    }
+    if (typeof expr.value === "number") {
+      return [{ kind: "literalExpression", text: String(expr.value) }, ctx];
+    }
+    if (typeof expr.value === "boolean") {
+      return [
+        { kind: "literalExpression", text: expr.value ? "true" : "false" },
+        ctx,
+      ];
+    }
+    if (expr.value === null) {
+      return [{ kind: "literalExpression", text: "null" }, ctx];
+    }
+  }
+  if (expr.kind === "identifier") {
+    const name = emitRemappedLocalName(expr.name, ctx);
+    return [{ kind: "identifierExpression", identifier: name }, ctx];
+  }
+  // Fall back to full expression emitter for complex default expressions
+  return emitExpressionAst(expr, ctx);
+};
+
+/**
+ * Lower an identifier pattern to a localDeclarationStatement AST node
+ */
+const lowerIdentifierAst = (
+  name: string,
+  inputExpr: CSharpExpressionAst,
+  type: IrType | undefined,
+  ctx: EmitterContext
+): LoweringResultAst => {
+  const alloc = allocateLocalName(name, ctx);
+  const localName = alloc.emittedName;
+  let currentCtx = alloc.context;
+
+  // Determine type AST
+  let typeAst: CSharpTypeAst = { kind: "varType" };
+  if (type) {
+    const [emittedType, next] = emitTypeAst(type, currentCtx);
+    typeAst = emittedType;
+    currentCtx = next;
+  }
+
+  const stmt: CSharpStatementAst = {
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: typeAst,
+    declarators: [{ name: localName, initializer: inputExpr }],
+  };
+
+  currentCtx = registerLocalName(name, localName, currentCtx);
+  return { statements: [stmt], context: currentCtx };
+};
+
+/**
+ * Lower an array pattern to AST statements
+ */
+const lowerArrayPatternAst = (
+  pattern: IrArrayPattern,
+  inputExpr: CSharpExpressionAst,
+  elementType: IrType | undefined,
+  ctx: EmitterContext
+): LoweringResultAst => {
+  const statements: CSharpStatementAst[] = [];
+  let currentCtx = ctx;
+
+  // Create temporary for the input to avoid re-evaluation
+  const [rawTempName, ctx1] = generateTemp("arr", currentCtx);
+  currentCtx = ctx1;
+  const alloc = allocateLocalName(rawTempName, currentCtx);
+  const tempName = alloc.emittedName;
+  currentCtx = alloc.context;
+
+  // var __arrN = inputExpr;
+  statements.push({
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: { kind: "varType" },
+    declarators: [{ name: tempName, initializer: inputExpr }],
+  });
+
+  const tempId: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: tempName,
+  };
+
+  // Process each element
+  let index = 0;
+  for (const elem of pattern.elements) {
+    if (!elem) {
+      // Hole in pattern - skip this index
+      index++;
+      continue;
+    }
+
+    if (elem.isRest) {
+      // Rest element: ArrayHelpers.Slice(temp, index)
+      const sliceExpr: CSharpExpressionAst = {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: {
+            kind: "identifierExpression",
+            identifier: "Tsonic.Runtime.ArrayHelpers",
+          },
+          memberName: "Slice",
+        },
+        arguments: [tempId, { kind: "literalExpression", text: String(index) }],
+      };
+      const result = lowerPatternAst(
+        elem.pattern,
+        sliceExpr,
+        elementType ? { kind: "arrayType", elementType } : undefined,
+        currentCtx
+      );
+      statements.push(...result.statements);
+      currentCtx = result.context;
+      break;
+    }
+
+    // Regular element: temp[index]
+    const accessExpr: CSharpExpressionAst = {
+      kind: "elementAccessExpression",
+      expression: tempId,
+      arguments: [{ kind: "literalExpression", text: String(index) }],
+    };
+
+    // Handle default value
+    let valueExpr: CSharpExpressionAst = accessExpr;
+    if (elem.defaultExpr) {
+      const [defaultAst, defaultCtx] = emitDefaultExprAst(
+        elem.defaultExpr,
+        currentCtx
+      );
+      currentCtx = defaultCtx;
+      valueExpr = {
+        kind: "binaryExpression",
+        operatorToken: "??",
+        left: accessExpr,
+        right: defaultAst,
+      };
+    }
+
+    const result = lowerPatternAst(
+      elem.pattern,
+      valueExpr,
+      elementType,
+      currentCtx
+    );
+    statements.push(...result.statements);
+    currentCtx = result.context;
+    index++;
+  }
+
+  return { statements, context: currentCtx };
+};
+
+/**
+ * Lower an object pattern to AST statements
+ */
+const lowerObjectPatternAst = (
+  pattern: IrObjectPattern,
+  inputExpr: CSharpExpressionAst,
+  inputType: IrType | undefined,
+  ctx: EmitterContext
+): LoweringResultAst => {
+  const statements: CSharpStatementAst[] = [];
+  let currentCtx = ctx;
+
+  // Create temporary for the input to avoid re-evaluation
+  const [rawTempName, ctx1] = generateTemp("obj", currentCtx);
+  currentCtx = ctx1;
+  const alloc = allocateLocalName(rawTempName, currentCtx);
+  const tempName = alloc.emittedName;
+  currentCtx = alloc.context;
+
+  // var __objN = inputExpr;
+  statements.push({
+    kind: "localDeclarationStatement",
+    modifiers: [],
+    type: { kind: "varType" },
+    declarators: [{ name: tempName, initializer: inputExpr }],
+  });
+
+  const tempId: CSharpExpressionAst = {
+    kind: "identifierExpression",
+    identifier: tempName,
+  };
+
+  // Process each property
+  for (const prop of pattern.properties) {
+    if (prop.kind === "rest") {
+      // Rest property: create new synthetic object with remaining props
+      if (prop.restShapeMembers && prop.restSynthTypeName) {
+        const initMembers = prop.restShapeMembers
+          .filter((m) => m.kind === "propertySignature")
+          .map((m) => ({
+            kind: "assignmentExpression" as const,
+            operatorToken: "=" as const,
+            left: {
+              kind: "identifierExpression" as const,
+              identifier: m.name,
+            },
+            right: {
+              kind: "memberAccessExpression" as const,
+              expression: tempId,
+              memberName: m.name,
+            },
+          }));
+
+        const restExpr: CSharpExpressionAst = {
+          kind: "objectCreationExpression",
+          type: { kind: "identifierType", name: prop.restSynthTypeName },
+          arguments: [],
+          initializer: initMembers,
+        };
+
+        const result = lowerPatternAst(
+          prop.pattern,
+          restExpr,
+          undefined,
+          currentCtx
+        );
+        statements.push(...result.statements);
+        currentCtx = result.context;
+      } else {
+        throw new Error(
+          "Object rest destructuring requires rest shape information from the frontend (restShapeMembers/restSynthTypeName)."
+        );
+      }
+      continue;
+    }
+
+    // Regular property: temp.key
+    const propAccessExpr: CSharpExpressionAst = {
+      kind: "memberAccessExpression",
+      expression: tempId,
+      memberName: prop.key,
+    };
+
+    // Handle default value
+    let valueExpr: CSharpExpressionAst = propAccessExpr;
+    if (prop.defaultExpr) {
+      const [defaultAst, defaultCtx] = emitDefaultExprAst(
+        prop.defaultExpr,
+        currentCtx
+      );
+      currentCtx = defaultCtx;
+      valueExpr = {
+        kind: "binaryExpression",
+        operatorToken: "??",
+        left: propAccessExpr,
+        right: defaultAst,
+      };
+    }
+
+    // Get property type if available
+    const propType = getPropertyType(inputType, prop.key, currentCtx);
+
+    const result = lowerPatternAst(prop.value, valueExpr, propType, currentCtx);
+    statements.push(...result.statements);
+    currentCtx = result.context;
+  }
+
+  return { statements, context: currentCtx };
+};
+
+/**
+ * Lower a pattern to AST statements (AST pipeline version).
+ *
+ * @param pattern - The pattern to lower (identifier, array, or object)
+ * @param inputExpr - The C# AST expression being destructured
+ * @param type - The type of the input expression (for type annotations)
+ * @param ctx - The current emitter context
+ * @returns The generated AST statements and updated context
+ */
+export const lowerPatternAst = (
+  pattern: IrPattern,
+  inputExpr: CSharpExpressionAst,
+  type: IrType | undefined,
+  ctx: EmitterContext
+): LoweringResultAst => {
+  switch (pattern.kind) {
+    case "identifierPattern":
+      return lowerIdentifierAst(pattern.name, inputExpr, type, ctx);
+
+    case "arrayPattern": {
+      const elementType =
+        type?.kind === "arrayType" ? type.elementType : undefined;
+      return lowerArrayPatternAst(pattern, inputExpr, elementType, ctx);
+    }
+
+    case "objectPattern":
+      return lowerObjectPatternAst(pattern, inputExpr, type, ctx);
+
+    default:
+      // Unknown pattern kind - emit empty statement as placeholder
+      return {
+        statements: [{ kind: "emptyStatement" }],
+        context: ctx,
+      };
+  }
 };
