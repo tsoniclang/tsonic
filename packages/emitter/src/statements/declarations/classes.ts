@@ -13,6 +13,7 @@ import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
 import {
   printType,
   printAttributes,
+  printMember,
 } from "../../core/format/backend-ast/printer.js";
 import { emitClassMember } from "../classes.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
@@ -288,11 +289,12 @@ export const emitClassDeclaration = (
     hasSuperClass: stmt.superClass ? true : undefined,
     // typeParameters is inherited from currentContext via baseContext
   };
+  const memberInd = getIndent(bodyContext);
   const members: string[] = [];
 
   for (const member of membersToEmit) {
-    const [memberCode, newContext] = emitClassMember(member, bodyContext);
-    members.push(memberCode);
+    const [memberAst, newContext] = emitClassMember(member, bodyContext);
+    members.push(printMember(memberAst, memberInd));
     currentContext = newContext;
   }
 
@@ -325,14 +327,15 @@ export const emitClassDeclaration = (
       // IMPORTANT: do not introduce the generic class type parameters into this scope
     };
 
+    const companionMemberInd = getIndent(companionBodyContext);
     const staticMemberCodes: string[] = [];
     let companionContext = companionBodyContext;
     for (const member of staticMembers) {
-      const [memberCode, newContext] = emitClassMember(
+      const [memberAst, newContext] = emitClassMember(
         member,
         companionContext
       );
-      staticMemberCodes.push(memberCode);
+      staticMemberCodes.push(printMember(memberAst, companionMemberInd));
       companionContext = newContext;
     }
 

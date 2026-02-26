@@ -5,7 +5,10 @@
 import { IrStatement } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitTypeAst, emitTypeParameters } from "../../type-emitter.js";
-import { printType } from "../../core/format/backend-ast/printer.js";
+import {
+  printType,
+  printMember,
+} from "../../core/format/backend-ast/printer.js";
 import {
   extractInlineObjectTypes,
   emitExtractedType,
@@ -140,13 +143,15 @@ export const emitInterfaceDeclaration = (
   const bodyContext = indent(currentContext);
   const members: string[] = [];
 
+  const memberInd = getIndent(bodyContext);
+
   for (const member of stmt.members) {
     if (!hasMethodSignatures) {
-      const [memberCode, newContext] = emitInterfaceMemberAsProperty(
+      const [memberAst, newContext] = emitInterfaceMemberAsProperty(
         member,
         bodyContext
       );
-      members.push(memberCode);
+      members.push(printMember(memberAst, memberInd));
       currentContext = newContext;
       continue;
     }

@@ -7,6 +7,7 @@ export {
   emitParameters,
   emitParametersWithDestructuring,
   generateParameterDestructuring,
+  generateParameterDestructuringAst,
   type ParameterEmissionResult,
 } from "./parameters.js";
 export { emitClassMember } from "./members.js";

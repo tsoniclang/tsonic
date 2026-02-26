@@ -16,6 +16,7 @@ import { emitParameterAttributes } from "../../core/format/attributes.js";
 import type {
   CSharpExpressionAst,
   CSharpParameterAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
 
@@ -181,4 +182,35 @@ export const generateParameterDestructuring = (
   }
 
   return [statements, currentContext];
+};
+
+/**
+ * Generate destructuring statements as AST nodes.
+ *
+ * Uses the text-based lowering pipeline and wraps results in
+ * expressionStatement + literalExpression nodes (the literalExpression
+ * text is the statement body without trailing semicolon or indent).
+ */
+export const generateParameterDestructuringAst = (
+  destructuringParams: readonly ParameterDestructuringInfo[],
+  context: EmitterContext
+): [readonly CSharpStatementAst[], EmitterContext] => {
+  // Use empty indent since AST statements don't carry indentation
+  const [textLines, nextContext] = generateParameterDestructuring(
+    destructuringParams,
+    "",
+    context
+  );
+  const stmts: CSharpStatementAst[] = textLines.map((line) => {
+    // Strip trailing semicolon and whitespace — expressionStatement adds ";"
+    const trimmed = line.trim().replace(/;$/, "");
+    return {
+      kind: "expressionStatement" as const,
+      expression: {
+        kind: "literalExpression" as const,
+        text: trimmed,
+      },
+    };
+  });
+  return [stmts, nextContext];
 };

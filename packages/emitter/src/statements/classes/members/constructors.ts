@@ -1,22 +1,23 @@
 /**
- * Constructor member emission
+ * Constructor member emission — returns CSharpMemberAst (constructor declaration)
  */
 
 import { IrClassMember, IrStatement, type IrParameter } from "@tsonic/frontend";
-import { EmitterContext, getIndent, indent, dedent } from "../../../types.js";
+import { EmitterContext, indent, dedent } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
-import {
-  printExpression,
-  printAttributes,
-  printParameter,
-} from "../../../core/format/backend-ast/printer.js";
-import { emitBlockStatement } from "../../blocks.js";
+import { emitBlockStatementAst } from "../../../statement-emitter.js";
 import { escapeCSharpIdentifier } from "../../../emitter-types/index.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
 import {
   emitParametersWithDestructuring,
-  generateParameterDestructuring,
+  generateParameterDestructuringAst,
 } from "../parameters.js";
+import type {
+  CSharpMemberAst,
+  CSharpExpressionAst,
+  CSharpBlockStatementAst,
+  CSharpStatementAst,
+} from "../../../core/format/backend-ast/types.js";
 
 const seedLocalNameMapFromParameters = (
   params: readonly IrParameter[],
@@ -35,12 +36,12 @@ const seedLocalNameMapFromParameters = (
 };
 
 /**
- * Emit a constructor declaration
+ * Emit a constructor declaration as CSharpMemberAst
  */
 export const emitConstructorMember = (
   member: IrClassMember & { kind: "constructorDeclaration" },
   context: EmitterContext
-): [string, EmitterContext] => {
+): [CSharpMemberAst, EmitterContext] => {
   const savedScoped = {
     typeParameters: context.typeParameters,
     typeParamConstraints: context.typeParamConstraints,
@@ -50,27 +51,24 @@ export const emitConstructorMember = (
     usedLocalNames: context.usedLocalNames,
   };
 
-  const ind = getIndent(context);
   let currentContext = context;
-  const parts: string[] = [];
 
-  // Emit attributes before the constructor declaration
+  // Attributes
   const [attrs, attrContext] = emitAttributes(
     member.attributes,
     currentContext
   );
   currentContext = attrContext;
-  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
 
-  // Access modifier
+  // Modifiers
+  const modifiers: string[] = [];
   const accessibility = member.accessibility ?? "public";
-  parts.push(accessibility);
+  modifiers.push(accessibility);
 
   // Constructor name (same as class name)
   const constructorName = context.className ?? "UnknownClass";
-  parts.push(constructorName);
 
-  // Parameters (with destructuring support)
+  // Parameters
   const paramsResult = emitParametersWithDestructuring(
     member.parameters,
     currentContext
@@ -81,24 +79,27 @@ export const emitConstructorMember = (
     currentContext
   );
 
-  // Constructor body
+  // No body → abstract constructor
   if (!member.body) {
-    // Abstract or interface constructor without body
-    const signature = parts.join(" ");
-    const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameters.map(printParameter).join(", ")});`;
-    return [code, { ...currentContext, ...savedScoped }];
+    const ctorAst: CSharpMemberAst = {
+      kind: "constructorDeclaration",
+      attributes: attrs,
+      modifiers,
+      name: constructorName,
+      parameters: paramsResult.parameters,
+      body: { kind: "blockStatement", statements: [] },
+    };
+    return [ctorAst, { ...currentContext, ...savedScoped }];
   }
 
-  // Check for super() call - MUST be the first statement if present
-  // C# base() calls execute before the constructor body, so we can't preserve
-  // TypeScript semantics if there are statements before super()
-  const [baseCall, bodyStatements, baseCallContext] = extractSuperCall(
+  // Extract super() call from first statement
+  const [baseArgs, bodyStatements, baseCallContext] = extractSuperCallAst(
     member.body.statements,
     currentContext
   );
   currentContext = baseCallContext;
 
-  // Check if super() appears later in the body (not supported)
+  // Check for later super() calls (not supported)
   const hasLaterSuperCall = bodyStatements.some(
     (stmt) =>
       stmt.kind === "expressionStatement" &&
@@ -113,63 +114,67 @@ export const emitConstructorMember = (
     );
   }
 
-  // Emit body without the super() call
+  // Emit body
   let bodyContext = indent(currentContext);
   const modifiedBody: typeof member.body = {
     ...member.body,
     statements: bodyStatements,
   };
 
-  // Generate parameter destructuring statements BEFORE emitting the body so
-  // any renamed locals are visible to the body emitter via localNameMap.
-  const bodyInd = getIndent(bodyContext);
-  const [parameterDestructuringStmts, destructuringContext] =
+  // Generate parameter destructuring as AST
+  const [paramDestructuringStmts, destructuringContext] =
     paramsResult.destructuringParams.length > 0
-      ? generateParameterDestructuring(
+      ? generateParameterDestructuringAst(
           paramsResult.destructuringParams,
-          bodyInd,
           bodyContext
         )
-      : [[], bodyContext];
+      : [[] as readonly CSharpStatementAst[], bodyContext];
   bodyContext = destructuringContext;
 
-  const [bodyCode, finalContext] = emitBlockStatement(
+  const [bodyBlockAst, finalContext] = emitBlockStatementAst(
     modifiedBody,
     bodyContext
   );
 
-  // Inject parameter destructuring statements at the start of the body
-  let finalBodyCode = bodyCode;
-  if (parameterDestructuringStmts.length > 0) {
-    const destructuringStmts = parameterDestructuringStmts;
+  // Merge destructuring preamble into body
+  const mergedBody: CSharpBlockStatementAst =
+    paramDestructuringStmts.length > 0
+      ? {
+          kind: "blockStatement",
+          statements: [...paramDestructuringStmts, ...bodyBlockAst.statements],
+        }
+      : bodyBlockAst;
 
-    // Inject lines after opening brace
-    const lines = bodyCode.split("\n");
-    if (lines.length > 1) {
-      lines.splice(1, 0, ...destructuringStmts, "");
-      finalBodyCode = lines.join("\n");
-    }
-  }
-
-  const signature = parts.join(" ");
-  const code = `${attrPrefix}${ind}${signature}(${paramsResult.parameters.map(printParameter).join(", ")})${baseCall}\n${finalBodyCode}`;
+  const ctorAst: CSharpMemberAst = {
+    kind: "constructorDeclaration",
+    attributes: attrs,
+    modifiers,
+    name: constructorName,
+    parameters: paramsResult.parameters,
+    baseArguments: baseArgs,
+    body: mergedBody,
+  };
 
   const returnedContext = dedent(finalContext);
-  return [code, { ...returnedContext, ...savedScoped }];
+  return [ctorAst, { ...returnedContext, ...savedScoped }];
 };
 
 /**
- * Extract super() call from first statement if present
- * Returns [baseCall, remainingStatements, context]
+ * Extract super() call from first statement as AST.
+ * Returns [baseArguments | undefined, remainingStatements, context]
  */
-const extractSuperCall = (
+const extractSuperCallAst = (
   statements: readonly IrStatement[],
   context: EmitterContext
-): [string, readonly IrStatement[], EmitterContext] => {
+): [
+  readonly CSharpExpressionAst[] | undefined,
+  readonly IrStatement[],
+  EmitterContext,
+] => {
   let currentContext = context;
 
   if (statements.length === 0) {
-    return ["", statements, currentContext];
+    return [undefined, statements, currentContext];
   }
 
   const firstStmt = statements[0];
@@ -180,19 +185,17 @@ const extractSuperCall = (
     firstStmt.expression.callee.kind === "identifier" &&
     firstStmt.expression.callee.name === "super"
   ) {
-    // Found super() call as first statement - convert to : base(...)
+    // Found super() call as first statement - convert to base(...)
     const superCall = firstStmt.expression;
-    const argFrags: string[] = [];
+    const argAsts: CSharpExpressionAst[] = [];
     for (const arg of superCall.arguments) {
       const [argAst, newContext] = emitExpressionAst(arg, currentContext);
-      argFrags.push(printExpression(argAst));
+      argAsts.push(argAst);
       currentContext = newContext;
     }
-    const baseCall = ` : base(${argFrags.join(", ")})`;
-    // Remove super() call from body statements
     const remainingStatements = statements.slice(1);
-    return [baseCall, remainingStatements, currentContext];
+    return [argAsts, remainingStatements, currentContext];
   }
 
-  return ["", statements, currentContext];
+  return [undefined, statements, currentContext];
 };

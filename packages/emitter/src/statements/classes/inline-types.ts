@@ -5,6 +5,7 @@
 import { IrInterfaceMember } from "@tsonic/frontend";
 import { EmitterContext, getIndent, indent } from "../../types.js";
 import { emitInterfaceMemberAsProperty } from "./properties.js";
+import { printMember } from "../../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../../emitter-types/index.js";
 import { typeUsesPointer } from "../../core/semantic/unsafe.js";
 import { getCSharpName } from "../../naming-policy.js";
@@ -72,15 +73,16 @@ export const emitExtractedType = (
 
   // Emit properties
   const bodyContext = indent(currentContext);
+  const memberInd = getIndent(bodyContext);
   const propertyParts: string[] = [];
   let bodyCurrentContext = bodyContext;
 
   for (const member of extracted.members) {
-    const [memberCode, newContext] = emitInterfaceMemberAsProperty(
+    const [memberAst, newContext] = emitInterfaceMemberAsProperty(
       member,
       bodyCurrentContext
     );
-    propertyParts.push(memberCode);
+    propertyParts.push(printMember(memberAst, memberInd));
     bodyCurrentContext = newContext;
   }
 

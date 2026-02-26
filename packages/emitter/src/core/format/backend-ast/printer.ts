@@ -1047,14 +1047,37 @@ export const printMember = (
         member.modifiers.length > 0 ? `${member.modifiers.join(" ")} ` : "";
       const typeName = printType(member.type);
       const name = escapeIdentifier(member.name);
-      const accessors = member.isAutoProperty
-        ? ` { ${member.hasGetter ? "get; " : ""}${member.hasSetter ? "set; " : ""}}`
-        : "";
-      const init =
-        member.initializer && member.isAutoProperty
+
+      if (member.isAutoProperty) {
+        const getStr = member.hasGetter ? "get; " : "";
+        const setStr = member.hasInit
+          ? "init; "
+          : member.hasSetter
+            ? "set; "
+            : "";
+        const accessors = ` { ${getStr}${setStr}}`;
+        const init = member.initializer
           ? ` = ${printExpression(member.initializer)};`
           : "";
-      return `${attrs}${indent}${mods}${typeName} ${name}${accessors}${init}`;
+        return `${attrs}${indent}${mods}${typeName} ${name}${accessors}${init}`;
+      }
+
+      // Explicit property accessors
+      const bodyIndent = indent + "    ";
+      const accessorIndent = bodyIndent + "    ";
+      const lines: string[] = [];
+      lines.push(`${attrs}${indent}${mods}${typeName} ${name}`);
+      lines.push(`${bodyIndent}{`);
+      if (member.getterBody) {
+        lines.push(`${bodyIndent}get`);
+        lines.push(printStatementFlatBlock(member.getterBody, accessorIndent));
+      }
+      if (member.setterBody) {
+        lines.push(`${bodyIndent}set`);
+        lines.push(printStatementFlatBlock(member.setterBody, accessorIndent));
+      }
+      lines.push(`${bodyIndent}}`);
+      return lines.join("\n");
     }
 
     case "methodDeclaration": {
@@ -1070,7 +1093,7 @@ export const printMember = (
         return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints} => ${printExpression(member.expressionBody)};`;
       }
       if (member.body) {
-        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints}\n${printBlockStatement(member.body, indent)}`;
+        return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints}\n${printStatementFlatBlock(member.body, indent)}`;
       }
       // Abstract/interface method (no body)
       return `${attrs}${indent}${mods}${ret} ${escapeIdentifier(member.name)}${typeParams}(${params})${constraints};`;
@@ -1085,7 +1108,7 @@ export const printMember = (
         member.baseArguments !== undefined
           ? ` : base(${member.baseArguments.map(printExpression).join(", ")})`
           : "";
-      return `${attrs}${indent}${mods}${escapeIdentifier(member.name)}(${params})${baseCall}\n${printBlockStatement(member.body, indent)}`;
+      return `${attrs}${indent}${mods}${escapeIdentifier(member.name)}(${params})${baseCall}\n${printStatementFlatBlock(member.body, indent)}`;
     }
 
     default: {

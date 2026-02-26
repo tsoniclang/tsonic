@@ -550,8 +550,14 @@ export type CSharpPropertyDeclarationAst = {
   readonly name: string;
   readonly hasGetter: boolean;
   readonly hasSetter: boolean;
+  /** C# 9 init-only setter (`{ get; init; }`) */
+  readonly hasInit?: boolean;
   readonly initializer?: CSharpExpressionAst;
   readonly isAutoProperty: boolean;
+  /** Explicit getter body (when isAutoProperty is false) */
+  readonly getterBody?: CSharpBlockStatementAst;
+  /** Explicit setter body (when isAutoProperty is false) */
+  readonly setterBody?: CSharpBlockStatementAst;
 };
 
 export type CSharpMethodDeclarationAst = {

@@ -1,156 +1,146 @@
 /**
- * Property member emission
+ * Property member emission — returns CSharpMemberAst (field or property declaration)
  */
 
 import { IrClassMember } from "@tsonic/frontend";
 import {
   EmitterContext,
   dedent,
-  getIndent,
   indent,
   withScoped,
 } from "../../../types.js";
 import { emitExpressionAst } from "../../../expression-emitter.js";
-import {
-  printExpression,
-  printType,
-  printAttributes,
-} from "../../../core/format/backend-ast/printer.js";
 import { emitTypeAst } from "../../../type-emitter.js";
 import { emitAttributes } from "../../../core/format/attributes.js";
-import { emitBlockStatement } from "../../blocks.js";
+import { emitBlockStatementAst } from "../../../statement-emitter.js";
 import { emitCSharpName } from "../../../naming-policy.js";
 import { allocateLocalName } from "../../../core/format/local-names.js";
+import type {
+  CSharpMemberAst,
+  CSharpExpressionAst,
+  CSharpStatementAst,
+  CSharpTypeAst,
+  CSharpBlockStatementAst,
+} from "../../../core/format/backend-ast/types.js";
 
 /**
- * Emit a property declaration
+ * Emit a property declaration as a CSharpMemberAst
  */
 export const emitPropertyMember = (
   member: IrClassMember & { kind: "propertyDeclaration" },
   context: EmitterContext
-): [string, EmitterContext] => {
-  const ind = getIndent(context);
+): [CSharpMemberAst, EmitterContext] => {
   let currentContext = context;
-  const parts: string[] = [];
   const hasAccessors = !!(member.getterBody || member.setterBody);
   const shouldEmitField = !!member.emitAsField && !hasAccessors;
-  // TypeScript class fields map to C# auto-properties by default.
-  // This is required for reflection-based libraries (e.g., EF Core, System.Text.Json),
-  // and matches TypeScript’s object-model semantics more closely than C# fields.
-  //
-  // Accessor bodies (`get foo() {}` / `set foo(v) {}`) are emitted as explicit properties.
 
-  // Access modifier
+  // Build modifier list
+  const modifiers: string[] = [];
   const accessibility = member.accessibility ?? "public";
-  parts.push(accessibility);
+  modifiers.push(accessibility);
 
   if (member.isStatic) {
-    parts.push("static");
+    modifiers.push("static");
   }
 
   if (shouldEmitField && member.isReadonly) {
-    parts.push("readonly");
+    modifiers.push("readonly");
   }
 
-  // Shadowing/hiding modifier (from metadata).
-  // C# warns when a property hides a base property; emit `new` for clarity.
+  // Shadowing/hiding modifier
   if (!member.isStatic && !member.isOverride && member.isShadow) {
-    parts.push("new");
+    modifiers.push("new");
   }
 
-  // Override modifier (from metadata or TS base class detection)
+  // Override modifier
   if (!shouldEmitField && member.isOverride) {
-    parts.push("override");
+    modifiers.push("override");
   }
 
-  // Base property virtual (required when overridden in derived types)
+  // Virtual modifier
   if (
     !shouldEmitField &&
     !member.isStatic &&
     !member.isOverride &&
     member.isVirtual
   ) {
-    parts.push("virtual");
+    modifiers.push("virtual");
   }
 
-  // Required modifier (C# 11) - must be set in object initializer
+  // Required modifier (C# 11)
   if (!shouldEmitField && !member.isStatic && member.isRequired) {
-    parts.push("required");
+    modifiers.push("required");
   }
 
-  // Property type - uses standard type emission pipeline
-  // Note: type is always set for class fields (from annotation or inference)
+  // Property type
+  let typeAst: CSharpTypeAst = { kind: "predefinedType", keyword: "object" };
   if (member.type) {
-    const [typeAst, newContext] = emitTypeAst(member.type, currentContext);
-    const typeName = printType(typeAst);
+    const [tAst, newContext] = emitTypeAst(member.type, currentContext);
+    typeAst = tAst;
     currentContext = newContext;
-    parts.push(typeName);
-  } else {
-    parts.push("object");
   }
 
-  // Property name (escape C# keywords)
-  parts.push(
-    emitCSharpName(
-      member.name,
-      shouldEmitField ? "fields" : "properties",
-      context
-    )
+  // Property name
+  const name = emitCSharpName(
+    member.name,
+    shouldEmitField ? "fields" : "properties",
+    context
   );
 
-  // Emit attributes before the property declaration
+  // Attributes
   const [attrs, attrContext] = emitAttributes(
     member.attributes,
     currentContext
   );
   currentContext = attrContext;
 
-  const attrPrefix = attrs.length > 0 ? printAttributes(attrs, ind) : "";
+  // Initializer (if any)
+  let initAst: CSharpExpressionAst | undefined;
+  if (member.initializer) {
+    const [iAst, finalContext] = emitExpressionAst(
+      member.initializer,
+      currentContext
+    );
+    initAst = iAst;
+    currentContext = finalContext;
+  }
 
+  // Case 1: Field
   if (shouldEmitField) {
-    let code = `${attrPrefix}${ind}${parts.join(" ")};`;
-    if (member.initializer) {
-      const [initAst, finalContext] = emitExpressionAst(
-        member.initializer,
-        currentContext
-      );
-      currentContext = finalContext;
-      code = `${attrPrefix}${ind}${parts.join(" ")} = ${printExpression(initAst)};`;
-    }
-    return [code, currentContext];
+    const fieldAst: CSharpMemberAst = {
+      kind: "fieldDeclaration",
+      attributes: attrs,
+      modifiers,
+      type: typeAst,
+      name,
+      initializer: initAst,
+    };
+    return [fieldAst, currentContext];
   }
 
+  // Case 2: Auto-property (no explicit accessors)
   if (!hasAccessors) {
-    // C# does not allow `init` on static members. For static readonly fields, emit a
-    // get-only auto-property with initializer.
-    const accessors = member.isReadonly
-      ? member.isStatic
-        ? "{ get; }"
-        : "{ get; init; }"
-      : "{ get; set; }";
-
-    let code = `${attrPrefix}${ind}${parts.join(" ")} ${accessors}`;
-    if (member.initializer) {
-      const [initAst, finalContext] = emitExpressionAst(
-        member.initializer,
-        currentContext
-      );
-      currentContext = finalContext;
-      code += ` = ${printExpression(initAst)};`;
-    }
-    return [code, currentContext];
+    const propAst: CSharpMemberAst = {
+      kind: "propertyDeclaration",
+      attributes: attrs,
+      modifiers,
+      type: typeAst,
+      name,
+      hasGetter: true,
+      hasSetter: !member.isReadonly,
+      hasInit: member.isReadonly && !member.isStatic ? true : undefined,
+      isAutoProperty: true,
+      initializer: initAst,
+    };
+    return [propAst, currentContext];
   }
 
-  const lines: string[] = [];
-  lines.push(`${attrPrefix}${ind}${parts.join(" ")}`);
-
-  // Property body scope (indentation + locals)
+  // Case 3: Explicit property with getter/setter bodies
   let bodyContext = indent(currentContext);
-  const bodyInd = getIndent(bodyContext);
-  lines.push(`${bodyInd}{`);
+  let getterBody: CSharpBlockStatementAst | undefined;
+  let setterBody: CSharpBlockStatementAst | undefined;
 
   if (member.getterBody) {
-    lines.push(`${bodyInd}get`);
     const getterBodyContext = indent(bodyContext);
     const savedUsed = getterBodyContext.usedLocalNames;
     const getterEmitContext: EmitterContext = {
@@ -161,26 +151,24 @@ export const emitPropertyMember = (
       getterEmitContext,
       { returnType: member.type },
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      (scopedCtx) => emitBlockStatement(member.getterBody!, scopedCtx)
+      (scopedCtx) => emitBlockStatementAst(member.getterBody!, scopedCtx)
     );
-    lines.push(getterBlock);
+    getterBody = getterBlock;
     bodyContext = { ...dedent(getterCtx), usedLocalNames: savedUsed };
   }
 
   if (member.setterBody) {
-    lines.push(`${bodyInd}set`);
     const setterBodyContext = indent(bodyContext);
     const savedUsed = setterBodyContext.usedLocalNames;
 
-    // C# property setters have an implicit `value` parameter. Seed it to avoid CS0136 when
-    // user code declares `value` as a local (valid in TS when setter param name differs).
+    // C# property setters have an implicit `value` parameter. Seed it to avoid CS0136.
     let setterEmitContext: EmitterContext = {
       ...setterBodyContext,
       usedLocalNames: new Set<string>(["value"]),
     };
 
     const setterParamName = member.setterParamName;
-    let aliasLine: string | undefined;
+    let aliasStmt: CSharpStatementAst | undefined;
     let scopedLocalNameMap: ReadonlyMap<string, string> | undefined =
       setterBodyContext.localNameMap;
     if (setterParamName && setterParamName !== "value") {
@@ -189,33 +177,51 @@ export const emitPropertyMember = (
       const nextMap = new Map(setterBodyContext.localNameMap ?? []);
       nextMap.set(setterParamName, alloc.emittedName);
       scopedLocalNameMap = nextMap;
-      const stmtInd = getIndent(setterBodyContext);
-      aliasLine = `${stmtInd}var ${alloc.emittedName} = value;`;
+      aliasStmt = {
+        kind: "localDeclarationStatement",
+        modifiers: [],
+        type: { kind: "varType" },
+        declarators: [
+          {
+            name: alloc.emittedName,
+            initializer: {
+              kind: "identifierExpression",
+              identifier: "value",
+            },
+          },
+        ],
+      };
     }
 
     const [rawSetterBlock, setterCtx] = withScoped(
       setterEmitContext,
       { localNameMap: scopedLocalNameMap },
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      (scopedCtx) => emitBlockStatement(member.setterBody!, scopedCtx)
+      (scopedCtx) => emitBlockStatementAst(member.setterBody!, scopedCtx)
     );
 
-    const setterBlock = (() => {
-      if (!aliasLine) return rawSetterBlock;
+    // Inject alias statement at start of setter body if needed
+    setterBody = aliasStmt
+      ? {
+          kind: "blockStatement",
+          statements: [aliasStmt, ...rawSetterBlock.statements],
+        }
+      : rawSetterBlock;
 
-      const blockLines = rawSetterBlock.split("\n");
-      if (blockLines.length > 1) {
-        blockLines.splice(1, 0, aliasLine, "");
-        return blockLines.join("\n");
-      }
-      return rawSetterBlock;
-    })();
-
-    lines.push(setterBlock);
     bodyContext = { ...dedent(setterCtx), usedLocalNames: savedUsed };
   }
 
-  lines.push(`${bodyInd}}`);
-
-  return [lines.join("\n"), dedent(bodyContext)];
+  const propAst: CSharpMemberAst = {
+    kind: "propertyDeclaration",
+    attributes: attrs,
+    modifiers,
+    type: typeAst,
+    name,
+    hasGetter: !!member.getterBody,
+    hasSetter: !!member.setterBody,
+    isAutoProperty: false,
+    getterBody,
+    setterBody,
+  };
+  return [propAst, dedent(bodyContext)];
 };

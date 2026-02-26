@@ -7,7 +7,11 @@ import { EmitterContext } from "../types.js";
 import { emitTypeAst } from "./emitter.js";
 import { printType } from "../core/format/backend-ast/printer.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
-import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
+import type {
+  CSharpTypeAst,
+  CSharpTypeParameterAst,
+  CSharpTypeParameterConstraintAst,
+} from "../core/format/backend-ast/types.js";
 
 type TypeParamConstraintKind = "class" | "struct" | "unconstrained";
 
@@ -51,16 +55,20 @@ const inferTypeParamConstraintKind = (
 };
 
 /**
- * Emit C# type parameters with constraints
- * Example: <T, U extends Foo> → <T, U> with where clauses
+ * Emit C# type parameters with constraints as AST nodes.
+ * Example: <T, U extends Foo> → typeParams=[{name:"T"},{name:"U"}], constraints=[{...}]
  */
-export const emitTypeParameters = (
+export const emitTypeParametersAst = (
   typeParams: readonly IrTypeParameter[] | undefined,
   context: EmitterContext,
   reservedCsharpNames?: ReadonlySet<string>
-): [string, string[], EmitterContext] => {
+): [
+  readonly CSharpTypeParameterAst[],
+  readonly CSharpTypeParameterConstraintAst[],
+  EmitterContext,
+] => {
   if (!typeParams || typeParams.length === 0) {
-    return ["", [], context];
+    return [[], [], context];
   }
 
   const normalizeCsharpIdentifier = (id: string): string =>
@@ -103,13 +111,12 @@ export const emitTypeParameters = (
     mergedConstraints.set(tp.name, inferTypeParamConstraintKind(tp));
   }
 
-  const paramNames = typeParams
-    .map((tp) => mergedTypeParamNameMap.get(tp.name) ?? tp.name)
-    .join(", ");
-  const typeParamsStr = `<${paramNames}>`;
+  const typeParamAsts: CSharpTypeParameterAst[] = typeParams.map((tp) => ({
+    name: mergedTypeParamNameMap.get(tp.name) ?? tp.name,
+  }));
 
-  // Build where clauses for constraints
-  const whereClauses: string[] = [];
+  // Build where clause AST nodes for constraints
+  const constraintAsts: CSharpTypeParameterConstraintAst[] = [];
   let currentContext: EmitterContext = {
     ...context,
     typeParamConstraints: mergedConstraints,
@@ -124,7 +131,10 @@ export const emitTypeParameters = (
       // Don't call emitType on objectType constraints (would trigger ICE)
       if (tp.isStructuralConstraint) {
         // Structural constraints generate interfaces - reference them
-        whereClauses.push(`where ${tpName} : __Constraint_${tp.name}`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [`__Constraint_${tp.name}`],
+        });
       } else if (tp.constraint.kind === "intersectionType") {
         // Multiple constraints: T extends A & B → where T : A, B
         const constraintParts: string[] = [];
@@ -137,39 +147,66 @@ export const emitTypeParameters = (
           ) {
             constraintParts.push("class");
           } else {
-            const [constraintAst, newContext] = emitTypeAst(
-              member,
-              currentContext
-            );
+            const [cAst, newContext] = emitTypeAst(member, currentContext);
             currentContext = newContext;
-            constraintParts.push(printType(constraintAst));
+            constraintParts.push(printType(cAst));
           }
         }
-        whereClauses.push(`where ${tpName} : ${constraintParts.join(", ")}`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: constraintParts,
+        });
       } else if (
         tp.constraint.kind === "referenceType" &&
         tp.constraint.name === "struct"
       ) {
         // Special case: T extends struct → where T : struct (C# value type constraint)
-        whereClauses.push(`where ${tpName} : struct`);
+        constraintAsts.push({ typeParameter: tpName, constraints: ["struct"] });
       } else if (
         tp.constraint.kind === "referenceType" &&
         tp.constraint.name === "object"
       ) {
         // Special case: T extends object → where T : class (C# reference type constraint)
-        whereClauses.push(`where ${tpName} : class`);
+        constraintAsts.push({ typeParameter: tpName, constraints: ["class"] });
       } else {
-        const [constraintAst, newContext] = emitTypeAst(
+        const [cAst, newContext] = emitTypeAst(
           tp.constraint,
           currentContext
         );
         currentContext = newContext;
-        whereClauses.push(`where ${tpName} : ${printType(constraintAst)}`);
+        constraintAsts.push({
+          typeParameter: tpName,
+          constraints: [printType(cAst)],
+        });
       }
     }
   }
 
-  return [typeParamsStr, whereClauses, currentContext];
+  return [typeParamAsts, constraintAsts, currentContext];
+};
+
+/**
+ * Legacy text-based emitTypeParameters — thin wrapper around emitTypeParametersAst.
+ * Returns [typeParamsStr, whereClauseStrings, context] for callers not yet converted.
+ */
+export const emitTypeParameters = (
+  typeParams: readonly IrTypeParameter[] | undefined,
+  context: EmitterContext,
+  reservedCsharpNames?: ReadonlySet<string>
+): [string, string[], EmitterContext] => {
+  const [paramAsts, constraintAsts, nextCtx] = emitTypeParametersAst(
+    typeParams,
+    context,
+    reservedCsharpNames
+  );
+  if (paramAsts.length === 0) {
+    return ["", [], nextCtx];
+  }
+  const typeParamsStr = `<${paramAsts.map((p) => p.name).join(", ")}>`;
+  const whereClauses = constraintAsts.map(
+    (c) => `where ${c.typeParameter} : ${c.constraints.join(", ")}`
+  );
+  return [typeParamsStr, whereClauses, nextCtx];
 };
 
 /**
