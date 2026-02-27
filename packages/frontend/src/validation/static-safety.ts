@@ -5,11 +5,11 @@
  * - TSN7401: 'any' type usage
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
- * - TSN7406: Mapped types not supported
- * - TSN7407: Conditional types not supported
- * - TSN7408: Mixed variadic tuples not supported
- * - TSN7409: 'infer' keyword not supported
- * - TSN7410: Intersection types not supported
+ * - TSN7406: Mapped types not supported (retired)
+ * - TSN7407: Conditional types not supported (retired)
+ * - TSN7408: Mixed variadic tuples not supported (retired)
+ * - TSN7409: 'infer' keyword not supported (retired)
+ * - TSN7410: Intersection types not supported (retired)
  * - TSN7413: Dictionary key must be string or number
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  *
@@ -28,10 +28,6 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
-import {
-  UNSUPPORTED_MAPPED_UTILITY_TYPES,
-  UNSUPPORTED_CONDITIONAL_UTILITY_TYPES,
-} from "./unsupported-utility-types.js";
 
 /**
  * Result of basic eligibility check for object literal synthesis.
@@ -231,18 +227,6 @@ const findContainingFunction = (
   return undefined;
 };
 
-const isArrayLikeType = (
-  checker: ts.TypeChecker,
-  type: ts.Type | undefined
-): boolean => {
-  if (!type) return false;
-  if (checker.isArrayType(type) || checker.isTupleType(type)) return true;
-  if (type.isUnion()) {
-    return type.types.every((t) => isArrayLikeType(checker, t));
-  }
-  return false;
-};
-
 /**
  * DETERMINISTIC IR TYPING (INV-0 compliant):
  * Check if an object literal is in a position where expected types are available.
@@ -322,6 +306,78 @@ const objectLiteralHasContextualType = (
   return false;
 };
 
+type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
+
+const isGenericFunctionValueNode = (
+  node: ts.Node
+): node is GenericFunctionValueNode =>
+  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+  !!node.typeParameters &&
+  node.typeParameters.length > 0;
+
+const getSupportedGenericFunctionValueSymbol = (
+  node: GenericFunctionValueNode,
+  checker: ts.TypeChecker
+): ts.Symbol | undefined => {
+  const decl = node.parent;
+  if (!ts.isVariableDeclaration(decl)) return undefined;
+  if (decl.initializer !== node) return undefined;
+  if (!ts.isIdentifier(decl.name)) return undefined;
+
+  const list = decl.parent;
+  if (!ts.isVariableDeclarationList(list)) return undefined;
+  if (!(list.flags & ts.NodeFlags.Const)) return undefined;
+  if (list.declarations.length !== 1) return undefined;
+
+  const stmt = list.parent;
+  if (!ts.isVariableStatement(stmt)) return undefined;
+  if (!ts.isSourceFile(stmt.parent)) return undefined;
+
+  return checker.getSymbolAtLocation(decl.name);
+};
+
+const collectSupportedGenericFunctionValueSymbols = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
+): ReadonlySet<ts.Symbol> => {
+  const symbols = new Set<ts.Symbol>();
+
+  const collect = (node: ts.Node): void => {
+    if (isGenericFunctionValueNode(node)) {
+      const symbol = getSupportedGenericFunctionValueSymbol(node, checker);
+      if (symbol) symbols.add(symbol);
+    }
+    ts.forEachChild(node, collect);
+  };
+
+  collect(sourceFile);
+  return symbols;
+};
+
+const isAllowedGenericFunctionValueIdentifierUse = (
+  node: ts.Identifier
+): boolean => {
+  const parent = node.parent;
+
+  if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
+  if (ts.isCallExpression(parent) && parent.expression === node) return true;
+  if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
+  if (ts.isExportSpecifier(parent)) return true;
+
+  return false;
+};
+
+const getReferencedIdentifierSymbol = (
+  checker: ts.TypeChecker,
+  node: ts.Identifier
+): ts.Symbol | undefined => {
+  const parent = node.parent;
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+    return checker.getShorthandAssignmentValueSymbol(parent) ?? undefined;
+  }
+  return checker.getSymbolAtLocation(node);
+};
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -330,6 +386,9 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
+  const supportedGenericFunctionValueSymbols =
+    collectSupportedGenericFunctionValueSymbols(sourceFile, program.checker);
+
   const visitor = (
     node: ts.Node,
     accCollector: DiagnosticsCollector
@@ -487,37 +546,6 @@ export const validateStaticSafety = (
           );
         }
 
-        // TSN7406: Mapped-type utility types (these expand to mapped types internally)
-        // Only check when type arguments are present to avoid false positives for
-        // user-defined types named "Partial", etc.
-        if (hasTypeArgs && UNSUPPORTED_MAPPED_UTILITY_TYPES.has(name)) {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7406",
-              "error",
-              `Utility type '${name}' is not supported (it uses mapped types internally).`,
-              getNodeLocation(sourceFile, node),
-              `Replace '${name}' with an explicit interface that has the desired properties.`
-            )
-          );
-        }
-
-        // TSN7407: Conditional-type utility types (these expand to conditional types internally)
-        // Only check when type arguments are present
-        if (hasTypeArgs && UNSUPPORTED_CONDITIONAL_UTILITY_TYPES.has(name)) {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7407",
-              "error",
-              `Utility type '${name}' is not supported (it uses conditional types internally).`,
-              getNodeLocation(sourceFile, node),
-              `Replace '${name}' with an explicit type definition.`
-            )
-          );
-        }
-
         // TSN7413: Record<K, V> where K is not an allowed key type
         if (name === "Record") {
           const typeArgs = node.typeArguments;
@@ -558,171 +586,73 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7406: Check for mapped types (e.g., { [P in keyof T]: ... })
-    if (ts.isMappedTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7406",
-          "error",
-          "Mapped types are not supported. Write an explicit interface or class instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace mapped types like Partial<T>, Required<T>, or { [P in keyof T]: ... } with explicit interface definitions."
-        )
+    // TSN7406 retired:
+    // Mapped types are handled by type conversion + specialization.
+
+    // TSN7407 retired:
+    // Conditional types are handled by utility expansion and type conversion.
+
+    // TSN7408 retired:
+    // Mixed variadic tuples are now lowered to array types in the converter.
+
+    // TSN7409 retired:
+    // infer clauses are handled by conditional/type evaluator paths.
+
+    // TSN7410 retired:
+    // Intersection types are lowered by the type emitter.
+
+    // TSN7416 retired:
+    // new Array() without explicit type argument is lowered by the emitter.
+
+    // TSN7417 retired:
+    // Empty arrays are inferred/erased deterministically by array conversion rules.
+
+    // TSN7432:
+    // Generic function values are currently supported only for module-level
+    // `const name = <T>(...) => ...` / `const name = function<T>(...) { ... }`
+    // declarations with a single declarator. Other forms remain hard errors.
+    if (isGenericFunctionValueNode(node)) {
+      const symbol = getSupportedGenericFunctionValueSymbol(
+        node,
+        program.checker
       );
-    }
+      const isSupported =
+        symbol !== undefined &&
+        supportedGenericFunctionValueSymbols.has(symbol);
 
-    // TSN7407: Check for conditional types (e.g., T extends U ? X : Y)
-    if (ts.isConditionalTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7407",
-          "error",
-          "Conditional types are not supported. Use explicit union types or overloads instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace conditional types like Extract<T, U> or T extends X ? Y : Z with explicit type definitions."
-        )
-      );
-    }
-
-    // TSN7408: Check for variadic tuple types with mixed elements (e.g., [string, ...number[]])
-    // Pure variadic tuples like [...T[]] are OK (converted to arrays), fixed tuples are OK
-    // Mixed tuples with both fixed and rest elements are not supported
-    if (ts.isTupleTypeNode(node)) {
-      const hasRest = node.elements.some((el) => ts.isRestTypeNode(el));
-      const hasFixed = node.elements.some((el) => !ts.isRestTypeNode(el));
-
-      if (hasRest && hasFixed) {
+      if (!isSupported) {
         currentCollector = addDiagnostic(
           currentCollector,
           createDiagnostic(
-            "TSN7408",
+            "TSN7432",
             "error",
-            "Variadic tuple types with mixed fixed and rest elements are not supported.",
+            "Generic arrow/functions as values are only supported for module-level single `const` declarations.",
             getNodeLocation(sourceFile, node),
-            "Use a fixed-length tuple like [T1, T2] or an array like T[] instead."
+            "Use `const f = <T>(...) => ...` at module scope, or rewrite as a named generic function declaration."
           )
         );
       }
     }
 
-    // TSN7409: Check for 'infer' keyword in conditional types
-    if (ts.isInferTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7409",
-          "error",
-          "The 'infer' keyword is not supported. Use explicit type parameters instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace infer patterns with explicit generic type parameters."
-        )
-      );
-    }
-
-    // TSN7410: Check for intersection types (e.g., A & B)
-    if (ts.isIntersectionTypeNode(node)) {
-      const isTypeParamConstraint =
-        ts.isTypeParameterDeclaration(node.parent) &&
-        node.parent.constraint === node;
-
-      // Intersection constraints are representable as multiple C# generic constraints:
-      // `T extends A & B` -> `where T : A, B`.
-      if (!isTypeParamConstraint) {
+    if (ts.isIdentifier(node)) {
+      const symbol = getReferencedIdentifierSymbol(program.checker, node);
+      if (
+        symbol &&
+        supportedGenericFunctionValueSymbols.has(symbol) &&
+        !isAllowedGenericFunctionValueIdentifierUse(node)
+      ) {
+        const name = node.text;
         currentCollector = addDiagnostic(
           currentCollector,
           createDiagnostic(
-            "TSN7410",
+            "TSN7432",
             "error",
-            "Intersection types (A & B) are not supported. Use a nominal type that explicitly includes all required members.",
+            `Generic function value '${name}' is only supported in direct call position.`,
             getNodeLocation(sourceFile, node),
-            "Replace the intersection with an interface or class that combines the members, or a type alias to an object type with explicit members."
+            "Call the function directly (e.g., `name<T>(...)`) or rewrite to a named generic function declaration."
           )
         );
       }
-    }
-
-    // TSN7416: Check for new Array() without explicit type argument
-    // new Array<T>(n) is valid, new Array() or new Array(n) without type arg is not
-    if (ts.isNewExpression(node)) {
-      const callee = node.expression;
-      if (ts.isIdentifier(callee) && callee.text === "Array") {
-        const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
-        if (!hasTypeArgs) {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7416",
-              "error",
-              "'new Array()' requires an explicit type argument. Use 'new Array<T>(size)' instead.",
-              getNodeLocation(sourceFile, node),
-              "Add a type argument: new Array<int>(10), new Array<string>(5), etc."
-            )
-          );
-        }
-      }
-    }
-
-    // TSN7417: Check for empty array literal without type annotation
-    // const x = [] is invalid, const x: T[] = [] is valid
-    if (ts.isArrayLiteralExpression(node) && node.elements.length === 0) {
-      const hasContextualType =
-        program.checker.getContextualType(node) !== undefined;
-      const parent = node.parent;
-      const hasConditionalArrayContext =
-        ts.isConditionalExpression(parent) &&
-        isArrayLikeType(
-          program.checker,
-          program.checker.getTypeAtLocation(parent)
-        );
-
-      // Check if parent provides type context
-      const hasTypeAnnotation =
-        (ts.isVariableDeclaration(parent) && parent.type !== undefined) ||
-        (ts.isPropertyDeclaration(parent) && parent.type !== undefined) ||
-        (ts.isParameter(parent) && parent.type !== undefined) ||
-        ts.isReturnStatement(parent) || // return type from function
-        ts.isCallExpression(parent) || // passed as argument (has contextual type)
-        ts.isPropertyAssignment(parent) || // object property (has contextual type)
-        hasConditionalArrayContext ||
-        hasContextualType;
-
-      if (!hasTypeAnnotation) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createDiagnostic(
-            "TSN7417",
-            "error",
-            "Empty array literal requires a type annotation. Use 'const x: T[] = []' instead.",
-            getNodeLocation(sourceFile, node),
-            "Add a type annotation: const x: number[] = []; or const x: string[] = [];"
-          )
-        );
-      }
-    }
-
-    // TSN7432: Generic function values are not supported.
-    //
-    // Generic methods exist in CLR, but generic functions as first-class values do not.
-    // For airplane-grade emission, we require generic functions to be declared as
-    // named function declarations (which become CLR methods), not arrow/function
-    // expressions assigned to values.
-    if (
-      (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-      node.typeParameters &&
-      node.typeParameters.length > 0
-    ) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7432",
-          "error",
-          "Generic arrow/functions are not supported as values. Use a named function declaration instead.",
-          getNodeLocation(sourceFile, node),
-          "Rewrite: `export function f<T>(x: T): ... { ... }`"
-        )
-      );
     }
 
     // TSN7430: Arrow function escape hatch validation

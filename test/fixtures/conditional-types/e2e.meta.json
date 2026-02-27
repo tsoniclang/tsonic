@@ -1,7 +1,3 @@
 {
-  "expectFailure": true,
-  "description": "Conditional types (T extends X ? Y : Z) are not supported in Tsonic. Use explicit union types or function overloads instead.",
-  "expectedErrors": ["TSN7407"],
-  "diagnosticCodes": ["TSN7407"],
-  "notes": "Conditional types cannot be represented in C# and would require complex type-level computation that doesn't translate to .NET's type system."
+  "description": "Conditional type aliases (including infer clauses) are accepted and compile in AOT mode."
 }

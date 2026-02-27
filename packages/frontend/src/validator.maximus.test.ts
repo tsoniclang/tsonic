@@ -186,8 +186,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7408 - mixed variadic tuples", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("Mixed variadic tuples", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -211,18 +211,6 @@ describe("Maximus Validation Coverage", () => {
         name: "generic variadic head + fixed tail",
         source: `type T<U extends unknown[]> = [...U, string];`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7408")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       { name: "fixed tuple", source: `type T = [string, number];` },
       { name: "pure variadic tuple", source: `type T = [...number[]];` },
       {
@@ -244,8 +232,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7409 - infer keyword", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("infer keyword support", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -269,18 +257,6 @@ describe("Maximus Validation Coverage", () => {
         name: "multiple infer clauses",
         source: `type Pair<T> = T extends [infer A, infer B] ? [A, B] : never;`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7409")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       {
         name: "identifier containing infer",
         source: `const inferredValue = 1; console.log(inferredValue);`,
@@ -306,8 +282,214 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7416 - new Array() requires explicit type argument", () => {
+  describe("mapped and conditional type syntax", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "direct mapped type alias",
+        source: `
+          type Mapper<T> = { [K in keyof T]: T[K] };
+          type X = Mapper<{ a: string; b: number }>;
+        `,
+      },
+      {
+        name: "direct conditional type alias",
+        source: `
+          type C<T> = T extends string ? number : boolean;
+          type A = C<string>;
+          type B = C<number>;
+        `,
+      },
+      {
+        name: "mapped + conditional with infer",
+        source: `
+          type Normalize<T> = {
+            [K in keyof T]: T[K] extends Promise<infer U> ? U : T[K]
+          };
+          type N = Normalize<{ a: Promise<number>; b: string }>;
+        `,
+      },
+      {
+        name: "parenthesized mapped type syntax",
+        source: `
+          type Mapper<T> = ({ [K in keyof T]: T[K] });
+          type X = Mapper<{ a: string }>;
+        `,
+      },
+      {
+        name: "parenthesized conditional syntax",
+        source: `
+          type C<T> = (T extends string ? number : boolean);
+          type A = C<string>;
+        `,
+      },
+      {
+        name: "mapped syntax in interface member",
+        source: `
+          type M<T> = { [K in keyof T]: T[K] };
+          interface Box {
+            map: M<{ a: string; b: number }>;
+          }
+          const box: Box = { map: { a: "ok", b: 1 } };
+          void box;
+        `,
+      },
+      {
+        name: "conditional syntax in generic constraint position",
+        source: `
+          type Normalize<T> = T extends Promise<infer U> ? U : T;
+          function f<T>(x: Normalize<T>): void { void x; }
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7406")).to.equal(false);
+        expect(hasCode(c.source, "TSN7407")).to.equal(false);
+        expect(hasCode(c.source, "TSN7409")).to.equal(false);
+      });
+    }
+  });
+
+  describe("generic function values (TSN7432 narrowing)", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "module-level const generic arrow with direct call",
+        source: `
+          const id = <T>(x: T): T => x;
+          const n = id<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "module-level const generic function expression with direct call",
+        source: `
+          const id = function <T>(x: T): T { return x; };
+          const s = id<string>("x");
+          void s;
+        `,
+      },
+      {
+        name: "module-level generic value with direct call and export specifier",
+        source: `
+          const id = <T>(x: T): T => x;
+          export { id };
+          const s = id<string>("x");
+          void s;
+        `,
+      },
+      {
+        name: "module-level generic value with typeof usage",
+        source: `
+          const id = <T>(x: T): T => x;
+          type IdFn = typeof id;
+          const s = id<string>("x");
+          void s;
+          type Alias = IdFn;
+          const marker: Alias | undefined = undefined;
+          void marker;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7432")).to.equal(false);
+      });
+    }
+
     const rejectCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "nested generic arrow value inside function scope",
+        source: `
+          function wrap(): void {
+            const id = <T>(x: T): T => x;
+            void id<number>(1);
+          }
+        `,
+      },
+      {
+        name: "generic function value used as value (non-call usage)",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id;
+          void copy;
+        `,
+      },
+      {
+        name: "multiple declarators in one statement",
+        source: `
+          const id = <T>(x: T): T => x, other = 1;
+          void other;
+        `,
+      },
+      {
+        name: "generic function value passed as argument",
+        source: `
+          const id = <T>(x: T): T => x;
+          function use(fn: unknown): void { void fn; }
+          use(id);
+        `,
+      },
+      {
+        name: "generic function value returned from function",
+        source: `
+          const id = <T>(x: T): T => x;
+          function wrap(): unknown { return id; }
+          void wrap;
+        `,
+      },
+      {
+        name: "generic function value in object property position",
+        source: `
+          const id = <T>(x: T): T => x;
+          const obj = { id };
+          void obj;
+        `,
+      },
+      {
+        name: "generic function value in array literal position",
+        source: `
+          const id = <T>(x: T): T => x;
+          const arr = [id];
+          void arr;
+        `,
+      },
+      {
+        name: "generic function value property access usage",
+        source: `
+          const id = <T>(x: T): T => x;
+          const n = id.name;
+          void n;
+        `,
+      },
+      {
+        name: "generic function value as default export expression",
+        source: `
+          const id = <T>(x: T): T => x;
+          export default id;
+        `,
+      },
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7432")).to.equal(true);
+      });
+    }
+  });
+
+  describe("Array constructor inference", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -326,18 +508,6 @@ describe("Maximus Validation Coverage", () => {
         name: "new Array inside function",
         source: `function f(): void { const arr = new Array(); console.log(arr); }`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7416")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       {
         name: "new Array<number>()",
         source: `const a = new Array<number>();`,
@@ -384,8 +554,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7417 - empty array literal requires type context", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("Empty array literals", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -396,18 +566,6 @@ describe("Maximus Validation Coverage", () => {
         name: "untyped function local empty array",
         source: `function f(): void { const local = []; console.log(local); }`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7417")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       { name: "annotated variable", source: `const x: number[] = [];` },
       { name: "type assertion", source: `const x = [] as number[];` },
       {

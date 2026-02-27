@@ -783,8 +783,8 @@ describe("Static Safety Validation", () => {
     });
   });
 
-  describe("TSN7410 - Intersection types not supported", () => {
-    it("should reject intersection type", () => {
+  describe("Intersection types are supported", () => {
+    it("should allow intersection type", () => {
       const source = `
         interface Named { name: string; }
         interface Aged { age: number; }
@@ -795,11 +795,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const intDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7410");
-      expect(intDiag).not.to.equal(undefined);
-      expect(intDiag?.message).to.include("Intersection types");
+      expect(intDiag).to.equal(undefined);
     });
 
-    it("should reject nested intersection type", () => {
+    it("should allow nested intersection type", () => {
       const source = `
         interface A { a: string; }
         interface B { b: number; }
@@ -811,7 +810,7 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const intDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7410");
-      expect(intDiag).not.to.equal(undefined);
+      expect(intDiag).to.equal(undefined);
     });
   });
 
@@ -1003,7 +1002,7 @@ describe("Static Safety Validation", () => {
     });
   });
 
-  describe("TSN7407 - Conditional utility types not supported", () => {
+  describe("Conditional utility types are supported", () => {
     // Extract, Exclude, NonNullable are now supported and expanded at compile time
     it("should accept Extract<T, U>", () => {
       const source = `
@@ -1080,6 +1079,78 @@ describe("Static Safety Validation", () => {
 
       const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
       expect(diag).to.equal(undefined);
+    });
+
+    it("should accept ConstructorParameters<T> (now supported)", () => {
+      const source = `
+        class User {
+          constructor(name: string, active: boolean) {}
+        }
+        type CtorParams = ConstructorParameters<typeof User>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).to.equal(undefined);
+    });
+
+    it("should accept InstanceType<T> (now supported)", () => {
+      const source = `
+        class Product {
+          constructor(public readonly sku: string) {}
+        }
+        type ProductInstance = InstanceType<typeof Product>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const diag = diagnostics.diagnostics.find((d) => d.code === "TSN7407");
+      expect(diag).to.equal(undefined);
+    });
+  });
+
+  describe("Mapped/conditional syntax is supported", () => {
+    it("should allow direct mapped type aliases", () => {
+      const source = `
+        type Mapper<T> = { [K in keyof T]: T[K] };
+        type X = Mapper<{ a: string; b: number }>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+      expect(
+        diagnostics.diagnostics.find((d) => d.code === "TSN7406")
+      ).to.equal(undefined);
+    });
+
+    it("should allow direct conditional type aliases", () => {
+      const source = `
+        type C<T> = T extends string ? number : boolean;
+        type A = C<string>;
+        type B = C<number>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+      expect(
+        diagnostics.diagnostics.find((d) => d.code === "TSN7407")
+      ).to.equal(undefined);
+    });
+
+    it("should allow infer clauses in conditional aliases", () => {
+      const source = `
+        type Unwrap<T> = T extends Promise<infer U> ? U : T;
+        type N = Unwrap<Promise<number>>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+      expect(
+        diagnostics.diagnostics.find((d) => d.code === "TSN7409")
+      ).to.equal(undefined);
     });
   });
 

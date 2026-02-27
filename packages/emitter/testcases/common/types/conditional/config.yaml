@@ -1,3 +1,2 @@
 - input: ConditionalTypes.ts
-  title: conditional types are rejected with TSN7407
-  expectDiagnostics: [TSN7407]
+  title: conditional and infer type syntax is lowered deterministically

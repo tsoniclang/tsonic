@@ -22,6 +22,28 @@ import {
 import { convertLiteralType } from "./literals.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
 
+const dedupeUnionMembers = (types: readonly IrType[]): readonly IrType[] => {
+  const seen = new Set<string>();
+  const result: IrType[] = [];
+  for (const type of types) {
+    const key = JSON.stringify(type);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(type);
+  }
+  return result;
+};
+
+const toUnionOrSingle = (types: readonly IrType[]): IrType => {
+  const deduped = dedupeUnionMembers(types);
+  if (deduped.length === 0) return { kind: "unknownType" };
+  if (deduped.length === 1) {
+    const first = deduped[0];
+    return first ?? { kind: "unknownType" };
+  }
+  return { kind: "unionType", types: deduped };
+};
+
 /**
  * Convert TypeScript type node to IR type
  */
@@ -82,30 +104,92 @@ export const convertType = (
 
   // Tuple types
   if (ts.isTupleTypeNode(typeNode)) {
-    // Check for rest elements - not fully supported in C# ValueTuple
-    const hasRest = typeNode.elements.some((el) => ts.isRestTypeNode(el));
+    // Check for rest elements.
+    const hasRest = typeNode.elements.some(
+      (el) =>
+        ts.isRestTypeNode(el) ||
+        (ts.isNamedTupleMember(el) &&
+          (el.dotDotDotToken !== undefined || ts.isRestTypeNode(el.type)))
+    );
 
     if (hasRest) {
-      // If tuple is just [...T[]] (pure variadic), treat as array type
-      // If tuple has both fixed and rest elements, fall through to anyType
-      // Mixed variadic tuples are intentionally unsupported (IR gate emits TSN7414).
-      const firstElement = typeNode.elements[0];
-      if (
-        typeNode.elements.length === 1 &&
-        firstElement &&
-        ts.isRestTypeNode(firstElement)
-      ) {
-        if (ts.isArrayTypeNode(firstElement.type)) {
-          // [...T[]] → T[]
-          return {
-            kind: "arrayType",
-            elementType: convertType(firstElement.type.elementType, binding),
-            origin: "explicit",
-          };
+      const elementTypes: IrType[] = [];
+
+      for (const element of typeNode.elements) {
+        if (ts.isNamedTupleMember(element)) {
+          if (
+            element.dotDotDotToken !== undefined ||
+            ts.isRestTypeNode(element.type)
+          ) {
+            const restType = ts.isRestTypeNode(element.type)
+              ? element.type.type
+              : element.type;
+            if (ts.isArrayTypeNode(restType)) {
+              elementTypes.push(convertType(restType.elementType, binding));
+              continue;
+            }
+            if (ts.isTupleTypeNode(restType)) {
+              for (const nestedElement of restType.elements) {
+                if (ts.isNamedTupleMember(nestedElement)) {
+                  elementTypes.push(convertType(nestedElement.type, binding));
+                } else if (ts.isRestTypeNode(nestedElement)) {
+                  if (ts.isArrayTypeNode(nestedElement.type)) {
+                    elementTypes.push(
+                      convertType(nestedElement.type.elementType, binding)
+                    );
+                  } else {
+                    elementTypes.push({ kind: "unknownType" });
+                  }
+                } else {
+                  elementTypes.push(convertType(nestedElement, binding));
+                }
+              }
+              continue;
+            }
+            elementTypes.push({ kind: "unknownType" });
+            continue;
+          }
+
+          elementTypes.push(convertType(element.type, binding));
+          continue;
         }
+
+        if (ts.isRestTypeNode(element)) {
+          const restType = element.type;
+          if (ts.isArrayTypeNode(restType)) {
+            elementTypes.push(convertType(restType.elementType, binding));
+            continue;
+          }
+          if (ts.isTupleTypeNode(restType)) {
+            for (const nestedElement of restType.elements) {
+              if (ts.isNamedTupleMember(nestedElement)) {
+                elementTypes.push(convertType(nestedElement.type, binding));
+              } else if (ts.isRestTypeNode(nestedElement)) {
+                if (ts.isArrayTypeNode(nestedElement.type)) {
+                  elementTypes.push(
+                    convertType(nestedElement.type.elementType, binding)
+                  );
+                } else {
+                  elementTypes.push({ kind: "unknownType" });
+                }
+              } else {
+                elementTypes.push(convertType(nestedElement, binding));
+              }
+            }
+            continue;
+          }
+          elementTypes.push({ kind: "unknownType" });
+          continue;
+        }
+
+        elementTypes.push(convertType(element, binding));
       }
-      // Mixed variadic tuples not supported - fall through to anyType
-      return { kind: "anyType" };
+
+      return {
+        kind: "arrayType",
+        elementType: toUnionOrSingle(elementTypes),
+        origin: "explicit",
+      };
     }
 
     const elementTypes = typeNode.elements.map((element) => {
@@ -136,6 +220,30 @@ export const convertType = (
   // Intersection types
   if (ts.isIntersectionTypeNode(typeNode)) {
     return convertIntersectionType(typeNode, binding, convertType);
+  }
+
+  // Mapped types
+  //
+  // Direct mapped syntax is TS-only and has no first-class CLR type equivalent.
+  // For deterministic AOT lowering we treat it as `unknown` at IR level
+  // (which emits to `object?`) instead of falling back to anyType/ICE.
+  if (ts.isMappedTypeNode(typeNode)) {
+    return { kind: "unknownType" };
+  }
+
+  // Conditional types
+  //
+  // Utility-conditionals (Extract/Exclude/NonNullable/...) are expanded via
+  // type references in convertTypeReference(). Direct conditional syntax is
+  // lowered conservatively to `unknown` for stable emission.
+  if (ts.isConditionalTypeNode(typeNode)) {
+    return { kind: "unknownType" };
+  }
+
+  // infer type nodes are only valid within conditional types. If one survives
+  // to direct conversion, lower conservatively to unknown.
+  if (ts.isInferTypeNode(typeNode)) {
+    return { kind: "unknownType" };
   }
 
   // Literal types

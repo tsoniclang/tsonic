@@ -55,11 +55,11 @@ export type DiagnosticCode =
   | "TSN7401" // 'any' type not supported - requires explicit type
   | "TSN7403" // Object literal requires contextual nominal type
   | "TSN7405" // Untyped lambda parameter - requires explicit type annotation
-  | "TSN7406" // Mapped types not supported
-  | "TSN7407" // Conditional types not supported
-  | "TSN7408" // Tuple types not supported
-  | "TSN7409" // 'infer' keyword not supported
-  | "TSN7410" // Intersection types not supported
+  | "TSN7406" // Mapped types not supported (retired)
+  | "TSN7407" // Conditional types not supported (retired)
+  | "TSN7408" // Tuple types not supported (retired)
+  | "TSN7409" // 'infer' keyword not supported (retired)
+  | "TSN7410" // Intersection types not supported (retired)
   | "TSN7413" // Dictionary key must be string or number
   | "TSN7414" // Type cannot be represented in compiler subset
   | "TSN7415" // Nullable union with unconstrained generic type parameter
@@ -74,7 +74,7 @@ export type DiagnosticCode =
   // Arrow function inference (TSN7430-TSN7439)
   | "TSN7430" // Arrow function requires explicit types (escape hatch)
   | "TSN7431" // Cannot infer arrow return type
-  | "TSN7432" // Generic function values not supported
+  | "TSN7432" // Generic function value usage unsupported in current lowering shape
   | "TSN7440" // Core intrinsic must resolve to @tsonic/core
   | "TSN7441" // istype<T>(...) must be erased
   | "TSN7442" // Core intrinsic call must be lowered (no runtime call)

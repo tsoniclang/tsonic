@@ -418,7 +418,7 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("class User");
       // Non-structural aliases are erased; usage sites should still resolve correctly.
       expect(csharp).to.not.include("// type UserId = double");
-      expect(csharp).to.match(/findById\s*\(\s*double\s+id\s*\)/);
+      expect(csharp).to.match(/findById\s*\(\s*double\s+id\s*\)/i);
 
       // Should have the repository class
       expect(csharp).to.include("class UserRepository");
