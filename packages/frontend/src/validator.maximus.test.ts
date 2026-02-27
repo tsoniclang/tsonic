@@ -485,6 +485,14 @@ describe("Maximus Validation Coverage", () => {
           void out;
         `,
       },
+      {
+        name: "generic function value as default export expression",
+        source: `
+          const id = <T>(x: T): T => x;
+          export default id;
+          void id<number>(1);
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -566,13 +574,6 @@ describe("Maximus Validation Coverage", () => {
           const id = <T>(x: T): T => x;
           const n = id.name;
           void n;
-        `,
-      },
-      {
-        name: "generic function value as default export expression",
-        source: `
-          const id = <T>(x: T): T => x;
-          export default id;
         `,
       },
     ];

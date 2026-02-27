@@ -363,6 +363,7 @@ const isAllowedGenericFunctionValueIdentifierUse = (
   if (ts.isCallExpression(parent) && parent.expression === node) return true;
   if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
   if (ts.isExportSpecifier(parent)) return true;
+  if (ts.isExportAssignment(parent) && parent.expression === node) return true;
 
   const contextualType = checker.getContextualType(node);
   if (contextualType) {
