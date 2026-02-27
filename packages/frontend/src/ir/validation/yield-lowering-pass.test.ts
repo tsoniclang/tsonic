@@ -356,7 +356,7 @@ describe("Yield Lowering Pass", () => {
   });
 
   describe("Unsupported Patterns (TSN6101)", () => {
-    it("should reject yield in call argument", () => {
+    it("should transform yield in call argument", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -371,11 +371,15 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("expressionStatement");
     });
 
-    it("should reject nested yield in initializer", () => {
+    it("should transform nested yield in initializer", () => {
       const module = createGeneratorModule([
         {
           kind: "variableDeclaration",
@@ -399,8 +403,12 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
     });
 
     it("should transform return yield expression into yield+generatorReturn", () => {
@@ -439,7 +447,7 @@ describe("Yield Lowering Pass", () => {
       expect(body[1]?.kind).to.equal("throwStatement");
     });
 
-    it("should reject nested yield in return expression", () => {
+    it("should transform nested yield in return expression", () => {
       const module = createGeneratorModule([
         {
           kind: "returnStatement",
@@ -454,8 +462,12 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
     });
 
     it("should transform for-loop assignment initializer with yield", () => {
@@ -530,7 +542,7 @@ describe("Yield Lowering Pass", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
     });
 
-    it("should reject nested yield in if condition", () => {
+    it("should transform nested yield in if condition", () => {
       const module = createGeneratorModule([
         {
           kind: "ifStatement",
@@ -545,11 +557,15 @@ describe("Yield Lowering Pass", () => {
       ]);
 
       const result = runYieldLoweringPass([module]);
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("ifStatement");
     });
 
-    it("should reject nested yield in while condition", () => {
+    it("should transform nested yield in while condition", () => {
       const module = createGeneratorModule([
         {
           kind: "whileStatement",
@@ -564,11 +580,14 @@ describe("Yield Lowering Pass", () => {
       ]);
 
       const result = runYieldLoweringPass([module]);
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      expect(body[0]?.kind).to.equal("whileStatement");
     });
 
-    it("should reject nested yield in for-of expression", () => {
+    it("should transform nested yield in for-of expression", () => {
       const module = createGeneratorModule([
         {
           kind: "forOfStatement",
@@ -585,11 +604,15 @@ describe("Yield Lowering Pass", () => {
       ]);
 
       const result = runYieldLoweringPass([module]);
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forOfStatement");
     });
 
-    it("should reject nested yield in for-in expression", () => {
+    it("should transform nested yield in for-in expression", () => {
       const module = createGeneratorModule([
         {
           kind: "forInStatement",
@@ -605,8 +628,12 @@ describe("Yield Lowering Pass", () => {
       ]);
 
       const result = runYieldLoweringPass([module]);
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forInStatement");
     });
   });
 
@@ -1057,8 +1084,8 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module1, module2]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics).to.have.length(2);
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
     });
   });
 
