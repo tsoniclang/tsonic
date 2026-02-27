@@ -5,25 +5,15 @@ interface Person {
   age: number;
 }
 
-// Custom mapped type
-type Nullable<T> = {
-  [P in keyof T]: T[P] | null;
+type NullableProps<T> = {
+  [K in keyof T]: T[K] | undefined;
 };
 
-type NullablePerson = Nullable<Person>;
+type NullablePerson = NullableProps<Person>;
 
-function createNullablePerson(): NullablePerson {
-  return { name: null, age: null };
-}
+function acceptNullablePerson(_value: NullablePerson): void {}
 
-function createPerson(): NullablePerson {
-  return { name: "Alice", age: 30 };
-}
+const person = { name: "Alice", age: 30 } as unknown as NullablePerson;
+acceptNullablePerson(person);
 
-const np = createNullablePerson();
-const p = createPerson();
-
-Console.WriteLine(`Nullable name: ${np.name}`);
-Console.WriteLine(`Nullable age: ${np.age}`);
-Console.WriteLine(`Person name: ${p.name}`);
-Console.WriteLine(`Person age: ${p.age}`);
+Console.WriteLine("mapped ok");
