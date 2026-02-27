@@ -322,6 +322,72 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
+  describe("generic function values (TSN7432 narrowing)", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "module-level const generic arrow with direct call",
+        source: `
+          const id = <T>(x: T): T => x;
+          const n = id<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "module-level const generic function expression with direct call",
+        source: `
+          const id = function <T>(x: T): T { return x; };
+          const s = id<string>("x");
+          void s;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7432")).to.equal(false);
+      });
+    }
+
+    const rejectCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "nested generic arrow value inside function scope",
+        source: `
+          function wrap(): void {
+            const id = <T>(x: T): T => x;
+            void id<number>(1);
+          }
+        `,
+      },
+      {
+        name: "generic function value used as value (non-call usage)",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id;
+          void copy;
+        `,
+      },
+      {
+        name: "multiple declarators in one statement",
+        source: `
+          const id = <T>(x: T): T => x, other = 1;
+          void other;
+        `,
+      },
+    ];
+
+    for (const c of rejectCases) {
+      it(`rejects ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7432")).to.equal(true);
+      });
+    }
+  });
+
   describe("Array constructor inference", () => {
     const allowCases: ReadonlyArray<{
       readonly name: string;

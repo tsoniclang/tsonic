@@ -306,6 +306,67 @@ const objectLiteralHasContextualType = (
   return false;
 };
 
+type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
+
+const isGenericFunctionValueNode = (
+  node: ts.Node
+): node is GenericFunctionValueNode =>
+  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+  !!node.typeParameters &&
+  node.typeParameters.length > 0;
+
+const getSupportedGenericFunctionValueSymbol = (
+  node: GenericFunctionValueNode,
+  checker: ts.TypeChecker
+): ts.Symbol | undefined => {
+  const decl = node.parent;
+  if (!ts.isVariableDeclaration(decl)) return undefined;
+  if (decl.initializer !== node) return undefined;
+  if (!ts.isIdentifier(decl.name)) return undefined;
+
+  const list = decl.parent;
+  if (!ts.isVariableDeclarationList(list)) return undefined;
+  if (!(list.flags & ts.NodeFlags.Const)) return undefined;
+  if (list.declarations.length !== 1) return undefined;
+
+  const stmt = list.parent;
+  if (!ts.isVariableStatement(stmt)) return undefined;
+  if (!ts.isSourceFile(stmt.parent)) return undefined;
+
+  return checker.getSymbolAtLocation(decl.name);
+};
+
+const collectSupportedGenericFunctionValueSymbols = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
+): ReadonlySet<ts.Symbol> => {
+  const symbols = new Set<ts.Symbol>();
+
+  const collect = (node: ts.Node): void => {
+    if (isGenericFunctionValueNode(node)) {
+      const symbol = getSupportedGenericFunctionValueSymbol(node, checker);
+      if (symbol) symbols.add(symbol);
+    }
+    ts.forEachChild(node, collect);
+  };
+
+  collect(sourceFile);
+  return symbols;
+};
+
+const isAllowedGenericFunctionValueIdentifierUse = (
+  node: ts.Identifier
+): boolean => {
+  const parent = node.parent;
+
+  if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
+  if (ts.isCallExpression(parent) && parent.expression === node) return true;
+  if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
+  if (ts.isExportSpecifier(parent)) return true;
+
+  return false;
+};
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -314,6 +375,9 @@ export const validateStaticSafety = (
   program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
+  const supportedGenericFunctionValueSymbols =
+    collectSupportedGenericFunctionValueSymbols(sourceFile, program.checker);
+
   const visitor = (
     node: ts.Node,
     accCollector: DiagnosticsCollector
@@ -532,27 +596,49 @@ export const validateStaticSafety = (
     // TSN7417 retired:
     // Empty arrays are inferred/erased deterministically by array conversion rules.
 
-    // TSN7432: Generic function values are not supported.
-    //
-    // Generic methods exist in CLR, but generic functions as first-class values do not.
-    // For airplane-grade emission, we require generic functions to be declared as
-    // named function declarations (which become CLR methods), not arrow/function
-    // expressions assigned to values.
-    if (
-      (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-      node.typeParameters &&
-      node.typeParameters.length > 0
-    ) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7432",
-          "error",
-          "Generic arrow/functions are not supported as values. Use a named function declaration instead.",
-          getNodeLocation(sourceFile, node),
-          "Rewrite: `export function f<T>(x: T): ... { ... }`"
-        )
-      );
+    // TSN7432:
+    // Generic function values are currently supported only for module-level
+    // `const name = <T>(...) => ...` / `const name = function<T>(...) { ... }`
+    // declarations with a single declarator. Other forms remain hard errors.
+    if (isGenericFunctionValueNode(node)) {
+      const symbol = getSupportedGenericFunctionValueSymbol(node, program.checker);
+      const isSupported =
+        symbol !== undefined &&
+        supportedGenericFunctionValueSymbols.has(symbol);
+
+      if (!isSupported) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7432",
+            "error",
+            "Generic arrow/functions as values are only supported for module-level single `const` declarations.",
+            getNodeLocation(sourceFile, node),
+            "Use `const f = <T>(...) => ...` at module scope, or rewrite as a named generic function declaration."
+          )
+        );
+      }
+    }
+
+    if (ts.isIdentifier(node)) {
+      const symbol = program.checker.getSymbolAtLocation(node);
+      if (
+        symbol &&
+        supportedGenericFunctionValueSymbols.has(symbol) &&
+        !isAllowedGenericFunctionValueIdentifierUse(node)
+      ) {
+        const name = node.text;
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7432",
+            "error",
+            `Generic function value '${name}' is only supported in direct call position.`,
+            getNodeLocation(sourceFile, node),
+            "Call the function directly (e.g., `name<T>(...)`) or rewrite to a named generic function declaration."
+          )
+        );
+      }
     }
 
     // TSN7430: Arrow function escape hatch validation

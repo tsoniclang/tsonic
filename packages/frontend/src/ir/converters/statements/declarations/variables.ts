@@ -3,10 +3,22 @@
  */
 
 import * as ts from "typescript";
-import { IrVariableDeclaration, IrVariableDeclarator } from "../../../types.js";
+import {
+  IrArrowFunctionExpression,
+  IrBlockStatement,
+  IrFunctionDeclaration,
+  IrFunctionExpression,
+  IrType,
+  IrVariableDeclaration,
+  IrVariableDeclarator,
+  IrStatement,
+} from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
-import { hasExportModifier } from "../helpers.js";
+import {
+  convertTypeParameters,
+  hasExportModifier,
+} from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
   deriveTypeFromExpression,
@@ -83,6 +95,93 @@ const getExpectedTypeForInitializer = (
   return undefined;
 };
 
+type GenericFunctionValueNode = ts.ArrowFunction | ts.FunctionExpression;
+
+const isGenericFunctionValueNode = (
+  node: ts.Expression
+): node is GenericFunctionValueNode =>
+  (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+  !!node.typeParameters &&
+  node.typeParameters.length > 0;
+
+const resolveGenericFunctionValueReturnType = (
+  initializer: IrArrowFunctionExpression | IrFunctionExpression
+): IrType | undefined => {
+  if (initializer.returnType) return initializer.returnType;
+  if (
+    initializer.inferredType &&
+    initializer.inferredType.kind === "functionType"
+  ) {
+    return initializer.inferredType.returnType;
+  }
+  return undefined;
+};
+
+const isSupportedGenericFunctionValueDeclaration = (
+  node: ts.VariableStatement,
+  decl: ts.VariableDeclaration
+): decl is ts.VariableDeclaration & {
+  readonly name: ts.Identifier;
+  readonly initializer: GenericFunctionValueNode;
+} => {
+  if (!isModuleLevelVariable(node)) return false;
+  if (!(node.declarationList.flags & ts.NodeFlags.Const)) return false;
+  if (node.declarationList.declarations.length !== 1) return false;
+  if (!ts.isIdentifier(decl.name)) return false;
+  if (!decl.initializer) return false;
+  if (!isGenericFunctionValueNode(decl.initializer)) return false;
+  return true;
+};
+
+const convertGenericFunctionValueDeclaration = (
+  node: ts.VariableStatement,
+  decl: ts.VariableDeclaration & {
+    readonly name: ts.Identifier;
+    readonly initializer: GenericFunctionValueNode;
+  },
+  ctx: ProgramContext
+): IrFunctionDeclaration | null => {
+  const initializer = convertExpression(decl.initializer, ctx, undefined);
+  if (
+    initializer.kind !== "arrowFunction" &&
+    initializer.kind !== "functionExpression"
+  ) {
+    return null;
+  }
+
+  let body: IrBlockStatement;
+  if (initializer.kind === "functionExpression") {
+    body = initializer.body;
+  } else if (initializer.body.kind === "blockStatement") {
+    body = initializer.body;
+  } else {
+    body = {
+      kind: "blockStatement",
+      statements: [
+        {
+          kind: "returnStatement",
+          expression: initializer.body,
+        },
+      ],
+    };
+  }
+
+  return {
+    kind: "functionDeclaration",
+    name: decl.name.text,
+    typeParameters: convertTypeParameters(decl.initializer.typeParameters, ctx),
+    parameters: initializer.parameters,
+    returnType: resolveGenericFunctionValueReturnType(initializer),
+    body,
+    isAsync: initializer.isAsync,
+    isGenerator:
+      initializer.kind === "functionExpression"
+        ? initializer.isGenerator
+        : false,
+    isExported: hasExportModifier(node),
+  };
+};
+
 /**
  * Convert variable statement
  *
@@ -98,7 +197,7 @@ const getExpectedTypeForInitializer = (
 export const convertVariableStatement = (
   node: ts.VariableStatement,
   ctx: ProgramContext
-): IrVariableDeclaration => {
+): IrVariableDeclaration | IrStatement | readonly IrStatement[] => {
   const isConst = !!(node.declarationList.flags & ts.NodeFlags.Const);
   const isLet = !!(node.declarationList.flags & ts.NodeFlags.Let);
   const declarationKind = isConst ? "const" : isLet ? "let" : "var";
@@ -110,10 +209,23 @@ export const convertVariableStatement = (
 
   let currentCtx = ctx;
   const declarations: IrVariableDeclarator[] = [];
+  const loweredStatements: IrStatement[] = [];
 
   // Convert declarations sequentially so later declarators can refer to earlier ones:
   //   const a = false, b = !a;
   for (const decl of node.declarationList.declarations) {
+    if (isSupportedGenericFunctionValueDeclaration(node, decl)) {
+      const lowered = convertGenericFunctionValueDeclaration(
+        node,
+        decl,
+        currentCtx
+      );
+      if (lowered) {
+        loweredStatements.push(lowered);
+        continue;
+      }
+    }
+
     // expectedType for initializer: ONLY from explicit type annotation
     // This ensures deterministic literal typing (e.g., 100 -> int unless annotated)
     const expectedType = getExpectedTypeForInitializer(decl, currentCtx);
@@ -148,10 +260,23 @@ export const convertVariableStatement = (
     currentCtx = withVariableDeclaratorTypeEnv(currentCtx, decl.name, irDecl);
   }
 
-  return {
+  const variableStatement: IrVariableDeclaration = {
     kind: "variableDeclaration",
     declarationKind,
     declarations,
     isExported,
   };
+
+  if (loweredStatements.length === 0) {
+    return variableStatement;
+  }
+
+  if (declarations.length === 0) {
+    if (loweredStatements.length === 1 && loweredStatements[0]) {
+      return loweredStatements[0];
+    }
+    return loweredStatements;
+  }
+
+  return [...loweredStatements, variableStatement];
 };
