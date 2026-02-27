@@ -430,5 +430,199 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("namespace Test");
       expect(csharp).to.include("public static class test");
     });
+
+    it("is deterministic across sequential compiles (no cross-program alias cache bleed)", () => {
+      const seedSource = `
+        export type UserId = string;
+        export function seed(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const targetSource = `
+        export interface User {
+          id: number;
+        }
+
+        export type UserId = number;
+
+        export class UserRepository {
+          findById(id: UserId): User | undefined {
+            return undefined;
+          }
+        }
+      `;
+
+      compileToCSharp(seedSource);
+      const csharp = compileToCSharp(targetSource);
+      expect(csharp).to.match(/findById\s*\(\s*double\s+id\s*\)/i);
+    });
+
+    it("does not leak structural alias property types across compiles", () => {
+      const seedSource = `
+        export type Payload = {
+          value: string;
+        };
+      `;
+
+      const targetSource = `
+        export type Payload = {
+          value: number;
+        };
+
+        export function read(input: Payload): number {
+          return input.value;
+        }
+      `;
+
+      compileToCSharp(seedSource);
+      const csharp = compileToCSharp(targetSource);
+      expect(csharp).to.match(
+        /class\s+Payload__Alias[\s\S]*required\s+double\s+value\s*\{/i
+      );
+      expect(csharp).to.match(/read\s*\(\s*Payload__Alias\s+input\s*\)/i);
+      expect(csharp).not.to.match(
+        /class\s+Payload__Alias[\s\S]*required\s+string\s+value\s*\{/i
+      );
+    });
+
+    it("keeps compile outputs independent when same alias name is reused", () => {
+      const sourceA = `
+        export type UserId = string;
+        export interface User {
+          id: UserId;
+        }
+      `;
+
+      const sourceB = `
+        export type UserId = number;
+        export interface User {
+          id: UserId;
+        }
+      `;
+
+      const csharpA = compileToCSharp(sourceA);
+      const csharpB = compileToCSharp(sourceB);
+      const csharpAAgain = compileToCSharp(sourceA);
+
+      expect(csharpA).to.match(/required\s+string\s+id\s*\{/i);
+      expect(csharpB).to.match(/required\s+double\s+id\s*\{/i);
+      expect(csharpAAgain).to.match(/required\s+string\s+id\s*\{/i);
+      expect(csharpAAgain).not.to.match(/required\s+double\s+id\s*\{/i);
+    });
+  });
+
+  describe("Promise Chains", () => {
+    it("lowers Promise.then to Task.Run async wrapper", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.then((x) => x + 1);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).to.include("await p");
+    });
+
+    it("lowers Promise.catch to Task.Run with try/catch", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.catch((_e) => 0);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run");
+      expect(csharp).to.include(
+        "catch (global::System.Exception __tsonic_promise_ex)"
+      );
+    });
+
+    it("lowers Promise.finally to Task.Run with finally", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.finally(() => {});
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).to.include("finally");
+    });
+  });
+
+  describe("Dynamic Any Lowering", () => {
+    it("lowers binary operations on explicit any through DynamicOps", () => {
+      const source = `
+        export function run(): number {
+          let x: any = 2;
+          x = x + 3;
+          return x as number;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("global::Tsonic.Internal.DynamicOps.Binary");
+      expect(csharp).to.include('"+"');
+    });
+
+    it("lowers property access and member calls on explicit any through DynamicOps", () => {
+      const source = `
+        export function run(): number {
+          const add = (a: number, b: number): number => a + b;
+          const obj: any = { sum: add };
+          const n = obj.sum(2, 3);
+          obj.value = n;
+          return obj.value as number;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "global::Tsonic.Internal.DynamicOps.InvokeMember"
+      );
+      expect(csharp).to.include("global::Tsonic.Internal.DynamicOps.Assign");
+      expect(csharp).to.include("global::Tsonic.Internal.DynamicOps.Get");
+    });
   });
 });

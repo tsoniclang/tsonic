@@ -305,3 +305,36 @@ export const needsIntCast = (
     (m) => calleeName === m || calleeName.endsWith(`.${m.split(".").pop()}`)
   );
 };
+
+const ASYNC_WRAPPER_NAMES = new Set([
+  "Promise",
+  "PromiseLike",
+  "Task",
+  "ValueTask",
+]);
+
+export const isAsyncWrapperType = (
+  type: IrType | undefined,
+  visited: Set<IrType> = new Set()
+): boolean => {
+  if (!type || visited.has(type)) return false;
+  visited.add(type);
+
+  if (type.kind === "referenceType") {
+    const simple = type.name.includes(".")
+      ? type.name.slice(type.name.lastIndexOf(".") + 1)
+      : type.name;
+    if (ASYNC_WRAPPER_NAMES.has(simple)) return true;
+  }
+
+  if (type.kind === "unionType" || type.kind === "intersectionType") {
+    return type.types.some((t) => isAsyncWrapperType(t, visited));
+  }
+
+  return false;
+};
+
+const PROMISE_CHAIN_METHODS = new Set(["then", "catch", "finally"]);
+
+export const isPromiseChainMethod = (name: string): boolean =>
+  PROMISE_CHAIN_METHODS.has(name);

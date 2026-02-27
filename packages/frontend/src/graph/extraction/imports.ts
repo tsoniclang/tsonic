@@ -79,3 +79,45 @@ export const extractImport = (
     importedNames,
   };
 };
+
+/**
+ * Extract dependency information from dynamic import() calls.
+ * Only static-string local specifiers are considered.
+ */
+export const extractDynamicImport = (
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  program: TsonicProgram
+): Import | null => {
+  if (node.expression.kind !== ts.SyntaxKind.ImportKeyword) {
+    return null;
+  }
+  if (node.arguments.length !== 1) {
+    return null;
+  }
+  const [arg] = node.arguments;
+  if (!arg) return null;
+  if (!ts.isStringLiteral(arg) && !ts.isNoSubstitutionTemplateLiteral(arg)) {
+    return null;
+  }
+
+  const specifier = arg.text;
+  const result = resolveImport(
+    specifier,
+    sourceFile.fileName,
+    program.options.sourceRoot,
+    { clrResolver: program.clrResolver, bindings: program.bindings }
+  );
+
+  if (!result.ok || !result.value.isLocal) {
+    return null;
+  }
+
+  return {
+    kind: "local",
+    specifier,
+    resolvedPath: result.value.resolvedPath || undefined,
+    namespace: result.value.resolvedNamespace,
+    importedNames: [],
+  };
+};

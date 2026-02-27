@@ -2,13 +2,14 @@
  * Call expression emitter
  */
 
-import { IrExpression } from "@tsonic/frontend";
+import { IrExpression, IrType } from "@tsonic/frontend";
 import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import {
   emitTypeArgumentsAst,
   generateSpecializedName,
 } from "../identifiers.js";
+import { emitTypeAst } from "../../type-emitter.js";
 import { emitMemberAccess } from "../access.js";
 import {
   isLValue,
@@ -20,12 +21,22 @@ import {
   getTypeNamespace,
   registerJsonAotType,
   needsIntCast,
+  isPromiseChainMethod,
+  isAsyncWrapperType,
 } from "./call-analysis.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
+  CSharpBlockStatementAst,
+  CSharpCatchClauseAst,
   CSharpExpressionAst,
+  CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import {
+  DYNAMIC_OPS_FQN,
+  resolveImportPath,
+  typeContainsDynamicAny,
+} from "../../core/semantic/index.js";
 
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in/params).
@@ -52,6 +63,779 @@ const wrapIntCast = (
         expression: expr,
       }
     : expr;
+
+const isTaskTypeAst = (
+  typeAst: CSharpTypeAst
+): typeAst is Extract<CSharpTypeAst, { kind: "identifierType" }> => {
+  if (typeAst.kind !== "identifierType") return false;
+  const simple = typeAst.name.includes(".")
+    ? typeAst.name.slice(typeAst.name.lastIndexOf(".") + 1)
+    : typeAst.name;
+  return simple === "Task";
+};
+
+const containsVoidTypeAst = (typeAst: CSharpTypeAst): boolean => {
+  if (typeAst.kind === "predefinedType" && typeAst.keyword === "void") {
+    return true;
+  }
+  if (typeAst.kind === "identifierType") {
+    if (typeAst.name === "void" || typeAst.name.endsWith(".void")) {
+      return true;
+    }
+    return (typeAst.typeArguments ?? []).some((t) => containsVoidTypeAst(t));
+  }
+  if (typeAst.kind === "arrayType") {
+    return containsVoidTypeAst(typeAst.elementType);
+  }
+  if (typeAst.kind === "nullableType") {
+    return containsVoidTypeAst(typeAst.underlyingType);
+  }
+  if (typeAst.kind === "pointerType") {
+    return containsVoidTypeAst(typeAst.elementType);
+  }
+  if (typeAst.kind === "tupleType") {
+    return typeAst.elements.some((e) => containsVoidTypeAst(e.type));
+  }
+  return false;
+};
+
+const getTaskResultType = (
+  typeAst: CSharpTypeAst
+): CSharpTypeAst | undefined =>
+  isTaskTypeAst(typeAst) && typeAst.typeArguments?.length === 1
+    ? typeAst.typeArguments[0]
+    : undefined;
+
+const callbackParameterCount = (callbackExpr: IrExpression): number => {
+  if (
+    callbackExpr.kind === "arrowFunction" ||
+    callbackExpr.kind === "functionExpression"
+  ) {
+    return callbackExpr.parameters.length;
+  }
+  const callbackType = callbackExpr.inferredType;
+  if (callbackType?.kind === "functionType") {
+    return callbackType.parameters.length;
+  }
+  return 1;
+};
+
+const callbackReturnsAsyncWrapper = (callbackExpr: IrExpression): boolean => {
+  const callbackType = callbackExpr.inferredType;
+  return callbackType?.kind === "functionType"
+    ? isAsyncWrapperType(callbackType.returnType)
+    : false;
+};
+
+const buildInvocation = (
+  expression: CSharpExpressionAst,
+  args: readonly CSharpExpressionAst[]
+): CSharpExpressionAst => ({
+  kind: "invocationExpression",
+  expression,
+  arguments: args,
+});
+
+const buildAwait = (expression: CSharpExpressionAst): CSharpExpressionAst => ({
+  kind: "awaitExpression",
+  expression,
+});
+
+const boolLiteral = (value: boolean): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text: value ? "true" : "false",
+});
+
+const buildDynamicArgsArray = (
+  args: readonly CSharpExpressionAst[]
+): CSharpExpressionAst => ({
+  kind: "arrayCreationExpression",
+  elementType: {
+    kind: "nullableType",
+    underlyingType: { kind: "predefinedType", keyword: "object" },
+  },
+  initializer: args,
+});
+
+const buildDelegateType = (
+  parameterTypes: readonly CSharpTypeAst[],
+  returnType: CSharpTypeAst | undefined
+): CSharpTypeAst => {
+  const isVoidReturn =
+    returnType?.kind === "predefinedType" && returnType.keyword === "void";
+  if (returnType === undefined) {
+    return parameterTypes.length === 0
+      ? { kind: "identifierType", name: "global::System.Action" }
+      : {
+          kind: "identifierType",
+          name: "global::System.Action",
+          typeArguments: parameterTypes,
+        };
+  }
+  if (
+    isVoidReturn ||
+    (returnType.kind === "identifierType" && returnType.name === "void")
+  ) {
+    return parameterTypes.length === 0
+      ? { kind: "identifierType", name: "global::System.Action" }
+      : {
+          kind: "identifierType",
+          name: "global::System.Action",
+          typeArguments: parameterTypes,
+        };
+  }
+
+  return {
+    kind: "identifierType",
+    name: "global::System.Func",
+    typeArguments: [...parameterTypes, returnType],
+  };
+};
+
+const isVoidOrUnknownIrType = (type: IrType | undefined): boolean =>
+  type === undefined ||
+  type.kind === "voidType" ||
+  type.kind === "unknownType" ||
+  (type.kind === "primitiveType" && type.name === "undefined");
+
+const getCallbackReturnType = (
+  callbackExpr: IrExpression
+): IrType | undefined => {
+  const declared =
+    callbackExpr.inferredType?.kind === "functionType"
+      ? callbackExpr.inferredType.returnType
+      : undefined;
+  if (!isVoidOrUnknownIrType(declared)) {
+    return declared;
+  }
+
+  if (
+    callbackExpr.kind === "arrowFunction" &&
+    callbackExpr.body.kind !== "blockStatement"
+  ) {
+    return callbackExpr.body.inferredType;
+  }
+
+  return undefined;
+};
+
+const buildPromiseChainTaskRun = (
+  outputTaskType: CSharpTypeAst,
+  body: CSharpBlockStatementAst
+): CSharpExpressionAst => {
+  const resultType = getTaskResultType(outputTaskType);
+  return {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Threading.Tasks.Task",
+      },
+      memberName: "Run",
+    },
+    arguments: [
+      {
+        kind: "lambdaExpression",
+        isAsync: true,
+        parameters: [],
+        body,
+      },
+    ],
+    typeArguments: resultType ? [resultType] : undefined,
+  };
+};
+
+const getDynamicImportSpecifier = (
+  expr: Extract<IrExpression, { kind: "call" }>
+): string | undefined => {
+  const [arg] = expr.arguments;
+  if (!arg || arg.kind === "spread") return undefined;
+  return arg.kind === "literal" && typeof arg.value === "string"
+    ? arg.value
+    : undefined;
+};
+
+const emitDynamicImportSideEffect = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | null => {
+  if (expr.callee.kind !== "identifier" || expr.callee.name !== "import") {
+    return null;
+  }
+
+  const specifier = getDynamicImportSpecifier(expr);
+  if (!specifier) return null;
+
+  const completedTaskExpr: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "identifierExpression",
+      identifier: "global::System.Threading.Tasks.Task",
+    },
+    memberName: "CompletedTask",
+  };
+
+  const currentFilePath = context.options.currentModuleFilePath;
+  const moduleMap = context.options.moduleMap;
+  if (!currentFilePath || !moduleMap) {
+    return [completedTaskExpr, context];
+  }
+
+  const targetPath = resolveImportPath(currentFilePath, specifier);
+  const targetModule = (() => {
+    const direct = moduleMap.get(targetPath);
+    if (direct) return direct;
+
+    const normalizedTarget = targetPath.replace(/\\/g, "/");
+    for (const [key, identity] of moduleMap.entries()) {
+      const normalizedKey = key.replace(/\\/g, "/");
+      if (
+        normalizedKey === normalizedTarget ||
+        normalizedKey.endsWith(`/${normalizedTarget}`) ||
+        normalizedTarget.endsWith(`/${normalizedKey}`)
+      ) {
+        return identity;
+      }
+    }
+    return undefined;
+  })();
+  if (!targetModule) {
+    return [completedTaskExpr, context];
+  }
+
+  const containerName = targetModule.hasTypeCollision
+    ? `${targetModule.className}__Module`
+    : targetModule.className;
+  const containerType: CSharpTypeAst = {
+    kind: "identifierType",
+    name: `global::${targetModule.namespace}.${containerName}`,
+  };
+
+  const runClassConstructor: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Runtime.CompilerServices.RuntimeHelpers",
+      },
+      memberName: "RunClassConstructor",
+    },
+    arguments: [
+      {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "typeofExpression",
+          type: containerType,
+        },
+        memberName: "TypeHandle",
+      },
+    ],
+  };
+
+  const taskRun: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Threading.Tasks.Task",
+      },
+      memberName: "Run",
+    },
+    arguments: [
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [],
+        body: runClassConstructor,
+      },
+    ],
+  };
+
+  return [taskRun, context];
+};
+
+const emitDynamicAnyCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | null => {
+  const calleeIsDynamic =
+    typeContainsDynamicAny(expr.callee.inferredType, context) ||
+    (expr.callee.kind === "memberAccess" &&
+      typeContainsDynamicAny(expr.callee.object.inferredType, context));
+  if (!calleeIsDynamic) return null;
+
+  let currentContext = context;
+
+  if (expr.callee.kind === "memberAccess") {
+    const [targetAst, targetContext] = emitExpressionAst(
+      expr.callee.object,
+      currentContext
+    );
+    currentContext = targetContext;
+
+    let keyAst: CSharpExpressionAst;
+    if (expr.callee.isComputed) {
+      if (typeof expr.callee.property === "string") {
+        keyAst = {
+          kind: "literalExpression",
+          text: JSON.stringify(expr.callee.property),
+        };
+      } else {
+        const [computedAst, computedContext] = emitExpressionAst(
+          expr.callee.property,
+          currentContext
+        );
+        keyAst = computedAst;
+        currentContext = computedContext;
+      }
+    } else {
+      keyAst = {
+        kind: "literalExpression",
+        text: JSON.stringify(expr.callee.property as string),
+      };
+    }
+
+    const [argAsts, argContext] = emitCallArguments(
+      expr.arguments,
+      expr,
+      currentContext
+    );
+    currentContext = argContext;
+    const argsArray = buildDynamicArgsArray(argAsts);
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `${DYNAMIC_OPS_FQN}.InvokeMember`,
+        },
+        arguments: [
+          targetAst,
+          keyAst,
+          argsArray,
+          boolLiteral(expr.isOptional || expr.callee.isOptional),
+        ],
+      },
+      currentContext,
+    ];
+  }
+
+  const [calleeAst, calleeContext] = emitExpressionAst(
+    expr.callee,
+    currentContext
+  );
+  currentContext = calleeContext;
+  const [argAsts, argContext] = emitCallArguments(
+    expr.arguments,
+    expr,
+    currentContext
+  );
+  currentContext = argContext;
+  const argsArray = buildDynamicArgsArray(argAsts);
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: `${DYNAMIC_OPS_FQN}.Invoke`,
+      },
+      arguments: [calleeAst, argsArray, boolLiteral(expr.isOptional)],
+    },
+    currentContext,
+  ];
+};
+
+const emitPromiseThenCatchFinally = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | null => {
+  if (expr.callee.kind !== "memberAccess") return null;
+  if (typeof expr.callee.property !== "string") return null;
+  if (!isPromiseChainMethod(expr.callee.property)) return null;
+  if (expr.callee.isOptional || expr.isOptional) return null;
+  if (!isAsyncWrapperType(expr.callee.object.inferredType)) return null;
+
+  let currentContext = context;
+  const [receiverAst, receiverCtx] = emitExpressionAst(
+    expr.callee.object,
+    currentContext
+  );
+  currentContext = receiverCtx;
+
+  const outputTypeHint =
+    context.returnType && isAsyncWrapperType(context.returnType)
+      ? context.returnType
+      : expr.inferredType;
+  const [rawOutputTaskType, outputTaskCtx] = emitTypeAst(
+    outputTypeHint ?? { kind: "referenceType", name: "Task" },
+    currentContext
+  );
+  currentContext = outputTaskCtx;
+  const outputTaskType: CSharpTypeAst =
+    isTaskTypeAst(rawOutputTaskType) &&
+    rawOutputTaskType.typeArguments?.length === 1 &&
+    containsVoidTypeAst(rawOutputTaskType.typeArguments[0] as CSharpTypeAst)
+      ? { kind: "identifierType", name: "global::System.Threading.Tasks.Task" }
+      : rawOutputTaskType;
+
+  const [sourceTaskType, sourceTaskCtx] = emitTypeAst(
+    expr.callee.object.inferredType ?? { kind: "referenceType", name: "Task" },
+    currentContext
+  );
+  currentContext = sourceTaskCtx;
+
+  const sourceResultType = getTaskResultType(sourceTaskType);
+  const outputResultType = getTaskResultType(outputTaskType);
+  const exIdent = "__tsonic_promise_ex";
+  const valueIdent = "__tsonic_promise_value";
+
+  const fulfilledArg = expr.arguments[0];
+  const rejectedArg =
+    expr.callee.property === "then" ? expr.arguments[1] : expr.arguments[0];
+  const finallyArg =
+    expr.callee.property === "finally" ? expr.arguments[0] : undefined;
+
+  let fulfilledAst: CSharpExpressionAst | undefined;
+  let rejectedAst: CSharpExpressionAst | undefined;
+  let finallyAst: CSharpExpressionAst | undefined;
+
+  if (fulfilledArg && fulfilledArg.kind !== "spread") {
+    const [fAst, fCtx] = emitExpressionAst(fulfilledArg, currentContext);
+    fulfilledAst = fAst;
+    currentContext = fCtx;
+  }
+  if (rejectedArg && rejectedArg.kind !== "spread") {
+    const [rAst, rCtx] = emitExpressionAst(rejectedArg, currentContext);
+    rejectedAst = rAst;
+    currentContext = rCtx;
+  }
+  if (finallyArg && finallyArg.kind !== "spread") {
+    const [fiAst, fiCtx] = emitExpressionAst(finallyArg, currentContext);
+    finallyAst = fiAst;
+    currentContext = fiCtx;
+  }
+
+  const awaitReceiverStatement =
+    sourceResultType === undefined
+      ? ({
+          kind: "expressionStatement",
+          expression: buildAwait(receiverAst),
+        } as const satisfies CSharpStatementAst)
+      : ({
+          kind: "localDeclarationStatement",
+          modifiers: [],
+          type: { kind: "identifierType", name: "var" },
+          declarators: [
+            {
+              name: valueIdent,
+              initializer: buildAwait(receiverAst),
+            },
+          ],
+        } as const satisfies CSharpStatementAst);
+
+  const invokeFulfilled = (): readonly CSharpStatementAst[] => {
+    if (!fulfilledAst) {
+      if (sourceResultType === undefined) return [];
+      return [
+        {
+          kind: "returnStatement",
+          expression: {
+            kind: "identifierExpression",
+            identifier: valueIdent,
+          },
+        },
+      ];
+    }
+
+    const fulfilledArgs: CSharpExpressionAst[] = [];
+    if (
+      sourceResultType !== undefined &&
+      callbackParameterCount(fulfilledArg as IrExpression) > 0
+    ) {
+      fulfilledArgs.push({
+        kind: "identifierExpression",
+        identifier: valueIdent,
+      });
+    }
+
+    const delegateParamTypes: CSharpTypeAst[] =
+      sourceResultType !== undefined &&
+      callbackParameterCount(fulfilledArg as IrExpression) > 0
+        ? [sourceResultType]
+        : [];
+    const callbackReturnIr = getCallbackReturnType(
+      fulfilledArg as IrExpression
+    );
+    let callbackReturnTypeAst: CSharpTypeAst | undefined = outputResultType;
+    if (callbackReturnIr !== undefined) {
+      const [cbRetAst, cbRetCtx] = emitTypeAst(
+        callbackReturnIr,
+        currentContext
+      );
+      callbackReturnTypeAst =
+        (cbRetAst.kind === "predefinedType" && cbRetAst.keyword === "void") ||
+        (cbRetAst.kind === "identifierType" && cbRetAst.name === "void")
+          ? undefined
+          : cbRetAst;
+      currentContext = cbRetCtx;
+    }
+    if (outputResultType !== undefined && callbackReturnTypeAst === undefined) {
+      callbackReturnTypeAst = outputResultType;
+    }
+    if (
+      callbackReturnTypeAst === undefined &&
+      fulfilledArg?.kind === "arrowFunction" &&
+      fulfilledArg.body.kind !== "blockStatement"
+    ) {
+      callbackReturnTypeAst = { kind: "predefinedType", keyword: "object" };
+    }
+    const callbackCallee =
+      fulfilledAst.kind === "lambdaExpression"
+        ? ({
+            kind: "castExpression",
+            type: buildDelegateType(delegateParamTypes, callbackReturnTypeAst),
+            expression: fulfilledAst,
+          } as const satisfies CSharpExpressionAst)
+        : fulfilledAst;
+    const callbackCall =
+      callbackCallee.kind === "castExpression"
+        ? buildInvocation(
+            {
+              kind: "memberAccessExpression",
+              expression: callbackCallee,
+              memberName: "Invoke",
+            },
+            fulfilledArgs
+          )
+        : buildInvocation(callbackCallee, fulfilledArgs);
+    const callbackExpr = callbackReturnsAsyncWrapper(
+      fulfilledArg as IrExpression
+    )
+      ? buildAwait(callbackCall)
+      : callbackCall;
+
+    if (outputResultType === undefined) {
+      return [{ kind: "expressionStatement", expression: callbackExpr }];
+    }
+
+    return [{ kind: "returnStatement", expression: callbackExpr }];
+  };
+
+  const invokeRejected = (): readonly CSharpStatementAst[] => {
+    if (!rejectedAst) {
+      return [{ kind: "throwStatement" }];
+    }
+
+    const rejectedArgs: CSharpExpressionAst[] = [];
+    if (callbackParameterCount(rejectedArg as IrExpression) > 0) {
+      rejectedArgs.push({
+        kind: "identifierExpression",
+        identifier: exIdent,
+      });
+    }
+    const callbackReturnIr = getCallbackReturnType(rejectedArg as IrExpression);
+    let callbackReturnTypeAst: CSharpTypeAst | undefined = outputResultType;
+    if (callbackReturnIr !== undefined) {
+      const [cbRetAst, cbRetCtx] = emitTypeAst(
+        callbackReturnIr,
+        currentContext
+      );
+      callbackReturnTypeAst =
+        (cbRetAst.kind === "predefinedType" && cbRetAst.keyword === "void") ||
+        (cbRetAst.kind === "identifierType" && cbRetAst.name === "void")
+          ? undefined
+          : cbRetAst;
+      currentContext = cbRetCtx;
+    }
+    if (outputResultType !== undefined && callbackReturnTypeAst === undefined) {
+      callbackReturnTypeAst = outputResultType;
+    }
+    if (
+      callbackReturnTypeAst === undefined &&
+      rejectedArg?.kind === "arrowFunction" &&
+      rejectedArg.body.kind !== "blockStatement"
+    ) {
+      callbackReturnTypeAst = { kind: "predefinedType", keyword: "object" };
+    }
+    const callbackCallee =
+      rejectedAst.kind === "lambdaExpression"
+        ? ({
+            kind: "castExpression",
+            type: buildDelegateType(
+              [{ kind: "identifierType", name: "global::System.Exception" }],
+              callbackReturnTypeAst
+            ),
+            expression: rejectedAst,
+          } as const satisfies CSharpExpressionAst)
+        : rejectedAst;
+    const callbackCall =
+      callbackCallee.kind === "castExpression"
+        ? buildInvocation(
+            {
+              kind: "memberAccessExpression",
+              expression: callbackCallee,
+              memberName: "Invoke",
+            },
+            rejectedArgs
+          )
+        : buildInvocation(callbackCallee, rejectedArgs);
+    const callbackExpr = callbackReturnsAsyncWrapper(
+      rejectedArg as IrExpression
+    )
+      ? buildAwait(callbackCall)
+      : callbackCall;
+
+    if (outputResultType === undefined) {
+      return [{ kind: "expressionStatement", expression: callbackExpr }];
+    }
+
+    return [{ kind: "returnStatement", expression: callbackExpr }];
+  };
+
+  const invokeFinally = (): readonly CSharpStatementAst[] => {
+    if (!finallyAst) return [];
+    const callbackReturnIr = getCallbackReturnType(finallyArg as IrExpression);
+    let callbackReturnTypeAst: CSharpTypeAst | undefined = undefined;
+    if (callbackReturnIr !== undefined) {
+      const [cbRetAst, cbRetCtx] = emitTypeAst(
+        callbackReturnIr,
+        currentContext
+      );
+      callbackReturnTypeAst = cbRetAst;
+      currentContext = cbRetCtx;
+    }
+    if (
+      callbackReturnTypeAst === undefined &&
+      finallyArg?.kind === "arrowFunction" &&
+      finallyArg.body.kind !== "blockStatement"
+    ) {
+      callbackReturnTypeAst = { kind: "predefinedType", keyword: "object" };
+    }
+    const callbackCallee =
+      finallyAst.kind === "lambdaExpression"
+        ? ({
+            kind: "castExpression",
+            type: buildDelegateType([], callbackReturnTypeAst),
+            expression: finallyAst,
+          } as const satisfies CSharpExpressionAst)
+        : finallyAst;
+    const callbackCall =
+      callbackCallee.kind === "castExpression"
+        ? buildInvocation(
+            {
+              kind: "memberAccessExpression",
+              expression: callbackCallee,
+              memberName: "Invoke",
+            },
+            []
+          )
+        : buildInvocation(callbackCallee, []);
+    const callbackExpr = callbackReturnsAsyncWrapper(finallyArg as IrExpression)
+      ? buildAwait(callbackCall)
+      : callbackCall;
+    return [{ kind: "expressionStatement", expression: callbackExpr }];
+  };
+
+  if (expr.callee.property === "then") {
+    const thenStatements: CSharpStatementAst[] = [
+      awaitReceiverStatement,
+      ...invokeFulfilled(),
+    ];
+    const bodyStatements: CSharpStatementAst[] = rejectedAst
+      ? [
+          {
+            kind: "tryStatement",
+            body: { kind: "blockStatement", statements: thenStatements },
+            catches: [
+              {
+                type: {
+                  kind: "identifierType",
+                  name: "global::System.Exception",
+                },
+                identifier: exIdent,
+                body: {
+                  kind: "blockStatement",
+                  statements: invokeRejected(),
+                },
+              },
+            ],
+          },
+        ]
+      : thenStatements;
+    return [
+      buildPromiseChainTaskRun(outputTaskType, {
+        kind: "blockStatement",
+        statements: bodyStatements,
+      }),
+      currentContext,
+    ];
+  }
+
+  if (expr.callee.property === "catch") {
+    const successPath: readonly CSharpStatementAst[] =
+      sourceResultType === undefined
+        ? [{ kind: "expressionStatement", expression: buildAwait(receiverAst) }]
+        : [
+            {
+              kind: "returnStatement",
+              expression: buildAwait(receiverAst),
+            },
+          ];
+    const catches: readonly CSharpCatchClauseAst[] = [
+      {
+        type: { kind: "identifierType", name: "global::System.Exception" },
+        identifier: exIdent,
+        body: {
+          kind: "blockStatement",
+          statements: invokeRejected(),
+        },
+      },
+    ];
+    return [
+      buildPromiseChainTaskRun(outputTaskType, {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "tryStatement",
+            body: { kind: "blockStatement", statements: successPath },
+            catches,
+          },
+        ],
+      }),
+      currentContext,
+    ];
+  }
+
+  if (expr.callee.property === "finally") {
+    const tryStatements: readonly CSharpStatementAst[] =
+      sourceResultType === undefined
+        ? [{ kind: "expressionStatement", expression: buildAwait(receiverAst) }]
+        : [{ kind: "returnStatement", expression: buildAwait(receiverAst) }];
+    return [
+      buildPromiseChainTaskRun(outputTaskType, {
+        kind: "blockStatement",
+        statements: [
+          {
+            kind: "tryStatement",
+            body: { kind: "blockStatement", statements: tryStatements },
+            catches: [],
+            finallyBody: {
+              kind: "blockStatement",
+              statements: invokeFinally(),
+            },
+          },
+        ],
+      }),
+      currentContext,
+    ];
+  }
+
+  return null;
+};
 
 /**
  * Emit call arguments as typed AST array.
@@ -187,6 +971,15 @@ export const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  const dynamicImport = emitDynamicImportSideEffect(expr, context);
+  if (dynamicImport) return dynamicImport;
+
+  const promiseChain = emitPromiseThenCatchFinally(expr, context);
+  if (promiseChain) return promiseChain;
+
+  const dynamicAnyCall = emitDynamicAnyCall(expr, context);
+  if (dynamicAnyCall) return dynamicAnyCall;
+
   // Void promise resolve: emit as zero-arg call when safe.
   if (
     expr.callee.kind === "identifier" &&

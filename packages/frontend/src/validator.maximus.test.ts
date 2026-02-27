@@ -90,11 +90,11 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
-        name: "import.meta",
+        name: "unsupported import.meta field",
         code: "TSN2001",
         source: `
-          const url = import.meta.url;
-          console.log(url);
+          const env = import.meta.env;
+          console.log(env);
         `,
       },
       {
@@ -103,30 +103,6 @@ describe("Maximus Validation Coverage", () => {
         source: `
           async function load() { return import("./module.js"); }
           void load();
-        `,
-      },
-      {
-        name: "Promise.then chain",
-        code: "TSN3011",
-        source: `
-          const p: Promise<number> = Promise.resolve(1);
-          p.then((x) => x + 1);
-        `,
-      },
-      {
-        name: "Promise.catch chain",
-        code: "TSN3011",
-        source: `
-          const p: Promise<number> = Promise.resolve(1);
-          p.catch(() => 0);
-        `,
-      },
-      {
-        name: "Promise.finally chain",
-        code: "TSN3011",
-        source: `
-          const p: Promise<number> = Promise.resolve(1);
-          p.finally(() => {});
         `,
       },
     ];
@@ -141,6 +117,27 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
+      {
+        name: "import.meta.url",
+        source: `
+          const url = import.meta.url;
+          console.log(url);
+        `,
+      },
+      {
+        name: "import.meta.filename",
+        source: `
+          const file = import.meta.filename;
+          console.log(file);
+        `,
+      },
+      {
+        name: "import.meta.dirname",
+        source: `
+          const dir = import.meta.dirname;
+          console.log(dir);
+        `,
+      },
       {
         name: "class method named then",
         source: `
@@ -173,6 +170,36 @@ describe("Maximus Validation Coverage", () => {
         source: `
           import { value } from "./module.js";
           console.log(value);
+        `,
+      },
+      {
+        name: "dynamic import side-effect form",
+        source: `
+          async function load() {
+            await import("./module.js");
+          }
+          void load();
+        `,
+      },
+      {
+        name: "Promise.then chain",
+        source: `
+          const p: Promise<number> = Promise.resolve(1);
+          p.then((x) => x + 1);
+        `,
+      },
+      {
+        name: "Promise.catch chain",
+        source: `
+          const p: Promise<number> = Promise.resolve(1);
+          p.catch(() => 0);
+        `,
+      },
+      {
+        name: "Promise.finally chain",
+        source: `
+          const p: Promise<number> = Promise.resolve(1);
+          p.finally(() => {});
         `,
       },
     ];

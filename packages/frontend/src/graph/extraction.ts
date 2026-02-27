@@ -6,5 +6,6 @@
 export {
   extractModuleInfo,
   extractImport,
+  extractDynamicImport,
   extractExport,
 } from "./extraction/index.js";

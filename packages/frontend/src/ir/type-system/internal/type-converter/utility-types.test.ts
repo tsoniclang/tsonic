@@ -1057,7 +1057,7 @@ describe("Conditional Utility Type Expansion", () => {
       expect(result?.kind).to.equal("neverType");
     });
 
-    it("should preserve any for NonNullable<any>", () => {
+    it("should preserve explicit any marker for NonNullable<any>", () => {
       const source = `
         type Result = NonNullable<any>;
       `;
@@ -1073,7 +1073,10 @@ describe("Conditional Utility Type Expansion", () => {
       );
 
       expect(result).not.to.equal(null);
-      expect(result?.kind).to.equal("anyType");
+      expect(result?.kind).to.equal("referenceType");
+      if (result?.kind === "referenceType") {
+        expect(result.name).to.equal("__TSONIC_ANY");
+      }
     });
 
     it("should preserve unknown for NonNullable<unknown>", () => {

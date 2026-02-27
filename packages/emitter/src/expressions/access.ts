@@ -15,6 +15,10 @@ import {
   stripNullish,
   getAllPropertySignatures,
 } from "../core/semantic/type-resolution.js";
+import {
+  DYNAMIC_OPS_FQN,
+  typeContainsDynamicAny,
+} from "../core/semantic/dynamic-any.js";
 import { emitCSharpName } from "../naming-policy.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { extractCalleeNameFromAst } from "../core/format/backend-ast/utils.js";
@@ -288,6 +292,7 @@ const isStaticTypeReference = (
     objectType?.kind === "arrayType" ||
     objectType?.kind === "intersectionType" ||
     objectType?.kind === "unionType" ||
+    objectType?.kind === "anyType" ||
     objectType?.kind === "primitiveType" ||
     objectType?.kind === "literalType" ||
     objectType?.kind === "typeParameterType" ||
@@ -325,6 +330,45 @@ export const emitMemberAccess = (
       }
       return [narrowed.exprAst, context];
     }
+  }
+
+  if (typeContainsDynamicAny(expr.object.inferredType, context)) {
+    const [objectAst, objectContext] = emitExpressionAst(expr.object, context);
+    let keyAst: CSharpExpressionAst;
+    let finalContext = objectContext;
+
+    if (expr.isComputed) {
+      if (typeof expr.property === "string") {
+        keyAst = {
+          kind: "literalExpression",
+          text: JSON.stringify(expr.property),
+        };
+      } else {
+        const [computedAst, computedContext] = emitExpressionAst(
+          expr.property,
+          objectContext
+        );
+        keyAst = computedAst;
+        finalContext = computedContext;
+      }
+    } else {
+      keyAst = {
+        kind: "literalExpression",
+        text: JSON.stringify(expr.property as string),
+      };
+    }
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `${DYNAMIC_OPS_FQN}.Get`,
+        },
+        arguments: [objectAst, keyAst],
+      },
+      finalContext,
+    ];
   }
 
   // Property access that targets a CLR runtime union

@@ -390,7 +390,6 @@ describe("Generic Validation", () => {
       const diagnostics = validateProgram(program);
 
       // Should have NO generic-specific diagnostics (TSN71xx, TSN72xx)
-      // Note: TSN74xx (static safety) may fire due to 'any' in test code, but that's expected
       const genericDiags = diagnostics.diagnostics.filter(
         (d) => d.code.startsWith("TSN71") || d.code.startsWith("TSN72")
       );
@@ -400,8 +399,8 @@ describe("Generic Validation", () => {
 });
 
 describe("Static Safety Validation", () => {
-  describe("TSN7401 - 'any' type banned", () => {
-    it("should reject explicit any type annotation", () => {
+  describe("TSN7401 retired - explicit any is allowed", () => {
+    it("should allow explicit any type annotation", () => {
       const source = `
         export const x: any = 1;
       `;
@@ -410,11 +409,10 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
-      expect(anyDiag).not.to.equal(undefined);
-      expect(anyDiag?.message).to.include("'any' type is not supported");
+      expect(anyDiag).to.equal(undefined);
     });
 
-    it("should reject 'as any' type assertion", () => {
+    it("should allow 'as any' type assertion", () => {
       const source = `
         export const x = (123 as any);
       `;
@@ -423,8 +421,7 @@ describe("Static Safety Validation", () => {
       const diagnostics = validateProgram(program);
 
       const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
-      expect(anyDiag).not.to.equal(undefined);
-      expect(anyDiag?.message).to.include("'as any'");
+      expect(anyDiag).to.equal(undefined);
     });
 
     it("should allow unknown type", () => {
@@ -439,6 +436,41 @@ describe("Static Safety Validation", () => {
 
       const anyDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7401");
       expect(anyDiag).to.equal(undefined);
+    });
+
+    it("should recover member access on explicit any without TSN5203", () => {
+      const source = `
+        export function run(): number {
+          const obj: any = { value: 1 };
+          return obj.value as number;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const memberRecoveryDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5203"
+      );
+      expect(memberRecoveryDiag).to.equal(undefined);
+    });
+
+    it("should recover call return type on explicit any without TSN5201", () => {
+      const source = `
+        export function run(): number {
+          const add = (a: number, b: number): number => a + b;
+          const fn: any = add;
+          return fn(2, 3) as number;
+        }
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const callRecoveryDiag = diagnostics.diagnostics.find(
+        (d) => d.code === "TSN5201"
+      );
+      expect(callRecoveryDiag).to.equal(undefined);
     });
   });
 

@@ -17,6 +17,10 @@ import {
   isDefinitelyValueType,
 } from "../../core/semantic/type-resolution.js";
 import {
+  DYNAMIC_OPS_FQN,
+  typeContainsDynamicAny,
+} from "../../core/semantic/dynamic-any.js";
+import {
   isCharTyped,
   isStringTyped,
   getSingleCharLiteral,
@@ -49,6 +53,29 @@ export const emitBinary = (
   context: EmitterContext,
   _expectedType?: IrType
 ): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    typeContainsDynamicAny(expr.left.inferredType, context) ||
+    typeContainsDynamicAny(expr.right.inferredType, context)
+  ) {
+    const [leftAst, leftContext] = emitExpressionAst(expr.left, context);
+    const [rightAst, rightContext] = emitExpressionAst(expr.right, leftContext);
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `${DYNAMIC_OPS_FQN}.Binary`,
+        },
+        arguments: [
+          { kind: "literalExpression", text: JSON.stringify(expr.operator) },
+          leftAst,
+          rightAst,
+        ],
+      },
+      rightContext,
+    ];
+  }
+
   // Map JavaScript operators to C# operators
   const operatorMap: Record<string, string> = {
     "===": "==",

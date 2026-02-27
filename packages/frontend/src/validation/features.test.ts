@@ -81,9 +81,6 @@ const runValidation = (sourceText: string): ValidationResult => {
   );
 };
 
-const diagnosticsWithCode = (result: ValidationResult, code: string) =>
-  result.diagnostics.filter((d) => d.code === code);
-
 const hasDiagnostic = (
   result: ValidationResult,
   code: string,
@@ -140,34 +137,64 @@ describe("validateUnsupportedFeatures", () => {
       );
     });
 
-    it("rejects import.meta", () => {
+    it("allows import.meta.url", () => {
       const result = runValidation(`
         const url = import.meta.url;
         console.log(url);
       `);
 
-      expect(
-        hasDiagnostic(
-          result,
-          "TSN2001",
-          "Meta properties (import.meta) not supported"
-        )
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
     });
 
-    it("rejects dynamic import()", () => {
+    it("allows import.meta.filename", () => {
+      const result = runValidation(`
+        const file = import.meta.filename;
+        console.log(file);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+    });
+
+    it("allows import.meta.dirname", () => {
+      const result = runValidation(`
+        const dir = import.meta.dirname;
+        console.log(dir);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+    });
+
+    it("rejects unsupported import.meta fields", () => {
+      const result = runValidation(`
+        const bad = import.meta.env;
+        console.log(bad);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
+    });
+
+    it("rejects bare import.meta", () => {
+      const result = runValidation(`
+        const meta = import.meta;
+        console.log(meta);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
+    });
+
+    it("rejects dynamic import() when returned as a value", () => {
       const result = runValidation(`
         async function load() {
           return import("./module.js");
         }
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN2001", "Dynamic import() not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
-    it("rejects await import()", () => {
+    it("rejects await import() when module namespace is consumed", () => {
       const result = runValidation(`
         async function load() {
           const module = await import("./module.js");
@@ -175,9 +202,33 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN2001", "Dynamic import() not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
+    });
+
+    it("allows dynamic import() in side-effect form", () => {
+      const result = runValidation(`
+        async function load() {
+          await import("./module.js");
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        false
+      );
+    });
+
+    it("rejects dynamic import() side-effect form with non-literal specifier", () => {
+      const result = runValidation(`
+        async function load(name: string) {
+          await import(name);
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("does not reject static import declarations", () => {
@@ -200,64 +251,44 @@ describe("validateUnsupportedFeatures", () => {
     });
   });
 
-  describe("TSN3011", () => {
-    it("rejects Promise.then chaining", () => {
+  describe("Promise chaining support (TSN3011 retired)", () => {
+    it("allows Promise.then chaining", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.then((x) => x + 1);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.then() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects Promise.catch chaining", () => {
+    it("allows Promise.catch chaining", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.catch(() => 0);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.catch() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects Promise.finally chaining", () => {
+    it("allows Promise.finally chaining", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.finally(() => {});
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.finally() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("reports all three chain operators when all are used", () => {
+    it("allows Promise chain composition", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.then((x) => x + 1).catch(() => 0).finally(() => {});
       `);
 
-      expect(
-        diagnosticsWithCode(result, "TSN3011").some((d) =>
-          d.message.includes("Promise.then() is not supported")
-        )
-      ).to.equal(true);
-      expect(
-        diagnosticsWithCode(result, "TSN3011").some((d) =>
-          d.message.includes("Promise.catch() is not supported")
-        )
-      ).to.equal(true);
-      expect(
-        diagnosticsWithCode(result, "TSN3011").some((d) =>
-          d.message.includes("Promise.finally() is not supported")
-        )
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects chaining on Promise returned by async functions", () => {
+    it("allows chaining on Promise returned by async functions", () => {
       const result = runValidation(`
         async function load(): Promise<number> {
           return 1;
@@ -265,20 +296,16 @@ describe("validateUnsupportedFeatures", () => {
         load().then((x) => x + 1);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.then() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects optional chaining on Promise receivers", () => {
+    it("allows optional chaining on Promise receivers", () => {
       const result = runValidation(`
         const p: Promise<number> | undefined = Promise.resolve(1);
         p?.then((x) => x + 1);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.then() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
     it("does not flag class methods named then", () => {

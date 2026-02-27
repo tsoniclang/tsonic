@@ -9,6 +9,7 @@ import { EmitterContext } from "../types.js";
 import { escapeCSharpIdentifier } from "../emitter-types/index.js";
 import { emitTypeAst } from "./emitter.js";
 import { substituteTypeArgs } from "../core/semantic/type-resolution.js";
+import { DYNAMIC_ANY_TYPE_NAME } from "../core/semantic/dynamic-any.js";
 import type { CSharpTypeAst } from "../core/format/backend-ast/types.js";
 
 /**
@@ -187,6 +188,16 @@ export const emitReferenceType = (
   context: EmitterContext
 ): [CSharpTypeAst, EmitterContext] => {
   const { name, typeArguments, resolvedClrType, typeId } = type;
+
+  if (name === DYNAMIC_ANY_TYPE_NAME) {
+    return [
+      {
+        kind: "nullableType",
+        underlyingType: { kind: "predefinedType", keyword: "object" },
+      },
+      context,
+    ];
+  }
 
   // Check if this is a local type alias.
   //

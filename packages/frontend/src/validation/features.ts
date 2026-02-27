@@ -11,48 +11,46 @@ import {
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
 
-const PROMISE_CHAIN_METHODS = new Set(["then", "catch", "finally"]);
+const SUPPORTED_IMPORT_META_FIELDS = new Set(["url", "filename", "dirname"]);
 
-const isBuiltInPromiseSymbol = (symbol: ts.Symbol): boolean => {
-  const name = symbol.getName();
-  if (name !== "Promise" && name !== "PromiseLike") {
+const isSupportedImportMetaUsage = (node: ts.MetaProperty): boolean => {
+  if (
+    node.keywordToken !== ts.SyntaxKind.ImportKeyword ||
+    node.name.text !== "meta"
+  ) {
     return false;
   }
 
-  const declarations = symbol.declarations ?? [];
-  return declarations.some((decl) => {
-    const fileName = decl.getSourceFile().fileName;
-    const normalized = fileName.replace(/\\/g, "/");
-    const baseName = normalized.slice(normalized.lastIndexOf("/") + 1);
-    return baseName.startsWith("lib.");
-  });
+  const parent = node.parent;
+  return (
+    ts.isPropertyAccessExpression(parent) &&
+    parent.expression === node &&
+    SUPPORTED_IMPORT_META_FIELDS.has(parent.name.text)
+  );
 };
 
-const isPromiseLikeType = (
-  checker: ts.TypeChecker,
-  type: ts.Type,
-  visited: Set<ts.Type> = new Set()
-): boolean => {
-  if (visited.has(type)) return false;
-  visited.add(type);
+const isDynamicImportCall = (node: ts.CallExpression): boolean =>
+  node.expression.kind === ts.SyntaxKind.ImportKeyword;
 
-  if (type.isUnion() || type.isIntersection()) {
-    return type.types.some((member) =>
-      isPromiseLikeType(checker, member, visited)
-    );
+const isSupportedDynamicImportUsage = (node: ts.CallExpression): boolean => {
+  if (!isDynamicImportCall(node)) return false;
+  if (node.arguments.length !== 1) return false;
+
+  const [arg] = node.arguments;
+  if (!arg) return false;
+  const isStaticSpecifier =
+    ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg);
+  if (!isStaticSpecifier) return false;
+
+  const awaitExpr = node.parent;
+  if (!ts.isAwaitExpression(awaitExpr) || awaitExpr.expression !== node) {
+    return false;
   }
 
-  const symbol = type.getSymbol();
-  if (symbol !== undefined && isBuiltInPromiseSymbol(symbol)) {
-    return true;
-  }
-
-  const apparent = checker.getApparentType(type);
-  if (apparent !== type && isPromiseLikeType(checker, apparent, visited)) {
-    return true;
-  }
-
-  return false;
+  const statement = awaitExpr.parent;
+  return (
+    ts.isExpressionStatement(statement) && statement.expression === awaitExpr
+  );
 };
 
 /**
@@ -60,11 +58,9 @@ const isPromiseLikeType = (
  */
 export const validateUnsupportedFeatures = (
   sourceFile: ts.SourceFile,
-  program: TsonicProgram,
+  _program: TsonicProgram,
   collector: DiagnosticsCollector
 ): DiagnosticsCollector => {
-  const checker = program.checker;
-
   const visitor = (node: ts.Node): void => {
     // Check for features we don't support yet
     if (ts.isWithStatement(node)) {
@@ -79,58 +75,33 @@ export const validateUnsupportedFeatures = (
       );
     }
 
-    if (ts.isMetaProperty(node)) {
+    if (ts.isMetaProperty(node) && !isSupportedImportMetaUsage(node)) {
       collector = addDiagnostic(
         collector,
         createDiagnostic(
           "TSN2001",
           "error",
-          "Meta properties (import.meta) not supported",
+          "Meta properties (import.meta) not supported in this form",
           getNodeLocation(sourceFile, node)
         )
       );
     }
 
-    if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword
-    ) {
+    if (ts.isCallExpression(node) && isDynamicImportCall(node)) {
+      if (isSupportedDynamicImportUsage(node)) {
+        ts.forEachChild(node, visitor);
+        return;
+      }
       collector = addDiagnostic(
         collector,
         createDiagnostic(
           "TSN2001",
           "error",
-          "Dynamic import() not supported",
+          'Dynamic import() is only supported in side-effect form: await import("./module.js");',
           getNodeLocation(sourceFile, node),
-          "Use static imports"
+          "Use static imports, or use side-effect form with a static string literal specifier."
         )
       );
-    }
-
-    // Check for Promise-like `.then/.catch/.finally` chaining (not supported)
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression)
-    ) {
-      const methodName = node.expression.name.text;
-      if (PROMISE_CHAIN_METHODS.has(methodName)) {
-        const receiverType = checker.getTypeAtLocation(
-          node.expression.expression
-        );
-        const isPromiseLike = isPromiseLikeType(checker, receiverType);
-        if (isPromiseLike) {
-          collector = addDiagnostic(
-            collector,
-            createDiagnostic(
-              "TSN3011",
-              "error",
-              `Promise.${methodName}() is not supported`,
-              getNodeLocation(sourceFile, node),
-              "Use async/await instead of Promise chaining"
-            )
-          );
-        }
-      }
     }
 
     ts.forEachChild(node, visitor);

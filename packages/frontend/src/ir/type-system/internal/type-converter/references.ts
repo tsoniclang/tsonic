@@ -116,31 +116,51 @@ const normalizeNamespaceAliasQualifiedName = (typeName: string): string => {
 };
 
 /**
- * Cache for structural member extraction to prevent infinite recursion
- * on recursive types like `type Node = { next: Node }`.
+ * Per-binding caches for structural extraction and alias-body expansion.
  *
- * DETERMINISTIC IR TYPING (INV-0 compliant):
- * Key: DeclId.id (numeric identifier) - handles are stable identifiers
- * Value: extracted members, null (not extractable), or "in-progress" sentinel
+ * Airplane-grade determinism requirement:
+ * - Cache lifetime MUST be scoped to one compilation context.
+ * - DeclId numeric handles are stable only within a binding universe.
+ * - Cross-program cache reuse can silently miscompile types.
+ *
+ * We use WeakMap<Binding, ...> to isolate caches per program/binding graph.
  */
-const structuralMembersCache = new Map<
+type StructuralMembersCache = Map<
   number,
   readonly IrInterfaceMember[] | null | "in-progress"
+>;
+
+type TypeAliasBodyCache = Map<number, IrType | "in-progress">;
+
+const structuralMembersCacheByBinding = new WeakMap<
+  Binding,
+  StructuralMembersCache
 >();
 
-/**
- * Cache for expanding non-declaration-file type aliases (TS-only) into their underlying shapes.
- *
- * Key: DeclId.id (numeric identifier)
- * Value:
- *  - IrType: the *uninstantiated* alias body converted to IR (with typeParameterType nodes)
- *  - "in-progress": recursion guard for self-referential aliases
- *
- * NOTE:
- * We intentionally cache the uninstantiated body and apply type-argument substitution at
- * the reference site. This keeps the cache small and deterministic.
- */
-const typeAliasBodyCache = new Map<number, IrType | "in-progress">();
+const typeAliasBodyCacheByBinding = new WeakMap<Binding, TypeAliasBodyCache>();
+
+const getStructuralMembersCache = (
+  binding: Binding
+): StructuralMembersCache => {
+  let cache = structuralMembersCacheByBinding.get(binding);
+  if (!cache) {
+    cache = new Map<
+      number,
+      readonly IrInterfaceMember[] | null | "in-progress"
+    >();
+    structuralMembersCacheByBinding.set(binding, cache);
+  }
+  return cache;
+};
+
+const getTypeAliasBodyCache = (binding: Binding): TypeAliasBodyCache => {
+  let cache = typeAliasBodyCacheByBinding.get(binding);
+  if (!cache) {
+    cache = new Map<number, IrType | "in-progress">();
+    typeAliasBodyCacheByBinding.set(binding, cache);
+  }
+  return cache;
+};
 
 /**
  * Check whether a declaration file is a Tsonic-generated bindings artifact.
@@ -256,6 +276,7 @@ const extractStructuralMembersFromDeclarations = (
   }
 
   // Check cache first (handles recursion)
+  const structuralMembersCache = getStructuralMembersCache(binding);
   const cached = structuralMembersCache.get(declId);
   if (cached === "in-progress") {
     // Recursive reference - return undefined to break cycle
@@ -776,6 +797,7 @@ export const convertTypeReference = (
           !ts.isConditionalTypeNode(declNode.type)
         ) {
           const key = declId.id;
+          const typeAliasBodyCache = getTypeAliasBodyCache(binding);
           const cached = typeAliasBodyCache.get(key);
 
           if (cached !== "in-progress") {
@@ -830,6 +852,7 @@ export const convertTypeReference = (
           isSafeToEraseUserTypeAliasTarget(declNode.type)
         ) {
           const key = declId.id;
+          const typeAliasBodyCache = getTypeAliasBodyCache(binding);
           const cached = typeAliasBodyCache.get(key);
 
           if (cached === "in-progress") {

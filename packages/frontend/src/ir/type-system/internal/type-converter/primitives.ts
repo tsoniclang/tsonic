@@ -11,6 +11,17 @@ import * as ts from "typescript";
 import { IrType, IrPrimitiveType } from "../../../types.js";
 
 /**
+ * Synthetic IR reference type name used for explicit TypeScript `any`.
+ *
+ * This is intentionally distinct from `IrAnyType`:
+ * - `IrAnyType` remains a poison/fallback marker for unsupported conversions
+ *   and is rejected by the soundness gate.
+ * - Explicit user-authored `any` lowers to this nominal runtime-dynamic marker,
+ *   which the emitter lowers deterministically.
+ */
+export const DYNAMIC_ANY_TYPE_NAME = "__TSONIC_ANY";
+
+/**
  * CLR numeric type names from @tsonic/core.
  * When user writes `: int`, it becomes primitiveType(name="int"), NOT referenceType.
  *
@@ -37,7 +48,7 @@ export const convertPrimitiveKeyword = (kind: ts.SyntaxKind): IrType | null => {
     case ts.SyntaxKind.VoidKeyword:
       return { kind: "voidType" };
     case ts.SyntaxKind.AnyKeyword:
-      return { kind: "anyType" };
+      return { kind: "referenceType", name: DYNAMIC_ANY_TYPE_NAME };
     case ts.SyntaxKind.UnknownKeyword:
       return { kind: "unknownType" };
     case ts.SyntaxKind.NeverKeyword:
