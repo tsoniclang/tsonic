@@ -12,6 +12,7 @@
  * - `const [a, b] = yield expr;` → IrYieldStatement with receiveTarget = arrayPattern
  * - `return yield expr;` → IrYieldStatement + IrGeneratorReturnStatement(temp)
  * - `throw yield expr;` → IrYieldStatement + IrThrowStatement(temp)
+ * - `for (x = yield expr; ... )` → IrYieldStatement + ForStatement(without initializer)
  *
  * Unsupported patterns (emit TSN6101 diagnostic):
  * - `foo(yield x)` - yield in call argument
@@ -235,6 +236,24 @@ const createYieldStatement = (
   receivedType,
 });
 
+const toReceivePattern = (
+  target: IrExpression | IrPattern
+): IrPattern | undefined => {
+  if (
+    target.kind === "identifierPattern" ||
+    target.kind === "arrayPattern" ||
+    target.kind === "objectPattern"
+  ) {
+    return target;
+  }
+
+  if (target.kind === "identifier") {
+    return { kind: "identifierPattern", name: target.name };
+  }
+
+  return undefined;
+};
+
 /**
  * Create an IrGeneratorReturnStatement from a return statement's expression.
  * This captures the return value for generators with TReturn.
@@ -310,15 +329,11 @@ const processStatement = (
         }
 
         // Extract the target pattern
-        const target = expr.left;
-        if (
-          target.kind === "identifierPattern" ||
-          target.kind === "arrayPattern" ||
-          target.kind === "objectPattern"
-        ) {
+        const receiveTarget = toReceivePattern(expr.left);
+        if (receiveTarget) {
           return createYieldStatement(
             expr.right,
-            target,
+            receiveTarget,
             expr.right.inferredType
           );
         }
@@ -435,6 +450,46 @@ const processStatement = (
       };
 
     case "forStatement": {
+      if (
+        stmt.initializer &&
+        stmt.initializer.kind === "assignment" &&
+        stmt.initializer.operator === "=" &&
+        stmt.initializer.right.kind === "yield" &&
+        !stmt.initializer.right.delegate
+      ) {
+        const receiveTarget = toReceivePattern(stmt.initializer.left);
+        if (!receiveTarget) {
+          emitUnsupportedYieldDiagnostic(
+            ctx,
+            "for loop initializer",
+            stmt.initializer.right.sourceSpan
+          );
+          return {
+            ...stmt,
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          };
+        }
+        if (stmt.condition && containsYield(stmt.condition)) {
+          emitUnsupportedYieldDiagnostic(ctx, "for loop condition");
+        }
+        if (stmt.update && containsYield(stmt.update)) {
+          emitUnsupportedYieldDiagnostic(ctx, "for loop update");
+        }
+        const transformedFor: IrStatement = {
+          ...stmt,
+          initializer: undefined,
+          body: flattenStatement(processStatement(stmt.body, ctx)),
+        };
+        return [
+          createYieldStatement(
+            stmt.initializer.right,
+            receiveTarget,
+            stmt.initializer.right.inferredType
+          ),
+          transformedFor,
+        ];
+      }
+
       // Check for yield in initializer - not supported
       if (stmt.initializer) {
         if (

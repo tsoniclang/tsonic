@@ -264,6 +264,29 @@ describe("Yield Lowering Pass", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
       expect(result.diagnostics[0]?.message).to.include("compound assignment");
     });
+
+    it("should transform assignment with identifier expression target", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifier", name: "x" },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      const yieldStmt = body[0] as IrYieldStatement;
+      expect(yieldStmt.kind).to.equal("yieldStatement");
+      expect(yieldStmt.receiveTarget?.kind).to.equal("identifierPattern");
+      expect((yieldStmt.receiveTarget as { name: string }).name).to.equal("x");
+    });
   });
 
   describe("Destructuring Patterns", () => {
@@ -433,6 +456,34 @@ describe("Yield Lowering Pass", () => {
 
       expect(result.ok).to.be.false;
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
+
+    it("should transform for-loop assignment initializer with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: "x" },
+            right: createYield({ kind: "literal", value: 1 }),
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+
+      const loweredFor = body[1] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(loweredFor.initializer).to.equal(undefined);
     });
 
     it("should reject yield in for loop condition", () => {
