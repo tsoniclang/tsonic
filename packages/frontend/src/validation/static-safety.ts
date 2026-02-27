@@ -354,7 +354,8 @@ const collectSupportedGenericFunctionValueSymbols = (
 };
 
 const isAllowedGenericFunctionValueIdentifierUse = (
-  node: ts.Identifier
+  node: ts.Identifier,
+  checker: ts.TypeChecker
 ): boolean => {
   const parent = node.parent;
 
@@ -362,6 +363,45 @@ const isAllowedGenericFunctionValueIdentifierUse = (
   if (ts.isCallExpression(parent) && parent.expression === node) return true;
   if (ts.isTypeQueryNode(parent) && parent.exprName === node) return true;
   if (ts.isExportSpecifier(parent)) return true;
+
+  const contextualType = checker.getContextualType(node);
+  if (contextualType) {
+    const isNullishOnly = (type: ts.Type): boolean => {
+      const flags = type.getFlags();
+      return (
+        (flags &
+          (ts.TypeFlags.Null |
+            ts.TypeFlags.Undefined |
+            ts.TypeFlags.Void |
+            ts.TypeFlags.Never)) !==
+        0
+      );
+    };
+
+    const isMonomorphicCallableType = (type: ts.Type): boolean => {
+      if (type.isUnion()) {
+        return type.types.every(
+          (member) =>
+            isNullishOnly(member) || isMonomorphicCallableType(member)
+        );
+      }
+
+      if (type.isIntersection()) {
+        return type.types.every((member) => isMonomorphicCallableType(member));
+      }
+
+      const signatures = checker.getSignaturesOfType(
+        type,
+        ts.SignatureKind.Call
+      );
+      if (signatures.length === 0) return false;
+      return signatures.every(
+        (sig) => !sig.typeParameters || sig.typeParameters.length === 0
+      );
+    };
+
+    if (isMonomorphicCallableType(contextualType)) return true;
+  }
 
   return false;
 };
@@ -638,7 +678,7 @@ export const validateStaticSafety = (
       if (
         symbol &&
         supportedGenericFunctionValueSymbols.has(symbol) &&
-        !isAllowedGenericFunctionValueIdentifierUse(node)
+        !isAllowedGenericFunctionValueIdentifierUse(node, program.checker)
       ) {
         const name = node.text;
         currentCollector = addDiagnostic(
@@ -646,9 +686,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            `Generic function value '${name}' is only supported in direct call position.`,
+            `Generic function value '${name}' is only supported in direct call or monomorphic callable-context position.`,
             getNodeLocation(sourceFile, node),
-            "Call the function directly (e.g., `name<T>(...)`) or rewrite to a named generic function declaration."
+            "Call the function directly (e.g., `name<T>(...)`), or use it where a concrete callable type is contextually known (e.g., function argument typed as `(x: number) => number`)."
           )
         );
       }

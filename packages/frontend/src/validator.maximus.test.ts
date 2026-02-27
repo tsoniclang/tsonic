@@ -433,6 +433,26 @@ describe("Maximus Validation Coverage", () => {
           void wrap;
         `,
       },
+      {
+        name: "generic value passed in monomorphic callable argument context",
+        source: `
+          const id = <T>(x: T): T => x;
+          function use(fn: (x: number) => number): number {
+            return fn(1);
+          }
+          const out = use(id);
+          void out;
+        `,
+      },
+      {
+        name: "generic value assigned to monomorphic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy: (x: number) => number = id;
+          const out = copy(2);
+          void out;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -466,6 +486,14 @@ describe("Maximus Validation Coverage", () => {
           const id = <T>(x: T): T => x;
           function use(fn: unknown): void { void fn; }
           use(id);
+        `,
+      },
+      {
+        name: "generic function value assigned to generic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy: <T>(x: T) => T = id;
+          void copy;
         `,
       },
       {
