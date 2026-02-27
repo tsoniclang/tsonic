@@ -244,7 +244,7 @@ describe("Yield Lowering Pass", () => {
       expect(yieldStmt.receiveTarget?.kind).to.equal("identifierPattern");
     });
 
-    it("should reject compound assignment with yield", () => {
+    it("should transform compound assignment with yield", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -259,10 +259,50 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("expressionStatement");
+      const assignmentStmt = body[1] as Extract<
+        IrStatement,
+        { kind: "expressionStatement" }
+      >;
+      expect(assignmentStmt.expression.kind).to.equal("assignment");
+      if (assignmentStmt.expression.kind === "assignment") {
+        expect(assignmentStmt.expression.operator).to.equal("+=");
+        expect(assignmentStmt.expression.right.kind).to.equal("identifier");
+      }
+    });
+
+    it("should reject compound assignment to complex target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
       expect(result.ok).to.be.false;
       expect(result.diagnostics).to.have.length(1);
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
-      expect(result.diagnostics[0]?.message).to.include("compound assignment");
+      expect(result.diagnostics[0]?.message).to.include(
+        "compound assignment to complex target"
+      );
     });
 
     it("should transform assignment with identifier expression target", () => {

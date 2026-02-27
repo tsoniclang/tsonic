@@ -674,14 +674,42 @@ const processStatement = (
         expr.right.kind === "yield" &&
         !expr.right.delegate
       ) {
-        // Only support simple assignment operators (=)
+        // Compound assignment (x += yield y) needs a temporary receive target,
+        // then an explicit compound update statement.
         if (expr.operator !== "=") {
-          emitUnsupportedYieldDiagnostic(
-            ctx,
-            "compound assignment",
-            expr.right.sourceSpan
-          );
-          return stmt;
+          if (
+            expr.left.kind !== "identifierPattern" &&
+            expr.left.kind !== "identifier"
+          ) {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              "compound assignment to complex target",
+              expr.right.sourceSpan
+            );
+            return stmt;
+          }
+
+          const tempName = allocateYieldTempName(ctx);
+          const leftExpr =
+            expr.left.kind === "identifierPattern"
+              ? ({ kind: "identifier", name: expr.left.name } as const)
+              : expr.left;
+
+          return [
+            createYieldStatement(
+              expr.right,
+              { kind: "identifierPattern", name: tempName },
+              expr.right.inferredType
+            ),
+            {
+              kind: "expressionStatement",
+              expression: {
+                ...expr,
+                left: leftExpr,
+                right: { kind: "identifier", name: tempName },
+              },
+            },
+          ];
         }
 
         // Extract the target pattern
