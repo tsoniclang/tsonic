@@ -380,7 +380,7 @@ describe("Yield Lowering Pass", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
     });
 
-    it("should reject yield in return expression", () => {
+    it("should transform return yield expression into yield+generatorReturn", () => {
       const module = createGeneratorModule([
         {
           kind: "returnStatement",
@@ -390,15 +390,42 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("generatorReturnStatement");
     });
 
-    it("should reject yield in throw expression", () => {
+    it("should transform throw yield expression into yield+throw", () => {
       const module = createGeneratorModule([
         {
           kind: "throwStatement",
           expression: createYield({ kind: "identifier", name: "err" }),
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("throwStatement");
+    });
+
+    it("should reject nested yield in return expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "returnStatement",
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
         },
       ]);
 
@@ -655,13 +682,23 @@ describe("Yield Lowering Pass", () => {
       const module1 = createGeneratorModule([
         {
           kind: "returnStatement",
-          expression: createYield({ kind: "literal", value: 1 }),
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
         },
       ]);
       const module2 = createGeneratorModule([
         {
           kind: "throwStatement",
-          expression: createYield({ kind: "identifier", name: "err" }),
+          expression: {
+            kind: "call",
+            callee: { kind: "identifier", name: "wrap" },
+            arguments: [createYield({ kind: "identifier", name: "err" })],
+            isOptional: false,
+          },
         },
       ]);
 

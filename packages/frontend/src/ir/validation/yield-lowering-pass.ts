@@ -10,6 +10,8 @@
  * - `x = yield expr;` → IrYieldStatement with receiveTarget = identifierPattern
  * - `const {a, b} = yield expr;` → IrYieldStatement with receiveTarget = objectPattern
  * - `const [a, b] = yield expr;` → IrYieldStatement with receiveTarget = arrayPattern
+ * - `return yield expr;` → IrYieldStatement + IrGeneratorReturnStatement(temp)
+ * - `throw yield expr;` → IrYieldStatement + IrThrowStatement(temp)
  *
  * Unsupported patterns (emit TSN6101 diagnostic):
  * - `foo(yield x)` - yield in call argument
@@ -54,6 +56,7 @@ type LoweringContext = {
   readonly diagnostics: Diagnostic[];
   /** True if we're inside a generator function */
   readonly inGenerator: boolean;
+  yieldTempCounter: number;
 };
 
 /**
@@ -260,6 +263,11 @@ const emitUnsupportedYieldDiagnostic = (
       "Extract yield to a separate statement: `const result = yield expr; use(result);`"
     )
   );
+};
+
+const allocateYieldTempName = (ctx: LoweringContext): string => {
+  ctx.yieldTempCounter += 1;
+  return `__tsonic_yield_${ctx.yieldTempCounter}`;
 };
 
 /**
@@ -496,6 +504,24 @@ const processStatement = (
       };
 
     case "returnStatement":
+      if (
+        stmt.expression &&
+        stmt.expression.kind === "yield" &&
+        !stmt.expression.delegate
+      ) {
+        const tempName = allocateYieldTempName(ctx);
+        return [
+          createYieldStatement(
+            stmt.expression,
+            { kind: "identifierPattern", name: tempName },
+            stmt.expression.inferredType
+          ),
+          createGeneratorReturnStatement({
+            kind: "identifier",
+            name: tempName,
+          }),
+        ];
+      }
       // Check for yield in return expression
       if (stmt.expression && containsYield(stmt.expression)) {
         emitUnsupportedYieldDiagnostic(
@@ -510,6 +536,26 @@ const processStatement = (
       return createGeneratorReturnStatement(stmt.expression);
 
     case "throwStatement":
+      if (
+        stmt.expression.kind === "yield" &&
+        !stmt.expression.delegate
+      ) {
+        const tempName = allocateYieldTempName(ctx);
+        return [
+          createYieldStatement(
+            stmt.expression,
+            { kind: "identifierPattern", name: tempName },
+            stmt.expression.inferredType
+          ),
+          {
+            kind: "throwStatement",
+            expression: {
+              kind: "identifier",
+              name: tempName,
+            },
+          },
+        ];
+      }
       // Check for yield in throw expression
       if (containsYield(stmt.expression)) {
         emitUnsupportedYieldDiagnostic(
@@ -711,6 +757,7 @@ const processModule = (
     filePath: module.filePath,
     diagnostics: [],
     inGenerator: false,
+    yieldTempCounter: 0,
   };
 
   const processedBody = module.body.map((stmt) => {
