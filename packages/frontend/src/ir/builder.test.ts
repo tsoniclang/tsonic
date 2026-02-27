@@ -572,6 +572,84 @@ describe("IR Builder", () => {
       expect(param?.type).to.deep.equal({ kind: "primitiveType", name: "number" });
       expect(useFn.returnType).to.deep.equal({ kind: "primitiveType", name: "number" });
     });
+
+    it("keeps alias conversion deterministic across alternating compilations", () => {
+      const sourceString = `
+        export type UserId = string;
+        export function use(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const sourceNumber = `
+        export type UserId = number;
+        export function use(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const sourceBoolean = `
+        export type UserId = boolean;
+        export function use(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const buildUseFn = (source: string): IrFunctionDeclaration => {
+        const test = createTestProgram(source);
+        const file = test.testProgram.sourceFiles[0];
+        if (!file) throw new Error("Failed to create source file");
+        const result = buildIrModule(file, test.testProgram, test.options, test.ctx);
+        expect(result.ok).to.equal(true);
+        if (!result.ok) throw new Error(result.error.message);
+        const useFn = result.value.body.find(
+          (stmt): stmt is IrFunctionDeclaration =>
+            stmt.kind === "functionDeclaration" && stmt.name === "use"
+        );
+        if (!useFn) throw new Error("Missing use function");
+        return useFn;
+      };
+
+      const first = buildUseFn(sourceString);
+      expect(first.parameters[0]?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+      expect(first.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+
+      const second = buildUseFn(sourceNumber);
+      expect(second.parameters[0]?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
+      });
+      expect(second.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "number",
+      });
+
+      const third = buildUseFn(sourceBoolean);
+      expect(third.parameters[0]?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "boolean",
+      });
+      expect(third.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "boolean",
+      });
+
+      const fourth = buildUseFn(sourceString);
+      expect(fourth.parameters[0]?.type).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+      expect(fourth.returnType).to.deep.equal({
+        kind: "primitiveType",
+        name: "string",
+      });
+    });
   });
 
   describe("Statement Conversion", () => {

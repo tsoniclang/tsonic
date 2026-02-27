@@ -457,5 +457,58 @@ describe("End-to-End Integration", () => {
       const csharp = compileToCSharp(targetSource);
       expect(csharp).to.match(/findById\s*\(\s*double\s+id\s*\)/i);
     });
+
+    it("does not leak structural alias property types across compiles", () => {
+      const seedSource = `
+        export type Payload = {
+          value: string;
+        };
+      `;
+
+      const targetSource = `
+        export type Payload = {
+          value: number;
+        };
+
+        export function read(input: Payload): number {
+          return input.value;
+        }
+      `;
+
+      compileToCSharp(seedSource);
+      const csharp = compileToCSharp(targetSource);
+      expect(csharp).to.match(
+        /class\s+Payload__Alias[\s\S]*required\s+double\s+value\s*\{/i
+      );
+      expect(csharp).to.match(/read\s*\(\s*Payload__Alias\s+input\s*\)/i);
+      expect(csharp).not.to.match(
+        /class\s+Payload__Alias[\s\S]*required\s+string\s+value\s*\{/i
+      );
+    });
+
+    it("keeps compile outputs independent when same alias name is reused", () => {
+      const sourceA = `
+        export type UserId = string;
+        export interface User {
+          id: UserId;
+        }
+      `;
+
+      const sourceB = `
+        export type UserId = number;
+        export interface User {
+          id: UserId;
+        }
+      `;
+
+      const csharpA = compileToCSharp(sourceA);
+      const csharpB = compileToCSharp(sourceB);
+      const csharpAAgain = compileToCSharp(sourceA);
+
+      expect(csharpA).to.match(/required\s+string\s+id\s*\{/i);
+      expect(csharpB).to.match(/required\s+double\s+id\s*\{/i);
+      expect(csharpAAgain).to.match(/required\s+string\s+id\s*\{/i);
+      expect(csharpAAgain).not.to.match(/required\s+double\s+id\s*\{/i);
+    });
   });
 });
