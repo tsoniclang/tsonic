@@ -465,6 +465,16 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "generic value in typed object shorthand callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          type Box = { id: (x: number) => number };
+          const box: Box = { id };
+          const out = box.id(5);
+          void out;
+        `,
+      },
+      {
         name: "generic value returned through monomorphic callable return type",
         source: `
           function make(): (x: number) => number {
