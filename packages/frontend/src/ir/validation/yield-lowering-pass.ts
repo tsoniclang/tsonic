@@ -931,13 +931,51 @@ const processStatement = (
             initializer = undefined;
           }
         } else if (initializer.kind === "variableDeclaration") {
-          if (
-            initializer.declarations.some(
-              (d) => d.initializer && containsYield(d.initializer)
-            )
-          ) {
-            emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
-          }
+          const transformedDecls = initializer.declarations.map((decl) => {
+            if (!decl.initializer || !containsYield(decl.initializer)) {
+              return decl;
+            }
+
+            if (
+              decl.initializer.kind === "yield" &&
+              !decl.initializer.delegate
+            ) {
+              const tempName = allocateYieldTempName(ctx);
+              leadingStatements.push(
+                createYieldStatement(
+                  decl.initializer,
+                  { kind: "identifierPattern", name: tempName },
+                  decl.type ?? decl.initializer.inferredType
+                )
+              );
+              return {
+                ...decl,
+                initializer: {
+                  kind: "identifier",
+                  name: tempName,
+                } as const,
+              };
+            }
+
+            const loweredInitializer = lowerExpressionWithYields(
+              decl.initializer,
+              ctx,
+              "for loop initializer",
+              decl.type ?? decl.initializer.inferredType
+            );
+            if (!loweredInitializer) {
+              return decl;
+            }
+            leadingStatements.push(...loweredInitializer.prelude);
+            return {
+              ...decl,
+              initializer: loweredInitializer.expression,
+            };
+          });
+          initializer = {
+            ...initializer,
+            declarations: transformedDecls,
+          };
         } else if (containsYield(initializer)) {
           const loweredInitializer = lowerExpressionWithYields(
             initializer,

@@ -620,6 +620,98 @@ describe("Yield Lowering Pass", () => {
       expect(loweredFor.initializer?.kind).to.equal("assignment");
     });
 
+    it("should transform direct yield in for-loop declaration initializer", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "variableDeclaration",
+            declarationKind: "let",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "x" },
+                type: { kind: "primitiveType", name: "number" },
+                initializer: createYield({ kind: "literal", value: 1 }),
+              },
+            ],
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer?.kind).to.equal("variableDeclaration");
+      const initDecl = loweredFor.initializer as Extract<
+        IrStatement,
+        { kind: "variableDeclaration" }
+      >;
+      expect(initDecl.declarations[0]?.initializer?.kind).to.equal(
+        "identifier"
+      );
+    });
+
+    it("should transform nested yield in for-loop declaration initializer", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          initializer: {
+            kind: "variableDeclaration",
+            declarationKind: "let",
+            isExported: false,
+            declarations: [
+              {
+                kind: "variableDeclarator",
+                name: { kind: "identifierPattern", name: "x" },
+                type: { kind: "primitiveType", name: "number" },
+                initializer: {
+                  kind: "binary",
+                  operator: "+",
+                  left: createYield({ kind: "literal", value: 1 }),
+                  right: { kind: "literal", value: 2 },
+                },
+              },
+            ],
+          },
+          condition: { kind: "literal", value: true },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forStatement");
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
+      expect(loweredFor.initializer?.kind).to.equal("variableDeclaration");
+      const initDecl = loweredFor.initializer as Extract<
+        IrStatement,
+        { kind: "variableDeclaration" }
+      >;
+      expect(initDecl.declarations[0]?.initializer?.kind).to.equal("binary");
+    });
+
     it("should transform nested yield in for loop condition", () => {
       const module = createGeneratorModule([
         {
