@@ -521,6 +521,57 @@ describe("IR Builder", () => {
         expect(arg0.inferredType.name).to.equal("Payload");
       }
     });
+
+    it("does not leak type-alias cache entries across program contexts", () => {
+      const sourceA = `
+        export type UserId = string;
+        export function use(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const sourceB = `
+        export type UserId = number;
+        export function use(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const first = createTestProgram(sourceA);
+      const firstFile = first.testProgram.sourceFiles[0];
+      if (!firstFile) throw new Error("Failed to create source file A");
+      const firstResult = buildIrModule(
+        firstFile,
+        first.testProgram,
+        first.options,
+        first.ctx
+      );
+      expect(firstResult.ok).to.equal(true);
+      if (!firstResult.ok) return;
+
+      const second = createTestProgram(sourceB);
+      const secondFile = second.testProgram.sourceFiles[0];
+      if (!secondFile) throw new Error("Failed to create source file B");
+      const secondResult = buildIrModule(
+        secondFile,
+        second.testProgram,
+        second.options,
+        second.ctx
+      );
+      expect(secondResult.ok).to.equal(true);
+      if (!secondResult.ok) return;
+
+      const useFn = secondResult.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "use"
+      );
+      expect(useFn).to.not.equal(undefined);
+      if (!useFn) return;
+
+      const param = useFn.parameters[0];
+      expect(param?.type).to.deep.equal({ kind: "primitiveType", name: "number" });
+      expect(useFn.returnType).to.deep.equal({ kind: "primitiveType", name: "number" });
+    });
   });
 
   describe("Statement Conversion", () => {

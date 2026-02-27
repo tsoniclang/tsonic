@@ -430,5 +430,32 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("namespace Test");
       expect(csharp).to.include("public static class test");
     });
+
+    it("is deterministic across sequential compiles (no cross-program alias cache bleed)", () => {
+      const seedSource = `
+        export type UserId = string;
+        export function seed(id: UserId): UserId {
+          return id;
+        }
+      `;
+
+      const targetSource = `
+        export interface User {
+          id: number;
+        }
+
+        export type UserId = number;
+
+        export class UserRepository {
+          findById(id: UserId): User | undefined {
+            return undefined;
+          }
+        }
+      `;
+
+      compileToCSharp(seedSource);
+      const csharp = compileToCSharp(targetSource);
+      expect(csharp).to.match(/findById\s*\(\s*double\s+id\s*\)/i);
+    });
   });
 });
