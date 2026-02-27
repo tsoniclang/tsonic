@@ -140,3 +140,21 @@ describe("Type Converter - Tuple Rest Lowering", () => {
     });
   });
 });
+
+describe("Type Converter - Mapped/Conditional Syntax", () => {
+  it("lowers direct mapped type syntax to unknownType (never anyType)", () => {
+    const converted = convertAlias(
+      "type T<U> = { [K in keyof U]: U[K] | null };",
+      "T"
+    );
+    expect(converted).to.deep.equal({ kind: "unknownType" });
+  });
+
+  it("lowers direct conditional syntax to unknownType (never anyType)", () => {
+    const converted = convertAlias(
+      "type T<U> = U extends Promise<infer V> ? V : U;",
+      "T"
+    );
+    expect(converted).to.deep.equal({ kind: "unknownType" });
+  });
+});

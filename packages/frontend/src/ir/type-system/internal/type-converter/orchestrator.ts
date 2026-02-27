@@ -222,6 +222,30 @@ export const convertType = (
     return convertIntersectionType(typeNode, binding, convertType);
   }
 
+  // Mapped types
+  //
+  // Direct mapped syntax is TS-only and has no first-class CLR type equivalent.
+  // For deterministic AOT lowering we treat it as `unknown` at IR level
+  // (which emits to `object?`) instead of falling back to anyType/ICE.
+  if (ts.isMappedTypeNode(typeNode)) {
+    return { kind: "unknownType" };
+  }
+
+  // Conditional types
+  //
+  // Utility-conditionals (Extract/Exclude/NonNullable/...) are expanded via
+  // type references in convertTypeReference(). Direct conditional syntax is
+  // lowered conservatively to `unknown` for stable emission.
+  if (ts.isConditionalTypeNode(typeNode)) {
+    return { kind: "unknownType" };
+  }
+
+  // infer type nodes are only valid within conditional types. If one survives
+  // to direct conversion, lower conservatively to unknown.
+  if (ts.isInferTypeNode(typeNode)) {
+    return { kind: "unknownType" };
+  }
+
   // Literal types
   if (ts.isLiteralTypeNode(typeNode)) {
     return convertLiteralType(typeNode);

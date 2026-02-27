@@ -232,8 +232,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7409 - infer keyword", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("infer keyword support", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -257,18 +257,6 @@ describe("Maximus Validation Coverage", () => {
         name: "multiple infer clauses",
         source: `type Pair<T> = T extends [infer A, infer B] ? [A, B] : never;`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7409")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       {
         name: "identifier containing infer",
         source: `const inferredValue = 1; console.log(inferredValue);`,
@@ -289,6 +277,46 @@ describe("Maximus Validation Coverage", () => {
 
     for (const c of allowCases) {
       it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7409")).to.equal(false);
+      });
+    }
+  });
+
+  describe("mapped and conditional type syntax", () => {
+    const allowCases: ReadonlyArray<{
+      readonly name: string;
+      readonly source: string;
+    }> = [
+      {
+        name: "direct mapped type alias",
+        source: `
+          type Mapper<T> = { [K in keyof T]: T[K] };
+          type X = Mapper<{ a: string; b: number }>;
+        `,
+      },
+      {
+        name: "direct conditional type alias",
+        source: `
+          type C<T> = T extends string ? number : boolean;
+          type A = C<string>;
+          type B = C<number>;
+        `,
+      },
+      {
+        name: "mapped + conditional with infer",
+        source: `
+          type Normalize<T> = {
+            [K in keyof T]: T[K] extends Promise<infer U> ? U : T[K]
+          };
+          type N = Normalize<{ a: Promise<number>; b: string }>;
+        `,
+      },
+    ];
+
+    for (const c of allowCases) {
+      it(`allows ${c.name}`, () => {
+        expect(hasCode(c.source, "TSN7406")).to.equal(false);
+        expect(hasCode(c.source, "TSN7407")).to.equal(false);
         expect(hasCode(c.source, "TSN7409")).to.equal(false);
       });
     }

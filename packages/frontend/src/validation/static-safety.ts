@@ -5,10 +5,10 @@
  * - TSN7401: 'any' type usage
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
- * - TSN7406: Mapped types not supported
- * - TSN7407: Conditional types not supported
+ * - TSN7406: Mapped types not supported (retired)
+ * - TSN7407: Conditional types not supported (retired)
  * - TSN7408: Mixed variadic tuples not supported (retired)
- * - TSN7409: 'infer' keyword not supported
+ * - TSN7409: 'infer' keyword not supported (retired)
  * - TSN7410: Intersection types not supported (retired)
  * - TSN7413: Dictionary key must be string or number
  * - TSN7430: Arrow function requires explicit types (escape hatch)
@@ -28,10 +28,6 @@ import {
   createDiagnostic,
 } from "../types/diagnostic.js";
 import { getNodeLocation } from "./helpers.js";
-import {
-  UNSUPPORTED_MAPPED_UTILITY_TYPES,
-  UNSUPPORTED_CONDITIONAL_UTILITY_TYPES,
-} from "./unsupported-utility-types.js";
 
 /**
  * Result of basic eligibility check for object literal synthesis.
@@ -475,37 +471,6 @@ export const validateStaticSafety = (
           );
         }
 
-        // TSN7406: Mapped-type utility types (these expand to mapped types internally)
-        // Only check when type arguments are present to avoid false positives for
-        // user-defined types named "Partial", etc.
-        if (hasTypeArgs && UNSUPPORTED_MAPPED_UTILITY_TYPES.has(name)) {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7406",
-              "error",
-              `Utility type '${name}' is not supported (it uses mapped types internally).`,
-              getNodeLocation(sourceFile, node),
-              `Replace '${name}' with an explicit interface that has the desired properties.`
-            )
-          );
-        }
-
-        // TSN7407: Conditional-type utility types (these expand to conditional types internally)
-        // Only check when type arguments are present
-        if (hasTypeArgs && UNSUPPORTED_CONDITIONAL_UTILITY_TYPES.has(name)) {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7407",
-              "error",
-              `Utility type '${name}' is not supported (it uses conditional types internally).`,
-              getNodeLocation(sourceFile, node),
-              `Replace '${name}' with an explicit type definition.`
-            )
-          );
-        }
-
         // TSN7413: Record<K, V> where K is not an allowed key type
         if (name === "Record") {
           const typeArgs = node.typeArguments;
@@ -546,50 +511,17 @@ export const validateStaticSafety = (
       }
     }
 
-    // TSN7406: Check for mapped types (e.g., { [P in keyof T]: ... })
-    if (ts.isMappedTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7406",
-          "error",
-          "Mapped types are not supported. Write an explicit interface or class instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace mapped types like Partial<T>, Required<T>, or { [P in keyof T]: ... } with explicit interface definitions."
-        )
-      );
-    }
+    // TSN7406 retired:
+    // Mapped types are handled by type conversion + specialization.
 
-    // TSN7407: Check for conditional types (e.g., T extends U ? X : Y)
-    if (ts.isConditionalTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7407",
-          "error",
-          "Conditional types are not supported. Use explicit union types or overloads instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace conditional types like Extract<T, U> or T extends X ? Y : Z with explicit type definitions."
-        )
-      );
-    }
+    // TSN7407 retired:
+    // Conditional types are handled by utility expansion and type conversion.
 
     // TSN7408 retired:
     // Mixed variadic tuples are now lowered to array types in the converter.
 
-    // TSN7409: Check for 'infer' keyword in conditional types
-    if (ts.isInferTypeNode(node)) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7409",
-          "error",
-          "The 'infer' keyword is not supported. Use explicit type parameters instead.",
-          getNodeLocation(sourceFile, node),
-          "Replace infer patterns with explicit generic type parameters."
-        )
-      );
-    }
+    // TSN7409 retired:
+    // infer clauses are handled by conditional/type evaluator paths.
 
     // TSN7410 retired:
     // Intersection types are lowered by the type emitter.

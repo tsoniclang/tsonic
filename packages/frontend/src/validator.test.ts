@@ -1112,6 +1112,48 @@ describe("Static Safety Validation", () => {
     });
   });
 
+  describe("Mapped/conditional syntax is supported", () => {
+    it("should allow direct mapped type aliases", () => {
+      const source = `
+        type Mapper<T> = { [K in keyof T]: T[K] };
+        type X = Mapper<{ a: string; b: number }>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+      expect(diagnostics.diagnostics.find((d) => d.code === "TSN7406")).to.equal(
+        undefined
+      );
+    });
+
+    it("should allow direct conditional type aliases", () => {
+      const source = `
+        type C<T> = T extends string ? number : boolean;
+        type A = C<string>;
+        type B = C<number>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+      expect(diagnostics.diagnostics.find((d) => d.code === "TSN7407")).to.equal(
+        undefined
+      );
+    });
+
+    it("should allow infer clauses in conditional aliases", () => {
+      const source = `
+        type Unwrap<T> = T extends Promise<infer U> ? U : T;
+        type N = Unwrap<Promise<number>>;
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+      expect(diagnostics.diagnostics.find((d) => d.code === "TSN7409")).to.equal(
+        undefined
+      );
+    });
+  });
+
   describe("No false positives for utility-like names", () => {
     it("should allow user-defined type named Partial without type args", () => {
       const source = `

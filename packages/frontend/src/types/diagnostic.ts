@@ -55,11 +55,11 @@ export type DiagnosticCode =
   | "TSN7401" // 'any' type not supported - requires explicit type
   | "TSN7403" // Object literal requires contextual nominal type
   | "TSN7405" // Untyped lambda parameter - requires explicit type annotation
-  | "TSN7406" // Mapped types not supported
-  | "TSN7407" // Conditional types not supported
-  | "TSN7408" // Tuple types not supported
-  | "TSN7409" // 'infer' keyword not supported
-  | "TSN7410" // Intersection types not supported
+  | "TSN7406" // Mapped types not supported (retired)
+  | "TSN7407" // Conditional types not supported (retired)
+  | "TSN7408" // Tuple types not supported (retired)
+  | "TSN7409" // 'infer' keyword not supported (retired)
+  | "TSN7410" // Intersection types not supported (retired)
   | "TSN7413" // Dictionary key must be string or number
   | "TSN7414" // Type cannot be represented in compiler subset
   | "TSN7415" // Nullable union with unconstrained generic type parameter

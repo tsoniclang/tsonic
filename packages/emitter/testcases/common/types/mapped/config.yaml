@@ -1,3 +1,2 @@
 - input: MappedTypes.ts
-  title: custom mapped types are rejected with TSN7406
-  expectDiagnostics: [TSN7406]
+  title: custom mapped types are lowered deterministically

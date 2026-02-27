@@ -1,33 +1,20 @@
-export type StringOrNumber = string | number | boolean;
+export type StringOrNumberOrBoolean = string | number | boolean;
 
-// Using built-in conditional utility types
-export type OnlyStrings = Extract<StringOrNumber, string>;
-export type NoStrings = Exclude<StringOrNumber, string>;
+export type OnlyStrings = Extract<StringOrNumberOrBoolean, string>;
+export type NoStrings = Exclude<StringOrNumberOrBoolean, string>;
 export type NonNullableValue = NonNullable<string | null | undefined>;
 
-// Custom conditional type
-export type IsArray<T> = T extends any[] ? true : false;
-
-export type ArrayCheck1 = IsArray<string[]>;
+export type IsArray<T> = T extends readonly unknown[] ? true : false;
+export type ArrayCheck1 = IsArray<readonly string[]>;
 export type ArrayCheck2 = IsArray<string>;
 
-// More complex conditional type
 export type Unwrap<T> = T extends Promise<infer U> ? U : T;
-
 export type UnwrappedString = Unwrap<Promise<string>>;
 export type UnwrappedNumber = Unwrap<number>;
 
-// Function using conditional type
-export function processValue<T extends string | number>(
-  value: T
-): T extends string ? number : string {
-  if (typeof value === "string") {
-    return value.Length as unknown as T extends string ? number : string;
-  }
-  return value.ToString() as unknown as T extends string ? number : string;
-}
+export type PickValue<T> = T extends { value: infer U } ? U : never;
+export type PickedFromObject = PickValue<{ value: number }>;
 
-// ReturnType utility
 export function greet(name: string): string {
   return `Hello ${name}`;
 }
