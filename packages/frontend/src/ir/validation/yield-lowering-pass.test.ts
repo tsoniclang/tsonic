@@ -411,7 +411,7 @@ describe("Yield Lowering Pass", () => {
       expect(body[1]?.kind).to.equal("variableDeclaration");
     });
 
-    it("should reject yield in conditional expression", () => {
+    it("should transform yield in conditional expression condition", () => {
       const module = createGeneratorModule([
         {
           kind: "variableDeclaration",
@@ -426,6 +426,7 @@ describe("Yield Lowering Pass", () => {
                 condition: createYield({ kind: "literal", value: true }),
                 whenTrue: { kind: "literal", value: 1 },
                 whenFalse: { kind: "literal", value: 2 },
+                inferredType: { kind: "primitiveType", name: "number" },
               },
             },
           ],
@@ -434,8 +435,63 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("ifStatement");
+      expect(body[3]?.kind).to.equal("variableDeclaration");
+    });
+
+    it("should transform yield in conditional expression branches lazily", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "x" },
+              initializer: {
+                kind: "conditional",
+                condition: { kind: "literal", value: true },
+                whenTrue: createYield({ kind: "literal", value: 1 }),
+                whenFalse: createYield({ kind: "literal", value: 2 }),
+                inferredType: { kind: "primitiveType", name: "number" },
+              },
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("ifStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+
+      const loweredIf = body[1] as Extract<IrStatement, { kind: "ifStatement" }>;
+      expect(loweredIf.thenStatement.kind).to.equal("blockStatement");
+      expect(loweredIf.elseStatement?.kind).to.equal("blockStatement");
+      const thenStatements =
+        loweredIf.thenStatement.kind === "blockStatement"
+          ? loweredIf.thenStatement.statements
+          : [];
+      const elseStatements =
+        loweredIf.elseStatement?.kind === "blockStatement"
+          ? loweredIf.elseStatement.statements
+          : [];
+      expect(thenStatements[0]?.kind).to.equal("yieldStatement");
+      expect(thenStatements[1]?.kind).to.equal("expressionStatement");
+      expect(elseStatements[0]?.kind).to.equal("yieldStatement");
+      expect(elseStatements[1]?.kind).to.equal("expressionStatement");
     });
 
     it("should transform return yield expression into yield+generatorReturn", () => {

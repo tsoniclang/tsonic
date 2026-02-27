@@ -19,10 +19,9 @@
  * - `if (yield expr) { ... }` → IrYieldStatement + IfStatement(temp)
  * - `switch (yield expr) { ... }` → IrYieldStatement + SwitchStatement(temp)
  * - `while (yield expr) { ... }` → While(true) with per-iteration yield+guard
+ * - `const x = cond ? (yield a) : (yield b)` → temp + branch-lowered yields
  *
  * Unsupported patterns (emit TSN6101 diagnostic):
- * - `for (; yield a && b; ...)` - nested yield in for-loop condition/update
- * - `cond ? yield a : b` - conditional-expression yield
  * - `(yield x) = y` - yield on assignment target side
  */
 
@@ -294,7 +293,7 @@ const allocateYieldTempName = (ctx: LoweringContext): string => {
 };
 
 type LoweredExpressionWithYields = {
-  readonly prelude: readonly IrYieldStatement[];
+  readonly prelude: readonly IrStatement[];
   readonly expression: IrExpression;
 };
 
@@ -309,7 +308,8 @@ type LoweredExpressionWithYields = {
 const lowerExpressionWithYields = (
   expression: IrExpression,
   ctx: LoweringContext,
-  position: string
+  position: string,
+  expectedType?: IrType
 ): LoweredExpressionWithYields | undefined => {
   const lower = (
     expr: IrExpression
@@ -405,7 +405,7 @@ const lowerExpressionWithYields = (
         const loweredObject = lower(expr.object);
         if (!loweredObject) return undefined;
         let loweredProperty: IrExpression | string = expr.property;
-        let propertyPrelude: readonly IrYieldStatement[] = [];
+        let propertyPrelude: readonly IrStatement[] = [];
         if (typeof expr.property !== "string") {
           const loweredPropExpr = lower(expr.property);
           if (!loweredPropExpr) return undefined;
@@ -426,7 +426,7 @@ const lowerExpressionWithYields = (
       case "new": {
         const loweredCallee = lower(expr.callee);
         if (!loweredCallee) return undefined;
-        const preludes: IrYieldStatement[] = [...loweredCallee.prelude];
+        const preludes: IrStatement[] = [...loweredCallee.prelude];
         const loweredArgs: (
           | IrExpression
           | { kind: "spread"; expression: IrExpression }
@@ -458,7 +458,7 @@ const lowerExpressionWithYields = (
       }
 
       case "array": {
-        const preludes: IrYieldStatement[] = [];
+        const preludes: IrStatement[] = [];
         const loweredElements: (
           | IrExpression
           | { kind: "spread"; expression: IrExpression }
@@ -494,7 +494,7 @@ const lowerExpressionWithYields = (
       }
 
       case "object": {
-        const preludes: IrYieldStatement[] = [];
+        const preludes: IrStatement[] = [];
         const loweredProperties = [];
         for (const property of expr.properties) {
           if (property.kind === "spread") {
@@ -536,7 +536,7 @@ const lowerExpressionWithYields = (
       }
 
       case "templateLiteral": {
-        const preludes: IrYieldStatement[] = [];
+        const preludes: IrStatement[] = [];
         const loweredExpressions: IrExpression[] = [];
         for (const templateExpr of expr.expressions) {
           const loweredTemplateExpr = lower(templateExpr);
@@ -553,13 +553,88 @@ const lowerExpressionWithYields = (
         };
       }
 
-      case "conditional":
-        emitUnsupportedYieldDiagnostic(
-          ctx,
-          `${position} conditional expression`,
-          expr.sourceSpan
-        );
-        return undefined;
+      case "conditional": {
+        const loweredCondition = lower(expr.condition);
+        if (!loweredCondition) return undefined;
+
+        const loweredWhenTrue = lower(expr.whenTrue);
+        if (!loweredWhenTrue) return undefined;
+
+        const loweredWhenFalse = lower(expr.whenFalse);
+        if (!loweredWhenFalse) return undefined;
+
+        const tempType =
+          expr.inferredType ??
+          expectedType ??
+          loweredWhenTrue.expression.inferredType ??
+          loweredWhenFalse.expression.inferredType;
+
+        if (!tempType) {
+          emitUnsupportedYieldDiagnostic(
+            ctx,
+            `${position} conditional expression`,
+            expr.sourceSpan
+          );
+          return undefined;
+        }
+
+        const tempName = allocateYieldTempName(ctx);
+        const tempPattern: IrPattern = {
+          kind: "identifierPattern",
+          name: tempName,
+        };
+
+        const assignTrueStatement: IrStatement = {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: tempPattern,
+            right: loweredWhenTrue.expression,
+          },
+        };
+        const assignFalseStatement: IrStatement = {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: tempPattern,
+            right: loweredWhenFalse.expression,
+          },
+        };
+
+        return {
+          prelude: [
+            ...loweredCondition.prelude,
+            {
+              kind: "variableDeclaration",
+              declarationKind: "let",
+              isExported: false,
+              declarations: [
+                {
+                  kind: "variableDeclarator",
+                  name: tempPattern,
+                  type: tempType,
+                  initializer: { kind: "literal", value: undefined },
+                },
+              ],
+            },
+            {
+              kind: "ifStatement",
+              condition: loweredCondition.expression,
+              thenStatement: {
+                kind: "blockStatement",
+                statements: [...loweredWhenTrue.prelude, assignTrueStatement],
+              },
+              elseStatement: {
+                kind: "blockStatement",
+                statements: [...loweredWhenFalse.prelude, assignFalseStatement],
+              },
+            },
+          ],
+          expression: { kind: "identifier", name: tempName },
+        };
+      }
 
       default:
         emitUnsupportedYieldDiagnostic(ctx, position, expr.sourceSpan);
@@ -684,7 +759,8 @@ const processStatement = (
           const lowered = lowerExpressionWithYields(
             decl.initializer,
             ctx,
-            "variable initializer"
+            "variable initializer",
+            decl.type ?? decl.initializer.inferredType
           );
           if (!lowered) {
             transformedDeclarations.push({
