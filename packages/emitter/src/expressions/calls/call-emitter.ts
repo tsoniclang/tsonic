@@ -32,7 +32,11 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
-import { resolveImportPath } from "../../core/semantic/index.js";
+import {
+  DYNAMIC_OPS_FQN,
+  resolveImportPath,
+  typeContainsDynamicAny,
+} from "../../core/semantic/index.js";
 
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in/params).
@@ -135,6 +139,22 @@ const buildInvocation = (
 const buildAwait = (expression: CSharpExpressionAst): CSharpExpressionAst => ({
   kind: "awaitExpression",
   expression,
+});
+
+const boolLiteral = (value: boolean): CSharpExpressionAst => ({
+  kind: "literalExpression",
+  text: value ? "true" : "false",
+});
+
+const buildDynamicArgsArray = (
+  args: readonly CSharpExpressionAst[]
+): CSharpExpressionAst => ({
+  kind: "arrayCreationExpression",
+  elementType: {
+    kind: "nullableType",
+    underlyingType: { kind: "predefinedType", keyword: "object" },
+  },
+  initializer: args,
 });
 
 const buildDelegateType = (
@@ -335,6 +355,98 @@ const emitDynamicImportSideEffect = (
   };
 
   return [taskRun, context];
+};
+
+const emitDynamicAnyCall = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | null => {
+  const calleeIsDynamic =
+    typeContainsDynamicAny(expr.callee.inferredType, context) ||
+    (expr.callee.kind === "memberAccess" &&
+      typeContainsDynamicAny(expr.callee.object.inferredType, context));
+  if (!calleeIsDynamic) return null;
+
+  let currentContext = context;
+
+  if (expr.callee.kind === "memberAccess") {
+    const [targetAst, targetContext] = emitExpressionAst(
+      expr.callee.object,
+      currentContext
+    );
+    currentContext = targetContext;
+
+    let keyAst: CSharpExpressionAst;
+    if (expr.callee.isComputed) {
+      if (typeof expr.callee.property === "string") {
+        keyAst = {
+          kind: "literalExpression",
+          text: JSON.stringify(expr.callee.property),
+        };
+      } else {
+        const [computedAst, computedContext] = emitExpressionAst(
+          expr.callee.property,
+          currentContext
+        );
+        keyAst = computedAst;
+        currentContext = computedContext;
+      }
+    } else {
+      keyAst = {
+        kind: "literalExpression",
+        text: JSON.stringify(expr.callee.property as string),
+      };
+    }
+
+    const [argAsts, argContext] = emitCallArguments(
+      expr.arguments,
+      expr,
+      currentContext
+    );
+    currentContext = argContext;
+    const argsArray = buildDynamicArgsArray(argAsts);
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `${DYNAMIC_OPS_FQN}.InvokeMember`,
+        },
+        arguments: [
+          targetAst,
+          keyAst,
+          argsArray,
+          boolLiteral(expr.isOptional || expr.callee.isOptional),
+        ],
+      },
+      currentContext,
+    ];
+  }
+
+  const [calleeAst, calleeContext] = emitExpressionAst(
+    expr.callee,
+    currentContext
+  );
+  currentContext = calleeContext;
+  const [argAsts, argContext] = emitCallArguments(
+    expr.arguments,
+    expr,
+    currentContext
+  );
+  currentContext = argContext;
+  const argsArray = buildDynamicArgsArray(argAsts);
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: `${DYNAMIC_OPS_FQN}.Invoke`,
+      },
+      arguments: [calleeAst, argsArray, boolLiteral(expr.isOptional)],
+    },
+    currentContext,
+  ];
 };
 
 const emitPromiseThenCatchFinally = (
@@ -864,6 +976,9 @@ export const emitCall = (
 
   const promiseChain = emitPromiseThenCatchFinally(expr, context);
   if (promiseChain) return promiseChain;
+
+  const dynamicAnyCall = emitDynamicAnyCall(expr, context);
+  if (dynamicAnyCall) return dynamicAnyCall;
 
   // Void promise resolve: emit as zero-arg call when safe.
   if (

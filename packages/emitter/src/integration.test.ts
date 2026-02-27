@@ -590,4 +590,39 @@ describe("End-to-End Integration", () => {
       expect(csharp).to.include("finally");
     });
   });
+
+  describe("Dynamic Any Lowering", () => {
+    it("lowers binary operations on explicit any through DynamicOps", () => {
+      const source = `
+        export function run(): number {
+          let x: any = 2;
+          x = x + 3;
+          return x as number;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("global::Tsonic.Internal.DynamicOps.Binary");
+      expect(csharp).to.include('"+"');
+    });
+
+    it("lowers property access and member calls on explicit any through DynamicOps", () => {
+      const source = `
+        export function run(): number {
+          const add = (a: number, b: number): number => a + b;
+          const obj: any = { sum: add };
+          const n = obj.sum(2, 3);
+          obj.value = n;
+          return obj.value as number;
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include(
+        "global::Tsonic.Internal.DynamicOps.InvokeMember"
+      );
+      expect(csharp).to.include("global::Tsonic.Internal.DynamicOps.Assign");
+      expect(csharp).to.include("global::Tsonic.Internal.DynamicOps.Get");
+    });
+  });
 });

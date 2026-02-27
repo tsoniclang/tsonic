@@ -11,6 +11,10 @@ import { EmitterContext } from "../../types.js";
 import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitTypeAst } from "../../type-emitter.js";
 import { emitBooleanConditionAst } from "../../core/semantic/boolean-context.js";
+import {
+  DYNAMIC_OPS_FQN,
+  typeContainsDynamicAny,
+} from "../../core/semantic/dynamic-any.js";
 import { extractCalleeNameFromAst } from "../../core/format/backend-ast/utils.js";
 import type {
   CSharpExpressionAst,
@@ -244,6 +248,26 @@ export const emitUnary = (
     }
 
     return [buildIife(false, returnTypeAst), currentContext];
+  }
+
+  if (
+    (expr.operator === "+" || expr.operator === "-" || expr.operator === "~") &&
+    typeContainsDynamicAny(expr.expression.inferredType, context)
+  ) {
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `${DYNAMIC_OPS_FQN}.Unary`,
+        },
+        arguments: [
+          { kind: "literalExpression", text: JSON.stringify(expr.operator) },
+          operandAst,
+        ],
+      },
+      newContext,
+    ];
   }
 
   // Standard prefix operator: -, +, ~

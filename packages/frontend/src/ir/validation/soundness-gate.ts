@@ -88,6 +88,8 @@ const KNOWN_BUILTINS = new Set([
   // .NET types commonly used
   "IntPtr",
   "UIntPtr",
+  // Synthetic explicit `any` marker lowered by type converter.
+  "__TSONIC_ANY",
 ]);
 
 /**

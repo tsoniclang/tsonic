@@ -8,6 +8,10 @@ import { emitExpressionAst } from "../../expression-emitter.js";
 import { emitRemappedLocalName } from "../../core/format/local-names.js";
 import { lowerAssignmentPatternAst } from "../../patterns.js";
 import { hasInt32Proof } from "./helpers.js";
+import {
+  DYNAMIC_OPS_FQN,
+  typeContainsDynamicAny,
+} from "../../core/semantic/dynamic-any.js";
 import type { CSharpExpressionAst } from "../../core/format/backend-ast/types.js";
 
 /**
@@ -20,6 +24,69 @@ export const emitAssignment = (
   expr: Extract<IrExpression, { kind: "assignment" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  if (
+    "kind" in expr.left &&
+    expr.left.kind === "memberAccess" &&
+    typeContainsDynamicAny(expr.left.object.inferredType, context)
+  ) {
+    const leftExpr = expr.left as Extract<
+      IrExpression,
+      { kind: "memberAccess" }
+    >;
+
+    let currentContext = context;
+    const [targetAst, targetContext] = emitExpressionAst(
+      leftExpr.object,
+      currentContext
+    );
+    currentContext = targetContext;
+
+    let keyAst: CSharpExpressionAst;
+    if (leftExpr.isComputed) {
+      if (typeof leftExpr.property === "string") {
+        keyAst = {
+          kind: "literalExpression",
+          text: JSON.stringify(leftExpr.property),
+        };
+      } else {
+        const [computedAst, computedContext] = emitExpressionAst(
+          leftExpr.property,
+          currentContext
+        );
+        keyAst = computedAst;
+        currentContext = computedContext;
+      }
+    } else {
+      keyAst = {
+        kind: "literalExpression",
+        text: JSON.stringify(leftExpr.property as string),
+      };
+    }
+
+    const [rightAst, rightContext] = emitExpressionAst(
+      expr.right,
+      currentContext
+    );
+    currentContext = rightContext;
+
+    return [
+      {
+        kind: "invocationExpression",
+        expression: {
+          kind: "identifierExpression",
+          identifier: `${DYNAMIC_OPS_FQN}.Assign`,
+        },
+        arguments: [
+          targetAst,
+          keyAst,
+          { kind: "literalExpression", text: JSON.stringify(expr.operator) },
+          rightAst,
+        ],
+      },
+      currentContext,
+    ];
+  }
+
   // Array element assignment uses native CLR indexer
   // HARD GATE: Index must be proven Int32 (validated by proof pass)
   if (

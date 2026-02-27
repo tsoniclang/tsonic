@@ -41,6 +41,7 @@ const bucketFromMemberKind = (
 
 const stripGlobalPrefix = (name: string): string =>
   name.startsWith("global::") ? name.slice("global::".length) : name;
+const DYNAMIC_ANY_TYPE_NAME = "__TSONIC_ANY";
 
 const lookupMemberKindFromLocalTypes = (
   receiverTypeName: string,
@@ -142,6 +143,21 @@ const getMemberKind = (
   }
 
   return undefined;
+};
+
+const isDynamicAnyType = (
+  type: IrType | undefined,
+  context: EmitterContext
+): boolean => {
+  if (!type) return false;
+  const resolved = resolveTypeAlias(stripNullish(type), context);
+  if (resolved.kind === "referenceType") {
+    return resolved.name === DYNAMIC_ANY_TYPE_NAME;
+  }
+  if (resolved.kind === "unionType" || resolved.kind === "intersectionType") {
+    return resolved.types.some((member) => isDynamicAnyType(member, context));
+  }
+  return false;
 };
 
 const emitObjectMemberName = (
@@ -431,6 +447,10 @@ export const emitObject = (
     return expectedType;
   })();
 
+  if (isDynamicAnyType(effectiveType, currentContext)) {
+    return emitDynamicObjectLiteral(expr, currentContext);
+  }
+
   // Check if contextual type is a dictionary type
   if (effectiveType?.kind === "dictionaryType") {
     return emitDictionaryLiteral(expr, currentContext, effectiveType);
@@ -531,6 +551,123 @@ export const emitObject = (
       type: safeTypeAst,
       arguments: [],
       initializer: initializerAsts,
+    },
+    currentContext,
+  ];
+};
+
+const emitDynamicObjectLiteral = (
+  expr: Extract<IrExpression, { kind: "object" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] => {
+  let currentContext = context;
+  const bodyStatements: CSharpStatementAst[] = [
+    {
+      kind: "localDeclarationStatement",
+      modifiers: [],
+      type: { kind: "varType" },
+      declarators: [
+        {
+          name: "__tmp",
+          initializer: {
+            kind: "objectCreationExpression",
+            type: {
+              kind: "identifierType",
+              name: "global::Tsonic.Runtime.DynamicObject",
+            },
+            arguments: [],
+          },
+        },
+      ],
+    },
+  ];
+
+  for (const prop of expr.properties) {
+    if (prop.kind === "spread") {
+      throw new Error(
+        "ICE: Spread in dynamic-any object literal is not supported yet."
+      );
+    }
+
+    let keyAst: CSharpExpressionAst;
+    if (typeof prop.key === "string") {
+      keyAst = { kind: "literalExpression", text: JSON.stringify(prop.key) };
+    } else {
+      const [computedKeyAst, keyContext] = emitExpressionAst(
+        prop.key,
+        currentContext,
+        undefined
+      );
+      keyAst = computedKeyAst;
+      currentContext = keyContext;
+    }
+    const [valueAst, valueContext] = emitExpressionAst(
+      prop.value,
+      currentContext,
+      undefined
+    );
+    currentContext = valueContext;
+
+    bodyStatements.push({
+      kind: "expressionStatement",
+      expression: {
+        kind: "invocationExpression",
+        expression: {
+          kind: "memberAccessExpression",
+          expression: { kind: "identifierExpression", identifier: "__tmp" },
+          memberName: "SetProperty",
+        },
+        arguments: [
+          keyAst,
+          {
+            kind: "castExpression",
+            type: {
+              kind: "nullableType",
+              underlyingType: { kind: "predefinedType", keyword: "object" },
+            },
+            expression: valueAst,
+          },
+        ],
+      },
+    });
+  }
+
+  bodyStatements.push({
+    kind: "returnStatement",
+    expression: { kind: "identifierExpression", identifier: "__tmp" },
+  });
+
+  const lambdaAst: CSharpExpressionAst = {
+    kind: "lambdaExpression",
+    isAsync: false,
+    parameters: [],
+    body: { kind: "blockStatement", statements: bodyStatements },
+  };
+
+  return [
+    {
+      kind: "invocationExpression",
+      expression: {
+        kind: "parenthesizedExpression",
+        expression: {
+          kind: "castExpression",
+          type: {
+            kind: "identifierType",
+            name: "global::System.Func",
+            typeArguments: [
+              {
+                kind: "identifierType",
+                name: "global::Tsonic.Runtime.DynamicObject",
+              },
+            ],
+          },
+          expression: {
+            kind: "parenthesizedExpression",
+            expression: lambdaAst,
+          },
+        },
+      },
+      arguments: [],
     },
     currentContext,
   ];

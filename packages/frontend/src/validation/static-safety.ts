@@ -2,7 +2,7 @@
  * Static Safety Validation
  *
  * Detects patterns that violate static typing requirements:
- * - TSN7401: 'any' type usage
+ * - TSN7401: 'any' type usage (retired)
  * - TSN7403: Object literal without contextual nominal type
  * - TSN7405: Untyped function/arrow/lambda parameter
  * - TSN7406: Mapped types not supported (retired)
@@ -395,36 +395,9 @@ export const validateStaticSafety = (
   ): DiagnosticsCollector => {
     let currentCollector = accCollector;
 
-    // TSN7401: Check for explicit 'any' type annotations
-    if (node.kind === ts.SyntaxKind.AnyKeyword) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7401",
-          "error",
-          "'any' type is not supported. Provide a concrete type, use 'unknown', or define a nominal type.",
-          getNodeLocation(sourceFile, node),
-          "Replace 'any' with a specific type like 'unknown', 'object', or a custom interface."
-        )
-      );
-    }
-
-    // TSN7401: Check for 'as any' type assertions
-    if (
-      ts.isAsExpression(node) &&
-      node.type.kind === ts.SyntaxKind.AnyKeyword
-    ) {
-      currentCollector = addDiagnostic(
-        currentCollector,
-        createDiagnostic(
-          "TSN7401",
-          "error",
-          "'as any' type assertion is not supported. Use a specific type assertion.",
-          getNodeLocation(sourceFile, node),
-          "Replace 'as any' with a specific type like 'as unknown' or 'as YourType'."
-        )
-      );
-    }
+    // TSN7401 retired:
+    // explicit `any` / `as any` are accepted and lowered through the runtime
+    // dynamic-operations path (airplane-grade deterministic lowering).
 
     // TSN7405: Check for untyped function parameters
     // Covers: function declarations, methods, constructors, arrow functions, function expressions

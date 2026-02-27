@@ -15,6 +15,7 @@ import {
   IrInterfaceMember,
 } from "../../../types.js";
 import type { Binding, BindingInternal } from "../../../binding/index.js";
+import { DYNAMIC_ANY_TYPE_NAME } from "./primitives.js";
 
 /**
  * Set of supported mapped utility types that can be expanded
@@ -584,7 +585,9 @@ const expandNonNullable = (
   const resolved = resolveTypeAlias(typeArg, binding);
 
   // Handle special keywords
-  if (resolved.kind === ts.SyntaxKind.AnyKeyword) return { kind: "anyType" };
+  if (resolved.kind === ts.SyntaxKind.AnyKeyword) {
+    return { kind: "referenceType", name: DYNAMIC_ANY_TYPE_NAME };
+  }
   if (resolved.kind === ts.SyntaxKind.UnknownKeyword)
     return { kind: "unknownType" };
   if (resolved.kind === ts.SyntaxKind.NeverKeyword)
