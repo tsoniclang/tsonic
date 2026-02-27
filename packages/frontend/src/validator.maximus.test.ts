@@ -453,6 +453,28 @@ describe("Maximus Validation Coverage", () => {
           void out;
         `,
       },
+      {
+        name: "generic value in typed object/array callable contexts",
+        source: `
+          const id = <T>(x: T): T => x;
+          type Box = { run: (x: number) => number };
+          const box: Box = { run: id };
+          const handlers: Array<(x: number) => number> = [id];
+          const out = box.run(handlers[0]!(3));
+          void out;
+        `,
+      },
+      {
+        name: "generic value returned through monomorphic callable return type",
+        source: `
+          function make(): (x: number) => number {
+            const id = <T>(x: T): T => x;
+            return id;
+          }
+          const out = make()(4);
+          void out;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -501,6 +523,14 @@ describe("Maximus Validation Coverage", () => {
         source: `
           const id = <T>(x: T): T => x;
           function wrap(): unknown { return id; }
+          void wrap;
+        `,
+      },
+      {
+        name: "generic function value returned through generic callable return type",
+        source: `
+          const id = <T>(x: T): T => x;
+          function wrap(): <T>(x: T) => T { return id; }
           void wrap;
         `,
       },
