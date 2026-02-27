@@ -567,6 +567,47 @@ describe("Yield Lowering Pass", () => {
       expect(result.ok).to.be.false;
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
     });
+
+    it("should reject nested yield in for-of expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forOfStatement",
+          variable: { kind: "identifierPattern", name: "x" },
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+          body: { kind: "blockStatement", statements: [] },
+          isAwait: false,
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
+
+    it("should reject nested yield in for-in expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forInStatement",
+          variable: { kind: "identifierPattern", name: "k" },
+          expression: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
   });
 
   describe("Control Flow Structures", () => {
@@ -765,6 +806,43 @@ describe("Yield Lowering Pass", () => {
       const whileBody = whileStmt.body as IrBlockStatement;
       expect(whileBody.statements[0]?.kind).to.equal("yieldStatement");
       expect(whileBody.statements[1]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in for-of expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forOfStatement",
+          variable: { kind: "identifierPattern", name: "x" },
+          expression: createYield({ kind: "array", elements: [] }),
+          body: { kind: "blockStatement", statements: [] },
+          isAwait: false,
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forOfStatement");
+    });
+
+    it("should transform direct yield in for-in expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forInStatement",
+          variable: { kind: "identifierPattern", name: "k" },
+          expression: createYield({ kind: "object", properties: [] }),
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("forInStatement");
     });
 
     it("should transform yield inside switch case", () => {

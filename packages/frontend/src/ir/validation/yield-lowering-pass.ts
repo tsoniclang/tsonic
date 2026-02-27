@@ -15,6 +15,7 @@
  * - `for (x = yield expr; ... )` → IrYieldStatement + ForStatement(without initializer)
  * - `for (; yield cond; ... )` → ForStatement(condition=true) + loop-body condition prelude
  * - `for (...; ...; yield update)` → ForStatement(update=undefined) + loop-body update prelude
+ * - `for (... of yield expr)` / `for (... in yield expr)` → IrYieldStatement + loop over temp
  * - `if (yield expr) { ... }` → IrYieldStatement + IfStatement(temp)
  * - `switch (yield expr) { ... }` → IrYieldStatement + SwitchStatement(temp)
  * - `while (yield expr) { ... }` → While(true) with per-iteration yield+guard
@@ -707,6 +708,56 @@ const processStatement = (
     }
 
     case "forOfStatement":
+      if (stmt.expression.kind === "yield" && !stmt.expression.delegate) {
+        const tempName = allocateYieldTempName(ctx);
+        return [
+          createYieldStatement(
+            stmt.expression,
+            { kind: "identifierPattern", name: tempName },
+            stmt.expression.inferredType
+          ),
+          {
+            ...stmt,
+            expression: { kind: "identifier", name: tempName },
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          },
+        ];
+      }
+      if (containsYield(stmt.expression)) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "for-of expression",
+          stmt.expression.sourceSpan
+        );
+      }
+      return {
+        ...stmt,
+        body: flattenStatement(processStatement(stmt.body, ctx)),
+      };
+
+    case "forInStatement":
+      if (stmt.expression.kind === "yield" && !stmt.expression.delegate) {
+        const tempName = allocateYieldTempName(ctx);
+        return [
+          createYieldStatement(
+            stmt.expression,
+            { kind: "identifierPattern", name: tempName },
+            stmt.expression.inferredType
+          ),
+          {
+            ...stmt,
+            expression: { kind: "identifier", name: tempName },
+            body: flattenStatement(processStatement(stmt.body, ctx)),
+          },
+        ];
+      }
+      if (containsYield(stmt.expression)) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "for-in expression",
+          stmt.expression.sourceSpan
+        );
+      }
       return {
         ...stmt,
         body: flattenStatement(processStatement(stmt.body, ctx)),
