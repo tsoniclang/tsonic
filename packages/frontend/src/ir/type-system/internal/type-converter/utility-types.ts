@@ -44,6 +44,8 @@ export const EXPANDABLE_CONDITIONAL_UTILITY_TYPES = new Set([
   "ReturnType",
   "Parameters",
   "Awaited",
+  "ConstructorParameters",
+  "InstanceType",
 ]);
 
 /**
@@ -691,6 +693,12 @@ const expandConditionalUtilityTypeInternal = (
     case "Awaited":
       return expandAwaited(firstArg, binding, convertType);
 
+    case "ConstructorParameters":
+      return expandConstructorParameters(firstArg, binding, convertType);
+
+    case "InstanceType":
+      return expandInstanceType(firstArg, binding, convertType);
+
     default:
       return null;
   }
@@ -998,6 +1006,170 @@ const expandAwaited = (
 
   // Not a Promise type - return as-is
   return convertType(tArg, binding);
+};
+
+/**
+ * Expand ConstructorParameters<C> by extracting constructor parameter types.
+ */
+const expandConstructorParameters = (
+  ctorArg: ts.TypeNode,
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+): IrType | null => {
+  if (isTypeParameterNode(ctorArg, binding)) {
+    return null;
+  }
+
+  const unwrapped = unwrapParens(ctorArg);
+  if (ts.isUnionTypeNode(unwrapped)) {
+    const members: IrType[] = [];
+    for (const member of flattenUnionTypeNodes(unwrapped)) {
+      const expanded = expandConstructorParameters(member, binding, convertType);
+      if (!expanded) return null;
+      members.push(expanded);
+    }
+    if (members.length === 0) return { kind: "neverType" };
+    if (members.length === 1) return members[0] ?? { kind: "neverType" };
+    return { kind: "unionType", types: members };
+  }
+
+  if (ts.isConstructorTypeNode(unwrapped)) {
+    return {
+      kind: "tupleType",
+      elementTypes: unwrapped.parameters.map((param) =>
+        param.type ? convertType(param.type, binding) : { kind: "unknownType" }
+      ),
+    };
+  }
+
+  if (
+    ts.isTypeReferenceNode(unwrapped) &&
+    ts.isIdentifier(unwrapped.typeName)
+  ) {
+    const declId = binding.resolveTypeReference(unwrapped);
+    if (declId) {
+      const declInfo = (binding as BindingInternal)
+        ._getHandleRegistry()
+        .getDecl(declId);
+      const decl = declInfo?.declNode as ts.Declaration | undefined;
+      if (
+        decl &&
+        ts.isTypeAliasDeclaration(decl) &&
+        ts.isConstructorTypeNode(decl.type)
+      ) {
+        return {
+          kind: "tupleType",
+          elementTypes: decl.type.parameters.map((param) =>
+            param.type
+              ? convertType(param.type, binding)
+              : { kind: "unknownType" }
+          ),
+        };
+      }
+    }
+  }
+
+  if (ts.isTypeQueryNode(unwrapped) && ts.isIdentifier(unwrapped.exprName)) {
+    const declId = binding.resolveIdentifier(unwrapped.exprName);
+    if (!declId) return null;
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
+    const decl = declInfo?.declNode as ts.Declaration | undefined;
+    if (!decl) return null;
+
+    if (ts.isClassDeclaration(decl)) {
+      const ctor = decl.members.find(ts.isConstructorDeclaration);
+      const parameters = ctor?.parameters ?? [];
+      return {
+        kind: "tupleType",
+        elementTypes: parameters.map((param) =>
+          param.type ? convertType(param.type, binding) : { kind: "unknownType" }
+        ),
+      };
+    }
+
+    if (ts.isVariableDeclaration(decl) && decl.type) {
+      return expandConstructorParameters(decl.type, binding, convertType);
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Expand InstanceType<C> by extracting constructor instance result type.
+ */
+const expandInstanceType = (
+  ctorArg: ts.TypeNode,
+  binding: Binding,
+  convertType: (node: ts.TypeNode, binding: Binding) => IrType
+): IrType | null => {
+  if (isTypeParameterNode(ctorArg, binding)) {
+    return null;
+  }
+
+  const unwrapped = unwrapParens(ctorArg);
+  if (ts.isUnionTypeNode(unwrapped)) {
+    const members: IrType[] = [];
+    for (const member of flattenUnionTypeNodes(unwrapped)) {
+      const expanded = expandInstanceType(member, binding, convertType);
+      if (!expanded) return null;
+      members.push(expanded);
+    }
+    if (members.length === 0) return { kind: "neverType" };
+    if (members.length === 1) return members[0] ?? { kind: "neverType" };
+    return { kind: "unionType", types: members };
+  }
+
+  if (ts.isConstructorTypeNode(unwrapped)) {
+    return unwrapped.type
+      ? convertType(unwrapped.type, binding)
+      : { kind: "unknownType" };
+  }
+
+  if (
+    ts.isTypeReferenceNode(unwrapped) &&
+    ts.isIdentifier(unwrapped.typeName)
+  ) {
+    const declId = binding.resolveTypeReference(unwrapped);
+    if (declId) {
+      const declInfo = (binding as BindingInternal)
+        ._getHandleRegistry()
+        .getDecl(declId);
+      const decl = declInfo?.declNode as ts.Declaration | undefined;
+      if (
+        decl &&
+        ts.isTypeAliasDeclaration(decl) &&
+        ts.isConstructorTypeNode(decl.type)
+      ) {
+        return decl.type.type
+          ? convertType(decl.type.type, binding)
+          : { kind: "unknownType" };
+      }
+    }
+  }
+
+  if (ts.isTypeQueryNode(unwrapped) && ts.isIdentifier(unwrapped.exprName)) {
+    const declId = binding.resolveIdentifier(unwrapped.exprName);
+    if (!declId) return null;
+    const declInfo = (binding as BindingInternal)
+      ._getHandleRegistry()
+      .getDecl(declId);
+    const decl = declInfo?.declNode as ts.Declaration | undefined;
+    if (!decl) return null;
+
+    if (ts.isClassDeclaration(decl)) {
+      if (!decl.name) return { kind: "unknownType" };
+      return { kind: "referenceType", name: decl.name.text };
+    }
+
+    if (ts.isVariableDeclaration(decl) && decl.type) {
+      return expandInstanceType(decl.type, binding, convertType);
+    }
+  }
+
+  return null;
 };
 
 /**

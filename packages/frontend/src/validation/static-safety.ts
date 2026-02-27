@@ -7,9 +7,9 @@
  * - TSN7405: Untyped function/arrow/lambda parameter
  * - TSN7406: Mapped types not supported
  * - TSN7407: Conditional types not supported
- * - TSN7408: Mixed variadic tuples not supported
+ * - TSN7408: Mixed variadic tuples not supported (retired)
  * - TSN7409: 'infer' keyword not supported
- * - TSN7410: Intersection types not supported
+ * - TSN7410: Intersection types not supported (retired)
  * - TSN7413: Dictionary key must be string or number
  * - TSN7430: Arrow function requires explicit types (escape hatch)
  *
@@ -229,18 +229,6 @@ const findContainingFunction = (
     current = current.parent;
   }
   return undefined;
-};
-
-const isArrayLikeType = (
-  checker: ts.TypeChecker,
-  type: ts.Type | undefined
-): boolean => {
-  if (!type) return false;
-  if (checker.isArrayType(type) || checker.isTupleType(type)) return true;
-  if (type.isUnion()) {
-    return type.types.every((t) => isArrayLikeType(checker, t));
-  }
-  return false;
 };
 
 /**
@@ -586,26 +574,8 @@ export const validateStaticSafety = (
       );
     }
 
-    // TSN7408: Check for variadic tuple types with mixed elements (e.g., [string, ...number[]])
-    // Pure variadic tuples like [...T[]] are OK (converted to arrays), fixed tuples are OK
-    // Mixed tuples with both fixed and rest elements are not supported
-    if (ts.isTupleTypeNode(node)) {
-      const hasRest = node.elements.some((el) => ts.isRestTypeNode(el));
-      const hasFixed = node.elements.some((el) => !ts.isRestTypeNode(el));
-
-      if (hasRest && hasFixed) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createDiagnostic(
-            "TSN7408",
-            "error",
-            "Variadic tuple types with mixed fixed and rest elements are not supported.",
-            getNodeLocation(sourceFile, node),
-            "Use a fixed-length tuple like [T1, T2] or an array like T[] instead."
-          )
-        );
-      }
-    }
+    // TSN7408 retired:
+    // Mixed variadic tuples are now lowered to array types in the converter.
 
     // TSN7409: Check for 'infer' keyword in conditional types
     if (ts.isInferTypeNode(node)) {
@@ -621,86 +591,14 @@ export const validateStaticSafety = (
       );
     }
 
-    // TSN7410: Check for intersection types (e.g., A & B)
-    if (ts.isIntersectionTypeNode(node)) {
-      const isTypeParamConstraint =
-        ts.isTypeParameterDeclaration(node.parent) &&
-        node.parent.constraint === node;
+    // TSN7410 retired:
+    // Intersection types are lowered by the type emitter.
 
-      // Intersection constraints are representable as multiple C# generic constraints:
-      // `T extends A & B` -> `where T : A, B`.
-      if (!isTypeParamConstraint) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createDiagnostic(
-            "TSN7410",
-            "error",
-            "Intersection types (A & B) are not supported. Use a nominal type that explicitly includes all required members.",
-            getNodeLocation(sourceFile, node),
-            "Replace the intersection with an interface or class that combines the members, or a type alias to an object type with explicit members."
-          )
-        );
-      }
-    }
+    // TSN7416 retired:
+    // new Array() without explicit type argument is lowered by the emitter.
 
-    // TSN7416: Check for new Array() without explicit type argument
-    // new Array<T>(n) is valid, new Array() or new Array(n) without type arg is not
-    if (ts.isNewExpression(node)) {
-      const callee = node.expression;
-      if (ts.isIdentifier(callee) && callee.text === "Array") {
-        const hasTypeArgs = node.typeArguments && node.typeArguments.length > 0;
-        if (!hasTypeArgs) {
-          currentCollector = addDiagnostic(
-            currentCollector,
-            createDiagnostic(
-              "TSN7416",
-              "error",
-              "'new Array()' requires an explicit type argument. Use 'new Array<T>(size)' instead.",
-              getNodeLocation(sourceFile, node),
-              "Add a type argument: new Array<int>(10), new Array<string>(5), etc."
-            )
-          );
-        }
-      }
-    }
-
-    // TSN7417: Check for empty array literal without type annotation
-    // const x = [] is invalid, const x: T[] = [] is valid
-    if (ts.isArrayLiteralExpression(node) && node.elements.length === 0) {
-      const hasContextualType =
-        program.checker.getContextualType(node) !== undefined;
-      const parent = node.parent;
-      const hasConditionalArrayContext =
-        ts.isConditionalExpression(parent) &&
-        isArrayLikeType(
-          program.checker,
-          program.checker.getTypeAtLocation(parent)
-        );
-
-      // Check if parent provides type context
-      const hasTypeAnnotation =
-        (ts.isVariableDeclaration(parent) && parent.type !== undefined) ||
-        (ts.isPropertyDeclaration(parent) && parent.type !== undefined) ||
-        (ts.isParameter(parent) && parent.type !== undefined) ||
-        ts.isReturnStatement(parent) || // return type from function
-        ts.isCallExpression(parent) || // passed as argument (has contextual type)
-        ts.isPropertyAssignment(parent) || // object property (has contextual type)
-        hasConditionalArrayContext ||
-        hasContextualType;
-
-      if (!hasTypeAnnotation) {
-        currentCollector = addDiagnostic(
-          currentCollector,
-          createDiagnostic(
-            "TSN7417",
-            "error",
-            "Empty array literal requires a type annotation. Use 'const x: T[] = []' instead.",
-            getNodeLocation(sourceFile, node),
-            "Add a type annotation: const x: number[] = []; or const x: string[] = [];"
-          )
-        );
-      }
-    }
+    // TSN7417 retired:
+    // Empty arrays are inferred/erased deterministically by array conversion rules.
 
     // TSN7432: Generic function values are not supported.
     //

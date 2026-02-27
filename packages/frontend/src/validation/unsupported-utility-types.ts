@@ -37,11 +37,8 @@ export const UNSUPPORTED_MAPPED_UTILITY_TYPES = new Set<string>([
  * - Parameters<T>    → T extends (...args: infer P) => any ? P : never
  * - Awaited<T>       → T extends PromiseLike<infer U> ? Awaited<U> : T
  *
- * UNSUPPORTED (require constructor introspection):
- * - ConstructorParameters → ConstructorType extends abstract new (...args: infer P) => any ? P : never
- * - InstanceType<T>       → T extends abstract new (...args: any) => infer R ? R : any
+ * SUPPORTED (expanded at compile time for concrete constructor shapes):
+ * - ConstructorParameters<T>
+ * - InstanceType<T>
  */
-export const UNSUPPORTED_CONDITIONAL_UTILITY_TYPES = new Set([
-  "ConstructorParameters",
-  "InstanceType",
-]);
+export const UNSUPPORTED_CONDITIONAL_UTILITY_TYPES = new Set<string>([]);

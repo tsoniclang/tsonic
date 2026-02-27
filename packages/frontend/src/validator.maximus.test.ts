@@ -186,8 +186,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7408 - mixed variadic tuples", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("Mixed variadic tuples", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -211,18 +211,6 @@ describe("Maximus Validation Coverage", () => {
         name: "generic variadic head + fixed tail",
         source: `type T<U extends unknown[]> = [...U, string];`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7408")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       { name: "fixed tuple", source: `type T = [string, number];` },
       { name: "pure variadic tuple", source: `type T = [...number[]];` },
       {
@@ -306,8 +294,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7416 - new Array() requires explicit type argument", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("Array constructor inference", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -326,18 +314,6 @@ describe("Maximus Validation Coverage", () => {
         name: "new Array inside function",
         source: `function f(): void { const arr = new Array(); console.log(arr); }`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7416")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       {
         name: "new Array<number>()",
         source: `const a = new Array<number>();`,
@@ -384,8 +360,8 @@ describe("Maximus Validation Coverage", () => {
     }
   });
 
-  describe("TSN7417 - empty array literal requires type context", () => {
-    const rejectCases: ReadonlyArray<{
+  describe("Empty array literals", () => {
+    const allowCases: ReadonlyArray<{
       readonly name: string;
       readonly source: string;
     }> = [
@@ -396,18 +372,6 @@ describe("Maximus Validation Coverage", () => {
         name: "untyped function local empty array",
         source: `function f(): void { const local = []; console.log(local); }`,
       },
-    ];
-
-    for (const c of rejectCases) {
-      it(`rejects ${c.name}`, () => {
-        expect(hasCode(c.source, "TSN7417")).to.equal(true);
-      });
-    }
-
-    const allowCases: ReadonlyArray<{
-      readonly name: string;
-      readonly source: string;
-    }> = [
       { name: "annotated variable", source: `const x: number[] = [];` },
       { name: "type assertion", source: `const x = [] as number[];` },
       {

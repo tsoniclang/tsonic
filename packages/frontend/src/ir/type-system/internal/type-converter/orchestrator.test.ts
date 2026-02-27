@@ -1,0 +1,142 @@
+import { describe, it } from "mocha";
+import { expect } from "chai";
+import * as ts from "typescript";
+import { createBinding } from "../../../binding/index.js";
+import { convertType } from "./orchestrator.js";
+import type { IrType } from "../../../types.js";
+
+const createTestProgram = (
+  source: string,
+  fileName = "test.ts"
+): { sourceFile: ts.SourceFile; binding: ReturnType<typeof createBinding> } => {
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.NodeNext,
+    strict: true,
+    noEmit: true,
+  };
+
+  const host = ts.createCompilerHost(compilerOptions);
+  const originalGetSourceFile = host.getSourceFile;
+  const originalFileExists = host.fileExists;
+  const originalReadFile = host.readFile;
+
+  host.getSourceFile = (
+    name: string,
+    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
+    onError?: (message: string) => void,
+    shouldCreateNewSourceFile?: boolean
+  ) => {
+    if (name === fileName) {
+      return ts.createSourceFile(
+        fileName,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+      );
+    }
+    return originalGetSourceFile.call(
+      host,
+      name,
+      languageVersionOrOptions,
+      onError,
+      shouldCreateNewSourceFile
+    );
+  };
+  host.fileExists = (name: string) =>
+    name === fileName || originalFileExists.call(host, name);
+  host.readFile = (name: string) =>
+    name === fileName ? source : originalReadFile.call(host, name);
+
+  const program = ts.createProgram([fileName], compilerOptions, host);
+  const sourceFile = program.getSourceFile(fileName);
+  if (!sourceFile) {
+    throw new Error("missing source file");
+  }
+
+  return { sourceFile, binding: createBinding(program.getTypeChecker()) };
+};
+
+const convertAlias = (source: string, aliasName: string): IrType => {
+  const { sourceFile, binding } = createTestProgram(source);
+
+  let alias: ts.TypeAliasDeclaration | undefined;
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isTypeAliasDeclaration(statement) &&
+      statement.name.text === aliasName
+    ) {
+      alias = statement;
+      break;
+    }
+  }
+  if (!alias) {
+    throw new Error(`type alias ${aliasName} not found`);
+  }
+
+  return convertType(alias.type, binding);
+};
+
+describe("Type Converter - Tuple Rest Lowering", () => {
+  it("lowers pure variadic tuple to array type", () => {
+    const converted = convertAlias("type T = [...number[]];", "T");
+    expect(converted).to.deep.equal({
+      kind: "arrayType",
+      elementType: { kind: "primitiveType", name: "number" },
+      origin: "explicit",
+    });
+  });
+
+  it("lowers fixed + variadic tuple to array with union element", () => {
+    const converted = convertAlias("type T = [string, ...number[]];", "T");
+    expect(converted).to.deep.equal({
+      kind: "arrayType",
+      elementType: {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "number" },
+        ],
+      },
+      origin: "explicit",
+    });
+  });
+
+  it("lowers fixed + variadic + fixed tuple to array with full union", () => {
+    const converted = convertAlias(
+      "type T = [number, ...string[], boolean];",
+      "T"
+    );
+    expect(converted).to.deep.equal({
+      kind: "arrayType",
+      elementType: {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "number" },
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "boolean" },
+        ],
+      },
+      origin: "explicit",
+    });
+  });
+
+  it("handles named tuple members with rest", () => {
+    const converted = convertAlias(
+      "type T = [head: string, ...tail: number[]];",
+      "T"
+    );
+    expect(converted).to.deep.equal({
+      kind: "arrayType",
+      elementType: {
+        kind: "unionType",
+        types: [
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "number" },
+        ],
+      },
+      origin: "explicit",
+    });
+  });
+});

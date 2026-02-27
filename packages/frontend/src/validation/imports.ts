@@ -26,16 +26,8 @@ export const validateImports = (
     }
 
     if (ts.isImportTypeNode(node)) {
-      return addDiagnostic(
-        collector,
-        createDiagnostic(
-          "TSN2001",
-          "error",
-          "Import type syntax not supported",
-          getNodeLocation(sourceFile, node),
-          "Use regular imports instead"
-        )
-      );
+      // Supported: type-only imports are erased at runtime.
+      return collector;
     }
 
     return ts.forEachChild(node, visitor) ?? collector;

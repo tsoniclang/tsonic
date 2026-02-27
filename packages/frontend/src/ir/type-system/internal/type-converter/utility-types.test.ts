@@ -1865,6 +1865,146 @@ describe("Conditional Utility Type Expansion", () => {
       }
     });
   });
+
+  describe("ConstructorParameters<T>", () => {
+    it("expands constructor type node to tuple", () => {
+      const source = `
+        type Ctor = new (name: string, age: number) => { name: string };
+        type Params = ConstructorParameters<Ctor>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Params");
+
+      const result = expandConditionalUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "ConstructorParameters",
+        binding,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("tupleType");
+      if (result?.kind === "tupleType") {
+        expect(result.elementTypes).to.deep.equal([
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "number" },
+        ]);
+      }
+    });
+
+    it("expands ConstructorParameters<typeof ClassName>", () => {
+      const source = `
+        class User {
+          constructor(name: string, active: boolean) {}
+        }
+        type Params = ConstructorParameters<typeof User>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Params");
+
+      const result = expandConditionalUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "ConstructorParameters",
+        binding,
+        stubConvertType
+      );
+
+      expect(result).not.to.equal(null);
+      expect(result?.kind).to.equal("tupleType");
+      if (result?.kind === "tupleType") {
+        expect(result.elementTypes).to.deep.equal([
+          { kind: "primitiveType", name: "string" },
+          { kind: "primitiveType", name: "boolean" },
+        ]);
+      }
+    });
+
+    it("returns null for ConstructorParameters<T> when T is a type parameter", () => {
+      const source = `
+        type Wrapper<T extends abstract new (...args: unknown[]) => unknown> =
+          ConstructorParameters<T>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Wrapper");
+      const result = expandConditionalUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "ConstructorParameters",
+        binding,
+        stubConvertType
+      );
+      expect(result).to.equal(null);
+    });
+  });
+
+  describe("InstanceType<T>", () => {
+    it("expands constructor type node to instance type", () => {
+      const source = `
+        interface Item { id: number; }
+        type Ctor = new (id: number) => Item;
+        type Instance = InstanceType<Ctor>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Instance");
+
+      const result = expandConditionalUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "InstanceType",
+        binding,
+        stubConvertType
+      );
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "Item",
+        typeArguments: [],
+      });
+    });
+
+    it("expands InstanceType<typeof ClassName> to class reference", () => {
+      const source = `
+        class Product {
+          constructor(public readonly sku: string) {}
+        }
+        type Instance = InstanceType<typeof Product>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Instance");
+
+      const result = expandConditionalUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "InstanceType",
+        binding,
+        stubConvertType
+      );
+
+      expect(result).to.deep.equal({
+        kind: "referenceType",
+        name: "Product",
+      });
+    });
+
+    it("returns null for InstanceType<T> when T is a type parameter", () => {
+      const source = `
+        type Wrapper<T extends abstract new (...args: unknown[]) => unknown> =
+          InstanceType<T>;
+      `;
+
+      const { binding, sourceFile } = createTestProgram(source);
+      const typeRef = findTypeAliasReference(sourceFile, "Wrapper");
+      const result = expandConditionalUtilityType(
+        assertDefined(typeRef, "typeRef should be defined"),
+        "InstanceType",
+        binding,
+        stubConvertType
+      );
+      expect(result).to.equal(null);
+    });
+  });
 });
 
 describe("Record Type Expansion", () => {
