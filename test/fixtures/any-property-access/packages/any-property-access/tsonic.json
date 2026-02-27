@@ -1,8 +1,0 @@
-{
-  "$schema": "https://tsonic.org/schema/v1.json",
-  "rootNamespace": "AnyPropertyAccess",
-  "entryPoint": "src/index.ts",
-  "sourceRoot": "src",
-  "outputDirectory": "generated",
-  "outputName": "any-property-access"
-}

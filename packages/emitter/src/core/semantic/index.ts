@@ -36,8 +36,3 @@ export {
   emitBooleanConditionAst,
   type EmitExprAstFn,
 } from "./boolean-context.js";
-export {
-  DYNAMIC_ANY_TYPE_NAME,
-  DYNAMIC_OPS_FQN,
-  typeContainsDynamicAny,
-} from "./dynamic-any.js";

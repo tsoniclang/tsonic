@@ -1,8 +1,5 @@
 {
   "expectFailure": true,
   "description": "only side-effect dynamic import form is supported; namespace-consuming forms remain hard errors.",
-  "expectedErrors": [
-    "TSN2001",
-    "Dynamic import() is only supported in side-effect form"
-  ]
+  "expectedErrors": ["TSN2001", "Dynamic import() is only supported in side-effect form"]
 }
