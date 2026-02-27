@@ -830,43 +830,48 @@ const processStatement = (
       const leadingStatements: IrStatement[] = [];
       let initializer = stmt.initializer;
 
-      if (
-        initializer &&
-        initializer.kind === "assignment" &&
-        initializer.operator === "=" &&
-        initializer.right.kind === "yield" &&
-        !initializer.right.delegate
-      ) {
-        const receiveTarget = toReceivePattern(initializer.left);
-        if (!receiveTarget) {
-          emitUnsupportedYieldDiagnostic(
-            ctx,
-            "for loop initializer",
-            initializer.right.sourceSpan
-          );
-        } else {
-          leadingStatements.push(
-            createYieldStatement(
-              initializer.right,
-              receiveTarget,
-              initializer.right.inferredType
-            )
-          );
-          initializer = undefined;
-        }
-      } else if (initializer) {
+      if (initializer) {
         if (
-          initializer.kind === "variableDeclaration" &&
-          initializer.declarations.some(
-            (d) => d.initializer && containsYield(d.initializer)
-          )
+          initializer.kind === "assignment" &&
+          initializer.operator === "=" &&
+          initializer.right.kind === "yield" &&
+          !initializer.right.delegate
         ) {
-          emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
-        } else if (
-          initializer.kind !== "variableDeclaration" &&
-          containsYield(initializer)
-        ) {
-          emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
+          const receiveTarget = toReceivePattern(initializer.left);
+          if (!receiveTarget) {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              "for loop initializer",
+              initializer.right.sourceSpan
+            );
+          } else {
+            leadingStatements.push(
+              createYieldStatement(
+                initializer.right,
+                receiveTarget,
+                initializer.right.inferredType
+              )
+            );
+            initializer = undefined;
+          }
+        } else if (initializer.kind === "variableDeclaration") {
+          if (
+            initializer.declarations.some(
+              (d) => d.initializer && containsYield(d.initializer)
+            )
+          ) {
+            emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
+          }
+        } else if (containsYield(initializer)) {
+          const loweredInitializer = lowerExpressionWithYields(
+            initializer,
+            ctx,
+            "for loop initializer"
+          );
+          if (loweredInitializer) {
+            leadingStatements.push(...loweredInitializer.prelude);
+            initializer = loweredInitializer.expression;
+          }
         }
       }
 
