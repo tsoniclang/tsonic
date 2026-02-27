@@ -1121,9 +1121,9 @@ describe("Static Safety Validation", () => {
 
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
-      expect(diagnostics.diagnostics.find((d) => d.code === "TSN7406")).to.equal(
-        undefined
-      );
+      expect(
+        diagnostics.diagnostics.find((d) => d.code === "TSN7406")
+      ).to.equal(undefined);
     });
 
     it("should allow direct conditional type aliases", () => {
@@ -1135,9 +1135,9 @@ describe("Static Safety Validation", () => {
 
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
-      expect(diagnostics.diagnostics.find((d) => d.code === "TSN7407")).to.equal(
-        undefined
-      );
+      expect(
+        diagnostics.diagnostics.find((d) => d.code === "TSN7407")
+      ).to.equal(undefined);
     });
 
     it("should allow infer clauses in conditional aliases", () => {
@@ -1148,9 +1148,9 @@ describe("Static Safety Validation", () => {
 
       const program = createTestProgram(source);
       const diagnostics = validateProgram(program);
-      expect(diagnostics.diagnostics.find((d) => d.code === "TSN7409")).to.equal(
-        undefined
-      );
+      expect(
+        diagnostics.diagnostics.find((d) => d.code === "TSN7409")
+      ).to.equal(undefined);
     });
   });
 

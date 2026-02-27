@@ -15,10 +15,7 @@ import {
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
-import {
-  convertTypeParameters,
-  hasExportModifier,
-} from "../helpers.js";
+import { convertTypeParameters, hasExportModifier } from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
   deriveTypeFromExpression,

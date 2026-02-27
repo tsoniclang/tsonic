@@ -311,6 +311,38 @@ describe("Maximus Validation Coverage", () => {
           type N = Normalize<{ a: Promise<number>; b: string }>;
         `,
       },
+      {
+        name: "parenthesized mapped type syntax",
+        source: `
+          type Mapper<T> = ({ [K in keyof T]: T[K] });
+          type X = Mapper<{ a: string }>;
+        `,
+      },
+      {
+        name: "parenthesized conditional syntax",
+        source: `
+          type C<T> = (T extends string ? number : boolean);
+          type A = C<string>;
+        `,
+      },
+      {
+        name: "mapped syntax in interface member",
+        source: `
+          type M<T> = { [K in keyof T]: T[K] };
+          interface Box {
+            map: M<{ a: string; b: number }>;
+          }
+          const box: Box = { map: { a: "ok", b: 1 } };
+          void box;
+        `,
+      },
+      {
+        name: "conditional syntax in generic constraint position",
+        source: `
+          type Normalize<T> = T extends Promise<infer U> ? U : T;
+          function f<T>(x: Normalize<T>): void { void x; }
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -341,6 +373,27 @@ describe("Maximus Validation Coverage", () => {
           const id = function <T>(x: T): T { return x; };
           const s = id<string>("x");
           void s;
+        `,
+      },
+      {
+        name: "module-level generic value with direct call and export specifier",
+        source: `
+          const id = <T>(x: T): T => x;
+          export { id };
+          const s = id<string>("x");
+          void s;
+        `,
+      },
+      {
+        name: "module-level generic value with typeof usage",
+        source: `
+          const id = <T>(x: T): T => x;
+          type IdFn = typeof id;
+          const s = id<string>("x");
+          void s;
+          type Alias = IdFn;
+          const marker: Alias | undefined = undefined;
+          void marker;
         `,
       },
     ];
@@ -377,6 +430,53 @@ describe("Maximus Validation Coverage", () => {
         source: `
           const id = <T>(x: T): T => x, other = 1;
           void other;
+        `,
+      },
+      {
+        name: "generic function value passed as argument",
+        source: `
+          const id = <T>(x: T): T => x;
+          function use(fn: unknown): void { void fn; }
+          use(id);
+        `,
+      },
+      {
+        name: "generic function value returned from function",
+        source: `
+          const id = <T>(x: T): T => x;
+          function wrap(): unknown { return id; }
+          void wrap;
+        `,
+      },
+      {
+        name: "generic function value in object property position",
+        source: `
+          const id = <T>(x: T): T => x;
+          const obj = { id };
+          void obj;
+        `,
+      },
+      {
+        name: "generic function value in array literal position",
+        source: `
+          const id = <T>(x: T): T => x;
+          const arr = [id];
+          void arr;
+        `,
+      },
+      {
+        name: "generic function value property access usage",
+        source: `
+          const id = <T>(x: T): T => x;
+          const n = id.name;
+          void n;
+        `,
+      },
+      {
+        name: "generic function value as default export expression",
+        source: `
+          const id = <T>(x: T): T => x;
+          export default id;
         `,
       },
     ];

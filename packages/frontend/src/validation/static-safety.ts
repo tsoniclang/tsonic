@@ -367,6 +367,17 @@ const isAllowedGenericFunctionValueIdentifierUse = (
   return false;
 };
 
+const getReferencedIdentifierSymbol = (
+  checker: ts.TypeChecker,
+  node: ts.Identifier
+): ts.Symbol | undefined => {
+  const parent = node.parent;
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+    return checker.getShorthandAssignmentValueSymbol(parent) ?? undefined;
+  }
+  return checker.getSymbolAtLocation(node);
+};
+
 /**
  * Validate a source file for static safety violations.
  */
@@ -601,7 +612,10 @@ export const validateStaticSafety = (
     // `const name = <T>(...) => ...` / `const name = function<T>(...) { ... }`
     // declarations with a single declarator. Other forms remain hard errors.
     if (isGenericFunctionValueNode(node)) {
-      const symbol = getSupportedGenericFunctionValueSymbol(node, program.checker);
+      const symbol = getSupportedGenericFunctionValueSymbol(
+        node,
+        program.checker
+      );
       const isSupported =
         symbol !== undefined &&
         supportedGenericFunctionValueSymbols.has(symbol);
@@ -621,7 +635,7 @@ export const validateStaticSafety = (
     }
 
     if (ts.isIdentifier(node)) {
-      const symbol = program.checker.getSymbolAtLocation(node);
+      const symbol = getReferencedIdentifierSymbol(program.checker, node);
       if (
         symbol &&
         supportedGenericFunctionValueSymbols.has(symbol) &&

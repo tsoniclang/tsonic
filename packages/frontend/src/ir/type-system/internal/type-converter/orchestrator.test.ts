@@ -142,12 +142,16 @@ describe("Type Converter - Tuple Rest Lowering", () => {
 });
 
 describe("Type Converter - Mapped/Conditional Syntax", () => {
+  const expectUnknown = (type: IrType): void => {
+    expect(type).to.deep.equal({ kind: "unknownType" });
+  };
+
   it("lowers direct mapped type syntax to unknownType (never anyType)", () => {
     const converted = convertAlias(
       "type T<U> = { [K in keyof U]: U[K] | null };",
       "T"
     );
-    expect(converted).to.deep.equal({ kind: "unknownType" });
+    expectUnknown(converted);
   });
 
   it("lowers direct conditional syntax to unknownType (never anyType)", () => {
@@ -155,6 +159,84 @@ describe("Type Converter - Mapped/Conditional Syntax", () => {
       "type T<U> = U extends Promise<infer V> ? V : U;",
       "T"
     );
-    expect(converted).to.deep.equal({ kind: "unknownType" });
+    expectUnknown(converted);
+  });
+
+  it("lowers parenthesized mapped syntax to unknownType", () => {
+    const converted = convertAlias(
+      "type T<U> = ({ [K in keyof U]: U[K] });",
+      "T"
+    );
+    expectUnknown(converted);
+  });
+
+  it("lowers parenthesized conditional syntax to unknownType", () => {
+    const converted = convertAlias(
+      "type T<U> = (U extends string ? number : boolean);",
+      "T"
+    );
+    expectUnknown(converted);
+  });
+
+  it("lowers infer-only syntax to unknownType", () => {
+    const converted = convertAlias(
+      "type T<U> = U extends Promise<infer V> ? V : never;",
+      "T"
+    );
+    expectUnknown(converted);
+  });
+
+  it("never leaks mapped syntax to anyType when used in unions", () => {
+    const converted = convertAlias(
+      "type T<U> = ({ [K in keyof U]: U[K] } | string);",
+      "T"
+    );
+
+    expect(converted.kind).to.equal("unionType");
+    if (converted.kind !== "unionType") {
+      return;
+    }
+    expect(
+      converted.types.some(
+        (member) => member.kind === "anyType" || member.kind === "unknownType"
+      )
+    ).to.equal(true);
+    expect(
+      converted.types.some((member) => member.kind === "anyType")
+    ).to.equal(false);
+  });
+
+  it("never leaks conditional syntax to anyType when used in arrays", () => {
+    const converted = convertAlias(
+      "type T<U> = Array<U extends string ? number : boolean>;",
+      "T"
+    );
+
+    expect(converted.kind).to.equal("arrayType");
+    if (converted.kind !== "arrayType") {
+      return;
+    }
+    expect(converted.elementType.kind).to.equal("unknownType");
+  });
+
+  it("lowers direct infer type node fallback to unknownType", () => {
+    const converted = convertAlias(
+      "type T<U> = (U extends infer V ? V : never) extends infer X ? X : never;",
+      "T"
+    );
+    expectUnknown(converted);
+  });
+
+  it("preserves readonly type operator while still lowering nested conditional to unknown", () => {
+    const converted = convertAlias(
+      "type T<U> = readonly (U extends string ? number : boolean)[];",
+      "T"
+    );
+
+    expect(converted.kind).to.equal("arrayType");
+    if (converted.kind !== "arrayType") {
+      return;
+    }
+    expect(converted.elementType.kind).to.equal("unknownType");
   });
 });

@@ -1024,7 +1024,11 @@ const expandConstructorParameters = (
   if (ts.isUnionTypeNode(unwrapped)) {
     const members: IrType[] = [];
     for (const member of flattenUnionTypeNodes(unwrapped)) {
-      const expanded = expandConstructorParameters(member, binding, convertType);
+      const expanded = expandConstructorParameters(
+        member,
+        binding,
+        convertType
+      );
       if (!expanded) return null;
       members.push(expanded);
     }
@@ -1084,7 +1088,9 @@ const expandConstructorParameters = (
       return {
         kind: "tupleType",
         elementTypes: parameters.map((param) =>
-          param.type ? convertType(param.type, binding) : { kind: "unknownType" }
+          param.type
+            ? convertType(param.type, binding)
+            : { kind: "unknownType" }
         ),
       };
     }
