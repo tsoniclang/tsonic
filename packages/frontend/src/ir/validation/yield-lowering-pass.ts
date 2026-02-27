@@ -13,6 +13,8 @@
  * - `return yield expr;` → IrYieldStatement + IrGeneratorReturnStatement(temp)
  * - `throw yield expr;` → IrYieldStatement + IrThrowStatement(temp)
  * - `for (x = yield expr; ... )` → IrYieldStatement + ForStatement(without initializer)
+ * - `for (; yield cond; ... )` → ForStatement(condition=true) + loop-body condition prelude
+ * - `for (...; ...; yield update)` → ForStatement(update=undefined) + loop-body update prelude
  * - `if (yield expr) { ... }` → IrYieldStatement + IfStatement(temp)
  * - `switch (yield expr) { ... }` → IrYieldStatement + SwitchStatement(temp)
  * - `while (yield expr) { ... }` → While(true) with per-iteration yield+guard
@@ -522,73 +524,186 @@ const processStatement = (
       };
 
     case "forStatement": {
+      const leadingStatements: IrStatement[] = [];
+      let initializer = stmt.initializer;
+
       if (
-        stmt.initializer &&
-        stmt.initializer.kind === "assignment" &&
-        stmt.initializer.operator === "=" &&
-        stmt.initializer.right.kind === "yield" &&
-        !stmt.initializer.right.delegate
+        initializer &&
+        initializer.kind === "assignment" &&
+        initializer.operator === "=" &&
+        initializer.right.kind === "yield" &&
+        !initializer.right.delegate
       ) {
-        const receiveTarget = toReceivePattern(stmt.initializer.left);
+        const receiveTarget = toReceivePattern(initializer.left);
         if (!receiveTarget) {
           emitUnsupportedYieldDiagnostic(
             ctx,
             "for loop initializer",
-            stmt.initializer.right.sourceSpan
+            initializer.right.sourceSpan
           );
-          return {
-            ...stmt,
-            body: flattenStatement(processStatement(stmt.body, ctx)),
-          };
+        } else {
+          leadingStatements.push(
+            createYieldStatement(
+              initializer.right,
+              receiveTarget,
+              initializer.right.inferredType
+            )
+          );
+          initializer = undefined;
         }
-        if (stmt.condition && containsYield(stmt.condition)) {
-          emitUnsupportedYieldDiagnostic(ctx, "for loop condition");
-        }
-        if (stmt.update && containsYield(stmt.update)) {
-          emitUnsupportedYieldDiagnostic(ctx, "for loop update");
-        }
-        const transformedFor: IrStatement = {
-          ...stmt,
-          initializer: undefined,
-          body: flattenStatement(processStatement(stmt.body, ctx)),
-        };
-        return [
-          createYieldStatement(
-            stmt.initializer.right,
-            receiveTarget,
-            stmt.initializer.right.inferredType
-          ),
-          transformedFor,
-        ];
-      }
-
-      // Check for yield in initializer - not supported
-      if (stmt.initializer) {
+      } else if (initializer) {
         if (
-          stmt.initializer.kind === "variableDeclaration" &&
-          stmt.initializer.declarations.some(
+          initializer.kind === "variableDeclaration" &&
+          initializer.declarations.some(
             (d) => d.initializer && containsYield(d.initializer)
           )
         ) {
           emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
         } else if (
-          stmt.initializer.kind !== "variableDeclaration" &&
-          containsYield(stmt.initializer)
+          initializer.kind !== "variableDeclaration" &&
+          containsYield(initializer)
         ) {
           emitUnsupportedYieldDiagnostic(ctx, "for loop initializer");
         }
       }
-      // Check for yield in condition/update - not supported
-      if (stmt.condition && containsYield(stmt.condition)) {
-        emitUnsupportedYieldDiagnostic(ctx, "for loop condition");
+
+      const directConditionYield =
+        stmt.condition &&
+        stmt.condition.kind === "yield" &&
+        !stmt.condition.delegate
+          ? stmt.condition
+          : undefined;
+      const directUpdateYield =
+        stmt.update && stmt.update.kind === "yield" && !stmt.update.delegate
+          ? stmt.update
+          : undefined;
+
+      if (
+        stmt.condition &&
+        !directConditionYield &&
+        containsYield(stmt.condition)
+      ) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "for loop condition",
+          stmt.condition.sourceSpan
+        );
       }
-      if (stmt.update && containsYield(stmt.update)) {
-        emitUnsupportedYieldDiagnostic(ctx, "for loop update");
+      if (stmt.update && !directUpdateYield && containsYield(stmt.update)) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "for loop update",
+          stmt.update.sourceSpan
+        );
       }
-      return {
+
+      const transformedBody = flattenStatement(
+        processStatement(stmt.body, ctx)
+      );
+      if (!directConditionYield && !directUpdateYield) {
+        const transformedFor: IrStatement = {
+          ...stmt,
+          initializer,
+          body: transformedBody,
+        };
+        if (leadingStatements.length === 0) {
+          return transformedFor;
+        }
+        return [...leadingStatements, transformedFor];
+      }
+
+      const bodyStatements: IrStatement[] = [];
+      let updateFirstFlagName: string | undefined;
+      if (directUpdateYield) {
+        updateFirstFlagName = allocateYieldTempName(ctx);
+        leadingStatements.push({
+          kind: "variableDeclaration",
+          declarationKind: "let",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: updateFirstFlagName },
+              type: { kind: "primitiveType", name: "boolean" },
+              initializer: { kind: "literal", value: true },
+            },
+          ],
+        });
+        bodyStatements.push({
+          kind: "ifStatement",
+          condition: {
+            kind: "unary",
+            operator: "!",
+            expression: { kind: "identifier", name: updateFirstFlagName },
+          },
+          thenStatement: createYieldStatement(
+            directUpdateYield,
+            undefined,
+            undefined
+          ),
+        });
+        bodyStatements.push({
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: updateFirstFlagName },
+            right: { kind: "literal", value: false },
+          },
+        });
+      }
+
+      if (directConditionYield) {
+        const conditionTempName = allocateYieldTempName(ctx);
+        bodyStatements.push(
+          createYieldStatement(
+            directConditionYield,
+            { kind: "identifierPattern", name: conditionTempName },
+            directConditionYield.inferredType
+          )
+        );
+        bodyStatements.push({
+          kind: "ifStatement",
+          condition: {
+            kind: "unary",
+            operator: "!",
+            expression: { kind: "identifier", name: conditionTempName },
+          },
+          thenStatement: { kind: "breakStatement" },
+        });
+      } else if (directUpdateYield && stmt.condition) {
+        bodyStatements.push({
+          kind: "ifStatement",
+          condition: {
+            kind: "unary",
+            operator: "!",
+            expression: stmt.condition,
+          },
+          thenStatement: { kind: "breakStatement" },
+        });
+      }
+
+      if (transformedBody.kind === "blockStatement") {
+        bodyStatements.push(...transformedBody.statements);
+      } else {
+        bodyStatements.push(transformedBody);
+      }
+
+      const transformedFor: IrStatement = {
         ...stmt,
-        body: flattenStatement(processStatement(stmt.body, ctx)),
+        initializer,
+        condition: { kind: "literal", value: true },
+        update: directUpdateYield ? undefined : stmt.update,
+        body: {
+          kind: "blockStatement",
+          statements: bodyStatements,
+        },
       };
+
+      if (leadingStatements.length === 0) {
+        return transformedFor;
+      }
+      return [...leadingStatements, transformedFor];
     }
 
     case "forOfStatement":

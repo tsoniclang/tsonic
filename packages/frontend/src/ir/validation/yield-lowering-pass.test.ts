@@ -489,11 +489,16 @@ describe("Yield Lowering Pass", () => {
       expect(loweredFor.initializer).to.equal(undefined);
     });
 
-    it("should reject yield in for loop condition", () => {
+    it("should reject nested yield in for loop condition", () => {
       const module = createGeneratorModule([
         {
           kind: "forStatement",
-          condition: createYield({ kind: "literal", value: true }),
+          condition: {
+            kind: "logical",
+            operator: "&&",
+            left: createYield({ kind: "literal", value: true }),
+            right: { kind: "literal", value: true },
+          },
           body: { kind: "blockStatement", statements: [] },
         },
       ]);
@@ -504,12 +509,17 @@ describe("Yield Lowering Pass", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
     });
 
-    it("should reject yield in for loop update", () => {
+    it("should reject nested yield in for loop update", () => {
       const module = createGeneratorModule([
         {
           kind: "forStatement",
           condition: { kind: "literal", value: true },
-          update: createYield({ kind: "literal", value: 1 }),
+          update: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
           body: { kind: "blockStatement", statements: [] },
         },
       ]);
@@ -632,6 +642,93 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
+    });
+
+    it("should transform direct yield in for loop condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          update: {
+            kind: "update",
+            operator: "++",
+            expression: { kind: "identifier", name: "i" },
+            prefix: false,
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      const forStmt = body[0] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(forStmt.condition?.kind).to.equal("literal");
+      expect(forStmt.body.kind).to.equal("blockStatement");
+      const forBody = forStmt.body as IrBlockStatement;
+      expect(forBody.statements[0]?.kind).to.equal("yieldStatement");
+      expect(forBody.statements[1]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in for loop update", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: {
+            kind: "binary",
+            operator: "<",
+            left: { kind: "identifier", name: "i" },
+            right: { kind: "literal", value: 3 },
+          },
+          update: createYield({ kind: "literal", value: 1 }),
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      const forStmt = body[1] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(forStmt.condition?.kind).to.equal("literal");
+      expect(forStmt.update).to.equal(undefined);
+      expect(forStmt.body.kind).to.equal("blockStatement");
+      const forBody = forStmt.body as IrBlockStatement;
+      expect(forBody.statements[0]?.kind).to.equal("ifStatement");
+      expect(forBody.statements[1]?.kind).to.equal("expressionStatement");
+      expect(forBody.statements[2]?.kind).to.equal("ifStatement");
+    });
+
+    it("should transform direct yield in both for loop condition and update", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "forStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          update: createYield({ kind: "literal", value: 1 }),
+          body: {
+            kind: "blockStatement",
+            statements: [{ kind: "continueStatement" }],
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      const forStmt = body[1] as Extract<IrStatement, { kind: "forStatement" }>;
+      expect(forStmt.condition?.kind).to.equal("literal");
+      expect(forStmt.update).to.equal(undefined);
+      const forBody = forStmt.body as IrBlockStatement;
+      expect(forBody.statements[0]?.kind).to.equal("ifStatement");
+      expect(forBody.statements[2]?.kind).to.equal("yieldStatement");
+      expect(forBody.statements[3]?.kind).to.equal("ifStatement");
     });
 
     it("should transform direct yield in while condition", () => {
