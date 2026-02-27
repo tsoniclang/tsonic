@@ -25,18 +25,6 @@ import {
 import { createDiagnostic } from "../../../../types/diagnostic.js";
 
 const SUPPORTED_IMPORT_META_FIELDS = new Set(["url", "filename", "dirname"]);
-const DYNAMIC_ANY_TYPE_NAME = "__TSONIC_ANY";
-
-const isDynamicAnyType = (type: IrExpression["inferredType"]): boolean => {
-  if (!type) return false;
-  if (type.kind === "referenceType") {
-    return type.name === DYNAMIC_ANY_TYPE_NAME;
-  }
-  if (type.kind === "unionType" || type.kind === "intersectionType") {
-    return type.types.some((member) => isDynamicAnyType(member));
-  }
-  return false;
-};
 
 const tryConvertImportMetaProperty = (
   node: ts.PropertyAccessExpression,
@@ -105,18 +93,6 @@ export const convertMemberExpression = (
 
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
-
-    if (isDynamicAnyType(object.inferredType)) {
-      return {
-        kind: "memberAccess",
-        object,
-        property: propertyName,
-        isComputed: false,
-        isOptional,
-        inferredType: { kind: "referenceType", name: DYNAMIC_ANY_TYPE_NAME },
-        sourceSpan,
-      };
-    }
 
     // Try to resolve hierarchical binding
     const memberBinding =
@@ -188,19 +164,6 @@ export const convertMemberExpression = (
   } else {
     // Element access (computed): obj[expr]
     const object = convertExpression(node.expression, ctx, undefined);
-
-    if (isDynamicAnyType(object.inferredType)) {
-      return {
-        kind: "memberAccess",
-        object,
-        property: convertExpression(node.argumentExpression, ctx, undefined),
-        isComputed: true,
-        isOptional,
-        inferredType: { kind: "referenceType", name: DYNAMIC_ANY_TYPE_NAME },
-        sourceSpan,
-        accessKind: "dictionary",
-      };
-    }
 
     // DETERMINISTIC TYPING: Use object's inferredType (not getInferredType)
     const objectType = object.inferredType;

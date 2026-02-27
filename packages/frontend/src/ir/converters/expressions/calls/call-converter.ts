@@ -8,7 +8,6 @@
 import * as ts from "typescript";
 import {
   IrCallExpression,
-  IrExpression,
   IrAsInterfaceExpression,
   IrTryCastExpression,
   IrStackAllocExpression,
@@ -31,28 +30,6 @@ import {
   extractArgumentPassing,
   extractArgumentPassingFromBinding,
 } from "./call-site-analysis.js";
-
-const DYNAMIC_ANY_TYPE_NAME = "__TSONIC_ANY";
-
-const isDynamicAnyType = (type: IrType | undefined): boolean => {
-  if (!type) return false;
-  if (type.kind === "referenceType") {
-    return type.name === DYNAMIC_ANY_TYPE_NAME;
-  }
-  if (type.kind === "unionType" || type.kind === "intersectionType") {
-    return type.types.some((member) => isDynamicAnyType(member));
-  }
-  return false;
-};
-
-const isDynamicAnyCallee = (callee: IrExpression): boolean => {
-  if (isDynamicAnyType(callee.inferredType)) return true;
-  if (callee.kind !== "memberAccess") return false;
-  return (
-    isDynamicAnyType(callee.object.inferredType) ||
-    isDynamicAnyType(callee.inferredType)
-  );
-};
 
 // DELETED: getReturnTypeFromFunctionType - Was part of fallback path
 // DELETED: getCalleesDeclaredType - Was part of fallback path
@@ -428,59 +405,9 @@ export const convertCallExpression = (
   // Extract type arguments from the call signature
   const typeArguments = extractTypeArguments(node, ctx);
   const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
-  const argumentCount = node.arguments.length;
-  const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
-    argumentCount
-  ).fill(undefined);
 
   // Convert callee first so we can access memberBinding and receiver type
   const callee = convertExpression(node.expression, ctx, undefined);
-
-  if (isDynamicAnyCallee(callee)) {
-    const convertedArgs: IrCallExpression["arguments"][number][] = [];
-    for (let index = 0; index < node.arguments.length; index++) {
-      const arg = node.arguments[index];
-      if (!arg) continue;
-      if (ts.isSpreadElement(arg)) {
-        const spreadExpr = convertExpression(arg.expression, ctx, undefined);
-        convertedArgs.push({
-          kind: "spread",
-          expression: spreadExpr,
-          inferredType: spreadExpr.inferredType,
-          sourceSpan: getSourceSpan(arg),
-        });
-        continue;
-      }
-
-      const unwrapped = unwrapCallSiteArgumentModifier(arg);
-      if (unwrapped.modifier) {
-        callSiteArgModifiers[index] = unwrapped.modifier;
-      }
-      convertedArgs.push(
-        convertExpression(unwrapped.expression, ctx, undefined)
-      );
-    }
-
-    const argumentPassing = applyCallSiteArgumentModifiers(
-      extractArgumentPassing(node, ctx),
-      callSiteArgModifiers,
-      argumentCount,
-      ctx,
-      node
-    );
-
-    return {
-      kind: "call",
-      callee,
-      arguments: convertedArgs,
-      isOptional: node.questionDotToken !== undefined,
-      inferredType: { kind: "referenceType", name: DYNAMIC_ANY_TYPE_NAME },
-      sourceSpan: getSourceSpan(node),
-      typeArguments,
-      requiresSpecialization,
-      argumentPassing,
-    };
-  }
 
   // Extract receiver type for member method calls (e.g., dict.get() → dict's type)
   const receiverIrType =
@@ -491,6 +418,11 @@ export const convertCallExpression = (
   // 2) Convert arguments, then re-resolve with argTypes to infer generics deterministically
   const typeSystem = ctx.typeSystem;
   const sigId = ctx.binding.resolveCallSignature(node);
+  const argumentCount = node.arguments.length;
+  const callSiteArgModifiers: (CallSiteArgModifier | undefined)[] = new Array(
+    argumentCount
+  ).fill(undefined);
+
   const explicitTypeArgs = node.typeArguments
     ? node.typeArguments.map((ta) =>
         typeSystem.typeFromSyntax(ctx.binding.captureTypeSyntax(ta))
