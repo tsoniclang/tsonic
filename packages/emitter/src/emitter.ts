@@ -347,6 +347,7 @@ export const emitCSharpFiles = (
     const moduleOptions = {
       ...options,
       isEntryPoint,
+      currentModuleFilePath: module.filePath,
       moduleMap, // Pass module map to each module emission
       exportMap, // Pass export map for re-export resolution
       suppressedTypeDeclarations: duplicatePlan.suppressed,

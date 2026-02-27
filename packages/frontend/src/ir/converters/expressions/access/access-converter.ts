@@ -6,7 +6,9 @@
  */
 
 import * as ts from "typescript";
-import { IrMemberExpression } from "../../../types.js";
+import { pathToFileURL } from "node:url";
+import { dirname } from "node:path";
+import { IrExpression } from "../../../types.js";
 import { getSourceSpan } from "../helpers.js";
 import { convertExpression } from "../../../expression-converter.js";
 import type { ProgramContext } from "../../../program-context.js";
@@ -20,6 +22,60 @@ import {
   resolveHierarchicalBindingFromMemberId,
   resolveExtensionMethodsBinding,
 } from "./binding-resolution.js";
+import { createDiagnostic } from "../../../../types/diagnostic.js";
+
+const SUPPORTED_IMPORT_META_FIELDS = new Set(["url", "filename", "dirname"]);
+
+const tryConvertImportMetaProperty = (
+  node: ts.PropertyAccessExpression,
+  ctx: ProgramContext
+): IrExpression | undefined => {
+  if (!ts.isMetaProperty(node.expression)) return undefined;
+  if (
+    node.expression.keywordToken !== ts.SyntaxKind.ImportKeyword ||
+    node.expression.name.text !== "meta"
+  ) {
+    return undefined;
+  }
+
+  const filePath = node.getSourceFile().fileName.replace(/\\/g, "/");
+  const field = node.name.text;
+  const sourceSpan = getSourceSpan(node);
+
+  if (!SUPPORTED_IMPORT_META_FIELDS.has(field)) {
+    ctx.diagnostics.push(
+      createDiagnostic(
+        "TSN2001",
+        "error",
+        `import.meta.${field} is not supported in strict AOT mode`,
+        sourceSpan,
+        "Supported fields: import.meta.url, import.meta.filename, import.meta.dirname"
+      )
+    );
+    return {
+      kind: "literal",
+      value: undefined,
+      raw: "undefined",
+      inferredType: { kind: "primitiveType", name: "undefined" },
+      sourceSpan,
+    };
+  }
+
+  const value =
+    field === "url"
+      ? pathToFileURL(filePath).href
+      : field === "dirname"
+        ? dirname(filePath).replace(/\\/g, "/")
+        : filePath;
+
+  return {
+    kind: "literal",
+    value,
+    raw: JSON.stringify(value),
+    inferredType: { kind: "primitiveType", name: "string" },
+    sourceSpan,
+  };
+};
 
 /**
  * Convert property access or element access expression
@@ -27,11 +83,14 @@ import {
 export const convertMemberExpression = (
   node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
   ctx: ProgramContext
-): IrMemberExpression => {
+): IrExpression => {
   const isOptional = node.questionDotToken !== undefined;
   const sourceSpan = getSourceSpan(node);
 
   if (ts.isPropertyAccessExpression(node)) {
+    const importMetaExpr = tryConvertImportMetaProperty(node, ctx);
+    if (importMetaExpr) return importMetaExpr;
+
     const object = convertExpression(node.expression, ctx, undefined);
     const propertyName = node.name.text;
 

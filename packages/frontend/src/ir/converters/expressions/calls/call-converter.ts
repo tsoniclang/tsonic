@@ -364,6 +364,44 @@ export const convertCallExpression = (
     };
   }
 
+  // Dynamic import() is lowered deterministically by the emitter for supported
+  // side-effect forms. Preserve it as a normal call with a stable Promise<unknown>
+  // return type so validation/soundness can reason about it without unknown-type leaks.
+  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const typeArguments = extractTypeArguments(node, ctx);
+    const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);
+    const callee = convertExpression(node.expression, ctx, undefined);
+    const args: IrCallExpression["arguments"][number][] = [];
+    for (const arg of node.arguments) {
+      if (ts.isSpreadElement(arg)) {
+        const spreadExpr = convertExpression(arg.expression, ctx, undefined);
+        args.push({
+          kind: "spread",
+          expression: spreadExpr,
+          inferredType: spreadExpr.inferredType,
+          sourceSpan: getSourceSpan(arg),
+        });
+      } else {
+        args.push(convertExpression(arg, ctx, undefined));
+      }
+    }
+
+    return {
+      kind: "call",
+      callee,
+      arguments: args,
+      isOptional: node.questionDotToken !== undefined,
+      inferredType: {
+        kind: "referenceType",
+        name: "Promise",
+        typeArguments: [{ kind: "unknownType" }],
+      },
+      sourceSpan: getSourceSpan(node),
+      typeArguments,
+      requiresSpecialization,
+    };
+  }
+
   // Extract type arguments from the call signature
   const typeArguments = extractTypeArguments(node, ctx);
   const requiresSpecialization = checkIfRequiresSpecialization(node, ctx);

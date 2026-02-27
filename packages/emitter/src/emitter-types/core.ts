@@ -130,6 +130,8 @@ export type EmitterOptions = {
   readonly isEntryPoint?: boolean;
   /** Entry point file path (for batch emit) */
   readonly entryPointPath?: string;
+  /** Current module file path being emitted (for import-path-sensitive lowering). */
+  readonly currentModuleFilePath?: string;
   /** Type roots used by the frontend to discover CLR bindings (informational; emitter does not load directly). */
   readonly libraries?: readonly string[];
   /** Module map for resolving cross-file imports (populated during batch emission) */

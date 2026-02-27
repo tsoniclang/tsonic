@@ -796,6 +796,29 @@ describe("IR Builder", () => {
         }
       }
     });
+
+    it("should lower import.meta.url to a string literal", () => {
+      const source = `
+        const url = import.meta.url;
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+
+      expect(result.ok).to.equal(true);
+      if (result.ok) {
+        const varDecl = result.value.body[0] as IrVariableDeclaration;
+        const init = varDecl.declarations[0]?.initializer;
+        expect(init?.kind).to.equal("literal");
+        if (init?.kind === "literal") {
+          expect(typeof init.value).to.equal("string");
+          expect((init.value as string).startsWith("file://")).to.equal(true);
+        }
+      }
+    });
   });
 
   describe("Export Handling", () => {

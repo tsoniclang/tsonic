@@ -137,34 +137,64 @@ describe("validateUnsupportedFeatures", () => {
       );
     });
 
-    it("rejects import.meta", () => {
+    it("allows import.meta.url", () => {
       const result = runValidation(`
         const url = import.meta.url;
         console.log(url);
       `);
 
-      expect(
-        hasDiagnostic(
-          result,
-          "TSN2001",
-          "Meta properties (import.meta) not supported"
-        )
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
     });
 
-    it("rejects dynamic import()", () => {
+    it("allows import.meta.filename", () => {
+      const result = runValidation(`
+        const file = import.meta.filename;
+        console.log(file);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+    });
+
+    it("allows import.meta.dirname", () => {
+      const result = runValidation(`
+        const dir = import.meta.dirname;
+        console.log(dir);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001")).to.equal(false);
+    });
+
+    it("rejects unsupported import.meta fields", () => {
+      const result = runValidation(`
+        const bad = import.meta.env;
+        console.log(bad);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
+    });
+
+    it("rejects bare import.meta", () => {
+      const result = runValidation(`
+        const meta = import.meta;
+        console.log(meta);
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "import.meta")).to.equal(true);
+    });
+
+    it("rejects dynamic import() when returned as a value", () => {
       const result = runValidation(`
         async function load() {
           return import("./module.js");
         }
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN2001", "Dynamic import() not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
-    it("rejects await import()", () => {
+    it("rejects await import() when module namespace is consumed", () => {
       const result = runValidation(`
         async function load() {
           const module = await import("./module.js");
@@ -172,9 +202,33 @@ describe("validateUnsupportedFeatures", () => {
         }
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN2001", "Dynamic import() not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
+    });
+
+    it("allows dynamic import() in side-effect form", () => {
+      const result = runValidation(`
+        async function load() {
+          await import("./module.js");
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        false
+      );
+    });
+
+    it("rejects dynamic import() side-effect form with non-literal specifier", () => {
+      const result = runValidation(`
+        async function load(name: string) {
+          await import(name);
+        }
+      `);
+
+      expect(hasDiagnostic(result, "TSN2001", "Dynamic import()")).to.equal(
+        true
+      );
     });
 
     it("does not reject static import declarations", () => {

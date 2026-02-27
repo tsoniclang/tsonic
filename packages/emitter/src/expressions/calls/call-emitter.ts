@@ -32,6 +32,7 @@ import type {
   CSharpStatementAst,
   CSharpTypeAst,
 } from "../../core/format/backend-ast/types.js";
+import { resolveImportPath } from "../../core/semantic/index.js";
 
 /**
  * Wrap an expression AST with an optional argument modifier (ref/out/in/params).
@@ -223,6 +224,117 @@ const buildPromiseChainTaskRun = (
     ],
     typeArguments: resultType ? [resultType] : undefined,
   };
+};
+
+const getDynamicImportSpecifier = (
+  expr: Extract<IrExpression, { kind: "call" }>
+): string | undefined => {
+  const [arg] = expr.arguments;
+  if (!arg || arg.kind === "spread") return undefined;
+  return arg.kind === "literal" && typeof arg.value === "string"
+    ? arg.value
+    : undefined;
+};
+
+const emitDynamicImportSideEffect = (
+  expr: Extract<IrExpression, { kind: "call" }>,
+  context: EmitterContext
+): [CSharpExpressionAst, EmitterContext] | null => {
+  if (expr.callee.kind !== "identifier" || expr.callee.name !== "import") {
+    return null;
+  }
+
+  const specifier = getDynamicImportSpecifier(expr);
+  if (!specifier) return null;
+
+  const completedTaskExpr: CSharpExpressionAst = {
+    kind: "memberAccessExpression",
+    expression: {
+      kind: "identifierExpression",
+      identifier: "global::System.Threading.Tasks.Task",
+    },
+    memberName: "CompletedTask",
+  };
+
+  const currentFilePath = context.options.currentModuleFilePath;
+  const moduleMap = context.options.moduleMap;
+  if (!currentFilePath || !moduleMap) {
+    return [completedTaskExpr, context];
+  }
+
+  const targetPath = resolveImportPath(currentFilePath, specifier);
+  const targetModule = (() => {
+    const direct = moduleMap.get(targetPath);
+    if (direct) return direct;
+
+    const normalizedTarget = targetPath.replace(/\\/g, "/");
+    for (const [key, identity] of moduleMap.entries()) {
+      const normalizedKey = key.replace(/\\/g, "/");
+      if (
+        normalizedKey === normalizedTarget ||
+        normalizedKey.endsWith(`/${normalizedTarget}`) ||
+        normalizedTarget.endsWith(`/${normalizedKey}`)
+      ) {
+        return identity;
+      }
+    }
+    return undefined;
+  })();
+  if (!targetModule) {
+    return [completedTaskExpr, context];
+  }
+
+  const containerName = targetModule.hasTypeCollision
+    ? `${targetModule.className}__Module`
+    : targetModule.className;
+  const containerType: CSharpTypeAst = {
+    kind: "identifierType",
+    name: `global::${targetModule.namespace}.${containerName}`,
+  };
+
+  const runClassConstructor: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Runtime.CompilerServices.RuntimeHelpers",
+      },
+      memberName: "RunClassConstructor",
+    },
+    arguments: [
+      {
+        kind: "memberAccessExpression",
+        expression: {
+          kind: "typeofExpression",
+          type: containerType,
+        },
+        memberName: "TypeHandle",
+      },
+    ],
+  };
+
+  const taskRun: CSharpExpressionAst = {
+    kind: "invocationExpression",
+    expression: {
+      kind: "memberAccessExpression",
+      expression: {
+        kind: "identifierExpression",
+        identifier: "global::System.Threading.Tasks.Task",
+      },
+      memberName: "Run",
+    },
+    arguments: [
+      {
+        kind: "lambdaExpression",
+        isAsync: false,
+        parameters: [],
+        body: runClassConstructor,
+      },
+    ],
+  };
+
+  return [taskRun, context];
 };
 
 const emitPromiseThenCatchFinally = (
@@ -747,6 +859,9 @@ export const emitCall = (
   expr: Extract<IrExpression, { kind: "call" }>,
   context: EmitterContext
 ): [CSharpExpressionAst, EmitterContext] => {
+  const dynamicImport = emitDynamicImportSideEffect(expr, context);
+  if (dynamicImport) return dynamicImport;
+
   const promiseChain = emitPromiseThenCatchFinally(expr, context);
   if (promiseChain) return promiseChain;
 

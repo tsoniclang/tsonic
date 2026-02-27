@@ -7,7 +7,7 @@ import { TsonicProgram } from "../../program.js";
 import { ModuleInfo, Import, Export } from "../../types/module.js";
 import { getNamespaceFromPath, getClassNameFromPath } from "../../resolver.js";
 import { hasExportModifier, isTopLevelCode } from "../helpers.js";
-import { extractImport } from "./imports.js";
+import { extractDynamicImport, extractImport } from "./imports.js";
 import { extractExport } from "./exports.js";
 
 /**
@@ -21,12 +21,31 @@ export const extractModuleInfo = (
   const exports: Export[] = [];
   let hasTopLevelCode = false;
 
+  const addImport = (imp: Import): void => {
+    const exists = imports.some(
+      (current) =>
+        current.kind === imp.kind &&
+        current.specifier === imp.specifier &&
+        current.resolvedPath === imp.resolvedPath
+    );
+    if (!exists) {
+      imports.push(imp);
+    }
+  };
+
   const visitor = (node: ts.Node): void => {
     // Extract imports
     if (ts.isImportDeclaration(node)) {
       const imp = extractImport(node, sourceFile, program);
       if (imp) {
-        imports.push(imp);
+        addImport(imp);
+      }
+    }
+
+    if (ts.isCallExpression(node)) {
+      const dynamicImp = extractDynamicImport(node, sourceFile, program);
+      if (dynamicImp) {
+        addImport(dynamicImp);
       }
     }
 
