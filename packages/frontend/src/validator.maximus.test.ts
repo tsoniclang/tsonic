@@ -105,30 +105,6 @@ describe("Maximus Validation Coverage", () => {
           void load();
         `,
       },
-      {
-        name: "Promise.then chain",
-        code: "TSN3011",
-        source: `
-          const p: Promise<number> = Promise.resolve(1);
-          p.then((x) => x + 1);
-        `,
-      },
-      {
-        name: "Promise.catch chain",
-        code: "TSN3011",
-        source: `
-          const p: Promise<number> = Promise.resolve(1);
-          p.catch(() => 0);
-        `,
-      },
-      {
-        name: "Promise.finally chain",
-        code: "TSN3011",
-        source: `
-          const p: Promise<number> = Promise.resolve(1);
-          p.finally(() => {});
-        `,
-      },
     ];
 
     for (const scenario of shouldReject) {
@@ -173,6 +149,27 @@ describe("Maximus Validation Coverage", () => {
         source: `
           import { value } from "./module.js";
           console.log(value);
+        `,
+      },
+      {
+        name: "Promise.then chain",
+        source: `
+          const p: Promise<number> = Promise.resolve(1);
+          p.then((x) => x + 1);
+        `,
+      },
+      {
+        name: "Promise.catch chain",
+        source: `
+          const p: Promise<number> = Promise.resolve(1);
+          p.catch(() => 0);
+        `,
+      },
+      {
+        name: "Promise.finally chain",
+        source: `
+          const p: Promise<number> = Promise.resolve(1);
+          p.finally(() => {});
         `,
       },
     ];

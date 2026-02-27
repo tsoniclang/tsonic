@@ -511,4 +511,83 @@ describe("End-to-End Integration", () => {
       expect(csharpAAgain).not.to.match(/required\s+double\s+id\s*\{/i);
     });
   });
+
+  describe("Promise Chains", () => {
+    it("lowers Promise.then to Task.Run async wrapper", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.then((x) => x + 1);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).to.include("await p");
+    });
+
+    it("lowers Promise.catch to Task.Run with try/catch", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.catch((_e) => 0);
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run");
+      expect(csharp).to.include(
+        "catch (global::System.Exception __tsonic_promise_ex)"
+      );
+    });
+
+    it("lowers Promise.finally to Task.Run with finally", () => {
+      const source = `
+        declare class Promise<T> {
+          then<U>(onFulfilled: (value: T) => U | PromiseLike<U>): Promise<U>;
+          catch<U>(onRejected: (reason: unknown) => U | PromiseLike<U>): Promise<T | U>;
+          finally(onFinally: () => void): Promise<T>;
+          static resolve<T>(value: T): Promise<T>;
+        }
+        interface PromiseLike<T> {}
+
+        export async function load(): Promise<number> {
+          return 1;
+        }
+
+        export async function run(): Promise<number> {
+          const p = load();
+          return p.finally(() => {});
+        }
+      `;
+
+      const csharp = compileToCSharp(source);
+      expect(csharp).to.include("Task.Run<double>(async");
+      expect(csharp).to.include("finally");
+    });
+  });
 });

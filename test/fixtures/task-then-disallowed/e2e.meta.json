@@ -1,4 +1,3 @@
 {
-  "expectFailure": true,
-  "description": "Task/ValueTask are thenable for TS awaitability, but Promise-style chaining (.then/.catch/.finally) is not supported."
+  "description": "Task/ValueTask Promise-style chaining compiles in strict AOT mode."
 }

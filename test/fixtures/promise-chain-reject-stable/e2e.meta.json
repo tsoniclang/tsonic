@@ -1,5 +1,3 @@
 {
-  "expectFailure": true,
-  "description": "Promise.then/catch/finally chains are unsupported and must remain hard errors.",
-  "expectedErrors": ["TSN3011", "Promise.then() is not supported"]
+  "description": "Promise.then/catch/finally chains compile in strict AOT mode."
 }

@@ -81,9 +81,6 @@ const runValidation = (sourceText: string): ValidationResult => {
   );
 };
 
-const diagnosticsWithCode = (result: ValidationResult, code: string) =>
-  result.diagnostics.filter((d) => d.code === code);
-
 const hasDiagnostic = (
   result: ValidationResult,
   code: string,
@@ -200,64 +197,44 @@ describe("validateUnsupportedFeatures", () => {
     });
   });
 
-  describe("TSN3011", () => {
-    it("rejects Promise.then chaining", () => {
+  describe("Promise chaining support (TSN3011 retired)", () => {
+    it("allows Promise.then chaining", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.then((x) => x + 1);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.then() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects Promise.catch chaining", () => {
+    it("allows Promise.catch chaining", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.catch(() => 0);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.catch() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects Promise.finally chaining", () => {
+    it("allows Promise.finally chaining", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.finally(() => {});
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.finally() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("reports all three chain operators when all are used", () => {
+    it("allows Promise chain composition", () => {
       const result = runValidation(`
         const p: Promise<number> = Promise.resolve(1);
         p.then((x) => x + 1).catch(() => 0).finally(() => {});
       `);
 
-      expect(
-        diagnosticsWithCode(result, "TSN3011").some((d) =>
-          d.message.includes("Promise.then() is not supported")
-        )
-      ).to.equal(true);
-      expect(
-        diagnosticsWithCode(result, "TSN3011").some((d) =>
-          d.message.includes("Promise.catch() is not supported")
-        )
-      ).to.equal(true);
-      expect(
-        diagnosticsWithCode(result, "TSN3011").some((d) =>
-          d.message.includes("Promise.finally() is not supported")
-        )
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects chaining on Promise returned by async functions", () => {
+    it("allows chaining on Promise returned by async functions", () => {
       const result = runValidation(`
         async function load(): Promise<number> {
           return 1;
@@ -265,20 +242,16 @@ describe("validateUnsupportedFeatures", () => {
         load().then((x) => x + 1);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.then() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
-    it("rejects optional chaining on Promise receivers", () => {
+    it("allows optional chaining on Promise receivers", () => {
       const result = runValidation(`
         const p: Promise<number> | undefined = Promise.resolve(1);
         p?.then((x) => x + 1);
       `);
 
-      expect(
-        hasDiagnostic(result, "TSN3011", "Promise.then() is not supported")
-      ).to.equal(true);
+      expect(hasDiagnostic(result, "TSN3011")).to.equal(false);
     });
 
     it("does not flag class methods named then", () => {
