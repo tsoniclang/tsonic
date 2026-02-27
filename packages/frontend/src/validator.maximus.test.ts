@@ -493,6 +493,15 @@ describe("Maximus Validation Coverage", () => {
           void id<number>(1);
         `,
       },
+      {
+        name: "generic function value in multi-declarator const statement",
+        source: `
+          const id = <T>(x: T): T => x, other = 1;
+          const n = id<number>(1);
+          void n;
+          void other;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -511,13 +520,6 @@ describe("Maximus Validation Coverage", () => {
           const id = <T>(x: T): T => x;
           const copy = id;
           void copy;
-        `,
-      },
-      {
-        name: "multiple declarators in one statement",
-        source: `
-          const id = <T>(x: T): T => x, other = 1;
-          void other;
         `,
       },
       {

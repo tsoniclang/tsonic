@@ -327,7 +327,6 @@ const getSupportedGenericFunctionValueSymbol = (
   const list = decl.parent;
   if (!ts.isVariableDeclarationList(list)) return undefined;
   if (!(list.flags & ts.NodeFlags.Const)) return undefined;
-  if (list.declarations.length !== 1) return undefined;
 
   const stmt = list.parent;
   if (!ts.isVariableStatement(stmt)) return undefined;
@@ -648,9 +647,9 @@ export const validateStaticSafety = (
     // Empty arrays are inferred/erased deterministically by array conversion rules.
 
     // TSN7432:
-    // Generic function values are currently supported only for single-declarator
-    // `const name = <T>(...) => ...` / `const name = function<T>(...) { ... }`
-    // declarations. Other forms remain hard errors.
+    // Generic function values are currently supported for `const` declarations
+    // with identifier names and generic arrow/function-expression initializers.
+    // Other declaration forms remain hard errors.
     if (isGenericFunctionValueNode(node)) {
       const symbol = getSupportedGenericFunctionValueSymbol(
         node,
@@ -666,9 +665,9 @@ export const validateStaticSafety = (
           createDiagnostic(
             "TSN7432",
             "error",
-            "Generic arrow/functions as values are only supported for single `const` declarations.",
+            "Generic arrow/functions as values are only supported for `const` identifier declarations.",
             getNodeLocation(sourceFile, node),
-            "Use `const f = <T>(...) => ...` in a single declarator, or rewrite as a named generic function declaration."
+            "Use `const f = <T>(...) => ...` (or function expression) in a `const` declaration, or rewrite as a named generic function declaration."
           )
         );
       }

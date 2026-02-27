@@ -217,15 +217,15 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(findVariableDeclaration(body, "id")).not.to.equal(undefined);
   });
 
-  it("does not lower multi-declarator const statements", () => {
+  it("lowers generic function declarators inside multi-declarator const statements", () => {
     const body = createTestModule(`
       const id = <T>(x: T): T => x, other = 1;
       void id<string>("ok");
       void other;
     `);
 
-    expect(findFunctionByName(body, "id")).to.equal(undefined);
-    expect(findVariableDeclaration(body, "id")).not.to.equal(undefined);
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).to.equal(undefined);
     expect(findVariableDeclaration(body, "other")).not.to.equal(undefined);
   });
 });

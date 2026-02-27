@@ -122,7 +122,6 @@ const isSupportedGenericFunctionValueDeclaration = (
   readonly initializer: GenericFunctionValueNode;
 } => {
   if (!(node.declarationList.flags & ts.NodeFlags.Const)) return false;
-  if (node.declarationList.declarations.length !== 1) return false;
   if (!ts.isIdentifier(decl.name)) return false;
   if (!decl.initializer) return false;
   if (!isGenericFunctionValueNode(decl.initializer)) return false;
