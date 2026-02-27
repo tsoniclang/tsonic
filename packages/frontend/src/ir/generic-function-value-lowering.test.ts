@@ -177,7 +177,7 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(findVariableDeclaration(body, "asGenerator")).to.equal(undefined);
   });
 
-  it("does not lower non-module generic function values", () => {
+  it("lowers nested single-declarator const generic function values", () => {
     const body = createTestModule(`
       function wrap(): string {
         const id = <T>(x: T): T => x;
@@ -190,12 +190,21 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(wrap).not.to.equal(undefined);
     if (!wrap) return;
 
+    const innerFn = wrap.body.statements.find(
+      (stmt): stmt is IrFunctionDeclaration =>
+        stmt.kind === "functionDeclaration" && stmt.name === "id"
+    );
+    expect(innerFn).not.to.equal(undefined);
+
     const innerVar = wrap.body.statements.find(
       (stmt): stmt is IrVariableDeclaration =>
-        stmt.kind === "variableDeclaration"
+        stmt.kind === "variableDeclaration" &&
+        stmt.declarations.some(
+          (decl) =>
+            decl.name.kind === "identifierPattern" && decl.name.name === "id"
+        )
     );
-    expect(innerVar).not.to.equal(undefined);
-    expect(findFunctionByName(body, "id")).to.equal(undefined);
+    expect(innerVar).to.equal(undefined);
   });
 
   it("does not lower let generic function values", () => {

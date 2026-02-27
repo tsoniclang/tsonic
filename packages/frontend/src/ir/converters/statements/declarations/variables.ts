@@ -121,7 +121,6 @@ const isSupportedGenericFunctionValueDeclaration = (
   readonly name: ts.Identifier;
   readonly initializer: GenericFunctionValueNode;
 } => {
-  if (!isModuleLevelVariable(node)) return false;
   if (!(node.declarationList.flags & ts.NodeFlags.Const)) return false;
   if (node.declarationList.declarations.length !== 1) return false;
   if (!ts.isIdentifier(decl.name)) return false;

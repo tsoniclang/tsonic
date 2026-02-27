@@ -423,6 +423,16 @@ describe("Maximus Validation Coverage", () => {
           void marker;
         `,
       },
+      {
+        name: "nested generic arrow value inside function scope with direct call",
+        source: `
+          function wrap(): void {
+            const id = <T>(x: T): T => x;
+            void id<number>(1);
+          }
+          void wrap;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -435,15 +445,6 @@ describe("Maximus Validation Coverage", () => {
       readonly name: string;
       readonly source: string;
     }> = [
-      {
-        name: "nested generic arrow value inside function scope",
-        source: `
-          function wrap(): void {
-            const id = <T>(x: T): T => x;
-            void id<number>(1);
-          }
-        `,
-      },
       {
         name: "generic function value used as value (non-call usage)",
         source: `
