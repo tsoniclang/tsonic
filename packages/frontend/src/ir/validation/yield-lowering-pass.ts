@@ -13,6 +13,9 @@
  * - `return yield expr;` → IrYieldStatement + IrGeneratorReturnStatement(temp)
  * - `throw yield expr;` → IrYieldStatement + IrThrowStatement(temp)
  * - `for (x = yield expr; ... )` → IrYieldStatement + ForStatement(without initializer)
+ * - `if (yield expr) { ... }` → IrYieldStatement + IfStatement(temp)
+ * - `switch (yield expr) { ... }` → IrYieldStatement + SwitchStatement(temp)
+ * - `while (yield expr) { ... }` → While(true) with per-iteration yield+guard
  *
  * Unsupported patterns (emit TSN6101 diagnostic):
  * - `foo(yield x)` - yield in call argument
@@ -433,6 +436,33 @@ const processStatement = (
       };
 
     case "ifStatement":
+      if (stmt.condition.kind === "yield" && !stmt.condition.delegate) {
+        const tempName = allocateYieldTempName(ctx);
+        return [
+          createYieldStatement(
+            stmt.condition,
+            { kind: "identifierPattern", name: tempName },
+            stmt.condition.inferredType
+          ),
+          {
+            ...stmt,
+            condition: { kind: "identifier", name: tempName },
+            thenStatement: flattenStatement(
+              processStatement(stmt.thenStatement, ctx)
+            ),
+            elseStatement: stmt.elseStatement
+              ? flattenStatement(processStatement(stmt.elseStatement, ctx))
+              : undefined,
+          },
+        ];
+      }
+      if (containsYield(stmt.condition)) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "if condition",
+          stmt.condition.sourceSpan
+        );
+      }
       return {
         ...stmt,
         thenStatement: flattenStatement(
@@ -444,6 +474,48 @@ const processStatement = (
       };
 
     case "whileStatement":
+      if (stmt.condition.kind === "yield" && !stmt.condition.delegate) {
+        const tempName = allocateYieldTempName(ctx);
+        const transformedBody = flattenStatement(
+          processStatement(stmt.body, ctx)
+        );
+        const bodyStatements: IrStatement[] = [
+          createYieldStatement(
+            stmt.condition,
+            { kind: "identifierPattern", name: tempName },
+            stmt.condition.inferredType
+          ),
+          {
+            kind: "ifStatement",
+            condition: {
+              kind: "unary",
+              operator: "!",
+              expression: { kind: "identifier", name: tempName },
+            },
+            thenStatement: { kind: "breakStatement" },
+          },
+        ];
+        if (transformedBody.kind === "blockStatement") {
+          bodyStatements.push(...transformedBody.statements);
+        } else {
+          bodyStatements.push(transformedBody);
+        }
+        return {
+          kind: "whileStatement",
+          condition: { kind: "literal", value: true },
+          body: {
+            kind: "blockStatement",
+            statements: bodyStatements,
+          },
+        };
+      }
+      if (containsYield(stmt.condition)) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "while condition",
+          stmt.condition.sourceSpan
+        );
+      }
       return {
         ...stmt,
         body: flattenStatement(processStatement(stmt.body, ctx)),
@@ -526,6 +598,34 @@ const processStatement = (
       };
 
     case "switchStatement":
+      if (stmt.expression.kind === "yield" && !stmt.expression.delegate) {
+        const tempName = allocateYieldTempName(ctx);
+        return [
+          createYieldStatement(
+            stmt.expression,
+            { kind: "identifierPattern", name: tempName },
+            stmt.expression.inferredType
+          ),
+          {
+            ...stmt,
+            expression: { kind: "identifier", name: tempName },
+            cases: stmt.cases.map((c) => ({
+              ...c,
+              statements: c.statements.flatMap((s) => {
+                const result = processStatement(s, ctx);
+                return Array.isArray(result) ? result : [result];
+              }),
+            })),
+          },
+        ];
+      }
+      if (containsYield(stmt.expression)) {
+        emitUnsupportedYieldDiagnostic(
+          ctx,
+          "switch expression",
+          stmt.expression.sourceSpan
+        );
+      }
       return {
         ...stmt,
         cases: stmt.cases.map((c) => ({
@@ -591,10 +691,7 @@ const processStatement = (
       return createGeneratorReturnStatement(stmt.expression);
 
     case "throwStatement":
-      if (
-        stmt.expression.kind === "yield" &&
-        !stmt.expression.delegate
-      ) {
+      if (stmt.expression.kind === "yield" && !stmt.expression.delegate) {
         const tempName = allocateYieldTempName(ctx);
         return [
           createYieldStatement(

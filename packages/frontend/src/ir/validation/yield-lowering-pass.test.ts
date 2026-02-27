@@ -482,7 +482,10 @@ describe("Yield Lowering Pass", () => {
       expect(body[0]?.kind).to.equal("yieldStatement");
       expect(body[1]?.kind).to.equal("forStatement");
 
-      const loweredFor = body[1] as Extract<IrStatement, { kind: "forStatement" }>;
+      const loweredFor = body[1] as Extract<
+        IrStatement,
+        { kind: "forStatement" }
+      >;
       expect(loweredFor.initializer).to.equal(undefined);
     });
 
@@ -516,9 +519,73 @@ describe("Yield Lowering Pass", () => {
       expect(result.ok).to.be.false;
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
     });
+
+    it("should reject nested yield in if condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "ifStatement",
+          condition: {
+            kind: "binary",
+            operator: "+",
+            left: createYield({ kind: "literal", value: 1 }),
+            right: { kind: "literal", value: 2 },
+          },
+          thenStatement: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
+
+    it("should reject nested yield in while condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "whileStatement",
+          condition: {
+            kind: "logical",
+            operator: "&&",
+            left: createYield({ kind: "literal", value: true }),
+            right: { kind: "literal", value: true },
+          },
+          body: { kind: "blockStatement", statements: [] },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
   });
 
   describe("Control Flow Structures", () => {
+    it("should transform direct yield in if condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "ifStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          thenStatement: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: { kind: "literal", value: 1 },
+              },
+            ],
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("ifStatement");
+    });
+
     it("should transform yield inside if statement", () => {
       const module = createGeneratorModule([
         {
@@ -567,6 +634,42 @@ describe("Yield Lowering Pass", () => {
       expect(result.ok).to.be.true;
     });
 
+    it("should transform direct yield in while condition", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "whileStatement",
+          condition: createYield({ kind: "literal", value: true }),
+          body: {
+            kind: "blockStatement",
+            statements: [
+              {
+                kind: "expressionStatement",
+                expression: { kind: "literal", value: 1 },
+              },
+            ],
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      const whileStmt = body[0] as Extract<
+        IrStatement,
+        { kind: "whileStatement" }
+      >;
+      expect(whileStmt.condition.kind).to.equal("literal");
+      if (whileStmt.condition.kind === "literal") {
+        expect(whileStmt.condition.value).to.equal(true);
+      }
+      expect(whileStmt.body.kind).to.equal("blockStatement");
+      const whileBody = whileStmt.body as IrBlockStatement;
+      expect(whileBody.statements[0]?.kind).to.equal("yieldStatement");
+      expect(whileBody.statements[1]?.kind).to.equal("ifStatement");
+    });
+
     it("should transform yield inside switch case", () => {
       const module = createGeneratorModule([
         {
@@ -590,6 +693,30 @@ describe("Yield Lowering Pass", () => {
       const result = runYieldLoweringPass([module]);
 
       expect(result.ok).to.be.true;
+    });
+
+    it("should transform direct yield in switch expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "switchStatement",
+          expression: createYield({ kind: "literal", value: 1 }),
+          cases: [
+            {
+              kind: "switchCase",
+              test: { kind: "literal", value: 1 },
+              statements: [{ kind: "breakStatement" }],
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("switchStatement");
     });
 
     it("should transform yield inside try block", () => {
