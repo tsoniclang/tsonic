@@ -870,40 +870,19 @@ const processStatement = (
         }
       }
 
-      const directConditionYield =
-        stmt.condition &&
-        stmt.condition.kind === "yield" &&
-        !stmt.condition.delegate
-          ? stmt.condition
+      const loweredCondition =
+        stmt.condition && containsYield(stmt.condition)
+          ? lowerExpressionWithYields(stmt.condition, ctx, "for loop condition")
           : undefined;
-      const directUpdateYield =
-        stmt.update && stmt.update.kind === "yield" && !stmt.update.delegate
-          ? stmt.update
+      const loweredUpdate =
+        stmt.update && containsYield(stmt.update)
+          ? lowerExpressionWithYields(stmt.update, ctx, "for loop update")
           : undefined;
-
-      if (
-        stmt.condition &&
-        !directConditionYield &&
-        containsYield(stmt.condition)
-      ) {
-        emitUnsupportedYieldDiagnostic(
-          ctx,
-          "for loop condition",
-          stmt.condition.sourceSpan
-        );
-      }
-      if (stmt.update && !directUpdateYield && containsYield(stmt.update)) {
-        emitUnsupportedYieldDiagnostic(
-          ctx,
-          "for loop update",
-          stmt.update.sourceSpan
-        );
-      }
 
       const transformedBody = flattenStatement(
         processStatement(stmt.body, ctx)
       );
-      if (!directConditionYield && !directUpdateYield) {
+      if (!loweredCondition && !loweredUpdate) {
         const transformedFor: IrStatement = {
           ...stmt,
           initializer,
@@ -917,7 +896,7 @@ const processStatement = (
 
       const bodyStatements: IrStatement[] = [];
       let updateFirstFlagName: string | undefined;
-      if (directUpdateYield) {
+      if (loweredUpdate) {
         updateFirstFlagName = allocateYieldTempName(ctx);
         leadingStatements.push({
           kind: "variableDeclaration",
@@ -932,6 +911,13 @@ const processStatement = (
             },
           ],
         });
+        const updateBodyStatements: IrStatement[] = [...loweredUpdate.prelude];
+        if (!stmt.update || stmt.update.kind !== "yield") {
+          updateBodyStatements.push({
+            kind: "expressionStatement",
+            expression: loweredUpdate.expression,
+          });
+        }
         bodyStatements.push({
           kind: "ifStatement",
           condition: {
@@ -939,11 +925,10 @@ const processStatement = (
             operator: "!",
             expression: { kind: "identifier", name: updateFirstFlagName },
           },
-          thenStatement: createYieldStatement(
-            directUpdateYield,
-            undefined,
-            undefined
-          ),
+          thenStatement: {
+            kind: "blockStatement",
+            statements: updateBodyStatements,
+          },
         });
         bodyStatements.push({
           kind: "expressionStatement",
@@ -956,25 +941,18 @@ const processStatement = (
         });
       }
 
-      if (directConditionYield) {
-        const conditionTempName = allocateYieldTempName(ctx);
-        bodyStatements.push(
-          createYieldStatement(
-            directConditionYield,
-            { kind: "identifierPattern", name: conditionTempName },
-            directConditionYield.inferredType
-          )
-        );
+      if (loweredCondition) {
+        bodyStatements.push(...loweredCondition.prelude);
         bodyStatements.push({
           kind: "ifStatement",
           condition: {
             kind: "unary",
             operator: "!",
-            expression: { kind: "identifier", name: conditionTempName },
+            expression: loweredCondition.expression,
           },
           thenStatement: { kind: "breakStatement" },
         });
-      } else if (directUpdateYield && stmt.condition) {
+      } else if (loweredUpdate && stmt.condition) {
         bodyStatements.push({
           kind: "ifStatement",
           condition: {
@@ -996,7 +974,7 @@ const processStatement = (
         ...stmt,
         initializer,
         condition: { kind: "literal", value: true },
-        update: directUpdateYield ? undefined : stmt.update,
+        update: loweredUpdate ? undefined : stmt.update,
         body: {
           kind: "blockStatement",
           statements: bodyStatements,

@@ -36,6 +36,17 @@ function* forConditionAndUpdate(): Generator<boolean, number, boolean> {
   return seen;
 }
 
+function* forNestedConditionAndUpdate(): Generator<number, boolean, number> {
+  let i: number = 0;
+  let keepGoing = true;
+  for (; (yield i) + i < 5 && keepGoing; i = (yield i) + 1) {
+    if (i >= 3) {
+      keepGoing = false;
+    }
+  }
+  return keepGoing;
+}
+
 export function main(): void {
   const cond = forConditionOnly();
   void cond.next(false);
@@ -61,6 +72,12 @@ export function main(): void {
   if (!doneStep.done) {
     throw new InvalidOperationException("expected completion step b8");
   }
+
+  const nested = forNestedConditionAndUpdate();
+  void nested.next(0);
+  void nested.next(1);
+  void nested.next(2);
+  void nested.next(3);
 
   Console.WriteLine("OK");
 }

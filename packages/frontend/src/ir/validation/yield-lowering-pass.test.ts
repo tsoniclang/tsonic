@@ -411,6 +411,33 @@ describe("Yield Lowering Pass", () => {
       expect(body[1]?.kind).to.equal("variableDeclaration");
     });
 
+    it("should reject yield in conditional expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "x" },
+              initializer: {
+                kind: "conditional",
+                condition: createYield({ kind: "literal", value: true }),
+                whenTrue: { kind: "literal", value: 1 },
+                whenFalse: { kind: "literal", value: 2 },
+              },
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+    });
+
     it("should transform return yield expression into yield+generatorReturn", () => {
       const module = createGeneratorModule([
         {
@@ -501,7 +528,7 @@ describe("Yield Lowering Pass", () => {
       expect(loweredFor.initializer).to.equal(undefined);
     });
 
-    it("should reject nested yield in for loop condition", () => {
+    it("should transform nested yield in for loop condition", () => {
       const module = createGeneratorModule([
         {
           kind: "forStatement",
@@ -517,20 +544,28 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(1);
+      expect(body[0]?.kind).to.equal("forStatement");
     });
 
-    it("should reject nested yield in for loop update", () => {
+    it("should transform nested yield in for loop update", () => {
       const module = createGeneratorModule([
         {
           kind: "forStatement",
           condition: { kind: "literal", value: true },
           update: {
-            kind: "binary",
-            operator: "+",
-            left: createYield({ kind: "literal", value: 1 }),
-            right: { kind: "literal", value: 2 },
+            kind: "assignment",
+            operator: "=",
+            left: { kind: "identifierPattern", name: "i" },
+            right: {
+              kind: "binary",
+              operator: "+",
+              left: createYield({ kind: "literal", value: 1 }),
+              right: { kind: "literal", value: 2 },
+            },
           },
           body: { kind: "blockStatement", statements: [] },
         },
@@ -538,8 +573,12 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(2);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("forStatement");
     });
 
     it("should transform nested yield in if condition", () => {
