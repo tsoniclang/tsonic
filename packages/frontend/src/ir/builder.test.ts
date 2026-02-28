@@ -412,6 +412,111 @@ describe("IR Builder", () => {
       expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
     });
 
+    it("lowers method shorthand to function-valued properties during object synthesis", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+        function box<T>(x: T): T { return x; }
+        export function run(): number {
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return x + y;
+            },
+          });
+          return ops.add(1, 2);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      expect(decl).to.not.equal(undefined);
+      const initializer = decl?.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      const arg0 = initializer.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+
+      const addProp = arg0.properties.find(
+        (prop) => prop.kind === "property" && prop.key === "add"
+      );
+      expect(addProp).to.not.equal(undefined);
+      if (!addProp || addProp.kind !== "property") return;
+      expect(addProp.value.kind).to.equal("functionExpression");
+    });
+
+    it("supports computed string-literal method shorthand during synthesis", () => {
+      const source = `
+        interface Ops {
+          add: (x: number, y: number) => number;
+        }
+        function box<T>(x: T): T { return x; }
+        export function run(): number {
+          const ops = box<Ops>({
+            ["add"](x: number, y: number): number {
+              return x + y;
+            },
+          });
+          return ops.add(1, 2);
+        }
+      `;
+
+      const { testProgram, ctx, options } = createTestProgram(source);
+      const sourceFile = testProgram.sourceFiles[0];
+      if (!sourceFile) throw new Error("Failed to create source file");
+
+      const result = buildIrModule(sourceFile, testProgram, options, ctx);
+      expect(result.ok).to.equal(true);
+      expect(ctx.diagnostics.some((d) => d.code === "TSN7403")).to.equal(false);
+      if (!result.ok) return;
+
+      const run = result.value.body.find(
+        (stmt): stmt is IrFunctionDeclaration =>
+          stmt.kind === "functionDeclaration" && stmt.name === "run"
+      );
+      expect(run).to.not.equal(undefined);
+      if (!run) return;
+
+      const decl = run.body.statements.find(
+        (stmt): stmt is IrVariableDeclaration =>
+          stmt.kind === "variableDeclaration"
+      );
+      const initializer = decl?.declarations[0]?.initializer;
+      expect(initializer?.kind).to.equal("call");
+      if (!initializer || initializer.kind !== "call") return;
+
+      const arg0 = initializer.arguments[0];
+      expect(arg0?.kind).to.equal("object");
+      if (!arg0 || arg0.kind !== "object") return;
+
+      const computedAddProp = arg0.properties.find((prop) => {
+        if (prop.kind !== "property") return false;
+        if (typeof prop.key === "string") return false;
+        return prop.value.kind === "functionExpression";
+      });
+      expect(computedAddProp).to.not.equal(undefined);
+    });
+
     it("threads expected return generic context into call argument typing", () => {
       const source = `
         type Ok<T> = { success: true; data: T };

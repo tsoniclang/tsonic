@@ -448,11 +448,18 @@ export const convertObjectLiteral = (
 
       for (const prop of properties) {
         if (prop.kind === "property") {
-          // Get property name (must be a string for synthesis)
-          const keyName = typeof prop.key === "string" ? prop.key : undefined;
+          // Get property name (identifier or computed string-literal keys).
+          const keyName =
+            typeof prop.key === "string"
+              ? prop.key
+              : prop.key.kind === "literal" &&
+                  typeof prop.key.value === "string"
+                ? prop.key.value
+                : undefined;
           if (!keyName) {
             canSynthesize = false;
-            synthesisFailureReason = "Computed property keys are not supported";
+            synthesisFailureReason =
+              "Only identifier and computed string-literal keys are supported";
             break;
           }
 

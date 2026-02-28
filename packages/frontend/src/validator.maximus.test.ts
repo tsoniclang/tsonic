@@ -1015,6 +1015,34 @@ describe("Maximus Validation Coverage", () => {
           void n;
         `,
       },
+      {
+        name: "computed string-literal method shorthand",
+        source: `
+          const obj = {
+            ["mul"](x: number, y: number): number {
+              return x * y;
+            },
+          };
+          const n = obj.mul(2, 3);
+          void n;
+        `,
+      },
+      {
+        name: "method shorthand in typed generic call argument",
+        source: `
+          interface Ops {
+            add: (x: number, y: number) => number;
+          }
+          function box<T>(x: T): T { return x; }
+          const ops = box<Ops>({
+            add(x: number, y: number): number {
+              return x + y;
+            },
+          });
+          const n = ops.add(1, 2);
+          void n;
+        `,
+      },
     ];
 
     for (const c of allowCases) {
@@ -1045,6 +1073,34 @@ describe("Maximus Validation Coverage", () => {
           const obj = {
             mul(x: number): number {
               return arguments.length;
+            },
+          };
+          void obj;
+        `,
+      },
+      {
+        name: "method shorthand using super",
+        source: `
+          const base = {
+            mul(x: number): number {
+              return x * 2;
+            },
+          };
+          const obj = {
+            __proto__: base,
+            mul(x: number): number {
+              return super.mul(x);
+            },
+          };
+          void obj;
+        `,
+      },
+      {
+        name: "getter shorthand in synthesized object literal",
+        source: `
+          const obj = {
+            get value(): number {
+              return 1;
             },
           };
           void obj;

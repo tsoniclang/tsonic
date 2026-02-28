@@ -498,12 +498,41 @@ describe("Static Safety Validation", () => {
       expect(objDiag).to.equal(undefined);
     });
 
+    it("should allow object literal with computed string-literal method key", () => {
+      const source = `
+        const a = { ["foo"](x: number): number { return x + 1; } };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).to.equal(undefined);
+    });
+
     it("should reject object literal method shorthand that uses this", () => {
       const source = `
         const a = {
           x: 1,
           foo(): number {
             return this.x;
+          },
+        };
+      `;
+
+      const program = createTestProgram(source);
+      const diagnostics = validateProgram(program);
+
+      const objDiag = diagnostics.diagnostics.find((d) => d.code === "TSN7403");
+      expect(objDiag).not.to.equal(undefined);
+      expect(objDiag?.message).to.include("this/super/arguments");
+    });
+
+    it("should reject object literal method shorthand that uses arguments", () => {
+      const source = `
+        const a = {
+          foo(x: number): number {
+            return arguments.length + x;
           },
         };
       `;

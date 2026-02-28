@@ -1247,6 +1247,66 @@ describe("Expression Emission", () => {
     );
   });
 
+  it("should emit computed string-literal keys for nominal object initializers", () => {
+    const module: IrModule = {
+      kind: "module",
+      filePath: "/src/test.ts",
+      namespace: "MyApp",
+      className: "test",
+      isStaticContainer: true,
+      imports: [],
+      body: [
+        {
+          kind: "interfaceDeclaration",
+          name: "Box",
+          typeParameters: [],
+          extends: [],
+          members: [
+            {
+              kind: "propertySignature",
+              name: "foo",
+              type: { kind: "primitiveType", name: "number" },
+              isOptional: false,
+              isReadonly: false,
+            },
+          ],
+          isExported: false,
+          isStruct: false,
+        },
+        {
+          kind: "variableDeclaration",
+          declarationKind: "const",
+          isExported: false,
+          declarations: [
+            {
+              kind: "variableDeclarator",
+              name: { kind: "identifierPattern", name: "box" },
+              type: { kind: "referenceType", name: "Box" },
+              initializer: {
+                kind: "object",
+                properties: [
+                  {
+                    kind: "property",
+                    key: { kind: "literal", value: "foo" },
+                    value: { kind: "literal", value: 1 },
+                    shorthand: false,
+                  },
+                ],
+                contextualType: { kind: "referenceType", name: "Box" },
+                inferredType: { kind: "referenceType", name: "Box" },
+              },
+            },
+          ],
+        },
+      ],
+      exports: [],
+    };
+
+    const result = emitModule(module);
+    expect(result).not.to.include("/* computed */");
+    expect(result).to.include("foo = 1");
+  });
+
   it("should lower dictionary[key] !== undefined to ContainsKey", () => {
     const dictType: IrType = {
       kind: "dictionaryType",
