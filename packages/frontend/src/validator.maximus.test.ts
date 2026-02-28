@@ -475,6 +475,24 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "generic value asserted to monomorphic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy = id as (x: number) => number;
+          const out = copy(2);
+          void out;
+        `,
+      },
+      {
+        name: "generic value in parenthesized monomorphic callable context",
+        source: `
+          const id = <T>(x: T): T => x;
+          const copy: (x: number) => number = (id);
+          const out = copy(2);
+          void out;
+        `,
+      },
+      {
         name: "generic value in typed object/array callable contexts",
         source: `
           const id = <T>(x: T): T => x;
@@ -503,6 +521,18 @@ describe("Maximus Validation Coverage", () => {
             return id;
           }
           const out = make()(4);
+          void out;
+        `,
+      },
+      {
+        name: "generic value in monomorphic callable conditional return",
+        source: `
+          function pick(flag: boolean): (x: number) => number {
+            const id = <T>(x: T): T => x;
+            const inc = (x: number): number => x + 1;
+            return flag ? id : inc;
+          }
+          const out = pick(true)(2);
           void out;
         `,
       },

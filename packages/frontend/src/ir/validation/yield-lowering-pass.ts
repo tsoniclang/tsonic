@@ -810,6 +810,74 @@ const processStatement = (
           );
         }
 
+        if (expr.left.kind === "memberAccess") {
+          const loweredObject = lowerExpressionWithYields(
+            expr.left.object,
+            ctx,
+            "assignment target object",
+            expr.left.object.inferredType
+          );
+          if (!loweredObject) {
+            return stmt;
+          }
+
+          const objectTempName = allocateYieldTempName(ctx);
+          const leadingStatements: IrStatement[] = [
+            ...loweredObject.prelude,
+            createTempVariableDeclaration(
+              objectTempName,
+              loweredObject.expression,
+              loweredObject.expression.inferredType
+            ),
+          ];
+
+          let propertyExpr: IrExpression | string = expr.left.property;
+          if (typeof expr.left.property !== "string") {
+            const loweredProperty = lowerExpressionWithYields(
+              expr.left.property,
+              ctx,
+              "assignment target property",
+              expr.left.property.inferredType
+            );
+            if (!loweredProperty) {
+              return stmt;
+            }
+
+            leadingStatements.push(...loweredProperty.prelude);
+            const propertyTempName = allocateYieldTempName(ctx);
+            leadingStatements.push(
+              createTempVariableDeclaration(
+                propertyTempName,
+                loweredProperty.expression,
+                loweredProperty.expression.inferredType
+              )
+            );
+            propertyExpr = { kind: "identifier", name: propertyTempName };
+          }
+
+          const receiveTempName = allocateYieldTempName(ctx);
+          return [
+            ...leadingStatements,
+            createYieldStatement(
+              expr.right,
+              { kind: "identifierPattern", name: receiveTempName },
+              expr.right.inferredType
+            ),
+            {
+              kind: "expressionStatement",
+              expression: {
+                ...expr,
+                left: {
+                  ...expr.left,
+                  object: { kind: "identifier", name: objectTempName },
+                  property: propertyExpr,
+                },
+                right: { kind: "identifier", name: receiveTempName },
+              },
+            },
+          ];
+        }
+
         // Assignment to member expression or other LHS - not supported
         emitUnsupportedYieldDiagnostic(
           ctx,

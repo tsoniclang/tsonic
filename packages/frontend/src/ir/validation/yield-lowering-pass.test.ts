@@ -437,6 +437,130 @@ describe("Yield Lowering Pass", () => {
       expect(yieldStmt.receiveTarget?.kind).to.equal("identifierPattern");
       expect((yieldStmt.receiveTarget as { name: string }).name).to.equal("x");
     });
+
+    it("should transform assignment to member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment to computed member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: { kind: "identifier", name: "key" },
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment when target object contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform assignment when computed property contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
+    });
   });
 
   describe("Destructuring Patterns", () => {

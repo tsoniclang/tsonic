@@ -279,4 +279,37 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(findVariableDeclaration(body, "id")).to.equal(undefined);
     expect(findVariableDeclaration(body, "other")).not.to.equal(undefined);
   });
+
+  it("lowers generic function values consumed through monomorphic assertion usage", () => {
+    const body = createTestModule(`
+      const id = <T>(x: T): T => x;
+      const copy = id as (x: number) => number;
+      void copy(1);
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "id")).to.equal(undefined);
+    expect(findVariableDeclaration(body, "copy")).not.to.equal(undefined);
+  });
+
+  it("lowers generic function values used in monomorphic conditional return", () => {
+    const body = createTestModule(`
+      function pick(flag: boolean): (x: number) => number {
+        const id = <T>(x: T): T => x;
+        const inc = (x: number): number => x + 1;
+        return flag ? id : inc;
+      }
+      void pick;
+    `);
+
+    const pick = findFunctionByName(body, "pick");
+    expect(pick).not.to.equal(undefined);
+    if (!pick) return;
+
+    const lowered = pick.body.statements.find(
+      (stmt): stmt is IrFunctionDeclaration =>
+        stmt.kind === "functionDeclaration" && stmt.name === "id"
+    );
+    expect(lowered).not.to.equal(undefined);
+  });
 });
