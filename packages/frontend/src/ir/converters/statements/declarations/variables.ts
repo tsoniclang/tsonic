@@ -27,6 +27,7 @@ import {
   collectSupportedGenericFunctionValueSymbols,
   type GenericFunctionValueNode,
   getSupportedGenericFunctionValueSymbol,
+  isDeterministicGenericFunctionAliasTargetSymbol,
   isGenericFunctionValueNode,
 } from "../../../../generic-function-values.js";
 import {
@@ -239,7 +240,10 @@ const isSupportedGenericFunctionAliasDeclaration = (
 
   const targetSymbol = resolveSymbol(checker, decl.initializer);
   if (!targetSymbol) return false;
-  return supportedSymbols.has(targetSymbol);
+  return isDeterministicGenericFunctionAliasTargetSymbol(
+    targetSymbol,
+    supportedSymbols
+  );
 };
 
 const createTypeParameterTypeArgs = (
@@ -350,6 +354,7 @@ const convertGenericFunctionValueAliasDeclaration = (
   let parameters: IrFunctionDeclaration["parameters"];
   let returnType: IrType | undefined;
   let typeArguments: readonly IrType[] | undefined;
+  let callee: IrExpression | undefined;
 
   if (target.kind === "genericValue") {
     const convertedTarget = convertExpression(
@@ -373,6 +378,10 @@ const convertGenericFunctionValueAliasDeclaration = (
     typeArguments = createTypeParameterTypeArgs(
       target.initializer.typeParameters
     );
+    callee = {
+      kind: "identifier",
+      name: targetName,
+    };
   } else {
     const declaration = target.declaration;
     targetName = declaration.name.text;
@@ -400,6 +409,16 @@ const convertGenericFunctionValueAliasDeclaration = (
       return null;
     }
     typeArguments = createTypeParameterTypeArgs(declaration.typeParameters);
+    const isCrossModuleTarget =
+      declaration.getSourceFile() !== decl.getSourceFile();
+    if (isCrossModuleTarget) {
+      callee = convertExpression(decl.initializer, ctx, undefined);
+    } else {
+      callee = {
+        kind: "identifier",
+        name: targetName,
+      };
+    }
   }
 
   if (
@@ -414,10 +433,11 @@ const convertGenericFunctionValueAliasDeclaration = (
   if (!callArguments || callArguments.length !== parameters.length) {
     return null;
   }
+  if (!callee) return null;
 
   const callExpression: IrExpression = {
     kind: "call",
-    callee: { kind: "identifier", name: targetName },
+    callee,
     arguments: [...callArguments],
     isOptional: false,
     typeArguments,

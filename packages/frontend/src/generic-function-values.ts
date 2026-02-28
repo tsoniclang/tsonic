@@ -17,6 +17,26 @@ export const isGenericFunctionDeclarationNode = (
   !!node.typeParameters &&
   node.typeParameters.length > 0;
 
+const isGenericFunctionDeclarationSymbol = (symbol: ts.Symbol): boolean => {
+  const declarations = symbol.declarations;
+  if (!declarations || declarations.length === 0) return false;
+  for (const declaration of declarations) {
+    if (
+      ts.isFunctionDeclaration(declaration) &&
+      isGenericFunctionDeclarationNode(declaration)
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+export const isDeterministicGenericFunctionAliasTargetSymbol = (
+  symbol: ts.Symbol,
+  supportedSymbols: ReadonlySet<ts.Symbol>
+): boolean =>
+  supportedSymbols.has(symbol) || isGenericFunctionDeclarationSymbol(symbol);
+
 const resolveSymbol = (
   checker: ts.TypeChecker,
   node: ts.Node
@@ -217,7 +237,14 @@ const resolveAliasTargetSymbol = (
 
   const targetSymbol = resolveSymbol(checker, declaration.initializer);
   if (!targetSymbol) return undefined;
-  if (!supportedSymbols.has(targetSymbol)) return undefined;
+  if (
+    !isDeterministicGenericFunctionAliasTargetSymbol(
+      targetSymbol,
+      supportedSymbols
+    )
+  ) {
+    return undefined;
+  }
   return targetSymbol;
 };
 
@@ -267,6 +294,13 @@ export const collectSupportedGenericFunctionValueSymbols = (
         checker
       );
       if (symbol) symbols.add(symbol);
+    }
+
+    if (ts.isImportSpecifier(node)) {
+      const symbol = resolveSymbol(checker, node.name);
+      if (symbol && isGenericFunctionDeclarationSymbol(symbol)) {
+        symbols.add(symbol);
+      }
     }
 
     if (ts.isVariableDeclaration(node)) {

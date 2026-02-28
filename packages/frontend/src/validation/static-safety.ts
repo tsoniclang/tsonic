@@ -365,6 +365,7 @@ const isAllowedGenericFunctionValueIdentifierUse = (
 
   if (ts.isFunctionDeclaration(parent) && parent.name === node) return true;
   if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
+  if (ts.isImportSpecifier(parent) && parent.name === node) return true;
   if (
     ts.isVariableDeclaration(parent) &&
     parent.initializer === node &&

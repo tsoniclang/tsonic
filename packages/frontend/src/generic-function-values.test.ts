@@ -47,6 +47,55 @@ const createTestProgram = (source: string, fileName = "/test/test.ts") => {
   };
 };
 
+const createMultiFileTestProgram = (
+  files: Readonly<Record<string, string>>,
+  entryFile = "/test/index.ts"
+) => {
+  const getOrCreateSourceFile = (name: string): ts.SourceFile | undefined => {
+    const text = files[name];
+    if (text === undefined) return undefined;
+    return ts.createSourceFile(
+      name,
+      text,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+  };
+
+  const program = ts.createProgram(
+    [entryFile],
+    {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ES2022,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+    },
+    {
+      getSourceFile: (name) => getOrCreateSourceFile(name),
+      writeFile: () => {},
+      getCurrentDirectory: () => "/test",
+      getDirectories: () => [],
+      fileExists: (name) => files[name] !== undefined,
+      readFile: (name) => files[name],
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+      getDefaultLibFileName: (_options) => "lib.d.ts",
+    }
+  );
+
+  const sourceFile = program.getSourceFile(entryFile);
+  if (!sourceFile) {
+    throw new Error(`Expected source file '${entryFile}' to exist.`);
+  }
+
+  return {
+    sourceFile,
+    checker: program.getTypeChecker(),
+  };
+};
+
 const findGenericInitializer = (
   sourceFile: ts.SourceFile,
   variableName: string
@@ -122,6 +171,18 @@ const getCollectedSupportedSymbolForVariable = (
   variableName: string
 ): ts.Symbol | undefined => {
   const { sourceFile, checker } = createTestProgram(source);
+  return getCollectedSupportedSymbolForVariableInSourceFile(
+    sourceFile,
+    checker,
+    variableName
+  );
+};
+
+const getCollectedSupportedSymbolForVariableInSourceFile = (
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  variableName: string
+): ts.Symbol | undefined => {
   const writtenSymbols = collectWrittenSymbols(sourceFile, checker);
   const supportedSymbols = collectSupportedGenericFunctionValueSymbols(
     sourceFile,
@@ -270,6 +331,26 @@ describe("generic-function-values helper", () => {
       "copy"
     );
 
+    expect(symbol).not.to.equal(undefined);
+  });
+
+  it("supports aliases to imported generic function declarations", () => {
+    const { sourceFile, checker } = createMultiFileTestProgram({
+      "/test/lib.ts": `
+        export function id<T>(x: T): T { return x; }
+      `,
+      "/test/index.ts": `
+        import { id } from "./lib.js";
+        const copy = id;
+        void copy<string>("ok");
+      `,
+    });
+
+    const symbol = getCollectedSupportedSymbolForVariableInSourceFile(
+      sourceFile,
+      checker,
+      "copy"
+    );
     expect(symbol).not.to.equal(undefined);
   });
 
