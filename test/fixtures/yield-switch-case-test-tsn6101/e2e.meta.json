@@ -1,0 +1,6 @@
+{
+  "expectFailure": true,
+  "description": "Yield in switch case tests is deterministically rejected with TSN6101.",
+  "expectedErrors": ["TSN6101"],
+  "diagnosticCodes": ["TSN6101"]
+}

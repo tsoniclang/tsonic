@@ -1613,6 +1613,68 @@ const flattenStatement = (
   };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const collectResidualYieldExpressions = (
+  value: unknown,
+  collected: IrYieldExpression[]
+): void => {
+  if (Array.isArray(value)) {
+    for (const element of value) {
+      collectResidualYieldExpressions(element, collected);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  if (value.kind === "yield") {
+    collected.push(value as unknown as IrYieldExpression);
+    return;
+  }
+
+  for (const nested of Object.values(value)) {
+    collectResidualYieldExpressions(nested, collected);
+  }
+};
+
+const locationKey = (location: SourceLocation): string =>
+  `${location.file}:${location.line}:${location.column}:${location.length}`;
+
+const addResidualYieldDiagnostics = (
+  ctx: LoweringContext,
+  value: unknown
+): void => {
+  const residualYields: IrYieldExpression[] = [];
+  collectResidualYieldExpressions(value, residualYields);
+  if (residualYields.length === 0) {
+    return;
+  }
+
+  const existingTsn6101Locations = new Set<string>(
+    ctx.diagnostics
+      .filter((d) => d.code === "TSN6101")
+      .map((d) => locationKey(d.location ?? moduleLocation(ctx)))
+  );
+
+  for (const residualYield of residualYields) {
+    const location = residualYield.sourceSpan ?? moduleLocation(ctx);
+    const key = locationKey(location);
+    if (existingTsn6101Locations.has(key)) {
+      continue;
+    }
+    emitUnsupportedYieldDiagnostic(
+      ctx,
+      "an unsupported expression form after yield lowering",
+      location
+    );
+    existingTsn6101Locations.add(key);
+  }
+};
+
 /**
  * Process statements in non-generator functions (just recurse into nested generators).
  */
@@ -1627,11 +1689,13 @@ const processNonGeneratorStatement = (
           ...ctx,
           inGenerator: true,
         };
+        const loweredBody = flattenStatement(
+          processStatement(stmt.body, generatorCtx)
+        ) as IrBlockStatement;
+        addResidualYieldDiagnostics(generatorCtx, loweredBody);
         return {
           ...stmt,
-          body: flattenStatement(
-            processStatement(stmt.body, generatorCtx)
-          ) as IrBlockStatement,
+          body: loweredBody,
         };
       }
       return {
@@ -1736,11 +1800,13 @@ const processClassMember = (
         ...ctx,
         inGenerator: true,
       };
+      const loweredBody = flattenStatement(
+        processStatement(member.body, generatorCtx)
+      ) as IrBlockStatement;
+      addResidualYieldDiagnostics(generatorCtx, loweredBody);
       return {
         ...member,
-        body: flattenStatement(
-          processStatement(member.body, generatorCtx)
-        ) as IrBlockStatement,
+        body: loweredBody,
       };
     }
     return {
@@ -1780,11 +1846,13 @@ const processModule = (
         ...ctx,
         inGenerator: true,
       };
+      const loweredBody = flattenStatement(
+        processStatement(stmt.body, generatorCtx)
+      ) as IrBlockStatement;
+      addResidualYieldDiagnostics(generatorCtx, loweredBody);
       return {
         ...stmt,
-        body: flattenStatement(
-          processStatement(stmt.body, generatorCtx)
-        ) as IrBlockStatement,
+        body: loweredBody,
       };
     }
     return processNonGeneratorStatement(stmt, ctx);
@@ -1800,13 +1868,15 @@ const processModule = (
           ...ctx,
           inGenerator: true,
         };
+        const loweredBody = flattenStatement(
+          processStatement(exp.declaration.body, generatorCtx)
+        ) as IrBlockStatement;
+        addResidualYieldDiagnostics(generatorCtx, loweredBody);
         return {
           ...exp,
           declaration: {
             ...exp.declaration,
-            body: flattenStatement(
-              processStatement(exp.declaration.body, generatorCtx)
-            ) as IrBlockStatement,
+            body: loweredBody,
           },
         };
       }

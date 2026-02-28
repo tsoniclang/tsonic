@@ -787,6 +787,30 @@ describe("Yield Lowering Pass", () => {
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
     });
 
+    it("should emit TSN6101 when yield appears in switch case test expression", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "switchStatement",
+          expression: { kind: "identifier", name: "value" },
+          cases: [
+            {
+              kind: "switchCase",
+              test: createYield({ kind: "literal", value: 1 }),
+              statements: [{ kind: "breakStatement" }],
+            },
+          ],
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.false;
+      expect(result.diagnostics.length).to.be.greaterThan(0);
+      expect(result.diagnostics.some((d) => d.code === "TSN6101")).to.equal(
+        true
+      );
+    });
+
     it("should transform yield in call argument", () => {
       const module = createGeneratorModule([
         {
