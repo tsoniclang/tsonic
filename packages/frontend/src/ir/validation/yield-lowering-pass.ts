@@ -292,6 +292,24 @@ const allocateYieldTempName = (ctx: LoweringContext): string => {
   return `__tsonic_yield_${ctx.yieldTempCounter}`;
 };
 
+const createTempVariableDeclaration = (
+  name: string,
+  initializer: IrExpression,
+  inferredType?: IrType
+): IrStatement => ({
+  kind: "variableDeclaration",
+  declarationKind: "const",
+  isExported: false,
+  declarations: [
+    {
+      kind: "variableDeclarator",
+      name: { kind: "identifierPattern", name },
+      type: inferredType,
+      initializer,
+    },
+  ],
+});
+
 type LoweredExpressionWithYields = {
   readonly prelude: readonly IrStatement[];
   readonly expression: IrExpression;
@@ -679,7 +697,8 @@ const processStatement = (
         if (expr.operator !== "=") {
           if (
             expr.left.kind !== "identifierPattern" &&
-            expr.left.kind !== "identifier"
+            expr.left.kind !== "identifier" &&
+            expr.left.kind !== "memberAccess"
           ) {
             emitUnsupportedYieldDiagnostic(
               ctx,
@@ -689,24 +708,86 @@ const processStatement = (
             return stmt;
           }
 
-          const tempName = allocateYieldTempName(ctx);
-          const leftExpr =
-            expr.left.kind === "identifierPattern"
-              ? ({ kind: "identifier", name: expr.left.name } as const)
-              : expr.left;
+          if (
+            expr.left.kind === "identifierPattern" ||
+            expr.left.kind === "identifier"
+          ) {
+            const tempName = allocateYieldTempName(ctx);
+            const leftExpr =
+              expr.left.kind === "identifierPattern"
+                ? ({ kind: "identifier", name: expr.left.name } as const)
+                : expr.left;
+
+            return [
+              createYieldStatement(
+                expr.right,
+                { kind: "identifierPattern", name: tempName },
+                expr.right.inferredType
+              ),
+              {
+                kind: "expressionStatement",
+                expression: {
+                  ...expr,
+                  left: leftExpr,
+                  right: { kind: "identifier", name: tempName },
+                },
+              },
+            ];
+          }
+
+          if (
+            containsYield(expr.left.object) ||
+            (typeof expr.left.property !== "string" &&
+              containsYield(expr.left.property))
+          ) {
+            emitUnsupportedYieldDiagnostic(
+              ctx,
+              "compound assignment to target with yield",
+              expr.right.sourceSpan
+            );
+            return stmt;
+          }
+
+          const objectTempName = allocateYieldTempName(ctx);
+          const receiveTempName = allocateYieldTempName(ctx);
+          const leadingStatements: IrStatement[] = [
+            createTempVariableDeclaration(
+              objectTempName,
+              expr.left.object,
+              expr.left.object.inferredType
+            ),
+          ];
+
+          let propertyExpr: IrExpression | string = expr.left.property;
+          if (typeof expr.left.property !== "string") {
+            const propertyTempName = allocateYieldTempName(ctx);
+            leadingStatements.push(
+              createTempVariableDeclaration(
+                propertyTempName,
+                expr.left.property,
+                expr.left.property.inferredType
+              )
+            );
+            propertyExpr = { kind: "identifier", name: propertyTempName };
+          }
 
           return [
+            ...leadingStatements,
             createYieldStatement(
               expr.right,
-              { kind: "identifierPattern", name: tempName },
+              { kind: "identifierPattern", name: receiveTempName },
               expr.right.inferredType
             ),
             {
               kind: "expressionStatement",
               expression: {
                 ...expr,
-                left: leftExpr,
-                right: { kind: "identifier", name: tempName },
+                left: {
+                  ...expr.left,
+                  object: { kind: "identifier", name: objectTempName },
+                  property: propertyExpr,
+                },
+                right: { kind: "identifier", name: receiveTempName },
               },
             },
           ];

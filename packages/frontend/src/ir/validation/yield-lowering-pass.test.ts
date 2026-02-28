@@ -276,7 +276,7 @@ describe("Yield Lowering Pass", () => {
       }
     });
 
-    it("should reject compound assignment to complex target with yield", () => {
+    it("should transform compound assignment to member target with yield", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -297,11 +297,87 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(3);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("expressionStatement");
+
+      const assignmentStmt = body[2] as Extract<
+        IrStatement,
+        { kind: "expressionStatement" }
+      >;
+      expect(assignmentStmt.expression.kind).to.equal("assignment");
+      if (assignmentStmt.expression.kind === "assignment") {
+        expect(assignmentStmt.expression.left.kind).to.equal("memberAccess");
+        if (assignmentStmt.expression.left.kind === "memberAccess") {
+          expect(assignmentStmt.expression.left.object.kind).to.equal(
+            "identifier"
+          );
+          expect(assignmentStmt.expression.left.property).to.equal("count");
+        }
+      }
+    });
+
+    it("should transform compound assignment to computed member target with yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: { kind: "identifier", name: "key" },
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should reject compound assignment when target evaluation contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: createYield({ kind: "identifier", name: "obj" }),
+              property: "count",
+              isOptional: false,
+              isComputed: false,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
       expect(result.ok).to.be.false;
       expect(result.diagnostics).to.have.length(1);
       expect(result.diagnostics[0]?.code).to.equal("TSN6101");
       expect(result.diagnostics[0]?.message).to.include(
-        "compound assignment to complex target"
+        "compound assignment to target with yield"
       );
     });
 
