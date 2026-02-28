@@ -352,7 +352,7 @@ describe("Yield Lowering Pass", () => {
       expect(body[3]?.kind).to.equal("expressionStatement");
     });
 
-    it("should reject compound assignment when target evaluation contains yield", () => {
+    it("should transform compound assignment when target evaluation contains yield", () => {
       const module = createGeneratorModule([
         {
           kind: "expressionStatement",
@@ -373,12 +373,46 @@ describe("Yield Lowering Pass", () => {
 
       const result = runYieldLoweringPass([module]);
 
-      expect(result.ok).to.be.false;
-      expect(result.diagnostics).to.have.length(1);
-      expect(result.diagnostics[0]?.code).to.equal("TSN6101");
-      expect(result.diagnostics[0]?.message).to.include(
-        "compound assignment to target with yield"
-      );
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(4);
+      expect(body[0]?.kind).to.equal("yieldStatement");
+      expect(body[1]?.kind).to.equal("variableDeclaration");
+      expect(body[2]?.kind).to.equal("yieldStatement");
+      expect(body[3]?.kind).to.equal("expressionStatement");
+    });
+
+    it("should transform compound assignment when computed property contains yield", () => {
+      const module = createGeneratorModule([
+        {
+          kind: "expressionStatement",
+          expression: {
+            kind: "assignment",
+            operator: "+=",
+            left: {
+              kind: "memberAccess",
+              object: { kind: "identifier", name: "obj" },
+              property: createYield({ kind: "identifier", name: "key" }),
+              isOptional: false,
+              isComputed: true,
+            },
+            right: createYield({ kind: "literal", value: 5 }),
+          },
+        },
+      ]);
+
+      const result = runYieldLoweringPass([module]);
+
+      expect(result.ok).to.be.true;
+      expect(result.diagnostics).to.have.length(0);
+      const body = getGeneratorBody(assertDefined(result.modules[0]));
+      expect(body).to.have.length(5);
+      expect(body[0]?.kind).to.equal("variableDeclaration");
+      expect(body[1]?.kind).to.equal("yieldStatement");
+      expect(body[2]?.kind).to.equal("variableDeclaration");
+      expect(body[3]?.kind).to.equal("yieldStatement");
+      expect(body[4]?.kind).to.equal("expressionStatement");
     });
 
     it("should transform assignment with identifier expression target", () => {

@@ -735,42 +735,49 @@ const processStatement = (
             ];
           }
 
-          if (
-            containsYield(expr.left.object) ||
-            (typeof expr.left.property !== "string" &&
-              containsYield(expr.left.property))
-          ) {
-            emitUnsupportedYieldDiagnostic(
-              ctx,
-              "compound assignment to target with yield",
-              expr.right.sourceSpan
-            );
+          const loweredObject = lowerExpressionWithYields(
+            expr.left.object,
+            ctx,
+            "compound assignment target object",
+            expr.left.object.inferredType
+          );
+          if (!loweredObject) {
             return stmt;
           }
-
           const objectTempName = allocateYieldTempName(ctx);
-          const receiveTempName = allocateYieldTempName(ctx);
           const leadingStatements: IrStatement[] = [
+            ...loweredObject.prelude,
             createTempVariableDeclaration(
               objectTempName,
-              expr.left.object,
-              expr.left.object.inferredType
+              loweredObject.expression,
+              loweredObject.expression.inferredType
             ),
           ];
 
           let propertyExpr: IrExpression | string = expr.left.property;
           if (typeof expr.left.property !== "string") {
+            const loweredProperty = lowerExpressionWithYields(
+              expr.left.property,
+              ctx,
+              "compound assignment target property",
+              expr.left.property.inferredType
+            );
+            if (!loweredProperty) {
+              return stmt;
+            }
+            leadingStatements.push(...loweredProperty.prelude);
             const propertyTempName = allocateYieldTempName(ctx);
             leadingStatements.push(
               createTempVariableDeclaration(
                 propertyTempName,
-                expr.left.property,
-                expr.left.property.inferredType
+                loweredProperty.expression,
+                loweredProperty.expression.inferredType
               )
             );
             propertyExpr = { kind: "identifier", name: propertyTempName };
           }
 
+          const receiveTempName = allocateYieldTempName(ctx);
           return [
             ...leadingStatements,
             createYieldStatement(
