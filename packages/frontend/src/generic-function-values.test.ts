@@ -7,6 +7,8 @@ import {
   getSupportedGenericFunctionValueSymbol,
   isGenericFunctionValueNode,
   type GenericFunctionValueNode,
+  getSupportedGenericFunctionDeclarationSymbol,
+  isGenericFunctionDeclarationNode,
 } from "./generic-function-values.js";
 
 const createTestProgram = (source: string, fileName = "/test/test.ts") => {
@@ -74,6 +76,33 @@ const findGenericInitializer = (
   return match;
 };
 
+const findGenericFunctionDeclaration = (
+  sourceFile: ts.SourceFile,
+  functionName: string
+): ts.FunctionDeclaration => {
+  let match: ts.FunctionDeclaration | undefined;
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isFunctionDeclaration(node) &&
+      isGenericFunctionDeclarationNode(node) &&
+      node.name?.text === functionName
+    ) {
+      match = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  if (!match) {
+    throw new Error(
+      `Expected generic function declaration for '${functionName}'.`
+    );
+  }
+  return match;
+};
+
 const getSupportSymbolForVariable = (
   source: string,
   variableName: string
@@ -116,6 +145,19 @@ const getCollectedSupportedSymbolForVariable = (
 };
 
 describe("generic-function-values helper", () => {
+  it("supports generic function declaration symbols", () => {
+    const { sourceFile, checker } = createTestProgram(`
+      function id<T>(x: T): T { return x; }
+      void id<string>("ok");
+    `);
+    const declaration = findGenericFunctionDeclaration(sourceFile, "id");
+    const symbol = getSupportedGenericFunctionDeclarationSymbol(
+      declaration,
+      checker
+    );
+    expect(symbol).not.to.equal(undefined);
+  });
+
   it("supports const generic function values", () => {
     const symbol = getSupportSymbolForVariable(
       `
@@ -209,6 +251,19 @@ describe("generic-function-values helper", () => {
     const symbol = getCollectedSupportedSymbolForVariable(
       `
       const id = <T>(x: T): T => x;
+      const copy = id;
+      void copy<string>("ok");
+      `,
+      "copy"
+    );
+
+    expect(symbol).not.to.equal(undefined);
+  });
+
+  it("supports aliases to generic function declarations", () => {
+    const symbol = getCollectedSupportedSymbolForVariable(
+      `
+      function id<T>(x: T): T { return x; }
       const copy = id;
       void copy<string>("ok");
       `,

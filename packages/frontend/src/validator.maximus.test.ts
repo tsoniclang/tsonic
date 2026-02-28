@@ -424,9 +424,26 @@ describe("Maximus Validation Coverage", () => {
         `,
       },
       {
+        name: "generic function declaration with direct call",
+        source: `
+          function id<T>(x: T): T { return x; }
+          const n = id<number>(1);
+          void n;
+        `,
+      },
+      {
         name: "const alias to generic value with direct generic call",
         source: `
           const id = <T>(x: T): T => x;
+          const copy = id;
+          const n = copy<number>(1);
+          void n;
+        `,
+      },
+      {
+        name: "const alias to generic function declaration with direct call",
+        source: `
+          function id<T>(x: T): T { return x; }
           const copy = id;
           const n = copy<number>(1);
           void n;
@@ -599,6 +616,13 @@ describe("Maximus Validation Coverage", () => {
           const id = <T>(x: T): T => x;
           const copy = id;
           void copy;
+        `,
+      },
+      {
+        name: "generic function declaration used as value (non-call usage)",
+        source: `
+          function id<T>(x: T): T { return x; }
+          void id;
         `,
       },
       {

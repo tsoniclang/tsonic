@@ -9,6 +9,14 @@ export const isGenericFunctionValueNode = (
   !!node.typeParameters &&
   node.typeParameters.length > 0;
 
+export const isGenericFunctionDeclarationNode = (
+  node: ts.Node
+): node is ts.FunctionDeclaration =>
+  ts.isFunctionDeclaration(node) &&
+  !!node.name &&
+  !!node.typeParameters &&
+  node.typeParameters.length > 0;
+
 const resolveSymbol = (
   checker: ts.TypeChecker,
   node: ts.Node
@@ -187,6 +195,14 @@ export const getSupportedGenericFunctionValueSymbol = (
   return undefined;
 };
 
+export const getSupportedGenericFunctionDeclarationSymbol = (
+  node: ts.FunctionDeclaration,
+  checker: ts.TypeChecker
+): ts.Symbol | undefined => {
+  if (!isGenericFunctionDeclarationNode(node) || !node.name) return undefined;
+  return resolveSymbol(checker, node.name);
+};
+
 const resolveAliasTargetSymbol = (
   declaration: ts.VariableDeclaration,
   checker: ts.TypeChecker,
@@ -241,6 +257,14 @@ export const collectSupportedGenericFunctionValueSymbols = (
         node,
         checker,
         writtenSymbols
+      );
+      if (symbol) symbols.add(symbol);
+    }
+
+    if (isGenericFunctionDeclarationNode(node)) {
+      const symbol = getSupportedGenericFunctionDeclarationSymbol(
+        node,
+        checker
       );
       if (symbol) symbols.add(symbol);
     }

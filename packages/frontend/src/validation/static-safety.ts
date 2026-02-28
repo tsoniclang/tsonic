@@ -31,7 +31,9 @@ import { getNodeLocation } from "./helpers.js";
 import {
   collectWrittenSymbols,
   collectSupportedGenericFunctionValueSymbols,
+  getSupportedGenericFunctionDeclarationSymbol,
   getSupportedGenericFunctionValueSymbol,
+  isGenericFunctionDeclarationNode,
   isGenericFunctionValueNode,
 } from "../generic-function-values.js";
 
@@ -361,6 +363,7 @@ const isAllowedGenericFunctionValueIdentifierUse = (
 ): boolean => {
   const parent = node.parent;
 
+  if (ts.isFunctionDeclaration(parent) && parent.name === node) return true;
   if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
   if (
     ts.isVariableDeclaration(parent) &&
@@ -666,8 +669,9 @@ export const validateStaticSafety = (
     // Empty arrays are inferred/erased deterministically by array conversion rules.
 
     // TSN7432:
-    // Generic function values are supported for:
+    // Generic function symbols are supported for:
     // - direct generic function value declarations (`const` + never-reassigned `let`)
+    // - direct generic function declarations (`function f<T>(...) { ... }`)
     // - deterministic alias declarations that point at supported symbols
     //   (`const` aliases + never-reassigned `let` aliases).
     // Other declaration forms remain hard errors.
@@ -690,6 +694,28 @@ export const validateStaticSafety = (
             "Generic arrow/functions as values are only supported for `const` or never-reassigned `let` identifier declarations (including deterministic aliases).",
             getNodeLocation(sourceFile, node),
             "Use `const f = <T>(...) => ...`, `let f = <T>(...) => ...` with no reassignments, or deterministic alias forms like `const g = f`."
+          )
+        );
+      }
+    }
+
+    if (isGenericFunctionDeclarationNode(node)) {
+      const symbol = getSupportedGenericFunctionDeclarationSymbol(
+        node,
+        program.checker
+      );
+      const isSupported =
+        symbol !== undefined &&
+        supportedGenericFunctionValueSymbols.has(symbol);
+      if (!isSupported) {
+        currentCollector = addDiagnostic(
+          currentCollector,
+          createDiagnostic(
+            "TSN7432",
+            "error",
+            "Generic function declarations are only supported when their symbol remains deterministic in value positions.",
+            getNodeLocation(sourceFile, node),
+            "Use a direct generic call (e.g., `f<T>(...)`) or deterministic const/never-reassigned let aliases."
           )
         );
       }

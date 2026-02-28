@@ -355,6 +355,23 @@ describe("IR Builder - Generic Function Value Lowering", () => {
     expect(findVariableDeclaration(body, "copy")).not.to.equal(undefined);
   });
 
+  it("lowers aliases to generic function declarations into forwarding declarations", () => {
+    const body = createTestModule(`
+      function id<T>(x: T): T { return x; }
+      const copy = id;
+      const value = copy<string>("ok");
+      void value;
+    `);
+
+    expect(findFunctionByName(body, "id")).not.to.equal(undefined);
+    const alias = findFunctionByName(body, "copy");
+    expect(alias).not.to.equal(undefined);
+    expect(findVariableDeclaration(body, "copy")).to.equal(undefined);
+    if (!alias) return;
+    expect(alias.typeParameters).to.have.length(1);
+    expect(alias.parameters).to.have.length(1);
+  });
+
   it("lowers generic function values used in monomorphic conditional return", () => {
     const body = createTestModule(`
       function pick(flag: boolean): (x: number) => number {

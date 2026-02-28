@@ -16,7 +16,11 @@ import {
 } from "../../../types.js";
 import { convertExpression } from "../../../expression-converter.js";
 import { convertBindingName } from "../../../syntax/binding-patterns.js";
-import { convertTypeParameters, hasExportModifier } from "../helpers.js";
+import {
+  convertParameters,
+  convertTypeParameters,
+  hasExportModifier,
+} from "../helpers.js";
 import type { ProgramContext } from "../../../program-context.js";
 import {
   collectWrittenSymbols,
@@ -145,40 +149,66 @@ const resolveSymbol = (
   return symbol;
 };
 
-const resolveGenericFunctionValueDeclarationFromSymbol = (
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>
-):
+type GenericFunctionAliasTarget =
   | {
+      readonly kind: "genericValue";
       readonly name: string;
       readonly initializer: GenericFunctionValueNode;
     }
-  | undefined => {
+  | {
+      readonly kind: "functionDeclaration";
+      readonly declaration: ts.FunctionDeclaration & {
+        readonly name: ts.Identifier;
+      };
+    };
+
+const resolveGenericFunctionAliasTargetFromSymbol = (
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>
+): GenericFunctionAliasTarget | undefined => {
   if (seen.has(symbol)) return undefined;
   seen.add(symbol);
 
   for (const declaration of symbol.declarations ?? []) {
-    if (!ts.isVariableDeclaration(declaration)) continue;
-    if (!ts.isIdentifier(declaration.name)) continue;
-
-    const initializer = declaration.initializer;
-    if (initializer && isGenericFunctionValueNode(initializer)) {
+    if (
+      ts.isFunctionDeclaration(declaration) &&
+      declaration.name &&
+      ts.isIdentifier(declaration.name) &&
+      declaration.typeParameters &&
+      declaration.typeParameters.length > 0
+    ) {
       return {
-        name: declaration.name.text,
-        initializer,
+        kind: "functionDeclaration",
+        declaration: declaration as ts.FunctionDeclaration & {
+          readonly name: ts.Identifier;
+        },
       };
     }
 
-    if (initializer && ts.isIdentifier(initializer)) {
-      const targetSymbol = resolveSymbol(checker, initializer);
-      if (!targetSymbol) continue;
-      const resolved = resolveGenericFunctionValueDeclarationFromSymbol(
-        targetSymbol,
-        checker,
-        seen
-      );
-      if (resolved) return resolved;
+    if (
+      ts.isVariableDeclaration(declaration) &&
+      ts.isIdentifier(declaration.name)
+    ) {
+      const initializer = declaration.initializer;
+      if (initializer && isGenericFunctionValueNode(initializer)) {
+        return {
+          kind: "genericValue",
+          name: declaration.name.text,
+          initializer,
+        };
+      }
+
+      if (initializer && ts.isIdentifier(initializer)) {
+        const targetSymbol = resolveSymbol(checker, initializer);
+        if (!targetSymbol) continue;
+        const resolved = resolveGenericFunctionAliasTargetFromSymbol(
+          targetSymbol,
+          checker,
+          seen
+        );
+        if (resolved) return resolved;
+      }
     }
   }
 
@@ -230,11 +260,20 @@ const createIdentifierArgumentsForParameters = (
     if (parameter.pattern.kind !== "identifierPattern") {
       return undefined;
     }
-    args.push({
+    const identifierExpression: IrExpression = {
       kind: "identifier",
       name: parameter.pattern.name,
       inferredType: parameter.type,
-    });
+    };
+    if (parameter.isRest) {
+      args.push({
+        kind: "spread",
+        expression: identifierExpression,
+        inferredType: identifierExpression.inferredType,
+      });
+      continue;
+    }
+    args.push(identifierExpression);
   }
   return args;
 };
@@ -299,22 +338,70 @@ const convertGenericFunctionValueAliasDeclaration = (
   const targetSymbol = resolveSymbol(ctx.checker, decl.initializer);
   if (!targetSymbol) return null;
 
-  const target = resolveGenericFunctionValueDeclarationFromSymbol(
+  const target = resolveGenericFunctionAliasTargetFromSymbol(
     targetSymbol,
     ctx.checker,
     new Set<ts.Symbol>()
   );
   if (!target) return null;
 
-  const convertedTarget = convertExpression(target.initializer, ctx, undefined);
-  if (
-    convertedTarget.kind !== "arrowFunction" &&
-    convertedTarget.kind !== "functionExpression"
-  ) {
-    return null;
+  let targetName: string;
+  let typeParameters: IrFunctionDeclaration["typeParameters"];
+  let parameters: IrFunctionDeclaration["parameters"];
+  let returnType: IrType | undefined;
+  let typeArguments: readonly IrType[] | undefined;
+
+  if (target.kind === "genericValue") {
+    const convertedTarget = convertExpression(
+      target.initializer,
+      ctx,
+      undefined
+    );
+    if (
+      convertedTarget.kind !== "arrowFunction" &&
+      convertedTarget.kind !== "functionExpression"
+    ) {
+      return null;
+    }
+    targetName = target.name;
+    typeParameters = convertTypeParameters(
+      target.initializer.typeParameters,
+      ctx
+    );
+    parameters = convertedTarget.parameters;
+    returnType = resolveGenericFunctionValueReturnType(convertedTarget);
+    typeArguments = createTypeParameterTypeArgs(
+      target.initializer.typeParameters
+    );
+  } else {
+    const declaration = target.declaration;
+    targetName = declaration.name.text;
+    typeParameters = convertTypeParameters(declaration.typeParameters, ctx);
+    parameters = convertParameters(declaration.parameters, ctx);
+    returnType = declaration.type
+      ? ctx.typeSystem.typeFromSyntax(
+          ctx.binding.captureTypeSyntax(declaration.type)
+        )
+      : undefined;
+    if (!returnType) {
+      const targetIdentifier = convertExpression(
+        decl.initializer,
+        ctx,
+        undefined
+      );
+      if (
+        targetIdentifier.inferredType &&
+        targetIdentifier.inferredType.kind === "functionType"
+      ) {
+        returnType = targetIdentifier.inferredType.returnType;
+      }
+    }
+    if (!returnType) {
+      return null;
+    }
+    typeArguments = createTypeParameterTypeArgs(declaration.typeParameters);
   }
 
-  const parameters = convertedTarget.parameters;
   if (
     parameters.some(
       (parameter) => parameter.pattern.kind !== "identifierPattern"
@@ -328,14 +415,9 @@ const convertGenericFunctionValueAliasDeclaration = (
     return null;
   }
 
-  const typeArguments = createTypeParameterTypeArgs(
-    target.initializer.typeParameters
-  );
-  const returnType = resolveGenericFunctionValueReturnType(convertedTarget);
-
   const callExpression: IrExpression = {
     kind: "call",
-    callee: { kind: "identifier", name: target.name },
+    callee: { kind: "identifier", name: targetName },
     arguments: [...callArguments],
     isOptional: false,
     typeArguments,
@@ -360,10 +442,7 @@ const convertGenericFunctionValueAliasDeclaration = (
   return {
     kind: "functionDeclaration",
     name: decl.name.text,
-    typeParameters: convertTypeParameters(
-      target.initializer.typeParameters,
-      ctx
-    ),
+    typeParameters,
     parameters,
     returnType,
     body: {
